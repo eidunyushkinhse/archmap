@@ -36,14 +36,14 @@ export const nodesApi = {
     pos: { pos_x: number; pos_y: number },
   ): Promise<void> =>
     api.put(`/nodes/${containerId}/ghost-positions/${nodeId}`, pos),
-  // Сохранить хэндл гостевого конца ребра на уровне containerId. Передаём
-  // только спроецированную на гостя сторону — другая не затрагивается.
+  // Сохранить хэндл гостевого конца ребра на уровне containerId, привязанный к id
+  // отображаемой сущности (лист-гость ИЛИ предок-контейнер), к которой пристыкован.
   saveGhostEdgeHandle: (
     containerId: string,
     edgeId: string,
-    handles: { source_handle?: string; target_handle?: string },
+    handle: { node_id: string; handle: string },
   ): Promise<void> =>
-    api.put(`/nodes/${containerId}/ghost-edge-handles/${edgeId}`, handles),
+    api.put(`/nodes/${containerId}/ghost-edge-handles/${edgeId}`, handle),
 };
 
 export const edgesApi = {

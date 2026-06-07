@@ -8,22 +8,26 @@ from app.database import Base
 
 class GhostEdgeHandle(Base):
     """
-    Точки стыковки (хэндлы) ребра на конкретном уровне — для концов, спроецированных
-    на гостевой узел.
+    Точка стыковки (хэндл) гостевого конца ребра на конкретном уровне.
 
-    Одно и то же ребро на разных уровнях проецируется на РАЗНЫЕ узлы: конец-потомок
-    сворачивается на ближайшего видимого гостя, а гость на каждом уровне свой. Поэтому
-    хэндл гостевого конца нельзя хранить в колонке самого ребра (она глобальна и
-    относится к «домашнему» уровню локального конца) — он привязан к уровню:
-    ключ — (container_id, edge_id).
+    Один и тот же конец ребра на одном уровне проецируется на РАЗНЫЕ отображаемые
+    сущности в зависимости от expand/collapse-состояния (известного только фронту):
+    свёрнутый гость рисуется предком-контейнером, развёрнутый — самим листом-гостем.
+    Поэтому, как и у координат (ghost_positions), хэндл привязан не только к уровню и
+    ребру, но и к id ОТОБРАЖАЕМОЙ сущности, к которой он пристыкован:
+    ключ — (container_id, edge_id, node_id). Так у каждой проекции своя строка и они
+    не затирают друг друга.
 
-    Заполняется только для того конца, который СПРОЕЦИРОВАН на гостя; второй конец
-    на этом уровне локальный, и его хэндл живёт в edges.source_handle/target_handle.
+    node_id — id отображаемой сущности (лист-гость ИЛИ предок-контейнер). handle —
+    значение хэндла React Flow («<node_id>--<сторона>--<индекс>»), пристыкованного к
+    гостевому концу. Хэндл локального конца хранится в колонке самого ребра.
     """
 
     __tablename__ = "ghost_edge_handles"
     __table_args__ = (
-        UniqueConstraint("container_id", "edge_id", name="uq_ghost_edge_handle_level_edge"),
+        UniqueConstraint(
+            "container_id", "edge_id", "node_id", name="uq_ghost_edge_handle_level_edge_node"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -33,5 +37,7 @@ class GhostEdgeHandle(Base):
     edge_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("edges.id", ondelete="CASCADE"), nullable=False
     )
-    source_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    target_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    handle: Mapped[str] = mapped_column(String(128), nullable=False)

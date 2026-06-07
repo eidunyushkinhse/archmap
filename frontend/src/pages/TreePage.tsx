@@ -25,6 +25,11 @@ export default function TreePage({ onLogout }: Props) {
   const [levelPositions, setLevelPositions] = useState<
     Record<string, { pos_x: number; pos_y: number }>
   >({});
+  // Сохранённые хэндлы гостевых концов рёбер на уровне: edge_id → список значений
+  // (по одному на проекцию гостевого конца — лист-гость и/или предок-контейнер).
+  const [levelEdgeHandles, setLevelEdgeHandles] = useState<
+    Record<string, string[]>
+  >({});
   const [edges, setEdges] = useState<Edge[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
@@ -70,6 +75,7 @@ export default function TreePage({ onLogout }: Props) {
       setGhostNodes(graph.ghost_nodes);
       // ?? {} — на случай старого бэкенда без поля: без позиций, но не белый экран
       setLevelPositions(graph.level_positions ?? {});
+      setLevelEdgeHandles(graph.level_edge_handles ?? {});
       setEdges(
         graph.edges.map((ge) => ({
           id: ge.id,
@@ -148,21 +154,33 @@ export default function TreePage({ onLogout }: Props) {
   }
 
   // Reconnect в LevelGraph сохранил новые хэндлы (в БД и в локальные rfEdges).
-  // Синхронизируем стейт edges, чтобы пересчёт раскладки (сворачивание/разворачивание
-  // контейнеров) не откатывал привязку к autoHandles из устаревших данных.
-  // Значения те же, что вернул бы рефетч графа (эффективные, per-level).
+  // Синхронизируем стейт уровня теми же значениями, что вернул бы рефетч графа —
+  // иначе пересчёт раскладки (сворачивание/разворачивание контейнеров без рефетча)
+  // откатил бы привязку к autoHandles. Хэндл локального конца — в колонку ребра,
+  // хэндл гостевого конца — в level_edge_handles (по проекции node_id).
   function updateEdgeHandles(
     edgeId: string,
-    sourceHandle: string,
-    targetHandle: string,
+    changes: {
+      column?: { source_handle?: string; target_handle?: string };
+      ghost?: { node_id: string; handle: string };
+    },
   ) {
-    setEdges((prev) =>
-      prev.map((e) =>
-        e.id === edgeId
-          ? { ...e, source_handle: sourceHandle, target_handle: targetHandle }
-          : e,
-      ),
-    );
+    if (changes.column) {
+      const col = changes.column;
+      setEdges((prev) =>
+        prev.map((e) => (e.id === edgeId ? { ...e, ...col } : e)),
+      );
+    }
+    if (changes.ghost) {
+      const { node_id, handle } = changes.ghost;
+      setLevelEdgeHandles((prev) => {
+        // одна проекция (node_id) = один хэндл: выкидываем прежний для этого узла
+        const rest = (prev[edgeId] ?? []).filter(
+          (h) => !h.startsWith(node_id + "--"),
+        );
+        return { ...prev, [edgeId]: [...rest, handle] };
+      });
+    }
   }
 
   function handleEdgeDeleted(_id: string) {
@@ -283,6 +301,7 @@ export default function TreePage({ onLogout }: Props) {
               nodes={nodes}
               ghostNodes={ghostNodes}
               levelPositions={levelPositions}
+              levelEdgeHandles={levelEdgeHandles}
               edges={edges}
               depth={breadcrumb.length}
               containerId={currentParentId}

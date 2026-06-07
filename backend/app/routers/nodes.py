@@ -165,6 +165,7 @@ def _build_graph(
     # Поэтому валидным ключом позиции считаем сам id гостя ИЛИ id любого такого
     # предка-кандидата. Общую рамку отсекаем по цепочке предков самого уровня.
     level_positions: dict[str, PosXY] = {}
+    level_edge_handles: dict[str, list[str]] = {}
     saved_pos: dict[uuid.UUID, GhostPosition] = {}
     if container_id is not None:
         breadcrumb_ids = {a.id for a in ancestors(container_id)} | {container_id}
@@ -191,10 +192,11 @@ def _build_graph(
                 if r.node_id in ghost_ids:
                     saved_pos[r.node_id] = r
 
-        # Per-level хэндлы гостевых концов рёбер + уборка мусора. Накатываем их
-        # поверх колоночных хэндлов ребра для тех концов, что спроецированы на
-        # гостя: ручная привязка стрелки к точке гостя переживает reload (фронт
-        # больше не назначает их автоматически). Колонка ребра хранит хэндл
+        # Per-level хэндлы гостевых концов рёбер + уборка мусора. Привязка стрелки к
+        # точке гостя переживает reload (фронт больше не назначает её автоматически).
+        # Строка валидна, если ребро проецируется гостевым концом на этот уровень И
+        # node_id — допустимая проекция (тот же valid_keys, что у координат: сам гость
+        # ИЛИ предок-контейнер ниже общей с уровнем рамки). Колонка ребра хранит хэндл
         # «домашнего» (локального) конца — её не трогаем.
         ghost_edge_ids = {eid for eid, (s, t) in edge_ghost_ends.items() if s or t}
         handle_rows = (
@@ -202,22 +204,17 @@ def _build_graph(
             .filter(GhostEdgeHandle.container_id == container_id)
             .all()
         )
-        # Ребро больше не проецируется гостевым концом на этот уровень — мусор
-        stale_h = [r for r in handle_rows if r.edge_id not in ghost_edge_ids]
+        stale_h = [
+            r for r in handle_rows
+            if r.edge_id not in ghost_edge_ids or r.node_id not in valid_keys
+        ]
         for r in stale_h:
             db.delete(r)
         if stale_h:
             db.commit()
-        handle_by_edge = {r.edge_id: r for r in handle_rows if r.edge_id in ghost_edge_ids}
-        for e in result_edges:
-            row = handle_by_edge.get(e.id)
-            if row is None:
-                continue
-            src_ghost, tgt_ghost = edge_ghost_ends[e.id]
-            if src_ghost and row.source_handle is not None:
-                e.source_handle = row.source_handle
-            if tgt_ghost and row.target_handle is not None:
-                e.target_handle = row.target_handle
+        for r in handle_rows:
+            if r.edge_id in ghost_edge_ids and r.node_id in valid_keys:
+                level_edge_handles.setdefault(str(r.edge_id), []).append(r.handle)
 
     ghost_nodes = [
         GhostNodeResponse(
@@ -241,6 +238,7 @@ def _build_graph(
         edges=result_edges,
         ghost_nodes=ghost_nodes,
         level_positions=level_positions,
+        level_edge_handles=level_edge_handles,
     )
 
 
@@ -656,30 +654,36 @@ def save_ghost_edge_handle(
     db: Session = Depends(get_db),
     _: User = Depends(require_architect),
 ) -> None:
-    """Сохраняет (upsert) хэндл гостевого конца ребра edge_id на уровне container_id.
+    """Сохраняет (upsert) хэндл гостевого конца ребра edge_id на уровне container_id,
+    привязанный к id отображаемой сущности node_id (лист-гость ИЛИ предок-контейнер).
 
-    Передаётся только спроецированная на гостя сторона (source_handle ИЛИ
-    target_handle); не указанная сторона не затрагивается — это позволяет
-    хранить per-level хэндл гостевого конца, не трогая хэндл локального конца.
+    У каждой проекции гостевого конца своя строка — поэтому привязка к свёрнутому
+    контейнеру и к развёрнутому листу хранятся раздельно и не затирают друг друга.
     """
     if not db.get(Node, container_id):
         raise HTTPException(status_code=404, detail="Уровень не найден")
     if not db.get(Edge, edge_id):
         raise HTTPException(status_code=404, detail="Связь не найдена")
+    if not db.get(Node, payload.node_id):
+        raise HTTPException(status_code=404, detail="Узел не найден")
 
-    data = payload.model_dump(exclude_unset=True)
     row = (
         db.query(GhostEdgeHandle)
         .filter(
             GhostEdgeHandle.container_id == container_id,
             GhostEdgeHandle.edge_id == edge_id,
+            GhostEdgeHandle.node_id == payload.node_id,
         )
         .one_or_none()
     )
     if row is None:
-        row = GhostEdgeHandle(container_id=container_id, edge_id=edge_id, **data)
+        row = GhostEdgeHandle(
+            container_id=container_id,
+            edge_id=edge_id,
+            node_id=payload.node_id,
+            handle=payload.handle,
+        )
         db.add(row)
     else:
-        for field, value in data.items():
-            setattr(row, field, value)
+        row.handle = payload.handle
     db.commit()

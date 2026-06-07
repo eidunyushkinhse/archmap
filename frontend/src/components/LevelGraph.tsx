@@ -34,7 +34,7 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import Dagre from "@dagrejs/dagre";
 import type { CSSProperties } from "react";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, EdgeUpdate, NodeShape, AncestorRef } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, AncestorRef } from "../types";
 
 // --- Перенос текста по словам, максимум maxLen символов в строке ---
 
@@ -1280,6 +1280,10 @@ interface LevelGraphProps {
   // сохранённые координаты гостей на уровне, ключ — id отображаемой сущности
   // (лист-гость ИЛИ предок-контейнер, в который гость свёрнут)
   levelPositions: Record<string, { pos_x: number; pos_y: number }>;
+  // сохранённые хэндлы гостевых концов рёбер: edge_id → список значений хэндлов
+  // (по одному на проекцию). Применяются к концу, чей текущий показанный узел
+  // совпадает с префиксом хэндла; остальные — из колонок ребра / autoHandles.
+  levelEdgeHandles: Record<string, string[]>;
   edges: AppEdge[];
   depth: number;
   /** id узла-контейнера текущего уровня (null — корень) */
@@ -1295,9 +1299,16 @@ interface LevelGraphProps {
   onEdgeClick: (edge: AppEdge) => void;
   // клик по «мастер-стрелке» (несколько слитых связей) — выбор нужной
   onEdgesChoice: (edges: AppEdge[]) => void;
-  // reconnect сохранил новые хэндлы конца стрелки — родитель синхронизирует
-  // стейт edges, чтобы пересчёт раскладки не откатывал их к autoHandles
-  onEdgeHandlesChanged?: (edgeId: string, sourceHandle: string, targetHandle: string) => void;
+  // reconnect сохранил новые хэндлы конца стрелки — родитель синхронизирует стейт
+  // уровня, чтобы пересчёт раскладки не откатывал их к autoHandles. column — хэндл
+  // локального конца (колонка ребра), ghost — гостевого конца (по проекции node_id).
+  onEdgeHandlesChanged?: (
+    edgeId: string,
+    changes: {
+      column?: { source_handle?: string; target_handle?: string };
+      ghost?: { node_id: string; handle: string };
+    },
+  ) => void;
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
@@ -1319,6 +1330,7 @@ function LevelGraphInner({
   nodes,
   ghostNodes,
   levelPositions,
+  levelEdgeHandles,
   edges,
   depth,
   containerId,
@@ -1479,35 +1491,37 @@ function LevelGraphInner({
       // и клик-обработчик); по умолчанию reconnectEdge сгенерил бы новый id
       setRfEdges((els) => reconnectEdge(oldEdge, newConn, els, { shouldReplaceId: false }));
       if (isArchitect && newConn.sourceHandle && newConn.targetHandle) {
-        // Концы ребра делятся на локальные (узел этого уровня) и спроецированные
-        // на гостя. Хэндл локального конца — глобальный, в колонку самого ребра.
-        // Хэндл гостевого конца привязан к уровню (один edge на разных уровнях
-        // проецируется на разных гостей), поэтому хранится per-level отдельно —
-        // иначе он затёр бы «домашний» хэндл узла на его родном уровне.
+        // Концы ребра делятся на локальные (узел этого уровня) и спроецированные на
+        // гостя. На уровне максимум один конец гостевой (второй всегда локальный).
+        // Хэндл локального конца — глобальный «домашний», в колонку самого ребра.
+        // Хэндл гостевого конца привязан к уровню И к показанной сущности (свёрнутый
+        // контейнер ИЛИ развёрнутый лист — это РАЗНЫЕ проекции одного конца), поэтому
+        // хранится per-level по node_id отдельно — иначе проекции затирали бы друг
+        // друга, а колонка затёрла бы «домашний» хэндл узла на его родном уровне.
         const localIds = new Set(nodes.map((n) => n.id));
         const sourceLocal = localIds.has(newConn.source!);
         const targetLocal = localIds.has(newConn.target!);
 
-        const edgePatch: EdgeUpdate = {};
-        if (sourceLocal) edgePatch.source_handle = newConn.sourceHandle;
-        if (targetLocal) edgePatch.target_handle = newConn.targetHandle;
-        if (edgePatch.source_handle || edgePatch.target_handle) {
-          edgesApi.update(oldEdge.id, edgePatch);
-        }
+        const column: { source_handle?: string; target_handle?: string } = {};
+        if (sourceLocal) column.source_handle = newConn.sourceHandle;
+        if (targetLocal) column.target_handle = newConn.targetHandle;
+        const hasColumn = Boolean(column.source_handle || column.target_handle);
+        if (hasColumn) edgesApi.update(oldEdge.id, column);
 
+        let ghost: { node_id: string; handle: string } | undefined;
         if (containerId) {
-          const ghostHandles: { source_handle?: string; target_handle?: string } = {};
-          if (!sourceLocal) ghostHandles.source_handle = newConn.sourceHandle;
-          if (!targetLocal) ghostHandles.target_handle = newConn.targetHandle;
-          if (ghostHandles.source_handle || ghostHandles.target_handle) {
-            nodesApi.saveGhostEdgeHandle(containerId, oldEdge.id, ghostHandles);
-          }
+          if (!sourceLocal) ghost = { node_id: newConn.source!, handle: newConn.sourceHandle };
+          else if (!targetLocal) ghost = { node_id: newConn.target!, handle: newConn.targetHandle };
+          if (ghost) nodesApi.saveGhostEdgeHandle(containerId, oldEdge.id, ghost);
         }
 
-        // Синхронизируем стейт edges в родителе теми же эффективными хэндлами —
-        // иначе пересчёт раскладки (сворачивание/разворачивание контейнеров без
-        // рефетча) откатил бы привязку к autoHandles из устаревших данных.
-        onEdgeHandlesChanged?.(oldEdge.id, newConn.sourceHandle, newConn.targetHandle);
+        // Синхронизируем стейт уровня теми же значениями, что вернул бы рефетч —
+        // иначе пересчёт раскладки (сворачивание/разворачивание без рефетча)
+        // откатил бы привязку к autoHandles из устаревших данных.
+        onEdgeHandlesChanged?.(oldEdge.id, {
+          column: hasColumn ? column : undefined,
+          ghost,
+        });
       }
     },
     [isArchitect, nodes, containerId, onEdgeHandlesChanged],
@@ -1530,12 +1544,21 @@ function LevelGraphInner({
     // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
     const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, ancestorIds, expanded);
     const remap = (id: string) => ghostToEffective.get(id) ?? id;
-    // Рёбра с концами, переадресованными на отображаемые сущности
-    const remappedEdges = edges.map((e) => ({
-      ...e,
-      source_id: remap(e.source_id),
-      target_id: remap(e.target_id),
-    }));
+    // Рёбра с концами, переадресованными на отображаемые сущности. Хэндл гостевого
+    // конца подменяем сохранённым per-level значением для ТЕКУЩЕЙ проекции (узла,
+    // который сейчас показан): из списка берём тот, чей префикс совпал с показанным
+    // концом. Хэндл локального конца остаётся из колонки ребра.
+    const remappedEdges = edges.map((e) => {
+      const source_id = remap(e.source_id);
+      const target_id = remap(e.target_id);
+      let source_handle = e.source_handle;
+      let target_handle = e.target_handle;
+      for (const h of levelEdgeHandles[e.id] ?? []) {
+        if (h.startsWith(source_id + "--")) source_handle = h;
+        else if (h.startsWith(target_id + "--")) target_handle = h;
+      }
+      return { ...e, source_id, target_id, source_handle, target_handle };
+    });
 
     // В контекст-режиме раскладка эфемерная и единая — сохранённые координаты
     // (фокус двигали на своём уровне) тут из ДРУГОЙ системы координат и дали бы
@@ -1735,7 +1758,7 @@ function LevelGraphInner({
       })
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, ghostNodes, levelPositions, edges, isArchitect, depth, expanded, ancestorIds.join("|")]);
+  }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, edges, isArchitect, depth, expanded, ancestorIds.join("|")]);
 
   // Перетаскивание шаблона узла из боковой палитры на схему. dragOver с
   // preventDefault разрешает дроп; на drop читаем форму из dataTransfer, переводим

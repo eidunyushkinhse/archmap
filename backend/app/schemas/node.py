@@ -86,10 +86,10 @@ class GhostPositionUpdate(BaseModel):
 
 
 class GhostEdgeHandleUpdate(BaseModel):
-    # Хэндл гостевого конца ребра на уровне. Передаётся только та сторона, что
-    # спроецирована на гостя; не указанная сторона не трогается (exclude_unset).
-    source_handle: str | None = None
-    target_handle: str | None = None
+    # Хэндл гостевого конца ребра на уровне, привязанный к id ОТОБРАЖАЕМОЙ сущности
+    # (лист-гость ИЛИ предок-контейнер), к которой пристыкован конец стрелки.
+    node_id: uuid.UUID
+    handle: str
 
 
 class GraphEdgeResponse(BaseModel):
@@ -121,6 +121,11 @@ class GraphResponse(BaseModel):
     # Фронт expand/collapse-состояние знает только он, поэтому сюда кладём позиции
     # для всех возможных проекций (гость + его предки ниже общей с уровнем рамки).
     level_positions: dict[str, PosXY] = {}
+    # Сохранённые хэндлы гостевых концов рёбер на этом уровне: edge_id → список
+    # значений хэндлов (по одному на проекцию гостевого конца — лист-гость и/или
+    # предок-контейнер). Фронт выбирает тот, чей префикс совпадает с id отображаемой
+    # на данный момент сущности; остальные концы — из колонок ребра / autoHandles.
+    level_edge_handles: dict[str, list[str]] = {}
 
 
 class NodeContextResponse(BaseModel):
