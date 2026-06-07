@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
@@ -158,6 +158,9 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
   const [dragging, setDragging] = useState(false);
   // курсор над «корзиной» (drop здесь = отмена) → подсветка активного состояния
   const [trashActive, setTrashActive] = useState(false);
+  // синхронный флаг «идёт драг» — оверлей показываем отложенно (см. onTemplateDragStart),
+  // а ref нужен, чтобы не зажечь его уже после завершения короткого драга
+  const draggingRef = useRef(false);
   // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(["tree", "add"]),
@@ -279,10 +282,18 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     // Прячем стандартный drag-image (снимок плитки) — превью рисует схема.
     if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0);
     onTemplateDrag?.(shape);
-    setDragging(true);
+    // ВАЖНО: оверлей-корзину показываем НЕ синхронно. Если смонтировать плитку
+    // поверх карточки-источника прямо в обработчике dragstart, браузер отменяет
+    // нативный drag (источник под курсором исчезает/накрывается). Откладываем на
+    // следующий кадр — драг к этому моменту уже «схвачен» и накрытие безопасно.
+    draggingRef.current = true;
+    requestAnimationFrame(() => {
+      if (draggingRef.current) setDragging(true);
+    });
   }
   function onTemplateDragEnd() {
     onTemplateDrag?.(null);
+    draggingRef.current = false;
     setDragging(false);
     setTrashActive(false);
   }
