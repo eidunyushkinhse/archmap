@@ -767,6 +767,10 @@ function projectGhosts(ghostNodes: GhostNode[], ancestorIds: string[], expanded:
   const bcIndex = new Map(ancestorIds.map((id, i) => [id, i]));
   const entities = new Map<string, DisplayExternal>();
   const ghostToEffective = new Map<string, string>();
+  // id отображаемой сущности → id раскрытого контейнера-предка ПРЯМО над ней
+  // (тот, чьё раскрытие её обнажило). null/нет ключа — сущность не вышла из
+  // раскрытия (верхний контейнер или гость без общей рамки).
+  const emergedFrom = new Map<string, string>();
 
   for (const g of ghostNodes) {
     const anc = g.ancestors ?? [];
@@ -777,27 +781,33 @@ function projectGhosts(ghostNodes: GhostNode[], ancestorIds: string[], expanded:
     });
 
     let displayed: DisplayExternal;
+    let emerged: string | null = null;
     if (lcaIdx === -1) {
       // нет общего предка-рамки → гость показывается как есть (снаружи рамок)
       displayed = { kind: "leaf", id: g.id, ghost: g };
     } else {
       // первый неразвёрнутый контейнер ниже общего предка
       let container: DisplayContainer | null = null;
+      let foundPos = anc.length; // если контейнер не найден — дошли до самого гостя
       for (let pos = lcaPos + 1; pos < anc.length; pos++) {
         const a = anc[pos];
         if (!expanded.has(a.id)) {
           container = { kind: "container", id: a.id, name: a.name, depth: pos, ancestors: anc.slice(0, pos) };
+          foundPos = pos;
           break;
         }
       }
       displayed = container ?? { kind: "leaf", id: g.id, ghost: g };
+      // предок прямо над точкой отображения раскрыт → сущность вышла из него
+      if (foundPos - 1 >= lcaPos + 1) emerged = anc[foundPos - 1].id;
     }
 
     ghostToEffective.set(g.id, displayed.id);
     if (!entities.has(displayed.id)) entities.set(displayed.id, displayed);
+    if (emerged) emergedFrom.set(displayed.id, emerged);
   }
 
-  return { entities: [...entities.values()], ghostToEffective };
+  return { entities: [...entities.values()], ghostToEffective, emergedFrom };
 }
 
 // --- Границы уровней (C4-подобные вложенные boundary) ---
@@ -1329,11 +1339,19 @@ function LevelGraphInner({
   // Развёрнутые соседние контейнеры (свёрнуты по умолчанию). Эфемерно: сбрасываем
   // при переходе на другой уровень.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  useEffect(() => { setExpanded(new Set()); }, [containerId]);
+  // Центр (в координатах графа) контейнера на момент его раскрытия. По нему
+  // центрируем дефолтную раскладку детей: раскрытая рамка встаёт туда же, где
+  // стоял свёрнутый узел (детям без ручных координат). Эфемерно, как expanded.
+  const expandOrigins = useRef<Map<string, { x: number; y: number }>>(new Map());
+  useEffect(() => { setExpanded(new Set()); expandOrigins.current.clear(); }, [containerId]);
 
   const expandContainer = useCallback((id: string) => {
+    // запоминаем центр сворачиваемого контейнера до раскрытия — дефолтная
+    // раскладка его детей будет отцентрирована по этой точке
+    const c = rfNodes.find((n) => n.id === id);
+    if (c) expandOrigins.current.set(id, { x: c.position.x + NODE_W / 2, y: c.position.y + NODE_H / 2 });
     setExpanded((prev) => new Set(prev).add(id));
-  }, []);
+  }, [rfNodes]);
   const collapseContainer = useCallback((id: string) => {
     setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
   }, []);
@@ -1481,7 +1499,7 @@ function LevelGraphInner({
 
   useEffect(() => {
     // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
-    const { entities, ghostToEffective } = projectGhosts(ghostNodes, ancestorIds, expanded);
+    const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, ancestorIds, expanded);
     const remap = (id: string) => ghostToEffective.get(id) ?? id;
     // Рёбра с концами, переадресованными на отображаемые сущности
     const remappedEdges = edges.map((e) => ({
@@ -1556,6 +1574,38 @@ function LevelGraphInner({
     // полки подписей и обходы не родных стрелок считаются только в контекст-раскладке
     const edgeShelves = ctxLayout?.edgeShelves;
     const edgeLoops = ctxLayout?.edgeLoops;
+
+    // Дефолтная раскладка детей раскрытого контейнера: сдвигаем их так, чтобы центр
+    // их bbox совпал с центром, где стоял свёрнутый узел (запомнен при раскрытии).
+    // Только обычный уровень, только сущности БЕЗ ручных координат (levelPositions),
+    // сгруппированные по контейнеру, из которого они вышли. Сущность с ручной
+    // позицией остаётся на месте и в центрирование не входит.
+    if (!isContext) {
+      const groups = new Map<string, string[]>();
+      for (const ent of entities) {
+        const from = emergedFrom.get(ent.id);
+        if (from && expandOrigins.current.has(from) && !levelPositions[ent.id]) {
+          (groups.get(from) ?? groups.set(from, []).get(from)!).push(ent.id);
+        }
+      }
+      for (const [from, ids] of groups) {
+        const origin = expandOrigins.current.get(from)!;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const id of ids) {
+          const p = positions.get(id);
+          if (!p) continue;
+          minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
+        }
+        if (!isFinite(minX)) continue;
+        const dx = origin.x - (minX + maxX) / 2;
+        const dy = origin.y - (minY + maxY) / 2;
+        for (const id of ids) {
+          const p = positions.get(id);
+          if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
+        }
+      }
+    }
 
     // Распорки: обходы не родных стрелок выходят за bbox узлов → крайними точками
     // контента (loopX/clearY обходов + запас под полку с подписью) расширяем область,
