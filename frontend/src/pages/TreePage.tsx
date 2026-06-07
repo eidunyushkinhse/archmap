@@ -68,7 +68,8 @@ export default function TreePage({ onLogout }: Props) {
       const graph = await nodesApi.getGraph(parentId);
       setNodes(graph.nodes);
       setGhostNodes(graph.ghost_nodes);
-      setLevelPositions(graph.level_positions);
+      // ?? {} — на случай старого бэкенда без поля: без позиций, но не белый экран
+      setLevelPositions(graph.level_positions ?? {});
       setEdges(
         graph.edges.map((ge) => ({
           id: ge.id,
