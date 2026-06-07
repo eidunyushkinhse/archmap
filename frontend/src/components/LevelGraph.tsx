@@ -468,9 +468,12 @@ interface NodeShapeProps {
   bg: string;
   stroke: string;
   dashed?: boolean; // пунктир для гостевых узлов
+  // режим контура (прозрачное тело, напр. превью драга): у БД не замыкаем тело
+  // сверху прямой — иначе она просвечивает сквозь прозрачную крышку-эллипс
+  outline?: boolean;
 }
 
-function NodeShapeSvg({ shape, bg, stroke, dashed }: NodeShapeProps) {
+function NodeShapeSvg({ shape, bg, stroke, dashed, outline }: NodeShapeProps) {
   const W = NODE_W, H = shapeHeight(shape), sw = 1.5;
   const dash = dashed ? "5 3" : undefined;
   const fill = { fill: bg, stroke, strokeWidth: sw, strokeDasharray: dash };
@@ -491,7 +494,7 @@ function NodeShapeSvg({ shape, bg, stroke, dashed }: NodeShapeProps) {
       <svg width={W} height={H} style={svgStyle}>
         {/* Тело: вниз по левой стенке, передняя дуга низа, вверх по правой.
             Верх замыкаем прямой — она скрыта под эллипсом-крышкой. */}
-        <path d={`M1,${ry} L1,${H - ry} A${rx},${ry} 0 0 0 ${W - 1},${H - ry} L${W - 1},${ry} Z`} {...fill} />
+        <path d={`M1,${ry} L1,${H - ry} A${rx},${ry} 0 0 0 ${W - 1},${H - ry} L${W - 1},${ry}${outline ? "" : " Z"}`} {...fill} />
         {/* Крышка целиком — виден весь контур эллипса (и задний обод, и передняя «губа») */}
         <ellipse cx={cx} cy={ry} rx={rx} ry={ry} {...fill} />
       </svg>
@@ -1732,7 +1735,7 @@ function LevelGraphInner({
                 opacity: 0.85,
               }}
             >
-              <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" dashed />
+              <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" outline />
             </div>
           </ViewportPortal>
         )}
