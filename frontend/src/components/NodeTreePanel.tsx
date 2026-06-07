@@ -41,6 +41,18 @@ interface Props {
   onNodeContext?: (node: Node) => void;
   // секция «Добавить узел» показывается только архитектору
   isArchitect: boolean;
+  // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
+  // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
+  onTemplateDrag?: (shape: NodeShape | null) => void;
+}
+
+// Прозрачная 1×1 картинка вместо стандартного drag-image: прячем «снимок» плитки —
+// вместо него схема показывает свою рамку-превью будущего узла (масштаб под зум).
+const EMPTY_DRAG_IMG =
+  typeof Image !== "undefined" ? new Image() : null;
+if (EMPTY_DRAG_IMG) {
+  EMPTY_DRAG_IMG.src =
+    "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 }
 
 // Шаблоны узлов в палитре «Добавить узел»
@@ -89,7 +101,7 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag }: Props) {
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
@@ -236,6 +248,12 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect }:
   function onTemplateDragStart(e: DragEvent, shape: NodeShape) {
     e.dataTransfer.setData(NODE_DRAG_MIME, shape);
     e.dataTransfer.effectAllowed = "copy";
+    // Прячем стандартный drag-image (снимок плитки) — превью рисует схема.
+    if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0);
+    onTemplateDrag?.(shape);
+  }
+  function onTemplateDragEnd() {
+    onTemplateDrag?.(null);
   }
 
   return (
@@ -272,6 +290,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect }:
                   key={t.shape}
                   draggable
                   onDragStart={(e) => onTemplateDragStart(e, t.shape)}
+                  onDragEnd={onTemplateDragEnd}
                   style={templateCard}
                   title={`Перетащить «${t.label}» на схему`}
                 >

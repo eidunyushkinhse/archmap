@@ -39,6 +39,9 @@ export default function TreePage({ onLogout }: Props) {
   const [edgeChoice, setEdgeChoice] = useState<Edge[] | null>(null);
   // узел, для которого открыта контекстная схема (клик по дереву слева)
   const [contextNode, setContextNode] = useState<Node | null>(null);
+  // форма шаблона, который сейчас тянут из палитры (null — драга нет). Прокидываем
+  // в LevelGraph, чтобы он рисовал превью-рамку будущего узла под курсором.
+  const [dragShape, setDragShape] = useState<NodeShape | null>(null);
 
   const isArchitect = getUserRole() === "architect";
   const currentParent =
@@ -205,6 +208,7 @@ export default function TreePage({ onLogout }: Props) {
           onDrillTo={drillToPath}
           onNodeContext={setContextNode}
           isArchitect={isArchitect}
+          onTemplateDrag={setDragShape}
         />
 
         {/* Область графа — заполняет оставшееся пространство */}
@@ -237,6 +241,7 @@ export default function TreePage({ onLogout }: Props) {
               onEdgeClick={(edge) => setEdgeDetailModal(edge)}
               onEdgesChoice={(group) => setEdgeChoice(group)}
               onDropNode={handleDropNode}
+              dragShape={dragShape}
             />
           )}
         </div>

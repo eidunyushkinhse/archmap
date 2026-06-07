@@ -248,6 +248,30 @@ function nodeSize(n: RFNode | undefined): { w: number; h: number } {
   };
 }
 
+// Магнитное выравнивание по ЦЕНТРУ: для центра (cx, cy) ищем ближайшего по X и по Y
+// соседа из rfNodes и, если он ближе SNAP_THRESHOLD, «прилипаем» центром к нему.
+// Оси независимы. Возвращаем притянутый центр и флаги попадания (для направляющих).
+// Используется и при перетаскивании существующего узла (excludeId — он сам), и при
+// перетаскивании превью нового узла из палитры (excludeId не задан).
+function snapCenter(
+  cx: number, cy: number, rfNodes: RFNode[], excludeId?: string,
+): { snapCx: number; snapCy: number; hitX: boolean; hitY: boolean } {
+  let snapCx = cx, snapCy = cy;
+  let bestDx = SNAP_THRESHOLD, bestDy = SNAP_THRESHOLD;
+  let hitX = false, hitY = false;
+  for (const other of rfNodes) {
+    if (excludeId && other.id === excludeId) continue;
+    const { w: ow, h: oh } = nodeSize(other);
+    const ocx = other.position.x + ow / 2;
+    const ocy = other.position.y + oh / 2;
+    const dx = Math.abs(ocx - cx);
+    if (dx <= bestDx) { bestDx = dx; snapCx = ocx; hitX = true; }
+    const dy = Math.abs(ocy - cy);
+    if (dy <= bestDy) { bestDy = dy; snapCy = ocy; hitY = true; }
+  }
+  return { snapCx, snapCy, hitX, hitY };
+}
+
 // --- 12 фиксированных точек стыковки (по 3 на каждую сторону) ---
 
 const SIDE_HANDLES: Array<{ side: string; pos: Position; offsets: number[] }> = [
@@ -1243,6 +1267,11 @@ interface LevelGraphProps {
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
+  // форма шаблона, который СЕЙЧАС перетаскивают из палитры (null — драга нет).
+  // Нужна, чтобы во время dragover показать на схеме превью-рамку будущего узла:
+  // dataTransfer.getData в dragover недоступен (только на drop), поэтому форму
+  // прокидываем через состояние из TreePage.
+  dragShape?: NodeShape | null;
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
@@ -1262,6 +1291,7 @@ function LevelGraphInner({
   onEdgeClick,
   onEdgesChoice,
   onDropNode,
+  dragShape,
   mode = "level",
 }: LevelGraphProps) {
   const isContext = mode === "context";
@@ -1288,6 +1318,26 @@ function LevelGraphInner({
   // Координаты (в системе графа) центральных направляющих, пока узел «магнитится».
   // null по оси — направляющей нет. Сбрасываются по окончании драга.
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+
+  // Превью будущего узла при перетаскивании шаблона из палитры: форма + координаты
+  // (левый-верхний угол) в системе графа. Рендерится в ViewportPortal, поэтому
+  // автоматически масштабируется под текущий зум — рамка совпадает с реальным
+  // размером узлов на схеме. null — превью не показываем.
+  const [dropPreview, setDropPreview] = useState<{ shape: NodeShape; x: number; y: number } | null>(null);
+
+  // Скрываем направляющие (обе оси) — общий помощник для разных мест.
+  const clearGuides = useCallback(() => {
+    setGuides((g) => (g.x === null && g.y === null ? g : { x: null, y: null }));
+  }, []);
+
+  // Драг шаблона завершился (drop или отмена) — TreePage обнулил dragShape.
+  // Убираем превью и направляющие.
+  useEffect(() => {
+    if (!dragShape) {
+      setDropPreview((p) => (p === null ? p : null));
+      clearGuides();
+    }
+  }, [dragShape, clearGuides]);
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, rfNode: RFNode) => {
@@ -1324,22 +1374,7 @@ function LevelGraphInner({
         // Центр узла в текущей (перетаскиваемой) позиции
         const cx = change.position.x + dw / 2;
         const cy = change.position.y + dh / 2;
-        let snapCx = cx;
-        let snapCy = cy;
-        let bestDx = SNAP_THRESHOLD;
-        let bestDy = SNAP_THRESHOLD;
-        let hitX = false;
-        let hitY = false;
-        for (const other of rfNodes) {
-          if (other.id === change.id) continue;
-          const { w: ow, h: oh } = nodeSize(other);
-          const ocx = other.position.x + ow / 2;
-          const ocy = other.position.y + oh / 2;
-          const dx = Math.abs(ocx - cx);
-          if (dx <= bestDx) { bestDx = dx; snapCx = ocx; hitX = true; }
-          const dy = Math.abs(ocy - cy);
-          if (dy <= bestDy) { bestDy = dy; snapCy = ocy; hitY = true; }
-        }
+        const { snapCx, snapCy, hitX, hitY } = snapCenter(cx, cy, rfNodes, change.id);
         // Направляющие показываем только во время активного драга
         if (change.dragging) {
           if (hitX) guideX = snapCx;
@@ -1576,7 +1611,25 @@ function LevelGraphInner({
     if (!e.dataTransfer.types.includes(NODE_DRAG_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-  }, [isArchitect, isContext, onDropNode]);
+    // Курсор = центр будущего узла. Притягиваем центр к соседям, рамку-превью
+    // ставим на притянутую позицию, направляющие показываем как при обычном драге.
+    if (!dragShape) return;
+    const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const dh = shapeHeight(dragShape);
+    const { snapCx, snapCy, hitX, hitY } = snapCenter(flow.x, flow.y, rfNodes);
+    setDropPreview({ shape: dragShape, x: snapCx - NODE_W / 2, y: snapCy - dh / 2 });
+    const gx = hitX ? snapCx : null;
+    const gy = hitY ? snapCy : null;
+    setGuides((prev) => (prev.x === gx && prev.y === gy ? prev : { x: gx, y: gy }));
+  }, [isArchitect, isContext, onDropNode, dragShape, rfNodes, screenToFlowPosition]);
+
+  // Курсор ушёл с канваса (а не на его дочерний элемент) — убираем превью/направляющие,
+  // чтобы рамка не «зависала» на краю.
+  const handleDragLeave = useCallback((e: DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDropPreview((p) => (p === null ? p : null));
+    clearGuides();
+  }, [clearGuides]);
 
   const handleDrop = useCallback((e: DragEvent) => {
     if (!isArchitect || isContext || !onDropNode) return;
@@ -1585,8 +1638,12 @@ function LevelGraphInner({
     e.preventDefault();
     const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const s = shape as NodeShape;
-    onDropNode(s, { x: flow.x - NODE_W / 2, y: flow.y - shapeHeight(s) / 2 });
-  }, [isArchitect, isContext, onDropNode, screenToFlowPosition]);
+    // Узел создаётся ровно там, где показывало превью (с тем же примагничиванием).
+    const { snapCx, snapCy } = snapCenter(flow.x, flow.y, rfNodes);
+    onDropNode(s, { x: snapCx - NODE_W / 2, y: snapCy - shapeHeight(s) / 2 });
+    setDropPreview(null);
+    clearGuides();
+  }, [isArchitect, isContext, onDropNode, rfNodes, screenToFlowPosition, clearGuides]);
 
   const handleEdgeClick = useCallback(
     (_event: MouseEvent, rfEdge: RFEdge) => {
@@ -1608,6 +1665,7 @@ function LevelGraphInner({
       className="lg-canvas"
       style={{ flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
       onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       <ReactFlow
@@ -1655,6 +1713,27 @@ function LevelGraphInner({
         {(guides.x != null || guides.y != null) && (
           <ViewportPortal>
             <AlignmentGuides x={guides.x} y={guides.y} />
+          </ViewportPortal>
+        )}
+        {/* Превью будущего узла: пустая рамка-форма с прозрачным телом. В
+            ViewportPortal координаты — в системе графа, поэтому рамка масштабируется
+            вместе с зумом (как реальный узел) и показывает точное место создания. */}
+        {dropPreview && (
+          <ViewportPortal>
+            <div
+              style={{
+                position: "absolute",
+                left: dropPreview.x,
+                top: dropPreview.y,
+                width: NODE_W,
+                height: shapeHeight(dropPreview.shape),
+                pointerEvents: "none",
+                zIndex: 5,
+                opacity: 0.85,
+              }}
+            >
+              <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" dashed />
+            </div>
           </ViewportPortal>
         )}
       </ReactFlow>
