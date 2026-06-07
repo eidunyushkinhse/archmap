@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useCallback, useRef, useState, type ComponentType } from "react";
-import type { MouseEvent, DragEvent } from "react";
+import type { MouseEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { nodesApi, edgesApi } from "../api/nodes";
 import { NODE_DRAG_MIME } from "./NodeTreePanel";
 import {
@@ -546,6 +546,10 @@ const nodeContainer: CSSProperties = {
   boxSizing: "border-box",
   fontSize: 13,
 };
+// Свечение выбранного узла (см. BlockNode). Два drop-shadow: тонкий контурный +
+// мягкий ореол синим — повторяют силуэт SVG-формы.
+const SELECTED_GLOW =
+  "drop-shadow(0 0 2px #2563eb) drop-shadow(0 0 7px rgba(37,99,235,0.65))";
 
 // --- Кастомные компоненты узлов ---
 
@@ -622,7 +626,7 @@ function RoleTechChip({
   );
 }
 
-function BlockNode({ data }: NodeProps<BlockRFNode>) {
+function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
   // У пользователя «провалиться внутрь» нечего → кнопку «Войти» не показываем.
@@ -637,7 +641,18 @@ function BlockNode({ data }: NodeProps<BlockRFNode>) {
     borderColor: "rgba(255,255,255,0.3)",
   };
   return (
-    <div style={{ ...nodeContainer, height: shapeHeight(shape), color: c.text }}>
+    <div
+      style={{
+        ...nodeContainer,
+        height: shapeHeight(shape),
+        color: c.text,
+        // Подсветка выбранного узла: синее свечение по силуэту (drop-shadow
+        // тянется по альфе SVG-формы, поэтому ореол повторяет контур любой
+        // формы — цилиндра БД, человечка и т.д.). Сигнал «этот узел активен и
+        // исчезнет по Backspace».
+        filter: selected ? SELECTED_GLOW : undefined,
+      }}
+    >
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
       <NodeHandles nodeId={data.appNode.id} color={c.border} />
 
@@ -1270,6 +1285,10 @@ interface LevelGraphProps {
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
+  // запрос на удаление узла прямо с канваса (Backspace/Delete по выбранному
+  // узлу) — открыть подтверждение со списком связей (как кнопка «Удалить» в
+  // модалке узла). Само удаление React Flow отключено (deleteKeyCode=null).
+  onRequestDeleteNode?: (node: AppNode) => void;
   // форма шаблона, который СЕЙЧАС перетаскивают из палитры (null — драга нет).
   // Нужна, чтобы во время dragover показать на схеме превью-рамку будущего узла:
   // dataTransfer.getData в dragover недоступен (только на drop), поэтому форму
@@ -1294,6 +1313,7 @@ function LevelGraphInner({
   onEdgeClick,
   onEdgesChoice,
   onDropNode,
+  onRequestDeleteNode,
   dragShape,
   mode = "level",
 }: LevelGraphProps) {
@@ -1392,6 +1412,30 @@ function LevelGraphInner({
       onNodesChange(snapped);
     },
     [rfNodes, onNodesChange],
+  );
+
+  // Удаление узла с клавиатуры. Встроенное удаление React Flow отключено
+  // (deleteKeyCode=null), иначе Backspace сносил бы узел и его связи прямо с
+  // канваса — без предупреждения и в обход модалки. Здесь по Backspace/Delete
+  // находим единственный выбранный локальный узел и просим открыть то же
+  // подтверждение со списком связей, что и кнопка «Удалить».
+  const handleKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "Backspace" && e.key !== "Delete") return;
+      if (isContext || !isArchitect || !onRequestDeleteNode) return;
+      // не перехватываем удаление, когда правят текст в поле
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+        return;
+      }
+      // действуем только при ровно одном выбранном узле; мульти/ноль — игнор,
+      // чтобы случайно не снести пачку
+      const selected = rfNodes.filter((n) => n.type === "block" && n.selected);
+      if (selected.length !== 1) return;
+      e.preventDefault();
+      onRequestDeleteNode((selected[0].data as BlockData).appNode);
+    },
+    [rfNodes, isArchitect, isContext, onRequestDeleteNode],
   );
 
   const handleReconnectStart = useCallback((_: MouseEvent, edge: RFEdge) => {
@@ -1670,6 +1714,7 @@ function LevelGraphInner({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onKeyDown={handleKeyDown}
     >
       <ReactFlow
         nodes={rfNodes}
@@ -1688,6 +1733,9 @@ function LevelGraphInner({
         reconnectRadius={20}
         connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{ stroke: "#6b7280", strokeWidth: 1.5 }}
+        // Своё удаление через подтверждение (handleKeyDown) — встроенное отключаем,
+        // иначе Backspace сносил бы узел и связи без предупреждения.
+        deleteKeyCode={null}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         nodesDraggable

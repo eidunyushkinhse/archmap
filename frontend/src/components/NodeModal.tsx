@@ -1,9 +1,10 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
-import type { Node, NodeCreate, NodeUpdate, NodeEdgeInfo, NodeShape } from "../types";
+import type { Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import MermaidRenderer from "./MermaidRenderer";
+import NodeDeleteConfirm from "./NodeDeleteConfirm";
 
 interface Props {
   node: Node | null;
@@ -40,9 +41,8 @@ export default function NodeModal({
   const [error, setError] = useState<string | null>(null);
   const [flowTab, setFlowTab] = useState<"edit" | "preview">("edit");
 
-  // Подтверждение удаления: null — закрыто; массив (возможно пустой) — открыто
-  const [deleteEdges, setDeleteEdges] = useState<NodeEdgeInfo[] | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // Открыто ли подтверждение удаления (связи и само удаление — в NodeDeleteConfirm)
+  const [confirming, setConfirming] = useState(false);
 
   async function handleSave() {
     if (!name.trim()) {
@@ -87,34 +87,6 @@ export default function NodeModal({
       setError(e instanceof Error ? e.message : "Ошибка сохранения");
     } finally {
       setSaving(false);
-    }
-  }
-
-  // Шаг 1: запрашиваем связи узла и открываем модалку подтверждения
-  async function requestDelete() {
-    if (!node) return;
-    setError(null);
-    try {
-      const edges = await nodesApi.getEdges(node.id);
-      setDeleteEdges(edges);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось получить связи узла");
-    }
-  }
-
-  // Шаг 2: подтверждённое удаление узла вместе со всеми связями
-  async function confirmDelete() {
-    if (!node) return;
-    setDeleting(true);
-    setError(null);
-    try {
-      await nodesApi.delete(node.id);
-      setDeleteEdges(null);
-      onDeleted?.(node.id);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Ошибка удаления");
-    } finally {
-      setDeleting(false);
     }
   }
 
@@ -257,7 +229,7 @@ export default function NodeModal({
                 <button onClick={() => setEditing(true)} style={primaryBtn}>
                   Редактировать
                 </button>
-                <button onClick={requestDelete} style={dangerBtn}>
+                <button onClick={() => setConfirming(true)} style={dangerBtn}>
                   Удалить
                 </button>
               </div>
@@ -266,46 +238,14 @@ export default function NodeModal({
         )}
       </div>
 
-      {/* Модалка подтверждения удаления со списком связей */}
-      {deleteEdges !== null && node && (
-        <div style={confirmOverlay}>
-          <div style={confirmModal}>
-            <h3 style={{ margin: "0 0 12px" }}>
-              Вы уверены, что хотите удалить «{node.name}»?
-            </h3>
-            {deleteEdges.length > 0 && (
-              <>
-                <p style={{ color: "#374151", margin: "0 0 8px" }}>
-                  Его связи будут удалены вместе с ним:
-                </p>
-                <ul style={edgeList}>
-                  {deleteEdges.map((e) => {
-                    const lbl = e.label || e.technology || "связь";
-                    const dir = e.direction === "outgoing" ? "к" : "от";
-                    return (
-                      <li key={e.id} style={{ marginBottom: 4 }}>
-                        «{lbl}» {dir} {e.other_node_name}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            )}
-            {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
-            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <button onClick={confirmDelete} disabled={deleting} style={dangerBtn}>
-                {deleting ? "Удаление..." : "Да, удалить"}
-              </button>
-              <button
-                onClick={() => setDeleteEdges(null)}
-                disabled={deleting}
-                style={secondaryBtn}
-              >
-                Нет
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Подтверждение удаления со списком связей — общий компонент (он же
+          открывается при удалении узла с канваса по Backspace) */}
+      {confirming && node && (
+        <NodeDeleteConfirm
+          node={node}
+          onCancel={() => setConfirming(false)}
+          onDeleted={(id) => { setConfirming(false); onDeleted?.(id); }}
+        />
       )}
     </div>
   );
@@ -319,31 +259,6 @@ const overlay: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   zIndex: 1000,
-};
-const confirmOverlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,.5)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1100, // выше основной модалки узла
-};
-const confirmModal: CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: 24,
-  width: 460,
-  maxHeight: "80vh",
-  overflowY: "auto",
-  boxShadow: "0 8px 32px rgba(0,0,0,.2)",
-};
-const edgeList: CSSProperties = {
-  margin: "0 0 4px",
-  paddingLeft: 20,
-  color: "#374151",
-  fontSize: 14,
-  lineHeight: 1.5,
 };
 const modal: CSSProperties = {
   background: "#fff",

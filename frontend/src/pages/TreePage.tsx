@@ -8,6 +8,7 @@ import SchemaAlerts from "../components/SchemaAlerts";
 import EdgeDetailModal from "../components/EdgeDetailModal";
 import EdgeChoiceModal from "../components/EdgeChoiceModal";
 import NodeModal from "../components/NodeModal";
+import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodeContextModal from "../components/NodeContextModal";
 import LevelGraph from "../components/LevelGraph";
 import NodeTreePanel, { NODE_DRAG_MIME } from "../components/NodeTreePanel";
@@ -40,6 +41,8 @@ export default function TreePage({ onLogout }: Props) {
   const [edgeChoice, setEdgeChoice] = useState<Edge[] | null>(null);
   // узел, для которого открыта контекстная схема (клик по дереву слева)
   const [contextNode, setContextNode] = useState<Node | null>(null);
+  // узел, который удаляют с канваса по Backspace/Delete → подтверждение со связями
+  const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   // форма шаблона, который сейчас тянут из палитры (null — драга нет). Прокидываем
   // в LevelGraph, чтобы он рисовал превью-рамку будущего узла под курсором.
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
@@ -265,6 +268,7 @@ export default function TreePage({ onLogout }: Props) {
               onEdgeClick={(edge) => setEdgeDetailModal(edge)}
               onEdgesChoice={(group) => setEdgeChoice(group)}
               onDropNode={handleDropNode}
+              onRequestDeleteNode={setPendingDelete}
               dragShape={dragShape}
             />
           )}
@@ -280,6 +284,15 @@ export default function TreePage({ onLogout }: Props) {
           onClose={() => setNodeModal({ open: false, node: null })}
           onSaved={handleNodeSaved}
           onDeleted={handleNodeDeleted}
+        />
+      )}
+      {/* Подтверждение удаления узла, инициированное с канваса (Backspace/Delete) —
+          то же предупреждение со списком связей, что и из модалки узла */}
+      {pendingDelete && (
+        <NodeDeleteConfirm
+          node={pendingDelete}
+          onCancel={() => setPendingDelete(null)}
+          onDeleted={(id) => { setPendingDelete(null); handleNodeDeleted(id); }}
         />
       )}
       {edgeCreateModal && (
