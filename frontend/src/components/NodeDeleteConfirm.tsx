@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node, NodeEdgeInfo } from "../types";
 import { nodesApi } from "../api/nodes";
 
 /**
- * Модалка подтверждения удаления узла со списком его связей. Единый источник
- * предупреждения: используется и из NodeModal (кнопка «Удалить»), и при удалении
- * узла прямо с канваса по Backspace/Delete — чтобы архитектор в любом случае
- * увидел, какие связи исчезнут вместе с узлом, и не снёс его случайно.
- * Связи узла подгружаются сами при открытии.
+ * Подтверждение удаления узла со списком связей, которые исчезнут. Единый
+ * источник предупреждения: используется и из NodeModal (кнопка «Удалить»), и при
+ * удалении узла с канваса по Backspace/Delete.
+ *
+ * Связи (внешние связи всего поддерева — узел + потомки) подгружаются при
+ * открытии. Если терять нечего — узел без внешних связей И без детей — удаляем
+ * сразу, без модалки (показывать нечего, лишнее подтверждение не нужно). Пока
+ * связи грузятся, компонент ничего не рисует, чтобы модалка не мелькала.
  */
 
 interface Props {
@@ -22,21 +25,7 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Тянем связи узла при открытии — покажем их в предупреждении
-  useEffect(() => {
-    let alive = true;
-    nodesApi
-      .getEdges(node.id)
-      .then((es) => { if (alive) setEdges(es); })
-      .catch((e: unknown) => {
-        if (alive) {
-          setError(e instanceof Error ? e.message : "Не удалось получить связи узла");
-        }
-      });
-    return () => { alive = false; };
-  }, [node.id]);
-
-  async function confirmDelete() {
+  const confirmDelete = useCallback(async () => {
     setDeleting(true);
     setError(null);
     try {
@@ -46,7 +35,33 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
       setError(e instanceof Error ? e.message : "Ошибка удаления");
       setDeleting(false);
     }
-  }
+  }, [node.id, onDeleted]);
+
+  // Тянем внешние связи поддерева. Если их нет и у узла нет детей — удаляем сразу,
+  // без подтверждения; иначе показываем модалку со списком связей.
+  useEffect(() => {
+    let alive = true;
+    nodesApi
+      .getEdges(node.id)
+      .then((es) => {
+        if (!alive) return;
+        if (es.length === 0 && !node.has_children) {
+          void confirmDelete();
+        } else {
+          setEdges(es);
+        }
+      })
+      .catch((e: unknown) => {
+        if (alive) {
+          setError(e instanceof Error ? e.message : "Не удалось получить связи узла");
+        }
+      });
+    return () => { alive = false; };
+  }, [node.id, node.has_children, confirmDelete]);
+
+  // Пока грузим связи или сразу удаляем узел без связей — ничего не показываем
+  // (модалка не должна мелькать на узлах, которые удаляются без подтверждения).
+  if (edges === null && !error) return null;
 
   return (
     <div style={confirmOverlay}>
@@ -54,12 +69,12 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
         <h3 style={{ margin: "0 0 12px" }}>
           Вы уверены, что хотите удалить «{node.name}»?
         </h3>
-        {edges === null && !error ? (
-          <p style={{ color: "#6b7280", margin: "0 0 8px" }}>Загрузка связей…</p>
-        ) : edges && edges.length > 0 ? (
+        {edges && edges.length > 0 && (
           <>
             <p style={{ color: "#374151", margin: "0 0 8px" }}>
-              Его связи будут удалены вместе с ним:
+              {node.has_children
+                ? "Узел и его дочерние узлы будут удалены. Вместе с ними удалятся связи:"
+                : "Его связи будут удалены вместе с ним:"}
             </p>
             <ul style={edgeList}>
               {edges.map((e) => {
@@ -73,12 +88,19 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
               })}
             </ul>
           </>
-        ) : null}
+        )}
+        {/* Контейнер без внешних связей: связей не покажем, но удаление поддерева
+            всё равно подтверждаем */}
+        {node.has_children && edges && edges.length === 0 && (
+          <p style={{ color: "#374151", margin: "0 0 8px" }}>
+            Узел и все его дочерние узлы будут удалены.
+          </p>
+        )}
         {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           <button
             onClick={confirmDelete}
-            disabled={deleting || edges === null}
+            disabled={deleting}
             style={dangerBtn}
           >
             {deleting ? "Удаление..." : "Да, удалить"}

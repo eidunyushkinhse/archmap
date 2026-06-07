@@ -46,6 +46,26 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
         n.has_children = n.id in parents_with_children
 
 
+def _collect_subtree_ids(db: Session, root_id: uuid.UUID) -> set[uuid.UUID]:
+    """id всего поддерева: сам узел + все потомки на любой глубине.
+    Обход по уровням через parent_id (один запрос на уровень)."""
+    ids: set[uuid.UUID] = {root_id}
+    frontier = [root_id]
+    while frontier:
+        kids = [
+            kid
+            for (kid,) in db.query(Node.id)
+            .filter(Node.parent_id.in_(frontier))
+            .all()
+        ]
+        kids = [k for k in kids if k not in ids]
+        if not kids:
+            break
+        ids.update(kids)
+        frontier = kids
+    return ids
+
+
 def _build_graph(
     local_nodes: list[Node],
     container_id: uuid.UUID | None,
@@ -324,12 +344,16 @@ def delete_node(
     node = db.get(Node, node_id)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
-    # Удаляем все связи узла (входящие и исходящие) вместе с ним. Без этого
-    # SQLAlchemy пытается занулить target_id входящих рёбер (NOT NULL) → ошибка.
+    # Удаляем узел вместе со всем поддеревом (дочерние узлы любой глубины) и
+    # всеми их связями. Через ORM (db.delete) каскад на children пытается занулить
+    # target_id входящих рёбер детей (incoming_edges без каскада, target_id NOT NULL)
+    # → IntegrityError. Поэтому сносим bulk-запросами: сперва все рёбра, у которых
+    # любой конец в поддереве, затем сами узлы поддерева.
+    ids = _collect_subtree_ids(db, node_id)
     db.query(Edge).filter(
-        (Edge.source_id == node_id) | (Edge.target_id == node_id)
+        Edge.source_id.in_(ids) | Edge.target_id.in_(ids)
     ).delete(synchronize_session=False)
-    db.delete(node)
+    db.query(Node).filter(Node.id.in_(ids)).delete(synchronize_session=False)
     db.commit()
 
 
@@ -353,22 +377,31 @@ def get_node_edges(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> list[NodeEdgeInfo]:
-    """Связи узла (входящие и исходящие) с именами связанных узлов —
-    для предупреждения перед удалением узла."""
+    """Внешние связи поддерева узла (он сам + потомки любой глубины) — те, что
+    исчезнут при удалении узла: ровно один конец внутри поддерева, другой снаружи.
+    Для предупреждения перед удалением. Чисто внутренние связи ветки не включаем —
+    они уходят вместе с самой веткой и «потерей связи наружу» не являются.
+    Направление/имя соседа считаются относительно поддерева (внешний конец)."""
     node = db.get(Node, node_id)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
 
+    subtree = _collect_subtree_ids(db, node_id)
     edges = (
         db.query(Edge)
-        .filter((Edge.source_id == node_id) | (Edge.target_id == node_id))
+        .filter(Edge.source_id.in_(subtree) | Edge.target_id.in_(subtree))
         .all()
     )
     names = {n.id: n.name for n in db.query(Node).all()}
 
     result: list[NodeEdgeInfo] = []
     for e in edges:
-        outgoing = e.source_id == node_id
+        s_in = e.source_id in subtree
+        t_in = e.target_id in subtree
+        if s_in == t_in:
+            # Оба конца внутри поддерева (внутренняя связь) — не показываем
+            continue
+        outgoing = s_in  # источник в поддереве → связь уходит наружу
         other_id = e.target_id if outgoing else e.source_id
         result.append(
             NodeEdgeInfo(
