@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { Edge, GhostNode, Node, NodeShape } from "../types";
+import type { Edge, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
 import EdgeModal from "../components/EdgeModal";
+import SchemaAlerts from "../components/SchemaAlerts";
 import EdgeDetailModal from "../components/EdgeDetailModal";
 import EdgeChoiceModal from "../components/EdgeChoiceModal";
 import NodeModal from "../components/NodeModal";
@@ -42,6 +43,11 @@ export default function TreePage({ onLogout }: Props) {
   // форма шаблона, который сейчас тянут из палитры (null — драга нет). Прокидываем
   // в LevelGraph, чтобы он рисовал превью-рамку будущего узла под курсором.
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
+  // Глобальные алерты незавершённости схемы (только для архитектора)
+  const [alerts, setAlerts] = useState<Alerts>({
+    disconnected_nodes: [],
+    intermediate_edges: [],
+  });
 
   const isArchitect = getUserRole() === "architect";
   const currentParent =
@@ -68,6 +74,19 @@ export default function TreePage({ onLogout }: Props) {
       );
     } finally {
       setLoading(false);
+    }
+    // Алерты глобальные — обновляем при каждой перезагрузке уровня (после правок
+    // узлов/связей и навигации). Fire-and-forget: индикатор не блокирует граф.
+    void loadAlerts();
+  }
+
+  // Алерты считаются на бэке по всей схеме; viewer'у эндпоинт недоступен.
+  async function loadAlerts() {
+    if (!isArchitect) return;
+    try {
+      setAlerts(await nodesApi.getAlerts());
+    } catch {
+      // вспомогательный индикатор — ошибку молча гасим, граф важнее
     }
   }
 
@@ -106,6 +125,9 @@ export default function TreePage({ onLogout }: Props) {
         : [...prev, saved]
     );
     setNodeModal({ open: false, node: null });
+    // Этот обработчик не перезагружает уровень (правит локальный стейт) —
+    // алерты обновляем явно: добавленный/изменённый узел мог стать «подвисшим».
+    void loadAlerts();
   }
 
   function handleNodeDeleted(_id: string) {
@@ -213,6 +235,8 @@ export default function TreePage({ onLogout }: Props) {
 
         {/* Область графа — заполняет оставшееся пространство */}
         <div style={graphArea}>
+          {/* Индикатор незавершённости схемы (только архитектор) */}
+          {isArchitect && <SchemaAlerts alerts={alerts} />}
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
           ) : !hasNodes ? (
@@ -334,6 +358,7 @@ const graphArea: CSSProperties = {
   padding: "16px 20px 20px",
   display: "flex",
   flexDirection: "column",
+  position: "relative", // якорь для абсолютного индикатора алертов
 };
 const emptyDrop: CSSProperties = {
   flex: 1,

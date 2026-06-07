@@ -11,11 +11,14 @@ from app.models.ghost_position import GhostPosition
 from app.models.node import Node
 from app.models.user import User
 from app.schemas.node import (
+    AlertsResponse,
     AncestorRef,
+    DisconnectedNodeAlert,
     GraphEdgeResponse,
     GraphResponse,
     GhostNodeResponse,
     GhostPositionUpdate,
+    IntermediateEdgeAlert,
     NodeContextResponse,
     NodeCreate,
     NodeEdgeInfo,
@@ -217,6 +220,68 @@ def get_root_graph(
     all_nodes = {n.id: n for n in db.query(Node).all()}
     all_edges = db.query(Edge).all()
     return _build_graph(local_nodes, None, all_nodes, all_edges, db)
+
+
+# Должен быть объявлен до /{node_id}, иначе FastAPI примет "alerts" за node_id
+@router.get("/alerts", response_model=AlertsResponse)
+def get_alerts(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_architect),
+) -> AlertsResponse:
+    """Глобальные алерты незавершённости схемы (только архитектор):
+    1) атомарные (листовые) узлы без единой связи — «подвисшие»;
+    2) связи, у которых хотя бы один конец упирается в промежуточный
+       (контейнерный) узел, а не в атомарный.
+    Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
+    (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
+    """
+    all_nodes = db.query(Node).all()
+    all_edges = db.query(Edge).all()
+    name_by_id = {n.id: n.name for n in all_nodes}
+
+    # Промежуточные узлы = те, что являются чьим-то родителем (есть дети)
+    intermediate_ids = {
+        pid
+        for (pid,) in db.query(Node.parent_id)
+        .filter(Node.parent_id.isnot(None))
+        .distinct()
+        .all()
+    }
+
+    # Узлы, у которых есть хоть одна связь (по сырым концам рёбер)
+    connected_ids: set[uuid.UUID] = set()
+    for e in all_edges:
+        connected_ids.add(e.source_id)
+        connected_ids.add(e.target_id)
+
+    disconnected = [
+        DisconnectedNodeAlert(node_id=n.id, node_name=n.name)
+        for n in all_nodes
+        if n.id not in intermediate_ids and n.id not in connected_ids
+    ]
+
+    intermediate_edges: list[IntermediateEdgeAlert] = []
+    for e in all_edges:
+        src_inter = e.source_id in intermediate_ids
+        tgt_inter = e.target_id in intermediate_ids
+        if src_inter or tgt_inter:
+            intermediate_edges.append(
+                IntermediateEdgeAlert(
+                    edge_id=e.id,
+                    label=e.label,
+                    source_id=e.source_id,
+                    source_name=name_by_id.get(e.source_id, "?"),
+                    target_id=e.target_id,
+                    target_name=name_by_id.get(e.target_id, "?"),
+                    source_is_intermediate=src_inter,
+                    target_is_intermediate=tgt_inter,
+                )
+            )
+
+    return AlertsResponse(
+        disconnected_nodes=disconnected,
+        intermediate_edges=intermediate_edges,
+    )
 
 
 @router.get("/{node_id}", response_model=NodeResponse)

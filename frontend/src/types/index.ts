@@ -131,6 +131,28 @@ export interface NodeEdgeInfo {
   other_node_name: string;
 }
 
+// Алерты незавершённости схемы (глобальные, видны только архитектору)
+export interface DisconnectedNodeAlert {
+  node_id: string;
+  node_name: string;
+}
+
+export interface IntermediateEdgeAlert {
+  edge_id: string;
+  label: string | null;
+  source_id: string;
+  source_name: string;
+  target_id: string;
+  target_name: string;
+  source_is_intermediate: boolean;
+  target_is_intermediate: boolean;
+}
+
+export interface SchemaAlerts {
+  disconnected_nodes: DisconnectedNodeAlert[];
+  intermediate_edges: IntermediateEdgeAlert[];
+}
+
 export interface Token {
   access_token: string;
   token_type: string;

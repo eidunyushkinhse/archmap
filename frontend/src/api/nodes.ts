@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Edge, EdgeCreate, EdgeUpdate, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate } from "../types";
+import type { Edge, EdgeCreate, EdgeUpdate, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -22,6 +22,9 @@ export const nodesApi = {
   // Контекстная схема узла: фокус + прямые соседи + спроецированные рёбра
   getContext: (id: string): Promise<NodeContext> =>
     api.get<NodeContext>(`/nodes/${id}/context`),
+  // Глобальные алерты незавершённости схемы (только архитектор)
+  getAlerts: (): Promise<SchemaAlerts> =>
+    api.get<SchemaAlerts>(`/nodes/alerts`),
   create: (data: NodeCreate): Promise<Node> => api.post<Node>("/nodes/", data),
   update: (id: string, data: NodeUpdate): Promise<Node> =>
     api.patch<Node>(`/nodes/${id}`, data),

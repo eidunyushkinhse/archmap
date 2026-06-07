@@ -128,3 +128,30 @@ class NodeEdgeInfo(BaseModel):
     direction: str
     other_node_id: uuid.UUID
     other_node_name: str
+
+
+# --- Алерты незавершённости схемы (глобальные, только для архитектора) ---
+
+class DisconnectedNodeAlert(BaseModel):
+    """Атомарный узел без единой связи («подвисший»)."""
+    node_id: uuid.UUID
+    node_name: str
+
+
+class IntermediateEdgeAlert(BaseModel):
+    """Связь, у которой хотя бы один конец упирается в промежуточный
+    (контейнерный) узел, а не в атомарный."""
+    edge_id: uuid.UUID
+    label: str | None
+    source_id: uuid.UUID
+    source_name: str
+    target_id: uuid.UUID
+    target_name: str
+    # какой из концов является промежуточным узлом
+    source_is_intermediate: bool
+    target_is_intermediate: bool
+
+
+class AlertsResponse(BaseModel):
+    disconnected_nodes: list[DisconnectedNodeAlert] = []
+    intermediate_edges: list[IntermediateEdgeAlert] = []
