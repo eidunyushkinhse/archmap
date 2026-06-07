@@ -1295,6 +1295,9 @@ interface LevelGraphProps {
   onEdgeClick: (edge: AppEdge) => void;
   // клик по «мастер-стрелке» (несколько слитых связей) — выбор нужной
   onEdgesChoice: (edges: AppEdge[]) => void;
+  // reconnect сохранил новые хэндлы конца стрелки — родитель синхронизирует
+  // стейт edges, чтобы пересчёт раскладки не откатывал их к autoHandles
+  onEdgeHandlesChanged?: (edgeId: string, sourceHandle: string, targetHandle: string) => void;
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
@@ -1326,6 +1329,7 @@ function LevelGraphInner({
   onEditNode,
   onEdgeClick,
   onEdgesChoice,
+  onEdgeHandlesChanged,
   onDropNode,
   onRequestDeleteNode,
   dragShape,
@@ -1499,9 +1503,14 @@ function LevelGraphInner({
             nodesApi.saveGhostEdgeHandle(containerId, oldEdge.id, ghostHandles);
           }
         }
+
+        // Синхронизируем стейт edges в родителе теми же эффективными хэндлами —
+        // иначе пересчёт раскладки (сворачивание/разворачивание контейнеров без
+        // рефетча) откатил бы привязку к autoHandles из устаревших данных.
+        onEdgeHandlesChanged?.(oldEdge.id, newConn.sourceHandle, newConn.targetHandle);
       }
     },
-    [isArchitect, nodes, containerId],
+    [isArchitect, nodes, containerId, onEdgeHandlesChanged],
   );
 
   const handleReconnectEnd = useCallback(() => {

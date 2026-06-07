@@ -147,6 +147,24 @@ export default function TreePage({ onLogout }: Props) {
     load(currentParentId);
   }
 
+  // Reconnect в LevelGraph сохранил новые хэндлы (в БД и в локальные rfEdges).
+  // Синхронизируем стейт edges, чтобы пересчёт раскладки (сворачивание/разворачивание
+  // контейнеров) не откатывал привязку к autoHandles из устаревших данных.
+  // Значения те же, что вернул бы рефетч графа (эффективные, per-level).
+  function updateEdgeHandles(
+    edgeId: string,
+    sourceHandle: string,
+    targetHandle: string,
+  ) {
+    setEdges((prev) =>
+      prev.map((e) =>
+        e.id === edgeId
+          ? { ...e, source_handle: sourceHandle, target_handle: targetHandle }
+          : e,
+      ),
+    );
+  }
+
   function handleEdgeDeleted(_id: string) {
     setEdgeDetailModal(null);
     load(currentParentId);
@@ -275,6 +293,7 @@ export default function TreePage({ onLogout }: Props) {
               onEditNode={(node) => setNodeModal({ open: true, node })}
               onEdgeClick={(edge) => setEdgeDetailModal(edge)}
               onEdgesChoice={(group) => setEdgeChoice(group)}
+              onEdgeHandlesChanged={updateEdgeHandles}
               onDropNode={handleDropNode}
               onRequestDeleteNode={setPendingDelete}
               dragShape={dragShape}
