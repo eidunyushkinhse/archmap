@@ -101,6 +101,24 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
+// Иконка корзины для оверлея отмены драга. Красная при наведении (drop = отмена).
+function TrashIcon({ active }: { active: boolean }) {
+  const c = active ? "#dc2626" : "#94a3b8";
+  return (
+    <svg
+      width="56" height="56" viewBox="0 0 24 24" fill="none"
+      stroke={c} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"
+      style={{ transition: "stroke 0.12s ease" }}
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
 // Сворачиваемая секция аккордеона. ВАЖНО: объявлена на уровне модуля, а не внутри
 // NodeTreePanel. Если объявлять внутри, у компонента на каждый рендер новая
 // идентичность функции → React размонтирует и заново монтирует всё поддерево
@@ -136,6 +154,10 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
   // показываем их как листья, чтобы шеврон не раскрывался в пустоту
   const [leaves, setLeaves] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState(false); // свёрнута ли вся панель
+  // идёт ли перетаскивание шаблона из палитры → панель закрывается «корзиной»
+  const [dragging, setDragging] = useState(false);
+  // курсор над «корзиной» (drop здесь = отмена) → подсветка активного состояния
+  const [trashActive, setTrashActive] = useState(false);
   // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(["tree", "add"]),
@@ -257,9 +279,32 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     // Прячем стандартный drag-image (снимок плитки) — превью рисует схема.
     if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0);
     onTemplateDrag?.(shape);
+    setDragging(true);
   }
   function onTemplateDragEnd() {
     onTemplateDrag?.(null);
+    setDragging(false);
+    setTrashActive(false);
+  }
+
+  // «Корзина» поверх панели во время драга шаблона. preventDefault на dragover
+  // делает панель валидной зоной дропа → курсор перестаёт быть «запретным» красным
+  // кругом над панелью. Дроп здесь ничего не создаёт (onDropNode зовётся только из
+  // LevelGraph) — узел просто не сохраняется.
+  function onTrashDragOver(e: DragEvent) {
+    if (!e.dataTransfer.types.includes(NODE_DRAG_MIME)) return;
+    e.preventDefault();
+    // dropEffect должен быть совместим с effectAllowed="copy", иначе вернётся
+    // «запретный» курсор; "copy" даёт обычный курсор-плюс, не красный круг.
+    e.dataTransfer.dropEffect = "copy";
+    if (!trashActive) setTrashActive(true);
+  }
+  function onTrashDragLeave() {
+    setTrashActive(false);
+  }
+  function onTrashDrop(e: DragEvent) {
+    e.preventDefault(); // гасим драг над панелью — узел не создаётся
+    setTrashActive(false);
   }
 
   return (
@@ -303,6 +348,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
               {NODE_TEMPLATES.map((t) => (
                 <div
                   key={t.shape}
+                  className="template-card"
                   draggable
                   onDragStart={(e) => onTemplateDragStart(e, t.shape)}
                   onDragEnd={onTemplateDragEnd}
@@ -326,6 +372,29 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
           <div style={stub}>Раздел в разработке</div>
         </Section>
       </div>
+
+      {/* «Корзина» — серая плитка поверх всей панели на время драга шаблона. Рисуется
+          СВЕРХУ (а не заменой контента), чтобы источник драга остался смонтированным:
+          размонтирование плитки-источника во время нативного drag отменяет драг. */}
+      {dragging && (
+        <div
+          style={{ ...trashOverlay, ...(trashActive ? trashOverlayActive : null) }}
+          onDragOver={onTrashDragOver}
+          onDragLeave={onTrashDragLeave}
+          onDrop={onTrashDrop}
+        >
+          {/* pointerEvents:none на содержимом — dragenter/leave ловит только сам
+              оверлей, без дёрганья подсветки при наведении на иконку/текст */}
+          <div style={trashInner}>
+            <TrashIcon active={trashActive} />
+            <span style={{ ...trashHint, ...(trashActive ? trashHintActive : null) }}>
+              {trashActive
+                ? "Узел не будет добавлен"
+                : "Отпустите здесь, чтобы отменить"}
+            </span>
+          </div>
+        </div>
+      )}
 
       <button
         onClick={() => setCollapsed((c) => !c)}
@@ -490,8 +559,43 @@ const templateCard: CSSProperties = {
   background: "#fff",
   border: "1px solid #e5e7eb",
   borderRadius: 8,
-  cursor: "grab",
+  // cursor задаётся через класс .template-card (нужен :active → grabbing «схватил»)
   userSelect: "none",
+};
+// Оверлей-«корзина» поверх всей панели на время драга шаблона
+const trashOverlay: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  zIndex: 5,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "#eceef1",
+  border: "2px dashed #cbd5e1",
+  transition: "background 0.12s ease, border-color 0.12s ease",
+};
+// Активное состояние (курсор над корзиной) — красноватый акцент «удаления»
+const trashOverlayActive: CSSProperties = {
+  background: "#fde8e8",
+  borderColor: "#ef4444",
+};
+const trashInner: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 12,
+  pointerEvents: "none",
+};
+const trashHint: CSSProperties = {
+  fontSize: 12,
+  color: "#94a3b8",
+  textAlign: "center",
+  maxWidth: 180,
+  transition: "color 0.12s ease",
+};
+const trashHintActive: CSSProperties = {
+  color: "#dc2626",
+  fontWeight: 600,
 };
 const templateLabel: CSSProperties = {
   fontSize: 12,

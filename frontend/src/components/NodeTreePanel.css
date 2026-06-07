@@ -44,3 +44,12 @@
 .tree-leaf-btn:active {
   background: #e5e7eb;
 }
+
+/* Карточка-шаблон в палитре «Добавить узел». Курсор: раскрытая рука по умолчанию,
+   «схватившая» (закрытая) при зажатии — :active нельзя задать инлайн-стилем. */
+.template-card {
+  cursor: grab;
+}
+.template-card:active {
+  cursor: grabbing;
+}
