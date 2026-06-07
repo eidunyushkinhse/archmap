@@ -110,6 +110,9 @@ export interface GraphResponse {
   nodes: Node[];
   edges: GraphEdge[];
   ghost_nodes: GhostNode[];
+  // Сохранённые координаты гостей на уровне, ключ — id ОТОБРАЖАЕМОЙ сущности
+  // (лист-гость ИЛИ предок-контейнер, в который гость свёрнут).
+  level_positions: Record<string, { pos_x: number; pos_y: number }>;
 }
 
 // Контекстная схема узла: сам узел + его прямые соседи (другой конец связей,

@@ -23,6 +23,7 @@ from app.schemas.node import (
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
+    PosXY,
     NodeUpdate,
 )
 
@@ -150,20 +151,39 @@ def _build_graph(
 
     # Сохранённые координаты гостей на этом уровне + уборка мусора.
     # Гости бывают только на не-корневых уровнях (container_id не None).
+    #
+    # Гость может рисоваться не сам по себе, а свёрнутым в предка-контейнер
+    # (напр. сосед Account Synchronizer показывается как контейнер User Management).
+    # Контейнером служит любой предок гостя НИЖЕ общей с уровнем рамки, а какой
+    # именно — зависит от expand/collapse-состояния, известного только фронту.
+    # Поэтому валидным ключом позиции считаем сам id гостя ИЛИ id любого такого
+    # предка-кандидата. Общую рамку отсекаем по цепочке предков самого уровня.
+    level_positions: dict[str, PosXY] = {}
     saved_pos: dict[uuid.UUID, GhostPosition] = {}
     if container_id is not None:
+        breadcrumb_ids = {a.id for a in ancestors(container_id)} | {container_id}
+        valid_keys: set[uuid.UUID] = set(ghost_ids)
+        for gid in ghost_ids:
+            for a in ancestors(gid):
+                if a.id not in breadcrumb_ids:
+                    valid_keys.add(a.id)
+
         rows = (
             db.query(GhostPosition)
             .filter(GhostPosition.container_id == container_id)
             .all()
         )
-        stale = [r for r in rows if r.node_id not in ghost_ids]
+        stale = [r for r in rows if r.node_id not in valid_keys]
         # Проекция гостя на этот уровень исчезла — стираем его метаданные здесь
         for r in stale:
             db.delete(r)
         if stale:
             db.commit()
-        saved_pos = {r.node_id: r for r in rows if r.node_id in ghost_ids}
+        for r in rows:
+            if r.node_id in valid_keys:
+                level_positions[str(r.node_id)] = PosXY(pos_x=r.pos_x, pos_y=r.pos_y)
+                if r.node_id in ghost_ids:
+                    saved_pos[r.node_id] = r
 
     ghost_nodes = [
         GhostNodeResponse(
@@ -182,7 +202,12 @@ def _build_graph(
         if gid in all_nodes
     ]
     _mark_has_children(db, local_nodes)
-    return GraphResponse(nodes=local_nodes, edges=result_edges, ghost_nodes=ghost_nodes)
+    return GraphResponse(
+        nodes=local_nodes,
+        edges=result_edges,
+        ghost_nodes=ghost_nodes,
+        level_positions=level_positions,
+    )
 
 
 @router.get("/", response_model=list[NodeResponse])

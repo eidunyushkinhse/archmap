@@ -20,6 +20,11 @@ interface Props {
 export default function TreePage({ onLogout }: Props) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [ghostNodes, setGhostNodes] = useState<GhostNode[]>([]);
+  // сохранённые координаты гостей на уровне (ключ — id отображаемой сущности:
+  // лист-гость или предок-контейнер, в который гость свёрнут)
+  const [levelPositions, setLevelPositions] = useState<
+    Record<string, { pos_x: number; pos_y: number }>
+  >({});
   const [edges, setEdges] = useState<Edge[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,6 +68,7 @@ export default function TreePage({ onLogout }: Props) {
       const graph = await nodesApi.getGraph(parentId);
       setNodes(graph.nodes);
       setGhostNodes(graph.ghost_nodes);
+      setLevelPositions(graph.level_positions);
       setEdges(
         graph.edges.map((ge) => ({
           id: ge.id,
@@ -257,6 +263,7 @@ export default function TreePage({ onLogout }: Props) {
             <LevelGraph
               nodes={nodes}
               ghostNodes={ghostNodes}
+              levelPositions={levelPositions}
               edges={edges}
               depth={breadcrumb.length}
               containerId={currentParentId}

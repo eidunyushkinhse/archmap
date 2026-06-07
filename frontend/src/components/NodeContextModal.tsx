@@ -81,6 +81,7 @@ export default function NodeContextModal({ node, onClose }: Props) {
             <LevelGraph
               nodes={[ctx.focus]}
               ghostNodes={ctx.neighbors}
+              levelPositions={{}}
               edges={edges}
               depth={ctx.focus_ancestors.length}
               containerId={ctx.focus.parent_id}

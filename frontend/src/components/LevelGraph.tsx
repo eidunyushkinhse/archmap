@@ -1267,6 +1267,9 @@ function AlignmentGuides({ x, y }: { x: number | null; y: number | null }) {
 interface LevelGraphProps {
   nodes: AppNode[];
   ghostNodes: GhostNode[];
+  // сохранённые координаты гостей на уровне, ключ — id отображаемой сущности
+  // (лист-гость ИЛИ предок-контейнер, в который гость свёрнут)
+  levelPositions: Record<string, { pos_x: number; pos_y: number }>;
   edges: AppEdge[];
   depth: number;
   /** id узла-контейнера текущего уровня (null — корень) */
@@ -1302,6 +1305,7 @@ interface LevelGraphProps {
 function LevelGraphInner({
   nodes,
   ghostNodes,
+  levelPositions,
   edges,
   depth,
   containerId,
@@ -1372,8 +1376,9 @@ function LevelGraphInner({
       if (rfNode.type === "block") {
         // Локальный узел — координаты в самом узле
         nodesApi.update(rfNode.id, pos);
-      } else if (rfNode.type === "ghost" && containerId) {
-        // Гость — координаты привязаны к уровню (containerId + id узла)
+      } else if ((rfNode.type === "ghost" || rfNode.type === "container") && containerId) {
+        // Гость (лист) или свёрнутый предок-контейнер — координаты привязаны к
+        // уровню (containerId + id отображаемой сущности = rfNode.id)
         nodesApi.saveGhostPosition(containerId, rfNode.id, pos);
       }
     },
@@ -1496,13 +1501,16 @@ function LevelGraphInner({
             ? { x: n.pos_x, y: n.pos_y }
             : null,
       })),
-      ...entities.map((ent) => ({
-        id: ent.id,
-        savedPos:
-          !isContext && ent.kind === "leaf" && ent.ghost.pos_x != null && ent.ghost.pos_y != null
-            ? { x: ent.ghost.pos_x, y: ent.ghost.pos_y }
-            : null,
-      })),
+      // Позиция гостя берётся по id ОТОБРАЖАЕМОЙ сущности (лист-гость ИЛИ
+      // предок-контейнер, в который гость свёрнут) — иначе свёрнутый контейнер
+      // (напр. User Management) каждый раз падал на дефолтную dagre-позицию.
+      ...entities.map((ent) => {
+        const saved = !isContext ? levelPositions[ent.id] : undefined;
+        return {
+          id: ent.id,
+          savedPos: saved ? { x: saved.pos_x, y: saved.pos_y } : null,
+        };
+      }),
     ];
 
     const displayedIds = new Set<string>([...nodes.map((n) => n.id), ...entities.map((e) => e.id)]);
@@ -1648,7 +1656,7 @@ function LevelGraphInner({
       })
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, ghostNodes, edges, isArchitect, depth, expanded, ancestorIds.join("|")]);
+  }, [nodes, ghostNodes, levelPositions, edges, isArchitect, depth, expanded, ancestorIds.join("|")]);
 
   // Перетаскивание шаблона узла из боковой палитры на схему. dragOver с
   // preventDefault разрешает дроп; на drop читаем форму из dataTransfer, переводим

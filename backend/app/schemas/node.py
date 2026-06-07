@@ -100,10 +100,20 @@ class GraphEdgeResponse(BaseModel):
     target_handle: str | None
 
 
+class PosXY(BaseModel):
+    pos_x: float
+    pos_y: float
+
+
 class GraphResponse(BaseModel):
     nodes: list[NodeResponse]
     edges: list[GraphEdgeResponse]
     ghost_nodes: list[GhostNodeResponse]
+    # Сохранённые координаты гостей на этом уровне, ключ — id ОТОБРАЖАЕМОЙ сущности
+    # (id самого гостя-листа ИЛИ id предка-контейнера, в который гость свёрнут).
+    # Фронт expand/collapse-состояние знает только он, поэтому сюда кладём позиции
+    # для всех возможных проекций (гость + его предки ниже общей с уровнем рамки).
+    level_positions: dict[str, PosXY] = {}
 
 
 class NodeContextResponse(BaseModel):
