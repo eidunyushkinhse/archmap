@@ -30,11 +30,23 @@ archmap/
 └── CLAUDE.md
 
 Команды
+- Поднять весь сервис:  ./dev.sh         (бэк+фронт+миграции одной командой)
+- Остановить:           ./stop.sh        (или Ctrl+C в терминале с dev.sh)
 - Запуск фронта:       cd frontend && npm run dev
 - Запуск бэкенда:      cd backend && uvicorn app.main:app --reload
 - Миграции (создать):  cd backend && alembic revision --autogenerate -m "название"
 - Миграции (применить):cd backend && alembic upgrade head
 - Тесты бэкенда:       cd backend && pytest
+
+Запуск сервиса (ВАЖНО)
+- Поднимать сервис ТОЛЬКО через ./dev.sh — НЕ запускать uvicorn/vite вслепую
+  вручную. Скрипт сам проверяет Postgres, создаёт БД, накатывает миграции,
+  ставит зависимости и поднимает оба процесса согласованно. Подробности и
+  ручной режим — в DEV.md.
+- Claude запускает его как фоновую задачу (run_in_background) — так процесс
+  переживает teardown харнесса; старый костыль с setsid больше не нужен.
+- Останавливать через ./stop.sh. Если порт занят — сначала ./stop.sh, потом
+  ./dev.sh; либо другие порты: BACKEND_PORT=8001 FRONTEND_PORT=5174 ./dev.sh.
 
 Git
 - Проект под git с 2026-06-07, ветка main. Remote пока НЕТ — на GitHub
