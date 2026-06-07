@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "python-lsp": {
+      "command": "/home/eidunyushkin/project/.claude/mcp-servers/python-lsp/venv/bin/python",
+      "args": ["/home/eidunyushkin/project/.claude/mcp-servers/python-lsp/server.py"],
+      "env": {
+        "PROJECT_ROOT": "/home/eidunyushkin/project/backend"
+      }
+    },
+    "typescript-lsp": {
+      "command": "node",
+      "args": ["/home/eidunyushkin/project/.claude/mcp-servers/typescript-lsp/server.js"],
+      "env": {
+        "PROJECT_ROOT": "/home/eidunyushkin/project/frontend"
+      }
+    }
+  }
+}

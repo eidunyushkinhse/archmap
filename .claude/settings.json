@@ -1,0 +1,13 @@
+{
+  "enableAllProjectMcpServers": true,
+  "statusLine": {
+    "type": "command",
+    "command": "python3 /home/eidunyushkin/project/.claude/statusline.py"
+  },
+  "permissions": {
+    "allow": [
+      "mcp__python-lsp__*",
+      "mcp__typescript-lsp__*"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+/* Точки контакта (12 хэндлов на узел) скрыты в покое.
+   Показываем только тот хэндл, к которому архитектор сейчас подтягивает конец
+   стрелки: React Flow вешает класс .connectingto на хэндл, попавший в зону
+   активации курсора во время connection/reconnect.
+   Скрываем через opacity (не display/visibility), чтобы хэндл оставался в DOM,
+   измерялся и работал как валидная цель дропа. */
+.lg-canvas .react-flow__handle {
+  opacity: 0;
+  transition: opacity 0.08s ease;
+}
+.lg-canvas .react-flow__handle.connectingto {
+  opacity: 1;
+}
