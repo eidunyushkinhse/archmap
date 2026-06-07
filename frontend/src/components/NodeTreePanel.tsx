@@ -101,6 +101,30 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
+// Сворачиваемая секция аккордеона. ВАЖНО: объявлена на уровне модуля, а не внутри
+// NodeTreePanel. Если объявлять внутри, у компонента на каждый рендер новая
+// идентичность функции → React размонтирует и заново монтирует всё поддерево
+// секции. Для палитры «Добавить узел» это критично: remount во время нативного
+// drag уничтожал перетаскиваемый <div> и браузер отменял драг (плавающий баг
+// «шаблон не берётся», особенно при быстром старте). Стабильный тип = палитра
+// переиспользуется на месте, источник драга не пропадает.
+function Section({ open, grow, title, onToggle, children }: {
+  open: boolean; grow?: boolean; title: string;
+  onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div style={{ ...section, flex: grow && open ? 1 : "none" }}>
+      <button onClick={onToggle} style={sectionHeader} title={open ? "Свернуть" : "Развернуть"}>
+        {/* Крупный шеврон секции с эффектом вдавленности (гравировки), чтобы явно
+            отличался от мелких шевронов промежуточных узлов в дереве. */}
+        <span style={{ ...sectionChev, transform: open ? "rotate(90deg)" : "none" }}>▸</span>
+        <span>{title}</span>
+      </button>
+      {open && <div style={sectionBody}>{children}</div>}
+    </div>
+  );
+}
+
 export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag }: Props) {
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
@@ -227,24 +251,6 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     );
   }
 
-  // Сворачиваемая секция аккордеона
-  function Section({ sectionKey, title, children }: {
-    sectionKey: string; title: string; children: React.ReactNode;
-  }) {
-    const open = openSections.has(sectionKey);
-    return (
-      <div style={{ ...section, flex: sectionKey === "tree" && open ? 1 : "none" }}>
-        <button onClick={() => toggleSection(sectionKey)} style={sectionHeader} title={open ? "Свернуть" : "Развернуть"}>
-          {/* Крупный шеврон секции с эффектом вдавленности (гравировки), чтобы явно
-              отличался от мелких шевронов промежуточных узлов в дереве. */}
-          <span style={{ ...sectionChev, transform: open ? "rotate(90deg)" : "none" }}>▸</span>
-          <span>{title}</span>
-        </button>
-        {open && <div style={sectionBody}>{children}</div>}
-      </div>
-    );
-  }
-
   function onTemplateDragStart(e: DragEvent, shape: NodeShape) {
     e.dataTransfer.setData(NODE_DRAG_MIME, shape);
     e.dataTransfer.effectAllowed = "copy";
@@ -268,7 +274,12 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
         }}
       >
         {/* Секция 1: дерево узлов */}
-        <Section sectionKey="tree" title="Дерево узлов">
+        <Section
+          title="Дерево узлов"
+          grow
+          open={openSections.has("tree")}
+          onToggle={() => toggleSection("tree")}
+        >
           <div style={treeList}>
             {loadingRoots ? (
               <div style={hint}>Загрузка…</div>
@@ -282,7 +293,11 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
 
         {/* Секция 2: палитра шаблонов для создания узла (только архитектор) */}
         {isArchitect && (
-          <Section sectionKey="add" title="Добавить узел">
+          <Section
+            title="Добавить узел"
+            open={openSections.has("add")}
+            onToggle={() => toggleSection("add")}
+          >
             <div style={paletteHint}>Перетащите форму на схему</div>
             <div style={palette}>
               {NODE_TEMPLATES.map((t) => (
@@ -303,7 +318,11 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
         )}
 
         {/* Секция 3: бизнес-процессы (заглушка) */}
-        <Section sectionKey="bpm" title="Бизнес-процессы">
+        <Section
+          title="Бизнес-процессы"
+          open={openSections.has("bpm")}
+          onToggle={() => toggleSection("bpm")}
+        >
           <div style={stub}>Раздел в разработке</div>
         </Section>
       </div>
