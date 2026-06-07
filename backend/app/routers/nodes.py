@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.models.edge import Edge
+from app.models.ghost_edge_handle import GhostEdgeHandle
 from app.models.ghost_position import GhostPosition
 from app.models.node import Node
 from app.models.user import User
@@ -16,6 +17,7 @@ from app.schemas.node import (
     DisconnectedNodeAlert,
     GraphEdgeResponse,
     GraphResponse,
+    GhostEdgeHandleUpdate,
     GhostNodeResponse,
     GhostPositionUpdate,
     IntermediateEdgeAlert,
@@ -97,6 +99,9 @@ def _build_graph(
 
     result_edges: list[GraphEdgeResponse] = []
     ghost_ids: set[uuid.UUID] = set()
+    # Какие концы каждого отображаемого ребра спроецированы на гостя (edge_id →
+    # (src_ghost, tgt_ghost)) — по этому ниже накатываем сохранённые per-level хэндлы.
+    edge_ghost_ends: dict[uuid.UUID, tuple[bool, bool]] = {}
 
     for edge in all_edges:
         eff_src, src_ghost = find_effective(edge.source_id)
@@ -122,6 +127,7 @@ def _build_graph(
                 target_handle=edge.target_handle,
             )
         )
+        edge_ghost_ends[edge.id] = (src_ghost, tgt_ghost)
         if src_ghost:
             ghost_ids.add(eff_src)
         if tgt_ghost:
@@ -184,6 +190,34 @@ def _build_graph(
                 level_positions[str(r.node_id)] = PosXY(pos_x=r.pos_x, pos_y=r.pos_y)
                 if r.node_id in ghost_ids:
                     saved_pos[r.node_id] = r
+
+        # Per-level хэндлы гостевых концов рёбер + уборка мусора. Накатываем их
+        # поверх колоночных хэндлов ребра для тех концов, что спроецированы на
+        # гостя: ручная привязка стрелки к точке гостя переживает reload (фронт
+        # больше не назначает их автоматически). Колонка ребра хранит хэндл
+        # «домашнего» (локального) конца — её не трогаем.
+        ghost_edge_ids = {eid for eid, (s, t) in edge_ghost_ends.items() if s or t}
+        handle_rows = (
+            db.query(GhostEdgeHandle)
+            .filter(GhostEdgeHandle.container_id == container_id)
+            .all()
+        )
+        # Ребро больше не проецируется гостевым концом на этот уровень — мусор
+        stale_h = [r for r in handle_rows if r.edge_id not in ghost_edge_ids]
+        for r in stale_h:
+            db.delete(r)
+        if stale_h:
+            db.commit()
+        handle_by_edge = {r.edge_id: r for r in handle_rows if r.edge_id in ghost_edge_ids}
+        for e in result_edges:
+            row = handle_by_edge.get(e.id)
+            if row is None:
+                continue
+            src_ghost, tgt_ghost = edge_ghost_ends[e.id]
+            if src_ghost and row.source_handle is not None:
+                e.source_handle = row.source_handle
+            if tgt_ghost and row.target_handle is not None:
+                e.target_handle = row.target_handle
 
     ghost_nodes = [
         GhostNodeResponse(
@@ -608,4 +642,44 @@ def save_ghost_position(
     else:
         row.pos_x = payload.pos_x
         row.pos_y = payload.pos_y
+    db.commit()
+
+
+@router.put(
+    "/{container_id}/ghost-edge-handles/{edge_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def save_ghost_edge_handle(
+    container_id: uuid.UUID,
+    edge_id: uuid.UUID,
+    payload: GhostEdgeHandleUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_architect),
+) -> None:
+    """Сохраняет (upsert) хэндл гостевого конца ребра edge_id на уровне container_id.
+
+    Передаётся только спроецированная на гостя сторона (source_handle ИЛИ
+    target_handle); не указанная сторона не затрагивается — это позволяет
+    хранить per-level хэндл гостевого конца, не трогая хэндл локального конца.
+    """
+    if not db.get(Node, container_id):
+        raise HTTPException(status_code=404, detail="Уровень не найден")
+    if not db.get(Edge, edge_id):
+        raise HTTPException(status_code=404, detail="Связь не найдена")
+
+    data = payload.model_dump(exclude_unset=True)
+    row = (
+        db.query(GhostEdgeHandle)
+        .filter(
+            GhostEdgeHandle.container_id == container_id,
+            GhostEdgeHandle.edge_id == edge_id,
+        )
+        .one_or_none()
+    )
+    if row is None:
+        row = GhostEdgeHandle(container_id=container_id, edge_id=edge_id, **data)
+        db.add(row)
+    else:
+        for field, value in data.items():
+            setattr(row, field, value)
     db.commit()

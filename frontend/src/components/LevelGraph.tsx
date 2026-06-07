@@ -34,7 +34,7 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import Dagre from "@dagrejs/dagre";
 import type { CSSProperties } from "react";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, AncestorRef } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, EdgeUpdate, NodeShape, AncestorRef } from "../types";
 
 // --- Перенос текста по словам, максимум maxLen символов в строке ---
 
@@ -1475,13 +1475,33 @@ function LevelGraphInner({
       // и клик-обработчик); по умолчанию reconnectEdge сгенерил бы новый id
       setRfEdges((els) => reconnectEdge(oldEdge, newConn, els, { shouldReplaceId: false }));
       if (isArchitect && newConn.sourceHandle && newConn.targetHandle) {
-        edgesApi.update(oldEdge.id, {
-          source_handle: newConn.sourceHandle,
-          target_handle: newConn.targetHandle,
-        });
+        // Концы ребра делятся на локальные (узел этого уровня) и спроецированные
+        // на гостя. Хэндл локального конца — глобальный, в колонку самого ребра.
+        // Хэндл гостевого конца привязан к уровню (один edge на разных уровнях
+        // проецируется на разных гостей), поэтому хранится per-level отдельно —
+        // иначе он затёр бы «домашний» хэндл узла на его родном уровне.
+        const localIds = new Set(nodes.map((n) => n.id));
+        const sourceLocal = localIds.has(newConn.source!);
+        const targetLocal = localIds.has(newConn.target!);
+
+        const edgePatch: EdgeUpdate = {};
+        if (sourceLocal) edgePatch.source_handle = newConn.sourceHandle;
+        if (targetLocal) edgePatch.target_handle = newConn.targetHandle;
+        if (edgePatch.source_handle || edgePatch.target_handle) {
+          edgesApi.update(oldEdge.id, edgePatch);
+        }
+
+        if (containerId) {
+          const ghostHandles: { source_handle?: string; target_handle?: string } = {};
+          if (!sourceLocal) ghostHandles.source_handle = newConn.sourceHandle;
+          if (!targetLocal) ghostHandles.target_handle = newConn.targetHandle;
+          if (ghostHandles.source_handle || ghostHandles.target_handle) {
+            nodesApi.saveGhostEdgeHandle(containerId, oldEdge.id, ghostHandles);
+          }
+        }
       }
     },
-    [isArchitect],
+    [isArchitect, nodes, containerId],
   );
 
   const handleReconnectEnd = useCallback(() => {

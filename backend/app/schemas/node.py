@@ -85,6 +85,13 @@ class GhostPositionUpdate(BaseModel):
     pos_y: float
 
 
+class GhostEdgeHandleUpdate(BaseModel):
+    # Хэндл гостевого конца ребра на уровне. Передаётся только та сторона, что
+    # спроецирована на гостя; не указанная сторона не трогается (exclude_unset).
+    source_handle: str | None = None
+    target_handle: str | None = None
+
+
 class GraphEdgeResponse(BaseModel):
     id: uuid.UUID
     label: str | None
