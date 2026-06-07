@@ -159,16 +159,30 @@ def main() -> None:
 
     repo = os.path.basename(project_dir.rstrip("/")) or "?"
 
-    segments = [
-        c("1;36", f"📁 {repo}"),               # имя проекта — ярко
-        git_segment(project_dir),
-        c(DIM, f"🤖 {model}"),
-        mcp_segment(project_dir),
-        c("32", f"+{added}") + c(DIM, "/") + c("31", f"-{removed}"),  # правки сессии
-        ctx_segment(transcript=data.get("transcript_path", "")),
-        out_tokens_segment(transcript=data.get("transcript_path", "")),
+    transcript = data.get("transcript_path", "")
+
+    # Три строки: при узком окне CLI (левая треть экрана) важное видно сразу.
+    # 1) проект + ветка + модель; 2) LSP-серверы; 3) метрики сессии.
+    lines = [
+        [
+            c("1;36", f"📁 {repo}"),               # имя проекта — ярко
+            git_segment(project_dir),
+            c(DIM, f"🤖 {model}"),
+        ],
+        [
+            mcp_segment(project_dir),
+        ],
+        [
+            c("32", f"+{added}") + c(DIM, "/") + c("31", f"-{removed}"),  # правки сессии
+            ctx_segment(transcript),
+            out_tokens_segment(transcript),
+        ],
     ]
-    print(SEP.join(s for s in segments if s))
+    # Пустые сегменты выкидываем; строку без сегментов вовсе не печатаем (без дыр).
+    for line in lines:
+        rendered = SEP.join(s for s in line if s)
+        if rendered:
+            print(rendered)
 
 
 if __name__ == "__main__":
