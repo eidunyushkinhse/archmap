@@ -101,9 +101,9 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
-// Иконка корзины для оверлея отмены драга. Красная при наведении (drop = отмена).
+// Иконка корзины для оверлея отмены драга. Темнеет при наведении (drop = отмена).
 function TrashIcon({ active }: { active: boolean }) {
-  const c = active ? "#dc2626" : "#94a3b8";
+  const c = active ? "#475569" : "#94a3b8";
   return (
     <svg
       width="56" height="56" viewBox="0 0 24 24" fill="none"
@@ -395,14 +395,9 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
           onDrop={onTrashDrop}
         >
           {/* pointerEvents:none на содержимом — dragenter/leave ловит только сам
-              оверлей, без дёрганья подсветки при наведении на иконку/текст */}
+              оверлей, без дёрганья подсветки при наведении на иконку */}
           <div style={trashInner}>
             <TrashIcon active={trashActive} />
-            <span style={{ ...trashHint, ...(trashActive ? trashHintActive : null) }}>
-              {trashActive
-                ? "Узел не будет добавлен"
-                : "Отпустите здесь, чтобы отменить"}
-            </span>
           </div>
         </div>
       )}
@@ -573,40 +568,30 @@ const templateCard: CSSProperties = {
   // cursor задаётся через класс .template-card (нужен :active → grabbing «схватил»)
   userSelect: "none",
 };
-// Оверлей-«корзина» поверх всей панели на время драга шаблона
+// Оверлей-«корзина» поверх панели на время драга шаблона. Не упирается в края
+// панели (inset-отступ) → плитка «внутри» панели; сплошная рамка, скруглённые углы.
 const trashOverlay: CSSProperties = {
   position: "absolute",
-  inset: 0,
+  inset: 10,
   zIndex: 5,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   background: "#eceef1",
-  border: "2px dashed #cbd5e1",
+  border: "2px solid #cbd5e1",
+  borderRadius: 12,
   transition: "background 0.12s ease, border-color 0.12s ease",
 };
-// Активное состояние (курсор над корзиной) — красноватый акцент «удаления»
+// Активное состояние (курсор над корзиной) — более глубокий оттенок серого
 const trashOverlayActive: CSSProperties = {
-  background: "#fde8e8",
-  borderColor: "#ef4444",
+  background: "#d5dae1",
+  borderColor: "#94a3b8",
 };
 const trashInner: CSSProperties = {
   display: "flex",
-  flexDirection: "column",
   alignItems: "center",
-  gap: 12,
+  justifyContent: "center",
   pointerEvents: "none",
-};
-const trashHint: CSSProperties = {
-  fontSize: 12,
-  color: "#94a3b8",
-  textAlign: "center",
-  maxWidth: 180,
-  transition: "color 0.12s ease",
-};
-const trashHintActive: CSSProperties = {
-  color: "#dc2626",
-  fontWeight: 600,
 };
 const templateLabel: CSSProperties = {
   fontSize: 12,
