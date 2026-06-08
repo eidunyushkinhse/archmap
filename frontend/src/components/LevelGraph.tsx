@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import type { MouseEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { MouseEvent } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -40,6 +40,7 @@ import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
 import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
+import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 
 // --- Основной компонент ---
 
@@ -151,29 +152,10 @@ function LevelGraphInner({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
   });
 
-  // Удаление узла с клавиатуры. Встроенное удаление React Flow отключено
-  // (deleteKeyCode=null), иначе Backspace сносил бы узел и его связи прямо с
-  // канваса — без предупреждения и в обход модалки. Здесь по Backspace/Delete
-  // находим единственный выбранный локальный узел и просим открыть то же
-  // подтверждение со списком связей, что и кнопка «Удалить».
-  const handleKeyDown = useCallback(
-    (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (e.key !== "Backspace" && e.key !== "Delete") return;
-      if (isContext || !isArchitect || !onRequestDeleteNode) return;
-      // не перехватываем удаление, когда правят текст в поле
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
-        return;
-      }
-      // действуем только при ровно одном выбранном узле; мульти/ноль — игнор,
-      // чтобы случайно не снести пачку
-      const selected = rfNodes.filter((n) => n.type === "block" && n.selected);
-      if (selected.length !== 1) return;
-      e.preventDefault();
-      onRequestDeleteNode((selected[0].data as BlockData).appNode);
-    },
-    [rfNodes, isArchitect, isContext, onRequestDeleteNode],
-  );
+  // Удаление выбранного узла с клавиатуры через подтверждение.
+  const { handleKeyDown } = useCanvasDelete({
+    rfNodes, isArchitect, isContext, onRequestDeleteNode,
+  });
 
   // Реконнект концов рёбер (смена хэндла на том же узле + персист).
   const { handleReconnectStart, handleReconnect, handleReconnectEnd, isValidConnection } =
