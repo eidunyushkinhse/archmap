@@ -1,11 +1,10 @@
 # Фаза 4 — Замена кастомного движка раскладки на ELK (elkjs)
 
-> **СТАТУС (2026-06-08): 4.0–4.2 СДЕЛАНЫ (level на ELK). 4.3 ОТМЕНЁН — context
-> остаётся на bespoke `computeContextLayout` (ELK там неуместен, см. шаг 4.3).
-> Осталось 4.4: снять `@dagrejs/dagre` + `computeLayout` (dagre), почистить осиротевшее.**
-> Перед продолжением прочитать: этот файл + `REFACTOR_PLAN.md` (общий контекст и Фазы 0–5)
-> + память `levelgraph-refactor-plan`. Проверить зелёное дерево:
-> `cd frontend && npx tsc -b && npm test` (20 тестов) и
+> **СТАТУС (2026-06-08): ФАЗА 4 ЗАВЕРШЕНА.** 4.0–4.2 (level на ELK) + 4.4 (снят dagre)
+> сделаны; 4.3 ОТМЕНЁН — context остаётся на bespoke `computeContextLayout` (ELK там
+> неуместен — предписанная геометрия, не авто-раскладка; см. шаг 4.3). Итог: level
+> раскладывает ELK (ленивый чанк), context — ручная звезда, dagre удалён.
+> Дерево зелёное: `cd frontend && npx tsc --noEmit && npm test` (20 тестов) и
 > `cd backend && venv/bin/python -m pytest` (7 тестов).
 > **ВАЖНО: после `git commit` bash-cwd сбрасывается в корень репо — перед след.
 > `tsc`/`npm` делать `cd frontend`.**
@@ -153,18 +152,21 @@
 **Не делаем:** снос `edgeShelves`/`edgeLoops`/`roundedPolyline`, переписывание
 `computeContextLayout`-тестов на инварианты — всё это остаётся как было.
 
-### Шаг 4.4 — Снять dagre + чистка
+### Шаг 4.4 — Снять dagre + чистка — ✅ СДЕЛАНО (2026-06-08)
 **ВАЖНО (после отмены 4.3):** `context.ts`, `edgeShelves`/`edgeLoops`/`roundedPolyline`,
-типы `EdgeShelf`/`EdgeLoop`, shelf/loop-константы — **ОСТАЮТСЯ** (context на bespoke их
-использует). Сносить НЕЧЕГО из контекст-геометрии.
-- `LevelBoundary` оставить как есть (читает позиции — дёшево и работает); ELK
-  compound-узлы не вводим.
-- **Снять dagre:** `computeLayout` (level.ts) сейчас всё ещё на dagre, хотя level
-  раскладывается ELK-`layoutLevel`. Проверить `ts_references` на `computeLayout` — если
-  его зовёт только `__tests__/level.ts`-тест, переписать тест на `layoutLevel` (async,
-  ELK) или на чистую `assignEdgeHandles`, затем удалить `computeLayout` и
-  `import Dagre`/`@dagrejs/dagre` из зависимостей.
-- Обновить `spec.md`/`tasks.md`/`REFACTOR_PLAN.md`/память. Коммит.
+типы `EdgeShelf`/`EdgeLoop`, shelf/loop-константы — **ОСТАЛИСЬ** (context на bespoke их
+использует). Из контекст-геометрии не сносили ничего.
+
+> **Итог 4.4:** `computeLayout` (dagre) использовался ТОЛЬКО тестами (прод-level на
+> `layoutLevel`/ELK с 4.2). Удалён вместе с `import Dagre` и осиротевшими импортами
+> (`NODE_W`/`NODE_H`/`maxLineLength`) из `level.ts` — там осталась чистая логика хэндлов
+> (`autoHandles` + `assignEdgeHandles`). Тесты переписаны: handle-кейсы → прямой
+> `assignEdgeHandles` на явных позициях (движок не нужен — хэндлы считаются от готовых
+> позиций); override saved-pos → `layoutLevel` (async, ELK); контракт-тест в
+> `engine.test.ts` больше не сравнивает с `computeLayout`, а ассертит контракт
+> `layoutLevel` напрямую. `@dagrejs/dagre` снят из `package.json` (`npm remove`).
+> `LevelBoundary` оставлен как есть (читает позиции). tsc=0, 20 тестов, vite build чист;
+> main-chunk `index` = 270.78 kB gzip (чуть меньше — ушёл dagre), ELK = ленивый чанк.
 
 ## Verification (после КАЖДОГО шага)
 

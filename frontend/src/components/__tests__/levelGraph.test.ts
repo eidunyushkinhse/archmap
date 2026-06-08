@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { projectGhosts } from "../graph/layout/projectGhosts";
-import { autoHandles, computeLayout } from "../graph/layout/level";
+import { autoHandles, assignEdgeHandles } from "../graph/layout/level";
+import { layoutLevel } from "../graph/layout/engine";
 import { computeContextLayout } from "../graph/layout/context";
 import type { Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 
@@ -103,29 +104,18 @@ describe("autoHandles", () => {
   });
 });
 
-// =================== computeLayout ===================
+// =================== assignEdgeHandles ===================
+// Хэндлы считаются от ГОТОВЫХ позиций (чем посчитаны — dagre/ELK — неважно),
+// поэтому тестируем чистую функцию на явных позициях, без движка раскладки.
 
-describe("computeLayout", () => {
-  it("сохранённые координаты переопределяют раскладку dagre", () => {
-    const { positions } = computeLayout(
-      [
-        { id: "a", savedPos: { x: 111, y: 222 } },
-        { id: "b", savedPos: { x: 333, y: 444 } },
-      ],
-      [edge("e1", "a", "b")],
-    );
-    expect(positions.get("a")).toEqual({ x: 111, y: 222 });
-    expect(positions.get("b")).toEqual({ x: 333, y: 444 });
-  });
+describe("assignEdgeHandles", () => {
+  const ab = new Map([
+    ["a", { x: 0, y: 0 }],
+    ["b", { x: 400, y: 0 }],
+  ]);
 
   it("без валидных хэндлов назначает autoHandles по позициям", () => {
-    const { edgeHandles } = computeLayout(
-      [
-        { id: "a", savedPos: { x: 0, y: 0 } },
-        { id: "b", savedPos: { x: 400, y: 0 } },
-      ],
-      [edge("e1", "a", "b")],
-    );
+    const edgeHandles = assignEdgeHandles([{ id: "a" }, { id: "b" }], [edge("e1", "a", "b")], ab);
     expect(edgeHandles.get("e1")).toEqual({
       sourceHandle: "a--right--1",
       targetHandle: "b--left--1",
@@ -133,12 +123,10 @@ describe("computeLayout", () => {
   });
 
   it("валидные сохранённые хэндлы (префикс совпадает) сохраняются как есть", () => {
-    const { edgeHandles } = computeLayout(
-      [
-        { id: "a", savedPos: { x: 0, y: 0 } },
-        { id: "b", savedPos: { x: 400, y: 0 } },
-      ],
+    const edgeHandles = assignEdgeHandles(
+      [{ id: "a" }, { id: "b" }],
       [edge("e1", "a", "b", { source_handle: "a--top--0", target_handle: "b--bottom--2" })],
+      ab,
     );
     expect(edgeHandles.get("e1")).toEqual({
       sourceHandle: "a--top--0",
@@ -147,13 +135,11 @@ describe("computeLayout", () => {
   });
 
   it("хэндл с чужим префиксом невалиден → откат к autoHandles", () => {
-    const { edgeHandles } = computeLayout(
-      [
-        { id: "a", savedPos: { x: 0, y: 0 } },
-        { id: "b", savedPos: { x: 400, y: 0 } },
-      ],
+    const edgeHandles = assignEdgeHandles(
+      [{ id: "a" }, { id: "b" }],
       // source_handle ссылается на другой узел — невалиден для текущей проекции
       [edge("e1", "a", "b", { source_handle: "x--top--0", target_handle: "b--bottom--2" })],
+      ab,
     );
     expect(edgeHandles.get("e1")).toEqual({
       sourceHandle: "a--right--1",
@@ -162,11 +148,28 @@ describe("computeLayout", () => {
   });
 
   it("ребро на отсутствующий узел игнорируется", () => {
-    const { edgeHandles } = computeLayout(
-      [{ id: "a", savedPos: { x: 0, y: 0 } }],
+    const edgeHandles = assignEdgeHandles(
+      [{ id: "a" }],
       [edge("e1", "a", "missing")],
+      new Map([["a", { x: 0, y: 0 }]]),
     );
     expect(edgeHandles.has("e1")).toBe(false);
+  });
+});
+
+// =================== layoutLevel (ELK) ===================
+
+describe("layoutLevel", () => {
+  it("сохранённые координаты переопределяют раскладку ELK", async () => {
+    const { positions } = await layoutLevel(
+      [
+        { id: "a", savedPos: { x: 111, y: 222 } },
+        { id: "b", savedPos: { x: 333, y: 444 } },
+      ],
+      [edge("e1", "a", "b")],
+    );
+    expect(positions.get("a")).toEqual({ x: 111, y: 222 });
+    expect(positions.get("b")).toEqual({ x: 333, y: 444 });
   });
 });
 

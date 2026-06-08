@@ -1,9 +1,7 @@
-// Раскладка обычного уровня: позиции узлов (dagre) и авто-назначение хэндлов рёбер.
-// Чистые функции под характеризационными тестами Фазы 1. Не зависит от
-// context.ts / nodes / edges.
-import Dagre from "@dagrejs/dagre";
-import { NODE_W, NODE_H, hid } from "../constants";
-import { maxLineLength } from "../text";
+// Раскладка обычного уровня: авто-назначение хэндлов рёбер по позициям узлов.
+// Позиции считает ELK (`layoutLevel` в engine.ts); здесь — только чистая логика
+// хэндлов под тестами. Не зависит от context.ts / nodes / edges.
+import { hid } from "../constants";
 import type { Edge as AppEdge } from "../../../types";
 
 /** Авто-назначение хэндлов ребру по относительным позициям узлов */
@@ -80,44 +78,4 @@ export function assignEdgeHandles(
   }
 
   return edgeHandles;
-}
-
-export function computeLayout(
-  allNodes: Array<{ id: string; savedPos?: { x: number; y: number } | null }>,
-  edges: AppEdge[],
-): {
-  positions: Map<string, { x: number; y: number }>;
-  edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
-} {
-  // 1. Dagre для позиционирования (LR — прямые рёбра идут слева направо)
-  const g = new Dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "LR", ranksep: 120, nodesep: 60, marginx: 30, marginy: 30 });
-
-  const idSet = new Set(allNodes.map((n) => n.id));
-  for (const n of allNodes) g.setNode(n.id, { width: NODE_W, height: NODE_H });
-  for (const e of edges) {
-    if (!idSet.has(e.source_id) || !idSet.has(e.target_id)) continue;
-    const labelText = [e.label, e.technology].filter(Boolean).join(" · ");
-    const maxLen = labelText ? maxLineLength(labelText) : 0;
-    const minlen = maxLen > 20 ? Math.max(2, Math.ceil(maxLen / 12)) : 1;
-    g.setEdge(e.source_id, e.target_id, { minlen });
-  }
-  Dagre.layout(g);
-
-  const positions = new Map<string, { x: number; y: number }>();
-  for (const id of g.nodes()) {
-    const n = g.node(id);
-    if (n) positions.set(id, { x: n.x - NODE_W / 2, y: n.y - NODE_H / 2 });
-  }
-
-  // Переопределяем позиции сохранёнными значениями из БД
-  for (const node of allNodes) {
-    if (node.savedPos != null) positions.set(node.id, node.savedPos);
-  }
-
-  // 2. Назначаем хэндлы рёбрам (логика общая с ELK-движком)
-  const edgeHandles = assignEdgeHandles(allNodes, edges, positions);
-
-  return { positions, edgeHandles };
 }

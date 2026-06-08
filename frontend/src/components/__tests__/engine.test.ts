@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { getElk, layoutLevel } from "../graph/layout/engine";
-import { computeLayout } from "../graph/layout/level";
 import type { Edge as AppEdge } from "../../types";
 
 // Спайк Фазы 4 (шаг 4.0): убеждаемся, что ELK поднимается в main-thread под jsdom
@@ -40,13 +39,16 @@ describe("ELK spike (шаг 4.0)", () => {
     }
   });
 
-  it("layoutLevel (async-адаптер) отдаёт тот же контракт, что computeLayout", async () => {
+  it("layoutLevel (async-адаптер) считает позиции на оба узла и хэндлы по ELK-раскладке", async () => {
     const nodes = [{ id: "a" }, { id: "b" }];
     const edges = [edge("e1", "a", "b")];
-    const sync = computeLayout(nodes, edges);
     const asyncRes = await layoutLevel(nodes, edges);
-    expect([...asyncRes.positions.keys()].sort()).toEqual([...sync.positions.keys()].sort());
-    expect([...asyncRes.edgeHandles.keys()].sort()).toEqual([...sync.edgeHandles.keys()].sort());
-    expect(asyncRes.edgeHandles.get("e1")).toEqual(sync.edgeHandles.get("e1"));
+    expect(asyncRes.positions.has("a")).toBe(true);
+    expect(asyncRes.positions.has("b")).toBe(true);
+    // a→b раскладывается ELK слева направо (LR) → autoHandles right/left
+    expect(asyncRes.edgeHandles.get("e1")).toEqual({
+      sourceHandle: "a--right--1",
+      targetHandle: "b--left--1",
+    });
   });
 });
