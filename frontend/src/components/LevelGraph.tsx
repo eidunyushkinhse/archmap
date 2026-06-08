@@ -9,7 +9,6 @@ import {
   BackgroundVariant,
   Controls,
   Handle,
-  Position,
   MarkerType,
   ConnectionMode,
   ConnectionLineType,
@@ -51,6 +50,11 @@ import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { computeLayout } from "./graph/layout/level";
 import { computeContextLayout } from "./graph/layout/context";
+import {
+  fixedHandleStyle, NodeShapeSvg, contentPadding,
+  nodeContainer, SELECTED_GLOW,
+  tagChip, nodeActions, personActions, nodeBtn,
+} from "./graph/shapes";
 
 // --- Кастомный тип ребра с HTML-лейблом (поддерживает перенос) ---
 
@@ -215,116 +219,6 @@ function snapCenter(
   }
   return { snapCx, snapCy, hitX, hitY };
 }
-
-// --- Стиль конкретного хэндла из 12 ---
-
-function fixedHandleStyle(pos: Position, offset: number, borderColor: string): CSSProperties {
-  // opacity задаётся в LevelGraph.css: хэндлы скрыты в покое и показываются
-  // только при наведении конца стрелки (класс .connectingto). Инлайновый opacity
-  // здесь не ставим — он бы перебил CSS по специфичности.
-  const base: CSSProperties = {
-    background: borderColor,
-    width: 9,
-    height: 9,
-    borderRadius: "50%",
-    border: "2px solid rgba(255,255,255,0.7)",
-    zIndex: 3, // поверх SVG-формы узла
-  };
-  if (pos === Position.Left || pos === Position.Right) {
-    return { ...base, top: `${offset * 100}%`, transform: "translateY(-50%)" };
-  }
-  return { ...base, left: `${offset * 100}%`, transform: "translateX(-50%)" };
-}
-
-// --- SVG-формы узлов (C4): сервис / БД / брокер / пользователь ---
-
-interface NodeShapeProps {
-  shape: NodeShape;
-  bg: string;
-  stroke: string;
-  dashed?: boolean; // пунктир для гостевых узлов
-  // режим контура (прозрачное тело, напр. превью драга): у БД не замыкаем тело
-  // сверху прямой — иначе она просвечивает сквозь прозрачную крышку-эллипс
-  outline?: boolean;
-}
-
-function NodeShapeSvg({ shape, bg, stroke, dashed, outline }: NodeShapeProps) {
-  const W = NODE_W, H = shapeHeight(shape), sw = 1.5;
-  const dash = dashed ? "5 3" : undefined;
-  const fill = { fill: bg, stroke, strokeWidth: sw, strokeDasharray: dash };
-  const lineStroke = { fill: "none", stroke, strokeWidth: sw, strokeDasharray: dash };
-  const svgStyle: CSSProperties = {
-    position: "absolute",
-    inset: 0,
-    pointerEvents: "none",
-    overflow: "visible",
-    filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.12))",
-  };
-
-  if (shape === "database") {
-    // Вертикальный цилиндр: тело (боковые стенки + нижняя передняя дуга) и
-    // верхний эллипс-крышка с ПОЛНЫМ контуром — именно он даёт объём.
-    const ry = 11, rx = (W - 2) / 2, cx = W / 2;
-    return (
-      <svg width={W} height={H} style={svgStyle}>
-        {/* Тело: вниз по левой стенке, передняя дуга низа, вверх по правой.
-            Верх замыкаем прямой — она скрыта под эллипсом-крышкой. */}
-        <path d={`M1,${ry} L1,${H - ry} A${rx},${ry} 0 0 0 ${W - 1},${H - ry} L${W - 1},${ry}${outline ? "" : " Z"}`} {...fill} />
-        {/* Крышка целиком — виден весь контур эллипса (и задний обод, и передняя «губа») */}
-        <ellipse cx={cx} cy={ry} rx={rx} ry={ry} {...fill} />
-      </svg>
-    );
-  }
-  if (shape === "broker") {
-    // Горизонтальный цилиндр (труба): тело + передняя дуга левого торца
-    const rxc = 12, ryc = (H - 2) / 2;
-    return (
-      <svg width={W} height={H} style={svgStyle}>
-        <path d={`M${rxc},1 L${W - rxc},1 A${rxc},${ryc} 0 0 1 ${W - rxc},${H - 1} L${rxc},${H - 1} A${rxc},${ryc} 0 0 1 ${rxc},1 Z`} {...fill} />
-        <path d={`M${rxc},1 A${rxc},${ryc} 0 0 1 ${rxc},${H - 1}`} {...lineStroke} />
-      </svg>
-    );
-  }
-  if (shape === "person") {
-    // Пользователь (C4): крупная голова-круг + тело-прямоугольник со скруглением.
-    // Голова Ø44 вместо прежней Ø26 — узел выше (PERSON_H), смотрится аккуратнее.
-    return (
-      <svg width={W} height={H} style={svgStyle}>
-        <circle cx={W / 2} cy={26} r={22} {...fill} />
-        <rect x={1} y={50} width={W - 2} height={H - 51} rx={14} {...fill} />
-      </svg>
-    );
-  }
-  // service — прямоугольник со скруглёнными углами
-  return (
-    <svg width={W} height={H} style={svgStyle}>
-      <rect x={1} y={1} width={W - 2} height={H - 2} rx={8} {...fill} />
-    </svg>
-  );
-}
-
-/** Отступы контента под форму (чтобы текст не заходил на эллипсы/голову) */
-function contentPadding(shape: NodeShape, hasActions: boolean): CSSProperties {
-  const right = hasActions ? 52 : 14;
-  switch (shape) {
-    case "database": return { paddingTop: 28, paddingRight: right, paddingBottom: 14, paddingLeft: 16 };
-    case "broker": return { paddingTop: 14, paddingRight: right, paddingBottom: 14, paddingLeft: 30 };
-    case "person": return { paddingTop: 54, paddingRight: right, paddingBottom: 8, paddingLeft: 14 };
-    default: return { paddingTop: 12, paddingRight: right, paddingBottom: 12, paddingLeft: 14 };
-  }
-}
-
-const nodeContainer: CSSProperties = {
-  position: "relative",
-  width: NODE_W,
-  height: NODE_H,
-  boxSizing: "border-box",
-  fontSize: 13,
-};
-// Свечение выбранного узла (см. BlockNode). Два drop-shadow: тонкий контурный +
-// мягкий ореол синим — повторяют силуэт SVG-формы.
-const SELECTED_GLOW =
-  "drop-shadow(0 0 2px #2563eb) drop-shadow(0 0 7px rgba(37,99,235,0.65))";
 
 // --- Кастомные компоненты узлов ---
 
@@ -1319,37 +1213,3 @@ export default function LevelGraph(props: LevelGraphProps) {
     </ReactFlowProvider>
   );
 }
-
-// --- Стили ---
-
-const tagChip: CSSProperties = {
-  display: "inline-block",
-  padding: "1px 7px",
-  borderRadius: 10,
-  fontSize: 11,
-  marginRight: 3,
-};
-const nodeActions: CSSProperties = {
-  position: "absolute",
-  top: 6,
-  right: 8,
-  display: "flex",
-  gap: 3,
-  zIndex: 2, // выше контент-блока (zIndex 1), иначе он перехватывает клики по кнопкам
-};
-// Действия для узла-пользователя: опущены внутрь прямоугольника-тела (тело начинается
-// с y≈50, см. NodeShapeSvg/person), чтобы кнопка не висела сбоку от головы.
-const personActions: CSSProperties = {
-  ...nodeActions,
-  top: 56,
-};
-const nodeBtn: CSSProperties = {
-  padding: "2px 6px",
-  background: "#f3f4f6",
-  color: "#374151",
-  border: "1px solid #e5e7eb",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  lineHeight: 1.4,
-};
