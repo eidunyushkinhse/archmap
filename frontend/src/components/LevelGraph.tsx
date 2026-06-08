@@ -344,7 +344,7 @@ type ContainerRFNode = RFNode<ContainerData, "container">;
 // --- Алгоритм компоновки ---
 
 /** Авто-назначение хэндлов ребру по относительным позициям узлов */
-function autoHandles(
+export function autoHandles(
   srcId: string, tgtId: string,
   positions: Map<string, { x: number; y: number }>,
   parallelIdx: number, parallelTotal: number,
@@ -373,7 +373,7 @@ function autoHandles(
   };
 }
 
-function computeLayout(
+export function computeLayout(
   allNodes: Array<{ id: string; savedPos?: { x: number; y: number } | null }>,
   edges: AppEdge[],
 ): {
@@ -763,7 +763,7 @@ type DisplayExternal = DisplayContainer | DisplayLeaf;
  * самого гостя. Возвращает уникальные отображаемые сущности и карту
  * «id гостя → id отображаемой сущности» для ремапа рёбер.
  */
-function projectGhosts(ghostNodes: GhostNode[], ancestorIds: string[], expanded: Set<string>) {
+export function projectGhosts(ghostNodes: GhostNode[], ancestorIds: string[], expanded: Set<string>) {
   const bcIndex = new Map(ancestorIds.map((id, i) => [id, i]));
   const entities = new Map<string, DisplayExternal>();
   const ghostToEffective = new Map<string, string>();
@@ -848,7 +848,7 @@ function ctxLabelWidth(text: string): number {
 //    которые сосед делит с фокусом, остаются его членами — bbox сам обнимет обоих;
 //  • раскрытый контейнер-сосед = своя рамка вокруг детей: его дети группируются
 //    вплотную, а между группами кладём зазор ≥ паддинга рамки (нет вертикальных наложений).
-function computeContextLayout(
+export function computeContextLayout(
   focusId: string,
   focusHeight: number,
   entities: DisplayExternal[],
