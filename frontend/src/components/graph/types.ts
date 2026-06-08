@@ -1,0 +1,64 @@
+// Общие типы графа уровня. Импортирует только типы — ни от чего не зависит во
+// время выполнения. FrameDef намеренно НЕ здесь: он локален для boundaries.tsx.
+import type { Node as RFNode } from "@xyflow/react";
+import type { Node as AppNode, GhostNode, AncestorRef } from "../../types";
+
+// сегмент с подписью (сосед) и его длина в px. end="target" — сосед это target
+// (исходящее фокус→сосед), end="source" — сосед это source (входящее сосед→фокус).
+export type EdgeShelf = { end: "source" | "target"; len: number };
+
+// Обход «не родной» стрелки bidi-пары (контекст-схема): дальняя сторона соседа →
+// полка наружу до loopX → вертикаль до clearY (обход над/под колонкой) → к центру →
+// верх/низ-центр фокуса. neighborEnd — какой конец ребра у соседа.
+export type EdgeLoop = { neighborEnd: "source" | "target"; loopX: number; clearY: number };
+
+export interface WrappedEdgeData extends Record<string, unknown> {
+  // одиночная связь — текст метки; мастер-стрелка — список текстов связей
+  label?: string;
+  items?: string[];
+  memberIds: string[];
+  // макс. ширина плашки подписи (контекст-схема: чтобы подпись влезала в зазор между
+  // фокусом и колонкой и не наезжала на узлы); если не задано — поведение как раньше
+  maxWidth?: number;
+  // контекст-схема: подпись кладётся на горизонтальную «полку» у соседа (если задано)
+  shelf?: EdgeShelf;
+  // контекст-схема: «не родная» стрелка bidi — обход колонки (если задано, вместо shelf)
+  loop?: EdgeLoop;
+}
+
+export interface NodeColors { bg: string; border: string; text: string }
+
+export interface BlockData extends Record<string, unknown> {
+  appNode: AppNode;
+  onDrillDown: (node: AppNode) => void;
+  onEdit: (node: AppNode) => void;
+  isArchitect: boolean;
+  colors: NodeColors;
+  // в контекст-режиме у фокусного блока нет кнопок «Войти»/правки (схема — только просмотр)
+  hideActions?: boolean;
+}
+
+export interface GhostData extends Record<string, unknown> {
+  appNode: GhostNode;
+  colors: NodeColors;
+}
+
+// Свёрнутый узел-контейнер соседней ветки (напр. ProdMon) — с кнопкой-лупой.
+export interface ContainerData extends Record<string, unknown> {
+  id: string;
+  name: string;
+  depth: number;
+  ancestors: AncestorRef[];
+  colors: NodeColors;
+  onExpand: (id: string) => void;
+}
+
+export type BlockRFNode = RFNode<BlockData, "block">;
+export type GhostRFNode = RFNode<GhostData, "ghost">;
+export type ContainerRFNode = RFNode<ContainerData, "container">;
+
+// --- Проекция гостей с учётом свёрнутых контейнеров ---
+
+export interface DisplayContainer { kind: "container"; id: string; name: string; depth: number; ancestors: AncestorRef[]; }
+export interface DisplayLeaf { kind: "leaf"; id: string; ghost: GhostNode; }
+export type DisplayExternal = DisplayContainer | DisplayLeaf;

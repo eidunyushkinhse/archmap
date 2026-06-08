@@ -42,6 +42,12 @@ import {
   BOUNDARY_PAD, BOUNDARY_STEP, BOUNDARY_LABEL_PAD, BOUNDARY_LABEL_STEP,
   CTX_LABEL_W, MIN_SHELF, SHELF_PAD,
 } from "./graph/constants";
+import type {
+  EdgeShelf, EdgeLoop, WrappedEdgeData, NodeColors,
+  BlockData, GhostData, ContainerData,
+  BlockRFNode, GhostRFNode, ContainerRFNode,
+  DisplayContainer, DisplayExternal,
+} from "./graph/types";
 
 // --- Перенос текста по словам, максимум maxLen символов в строке ---
 
@@ -76,29 +82,6 @@ function edgeText(e: { label: string | null; technology: string | null }): strin
 // --- Кастомный тип ребра с HTML-лейблом (поддерживает перенос) ---
 
 // Полка подписи (контекст-схема): к какому концу ребра прилегает горизонтальный
-// сегмент с подписью (сосед) и его длина в px. end="target" — сосед это target
-// (исходящее фокус→сосед), end="source" — сосед это source (входящее сосед→фокус).
-type EdgeShelf = { end: "source" | "target"; len: number };
-
-// Обход «не родной» стрелки bidi-пары (контекст-схема): дальняя сторона соседа →
-// полка наружу до loopX → вертикаль до clearY (обход над/под колонкой) → к центру →
-// верх/низ-центр фокуса. neighborEnd — какой конец ребра у соседа.
-type EdgeLoop = { neighborEnd: "source" | "target"; loopX: number; clearY: number };
-
-interface WrappedEdgeData extends Record<string, unknown> {
-  // одиночная связь — текст метки; мастер-стрелка — список текстов связей
-  label?: string;
-  items?: string[];
-  memberIds: string[];
-  // макс. ширина плашки подписи (контекст-схема: чтобы подпись влезала в зазор между
-  // фокусом и колонкой и не наезжала на узлы); если не задано — поведение как раньше
-  maxWidth?: number;
-  // контекст-схема: подпись кладётся на горизонтальную «полку» у соседа (если задано)
-  shelf?: EdgeShelf;
-  // контекст-схема: «не родная» стрелка bidi — обход колонки (если задано, вместо shelf)
-  loop?: EdgeLoop;
-}
-
 // SVG-путь по ортогональной ломаной со скруглением углов радиуса r. Используется для
 // обхода «не родной» стрелки bidi (getSmoothStepPath не умеет произвольную «скобу»).
 function roundedPolyline(pts: Array<{ x: number; y: number }>, r: number): string {
@@ -262,8 +245,6 @@ function snapCenter(
 
 // --- C4-палитра: цвет узла по типу и глубине уровня ---
 
-interface NodeColors { bg: string; border: string; text: string }
-
 function getNodeColors(isExternal: boolean, depth: number): NodeColors {
   const d = Math.min(depth, 4);
   if (!isExternal) {
@@ -287,34 +268,6 @@ function getNodeColors(isExternal: boolean, depth: number): NodeColors {
   }
 }
 
-interface BlockData extends Record<string, unknown> {
-  appNode: AppNode;
-  onDrillDown: (node: AppNode) => void;
-  onEdit: (node: AppNode) => void;
-  isArchitect: boolean;
-  colors: NodeColors;
-  // в контекст-режиме у фокусного блока нет кнопок «Войти»/правки (схема — только просмотр)
-  hideActions?: boolean;
-}
-
-interface GhostData extends Record<string, unknown> {
-  appNode: GhostNode;
-  colors: NodeColors;
-}
-
-// Свёрнутый узел-контейнер соседней ветки (напр. ProdMon) — с кнопкой-лупой.
-interface ContainerData extends Record<string, unknown> {
-  id: string;
-  name: string;
-  depth: number;
-  ancestors: AncestorRef[];
-  colors: NodeColors;
-  onExpand: (id: string) => void;
-}
-
-type BlockRFNode = RFNode<BlockData, "block">;
-type GhostRFNode = RFNode<GhostData, "ghost">;
-type ContainerRFNode = RFNode<ContainerData, "container">;
 
 // --- Алгоритм компоновки ---
 
@@ -726,10 +679,6 @@ const nodeTypes: NodeTypes = {
 };
 
 // --- Проекция гостей с учётом свёрнутых контейнеров ---
-
-interface DisplayContainer { kind: "container"; id: string; name: string; depth: number; ancestors: AncestorRef[]; }
-interface DisplayLeaf { kind: "leaf"; id: string; ghost: GhostNode; }
-type DisplayExternal = DisplayContainer | DisplayLeaf;
 
 /**
  * Сворачивает гостя к ближайшему НЕразвёрнутому контейнеру-предку (ниже общего
