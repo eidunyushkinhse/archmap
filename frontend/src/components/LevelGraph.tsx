@@ -26,12 +26,12 @@ import {
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
+  DisplayExternal, EdgeShelf, EdgeLoop,
 } from "./graph/types";
 import { edgeText } from "./graph/text";
 import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
-import { computeLayout } from "./graph/layout/level";
-import { computeContextLayout } from "./graph/layout/context";
+import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
@@ -43,6 +43,18 @@ import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 
 // --- Основной компонент ---
+
+// Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер. Считается
+// в async-эффекте (Фаза 4): движок async, поэтому это стейт, а не useMemo рендера.
+type LayoutResult = {
+  entities: DisplayExternal[];
+  positions: Map<string, { x: number; y: number }>;
+  edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
+  edgeShelves?: Map<string, EdgeShelf>;
+  edgeLoops?: Map<string, EdgeLoop>;
+  groupArr: { id: string; source: string; target: string; members: AppEdge[] }[];
+  spacers: RFNode[];
+};
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -181,7 +193,17 @@ function LevelGraphInner({
   // багов «правка одного ломала соседа»). Зависит ТОЛЬКО от данных. Этапы: проекция
   // гостей → ремап рёбер → слияние мастер-стрелок → позиции/хэндлы (dagre или
   // контекст-раскладка) → центрирование детей раскрытого контейнера → распорки.
-  const layout = useMemo(() => {
+  // Раскладку считаем в ASYNC-эффекте (Фаза 4): движок ELK асинхронный, поэтому
+  // результат не может жить в useMemo рендера. Эффект перезапускается только при
+  // смене ДАННЫХ раскладки (не при драге/выделении — те идут в контролируемый стейт
+  // RF), поэтому интерактив сохраняется. Предыдущий layout держим до резолва нового
+  // (не сбрасываем в null) — нет мигания между сменой входа и ответом движка.
+  // Шаг 4.1: внутри пока СТАРЫЙ движок через async-адаптер (layoutLevel/layoutContext);
+  // подмена на ELK — шаги 4.2/4.3. cancelled отбрасывает устаревший результат.
+  const [layout, setLayout] = useState<LayoutResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
     // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
     const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, stableAncestorIds, expanded);
     const remap = (id: string) => ghostToEffective.get(id) ?? id;
@@ -254,7 +276,7 @@ function LevelGraphInner({
     // соседи в две колонки, колонки за вылетом рамок фокуса). Обычный уровень — dagre.
     const ctxLayout =
       isContext && nodes[0]
-        ? computeContextLayout(
+        ? await layoutContext(
             nodes[0].id,
             shapeHeight(nodes[0].shape),
             entities,
@@ -263,7 +285,7 @@ function LevelGraphInner({
             expanded,
           )
         : null;
-    const { positions, edgeHandles } = ctxLayout ?? computeLayout(allNodeInfos, layoutEdges);
+    const { positions, edgeHandles } = ctxLayout ?? (await layoutLevel(allNodeInfos, layoutEdges));
     // полки подписей и обходы не родных стрелок считаются только в контекст-раскладке
     const edgeShelves = ctxLayout?.edgeShelves;
     const edgeLoops = ctxLayout?.edgeLoops;
@@ -321,7 +343,9 @@ function LevelGraphInner({
       );
     }
 
-    return { entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers };
+      if (!cancelled) setLayout({ entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers });
+    })();
+    return () => { cancelled = true; };
   }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, edges, isContext, expanded, stableAncestorIds]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
@@ -330,6 +354,7 @@ function LevelGraphInner({
   // данных раскладки / isArchitect / depth, — поэтому интерактив сохраняется. Колбэки
   // берём из ref (см. cbRef), потому в зависимостях только данные.
   useEffect(() => {
+    if (!layout) return; // первый рендер до резолва async-раскладки
     const { entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers } = layout;
     const cb = cbRef.current;
     setRfNodes([
