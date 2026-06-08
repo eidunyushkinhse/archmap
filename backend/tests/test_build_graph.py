@@ -141,11 +141,11 @@ def test_fully_external_edge_is_skipped(db):
     assert graph.ghost_nodes == []
 
 
-# =================== _build_graph: GC valid_keys у сохранённых позиций ===================
+# =================== _build_graph: valid_keys фильтрует ответ, чтение не пишет (F6а) ===================
 
-def test_valid_keys_keeps_ghost_and_ancestor_drops_stale(db):
+def test_read_returns_valid_position_and_does_not_mutate_db(db):
     # Уровень A, гость B1 (ребро A1→B1). valid_keys = {B1, B} (сам лист + предок-контейнер
-    # ниже общей с уровнем рамки). Позиция для B валидна, для постороннего узла — мусор.
+    # ниже общей с уровнем рамки). Позиция для B валидна, для постороннего узла — нет.
     a = _node(db, "A")
     b = _node(db, "B")
     a1 = _node(db, "A1", a)
@@ -169,6 +169,8 @@ def test_valid_keys_keeps_ghost_and_ancestor_drops_stale(db):
     # валидная позиция отдана фронту по ключу id отображаемой сущности (B)
     assert str(b.id) in graph.level_positions
     assert graph.level_positions[str(b.id)].pos_x == 10
-    # посторонняя строка вычищена из БД (GC на чтении — текущее поведение)
+    # невалидная (Other) в ответ НЕ попала
+    assert str(other.id) not in graph.level_positions
+    # но чтение НЕ мутировало БД (F6а): обе строки на месте, в т.ч. семантически устаревшая
     remaining = {r.node_id for r in db.query(GhostPosition).all()}
-    assert remaining == {b.id}
+    assert remaining == {b.id, other.id}

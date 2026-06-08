@@ -155,7 +155,7 @@ def _build_graph(
         chain.reverse()  # корень → непосредственный родитель
         return chain
 
-    # Сохранённые координаты гостей на этом уровне + уборка мусора.
+    # Сохранённые координаты гостей на этом уровне.
     # Гости бывают только на не-корневых уровнях (container_id не None).
     #
     # Гость может рисоваться не сам по себе, а свёрнутым в предка-контейнер
@@ -180,38 +180,31 @@ def _build_graph(
             .filter(GhostPosition.container_id == container_id)
             .all()
         )
-        stale = [r for r in rows if r.node_id not in valid_keys]
-        # Проекция гостя на этот уровень исчезла — стираем его метаданные здесь
-        for r in stale:
-            db.delete(r)
-        if stale:
-            db.commit()
+        # ЧТЕНИЕ НЕ ПИШЕТ В БД (F6а): строки с node_id вне valid_keys просто не отдаём
+        # фронту. Удалять их на чтении нельзя (GET мутировал бы БД — ломает кэш/реплики
+        # и сносил бы сохранённую раскладку). Реальные сироты (удалён узел/контейнер)
+        # уже снесены БД-каскадом (ondelete=CASCADE). «Семантически устаревшие» строки
+        # (узел жив, но сейчас не проецируется на этот уровень) безвредны и сохраняются
+        # намеренно: при возврате проекции (правка топологии/раскрытие) координаты воскресают.
         for r in rows:
             if r.node_id in valid_keys:
                 level_positions[str(r.node_id)] = PosXY(pos_x=r.pos_x, pos_y=r.pos_y)
                 if r.node_id in ghost_ids:
                     saved_pos[r.node_id] = r
 
-        # Per-level хэндлы гостевых концов рёбер + уборка мусора. Привязка стрелки к
-        # точке гостя переживает reload (фронт больше не назначает её автоматически).
-        # Строка валидна, если ребро проецируется гостевым концом на этот уровень И
-        # node_id — допустимая проекция (тот же valid_keys, что у координат: сам гость
-        # ИЛИ предок-контейнер ниже общей с уровнем рамки). Колонка ребра хранит хэндл
-        # «домашнего» (локального) конца — её не трогаем.
+        # Per-level хэндлы гостевых концов рёбер. Привязка стрелки к точке гостя
+        # переживает reload (фронт больше не назначает её автоматически). Строка
+        # валидна, если ребро проецируется гостевым концом на этот уровень И node_id —
+        # допустимая проекция (тот же valid_keys, что у координат: сам гость ИЛИ
+        # предок-контейнер ниже общей с уровнем рамки). Колонка ребра хранит хэндл
+        # «домашнего» (локального) конца — её не трогаем. Как и у координат выше —
+        # чтение НЕ пишет в БД: невалидные строки не отдаём, но и не удаляем (F6а).
         ghost_edge_ids = {eid for eid, (s, t) in edge_ghost_ends.items() if s or t}
         handle_rows = (
             db.query(GhostEdgeHandle)
             .filter(GhostEdgeHandle.container_id == container_id)
             .all()
         )
-        stale_h = [
-            r for r in handle_rows
-            if r.edge_id not in ghost_edge_ids or r.node_id not in valid_keys
-        ]
-        for r in stale_h:
-            db.delete(r)
-        if stale_h:
-            db.commit()
         for r in handle_rows:
             if r.edge_id in ghost_edge_ids and r.node_id in valid_keys:
                 level_edge_handles.setdefault(str(r.edge_id), []).append(r.handle)
