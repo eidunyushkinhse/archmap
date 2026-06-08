@@ -1,5 +1,34 @@
 # Фаза 2 — Декомпозиция `LevelGraph.tsx` (детальный план)
 
+> **ПРОГРЕСС (обновлено 2026-06-08): шаги 1–15 из 18 СДЕЛАНЫ, дерево зелёное.**
+> `LevelGraph.tsx` ужат 1948 → 581 строк. Все модули `graph/*` созданы и подключены;
+> тест `levelGraph.test.ts` уже импортит из новых путей. Коммиты по шагам:
+> 1 constants `af8f2d1` · 2 types `1d9dbbd` · 3 text `6a81bd2` · 4 colors `538a224` ·
+> 5 projectGhosts `1ec2ef2` · 6 level `b1fb55a` · 7 context `fe34e8e` · 8 shapes `af49c26` ·
+> 9 nodes `ba5d4ec` · 10 edges `4b210aa` · 11 boundaries `553f44f` · 12 snap `e36de72` ·
+> 13 useAlignmentGuides `cc3b1e5` · 14 useSnapAlignment `4cec822` · 15 useTemplateDrop `9eb4738`.
+>
+> **ОСТАЛОСЬ:**
+> - **Шаг 16 — `graph/interaction/useReconnectHandles.ts`**: вынести refs
+>   `reconnectingEdge`/`reconnectSucceeded` + `handleReconnectStart`/`handleReconnect`/
+>   `handleReconnectEnd`/`isValidConnection` (сейчас в `LevelGraphInner`). Сигнатура:
+>   `useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged })`.
+>   Зовёт `reconnectEdge` (@xyflow/react), `edgesApi`/`nodesApi`. После выноса из
+>   оркестратора уйдут импорты `reconnectEdge`, возможно `edgesApi`, типы `Connection`.
+> - **Шаг 17 — `graph/interaction/useCanvasDelete.ts`**: вынести `handleKeyDown`.
+>   Сигнатура: `useCanvasDelete({ rfNodes, isArchitect, isContext, onRequestDeleteNode })`.
+>   Читает `(node.data as BlockData).appNode`.
+> - **Шаг 18 — финал**: оркестратор = сборка данных (большой derivation-`useEffect`
+>   ОСТАВИТЬ, это Фаза 3) + вызовы хуков + JSX. Прогнать `tsc -b` + `npm test` +
+>   ручная проверка через `./dev.sh` (см. Verification ниже).
+>
+> Механика как в шагах 13–15: создать хук, вырезать из `LevelGraphInner`, подключить
+> вызовом, дочистить ставшие неиспользуемыми импорты (их ловит `tsc -b`). После каждого —
+> `npx tsc -b` + `npm test` + маленький коммит. **ВАЖНО: после коммита bash-cwd
+> сбрасывается в корень репозитория — перед след. `tsc`/`npm` сделать `cd frontend`.**
+
+
+
 > **Как возобновить с нуля (в свежем окне):** прочитать этот файл + `REFACTOR_PLAN.md`.
 > Перед стартом проверить, что дерево зелёное и Фазы 0–1 на месте:
 > `cd frontend && npx tsc -b && npm test` (18 тестов) и
