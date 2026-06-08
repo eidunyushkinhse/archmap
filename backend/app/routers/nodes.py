@@ -401,16 +401,12 @@ def delete_node(
     node = db.get(Node, node_id)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
-    # Удаляем узел вместе со всем поддеревом (дочерние узлы любой глубины) и
-    # всеми их связями. Через ORM (db.delete) каскад на children пытается занулить
-    # target_id входящих рёбер детей (incoming_edges без каскада, target_id NOT NULL)
-    # → IntegrityError. Поэтому сносим bulk-запросами: сперва все рёбра, у которых
-    # любой конец в поддереве, затем сами узлы поддерева.
-    ids = _collect_subtree_ids(db, node_id)
-    db.query(Edge).filter(
-        Edge.source_id.in_(ids) | Edge.target_id.in_(ids)
-    ).delete(synchronize_session=False)
-    db.query(Node).filter(Node.id.in_(ids)).delete(synchronize_session=False)
+    # Удаляем узел со всем поддеревом (потомки любой глубины), их рёбрами (исходящими,
+    # входящими — в т.ч. снаружи) и ghost-метаданными. Всё это делает БД-каскад
+    # (ondelete="CASCADE" на parent_id, source_id/target_id, ghost-FK), а passive_deletes
+    # на связях Node не даёт ORM лезть в эти строки в Python (раньше из-за этого падал
+    # IntegrityError, отсюда и был bulk-костыль). Достаточно одного db.delete.
+    db.delete(node)
     db.commit()
 
 

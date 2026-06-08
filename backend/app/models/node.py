@@ -35,17 +35,25 @@ class Node(Base):
     parent: Mapped["Node | None"] = relationship(
         "Node", remote_side="Node.id", back_populates="children"
     )
+    # passive_deletes=True: при удалении узла НЕ грузим/не правим связанные строки в
+    # Python — доверяем БД-каскаду (ondelete="CASCADE" на FK ниже). Это и снимает повод
+    # для прежнего bulk-костыля в delete_node: раньше ORM пытался занулить target_id
+    # входящих рёбер потомков (incoming_edges без каскада, NOT NULL) → IntegrityError.
     children: Mapped[list["Node"]] = relationship(
-        "Node", back_populates="parent", cascade="all, delete-orphan"
+        "Node", back_populates="parent", cascade="all, delete-orphan", passive_deletes=True
     )
     outgoing_edges: Mapped[list["Edge"]] = relationship(
         "Edge",
         foreign_keys="[Edge.source_id]",
         back_populates="source",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     incoming_edges: Mapped[list["Edge"]] = relationship(
         "Edge",
         foreign_keys="[Edge.target_id]",
         back_populates="target",
+        # без cascade на уровне ORM: рёбра «принадлежат» источнику (outgoing_edges).
+        # Удаление узла-цели сносит входящие рёбра БД-каскадом (target_id ondelete CASCADE).
+        passive_deletes=True,
     )
