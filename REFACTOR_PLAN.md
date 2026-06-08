@@ -5,9 +5,13 @@
 > Зеркало в plan-файле: `~/.claude/plans/delightful-percolating-cocke.md`.
 > Аудит проведён 2026-06-08.
 >
-> **Прогресс:** ✅ Фаза 0 сделана (коммит `3890e50`, `main` зелёный, `tsc -b` чистый).
-> Следующий шаг — **Фаза 1** (страховочная сетка тестов перед любым рефактором).
-> Фазы 2–5 + бэкенд-правки F6 — впереди.
+> **Прогресс:** ✅ Фаза 0 (коммит `3890e50`) и ✅ Фаза 1 (коммиты `37cd99c` фронт,
+> `2d6e53b` бэк) сделаны. `main` зелёный. Сетка: фронт — vitest+jsdom, `npm test`
+> (18 тестов на `autoHandles`/`computeLayout`/`projectGhosts`/`computeContextLayout`,
+> функции экспортированы); бэк — pytest на in-memory SQLite, `cd backend &&
+> venv/bin/python -m pytest` (7 тестов на `_build_graph`/`find_effective`/
+> `_collect_subtree_ids`). Следующий шаг — **Фаза 2** (декомпозиция God Component
+> поверх этой сетки). Фазы 3–5 + бэкенд-правки F6 — впереди.
 
 ## Context (зачем это)
 
