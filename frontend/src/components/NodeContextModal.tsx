@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeContext, Edge as AppEdge } from "../types";
@@ -10,6 +10,10 @@ interface Props {
   node: Node;
   onClose: () => void;
 }
+
+// Стабильная пустая ссылка: контекст-схема координаты не сохраняет, но проп —
+// зависимость раскладки, поэтому держим один объект, а не новый `{}` на рендер.
+const EMPTY_LEVEL_POSITIONS: Record<string, { pos_x: number; pos_y: number }> = {};
 
 /**
  * Модалка «контекстная схема узла». Открывается кликом по узлу в дереве и
@@ -42,17 +46,26 @@ export default function NodeContextModal({ node, onClose }: Props) {
     return () => { alive = false; };
   }, [node.id]);
 
-  // Рёбра контекста → формат, который ждёт LevelGraph (концы уже спроецированы)
-  const edges: AppEdge[] = (ctx?.edges ?? []).map((ge) => ({
-    id: ge.id,
-    label: ge.label,
-    technology: ge.technology,
-    source_id: ge.source_id,
-    target_id: ge.target_id,
-    source_handle: ge.source_handle,
-    target_handle: ge.target_handle,
-    created_at: "",
-  }));
+  // Рёбра контекста → формат, который ждёт LevelGraph (концы уже спроецированы).
+  // Мемоизируем по ctx: пропсы LevelGraph — зависимости async-эффекта раскладки,
+  // новая ссылка на каждый рендер модалки гоняла бы раскладку зря (мигание).
+  const edges: AppEdge[] = useMemo(
+    () =>
+      (ctx?.edges ?? []).map((ge) => ({
+        id: ge.id,
+        label: ge.label,
+        technology: ge.technology,
+        source_id: ge.source_id,
+        target_id: ge.target_id,
+        source_handle: ge.source_handle,
+        target_handle: ge.target_handle,
+        created_at: "",
+      })),
+    [ctx],
+  );
+
+  // Фокус-узел стабильной ссылкой (тоже вход раскладки)
+  const focusNodes = useMemo(() => (ctx ? [ctx.focus] : []), [ctx]);
 
   // Имя конца связи для модалок деталей (фокус + соседи)
   const labelOf = (id: string): string =>
@@ -79,9 +92,9 @@ export default function NodeContextModal({ node, onClose }: Props) {
             <p style={{ ...hint, color: "#dc2626" }}>{error}</p>
           ) : ctx ? (
             <LevelGraph
-              nodes={[ctx.focus]}
+              nodes={focusNodes}
               ghostNodes={ctx.neighbors}
-              levelPositions={{}}
+              levelPositions={EMPTY_LEVEL_POSITIONS}
               edges={edges}
               depth={ctx.focus_ancestors.length}
               containerId={ctx.focus.parent_id}

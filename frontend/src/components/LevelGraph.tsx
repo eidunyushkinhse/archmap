@@ -44,6 +44,11 @@ import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 
 // --- Основной компонент ---
 
+// Стабильный пустой дефолт для levelEdgeHandles: дефолт-параметр `= {}` создавал бы
+// НОВЫЙ объект на каждый рендер, а он — зависимость async-эффекта раскладки → лишний
+// перезапуск ELK и мигание. Один модульный объект держит ссылку стабильной.
+const EMPTY_LEVEL_HANDLES: Record<string, string[]> = {};
+
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер. Считается
 // в async-эффекте (Фаза 4): движок async, поэтому это стейт, а не useMemo рендера.
 type LayoutResult = {
@@ -113,7 +118,7 @@ function LevelGraphInner({
   nodes,
   ghostNodes,
   levelPositions,
-  levelEdgeHandles = {},
+  levelEdgeHandles = EMPTY_LEVEL_HANDLES,
   edges,
   depth,
   containerId,
@@ -488,7 +493,10 @@ function LevelGraphInner({
         deleteKeyCode={null}
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        nodesDraggable
+        // Контекст-схема — read-only: раскладка предписана (фокус+звезда), drag
+        // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
+        // уровне узлы таскаем (персист координат архитектором).
+        nodesDraggable={!isContext}
         // nodesConnectable=true нужен, чтобы React Flow рисовал превью-линию
         // при reconnect (рендер connection line гейтится этим флагом). Создание
         // новых связей всё равно невозможно: onConnect не задан, а isValidConnection
