@@ -9,6 +9,10 @@ export const nodesApi = {
   get: (id: string): Promise<Node> => api.get<Node>(`/nodes/${id}`),
   getChildren: (id: string): Promise<Node[]> =>
     api.get<Node[]>(`/nodes/${id}/children`),
+  // Все потомки узла на любой глубине (без самого узла) — скоупленный выбор
+  // дальнего конца межуровневой связи при протягивании стрелки на контейнер
+  getDescendants: (id: string): Promise<Node[]> =>
+    api.get<Node[]>(`/nodes/${id}/descendants`),
   // Связи узла (обоих направлений) с именами связанных узлов — для модалки удаления
   getEdges: (id: string): Promise<NodeEdgeInfo[]> =>
     api.get<NodeEdgeInfo[]>(`/nodes/${id}/edges`),

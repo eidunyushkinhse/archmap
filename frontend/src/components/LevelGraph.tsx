@@ -41,6 +41,7 @@ import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
 import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
+import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 
 // --- Основной компонент ---
 
@@ -100,6 +101,11 @@ interface LevelGraphProps {
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
+  // протянули стрелку от узла sourceId на ЛИСТОВОЙ узел targetId — создать связь
+  onCreateEdge?: (sourceId: string, targetId: string) => void;
+  // протянули стрелку на узел С ДЕТЬМИ (containerId) — открыть выбор его потомка
+  // как дальнего конца межуровневой связи (источник — sourceId)
+  onConnectInto?: (sourceId: string, containerId: string, containerName: string) => void;
   // запрос на удаление узла прямо с канваса (Backspace/Delete по выбранному
   // узлу) — открыть подтверждение со списком связей (как кнопка «Удалить» в
   // модалке узла). Само удаление React Flow отключено (deleteKeyCode=null).
@@ -131,6 +137,8 @@ function LevelGraphInner({
   onEdgesChoice,
   onEdgeHandlesChanged,
   onDropNode,
+  onCreateEdge,
+  onConnectInto,
   onRequestDeleteNode,
   dragShape,
   mode = "level",
@@ -177,6 +185,29 @@ function LevelGraphInner({
   // Реконнект концов рёбер (смена хэндла на том же узле + персист).
   const { handleReconnectStart, handleReconnect, handleReconnectEnd, isValidConnection } =
     useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
+
+  // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
+  // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
+  // потомка); лист (block без детей или гость) — связываем напрямую; распорка — игнор.
+  const resolveTarget = useCallback(
+    (id: string): ConnectTarget => {
+      const n = rfNodes.find((x) => x.id === id);
+      if (!n) return null;
+      if (n.type === "container") return { kind: "into", name: (n.data as ContainerData).name };
+      if (n.type === "block") {
+        const an = (n.data as BlockData).appNode;
+        return an.has_children ? { kind: "into", name: an.name } : { kind: "direct" };
+      }
+      if (n.type === "ghost") return { kind: "direct" };
+      return null; // spacer и прочее
+    },
+    [rfNodes],
+  );
+
+  // Создание новой связи протягиванием стрелки (лист → напрямую, контейнер → выбор потомка).
+  const { connecting, handleConnectStart, handleConnectEnd } = useEdgeConnect({
+    isArchitect, isContext, resolveTarget, onCreate: onCreateEdge, onInto: onConnectInto,
+  });
 
   // Стабилизируем массив id предков ПО ЗНАЧЕНИЮ: родители отдают новый массив с тем
   // же содержимым на каждый рендер, а пересчитывать раскладку (и сбрасывать драг/
@@ -374,6 +405,7 @@ function LevelGraphInner({
           isArchitect,
           colors: getNodeColors(n.is_external, depth),
           hideActions: isContext,
+          connectable: isArchitect && !isContext,
         } satisfies BlockData,
       })),
       ...entities.map((ent) => {
@@ -386,6 +418,7 @@ function LevelGraphInner({
             data: {
               appNode: ent.ghost,
               colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth),
+              connectable: isArchitect && !isContext,
             } satisfies GhostData,
           };
         }
@@ -400,6 +433,7 @@ function LevelGraphInner({
             ancestors: ent.ancestors,
             colors: getNodeColors(false, ent.depth),
             onExpand: cb.expandContainer,
+            connectable: isArchitect && !isContext,
           } satisfies ContainerData,
         };
       }),
@@ -464,7 +498,14 @@ function LevelGraphInner({
 
   return (
     <div
-      className="lg-canvas"
+      // lg-canvas--editable — раскрытие хэндлов по ховеру (архитектор, не контекст);
+      // lg-canvas--connecting — подсветка «зон входа» (узлов с детьми) во время
+      // протягивания новой связи.
+      className={
+        "lg-canvas" +
+        (isArchitect && !isContext ? " lg-canvas--editable" : "") +
+        (connecting ? " lg-canvas--connecting" : "")
+      }
       style={{ flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -483,6 +524,13 @@ function LevelGraphInner({
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}
         onReconnectEnd={handleReconnectEnd}
+        // Создание новой связи протягиванием от хэндла узла. onConnectStart/End
+        // срабатывают только для НОВОЙ связи (реконнект идёт через onReconnect*),
+        // поэтому потоки не пересекаются. Цель определяем по узлу под курсором в
+        // onConnectEnd, связь создаём через API (onCreateEdge/onConnectInto) +
+        // перезагрузку уровня — RF-ребро напрямую не добавляем, потому onConnect не нужен.
+        onConnectStart={handleConnectStart}
+        onConnectEnd={handleConnectEnd}
         isValidConnection={isValidConnection}
         connectionMode={ConnectionMode.Loose}
         reconnectRadius={20}
@@ -497,10 +545,10 @@ function LevelGraphInner({
         // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
         // уровне узлы таскаем (персист координат архитектором).
         nodesDraggable={!isContext}
-        // nodesConnectable=true нужен, чтобы React Flow рисовал превью-линию
-        // при reconnect (рендер connection line гейтится этим флагом). Создание
-        // новых связей всё равно невозможно: onConnect не задан, а isValidConnection
-        // вне reconnect возвращает false.
+        // nodesConnectable=true нужен и для превью-линии reconnect, и для
+        // протягивания НОВОЙ связи от хэндла (рендер connection line гейтится этим
+        // флагом). Начать связь можно только с хэндла, у которого isConnectableStart
+        // (его выставляем лишь архитектору вне контекст-режима — см. nodes.tsx).
         nodesConnectable
         proOptions={{ hideAttribution: true }}
       >

@@ -11,7 +11,9 @@ import {
 } from "./shapes";
 import type { BlockRFNode, GhostRFNode, ContainerRFNode } from "./types";
 
-function NodeHandles({ nodeId, color }: { nodeId: string; color: string }) {
+function NodeHandles({
+  nodeId, color, connectableStart = false,
+}: { nodeId: string; color: string; connectableStart?: boolean }) {
   return (
     <>
       {SIDE_HANDLES.flatMap(({ side, pos, offsets }) =>
@@ -21,9 +23,10 @@ function NodeHandles({ nodeId, color }: { nodeId: string; color: string }) {
             id={hid(nodeId, side, idx)}
             type="source"
             position={pos}
-            // нельзя НАЧАТЬ связь с пустого хэндла (в покое хэндл инертен,
-            // курсор не меняется); остаётся приёмником конца стрелки при reconnect
-            isConnectableStart={false}
+            // НАЧАТЬ связь с хэндла можно только архитектору (connectableStart) — тогда
+            // хэндлы раскрываются по ховеру и тянут новую стрелку. Иначе хэндл инертен
+            // (курсор не меняется), но остаётся приёмником конца стрелки при reconnect.
+            isConnectableStart={connectableStart}
             style={fixedHandleStyle(pos, offset, color)}
           />
         ))
@@ -100,6 +103,10 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   };
   return (
     <div
+      // data-into помечает узел как «зону входа»: связь, протянутую на узел С ДЕТЬМИ,
+      // нельзя замкнуть на него самого (это алерт-кейс) — отпускание открывает выбор
+      // его потомка. Подсветка зоны во время протягивания — по CSS этого атрибута.
+      data-into={data.appNode.has_children ? "1" : undefined}
       style={{
         ...nodeContainer,
         height: shapeHeight(shape),
@@ -112,7 +119,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       }}
     >
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
-      <NodeHandles nodeId={data.appNode.id} color={c.border} />
+      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
 
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
           В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
@@ -154,7 +161,7 @@ function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
   return (
     <div style={{ ...nodeContainer, height: shapeHeight(shape), color: c.text }}>
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
-      <NodeHandles nodeId={data.appNode.id} color={c.border} />
+      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, false) }}>
         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{data.appNode.name}</div>
         <div style={{ display: "flex", justifyContent: "flex-start" }}>
@@ -174,11 +181,13 @@ function ContainerNode({ data }: NodeProps<ContainerRFNode>) {
     borderColor: "rgba(255,255,255,0.3)",
   };
   return (
-    <div style={{ ...nodeContainer, color: c.text }}>
+    // Свёрнутый контейнер — всегда «зона входа»: его содержимое детализируется,
+    // протянутая на него стрелка ведёт к одному из его потомков (data-into).
+    <div data-into="1" style={{ ...nodeContainer, color: c.text }}>
       <svg width={NODE_W} height={NODE_H} style={{ position: "absolute", inset: 0, pointerEvents: "none", filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.12))" }}>
         <rect x={1} y={1} width={NODE_W - 2} height={NODE_H - 2} rx={8} fill={c.bg} stroke={c.border} strokeWidth={1.5} strokeDasharray="5 3" />
       </svg>
-      <NodeHandles nodeId={data.id} color={c.border} />
+      <NodeHandles nodeId={data.id} color={c.border} connectableStart={data.connectable} />
       <div style={nodeActions}>
         <button
           className="nodrag"

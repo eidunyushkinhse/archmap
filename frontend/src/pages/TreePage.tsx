@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
-import { nodesApi } from "../api/nodes";
+import { nodesApi, edgesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { Edge, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
 import EdgeModal from "../components/EdgeModal";
+import EdgeIntoPicker from "../components/EdgeIntoPicker";
 import SchemaAlerts from "../components/SchemaAlerts";
 import EdgeDetailModal from "../components/EdgeDetailModal";
 import EdgeChoiceModal from "../components/EdgeChoiceModal";
@@ -46,6 +47,12 @@ export default function TreePage({ onLogout }: Props) {
     node: null,
   });
   const [edgeCreateModal, setEdgeCreateModal] = useState(false);
+  // протянули стрелку на узел с детьми — выбор его потомка как дальнего конца связи
+  const [intoPicker, setIntoPicker] = useState<{
+    sourceId: string;
+    containerId: string;
+    containerName: string;
+  } | null>(null);
   const [edgeDetailModal, setEdgeDetailModal] = useState<Edge | null>(null);
   // выбор связи из «мастер-стрелки» (несколько слитых связей одного направления)
   const [edgeChoice, setEdgeChoice] = useState<Edge[] | null>(null);
@@ -200,6 +207,26 @@ export default function TreePage({ onLogout }: Props) {
     load(currentParentId);
   }
 
+  // Протянули стрелку на ЛИСТОВОЙ узел — создаём связь sourceId→targetId сразу.
+  async function handleCreateEdge(sourceId: string, targetId: string) {
+    try {
+      await edgesApi.create({ source_id: sourceId, target_id: targetId });
+      load(currentParentId);
+    } catch (e) {
+      console.error("Не удалось создать связь", e);
+    }
+  }
+
+  // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка.
+  function handleConnectInto(sourceId: string, containerId: string, containerName: string) {
+    setIntoPicker({ sourceId, containerId, containerName });
+  }
+
+  function handleIntoCreated() {
+    setIntoPicker(null);
+    load(currentParentId);
+  }
+
   // Шаблон узла отпустили на схему (LevelGraph посчитал координаты в системе графа) —
   // открываем модалку создания с выбранной формой и точкой дропа.
   function handleDropNode(shape: NodeShape, pos: { x: number; y: number }) {
@@ -314,6 +341,8 @@ export default function TreePage({ onLogout }: Props) {
               onEdgesChoice={(group) => setEdgeChoice(group)}
               onEdgeHandlesChanged={updateEdgeHandles}
               onDropNode={handleDropNode}
+              onCreateEdge={handleCreateEdge}
+              onConnectInto={handleConnectInto}
               onRequestDeleteNode={setPendingDelete}
               dragShape={dragShape}
             />
@@ -345,6 +374,16 @@ export default function TreePage({ onLogout }: Props) {
         <EdgeModal
           onClose={() => setEdgeCreateModal(false)}
           onCreated={handleEdgeCreated}
+        />
+      )}
+      {intoPicker && (
+        <EdgeIntoPicker
+          sourceId={intoPicker.sourceId}
+          sourceLabel={findNodeLabel(intoPicker.sourceId)}
+          containerId={intoPicker.containerId}
+          containerName={intoPicker.containerName}
+          onClose={() => setIntoPicker(null)}
+          onCreated={handleIntoCreated}
         />
       )}
       {edgeDetailModal && (

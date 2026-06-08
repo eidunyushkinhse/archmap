@@ -11,3 +11,18 @@
 .lg-canvas .react-flow__handle.connectingto {
   opacity: 1;
 }
+
+/* Раскрытие хэндлов по ховеру узла — только у архитектора (lg-canvas--editable):
+   подсказка «отсюда можно потянуть новую связь». viewer и контекст-схема класс не
+   получают, поэтому у них хэндлы остаются скрытыми. */
+.lg-canvas--editable .react-flow__node:hover .react-flow__handle {
+  opacity: 1;
+}
+
+/* Во время протягивания новой связи подсвечиваем «зоны входа» — узлы с детьми
+   (data-into): отпускание на них откроет выбор потомка. */
+.lg-canvas--connecting .react-flow__node:has([data-into]) {
+  outline: 2px dashed #2563eb;
+  outline-offset: 3px;
+  border-radius: 10px;
+}

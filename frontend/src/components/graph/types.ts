@@ -36,11 +36,15 @@ export interface BlockData extends Record<string, unknown> {
   colors: NodeColors;
   // в контекст-режиме у фокусного блока нет кнопок «Войти»/правки (схема — только просмотр)
   hideActions?: boolean;
+  // можно ли НАЧАТЬ связь с хэндлов узла (архитектор, не контекст-режим) — раскрытие
+  // хэндлов по ховеру для протягивания новой стрелки
+  connectable?: boolean;
 }
 
 export interface GhostData extends Record<string, unknown> {
   appNode: GhostNode;
   colors: NodeColors;
+  connectable?: boolean;
 }
 
 // Свёрнутый узел-контейнер соседней ветки (напр. ProdMon) — с кнопкой-лупой.
@@ -51,6 +55,7 @@ export interface ContainerData extends Record<string, unknown> {
   ancestors: AncestorRef[];
   colors: NodeColors;
   onExpand: (id: string) => void;
+  connectable?: boolean;
 }
 
 export type BlockRFNode = RFNode<BlockData, "block">;
