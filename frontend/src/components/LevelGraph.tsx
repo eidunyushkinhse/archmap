@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useMemo, useCallback, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import {
   ReactFlow,
@@ -161,9 +161,29 @@ function LevelGraphInner({
   const { handleReconnectStart, handleReconnect, handleReconnectEnd, isValidConnection } =
     useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
 
-  useEffect(() => {
+  // Стабилизируем массив id предков ПО ЗНАЧЕНИЮ: родители отдают новый массив с тем
+  // же содержимым на каждый рендер, а пересчитывать раскладку (и сбрасывать драг/
+  // выделение) нужно только при реальной смене breadcrumb. Раньше эту роль играл
+  // костыль `ancestorIds.join("|")` в deps отключённого эффекта.
+  const ancestorKey = ancestorIds.join("|");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- зависим от значения (ancestorKey), а не от ссылки массива
+  const stableAncestorIds = useMemo(() => ancestorIds, [ancestorKey]);
+
+  // Колбэки-данные узлов (drill-down/edit/expand) держим в ref: это НЕ вход
+  // вычисления раскладки, а нагрузка, которую узел вызовет позже. Родители отдают их
+  // нестабильными (новые функции каждый рендер); будь они зависимостями сборки,
+  // массив rfNodes пересоздавался бы на каждый рендер родителя и сбрасывал выделение/
+  // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
+  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer });
+  cbRef.current = { onDrillDown, onEditNode, expandContainer };
+
+  // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
+  // багов «правка одного ломала соседа»). Зависит ТОЛЬКО от данных. Этапы: проекция
+  // гостей → ремап рёбер → слияние мастер-стрелок → позиции/хэндлы (dagre или
+  // контекст-раскладка) → центрирование детей раскрытого контейнера → распорки.
+  const layout = useMemo(() => {
     // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
-    const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, ancestorIds, expanded);
+    const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, stableAncestorIds, expanded);
     const remap = (id: string) => ghostToEffective.get(id) ?? id;
     // Рёбра с концами, переадресованными на отображаемые сущности. Хэндл гостевого
     // конца подменяем сохранённым per-level значением для ТЕКУЩЕЙ проекции (узла,
@@ -239,7 +259,7 @@ function LevelGraphInner({
             shapeHeight(nodes[0].shape),
             entities,
             layoutEdges,
-            ancestorIds,
+            stableAncestorIds,
             expanded,
           )
         : null;
@@ -301,6 +321,17 @@ function LevelGraphInner({
       );
     }
 
+    return { entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers };
+  }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, edges, isContext, expanded, stableAncestorIds]);
+
+  // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
+  // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
+  // МЕЖДУ пересчётами. Эффект срабатывает ровно тогда же, когда раньше — при смене
+  // данных раскладки / isArchitect / depth, — поэтому интерактив сохраняется. Колбэки
+  // берём из ref (см. cbRef), потому в зависимостях только данные.
+  useEffect(() => {
+    const { entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers } = layout;
+    const cb = cbRef.current;
     setRfNodes([
       ...nodes.map((n) => ({
         id: n.id,
@@ -308,8 +339,8 @@ function LevelGraphInner({
         position: positions.get(n.id) ?? { x: 0, y: 0 },
         data: {
           appNode: n,
-          onDrillDown,
-          onEdit: onEditNode,
+          onDrillDown: cb.onDrillDown,
+          onEdit: cb.onEditNode,
           isArchitect,
           colors: getNodeColors(n.is_external, depth),
           hideActions: isContext,
@@ -338,7 +369,7 @@ function LevelGraphInner({
             depth: ent.depth,
             ancestors: ent.ancestors,
             colors: getNodeColors(false, ent.depth),
-            onExpand: expandContainer,
+            onExpand: cb.expandContainer,
           } satisfies ContainerData,
         };
       }),
@@ -378,8 +409,7 @@ function LevelGraphInner({
         };
       })
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, edges, isArchitect, depth, expanded, ancestorIds.join("|")]);
+  }, [layout, nodes, isArchitect, depth, isContext, setRfNodes, setRfEdges]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
