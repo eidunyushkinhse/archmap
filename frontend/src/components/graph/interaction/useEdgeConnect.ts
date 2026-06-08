@@ -1,16 +1,19 @@
 // Создание связи протягиванием новой стрелки от хэндла узла A.
 //
-// Жест (только архитектор, не контекст-режим):
-//   • отпустил на ЛИСТОВОМ узле (нет детей)  → связь A→B создаётся сразу;
-//   • отпустил на узле С ДЕТЬМИ (контейнер / has_children) — это «зона входа»:
-//       связь нельзя замкнуть на него самого (алерт-кейс), поэтому открываем выбор
-//       его потомка (поиск скоупится поддеревом) → связь A→потомок (станет сквозной);
-//   • отпустил на пустом холсте → стрелка просто исчезает.
+// Жест (только архитектор, не контекст-режим). Куда отпустил конец:
+//   • на ХЭНДЛ любого узла (защёлка в радиусе connectionRadius — onConnect) → прямая
+//       связь к ЭТОМУ узлу, даже если у него есть дети (явно целились в его хэндл);
+//   • на ТЕЛО узла С ДЕТЬМИ (мимо хэндлов — onConnectEnd) — это «зона входа»:
+//       открываем выбор его потомка (поиск скоупится поддеревом) → связь A→потомок
+//       (станет сквозной);
+//   • на ТЕЛО ЛИСТОВОГО узла → прямая связь (прощаем непопадание в хэндл);
+//   • на пустой холст → стрелка просто исчезает.
 //
-// Реконнект концов существующих рёбер — ОТДЕЛЬНЫЙ поток (onReconnect*), сюда не
-// заходит: onConnectStart/onConnectEnd срабатывают только для НОВОЙ связи.
+// Хэндл выигрывает у «зоны входа»: его обрабатывает onConnect ещё до onConnectEnd
+// (madeRef глушит дубль). Реконнект концов существующих рёбер — ОТДЕЛЬНЫЙ поток
+// (onReconnect*), сюда не заходит: onConnect/onConnectStart/End — только новая связь.
 import { useCallback, useRef, useState } from "react";
-import type { OnConnectStartParams } from "@xyflow/react";
+import type { OnConnectStartParams, Connection, Edge as RFEdge } from "@xyflow/react";
 
 // Что делать с узлом, на который отпустили конец стрелки.
 export type ConnectTarget =
@@ -45,6 +48,9 @@ export function useEdgeConnect({
   const enabled = isArchitect && !isContext;
   // id узла, от которого начато протягивание (null — протягивания нет)
   const sourceRef = useRef<string | null>(null);
+  // в текущем протягивании конец защёлкнулся на хэндл (onConnect уже создал связь) —
+  // тогда onConnectEnd не должен трактовать дроп ещё и как «зону входа»
+  const madeRef = useRef(false);
   // идёт протягивание новой связи — для подсветки «зон входа» (CSS-класс на холсте)
   const [connecting, setConnecting] = useState(false);
 
@@ -52,16 +58,39 @@ export function useEdgeConnect({
     (_e: unknown, params: OnConnectStartParams) => {
       if (!enabled || !params.nodeId) return;
       sourceRef.current = params.nodeId;
+      madeRef.current = false;
       setConnecting(true);
     },
     [enabled],
   );
 
+  // Конец защёлкнулся на хэндл узла (в радиусе connectionRadius) — прямая связь к нему.
+  const handleConnect = useCallback(
+    (conn: Connection) => {
+      madeRef.current = true; // глушим «зону входа» в onConnectEnd даже при петле
+      const { source, target } = conn;
+      if (!enabled || !source || !target || source === target) return;
+      onCreate?.(source, target);
+    },
+    [enabled, onCreate],
+  );
+
+  // Разрешённость НОВОЙ связи (вызывающий разводит её с реконнектом по isReconnecting):
+  // нужна, чтобы onConnect защёлкивался на хэндл и подсвечивал валидную цель.
+  const isValidNewConnection = useCallback(
+    (conn: Connection | RFEdge) =>
+      enabled && conn.source != null && conn.target != null && conn.source !== conn.target,
+    [enabled],
+  );
+
   const handleConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent) => {
+      const made = madeRef.current;
+      madeRef.current = false;
       setConnecting(false);
       const source = sourceRef.current;
       sourceRef.current = null;
+      if (made) return; // хэндл уже обработан в onConnect
       if (!enabled || !source) return;
 
       // Цель определяем по узлу ПОД КУРСОРОМ (надёжнее радиуса хэндлов — «бросай
@@ -86,5 +115,5 @@ export function useEdgeConnect({
     [enabled, resolveTarget, onCreate, onInto],
   );
 
-  return { connecting, handleConnectStart, handleConnectEnd };
+  return { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection };
 }

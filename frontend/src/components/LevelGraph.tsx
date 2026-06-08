@@ -183,8 +183,10 @@ function LevelGraphInner({
   });
 
   // Реконнект концов рёбер (смена хэндла на том же узле + персист).
-  const { handleReconnectStart, handleReconnect, handleReconnectEnd, isValidConnection } =
-    useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
+  const {
+    handleReconnectStart, handleReconnect, handleReconnectEnd,
+    isValidConnection: isValidReconnect, isReconnecting,
+  } = useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
   // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
@@ -204,10 +206,21 @@ function LevelGraphInner({
     [rfNodes],
   );
 
-  // Создание новой связи протягиванием стрелки (лист → напрямую, контейнер → выбор потомка).
-  const { connecting, handleConnectStart, handleConnectEnd } = useEdgeConnect({
-    isArchitect, isContext, resolveTarget, onCreate: onCreateEdge, onInto: onConnectInto,
-  });
+  // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
+  // выбор потомка).
+  const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
+    useEdgeConnect({
+      isArchitect, isContext, resolveTarget, onCreate: onCreateEdge, onInto: onConnectInto,
+    });
+
+  // Общий isValidConnection для двух потоков: при реконнекте — правила реконнекта
+  // (тот же узел), при протягивании новой связи — правила новой связи. Развод по
+  // isReconnecting, иначе «новые» правила разрешали бы реконнект на чужой узел.
+  const isValidConnection = useCallback(
+    (conn: Parameters<typeof isValidReconnect>[0]) =>
+      isReconnecting() ? isValidReconnect(conn) : isValidNewConnection(conn),
+    [isReconnecting, isValidReconnect, isValidNewConnection],
+  );
 
   // Стабилизируем массив id предков ПО ЗНАЧЕНИЮ: родители отдают новый массив с тем
   // же содержимым на каждый рендер, а пересчитывать раскладку (и сбрасывать драг/
@@ -524,14 +537,18 @@ function LevelGraphInner({
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}
         onReconnectEnd={handleReconnectEnd}
-        // Создание новой связи протягиванием от хэндла узла. onConnectStart/End
-        // срабатывают только для НОВОЙ связи (реконнект идёт через onReconnect*),
-        // поэтому потоки не пересекаются. Цель определяем по узлу под курсором в
-        // onConnectEnd, связь создаём через API (onCreateEdge/onConnectInto) +
-        // перезагрузку уровня — RF-ребро напрямую не добавляем, потому onConnect не нужен.
+        // Создание новой связи протягиванием от хэндла узла. onConnectStart/Connect/End
+        // — только НОВАЯ связь (реконнект идёт через onReconnect*). onConnect ловит
+        // защёлку конца на ХЭНДЛ (в радиусе connectionRadius) → прямая связь к узлу;
+        // onConnectEnd ловит дроп мимо хэндлов → «зона входа» (тело контейнера) или
+        // прямую связь (тело листа). Связь создаём через API + перезагрузку уровня.
         onConnectStart={handleConnectStart}
+        onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
         isValidConnection={isValidConnection}
+        // прощающий радиус защёлки конца на хэндл: попасть в периметр-хэндл узла
+        // легко, при этом центр тела (≥ полширины узла от хэндлов) остаётся «зоной входа»
+        connectionRadius={30}
         connectionMode={ConnectionMode.Loose}
         reconnectRadius={20}
         connectionLineType={ConnectionLineType.SmoothStep}

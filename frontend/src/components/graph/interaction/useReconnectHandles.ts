@@ -92,5 +92,9 @@ export function useReconnectHandles({
     return conn.source === orig.source && conn.target === orig.target;
   }, []);
 
-  return { handleReconnectStart, handleReconnect, handleReconnectEnd, isValidConnection };
+  // Идёт ли сейчас реконнект существующего ребра (а не протягивание новой связи) —
+  // вызывающий разводит по этому флагу общий isValidConnection между двумя потоками.
+  const isReconnecting = useCallback(() => reconnectingEdge.current != null, []);
+
+  return { handleReconnectStart, handleReconnect, handleReconnectEnd, isValidConnection, isReconnecting };
 }
