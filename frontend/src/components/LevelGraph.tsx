@@ -1283,7 +1283,8 @@ interface LevelGraphProps {
   // сохранённые хэндлы гостевых концов рёбер: edge_id → список значений хэндлов
   // (по одному на проекцию). Применяются к концу, чей текущий показанный узел
   // совпадает с префиксом хэндла; остальные — из колонок ребра / autoHandles.
-  levelEdgeHandles: Record<string, string[]>;
+  // Необязателен: контекст-схема (mode="context") хэндлы не сохраняет — там {}.
+  levelEdgeHandles?: Record<string, string[]>;
   edges: AppEdge[];
   depth: number;
   /** id узла-контейнера текущего уровня (null — корень) */
@@ -1330,7 +1331,7 @@ function LevelGraphInner({
   nodes,
   ghostNodes,
   levelPositions,
-  levelEdgeHandles,
+  levelEdgeHandles = {},
   edges,
   depth,
   containerId,
