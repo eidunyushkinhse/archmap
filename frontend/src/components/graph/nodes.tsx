@@ -1,0 +1,209 @@
+// Кастомные компоненты узлов React Flow и их реестр nodeTypes.
+import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties } from "react";
+import { Handle, type NodeProps, type NodeTypes } from "@xyflow/react";
+import {
+  SIDE_HANDLES, hid, shapeHeight, MAX_TAG_FONT, MIN_TAG_FONT, NODE_W, NODE_H,
+} from "./constants";
+import {
+  fixedHandleStyle, NodeShapeSvg, contentPadding,
+  nodeContainer, SELECTED_GLOW,
+  tagChip, nodeActions, personActions, nodeBtn,
+} from "./shapes";
+import type { BlockRFNode, GhostRFNode, ContainerRFNode } from "./types";
+
+function NodeHandles({ nodeId, color }: { nodeId: string; color: string }) {
+  return (
+    <>
+      {SIDE_HANDLES.flatMap(({ side, pos, offsets }) =>
+        offsets.map((offset, idx) => (
+          <Handle
+            key={hid(nodeId, side, idx)}
+            id={hid(nodeId, side, idx)}
+            type="source"
+            position={pos}
+            // нельзя НАЧАТЬ связь с пустого хэндла (в покое хэндл инертен,
+            // курсор не меняется); остаётся приёмником конца стрелки при reconnect
+            isConnectableStart={false}
+            style={fixedHandleStyle(pos, offset, color)}
+          />
+        ))
+      )}
+    </>
+  );
+}
+
+// Единое «облако» с ролью и технологией: «{роль}: {технология}» (если есть оба,
+// иначе — то, что задано). Выравнивание задаёт родитель. Шрифт авто-уменьшается,
+// чтобы строка влезла в доступную ширину узла (важно для узлов разного размера).
+function RoleTechChip({
+  role, technology, color,
+}: { role?: string | null; technology?: string | null; color: string }) {
+  const label = role && technology ? `${role}: ${technology}` : role || technology || "";
+  const ref = useRef<HTMLSpanElement>(null);
+  const [fontSize, setFontSize] = useState(MAX_TAG_FONT);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    // Уменьшаем шрифт от MAX до MIN, пока чип не впишется в ширину родителя
+    const fit = () => {
+      let size = MAX_TAG_FONT;
+      el.style.fontSize = `${size}px`;
+      while (size > MIN_TAG_FONT && el.scrollWidth > parent.clientWidth) {
+        size -= 0.5;
+        el.style.fontSize = `${size}px`;
+      }
+      setFontSize(size);
+    };
+    fit();
+    // Пересчёт при изменении ширины узла (узлы разного размера / ресайз)
+    const ro = new ResizeObserver(fit);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [label]);
+
+  if (!label) return null;
+  return (
+    <span
+      ref={ref}
+      style={{
+        ...tagChip,
+        marginRight: 0,
+        maxWidth: "100%",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        background: "rgba(255,255,255,0.22)",
+        color,
+        fontSize,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
+  const c = data.colors;
+  const shape = data.appNode.shape;
+  // У пользователя «провалиться внутрь» нечего → кнопку «Войти» не показываем.
+  // Голова человечка — узкий круг по центру вверху, поэтому стандартное место
+  // кнопок (правый верхний угол) висит в пустоте сбоку от головы: для персоны
+  // опускаем действия внутрь прямоугольника-тела (personActions).
+  const isPerson = shape === "person";
+  const btnStyle: CSSProperties = {
+    ...nodeBtn,
+    background: "rgba(255,255,255,0.18)",
+    color: c.text,
+    borderColor: "rgba(255,255,255,0.3)",
+  };
+  return (
+    <div
+      style={{
+        ...nodeContainer,
+        height: shapeHeight(shape),
+        color: c.text,
+        // Подсветка выбранного узла: синее свечение по силуэту (drop-shadow
+        // тянется по альфе SVG-формы, поэтому ореол повторяет контур любой
+        // формы — цилиндра БД, человечка и т.д.). Сигнал «этот узел активен и
+        // исчезнет по Backspace».
+        filter: selected ? SELECTED_GLOW : undefined,
+      }}
+    >
+      <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
+      <NodeHandles nodeId={data.appNode.id} color={c.border} />
+
+      {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
+          В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
+      {!data.hideActions && (
+        <div style={isPerson ? personActions : nodeActions}>
+          {!isPerson && (
+            <button
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); data.onDrillDown(data.appNode); }}
+              style={btnStyle}
+              title="Войти"
+            >→</button>
+          )}
+          <button
+            className="nodrag"
+            onClick={(e) => { e.stopPropagation(); data.onEdit(data.appNode); }}
+            style={btnStyle}
+            title={data.isArchitect ? "Изменить" : "Просмотр"}
+          >{data.isArchitect ? "✎" : "◉"}</button>
+        </div>
+      )}
+
+      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, !data.hideActions) }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+          {data.appNode.name}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-start" }}>
+          <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
+  const c = data.colors;
+  const shape = data.appNode.shape;
+  // Форма та же, но пунктиром — «призрачность» внешнего узла видна по пунктирному контуру.
+  return (
+    <div style={{ ...nodeContainer, height: shapeHeight(shape), color: c.text }}>
+      <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
+      <NodeHandles nodeId={data.appNode.id} color={c.border} />
+      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, false) }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{data.appNode.name}</div>
+        <div style={{ display: "flex", justifyContent: "flex-start" }}>
+          <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContainerNode({ data }: NodeProps<ContainerRFNode>) {
+  const c = data.colors;
+  const btnStyle: CSSProperties = {
+    ...nodeBtn,
+    background: "rgba(255,255,255,0.18)",
+    color: c.text,
+    borderColor: "rgba(255,255,255,0.3)",
+  };
+  return (
+    <div style={{ ...nodeContainer, color: c.text }}>
+      <svg width={NODE_W} height={NODE_H} style={{ position: "absolute", inset: 0, pointerEvents: "none", filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.12))" }}>
+        <rect x={1} y={1} width={NODE_W - 2} height={NODE_H - 2} rx={8} fill={c.bg} stroke={c.border} strokeWidth={1.5} strokeDasharray="5 3" />
+      </svg>
+      <NodeHandles nodeId={data.id} color={c.border} />
+      <div style={nodeActions}>
+        <button
+          className="nodrag"
+          onClick={(e) => { e.stopPropagation(); data.onExpand(data.id); }}
+          style={btnStyle}
+          title="Раскрыть содержимое"
+        >🔍</button>
+      </div>
+      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", padding: "12px 14px", paddingRight: 40 }}>
+        <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginBottom: 2 }}>контейнер</div>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{data.name}</div>
+      </div>
+    </div>
+  );
+}
+
+// Невидимый узел-распорка (контекст-схема): ставится в крайние точки контента, включая
+// обходы не родных стрелок, чтобы fitView (фитит только узлы) вмещал весь рисунок.
+function SpacerNode() {
+  return <div style={{ width: 1, height: 1, pointerEvents: "none" }} />;
+}
+
+export const nodeTypes: NodeTypes = {
+  block: BlockNode as ComponentType<NodeProps>,
+  ghost: GhostBlockNode as ComponentType<NodeProps>,
+  container: ContainerNode as ComponentType<NodeProps>,
+  spacer: SpacerNode as ComponentType<NodeProps>,
+};
