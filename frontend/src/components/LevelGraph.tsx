@@ -19,6 +19,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape } from "../types";
+import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H, shapeHeight,
   CTX_LABEL_W,
@@ -198,7 +199,10 @@ function LevelGraphInner({
       if (n.type === "container") return { kind: "into", name: (n.data as ContainerData).name };
       if (n.type === "block") {
         const an = (n.data as BlockData).appNode;
-        return an.has_children ? { kind: "into", name: an.name } : { kind: "direct" };
+        // зона входа — только сервис с детьми; БД/брокер связываем напрямую
+        return an.has_children && canHaveChildren(an.shape)
+          ? { kind: "into", name: an.name }
+          : { kind: "direct" };
       }
       if (n.type === "ghost") return { kind: "direct" };
       return null; // spacer и прочее

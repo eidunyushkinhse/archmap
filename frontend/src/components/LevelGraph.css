@@ -28,12 +28,35 @@
   opacity: 0.28;
 }
 
-/* Во время протягивания новой связи подсвечиваем «зоны входа» — узлы с детьми
-   (data-into): отпускание на них откроет выбор потомка. */
+/* Во время протягивания новой связи подсвечиваем «зоны входа» — узлы-сервисы с
+   детьми (data-into): отпускание на них откроет выбор потомка. */
 .lg-canvas--connecting .react-flow__node:has([data-into]) {
   outline: 2px dashed #2563eb;
   outline-offset: 3px;
   border-radius: 10px;
+}
+
+/* Знак зоны входа («стрелка вниз в лунку») — скрыт в покое, центрирован, не ловит
+   указатель (дроп ловит сам узел). */
+.lg-into-cue {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+/* Во время протягивания у зоны входа прячем ВЕСЬ контент (форма, текст, кнопки,
+   хэндлы) и показываем только знак — узел читается как «лунка для дропа внутрь».
+   Пунктирная рамка зоны (правило выше) остаётся и очерчивает область. */
+.lg-canvas--connecting [data-into] > *:not(.lg-into-cue) {
+  opacity: 0;
+}
+.lg-canvas--connecting [data-into] > .lg-into-cue {
+  opacity: 1;
 }
 
 /* Подсказка «отсюда можно провести связь»: при наведении на хэндл (до начала

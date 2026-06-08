@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
+import { canHaveChildren } from "../types";
 import "./NodeTreePanel.css";
 
 /**
@@ -233,12 +234,15 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     const isExpanded = expanded.has(id);
     const isLoading = loadingId.has(id);
     const kids = childrenById[id] ?? [];
+    // Контейнером (drill внутрь) может быть только сервис: у БД/брокера детей нет,
+    // в дереве они — листья (без шеврона, клик → контекст), хотя сами видны.
+    const drillable = canHaveChildren(node.shape);
     // шеврон скрываем, если все дети узла оказались персонами (узел стал листом)
-    const hasChildren = node.has_children && !leaves.has(id);
+    const hasChildren = drillable && node.has_children && !leaves.has(id);
     // промежуточный узел (есть дети в системе) → редирект на его слой; иначе → контекст.
     // Опираемся на has_children, а не на скрытие шеврона: узел с детьми-персонами в дереве
     // выглядит листом, но на основной схеме его дети (персоны) есть — туда и проваливаемся.
-    const isIntermediate = node.has_children;
+    const isIntermediate = drillable && node.has_children;
     const handler = isIntermediate
       ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
       : (onNodeContext ? () => onNodeContext(node) : undefined);

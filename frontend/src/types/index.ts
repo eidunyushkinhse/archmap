@@ -1,5 +1,10 @@
 export type NodeShape = "service" | "database" | "broker" | "person";
 
+// Узел-контейнер (можно «провалиться» внутрь и заводить детей) — ТОЛЬКО сервис.
+// БД, брокер и пользователь — атомарные: drill-down/контекст внутрь не ведёт,
+// детей у них не заводим, на схеме они не «зона входа» для сквозной связи.
+export const canHaveChildren = (shape: NodeShape): boolean => shape === "service";
+
 export interface Node {
   id: string;
   name: string;

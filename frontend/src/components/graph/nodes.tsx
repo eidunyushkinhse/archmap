@@ -10,6 +10,26 @@ import {
   tagChip, nodeActions, personActions, nodeBtn,
 } from "./shapes";
 import type { BlockRFNode, GhostRFNode, ContainerRFNode } from "./types";
+import { canHaveChildren } from "../../types";
+
+// Оверлей «зоны входа»: во время протягивания связи (CSS .lg-canvas--connecting)
+// контент узла-контейнера прячется, а по центру показывается «стрелка вниз в лунку» —
+// явный сигнал «отпусти здесь, чтобы выбрать узел внутри». pointer-events:none —
+// дроп по-прежнему ловит сам узел. Видимостью управляет CSS (.lg-into-cue).
+function IntoCue() {
+  return (
+    <div className="lg-into-cue">
+      <svg width={46} height={46} viewBox="0 0 24 24" fill="none"
+        stroke="#2563eb" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        {/* стрелка вниз */}
+        <path d="M12 3 V13" />
+        <path d="M8 9 L12 13 L16 9" />
+        {/* лунка, раскрытая вверх */}
+        <path d="M5 15 v2 a2 2 0 0 0 2 2 h10 a2 2 0 0 0 2 -2 v-2" />
+      </svg>
+    </div>
+  );
+}
 
 function NodeHandles({
   nodeId, color, connectableStart = false,
@@ -95,6 +115,10 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   // кнопок (правый верхний угол) висит в пустоте сбоку от головы: для персоны
   // опускаем действия внутрь прямоугольника-тела (personActions).
   const isPerson = shape === "person";
+  // «Провалиться внутрь»/быть зоной входа может только сервис (см. canHaveChildren):
+  // у БД/брокера/пользователя детей нет — кнопку «Войти» им не показываем.
+  const drillable = canHaveChildren(shape);
+  const intoZone = drillable && data.appNode.has_children;
   const btnStyle: CSSProperties = {
     ...nodeBtn,
     background: "rgba(255,255,255,0.18)",
@@ -103,10 +127,11 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   };
   return (
     <div
-      // data-into помечает узел как «зону входа»: связь, протянутую на узел С ДЕТЬМИ,
-      // нельзя замкнуть на него самого (это алерт-кейс) — отпускание открывает выбор
-      // его потомка. Подсветка зоны во время протягивания — по CSS этого атрибута.
-      data-into={data.appNode.has_children ? "1" : undefined}
+      // data-into помечает узел как «зону входа»: связь, протянутую на узел-сервис
+      // С ДЕТЬМИ, нельзя замкнуть на него самого (это алерт-кейс) — отпускание
+      // открывает выбор его потомка. Визуал зоны во время протягивания — по CSS
+      // этого атрибута. У БД/брокера детей нет (canHaveChildren), они не зоны входа.
+      data-into={intoZone ? "1" : undefined}
       style={{
         ...nodeContainer,
         height: shapeHeight(shape),
@@ -123,9 +148,10 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
 
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
           В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
+      {intoZone && <IntoCue />}
       {!data.hideActions && (
         <div style={isPerson ? personActions : nodeActions}>
-          {!isPerson && (
+          {drillable && (
             <button
               className="nodrag"
               onClick={(e) => { e.stopPropagation(); data.onDrillDown(data.appNode); }}
@@ -196,6 +222,7 @@ function ContainerNode({ data }: NodeProps<ContainerRFNode>) {
           title="Раскрыть содержимое"
         >🔍</button>
       </div>
+      <IntoCue />
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", padding: "12px 14px", paddingRight: 40 }}>
         <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginBottom: 2 }}>контейнер</div>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{data.name}</div>
