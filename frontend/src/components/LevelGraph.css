@@ -28,57 +28,111 @@
 }
 
 /* Подсказка «отсюда можно провести связь»: при наведении на хэндл (до начала
-   протягивания) рядом с ним появляется прозрачная голубая стрелка наружу.
+   протягивания) рядом с ним появляется прозрачная голубая стрелка наружу —
+   древко (::before, прямоугольник 4px) + наконечник (::after, треугольник).
    Только у архитектора (lg-canvas--editable); pointer-events:none — не мешает
    старту перетаскивания. Направление стрелки — по стороне хэндла. */
+.lg-canvas--editable .react-flow__handle::before,
 .lg-canvas--editable .react-flow__handle::after {
   content: "";
   position: absolute;
-  width: 0;
-  height: 0;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.1s ease;
 }
+.lg-canvas--editable .react-flow__handle:hover::before,
 .lg-canvas--editable .react-flow__handle:hover::after {
   opacity: 1;
 }
 /* Во время самого протягивания стрелка-подсказка не нужна (только шумит). */
+.lg-canvas--connecting .react-flow__handle::before,
 .lg-canvas--connecting .react-flow__handle::after {
   opacity: 0 !important;
 }
-.lg-canvas--editable .react-flow__handle-right::after {
+
+/* --- ПРАВО: древко + наконечник вправо --- */
+.lg-canvas--editable .react-flow__handle-right::before {
   top: 50%;
   left: 100%;
   margin-left: 3px;
   transform: translateY(-50%);
+  width: 6px;
+  height: 4px;
+  background: rgba(37, 99, 235, 0.55);
+}
+.lg-canvas--editable .react-flow__handle-right::after {
+  top: 50%;
+  left: 100%;
+  margin-left: 9px;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
   border-left: 8px solid rgba(37, 99, 235, 0.55);
 }
-.lg-canvas--editable .react-flow__handle-left::after {
+
+/* --- ЛЕВО: древко + наконечник влево --- */
+.lg-canvas--editable .react-flow__handle-left::before {
   top: 50%;
   right: 100%;
   margin-right: 3px;
   transform: translateY(-50%);
+  width: 6px;
+  height: 4px;
+  background: rgba(37, 99, 235, 0.55);
+}
+.lg-canvas--editable .react-flow__handle-left::after {
+  top: 50%;
+  right: 100%;
+  margin-right: 9px;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
   border-right: 8px solid rgba(37, 99, 235, 0.55);
 }
-.lg-canvas--editable .react-flow__handle-top::after {
+
+/* --- ВЕРХ: древко + наконечник вверх --- */
+.lg-canvas--editable .react-flow__handle-top::before {
   left: 50%;
   bottom: 100%;
   margin-bottom: 3px;
   transform: translateX(-50%);
+  width: 4px;
+  height: 6px;
+  background: rgba(37, 99, 235, 0.55);
+}
+.lg-canvas--editable .react-flow__handle-top::after {
+  left: 50%;
+  bottom: 100%;
+  margin-bottom: 9px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-bottom: 8px solid rgba(37, 99, 235, 0.55);
 }
-.lg-canvas--editable .react-flow__handle-bottom::after {
+
+/* --- НИЗ: древко + наконечник вниз --- */
+.lg-canvas--editable .react-flow__handle-bottom::before {
   left: 50%;
   top: 100%;
   margin-top: 3px;
   transform: translateX(-50%);
+  width: 4px;
+  height: 6px;
+  background: rgba(37, 99, 235, 0.55);
+}
+.lg-canvas--editable .react-flow__handle-bottom::after {
+  left: 50%;
+  top: 100%;
+  margin-top: 9px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-top: 8px solid rgba(37, 99, 235, 0.55);
