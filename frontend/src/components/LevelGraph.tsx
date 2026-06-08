@@ -42,6 +42,7 @@ import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import { snapCenter, nodeSize } from "./graph/interaction/snap";
+import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 
 // --- Основной компонент ---
 
@@ -148,20 +149,15 @@ function LevelGraphInner({
   const reconnectingEdge = useRef<RFEdge | null>(null);
   const reconnectSucceeded = useRef(true);
 
-  // Координаты (в системе графа) центральных направляющих, пока узел «магнитится».
-  // null по оси — направляющей нет. Сбрасываются по окончании драга.
-  const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+  // Состояние центральных направляющих магнитного выравнивания (общее для snap-драга
+  // и drop-шаблона).
+  const { guides, setGuides, clearGuides } = useAlignmentGuides();
 
   // Превью будущего узла при перетаскивании шаблона из палитры: форма + координаты
   // (левый-верхний угол) в системе графа. Рендерится в ViewportPortal, поэтому
   // автоматически масштабируется под текущий зум — рамка совпадает с реальным
   // размером узлов на схеме. null — превью не показываем.
   const [dropPreview, setDropPreview] = useState<{ shape: NodeShape; x: number; y: number } | null>(null);
-
-  // Скрываем направляющие (обе оси) — общий помощник для разных мест.
-  const clearGuides = useCallback(() => {
-    setGuides((g) => (g.x === null && g.y === null ? g : { x: null, y: null }));
-  }, []);
 
   // Драг шаблона завершился (drop или отмена) — TreePage обнулил dragShape.
   // Убираем превью и направляющие.
