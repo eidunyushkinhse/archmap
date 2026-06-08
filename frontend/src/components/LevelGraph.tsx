@@ -35,6 +35,13 @@ import "./LevelGraph.css";
 import Dagre from "@dagrejs/dagre";
 import type { CSSProperties } from "react";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, AncestorRef } from "../types";
+import {
+  NODE_W, NODE_H, shapeHeight,
+  SNAP_THRESHOLD, MAX_TAG_FONT, MIN_TAG_FONT,
+  SIDE_HANDLES, hid,
+  BOUNDARY_PAD, BOUNDARY_STEP, BOUNDARY_LABEL_PAD, BOUNDARY_LABEL_STEP,
+  CTX_LABEL_W, MIN_SHELF, SHELF_PAD,
+} from "./graph/constants";
 
 // --- Перенос текста по словам, максимум maxLen символов в строке ---
 
@@ -220,25 +227,6 @@ const edgeTypes = {
   wrapped: WrappedLabelEdge,
 } as EdgeTypes;
 
-const NODE_W = 190;
-const NODE_H = 100; // явная высота — нужна для правильного позиционирования хэндлов
-// Узел-человек выше остальных: ему нужна крупная голова сверху, чтобы не выглядеть
-// комично (маленькая голова на широких «плечах»).
-const PERSON_H = 130;
-
-// Высота узла по форме. Человек — выше, остальные — стандартной высоты.
-function shapeHeight(shape: NodeShape): number {
-  return shape === "person" ? PERSON_H : NODE_H;
-}
-// «Магнитный» диапазон выравнивания при драге: если центр узла подтянут ближе
-// этого (в координатах графа) к центру соседа по X или Y — координата приравнивается
-// так, чтобы центры совпали. По духу близко к reconnectRadius у хэндлов.
-const SNAP_THRESHOLD = 10;
-
-// Диапазон авто-подбора шрифта чипа «роль: технология» (px)
-const MAX_TAG_FONT = 11;
-const MIN_TAG_FONT = 7;
-
 // Фактический размер узла: берём измеренный React Flow, иначе заданный явно,
 // иначе дефолт. Нужен для выравнивания по центру при узлах разного размера.
 function nodeSize(n: RFNode | undefined): { w: number; h: number } {
@@ -270,19 +258,6 @@ function snapCenter(
     if (dy <= bestDy) { bestDy = dy; snapCy = ocy; hitY = true; }
   }
   return { snapCx, snapCy, hitX, hitY };
-}
-
-// --- 12 фиксированных точек стыковки (по 3 на каждую сторону) ---
-
-const SIDE_HANDLES: Array<{ side: string; pos: Position; offsets: number[] }> = [
-  { side: "top",    pos: Position.Top,    offsets: [0.25, 0.5, 0.75] },
-  { side: "right",  pos: Position.Right,  offsets: [0.25, 0.5, 0.75] },
-  { side: "bottom", pos: Position.Bottom, offsets: [0.25, 0.5, 0.75] },
-  { side: "left",   pos: Position.Left,   offsets: [0.25, 0.5, 0.75] },
-];
-
-function hid(nodeId: string, side: string, idx: number): string {
-  return `${nodeId}--${side}--${idx}`;
 }
 
 // --- C4-палитра: цвет узла по типу и глубине уровня ---
@@ -811,24 +786,6 @@ export function projectGhosts(ghostNodes: GhostNode[], ancestorIds: string[], ex
 }
 
 // --- Границы уровней (C4-подобные вложенные boundary) ---
-
-const BOUNDARY_PAD = 30;   // отступ внутренней рамки (непосредственный родитель)
-const BOUNDARY_STEP = 34;  // прирост отступа на каждый родительский уровень вверх
-// доп. отступ СНИЗУ рамки под её подпись (приклеена к нижнему краю): даёт подписи
-// собственную полосу под содержимым, чтобы она не наезжала на дочерние рамки/узлы в
-// левом нижнем углу. База ≈ высоте плашки подписи (шрифт 12 + паддинг + рамка) — её
-// хватает внутренней рамке, что граничит с узлами. Доп. прирост на каждый уровень
-// ВВЕРХ (BOUNDARY_LABEL_STEP) нужен, чтобы у внешних рамок подпись уходила ниже нижнего
-// края вложенных рамок: иначе одинаковая добавка у обеих рамок сокращается и подпись
-// внешней рамки царапает край внутренней (зазор сводился к BOUNDARY_STEP − высота подписи).
-const BOUNDARY_LABEL_PAD = 30;
-const BOUNDARY_LABEL_STEP = 24;
-const CTX_LABEL_W = 190;   // макс. ширина плашки подписи ребра в контекст-схеме
-const MIN_SHELF = 36;      // минимальная длина полки подписи (контекст), px
-// запас длины полки сверх ширины подписи: подпись центрируется на полке, и при равной
-// длине её плашка достаёт до сгиба и до примыкания к узлу. Запас (≈ половина на каждый
-// конец) отодвигает плашку от обоих стыков, чтобы фон текста их не перекрывал.
-const SHELF_PAD = 132;
 
 // Приблизительная ширина плашки подписи (контекст) под шрифт 11px: моноширинная оценка,
 // капится по CTX_LABEL_W (длинная подпись переносится по словам). Точную ширину знает
