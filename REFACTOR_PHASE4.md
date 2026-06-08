@@ -100,7 +100,7 @@
 > NB: тело async-IIFE оставлено на прежнем отступе (валидно, tsc зелёный) — переиндентацию
 > 140 строк не делал, чтобы не вносить риск опечатки в инфраструктурный шаг.
 
-### Шаг 4.2 — Level-режим на ELK
+### Шаг 4.2 — Level-режим на ELK — ✅ СДЕЛАНО (2026-06-08)
 - В адаптере реализовать `layoutLevel` через ELK `layered`, `elk.direction:"RIGHT"`,
   размеры узлов `NODE_W×NODE_H`, `ranksep≈120/nodesep≈60` (как у dagre сейчас).
 - Хэндлы: ПОКА оставить `autoHandles` (считается от позиций ELK — функция уже чистая).
@@ -110,6 +110,19 @@
   переживут (override + autoHandles сохранены); точные dagre-координаты не
   ассертятся. Проверить, что менять почти нечего.
 - Verify headless (level-режим: TreePage). Коммит.
+
+> **Итог 4.2:** `layoutLevel` реализован через ELK `layered`/`direction:RIGHT`,
+> `nodeNodeBetweenLayers:120`/`spacing.nodeNode:60`/`padding:30` (≈ dagre). ELK отдаёт
+> позиции верхним-левым углом — ровно как ждёт RF (dagre отдавал центр, конвертировали).
+> Логику хэндлов вынес из `computeLayout` в общую **`assignEdgeHandles`** (level.ts) —
+> переиспользуется ELK-движком и dagre-`computeLayout`, поэтому `computeLayout`-тесты
+> прошли БЕЗ изменений (по-прежнему dagre под капотом; удалится в 4.4). saved-pos
+> override — после ELK. **Бандл:** ELK = 435 kB gzip — статический импорт раздул бы
+> главный чанк (284→719 gzip). РЕШЕНО: `getElk()` через **динамический `import()`** →
+> Vite вынес ELK в отдельный ленивый чанк `elk.bundled-*.js` (441 kB gzip), главный
+> `index` = 276 kB gzip (= baseline, ELK грузится по требованию при открытии графа).
+> `getElk()` стал async (промис-синглтон). Verify headless (level): NODES=3, EDGES=2,
+> DRAG dx=117 dy=81 DRAG_STAYED=true, SELECTED=1, CONSOLE_ERRORS=0. tsc=0, 20 тестов.
 
 ### Шаг 4.3 — Context-режим на ELK (самый рискованный)
 - Реализовать `layoutContext` через ELK с `edgeRouting:"ORTHOGONAL"`. Звезда фокус↔соседи

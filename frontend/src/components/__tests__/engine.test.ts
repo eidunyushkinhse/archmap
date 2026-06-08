@@ -16,7 +16,7 @@ function edge(id: string, source_id: string, target_id: string): AppEdge {
 
 describe("ELK spike (шаг 4.0)", () => {
   it("раскладывает тривиальный layered-граф в main-thread под jsdom", async () => {
-    const elk = getElk();
+    const elk = await getElk();
     const res = await elk.layout({
       id: "root",
       layoutOptions: { "elk.algorithm": "layered", "elk.direction": "RIGHT" },

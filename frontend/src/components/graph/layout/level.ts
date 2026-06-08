@@ -36,6 +36,52 @@ export function autoHandles(
   };
 }
 
+/**
+ * Назначение хэндлов рёбрам по уже посчитанным позициям узлов. Не зависит от того,
+ * ЧЕМ посчитаны позиции (dagre/ELK) — только от их значений: сохранённый хэндл берётся,
+ * если валиден для текущей проекции, иначе autoHandles по взаимному положению.
+ * Вынесено из computeLayout, чтобы ELK-движок (layoutLevel) переиспользовал ту же логику.
+ */
+export function assignEdgeHandles(
+  allNodes: Array<{ id: string }>,
+  edges: AppEdge[],
+  positions: Map<string, { x: number; y: number }>,
+): Map<string, { sourceHandle: string; targetHandle: string }> {
+  const idSet = new Set(allNodes.map((n) => n.id));
+
+  const pairGroups = new Map<string, AppEdge[]>();
+  for (const e of edges) {
+    const key = [e.source_id, e.target_id].sort().join("|");
+    if (!pairGroups.has(key)) pairGroups.set(key, []);
+    pairGroups.get(key)!.push(e);
+  }
+  const pairInfo = new Map<string, { idx: number; total: number }>();
+  for (const [, group] of pairGroups) {
+    group.forEach((e, i) => pairInfo.set(e.id, { idx: i, total: group.length }));
+  }
+
+  const edgeHandles = new Map<string, { sourceHandle: string; targetHandle: string }>();
+  for (const e of edges) {
+    if (!idSet.has(e.source_id) || !idSet.has(e.target_id)) continue;
+
+    // Сохранённые хэндлы валидны только если указывают на текущие проекционные узлы.
+    // Один и тот же edge на разных уровнях проецируется на разные узлы (A→B1 на уровне 0
+    // отображается как A→B, а на уровне 1 — как A→B1). Хэндл, сохранённый на уровне 0
+    // для узла B, не существует на уровне 1, где target — B1.
+    const srcHandleValid = e.source_handle?.startsWith(e.source_id + "--") ?? false;
+    const tgtHandleValid = e.target_handle?.startsWith(e.target_id + "--") ?? false;
+
+    if (srcHandleValid && tgtHandleValid) {
+      edgeHandles.set(e.id, { sourceHandle: e.source_handle!, targetHandle: e.target_handle! });
+    } else {
+      const { idx, total } = pairInfo.get(e.id) ?? { idx: 0, total: 1 };
+      edgeHandles.set(e.id, autoHandles(e.source_id, e.target_id, positions, idx, total));
+    }
+  }
+
+  return edgeHandles;
+}
+
 export function computeLayout(
   allNodes: Array<{ id: string; savedPos?: { x: number; y: number } | null }>,
   edges: AppEdge[],
@@ -70,36 +116,8 @@ export function computeLayout(
     if (node.savedPos != null) positions.set(node.id, node.savedPos);
   }
 
-  // 2. Назначаем хэндлы рёбрам
-  const pairGroups = new Map<string, AppEdge[]>();
-  for (const e of edges) {
-    const key = [e.source_id, e.target_id].sort().join("|");
-    if (!pairGroups.has(key)) pairGroups.set(key, []);
-    pairGroups.get(key)!.push(e);
-  }
-  const pairInfo = new Map<string, { idx: number; total: number }>();
-  for (const [, group] of pairGroups) {
-    group.forEach((e, i) => pairInfo.set(e.id, { idx: i, total: group.length }));
-  }
-
-  const edgeHandles = new Map<string, { sourceHandle: string; targetHandle: string }>();
-  for (const e of edges) {
-    if (!idSet.has(e.source_id) || !idSet.has(e.target_id)) continue;
-
-    // Сохранённые хэндлы валидны только если указывают на текущие проекционные узлы.
-    // Один и тот же edge на разных уровнях проецируется на разные узлы (A→B1 на уровне 0
-    // отображается как A→B, а на уровне 1 — как A→B1). Хэндл, сохранённый на уровне 0
-    // для узла B, не существует на уровне 1, где target — B1.
-    const srcHandleValid = e.source_handle?.startsWith(e.source_id + "--") ?? false;
-    const tgtHandleValid = e.target_handle?.startsWith(e.target_id + "--") ?? false;
-
-    if (srcHandleValid && tgtHandleValid) {
-      edgeHandles.set(e.id, { sourceHandle: e.source_handle!, targetHandle: e.target_handle! });
-    } else {
-      const { idx, total } = pairInfo.get(e.id) ?? { idx: 0, total: 1 };
-      edgeHandles.set(e.id, autoHandles(e.source_id, e.target_id, positions, idx, total));
-    }
-  }
+  // 2. Назначаем хэндлы рёбрам (логика общая с ELK-движком)
+  const edgeHandles = assignEdgeHandles(allNodes, edges, positions);
 
   return { positions, edgeHandles };
 }
