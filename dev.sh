@@ -7,6 +7,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# --- 0. Pre-commit гейт: подключаем трекаемые git-хуки (идемпотентно) ---
+bash scripts/setup-hooks.sh || true
+
 # --- настройки (можно переопределить через окружение) ---
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"

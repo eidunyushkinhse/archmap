@@ -171,9 +171,16 @@
   частично ре-тюнить. `dagre` удаляется из зависимостей.
 - Done: фичи эквивалентны, кастомная геометрия удалена, тесты зелёные.
 
-### Фаза 5 — Процессный гейт (чтобы красный билд не уезжал в `main`)
-- Pre-commit hook или минимальный CI, гоняющий `tsc -b` + `npm test` + `pytest`.
-- Done: гейт ловит F0-подобные регрессии до коммита/мержа.
+### Фаза 5 — Процессный гейт (чтобы красный билд не уезжал в `main`) — СДЕЛАНА (2026-06-08)
+> **Итог:** трекаемый pre-commit hook `scripts/git-hooks/pre-commit` + `scripts/setup-hooks.sh`
+> (ставит `core.hooksPath=scripts/git-hooks`, вызывается из `dev.sh` идемпотентно — remote
+> нет, поэтому локальный hook, не CI). Хук по staged-файлам гоняет только нужную часть:
+> `frontend/*` → **`tsc -b`** + `vitest run`; `backend/*` → `pytest`. Обход — `--no-verify`.
+> Проверено end-to-end: красный фронт (TS2322) → блок (exit 2); зелёное дерево → проходит.
+> **⚠️ ВАЖНАЯ ЛОВУШКА:** корневой `frontend/tsconfig.json` — solution-config
+> (`files:[]`, только `references`). `tsc --noEmit` на нём НИЧЕГО не проверяет и тихо
+> отдаёт exit 0 (ложно-зелёный!). Реально типизирует только **`tsc -b`** (идёт по
+> ссылкам на `tsconfig.app/node.json`). Везде использовать `tsc -b`, НЕ `--noEmit`.
 
 ### Попутно по бэкенду (можно в Фазу 1–2)
 - F6(б): добавить `passive_deletes=True` к `children`/`outgoing_edges`/`incoming_edges`

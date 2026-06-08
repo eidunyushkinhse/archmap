@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Pre-commit гейт (Фаза 5 рефакторинга). Не пускает красный билд в main: перед
+# КАЖДЫМ коммитом гоняет проверки той части, которую правят (по staged-файлам).
+#   frontend/* → tsc -b + vitest
+#   backend/*  → pytest
+# NB: именно `tsc -b`, не `tsc --noEmit`. Корневой tsconfig.json — solution-config
+# (files:[], только references) → `tsc --noEmit` НИЧЕГО не проверяет (тихо exit 0).
+# `tsc -b` идёт по ссылкам на tsconfig.app/node.json и реально типизирует src.
+# Обойти в крайнем случае: git commit --no-verify (осознанно, под ответственность).
+#
+# Подключается через core.hooksPath=scripts/git-hooks (ставит dev.sh или
+# scripts/setup-hooks.sh). Сам hooksPath — локальный git-конфиг, не трекается,
+# поэтому после клона его выставляет dev.sh идемпотентно.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+ok()   { printf '\033[1;32m[hook]\033[0m %s\n' "$*"; }
+say()  { printf '\033[1;36m[hook]\033[0m %s\n' "$*"; }
+err()  { printf '\033[1;31m[hook] БЛОК:\033[0m %s\n' "$*" >&2; }
+warn() { printf '\033[1;33m[hook]\033[0m %s\n' "$*" >&2; }
+
+# Staged-файлы (добавленные/изменённые/переименованные; удаления не проверяем)
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+touch_front=false
+touch_back=false
+if grep -q '^frontend/' <<<"$staged"; then touch_front=true; fi
+if grep -q '^backend/'  <<<"$staged"; then touch_back=true;  fi
+
+# --- Фронтенд: типы + тесты ---
+if $touch_front; then
+  if [ ! -d frontend/node_modules ]; then
+    warn "frontend/node_modules нет — пропускаю фронт-гейт (запусти ./dev.sh)."
+  else
+    say "Фронт: tsc -b…"
+    ( cd frontend && npx tsc -b )
+    say "Фронт: vitest run…"
+    ( cd frontend && npx vitest run )
+    ok "Фронт-гейт зелёный."
+  fi
+fi
+
+# --- Бэкенд: pytest ---
+if $touch_back; then
+  if [ ! -x backend/venv/bin/python ]; then
+    warn "backend/venv нет — пропускаю бэк-гейт (создай venv, см. dev.sh)."
+  else
+    say "Бэк: pytest…"
+    ( cd backend && ./venv/bin/python -m pytest -q )
+    ok "Бэк-гейт зелёный."
+  fi
+fi
+
+exit 0
