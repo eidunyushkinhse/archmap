@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest";
-import {
-  computeContextLayout,
-} from "../LevelGraph";
 import { projectGhosts } from "../graph/layout/projectGhosts";
 import { autoHandles, computeLayout } from "../graph/layout/level";
+import { computeContextLayout } from "../graph/layout/context";
 import type { Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 
 // Характеризационные тесты: фиксируют ТЕКУЩЕЕ поведение чистых функций
