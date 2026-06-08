@@ -1,31 +1,27 @@
 # Фаза 2 — Декомпозиция `LevelGraph.tsx` (детальный план)
 
-> **ПРОГРЕСС (обновлено 2026-06-08): шаги 1–15 из 18 СДЕЛАНЫ, дерево зелёное.**
-> `LevelGraph.tsx` ужат 1948 → 581 строк. Все модули `graph/*` созданы и подключены;
-> тест `levelGraph.test.ts` уже импортит из новых путей. Коммиты по шагам:
+> **ПРОГРЕСС (обновлено 2026-06-08): Фаза 2 ЗАВЕРШЕНА — все 18 шагов сделаны, дерево зелёное.**
+> `LevelGraph.tsx` ужат 1948 → 498 строк (тонкий оркестратор: сборка данных +
+> вызовы хуков + JSX). Все модули `graph/*` созданы и подключены; тест
+> `levelGraph.test.ts` импортит из новых путей. Коммиты по шагам:
 > 1 constants `af8f2d1` · 2 types `1d9dbbd` · 3 text `6a81bd2` · 4 colors `538a224` ·
 > 5 projectGhosts `1ec2ef2` · 6 level `b1fb55a` · 7 context `fe34e8e` · 8 shapes `af49c26` ·
 > 9 nodes `ba5d4ec` · 10 edges `4b210aa` · 11 boundaries `553f44f` · 12 snap `e36de72` ·
-> 13 useAlignmentGuides `cc3b1e5` · 14 useSnapAlignment `4cec822` · 15 useTemplateDrop `9eb4738`.
+> 13 useAlignmentGuides `cc3b1e5` · 14 useSnapAlignment `4cec822` · 15 useTemplateDrop `9eb4738` ·
+> 16 useReconnectHandles `54dbb30` · 17 useCanvasDelete `14bdf00`.
 >
-> **ОСТАЛОСЬ:**
-> - **Шаг 16 — `graph/interaction/useReconnectHandles.ts`**: вынести refs
->   `reconnectingEdge`/`reconnectSucceeded` + `handleReconnectStart`/`handleReconnect`/
->   `handleReconnectEnd`/`isValidConnection` (сейчас в `LevelGraphInner`). Сигнатура:
->   `useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged })`.
->   Зовёт `reconnectEdge` (@xyflow/react), `edgesApi`/`nodesApi`. После выноса из
->   оркестратора уйдут импорты `reconnectEdge`, возможно `edgesApi`, типы `Connection`.
-> - **Шаг 17 — `graph/interaction/useCanvasDelete.ts`**: вынести `handleKeyDown`.
->   Сигнатура: `useCanvasDelete({ rfNodes, isArchitect, isContext, onRequestDeleteNode })`.
->   Читает `(node.data as BlockData).appNode`.
-> - **Шаг 18 — финал**: оркестратор = сборка данных (большой derivation-`useEffect`
->   ОСТАВИТЬ, это Фаза 3) + вызовы хуков + JSX. Прогнать `tsc -b` + `npm test` +
->   ручная проверка через `./dev.sh` (см. Verification ниже).
+> **Финальная проверка (шаг 18):** `tsc -b` = 0 ошибок, фронт `npm test` = 18 тестов
+> зелёные, бэк не трогали (7 тестов). Сервис поднят через `./dev.sh`: бэк `/docs` = 200,
+> фронт = 200, `/api/v1/nodes` = 307 (штатный trailing-slash редирект).
 >
-> Механика как в шагах 13–15: создать хук, вырезать из `LevelGraphInner`, подключить
-> вызовом, дочистить ставшие неиспользуемыми импорты (их ловит `tsc -b`). После каждого —
-> `npx tsc -b` + `npm test` + маленький коммит. **ВАЖНО: после коммита bash-cwd
-> сбрасывается в корень репозитория — перед след. `tsc`/`npm` сделать `cd frontend`.**
+> **Большой derivation-`useEffect`** (выводит `rfNodes`/`rfEdges`) и его
+> `eslint-disable exhaustive-deps` ОСТАВЛЕНЫ в оркестраторе намеренно — их переписывание
+> в `useMemo` это **Фаза 3**, не трогалось здесь. `expanded`/`expandContainer`/
+> `collapseContainer`/`expandOrigins` и локальный `handleEdgeClick` тоже остались в
+> оркестраторе (питают раскладку и `LevelBoundary`).
+>
+> **ВАЖНО для будущих шагов: после `git commit` bash-cwd сбрасывается в корень
+> репозитория — перед след. `tsc`/`npm` сделать `cd frontend`.**
 
 
 
