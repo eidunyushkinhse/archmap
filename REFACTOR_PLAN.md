@@ -10,8 +10,13 @@
 > (18 тестов на `autoHandles`/`computeLayout`/`projectGhosts`/`computeContextLayout`,
 > функции экспортированы); бэк — pytest на in-memory SQLite, `cd backend &&
 > venv/bin/python -m pytest` (7 тестов на `_build_graph`/`find_effective`/
-> `_collect_subtree_ids`). Следующий шаг — **Фаза 2** (декомпозиция God Component
-> поверх этой сетки). Фазы 3–5 + бэкенд-правки F6 — впереди.
+> `_collect_subtree_ids`).
+>
+> 📋 **Фаза 2 — детальный план готов, реализация НЕ начата.** Декомпозирована в
+> отдельном файле **`REFACTOR_PHASE2.md`** (карта символ→модуль с номерами строк,
+> ацикличный граф зависимостей, 18 пошаговых коммитов снизу вверх, сигнатуры
+> interaction-хуков, verification, подводные камни). Начинать строго оттуда.
+> Фазы 3–5 + бэкенд-правки F6 — впереди.
 
 ## Context (зачем это)
 
@@ -95,8 +100,13 @@
 - Done: `npm test` и `pytest` зелёные, покрывают перечисленное.
 
 ### Фаза 2 — Декомпозиция `LevelGraph.tsx` (поведение не меняем)
+> ⚠️ Детальный исполнимый план (карта символ→модуль с номерами строк, ацикличный
+> граф зависимостей, 18 пошаговых коммитов, сигнатуры interaction-хуков, подводные
+> камни) вынесен в **`REFACTOR_PHASE2.md`** — реализовывать по нему. Ниже — обзор.
+
 Цель: убрать God Component, оставив тонкий оркестратор; тесты Фазы 1 держат поведение.
-Раскладка по модулям внутри `frontend/src/components/graph/`:
+Раскладка по модулям внутри `frontend/src/components/graph/` (+ фундаменты
+`constants.ts` и `types.ts`, см. уточнение в `REFACTOR_PHASE2.md`):
 - `shapes.tsx` — `NodeShapeSvg`, `contentPadding`, `getNodeColors`, `RoleTechChip`,
   константы размеров.
 - `nodes.tsx` — `BlockNode`, `GhostBlockNode`, `ContainerNode`, `SpacerNode`, `NodeHandles`.
