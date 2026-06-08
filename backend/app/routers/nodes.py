@@ -417,6 +417,26 @@ def get_children(
     return children
 
 
+@router.get("/{node_id}/descendants", response_model=list[NodeResponse])
+def get_descendants(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> list[Node]:
+    """Все потомки узла на любой глубине (без самого узла) — для скоупленного
+    выбора дальнего конца межуровневой связи: тянешь стрелку на узел-контейнер,
+    поиск идёт только по его поддереву."""
+    node = db.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    subtree_ids = _collect_subtree_ids(db, node_id) - {node_id}
+    if not subtree_ids:
+        return []
+    descendants = db.query(Node).filter(Node.id.in_(subtree_ids)).all()
+    _mark_has_children(db, descendants)
+    return descendants
+
+
 @router.get("/{node_id}/edges", response_model=list[NodeEdgeInfo])
 def get_node_edges(
     node_id: uuid.UUID,
