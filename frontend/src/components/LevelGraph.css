@@ -42,7 +42,7 @@
    контейнеры разом; промежуточный вариант (гейт по .connectingto) гас в центре тела,
    где рядом нет хэндла. Теперь визуал держится, пока курсор над узлом. */
 .lg-canvas--connecting .react-flow__node.lg-into-target:has([data-into]) {
-  outline: 2px dashed #2563eb;
+  outline: 2px solid rgba(37, 99, 235, 0.3);
   outline-offset: 3px;
   border-radius: 10px;
 }
