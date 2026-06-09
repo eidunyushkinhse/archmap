@@ -34,7 +34,17 @@ export function useSnapAlignment({
       // В контекст-режиме раскладка эфемерная — перетаскивания не сохраняем
       if (isContext) return;
       if (!isArchitect) return;
-      const pos = { pos_x: rfNode.position.x, pos_y: rfNode.position.y };
+      // ВАЖНО: rfNode.position здесь — «сырая» позиция драга React Flow. Наши снап-
+      // правки из onNodesChange меняют ОТРИСОВАННЫЙ стейт (rfNodes), но внутренний
+      // трекер драга RF их не видит — поэтому пришедшая сюда координата без притяжки
+      // (в пределах порога от соседа, но не ровно на нём). Пересчитываем тот же снап,
+      // чтобы СОХРАНИТЬ ровно то, что показывала направляющая, иначе схема чуть
+      // разъезжается и стрелки остаются кривыми, хотя визуально выровнялись.
+      const { w: dw, h: dh } = nodeSize(rfNode);
+      const { snapCx, snapCy } = snapCenter(
+        rfNode.position.x + dw / 2, rfNode.position.y + dh / 2, rfNodes, rfNode.id,
+      );
+      const pos = { pos_x: snapCx - dw / 2, pos_y: snapCy - dh / 2 };
       if (rfNode.type === "block") {
         // Локальный узел — координаты в самом узле
         nodesApi.update(rfNode.id, pos);
@@ -46,7 +56,7 @@ export function useSnapAlignment({
         onNodeMoved?.(rfNode.id, rfNode.type, pos);
       }
     },
-    [isArchitect, containerId, isContext, setGuides, onNodeMoved],
+    [isArchitect, containerId, isContext, setGuides, onNodeMoved, rfNodes],
   );
 
   // Магнитное выравнивание по центру при драге: перехватываем position-изменения
