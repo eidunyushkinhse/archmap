@@ -321,7 +321,7 @@ export default function TreePage({ onLogout }: Props) {
             style={crumbLink}
             onClick={() => { setBreadcrumb([]); load(null); }}
           >
-            Корень
+            Контекст
           </span>
           {breadcrumb.map((n, i) => (
             <span key={n.id} style={{ display: "flex", alignItems: "center" }}>
