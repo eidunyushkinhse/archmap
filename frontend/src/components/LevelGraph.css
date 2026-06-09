@@ -58,12 +58,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px dashed rgba(37, 99, 235, 0.55);
+  border: 2px solid rgba(37, 99, 235, 0.45);
   border-radius: 8px;
   background: rgba(37, 99, 235, 0.06);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.1s ease;
+  transition: opacity 0.1s ease, border-color 0.1s ease, background-color 0.1s ease, box-shadow 0.1s ease;
+}
+
+/* Рамка «активируется», когда курсор над телом узла, но НЕ в зоне активации хэндла
+   (на узле нет .connectingto) — именно тогда отпускание ведёт ВНУТРЬ (выбор потомка),
+   а не создаёт прямую связь к узлу. В зоне хэндла акцент уходит на сам хэндл, а рамка
+   гаснет до базового состояния. */
+.lg-canvas--connecting .react-flow__node.lg-into-target:not(:has(.react-flow__handle.connectingto)) .lg-into-cue {
+  border-color: #2563eb;
+  background: rgba(37, 99, 235, 0.16);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 /* У зоны входа ПОД КУРСОРОМ (lg-into-target) прячем ВЕСЬ контент (форма, текст, кнопки)
    и показываем только знак — узел читается как «лунка для дропа внутрь». Хэндлы НЕ
