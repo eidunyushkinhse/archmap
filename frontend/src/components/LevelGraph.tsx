@@ -219,17 +219,23 @@ function LevelGraphInner({
     rfNodes, isArchitect, isContext, onRequestDeleteNode,
   });
 
-  // Реконнект концов рёбер (смена хэндла на том же узле + персист).
+  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: локальная —
+  // в колонку ребра, гостевая — в пер-уровневый слой. Объявлен до реконнекта: тот при
+  // смене хэндла сбрасывает waypoints (пустой массив) — старый путь считался относительно
+  // прежних концов и после смены хэндла кривой; дефолтный авто-маршрут корректнее.
+  const { commitWaypoints } = useEdgeWaypoints({
+    isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
+  });
+
+  // Реконнект концов рёбер (смена хэндла на том же узле + персист). resetWaypoints —
+  // на смену хэндла дропаем изломы в дефолт (см. выше).
   const {
     handleReconnectStart, handleReconnect, handleReconnectEnd,
     isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked,
     consumeReconnectClick,
-  } = useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
-
-  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: локальная —
-  // в колонку ребра, гостевая — в пер-уровневый слой.
-  const { commitWaypoints } = useEdgeWaypoints({
-    isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
+  } = useReconnectHandles({
+    setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged,
+    resetWaypoints: (edgeIds, ghost) => commitWaypoints(edgeIds, [], ghost),
   });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —

@@ -21,10 +21,13 @@ interface Params {
       ghost?: { node_id: string; handle: string };
     },
   ) => void;
+  // сброс изломов в дефолт при смене хэндла (путь считался относительно прежних концов
+  // и после смены кривой). ghost=false → колонка ребра, true → пер-уровневый слой.
+  resetWaypoints?: (edgeIds: string[], ghost: boolean) => void;
 }
 
 export function useReconnectHandles({
-  setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged,
+  setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged, resetWaypoints,
 }: Params) {
   // Reconnect: отслеживаем активное ребро и успех операции
   const reconnectingEdge = useRef<RFEdge | null>(null);
@@ -91,9 +94,21 @@ export function useReconnectHandles({
       // Разрешаем только смену хэндла на том же узле
       if (newConn.source !== oldEdge.source || newConn.target !== oldEdge.target) return;
       reconnectSucceeded.current = true;
+      // Хэндл реально сменился (а не повторное отпускание на тот же) — только тогда
+      // дропаем изломы: иначе случайный «дроп на то же место» затёр бы заданный путь.
+      const handleChanged =
+        newConn.sourceHandle !== oldEdge.sourceHandle ||
+        newConn.targetHandle !== oldEdge.targetHandle;
       // shouldReplaceId:false — сохраняем исходный id ребра (по нему идёт PATCH
-      // и клик-обработчик); по умолчанию reconnectEdge сгенерил бы новый id
-      setRfEdges((els) => reconnectEdge(oldEdge, newConn, els, { shouldReplaceId: false }));
+      // и клик-обработчик); по умолчанию reconnectEdge сгенерил бы новый id.
+      // При смене хэндла тут же гасим waypoints на самом RF-ребре, чтобы до пересчёта
+      // раскладки не мелькнул кривой путь (старые изломы относительно прежних концов).
+      setRfEdges((els) => {
+        const next = reconnectEdge(oldEdge, newConn, els, { shouldReplaceId: false });
+        return handleChanged
+          ? next.map((e) => (e.id === oldEdge.id ? { ...e, data: { ...e.data, waypoints: undefined } } : e))
+          : next;
+      });
       if (isArchitect && newConn.sourceHandle && newConn.targetHandle) {
         // Концы ребра делятся на локальные (узел этого уровня) и спроецированные на
         // гостя. На уровне максимум один конец гостевой (второй всегда локальный).
@@ -128,9 +143,12 @@ export function useReconnectHandles({
           if (ghost && containerId) nodesApi.saveGhostEdgeHandle(containerId, mid, ghost);
           onEdgeHandlesChanged?.(mid, { column: hasColumn ? column : undefined, ghost });
         }
+        // Сброс изломов в дефолт (только при реальной смене хэндла): путь хранится в том
+        // же двухслойном сплите (оба конца локальны → колонка; иначе пер-уровневый слой).
+        if (handleChanged) resetWaypoints?.(memberIds, !(sourceLocal && targetLocal));
       }
     },
-    [isArchitect, nodes, containerId, onEdgeHandlesChanged, setRfEdges],
+    [isArchitect, nodes, containerId, onEdgeHandlesChanged, resetWaypoints, setRfEdges],
   );
 
   const handleReconnectEnd = useCallback(() => {
