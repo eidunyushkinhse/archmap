@@ -18,10 +18,22 @@ export function fixedHandleStyle(pos: Position, offset: number, borderColor: str
     border: "2px solid rgba(255,255,255,0.7)",
     zIndex: 3, // поверх SVG-формы узла
   };
-  if (pos === Position.Left || pos === Position.Right) {
-    return { ...base, top: `${offset * 100}%`, transform: "translateY(-50%)" };
+  // Дот центрируем ПО ЛИНИИ ГРАНИЦЫ узла. Вдоль стороны его двигает offset (top/left
+  // в %), а поперёк — translate ±50%. Этот перпендикулярный сдвиг RF ставит по
+  // умолчанию (translate(-50%,-50%) и т.п.), но наш инлайновый transform его затирал,
+  // оставляя только сдвиг вдоль стороны — дот «висел» внутри тела, и его центр (именно
+  // его берёт превью-линия reconnect, center=true) проваливался в узел на пол-хэндла.
+  // Возвращаем полный translate: центр дота ложится точно на границу.
+  switch (pos) {
+    case Position.Left:
+      return { ...base, top: `${offset * 100}%`, transform: "translate(-50%, -50%)" };
+    case Position.Right:
+      return { ...base, top: `${offset * 100}%`, transform: "translate(50%, -50%)" };
+    case Position.Top:
+      return { ...base, left: `${offset * 100}%`, transform: "translate(-50%, -50%)" };
+    default: // Bottom
+      return { ...base, left: `${offset * 100}%`, transform: "translate(-50%, 50%)" };
   }
-  return { ...base, left: `${offset * 100}%`, transform: "translateX(-50%)" };
 }
 
 // --- SVG-формы узлов (C4): сервис / БД / брокер / пользователь ---
