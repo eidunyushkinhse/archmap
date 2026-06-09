@@ -3,7 +3,6 @@ import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { Edge, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
-import EdgeModal from "../components/EdgeModal";
 import EdgeIntoPicker from "../components/EdgeIntoPicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
@@ -47,7 +46,6 @@ export default function TreePage({ onLogout }: Props) {
     open: false,
     node: null,
   });
-  const [edgeCreateModal, setEdgeCreateModal] = useState(false);
   // протянули стрелку на узел с детьми — выбор его потомка как дальнего конца связи
   const [intoPicker, setIntoPicker] = useState<{
     sourceId: string;
@@ -232,11 +230,6 @@ export default function TreePage({ onLogout }: Props) {
     load(currentParentId);
   }
 
-  function handleEdgeCreated() {
-    setEdgeCreateModal(false);
-    load(currentParentId);
-  }
-
   // Протянули стрелку на хэндл/листовой узел — открываем упрощённый поповер, чтобы
   // сразу заполнить описание и технологию (связь создаётся по «Создать», см. EdgeQuickCreate).
   // Хэндлы из жеста прокидываем в поповер, чтобы связь создалась с ними, а не с дефолтными.
@@ -325,13 +318,9 @@ export default function TreePage({ onLogout }: Props) {
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Создание узла переехало в боковую панель → секцию «Добавить узел»
-              (перетаскивание шаблона на схему). */}
-          {isArchitect && hasNodes && (
-            <button onClick={() => setEdgeCreateModal(true)} style={secondaryBtn}>
-              + Связь
-            </button>
-          )}
+          {/* Создание узла — перетаскиванием шаблона из боковой панели (секция
+              «Добавить узел»), связи — протягиванием стрелки от хэндла узла.
+              Отдельных кнопок создания в шапке больше нет. */}
           <button onClick={onLogout} style={logoutBtn}>Выйти</button>
         </div>
       </div>
@@ -408,12 +397,6 @@ export default function TreePage({ onLogout }: Props) {
           node={pendingDelete}
           onCancel={() => setPendingDelete(null)}
           onDeleted={(id) => { setPendingDelete(null); handleNodeDeleted(id); }}
-        />
-      )}
-      {edgeCreateModal && (
-        <EdgeModal
-          onClose={() => setEdgeCreateModal(false)}
-          onCreated={handleEdgeCreated}
         />
       )}
       {edgeQuick && (
@@ -536,15 +519,6 @@ const upBtn: CSSProperties = {
   color: "#374151",
   border: "1px solid #d1d5db",
   borderRadius: 5,
-  cursor: "pointer",
-  fontSize: 13,
-};
-const secondaryBtn: CSSProperties = {
-  padding: "6px 14px",
-  background: "#f3f4f6",
-  color: "#374151",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
   cursor: "pointer",
   fontSize: 13,
 };
