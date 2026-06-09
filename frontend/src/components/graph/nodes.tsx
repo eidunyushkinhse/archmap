@@ -3,6 +3,7 @@ import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperti
 import { Handle, type NodeProps, type NodeTypes } from "@xyflow/react";
 import {
   SIDE_HANDLES, hid, shapeHeight, MAX_TAG_FONT, MIN_TAG_FONT, NODE_W, NODE_H,
+  MAX_NAME_FONT, MIN_NAME_FONT, MAX_NAME_LINES, NAME_LINE_HEIGHT,
 } from "./constants";
 import {
   fixedHandleStyle, NodeShapeSvg, contentPadding,
@@ -110,6 +111,62 @@ function RoleTechChip({
   );
 }
 
+// Имя узла: переносится не более чем на MAX_NAME_LINES строки и авто-уменьшает шрифт,
+// пока целиком влезает в этот лимит, — иначе длинное имя (напр. «User Management Kafka»
+// у брокера с узкой полезной шириной) выдавливало бы чип «роль: технология» вниз за
+// край узла. Не влезло даже на минимальном шрифте → обрезаем многоточием (line-clamp),
+// полное имя остаётся в title-тултипе. Парная логика к RoleTechChip, но фит по ВЫСОТЕ
+// (число строк), а не по ширине одной строки.
+function NodeName({ name }: { name: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [fontSize, setFontSize] = useState(MAX_NAME_FONT);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.parentElement;
+    if (!el || !parent) return;
+    // Уменьшаем шрифт, пока имя не уложится в MAX_NAME_LINES строки. При line-clamp
+    // scrollHeight отражает ПОЛНУЮ высоту контента (все строки), поэтому сравниваем её
+    // с бюджетом «лимит строк × высота строки» текущего шрифта.
+    const fit = () => {
+      let size = MAX_NAME_FONT;
+      el.style.fontSize = `${size}px`;
+      const fits = () =>
+        el.scrollHeight <= Math.ceil(size * NAME_LINE_HEIGHT * MAX_NAME_LINES) + 1;
+      while (size > MIN_NAME_FONT && !fits()) {
+        size -= 0.5;
+        el.style.fontSize = `${size}px`;
+      }
+      setFontSize(size);
+    };
+    fit();
+    // Пересчёт при изменении ширины узла (узлы разного размера / ресайз)
+    const ro = new ResizeObserver(fit);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [name]);
+
+  return (
+    <div
+      ref={ref}
+      title={name}
+      style={{
+        fontWeight: 600,
+        fontSize,
+        lineHeight: NAME_LINE_HEIGHT,
+        marginBottom: 4,
+        display: "-webkit-box",
+        WebkitBoxOrient: "vertical",
+        WebkitLineClamp: MAX_NAME_LINES,
+        overflow: "hidden",
+        wordBreak: "break-word",
+      }}
+    >
+      {name}
+    </div>
+  );
+}
+
 function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
@@ -172,9 +229,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       )}
 
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, !data.hideActions) }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
-          {data.appNode.name}
-        </div>
+        <NodeName name={data.appNode.name} />
         <div style={{ display: "flex", justifyContent: "flex-start" }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
@@ -192,7 +247,7 @@ function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
       <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, false) }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{data.appNode.name}</div>
+        <NodeName name={data.appNode.name} />
         <div style={{ display: "flex", justifyContent: "flex-start" }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>

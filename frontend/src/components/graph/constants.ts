@@ -28,6 +28,15 @@ export const EDGE_SNAP_PX = 8;
 export const MAX_TAG_FONT = 11;
 export const MIN_TAG_FONT = 7;
 
+// Авто-фит имени узла: имя переносится не более чем на MAX_NAME_LINES строки и
+// уменьшает шрифт от MAX до MIN, пока целиком влезает в этот лимит строк — чтобы
+// длинное имя не выдавливало чип «роль: технология» за нижний край узла. Если даже
+// на минимальном шрифте не лезет — обрезается многоточием (line-clamp).
+export const MAX_NAME_FONT = 13;
+export const MIN_NAME_FONT = 9;
+export const MAX_NAME_LINES = 2;
+export const NAME_LINE_HEIGHT = 1.25;
+
 // --- 12 фиксированных точек стыковки (по 3 на каждую сторону) ---
 
 export const SIDE_HANDLES: Array<{ side: string; pos: Position; offsets: number[] }> = [
