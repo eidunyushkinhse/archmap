@@ -17,11 +17,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef } from "../types";
 import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H, shapeHeight,
-  CTX_LABEL_W,
+  CTX_LABEL_W, BOUNDARY_PAD, BOUNDARY_STEP,
 } from "./graph/constants";
 import type {
   WrappedEdgeData,
@@ -32,6 +32,7 @@ import { edgeText } from "./graph/text";
 import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
+import { assignEdgeHandles } from "./graph/layout/level";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
@@ -409,7 +410,9 @@ function LevelGraphInner({
             expanded,
           )
         : null;
-    const { positions, edgeHandles } = ctxLayout ?? (await layoutLevel(allNodeInfos, layoutEdges));
+    const baseLayout = ctxLayout ?? (await layoutLevel(allNodeInfos, layoutEdges));
+    const positions = baseLayout.positions;
+    let edgeHandles = baseLayout.edgeHandles;
     // полки подписей и обходы не родных стрелок считаются только в контекст-раскладке
     const edgeShelves = ctxLayout?.edgeShelves;
     const edgeLoops = ctxLayout?.edgeLoops;
@@ -442,6 +445,90 @@ function LevelGraphInner({
         for (const id of ids) {
           const p = positions.get(id);
           if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
+        }
+      }
+    }
+
+    // Дефолтная раскладка ГОСТЕЙ, НЕ входящих в общую с уровнем рамку. ELK кладёт их
+    // в общий поток вместе с локальными узлами, из-за чего такой гость мог оказаться
+    // ВНУТРИ рамки локальных узлов, упереться в неё или налезть на узлы. Гостей без
+    // сохранённой позиции выносим в аккуратные колонки за внешнюю рамку: источник связи
+    // в уровень — слева, приёмник — справа (несколько на сторону — стопкой). Хэндлы после
+    // переноса пересчитываем от новых позиций — это и убирает «сумбур» в их назначении.
+    // Гости С общей рамкой (лежат внутри своей рамки по дизайну) и гости с ручной
+    // позицией не трогаются.
+    if (!isContext && nodes.length > 0) {
+      const bcSet = new Set(stableAncestorIds);
+      const entAncestors = (ent: DisplayExternal): AncestorRef[] =>
+        ent.kind === "leaf" ? (ent.ghost.ancestors ?? []) : (ent.ancestors ?? []);
+      const isOutside = (ent: DisplayExternal): boolean =>
+        !entAncestors(ent).some((a) => bcSet.has(a.id));
+      const localIds = new Set(nodes.map((n) => n.id));
+      const outside = entities.filter((e) => isOutside(e) && !levelPositions[e.id]);
+
+      if (outside.length > 0) {
+        // bbox рамки = локальные узлы + «внутренние» гости (члены breadcrumb-рамок)
+        let fMinX = Infinity, fMinY = Infinity, fMaxX = -Infinity, fMaxY = -Infinity;
+        const frameIds = [
+          ...nodes.map((n) => n.id),
+          ...entities.filter((e) => !isOutside(e)).map((e) => e.id),
+        ];
+        for (const id of frameIds) {
+          const p = positions.get(id);
+          if (!p) continue;
+          fMinX = Math.min(fMinX, p.x); fMinY = Math.min(fMinY, p.y);
+          fMaxX = Math.max(fMaxX, p.x + NODE_W); fMaxY = Math.max(fMaxY, p.y + NODE_H);
+        }
+        if (isFinite(fMinX)) {
+          // клиренс за внешнюю рамку: её паддинг растёт с глубиной вложенности; берём
+          // breadcrumb-глубину + запас на один уровень (развёрнутый контейнер-рамка
+          // может быть глубже) + зазор.
+          const clearance = BOUNDARY_PAD + (stableAncestorIds.length + 1) * BOUNDARY_STEP + 48;
+          const leftX = fMinX - clearance - NODE_W;
+          const rightX = fMaxX + clearance;
+          const midY = (fMinY + fMaxY) / 2;
+
+          // Сторона колонки по направлению связей гостя; желаемый Y — у связанных узлов
+          // (чтобы стрелка была короткой). Ничьи/только приём → справа.
+          type Placed = { id: string; desiredY: number };
+          const leftCol: Placed[] = [];
+          const rightCol: Placed[] = [];
+          for (const ent of outside) {
+            let leftVotes = 0, rightVotes = 0;
+            const ys: number[] = [];
+            for (const e of layoutEdges) {
+              if (e.source_id === ent.id && localIds.has(e.target_id)) {
+                leftVotes++;
+                const p = positions.get(e.target_id); if (p) ys.push(p.y + NODE_H / 2);
+              } else if (e.target_id === ent.id && localIds.has(e.source_id)) {
+                rightVotes++;
+                const p = positions.get(e.source_id); if (p) ys.push(p.y + NODE_H / 2);
+              }
+            }
+            const desiredY =
+              (ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : midY) - NODE_H / 2;
+            (rightVotes >= leftVotes ? rightCol : leftCol).push({ id: ent.id, desiredY });
+          }
+          // В каждой колонке раскладываем сверху вниз с минимальным зазором (де-наложение).
+          const placeCol = (col: Placed[], x: number): void => {
+            col.sort((a, b) => a.desiredY - b.desiredY);
+            let lastY = -Infinity;
+            for (const it of col) {
+              const y = Math.max(it.desiredY, lastY + NODE_H + 28);
+              positions.set(it.id, { x, y });
+              lastY = y;
+            }
+          };
+          placeCol(leftCol, leftX);
+          placeCol(rightCol, rightX);
+
+          // Перенос сменил взаимное положение → пересчитываем хэндлы (autoHandles по
+          // новым позициям; сохранённые хэндлы assignEdgeHandles по-прежнему уважает).
+          const displayedNodeList = [
+            ...nodes.map((n) => ({ id: n.id })),
+            ...entities.map((e) => ({ id: e.id })),
+          ];
+          edgeHandles = assignEdgeHandles(displayedNodeList, layoutEdges, positions);
         }
       }
     }
