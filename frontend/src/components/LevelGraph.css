@@ -10,6 +10,8 @@
 }
 .lg-canvas .react-flow__handle.connectingto {
   opacity: 1;
+  /* акцент: мягкое кольцо вокруг хэндла, к которому сейчас привяжется конец стрелки */
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
 }
 
 /* Полная подсветка ОДНОГО хэндла — того, под курсором (то же условие :hover, что и
@@ -28,9 +30,18 @@
   opacity: 0.28;
 }
 
-/* Во время протягивания новой связи подсвечиваем «зоны входа» — узлы-сервисы с
-   детьми (data-into): отпускание на них откроет выбор потомка. */
-.lg-canvas--connecting .react-flow__node:has([data-into]) {
+/* Во время протягивания связи у узла, к чьему хэндлу сейчас подтянут конец стрелки
+   (тот помечен .connectingto), остальные хэндлы тоже показываем еле заметно — видно
+   все точки контакта, но акцент на том, к которому привяжется стрелка. */
+.lg-canvas--connecting .react-flow__node:has(.react-flow__handle.connectingto) .react-flow__handle:not(.connectingto) {
+  opacity: 0.28;
+}
+
+/* Во время протягивания новой связи зону входа подсвечиваем ТОЛЬКО у узла-сервиса с
+   детьми (data-into), к хэндлу которого сейчас подтянут конец стрелки (React Flow метит
+   его .connectingto). Раньше подсвечивались ВСЕ контейнеры разом — это глушило чтение
+   имён остальных узлов на схеме. */
+.lg-canvas--connecting .react-flow__node:has([data-into] .react-flow__handle.connectingto) {
   outline: 2px dashed #2563eb;
   outline-offset: 3px;
   border-radius: 10px;
@@ -49,13 +60,14 @@
   pointer-events: none;
   transition: opacity 0.1s ease;
 }
-/* Во время протягивания у зоны входа прячем ВЕСЬ контент (форма, текст, кнопки,
-   хэндлы) и показываем только знак — узел читается как «лунка для дропа внутрь».
+/* У зоны входа, к хэндлу которой сейчас подтянут конец стрелки (.connectingto), прячем
+   ВЕСЬ контент (форма, текст, кнопки) и показываем только знак — узел читается как
+   «лунка для дропа внутрь». Хэндлы НЕ прячем — их подсветка задаётся правилами выше.
    Пунктирная рамка зоны (правило выше) остаётся и очерчивает область. */
-.lg-canvas--connecting [data-into] > *:not(.lg-into-cue) {
+.lg-canvas--connecting [data-into]:has(.react-flow__handle.connectingto) > *:not(.lg-into-cue):not(.react-flow__handle) {
   opacity: 0;
 }
-.lg-canvas--connecting [data-into] > .lg-into-cue {
+.lg-canvas--connecting [data-into]:has(.react-flow__handle.connectingto) > .lg-into-cue {
   opacity: 1;
 }
 
