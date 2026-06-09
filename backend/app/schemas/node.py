@@ -94,6 +94,12 @@ class GhostEdgeHandleUpdate(BaseModel):
     handle: str
 
 
+class EdgeWaypointsUpdate(BaseModel):
+    # Кастомный путь (изломы) гостевой стрелки на уровне. Пустой список — сброс
+    # в авто-маршрут (строка пер-уровневого слоя удаляется).
+    waypoints: list[Point]
+
+
 class GraphEdgeResponse(BaseModel):
     id: uuid.UUID
     label: str | None
@@ -131,6 +137,9 @@ class GraphResponse(BaseModel):
     # предок-контейнер). Фронт выбирает тот, чей префикс совпадает с id отображаемой
     # на данный момент сущности; остальные концы — из колонок ребра / autoHandles.
     level_edge_handles: dict[str, list[str]] = {}
+    # Кастомные пути (изломы) ГОСТЕВЫХ стрелок на этом уровне: edge_id → список точек.
+    # Локальные стрелки путь хранят в колонке самого ребра (см. GraphEdgeResponse.waypoints).
+    level_edge_waypoints: dict[str, list[Point]] = {}
 
 
 class NodeContextResponse(BaseModel):

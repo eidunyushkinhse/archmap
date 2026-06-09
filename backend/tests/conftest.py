@@ -19,6 +19,7 @@ from app.models.node import Node  # noqa: F401
 from app.models.edge import Edge  # noqa: F401
 from app.models.ghost_position import GhostPosition  # noqa: F401
 from app.models.ghost_edge_handle import GhostEdgeHandle  # noqa: F401
+from app.models.edge_waypoint import EdgeWaypoint  # noqa: F401
 from app.models.user import User  # noqa: F401
 
 

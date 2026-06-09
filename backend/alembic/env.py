@@ -12,6 +12,7 @@ import app.models.node  # noqa: F401
 import app.models.edge  # noqa: F401
 import app.models.ghost_position  # noqa: F401
 import app.models.ghost_edge_handle  # noqa: F401
+import app.models.edge_waypoint  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

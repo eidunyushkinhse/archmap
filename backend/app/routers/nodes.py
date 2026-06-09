@@ -7,14 +7,17 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.models.edge import Edge
+from app.models.edge_waypoint import EdgeWaypoint
 from app.models.ghost_edge_handle import GhostEdgeHandle
 from app.models.ghost_position import GhostPosition
 from app.models.node import Node
 from app.models.user import User
+from app.schemas.edge import Point
 from app.schemas.node import (
     AlertsResponse,
     AncestorRef,
     DisconnectedNodeAlert,
+    EdgeWaypointsUpdate,
     GraphEdgeResponse,
     GraphResponse,
     GhostEdgeHandleUpdate,
@@ -167,6 +170,7 @@ def _build_graph(
     # предка-кандидата. Общую рамку отсекаем по цепочке предков самого уровня.
     level_positions: dict[str, PosXY] = {}
     level_edge_handles: dict[str, list[str]] = {}
+    level_edge_waypoints: dict[str, list[Point]] = {}
     saved_pos: dict[uuid.UUID, GhostPosition] = {}
     if container_id is not None:
         breadcrumb_ids = {a.id for a in ancestors(container_id)} | {container_id}
@@ -210,6 +214,22 @@ def _build_graph(
             if r.edge_id in ghost_edge_ids and r.node_id in valid_keys:
                 level_edge_handles.setdefault(str(r.edge_id), []).append(r.handle)
 
+        # Per-level пути (изломы) гостевых стрелок. Геометрия гостевой стрелки уникальна
+        # для уровня (своя раскладка узлов + спроецированный гостевой конец), поэтому
+        # путь хранится по (container_id, edge_id), а не в колонке ребра. Валидна строка,
+        # если ребро проецируется гостевым концом на этот уровень (тот же ghost_edge_ids).
+        # Чтение НЕ пишет в БД — невалидные строки просто не отдаём (как координаты/хэндлы).
+        wp_rows = (
+            db.query(EdgeWaypoint)
+            .filter(EdgeWaypoint.container_id == container_id)
+            .all()
+        )
+        for r in wp_rows:
+            if r.edge_id in ghost_edge_ids and r.waypoints:
+                level_edge_waypoints[str(r.edge_id)] = [
+                    Point(x=p["x"], y=p["y"]) for p in r.waypoints
+                ]
+
     ghost_nodes = [
         GhostNodeResponse(
             id=all_nodes[gid].id,
@@ -233,6 +253,7 @@ def _build_graph(
         ghost_nodes=ghost_nodes,
         level_positions=level_positions,
         level_edge_handles=level_edge_handles,
+        level_edge_waypoints=level_edge_waypoints,
     )
 
 
@@ -696,4 +717,45 @@ def save_ghost_edge_handle(
         db.add(row)
     else:
         row.handle = payload.handle
+    db.commit()
+
+
+@router.put(
+    "/{container_id}/edge-waypoints/{edge_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def save_edge_waypoints(
+    container_id: uuid.UUID,
+    edge_id: uuid.UUID,
+    payload: EdgeWaypointsUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_architect),
+) -> None:
+    """Сохраняет (upsert) кастомный путь ГОСТЕВОЙ стрелки edge_id на уровне container_id.
+
+    Пустой список waypoints — сброс в авто-маршрут: строку пер-уровневого слоя удаляем
+    (нет строки = авто). Путь локальной стрелки сюда не пишется — он в колонке ребра.
+    """
+    if not db.get(Node, container_id):
+        raise HTTPException(status_code=404, detail="Уровень не найден")
+    if not db.get(Edge, edge_id):
+        raise HTTPException(status_code=404, detail="Связь не найдена")
+
+    row = (
+        db.query(EdgeWaypoint)
+        .filter(
+            EdgeWaypoint.container_id == container_id,
+            EdgeWaypoint.edge_id == edge_id,
+        )
+        .one_or_none()
+    )
+    data = [{"x": p.x, "y": p.y} for p in payload.waypoints]
+    if not data:
+        # сброс: убираем строку, чтобы уровень вернулся к авто-маршруту
+        if row is not None:
+            db.delete(row)
+    elif row is None:
+        db.add(EdgeWaypoint(container_id=container_id, edge_id=edge_id, waypoints=data))
+    else:
+        row.waypoints = data
     db.commit()
