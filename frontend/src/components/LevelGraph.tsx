@@ -8,7 +8,6 @@ import {
   Controls,
   MarkerType,
   ConnectionMode,
-  ConnectionLineType,
   useNodesState,
   useEdgesState,
   useReactFlow,
@@ -36,6 +35,7 @@ import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
+import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import ReconnectBlockedToast from "./graph/ReconnectBlockedToast";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
@@ -673,8 +673,10 @@ function LevelGraphInner({
         connectionRadius={30}
         connectionMode={ConnectionMode.Loose}
         reconnectRadius={20}
-        connectionLineType={ConnectionLineType.SmoothStep}
-        connectionLineStyle={{ stroke: "#6b7280", strokeWidth: 1.5 }}
+        // Своя превью-линия с наконечником (см. ConnectionLine): дефолтная RF-линия
+        // рисуется без стрелки, из-за чего при драге конца казалось, что связь
+        // развёрнута не в ту сторону.
+        connectionLineComponent={ConnectionLine}
         // Своё удаление через подтверждение (handleKeyDown) — встроенное отключаем,
         // иначе Backspace сносил бы узел и связи без предупреждения.
         deleteKeyCode={null}
