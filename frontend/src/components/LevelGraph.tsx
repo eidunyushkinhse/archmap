@@ -209,6 +209,7 @@ function LevelGraphInner({
   const {
     handleReconnectStart, handleReconnect, handleReconnectEnd,
     isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked,
+    consumeReconnectClick,
   } = useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
@@ -526,6 +527,8 @@ function LevelGraphInner({
 
   const handleEdgeClick = useCallback(
     (_event: MouseEvent, rfEdge: RFEdge) => {
+      // клик-эхо сразу после жеста реконнекта — не открываем поповер информации о связи
+      if (consumeReconnectClick()) return;
       const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
       const members = memberIds
         .map((mid) => edges.find((e) => e.id === mid))
@@ -534,7 +537,7 @@ function LevelGraphInner({
       if (members.length === 1) onEdgeClick(members[0]);
       else onEdgesChoice(members);
     },
-    [edges, onEdgeClick, onEdgesChoice]
+    [edges, onEdgeClick, onEdgesChoice, consumeReconnectClick]
   );
 
   if (nodes.length + ghostNodes.length === 0) return null;

@@ -29,6 +29,12 @@ export function useReconnectHandles({
   const reconnectingEdge = useRef<RFEdge | null>(null);
   const reconnectSucceeded = useRef(true);
 
+  // После жеста реконнекта React Flow может выпустить click по ребру (особенно когда
+  // конец отпущен в зоне активации хэндла, но ВНЕ тела узла — дроп не регистрируется
+  // на узле, и pointerup трактуется как клик по ребру) → открывался бы поповер
+  // информации о связи. Латчим завершение реконнекта и гасим этот клик-эхо.
+  const justReconnectedRef = useRef(false);
+
   // Курсор с зажатым концом связи находится над НЕ РОДНЫМ узлом (ни источник, ни цель
   // ребра) — перепривязать конец к нему нельзя. Драйвит запрещающий курсор и тост.
   // Конец связи цепляется только к хэндлам того же узла; чужой узел — это «заведи
@@ -129,7 +135,25 @@ export function useReconnectHandles({
     stopTracking();
     reconnectingEdge.current = null;
     reconnectSucceeded.current = true;
+    // Латчим: следующий клик по ребру — эхо этого жеста, его гасит handleEdgeClick.
+    // Снимаем латч на ближайшем pointerdown: клик-эхо приходит БЕЗ нового pointerdown
+    // (проглотится), а честный последующий клик начинается со своего pointerdown →
+    // латч сброшен заранее, клик пройдёт. Без таймеров — нет гонки с порядком событий.
+    justReconnectedRef.current = true;
+    document.addEventListener(
+      "pointerdown",
+      () => { justReconnectedRef.current = false; },
+      { once: true, capture: true },
+    );
   }, [stopTracking]);
+
+  // Клик по ребру — эхо только что завершённого реконнекта? (consume-once: гасит ровно
+  // один клик-эхо, открытие поповера информации о связи при нём не происходит)
+  const consumeReconnectClick = useCallback(() => {
+    if (!justReconnectedRef.current) return false;
+    justReconnectedRef.current = false;
+    return true;
+  }, []);
 
   // Разрешаем реконнект только к хэндлам того же узла
   const isValidConnection = useCallback((conn: Connection | RFEdge) => {
@@ -147,5 +171,7 @@ export function useReconnectHandles({
     isValidConnection, isReconnecting,
     // курсор над не родным узлом во время реконнекта — для запрещающего курсора и тоста
     reconnectBlocked: blocked,
+    // гасит клик-эхо по ребру сразу после жеста реконнекта (иначе всплывал бы поповер)
+    consumeReconnectClick,
   };
 }
