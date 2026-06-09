@@ -51,8 +51,14 @@ function NodeHandles({
             // хэндлы раскрываются по ховеру и тянут новую стрелку. Иначе хэндл инертен
             // (курсор не меняется), но остаётся приёмником конца стрелки при reconnect.
             isConnectableStart={connectableStart}
-            style={fixedHandleStyle(pos, offset, color)}
-          />
+            style={fixedHandleStyle(pos, offset)}
+          >
+            {/* Видимый круглый дот: рисуется дочерним элементом, чтобы сам хэндл-цель
+                оставался тонкой точкой на границе (см. fixedHandleStyle). Он же — зона
+                наведения (:hover всплывает на родителя). На измерение хэндла не влияет
+                (position:absolute не расширяет getBoundingClientRect родителя). */}
+            <span className="lg-handle-dot" style={{ background: color }} />
+          </Handle>
         ))
       )}
     </>

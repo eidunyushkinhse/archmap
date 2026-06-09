@@ -6,24 +6,29 @@ import type { NodeShape } from "../../types";
 
 // --- Стиль конкретного хэндла из 12 ---
 
-export function fixedHandleStyle(pos: Position, offset: number, borderColor: string): CSSProperties {
-  // opacity задаётся в LevelGraph.css: хэндлы скрыты в покое и показываются
-  // только при наведении конца стрелки (класс .connectingto). Инлайновый opacity
-  // здесь не ставим — он бы перебил CSS по специфичности.
+export function fixedHandleStyle(pos: Position, offset: number): CSSProperties {
+  // САМ хэндл — это маленькая измеряемая точка-цель НА линии границы узла (видимый
+  // круглый дот рисует дочерний .lg-handle-dot, см. NodeHandles). Так и центр хэндла
+  // (его берёт превью reconnect, center=true), и его внешняя кромка (её берут обычные
+  // рёбра, center=false) ложатся на границу с точностью до ~1px. Раньше хэндлом был
+  // сам 9px-дот: центр и кромка расходились на пол-хэндла, отчего либо тонул
+  // наконечник превью, либо зиял зазор у обычных стрелок.
+  //
+  // Поперёк границы делаем бокс тонким (THIN), чтобы кромка ≈ центр; min-width/height
+  // у RF по умолчанию 5px — обнуляем, иначе бокс не ужать. opacity и видимый стиль —
+  // в LevelGraph.css (дот скрыт в покое, показывается на ховере/.connectingto).
+  const THIN = 2;
   const base: CSSProperties = {
-    background: borderColor,
-    width: 9,
-    height: 9,
-    borderRadius: "50%",
-    border: "2px solid rgba(255,255,255,0.7)",
+    width: THIN,
+    height: THIN,
+    minWidth: 0,
+    minHeight: 0,
+    background: "transparent",
+    border: "none",
     zIndex: 3, // поверх SVG-формы узла
   };
-  // Дот центрируем ПО ЛИНИИ ГРАНИЦЫ узла. Вдоль стороны его двигает offset (top/left
-  // в %), а поперёк — translate ±50%. Этот перпендикулярный сдвиг RF ставит по
-  // умолчанию (translate(-50%,-50%) и т.п.), но наш инлайновый transform его затирал,
-  // оставляя только сдвиг вдоль стороны — дот «висел» внутри тела, и его центр (именно
-  // его берёт превью-линия reconnect, center=true) проваливался в узел на пол-хэндла.
-  // Возвращаем полный translate: центр дота ложится точно на границу.
+  // Вдоль стороны бокс двигает offset (top/left в %), поперёк — translate ±50%
+  // (центрируем точку-цель ровно на линии границы).
   switch (pos) {
     case Position.Left:
       return { ...base, top: `${offset * 100}%`, transform: "translate(-50%, -50%)" };

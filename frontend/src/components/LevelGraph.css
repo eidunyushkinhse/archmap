@@ -8,9 +8,30 @@
   opacity: 0;
   transition: opacity 0.08s ease;
 }
+/* Видимый круглый дот хэндла. Сам хэндл — тонкая точка-цель на линии границы
+   (fixedHandleStyle), а дот рисуем отдельным дочерним элементом и центрируем на ней.
+   opacity наследуется от родителя (правила выше/ниже гасят/показывают хэндл разом).
+   Цвет тела — инлайном (цвет рамки узла). content-box: 9px тело + 2px кайма = тот же
+   визуал, что был у прежнего дота-хэндла. pointer-events:inherit — дот ловит указатель
+   ровно когда хэндл кликабелен (RF включает pointer-events у connectable), а наведение
+   на дот поднимает :hover на родителя. */
+.lg-canvas .lg-handle-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 9px;
+  height: 9px;
+  box-sizing: content-box;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  pointer-events: inherit;
+}
 .lg-canvas .react-flow__handle.connectingto {
   opacity: 1;
-  /* акцент: мягкое кольцо вокруг хэндла, к которому сейчас привяжется конец стрелки */
+}
+/* акцент: мягкое кольцо вокруг дота, к которому сейчас привяжется конец стрелки */
+.lg-canvas .react-flow__handle.connectingto .lg-handle-dot {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
 }
 
@@ -97,6 +118,8 @@
 }
 .lg-canvas--reconnect-blocked .react-flow__handle.connectingto {
   opacity: 0 !important;
+}
+.lg-canvas--reconnect-blocked .react-flow__handle.connectingto .lg-handle-dot {
   box-shadow: none !important;
 }
 
@@ -105,26 +128,29 @@
    древко (::before, прямоугольник 4px) + наконечник (::after, треугольник).
    Только у архитектора (lg-canvas--editable); pointer-events:none — не мешает
    старту перетаскивания. Направление стрелки — по стороне хэндла. */
-.lg-canvas--editable .react-flow__handle::before,
-.lg-canvas--editable .react-flow__handle::after {
+/* Стрелки-подсказки рисуем на ::before/::after ДОТА (а не самого хэндла): хэндл теперь
+   тонкая точка, а геометрия стрелок завязана на 9px-кружок — позиционируем их от дота,
+   чтобы вид остался прежним. */
+.lg-canvas--editable .react-flow__handle .lg-handle-dot::before,
+.lg-canvas--editable .react-flow__handle .lg-handle-dot::after {
   content: "";
   position: absolute;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.1s ease;
 }
-.lg-canvas--editable .react-flow__handle:hover::before,
-.lg-canvas--editable .react-flow__handle:hover::after {
+.lg-canvas--editable .react-flow__handle:hover .lg-handle-dot::before,
+.lg-canvas--editable .react-flow__handle:hover .lg-handle-dot::after {
   opacity: 1;
 }
 /* Во время самого протягивания стрелка-подсказка не нужна (только шумит). */
-.lg-canvas--connecting .react-flow__handle::before,
-.lg-canvas--connecting .react-flow__handle::after {
+.lg-canvas--connecting .react-flow__handle .lg-handle-dot::before,
+.lg-canvas--connecting .react-flow__handle .lg-handle-dot::after {
   opacity: 0 !important;
 }
 
 /* --- ПРАВО: древко + наконечник вправо --- */
-.lg-canvas--editable .react-flow__handle-right::before {
+.lg-canvas--editable .react-flow__handle-right .lg-handle-dot::before {
   top: 50%;
   left: 100%;
   margin-left: 3px;
@@ -133,7 +159,7 @@
   height: 4px;
   background: rgba(37, 99, 235, 0.55);
 }
-.lg-canvas--editable .react-flow__handle-right::after {
+.lg-canvas--editable .react-flow__handle-right .lg-handle-dot::after {
   top: 50%;
   left: 100%;
   margin-left: 9px;
@@ -146,7 +172,7 @@
 }
 
 /* --- ЛЕВО: древко + наконечник влево --- */
-.lg-canvas--editable .react-flow__handle-left::before {
+.lg-canvas--editable .react-flow__handle-left .lg-handle-dot::before {
   top: 50%;
   right: 100%;
   margin-right: 3px;
@@ -155,7 +181,7 @@
   height: 4px;
   background: rgba(37, 99, 235, 0.55);
 }
-.lg-canvas--editable .react-flow__handle-left::after {
+.lg-canvas--editable .react-flow__handle-left .lg-handle-dot::after {
   top: 50%;
   right: 100%;
   margin-right: 9px;
@@ -168,7 +194,7 @@
 }
 
 /* --- ВЕРХ: древко + наконечник вверх --- */
-.lg-canvas--editable .react-flow__handle-top::before {
+.lg-canvas--editable .react-flow__handle-top .lg-handle-dot::before {
   left: 50%;
   bottom: 100%;
   margin-bottom: 3px;
@@ -177,7 +203,7 @@
   height: 6px;
   background: rgba(37, 99, 235, 0.55);
 }
-.lg-canvas--editable .react-flow__handle-top::after {
+.lg-canvas--editable .react-flow__handle-top .lg-handle-dot::after {
   left: 50%;
   bottom: 100%;
   margin-bottom: 9px;
@@ -190,7 +216,7 @@
 }
 
 /* --- НИЗ: древко + наконечник вниз --- */
-.lg-canvas--editable .react-flow__handle-bottom::before {
+.lg-canvas--editable .react-flow__handle-bottom .lg-handle-dot::before {
   left: 50%;
   top: 100%;
   margin-top: 3px;
@@ -199,7 +225,7 @@
   height: 6px;
   background: rgba(37, 99, 235, 0.55);
 }
-.lg-canvas--editable .react-flow__handle-bottom::after {
+.lg-canvas--editable .react-flow__handle-bottom .lg-handle-dot::after {
   left: 50%;
   top: 100%;
   margin-top: 9px;
