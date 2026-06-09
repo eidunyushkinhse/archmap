@@ -4,6 +4,7 @@ import type { MouseEvent } from "react";
 import { reconnectEdge, type Edge as RFEdge, type Connection } from "@xyflow/react";
 import { nodesApi, edgesApi } from "../../../api/nodes";
 import type { Node as AppNode } from "../../../types";
+import type { WrappedEdgeData } from "../types";
 
 interface Params {
   setRfEdges: Dispatch<SetStateAction<RFEdge[]>>;
@@ -109,22 +110,24 @@ export function useReconnectHandles({
         if (sourceLocal) column.source_handle = newConn.sourceHandle;
         if (targetLocal) column.target_handle = newConn.targetHandle;
         const hasColumn = Boolean(column.source_handle || column.target_handle);
-        if (hasColumn) edgesApi.update(oldEdge.id, column);
 
         let ghost: { node_id: string; handle: string } | undefined;
         if (containerId) {
           if (!sourceLocal) ghost = { node_id: newConn.source!, handle: newConn.sourceHandle };
           else if (!targetLocal) ghost = { node_id: newConn.target!, handle: newConn.targetHandle };
-          if (ghost) nodesApi.saveGhostEdgeHandle(containerId, oldEdge.id, ghost);
         }
 
-        // Синхронизируем стейт уровня теми же значениями, что вернул бы рефетч —
-        // иначе пересчёт раскладки (сворачивание/разворачивание без рефетча)
-        // откатил бы привязку к autoHandles из устаревших данных.
-        onEdgeHandlesChanged?.(oldEdge.id, {
-          column: hasColumn ? column : undefined,
-          ghost,
-        });
+        // Мастер-стрелка — синтетическое ребро без строки в БД (id вида merge:src->target):
+        // хэндл общий для всех её членов (одна линия), поэтому «размазываем» его по всем
+        // memberIds. У одиночной стрелки memberId один. Узел-конец общий для всех членов,
+        // значит node_id гостевого хэндла одинаков. Стейт уровня синхронизируем теми же
+        // значениями, что вернул бы рефетч, иначе пересчёт раскладки откатит к autoHandles.
+        const memberIds = (oldEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [oldEdge.id];
+        for (const mid of memberIds) {
+          if (hasColumn) edgesApi.update(mid, column);
+          if (ghost && containerId) nodesApi.saveGhostEdgeHandle(containerId, mid, ghost);
+          onEdgeHandlesChanged?.(mid, { column: hasColumn ? column : undefined, ghost });
+        }
       }
     },
     [isArchitect, nodes, containerId, onEdgeHandlesChanged, setRfEdges],

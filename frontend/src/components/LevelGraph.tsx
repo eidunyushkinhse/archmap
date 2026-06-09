@@ -358,14 +358,19 @@ function LevelGraphInner({
       g.id = g.members.length === 1 ? g.members[0].id : `merge:${g.source}->${g.target}`;
     }
 
-    // Раскладку/хэндлы считаем на мастер-рёбрах (по одному на направление между парой)
+    // Раскладку/хэндлы считаем на мастер-рёбрах (по одному на направление между парой).
+    // Хэндлы у мастера общие для всех членов (одна линия) — берём у первого члена, у
+    // которого они заданы (в remappedEdges хэндлы уже разрешены: колонка для локального
+    // конца, гостевой по префиксу). Так пересчёт не сбрасывает хэндл мастера на авто.
     const layoutEdges: AppEdge[] = groupArr.map((g) => {
       if (g.members.length === 1) return g.members[0];
       const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
       return {
         id: g.id, source_id: g.source, target_id: g.target,
         label: longest.label, technology: longest.technology,
-        source_handle: null, target_handle: null, created_at: "",
+        source_handle: g.members.find((m) => m.source_handle)?.source_handle ?? null,
+        target_handle: g.members.find((m) => m.target_handle)?.target_handle ?? null,
+        created_at: "",
       };
     });
 
@@ -551,8 +556,9 @@ function LevelGraphInner({
           data,
           markerEnd: { type: MarkerType.ArrowClosed, color: "#6b7280" },
           style: { stroke: "#6b7280", strokeWidth: 1.5 },
-          // мастер-стрелку реконнектить нельзя (неоднозначно, какую из связей)
-          reconnectable: isArchitect && !isMaster,
+          // хэндл мастер-стрелки общий для всех членов — реконнект фанаутит его на все
+          // (смена узла-конца по-прежнему запрещена в handleReconnect: правится только хэндл)
+          reconnectable: isArchitect,
         };
       })
     );
