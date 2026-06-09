@@ -1,7 +1,7 @@
 // Кастомный тип ребра с HTML-лейблом (поддерживает перенос) и реестр edgeTypes.
 // На основной схеме путь можно гнуть жестом: грипы на сегментах тянут излом за курсором
 // (см. edgePath.ts), новая форма хранится в waypoints ребра.
-import { useCallback, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -34,6 +34,12 @@ function roundedPolyline(pts: Array<{ x: number; y: number }>, r: number): strin
   return d;
 }
 
+// Сравнение двух наборов точек по координатам (для «проп догнал коммит»).
+function samePoints(a: EdgePoint[], b: EdgePoint[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
+}
+
 // Середина ломаной (для плашки подписи кастомного пути): центр среднего сегмента.
 function pathMidpoint(pts: EdgePoint[]): { x: number; y: number } {
   const segs = segments(pts);
@@ -60,6 +66,11 @@ function WrappedLabelEdge({
   // Снимок исходного пути и индекс тянущегося сегмента (фиксируются в pointerdown): каждый
   // кадр считаем dragSegment от ИСХОДНОГО пути, иначе вставка стабов/cleanup дрейфуют.
   const dragRef = useRef<{ startPts: EdgePoint[]; index: number } | null>(null);
+  // Закоммиченный путь, ещё не доехавший до пропа data.waypoints. Коммит дёргает
+  // родительский стейт → АСИНХРОННЫЙ пересчёт раскладки; если погасить dragWp сразу,
+  // кадр между отпусканием и приходом нового пропа покажет старый (авто) путь — стрелка
+  // «мигает назад». Поэтому держим предпросмотр живым, пока проп не догонит коммит.
+  const pendingRef = useRef<EdgePoint[] | null>(null);
 
   const onGripMove = useCallback((e: ReactPointerEvent<SVGPathElement>) => {
     const drag = dragRef.current;
@@ -74,10 +85,22 @@ function WrappedLabelEdge({
     const c = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const wp = interior(dragSegment(drag.startPts, drag.index, c));
     dragRef.current = null;
-    setDragWp(null);
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* уже снят */ }
+    // dragWp НЕ гасим — оставляем закоммиченный путь как предпросмотр, пока проп не догонит
+    // (см. pendingRef + эффект ниже), иначе кадр со старым путём → мигание.
+    pendingRef.current = wp;
+    setDragWp(wp);
     d?.onWaypointsCommit?.(wp);
   }, [screenToFlowPosition, d]);
+
+  // Проп догнал коммит → отпускаем локальный предпросмотр (теперь рисуем от data.waypoints).
+  useEffect(() => {
+    if (pendingRef.current == null) return;
+    if (samePoints(d?.waypoints ?? [], pendingRef.current)) {
+      pendingRef.current = null;
+      setDragWp(null);
+    }
+  }, [d?.waypoints]);
 
   let edgePath: string;
   let labelX: number;
