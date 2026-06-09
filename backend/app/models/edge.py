@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -21,6 +21,10 @@ class Edge(Base):
     )
     source_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
     target_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Кастомные точки-сгибы пути стрелки в координатах графа уровня: список
+    # {"x": float, "y": float} БЕЗ концов (концы берутся из хэндлов при рендере).
+    # null/пусто — авто-маршрут (smoothstep). Ручные «обходы» узлов на основной схеме.
+    waypoints: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow
     )

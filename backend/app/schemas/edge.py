@@ -4,6 +4,13 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class Point(BaseModel):
+    """Точка-сгиб пути стрелки в координатах графа уровня."""
+
+    x: float
+    y: float
+
+
 class EdgeCreate(BaseModel):
     label: str | None = None
     technology: str | None = None
@@ -21,6 +28,8 @@ class EdgeUpdate(BaseModel):
     target_id: uuid.UUID | None = None
     source_handle: str | None = None
     target_handle: str | None = None
+    # Кастомные точки-сгибы пути (ручные «обходы»); пустой список — сброс в авто-маршрут
+    waypoints: list[Point] | None = None
 
 
 class EdgeResponse(BaseModel):
@@ -31,6 +40,7 @@ class EdgeResponse(BaseModel):
     target_id: uuid.UUID
     source_handle: str | None
     target_handle: str | None
+    waypoints: list[Point] | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

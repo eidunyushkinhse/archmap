@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.schemas.edge import Point
+
 
 class NodeCreate(BaseModel):
     name: str
@@ -105,6 +107,9 @@ class GraphEdgeResponse(BaseModel):
     # сохранённые хэндлы точек стыковки
     source_handle: str | None
     target_handle: str | None
+    # кастомные точки-сгибы пути (ручные «обходы»); дефолт — чтобы context-builder
+    # (он waypoints не передаёт) собирал ответ без этого поля
+    waypoints: list[Point] | None = None
 
 
 class PosXY(BaseModel):

@@ -125,6 +125,7 @@ def _build_graph(
                 original_target_id=edge.target_id,
                 source_handle=edge.source_handle,
                 target_handle=edge.target_handle,
+                waypoints=edge.waypoints,
             )
         )
         edge_ghost_ends[edge.id] = (src_ghost, tgt_ghost)
