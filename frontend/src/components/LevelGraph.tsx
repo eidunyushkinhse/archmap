@@ -18,7 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H, shapeHeight,
@@ -42,6 +42,7 @@ import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
 import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
+import { useEdgeWaypoints } from "./graph/interaction/useEdgeWaypoints";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 
@@ -105,6 +106,9 @@ interface LevelGraphProps {
       ghost?: { node_id: string; handle: string };
     },
   ) => void;
+  // путь стрелки изменён жестом (изломы) и сохранён в БД — родитель синхронизирует
+  // стейт уровня теми же waypoints, чтобы пересчёт раскладки их не откатил.
+  onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // узел перетащили и его позиция сохранена в БД — родитель синхронизирует стейт
   // уровня теми же значениями, чтобы пересчёт раскладки БЕЗ рефетча (напр. локальный
   // setEdges при реконнекте хэндла) не откатил узел на прежнюю сохранённую позицию.
@@ -158,6 +162,7 @@ function LevelGraphInner({
   onEdgeClick,
   onEdgesChoice,
   onEdgeHandlesChanged,
+  onEdgeWaypointsChanged,
   onNodeMoved,
   onDropNode,
   onCreateEdge,
@@ -212,6 +217,9 @@ function LevelGraphInner({
     consumeReconnectClick,
   } = useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
 
+  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента.
+  const { commitWaypoints } = useEdgeWaypoints({ isArchitect, onEdgeWaypointsChanged });
+
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
   // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
   // потомка); лист (block без детей или гость) — связываем напрямую; распорка — игнор.
@@ -263,8 +271,8 @@ function LevelGraphInner({
   // нестабильными (новые функции каждый рендер); будь они зависимостями сборки,
   // массив rfNodes пересоздавался бы на каждый рендер родителя и сбрасывал выделение/
   // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
-  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer });
-  cbRef.current = { onDrillDown, onEditNode, expandContainer };
+  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints });
+  cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints };
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
   // багов «правка одного ломала соседа»). Зависит ТОЛЬКО от данных. Этапы: проекция
@@ -437,6 +445,9 @@ function LevelGraphInner({
     // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
     const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers } = layout;
     const cb = cbRef.current;
+    // локальные узлы уровня — у редактируемой жестом стрелки оба конца должны быть
+    // локальны (waypoints в координатах этого уровня; гость/контейнер — чужая система)
+    const localIds = new Set(layoutNodes.map((n) => n.id));
     setRfNodes([
       ...layoutNodes.map((n) => ({
         id: n.id,
@@ -493,6 +504,16 @@ function LevelGraphInner({
         const data: WrappedEdgeData = isMaster
           ? { items: g.members.map((m) => edgeText(m)), memberIds: g.members.map((m) => m.id) }
           : { label: singleText, memberIds: [single.id] };
+        // Кастомный путь (изломы): только одиночная стрелка, архитектор, не контекст,
+        // оба конца локальны. waypoints из колонки ребра; коммит — в БД + зеркало наверх.
+        const editable =
+          !isMaster && isArchitect && !isContext &&
+          localIds.has(g.source) && localIds.has(g.target);
+        if (editable) {
+          data.editable = true;
+          data.waypoints = single.waypoints ?? undefined;
+          data.onWaypointsCommit = (wp) => cb.commitWaypoints(single.id, wp);
+        }
         // в контекст-схеме ограничиваем ширину плашки — зазор колонок рассчитан под неё —
         // и кладём подпись на приузловую полку (shelf), если раскладка её посчитала
         if (isContext) {

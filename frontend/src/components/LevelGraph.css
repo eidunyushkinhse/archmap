@@ -210,3 +210,17 @@
   border-right: 5px solid transparent;
   border-top: 8px solid rgba(37, 99, 235, 0.55);
 }
+
+/* Грипы изломов стрелок: видимая точка по центру подвижного сегмента. По умолчанию
+   скрыта, проявляется при наведении на стрелку; ярче — при наведении на сам грип. */
+.lg-edge-grip-dot {
+  fill: #6b7280;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.react-flow__edge:hover .lg-edge-grip-dot {
+  opacity: 0.5;
+}
+.lg-edge-grip:hover .lg-edge-grip-dot {
+  opacity: 0.9;
+}

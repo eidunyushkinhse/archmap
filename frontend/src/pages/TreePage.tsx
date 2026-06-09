@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { Edge, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
+import type { Edge, EdgePoint, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
 import EdgeIntoPicker from "../components/EdgeIntoPicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
@@ -101,6 +101,7 @@ export default function TreePage({ onLogout }: Props) {
           target_id: ge.target_id,
           source_handle: ge.source_handle,
           target_handle: ge.target_handle,
+          waypoints: ge.waypoints,
           created_at: "",
         }))
       );
@@ -197,6 +198,15 @@ export default function TreePage({ onLogout }: Props) {
         return { ...prev, [edgeId]: [...rest, handle] };
       });
     }
+  }
+
+  // Путь стрелки изменён жестом (изломы) и сохранён в БД (useEdgeWaypoints) — зеркалируем
+  // waypoints в стейт уровня теми же значениями, что вернул бы рефетч. Иначе пересчёт
+  // раскладки без рефетча (напр. сворачивание контейнера) откатил бы излом к авто-маршруту.
+  function updateEdgeWaypoints(edgeId: string, waypoints: EdgePoint[]) {
+    setEdges((prev) =>
+      prev.map((e) => (e.id === edgeId ? { ...e, waypoints } : e)),
+    );
   }
 
   // Узел перетащили — позиция уже сохранена в БД (useSnapAlignment), здесь
@@ -368,6 +378,7 @@ export default function TreePage({ onLogout }: Props) {
               onEdgeClick={(edge) => setEdgeDetailModal(edge)}
               onEdgesChoice={(group) => setEdgeChoice(group)}
               onEdgeHandlesChanged={updateEdgeHandles}
+              onEdgeWaypointsChanged={updateEdgeWaypoints}
               onNodeMoved={handleNodeMoved}
               onDropNode={handleDropNode}
               onCreateEdge={handleCreateEdge}

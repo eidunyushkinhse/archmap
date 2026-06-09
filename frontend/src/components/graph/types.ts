@@ -1,7 +1,7 @@
 // Общие типы графа уровня. Импортирует только типы — ни от чего не зависит во
 // время выполнения. FrameDef намеренно НЕ здесь: он локален для boundaries.tsx.
 import type { Node as RFNode } from "@xyflow/react";
-import type { Node as AppNode, GhostNode, AncestorRef } from "../../types";
+import type { Node as AppNode, GhostNode, AncestorRef, EdgePoint } from "../../types";
 
 // сегмент с подписью (сосед) и его длина в px. end="target" — сосед это target
 // (исходящее фокус→сосед), end="source" — сосед это source (входящее сосед→фокус).
@@ -24,6 +24,12 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   shelf?: EdgeShelf;
   // контекст-схема: «не родная» стрелка bidi — обход колонки (если задано, вместо shelf)
   loop?: EdgeLoop;
+  // кастомные точки-сгибы пути (ручные «обходы» узлов на основной схеме)
+  waypoints?: EdgePoint[];
+  // можно ли редактировать путь жестом (архитектор, level, одиночная стрелка, оба конца локальны)
+  editable?: boolean;
+  // зафиксировать новый набор waypoints (пустой — сброс в авто); зовётся по отпусканию драга
+  onWaypointsCommit?: (waypoints: EdgePoint[]) => void;
 }
 
 export interface NodeColors { bg: string; border: string; text: string }
