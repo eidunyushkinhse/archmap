@@ -12,7 +12,7 @@
 // Хэндл выигрывает у «зоны входа»: его обрабатывает onConnect ещё до onConnectEnd
 // (madeRef глушит дубль). Реконнект концов существующих рёбер — ОТДЕЛЬНЫЙ поток
 // (onReconnect*), сюда не заходит: onConnect/onConnectStart/End — только новая связь.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { OnConnectStartParams, Connection, Edge as RFEdge } from "@xyflow/react";
 
 // Что делать с узлом, на который отпустили конец стрелки.
@@ -54,14 +54,73 @@ export function useEdgeConnect({
   // идёт протягивание новой связи — для подсветки «зон входа» (CSS-класс на холсте)
   const [connecting, setConnecting] = useState(false);
 
+  // Узел ПОД КУРСОРОМ во время протягивания. Подсветку (зона входа + хэндлы) вешаем
+  // на него, а не на «зону активации хэндла» (.connectingto): иначе в центре тела
+  // узла, где хэндла рядом нет, визуал пропадал. :hover при pointer-capture драга
+  // ненадёжен, поэтому ведём цель сами — pointermove + elementFromPoint, класс
+  // lg-into-target вешаем прямо на DOM .react-flow__node (узлы во время драга не
+  // перерисовываются, RF класс не затирает; снимаем по завершении).
+  const targetElRef = useRef<HTMLElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  const clearTarget = useCallback(() => {
+    if (targetElRef.current) {
+      targetElRef.current.classList.remove("lg-into-target");
+      targetElRef.current = null;
+    }
+  }, []);
+
+  const updateTarget = useCallback(
+    (x: number, y: number) => {
+      const el = document.elementFromPoint(x, y);
+      const nodeEl = el?.closest<HTMLElement>(".react-flow__node") ?? null;
+      const id = nodeEl?.getAttribute("data-id");
+      // узел-источник не подсвечиваем — связь на самого себя не ведём
+      const next = nodeEl && id !== sourceRef.current ? nodeEl : null;
+      if (next === targetElRef.current) return;
+      clearTarget();
+      if (next) {
+        next.classList.add("lg-into-target");
+        targetElRef.current = next;
+      }
+    },
+    [clearTarget],
+  );
+
+  // pointermove частый — пересчёт цели троттлим по кадру
+  const handlePointerMove = useCallback(
+    (e: PointerEvent) => {
+      if (rafRef.current != null) return;
+      const { clientX, clientY } = e;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        updateTarget(clientX, clientY);
+      });
+    },
+    [updateTarget],
+  );
+
+  const stopTracking = useCallback(() => {
+    document.removeEventListener("pointermove", handlePointerMove);
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    clearTarget();
+  }, [handlePointerMove, clearTarget]);
+
+  // размонтирование посреди драга — снять слушатель и подсветку
+  useEffect(() => stopTracking, [stopTracking]);
+
   const handleConnectStart = useCallback(
     (_e: unknown, params: OnConnectStartParams) => {
       if (!enabled || !params.nodeId) return;
       sourceRef.current = params.nodeId;
       madeRef.current = false;
       setConnecting(true);
+      document.addEventListener("pointermove", handlePointerMove);
     },
-    [enabled],
+    [enabled, handlePointerMove],
   );
 
   // Конец защёлкнулся на хэндл узла (в радиусе connectionRadius) — прямая связь к нему.
@@ -85,6 +144,7 @@ export function useEdgeConnect({
 
   const handleConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent) => {
+      stopTracking();
       const made = madeRef.current;
       madeRef.current = false;
       setConnecting(false);
@@ -112,7 +172,7 @@ export function useEdgeConnect({
         onCreate?.(source, targetId);
       }
     },
-    [enabled, resolveTarget, onCreate, onInto],
+    [enabled, resolveTarget, onCreate, onInto, stopTracking],
   );
 
   return { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection };

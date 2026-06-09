@@ -30,18 +30,18 @@
   opacity: 0.28;
 }
 
-/* Во время протягивания связи у узла, к чьему хэндлу сейчас подтянут конец стрелки
-   (тот помечен .connectingto), остальные хэндлы тоже показываем еле заметно — видно
-   все точки контакта, но акцент на том, к которому привяжется стрелка. */
-.lg-canvas--connecting .react-flow__node:has(.react-flow__handle.connectingto) .react-flow__handle:not(.connectingto) {
+/* Во время протягивания связи у узла ПОД КУРСОРОМ (lg-into-target вешается из
+   useEdgeConnect) показываем все хэндлы еле заметно — видно точки контакта; акцент
+   (кольцо, opacity 1) остаётся на том, к которому защёлкнётся стрелка (.connectingto). */
+.lg-canvas--connecting .react-flow__node.lg-into-target .react-flow__handle:not(.connectingto) {
   opacity: 0.28;
 }
 
 /* Во время протягивания новой связи зону входа подсвечиваем ТОЛЬКО у узла-сервиса с
-   детьми (data-into), к хэндлу которого сейчас подтянут конец стрелки (React Flow метит
-   его .connectingto). Раньше подсвечивались ВСЕ контейнеры разом — это глушило чтение
-   имён остальных узлов на схеме. */
-.lg-canvas--connecting .react-flow__node:has([data-into] .react-flow__handle.connectingto) {
+   детьми (data-into), который сейчас ПОД КУРСОРОМ (lg-into-target). Раньше горели ВСЕ
+   контейнеры разом; промежуточный вариант (гейт по .connectingto) гас в центре тела,
+   где рядом нет хэндла. Теперь визуал держится, пока курсор над узлом. */
+.lg-canvas--connecting .react-flow__node.lg-into-target:has([data-into]) {
   outline: 2px dashed #2563eb;
   outline-offset: 3px;
   border-radius: 10px;
@@ -60,14 +60,14 @@
   pointer-events: none;
   transition: opacity 0.1s ease;
 }
-/* У зоны входа, к хэндлу которой сейчас подтянут конец стрелки (.connectingto), прячем
-   ВЕСЬ контент (форма, текст, кнопки) и показываем только знак — узел читается как
-   «лунка для дропа внутрь». Хэндлы НЕ прячем — их подсветка задаётся правилами выше.
-   Пунктирная рамка зоны (правило выше) остаётся и очерчивает область. */
-.lg-canvas--connecting [data-into]:has(.react-flow__handle.connectingto) > *:not(.lg-into-cue):not(.react-flow__handle) {
+/* У зоны входа ПОД КУРСОРОМ (lg-into-target) прячем ВЕСЬ контент (форма, текст, кнопки)
+   и показываем только знак — узел читается как «лунка для дропа внутрь». Хэндлы НЕ
+   прячем — их подсветка задаётся правилами выше. Пунктирная рамка зоны (правило выше)
+   остаётся и очерчивает область. */
+.lg-canvas--connecting .lg-into-target [data-into] > *:not(.lg-into-cue):not(.react-flow__handle) {
   opacity: 0;
 }
-.lg-canvas--connecting [data-into]:has(.react-flow__handle.connectingto) > .lg-into-cue {
+.lg-canvas--connecting .lg-into-target [data-into] > .lg-into-cue {
   opacity: 1;
 }
 
