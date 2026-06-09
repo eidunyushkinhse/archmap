@@ -69,12 +69,16 @@ export function assignEdgeHandles(
     const srcHandleValid = e.source_handle?.startsWith(e.source_id + "--") ?? false;
     const tgtHandleValid = e.target_handle?.startsWith(e.target_id + "--") ?? false;
 
-    if (srcHandleValid && tgtHandleValid) {
-      edgeHandles.set(e.id, { sourceHandle: e.source_handle!, targetHandle: e.target_handle! });
-    } else {
-      const { idx, total } = pairInfo.get(e.id) ?? { idx: 0, total: 1 };
-      edgeHandles.set(e.id, autoHandles(e.source_id, e.target_id, positions, idx, total));
-    }
+    // Концы независимы: валидный сохранённый хэндл берём, невалидный/пустой —
+    // считаем autoHandles. Раньше требовалась валидность ОБОИХ (иначе оба в auto),
+    // из-за чего сквозная связь (дальний конец задан дефолтом → target_handle=null)
+    // теряла и сохранённый source_handle узла-источника.
+    const { idx, total } = pairInfo.get(e.id) ?? { idx: 0, total: 1 };
+    const auto = autoHandles(e.source_id, e.target_id, positions, idx, total);
+    edgeHandles.set(e.id, {
+      sourceHandle: srcHandleValid ? e.source_handle! : auto.sourceHandle,
+      targetHandle: tgtHandleValid ? e.target_handle! : auto.targetHandle,
+    });
   }
 
   return edgeHandles;

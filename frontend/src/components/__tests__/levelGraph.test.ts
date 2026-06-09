@@ -134,16 +134,28 @@ describe("assignEdgeHandles", () => {
     });
   });
 
-  it("хэндл с чужим префиксом невалиден → откат к autoHandles", () => {
+  it("невалидный конец → auto, валидный конец сохраняется (концы независимы)", () => {
     const edgeHandles = assignEdgeHandles(
       [{ id: "a" }, { id: "b" }],
-      // source_handle ссылается на другой узел — невалиден для текущей проекции
+      // source_handle ссылается на другой узел — невалиден; target_handle валиден
       [edge("e1", "a", "b", { source_handle: "x--top--0", target_handle: "b--bottom--2" })],
       ab,
     );
     expect(edgeHandles.get("e1")).toEqual({
-      sourceHandle: "a--right--1",
-      targetHandle: "b--left--1",
+      sourceHandle: "a--right--1", // невалидный source → autoHandles
+      targetHandle: "b--bottom--2", // валидный target → сохранён
+    });
+  });
+
+  it("сохранён только source (target_handle=null, как у сквозной связи) → source держится, target auto", () => {
+    const edgeHandles = assignEdgeHandles(
+      [{ id: "a" }, { id: "b" }],
+      [edge("e1", "a", "b", { source_handle: "a--top--0", target_handle: null })],
+      ab,
+    );
+    expect(edgeHandles.get("e1")).toEqual({
+      sourceHandle: "a--top--0", // сохранённый хэндл источника держится
+      targetHandle: "b--left--1", // дальний конец дефолтный → autoHandles
     });
   });
 
