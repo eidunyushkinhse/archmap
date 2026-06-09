@@ -13,10 +13,20 @@ interface Params {
   isArchitect: boolean;
   isContext: boolean;
   containerId: string | null;
+  // узел перетащили и позиция сохранена — родитель синхронизирует стейт уровня теми
+  // же значениями, что вернул бы рефетч. Без этого пересчёт раскладки БЕЗ рефетча
+  // (напр. локальный setEdges при реконнекте хэндла) откатывал бы узел на старую
+  // сохранённую позицию. kind: block → координаты в самом узле (nodes[].pos_x/y);
+  // ghost/container → координаты уровня (levelPositions[id]).
+  onNodeMoved?: (
+    id: string,
+    kind: "block" | "ghost" | "container",
+    pos: { pos_x: number; pos_y: number },
+  ) => void;
 }
 
 export function useSnapAlignment({
-  rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
+  rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId, onNodeMoved,
 }: Params) {
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, rfNode: RFNode) => {
@@ -28,13 +38,15 @@ export function useSnapAlignment({
       if (rfNode.type === "block") {
         // Локальный узел — координаты в самом узле
         nodesApi.update(rfNode.id, pos);
+        onNodeMoved?.(rfNode.id, "block", pos);
       } else if ((rfNode.type === "ghost" || rfNode.type === "container") && containerId) {
         // Гость (лист) или свёрнутый предок-контейнер — координаты привязаны к
         // уровню (containerId + id отображаемой сущности = rfNode.id)
         nodesApi.saveGhostPosition(containerId, rfNode.id, pos);
+        onNodeMoved?.(rfNode.id, rfNode.type, pos);
       }
     },
-    [isArchitect, containerId, isContext, setGuides],
+    [isArchitect, containerId, isContext, setGuides, onNodeMoved],
   );
 
   // Магнитное выравнивание по центру при драге: перехватываем position-изменения

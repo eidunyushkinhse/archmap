@@ -201,6 +201,25 @@ export default function TreePage({ onLogout }: Props) {
     }
   }
 
+  // Узел перетащили — позиция уже сохранена в БД (useSnapAlignment), здесь
+  // зеркалируем её в стейт уровня теми же значениями, что вернул бы рефетч. Иначе
+  // пересчёт раскладки БЕЗ рефетча (локальный setEdges при реконнекте хэндла)
+  // откатил бы узел на прежнюю сохранённую позицию. Локальный узел (block) хранит
+  // координаты в самом узле, гость/контейнер — в levelPositions по id сущности.
+  function handleNodeMoved(
+    id: string,
+    kind: "block" | "ghost" | "container",
+    pos: { pos_x: number; pos_y: number },
+  ) {
+    if (kind === "block") {
+      setNodes((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, pos_x: pos.pos_x, pos_y: pos.pos_y } : n)),
+      );
+    } else {
+      setLevelPositions((prev) => ({ ...prev, [id]: pos }));
+    }
+  }
+
   function handleEdgeDeleted(_id: string) {
     setEdgeDetailModal(null);
     load(currentParentId);
@@ -360,6 +379,7 @@ export default function TreePage({ onLogout }: Props) {
               onEdgeClick={(edge) => setEdgeDetailModal(edge)}
               onEdgesChoice={(group) => setEdgeChoice(group)}
               onEdgeHandlesChanged={updateEdgeHandles}
+              onNodeMoved={handleNodeMoved}
               onDropNode={handleDropNode}
               onCreateEdge={handleCreateEdge}
               onConnectInto={handleConnectInto}

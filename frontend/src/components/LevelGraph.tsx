@@ -99,6 +99,14 @@ interface LevelGraphProps {
       ghost?: { node_id: string; handle: string };
     },
   ) => void;
+  // узел перетащили и его позиция сохранена в БД — родитель синхронизирует стейт
+  // уровня теми же значениями, чтобы пересчёт раскладки БЕЗ рефетча (напр. локальный
+  // setEdges при реконнекте хэндла) не откатил узел на прежнюю сохранённую позицию.
+  onNodeMoved?: (
+    id: string,
+    kind: "block" | "ghost" | "container",
+    pos: { pos_x: number; pos_y: number },
+  ) => void;
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
@@ -144,6 +152,7 @@ function LevelGraphInner({
   onEdgeClick,
   onEdgesChoice,
   onEdgeHandlesChanged,
+  onNodeMoved,
   onDropNode,
   onCreateEdge,
   onConnectInto,
@@ -182,7 +191,7 @@ function LevelGraphInner({
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
+    rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId, onNodeMoved,
   });
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
