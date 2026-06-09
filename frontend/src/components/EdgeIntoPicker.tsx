@@ -315,18 +315,17 @@ const listBox: CSSProperties = {
 const treeRow: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 4,
+  gap: 6,
   padding: "6px 8px",
   cursor: "pointer",
   fontSize: 14,
-  borderBottom: "1px solid #f3f4f6",
 };
 const chevBtn: CSSProperties = {
   border: "none",
   background: "none",
   cursor: "pointer",
   padding: 0,
-  width: 16,
+  width: 20,
   flexShrink: 0,
   display: "flex",
   alignItems: "center",
@@ -335,15 +334,15 @@ const chevBtn: CSSProperties = {
 };
 const chevIcon: CSSProperties = {
   display: "inline-block",
-  fontSize: 11,
+  fontSize: 15,
   transition: "transform 0.12s ease",
 };
 const leafMark: CSSProperties = {
-  width: 16,
+  width: 20,
   flexShrink: 0,
   textAlign: "center",
   color: "#cbd5e1",
-  fontSize: 8,
+  fontSize: 12,
 };
 const roleMuted: CSSProperties = {
   color: "#6b7280",
