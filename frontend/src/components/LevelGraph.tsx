@@ -37,6 +37,7 @@ import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
+import ReconnectBlockedToast from "./graph/ReconnectBlockedToast";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
@@ -207,7 +208,7 @@ function LevelGraphInner({
   // Реконнект концов рёбер (смена хэндла на том же узле + персист).
   const {
     handleReconnectStart, handleReconnect, handleReconnectEnd,
-    isValidConnection: isValidReconnect, isReconnecting,
+    isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked,
   } = useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
@@ -546,7 +547,9 @@ function LevelGraphInner({
       className={
         "lg-canvas" +
         (isArchitect && !isContext ? " lg-canvas--editable" : "") +
-        (connecting ? " lg-canvas--connecting" : "")
+        (connecting ? " lg-canvas--connecting" : "") +
+        // реконнект над не родным узлом: запрещающий курсор + гасим подсветку хэндлов
+        (reconnectBlocked ? " lg-canvas--reconnect-blocked" : "")
       }
       style={{ flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
       onDragOver={handleDragOver}
@@ -554,6 +557,10 @@ function LevelGraphInner({
       onDrop={handleDrop}
       onKeyDown={handleKeyDown}
     >
+      {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
+          прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
+          анимация уезда; position:fixed не обрезается overflow:hidden канваса. */}
+      {isArchitect && !isContext && <ReconnectBlockedToast visible={reconnectBlocked} />}
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}

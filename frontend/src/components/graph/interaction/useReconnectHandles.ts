@@ -1,5 +1,5 @@
 // Реконнект концов рёбер: смена хэндла на том же узле + персист хэндлов.
-import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { MouseEvent } from "react";
 import { reconnectEdge, type Edge as RFEdge, type Connection } from "@xyflow/react";
 import { nodesApi, edgesApi } from "../../../api/nodes";
@@ -29,10 +29,55 @@ export function useReconnectHandles({
   const reconnectingEdge = useRef<RFEdge | null>(null);
   const reconnectSucceeded = useRef(true);
 
+  // Курсор с зажатым концом связи находится над НЕ РОДНЫМ узлом (ни источник, ни цель
+  // ребра) — перепривязать конец к нему нельзя. Драйвит запрещающий курсор и тост.
+  // Конец связи цепляется только к хэндлам того же узла; чужой узел — это «заведи
+  // новую связь». :hover при pointer-capture драга ненадёжен, поэтому ведём цель сами
+  // (pointermove + elementFromPoint), как при протягивании новой связи в useEdgeConnect.
+  const [blocked, setBlocked] = useState(false);
+  const rafRef = useRef<number | null>(null);
+
+  const updateBlocked = useCallback((x: number, y: number) => {
+    const edge = reconnectingEdge.current;
+    if (!edge) { setBlocked(false); return; }
+    const nodeEl = document
+      .elementFromPoint(x, y)
+      ?.closest<HTMLElement>(".react-flow__node");
+    const id = nodeEl?.getAttribute("data-id");
+    // не родной узел = под курсором узел, не являющийся ни источником, ни целью ребра
+    setBlocked(!!id && id !== edge.source && id !== edge.target);
+  }, []);
+
+  // pointermove частый — пересчёт цели троттлим по кадру
+  const handlePointerMove = useCallback(
+    (e: PointerEvent) => {
+      if (rafRef.current != null) return;
+      const { clientX, clientY } = e;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        updateBlocked(clientX, clientY);
+      });
+    },
+    [updateBlocked],
+  );
+
+  const stopTracking = useCallback(() => {
+    document.removeEventListener("pointermove", handlePointerMove);
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setBlocked(false);
+  }, [handlePointerMove]);
+
+  // размонтирование посреди реконнекта — снять слушатель и сбросить тост
+  useEffect(() => stopTracking, [stopTracking]);
+
   const handleReconnectStart = useCallback((_: MouseEvent, edge: RFEdge) => {
     reconnectingEdge.current = edge;
     reconnectSucceeded.current = false;
-  }, []);
+    document.addEventListener("pointermove", handlePointerMove);
+  }, [handlePointerMove]);
 
   const handleReconnect = useCallback(
     (oldEdge: RFEdge, newConn: Connection) => {
@@ -81,9 +126,10 @@ export function useReconnectHandles({
 
   const handleReconnectEnd = useCallback(() => {
     // Если не успешно — ничего не делаем, ребро остаётся на месте
+    stopTracking();
     reconnectingEdge.current = null;
     reconnectSucceeded.current = true;
-  }, []);
+  }, [stopTracking]);
 
   // Разрешаем реконнект только к хэндлам того же узла
   const isValidConnection = useCallback((conn: Connection | RFEdge) => {
@@ -96,5 +142,10 @@ export function useReconnectHandles({
   // вызывающий разводит по этому флагу общий isValidConnection между двумя потоками.
   const isReconnecting = useCallback(() => reconnectingEdge.current != null, []);
 
-  return { handleReconnectStart, handleReconnect, handleReconnectEnd, isValidConnection, isReconnecting };
+  return {
+    handleReconnectStart, handleReconnect, handleReconnectEnd,
+    isValidConnection, isReconnecting,
+    // курсор над не родным узлом во время реконнекта — для запрещающего курсора и тоста
+    reconnectBlocked: blocked,
+  };
 }

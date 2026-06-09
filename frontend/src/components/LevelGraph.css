@@ -86,6 +86,20 @@
   opacity: 1;
 }
 
+/* Реконнект конца связи над НЕ РОДНЫМ узлом (lg-canvas--reconnect-blocked из
+   useReconnectHandles): перепривязка к чужому узлу запрещена — показываем запрещающий
+   курсор и гасим подсветку хэндла, которую React Flow навесил бы (.connectingto).
+   Класс активен, только пока курсор над чужим узлом, поэтому правило безопасно
+   глушит подсветку по всему холсту. */
+.lg-canvas--reconnect-blocked,
+.lg-canvas--reconnect-blocked * {
+  cursor: not-allowed !important;
+}
+.lg-canvas--reconnect-blocked .react-flow__handle.connectingto {
+  opacity: 0 !important;
+  box-shadow: none !important;
+}
+
 /* Подсказка «отсюда можно провести связь»: при наведении на хэндл (до начала
    протягивания) рядом с ним появляется прозрачная голубая стрелка наружу —
    древко (::before, прямоугольник 4px) + наконечник (::after, треугольник).
