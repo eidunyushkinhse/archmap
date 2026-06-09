@@ -7,14 +7,23 @@ import {
   EdgeLabelRenderer,
   getSmoothStepPath,
   useReactFlow,
+  Position,
   type EdgeProps,
   type EdgeTypes,
 } from "@xyflow/react";
 import { wrapLabel } from "./text";
 import type { WrappedEdgeData } from "./types";
 import type { EdgePoint } from "../../types";
-import { buildRenderPoints, orthogonalPoints, cleanup, segments, dragSegment, interior, snapDragCursor } from "./edgePath";
+import { buildRenderPoints, orthogonalPointsForHandles, cleanup, segments, dragSegment, interior, snapDragCursor, type EdgeSide } from "./edgePath";
 import { EDGE_SNAP_PX } from "./constants";
+
+// Position (сторона хэндла) → сторона для хэндл-ориентированного маршрута грипов.
+function sideOf(p: Position): EdgeSide {
+  return p === Position.Left ? "left"
+    : p === Position.Right ? "right"
+    : p === Position.Top ? "top"
+    : "bottom";
+}
 
 // SVG-путь по ортогональной ломаной со скруглением углов радиуса r. Используется и для
 // обхода «не родной» стрелки bidi (контекст), и для кастомного пути с waypoints (level).
@@ -172,15 +181,31 @@ function WrappedLabelEdge({
       labelX = mid.x;
       labelY = mid.y;
       if (d?.editable) gripPts = pts;
+    } else if (d?.editable) {
+      // Редактируемое ребро без waypoints рисуем СВОЕЙ ортогональной ломаной по
+      // сторонам хэндлов — теми же точками, что идут под грипы. Так грипы всегда лежат
+      // на видимой линии. Раньше линия шла через getSmoothStepPath, а грипы — через
+      // orthogonalPoints (доминанта dx/dy): у стрелки с сохранённым хэндлом после
+      // сдвига узла они расходились, и грипы «слетали». Для выровненных сторон эта
+      // ломаная совпадает со smoothstep, поэтому здоровые стрелки выглядят как прежде.
+      const pts = cleanup(
+        orthogonalPointsForHandles(
+          sourceX, sourceY, sideOf(sourcePosition),
+          targetX, targetY, sideOf(targetPosition),
+        ),
+      );
+      edgePath = roundedPolyline(pts, 12);
+      const mid = pathMidpoint(pts);
+      labelX = mid.x;
+      labelY = mid.y;
+      gripPts = pts;
     } else {
+      // Нередактируемое ребро (viewer и т.п.) — прежний авто-smoothstep.
       [edgePath, labelX, labelY] = getSmoothStepPath({
         sourceX, sourceY, sourcePosition,
         targetX, targetY, targetPosition,
         borderRadius: 12,
       });
-      // грипы — на каноническом маршруте (совпадает со smoothstep для встречных сторон;
-      // первый драг материализует именно его)
-      if (d?.editable) gripPts = cleanup(orthogonalPoints(sourceX, sourceY, targetX, targetY));
     }
   }
 

@@ -47,6 +47,39 @@ export function orthogonalPoints(sx: number, sy: number, tx: number, ty: number)
   return [{ x: sx, y: sy }, { x: sx, y: my }, { x: tx, y: my }, { x: tx, y: ty }];
 }
 
+export type EdgeSide = "left" | "right" | "top" | "bottom";
+const isHoriz = (s: EdgeSide): boolean => s === "left" || s === "right";
+
+// Канонический ортогональный маршрут [S, ...сгибы, T], УЧИТЫВАЮЩИЙ стороны хэндлов
+// (в отличие от orthogonalPoints, что выбирает ось по доминанте dx/dy). Нужен для
+// грипов изломов: видимая линия рисуется getSmoothStepPath, который идёт от СТОРОН
+// хэндлов. У стрелки с сохранённым хэндлом (его не пересчитывает autoHandles) после
+// сдвига узла dx/dy-маршрут расходился с линией → грипы «слетали». Для выровненных
+// (противоположных по оси) сторон даёт тот же серединный Z, что и smoothstep, поэтому
+// у здоровых стрелок ничего не меняется; чинятся лишь смешанные/развёрнутые случаи.
+export function orthogonalPointsForHandles(
+  sx: number, sy: number, sSide: EdgeSide,
+  tx: number, ty: number, tSide: EdgeSide,
+): EdgePoint[] {
+  const s: EdgePoint = { x: sx, y: sy }, t: EdgePoint = { x: tx, y: ty };
+  const sh = isHoriz(sSide), th = isHoriz(tSide);
+  if (sh && th) {
+    // оба конца горизонтальны → Z через вертикальный сгиб на середине X
+    const mx = (sx + tx) / 2;
+    return [s, { x: mx, y: sy }, { x: mx, y: ty }, t];
+  }
+  if (!sh && !th) {
+    // оба вертикальны → Z через горизонтальный сгиб на середине Y
+    const my = (sy + ty) / 2;
+    return [s, { x: sx, y: my }, { x: tx, y: my }, t];
+  }
+  // смешанный (один горизонтален, другой вертикален) → один сгиб (L): источник
+  // выходит вдоль своей оси, цель входит вдоль своей.
+  return sh
+    ? [s, { x: tx, y: sy }, t]  // S выходит горизонтально, T входит вертикально
+    : [s, { x: sx, y: ty }, t]; // S выходит вертикально, T входит горизонтально
+}
+
 // Диагональную пару (обе координаты разошлись — обычно концевой сегмент после сдвига
 // узла) разбиваем коленом, чтобы путь остался строго ортогональным. Колено
 // детерминированное: сперва горизонталь, затем вертикаль (E = (b.x, a.y)).

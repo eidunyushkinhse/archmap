@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  orthogonalPoints, buildRenderPoints, segments, dragSegment, cleanup, interior, snapDragCursor,
+  orthogonalPoints, orthogonalPointsForHandles, buildRenderPoints, segments, dragSegment, cleanup, interior, snapDragCursor,
 } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
 
@@ -19,6 +19,36 @@ describe("orthogonalPoints", () => {
   });
   it("соосные узлы — после cleanup это прямая", () => {
     expect(cleanup(orthogonalPoints(0, 0, 100, 0))).toEqual([P(0, 0), P(100, 0)]);
+  });
+});
+
+describe("orthogonalPointsForHandles", () => {
+  it("противоположные горизонтальные стороны — серединный Z (как orthogonalPoints)", () => {
+    expect(orthogonalPointsForHandles(0, 0, "right", 100, 40, "left")).toEqual([
+      P(0, 0), P(50, 0), P(50, 40), P(100, 40),
+    ]);
+  });
+  it("противоположные вертикальные стороны — Z через середину Y", () => {
+    expect(orthogonalPointsForHandles(0, 0, "bottom", 40, 100, "top")).toEqual([
+      P(0, 0), P(0, 50), P(40, 50), P(40, 100),
+    ]);
+  });
+  it("смешанные: источник горизонтален, цель вертикальна → один сгиб (tx, sy)", () => {
+    expect(orthogonalPointsForHandles(0, 0, "right", 80, 60, "top")).toEqual([
+      P(0, 0), P(80, 0), P(80, 60),
+    ]);
+  });
+  it("смешанные: источник вертикален, цель горизонтальна → один сгиб (sx, ty)", () => {
+    expect(orthogonalPointsForHandles(0, 0, "bottom", 80, 60, "left")).toEqual([
+      P(0, 0), P(0, 60), P(80, 60),
+    ]);
+  });
+  it("учитывает сторону хэндла, а не доминанту dx/dy (где orthogonalPoints разошёлся бы)", () => {
+    // dx(80) > dy(20): orthogonalPoints выбрал бы горизонтальный Z; но цель входит сверху,
+    // поэтому маршрут грипов должен быть L со сгибом (tx, sy), совпадая со smoothstep.
+    expect(orthogonalPointsForHandles(0, 0, "right", 80, 20, "top")).toEqual([
+      P(0, 0), P(80, 0), P(80, 20),
+    ]);
   });
 });
 
