@@ -617,7 +617,12 @@ function LevelGraphInner({
     [openEdgeMembers, consumeReconnectClick]
   );
 
-  if (nodes.length + ghostNodes.length === 0) return null;
+  // Контекст-схема без фокус-узла не бывает — защитно ничего не рисуем. Обычный
+  // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
+  // дропнуть первый узел, а зум остаётся «отдалённым» (defaultViewport ниже),
+  // без скачка к гигантскому fitView на единственном узле.
+  const hasGraphContent = nodes.length + ghostNodes.length > 0;
+  if (isContext && !hasGraphContent) return null;
 
   return (
     <div
@@ -673,8 +678,13 @@ function LevelGraphInner({
         // Своё удаление через подтверждение (handleKeyDown) — встроенное отключаем,
         // иначе Backspace сносил бы узел и связи без предупреждения.
         deleteKeyCode={null}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
+        // На непустом уровне фитим контент, но не зумим ближе 0.85 — иначе вход на
+        // разреженный уровень (1–2 узла) подлетал вплотную, мешая добавлять объекты.
+        fitView={hasGraphContent}
+        fitViewOptions={{ padding: 0.2, maxZoom: 0.85 }}
+        // Пустой уровень (fitView выключен) открывается слегка отдалённым — комфортно
+        // бросить первый узел, не отъезжая вручную.
+        defaultViewport={{ x: 60, y: 60, zoom: 0.85 }}
         // Контекст-схема — read-only: раскладка предписана (фокус+звезда), drag
         // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
         // уровне узлы таскаем (персист координат архитектором).

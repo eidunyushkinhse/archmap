@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CSSProperties, DragEvent } from "react";
+import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { Edge, EdgePoint, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
@@ -12,7 +12,8 @@ import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodeContextModal from "../components/NodeContextModal";
 import LevelGraph from "../components/LevelGraph";
-import NodeTreePanel, { NODE_DRAG_MIME } from "../components/NodeTreePanel";
+import EmptyLevelHint from "../components/EmptyLevelHint";
+import NodeTreePanel from "../components/NodeTreePanel";
 
 interface Props {
   onLogout: () => void;
@@ -286,21 +287,6 @@ export default function TreePage({ onLogout }: Props) {
     setNodeModal({ open: true, node: null, shape, pos });
   }
 
-  // Дроп на пустой уровень (графа ещё нет — некуда считать координаты): создаём узел
-  // с дефолтной позицией, дальше его можно подвинуть.
-  function handleEmptyDragOver(e: DragEvent) {
-    if (!isArchitect || !e.dataTransfer.types.includes(NODE_DRAG_MIME)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  }
-  function handleEmptyDrop(e: DragEvent) {
-    if (!isArchitect) return;
-    const shape = e.dataTransfer.getData(NODE_DRAG_MIME);
-    if (!shape) return;
-    e.preventDefault();
-    handleDropNode(shape as NodeShape, { x: 80, y: 80 });
-  }
-
   const findNodeLabel = (id: string): string =>
     nodes.find((n) => n.id === id)?.name ??
     ghostNodes.find((g) => g.id === id)?.name ??
@@ -359,19 +345,12 @@ export default function TreePage({ onLogout }: Props) {
         <div style={graphArea}>
           {/* Индикатор незавершённости схемы (только архитектор) */}
           {isArchitect && <SchemaAlerts alerts={alerts} />}
+          {/* Подсказка про пустой уровень — тостом в правом верхнем углу. Холст
+              (даже пустой) рендерим всегда, чтобы сразу была видна канва и в неё
+              можно было дропнуть первый узел; подсказка уезжает после добавления. */}
+          <EmptyLevelHint visible={!loading && !hasNodes} isArchitect={isArchitect} />
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
-          ) : !hasNodes ? (
-            // Пустой уровень — тоже drop-зона: можно бросить первый узел из палитры
-            <div
-              style={emptyDrop}
-              onDragOver={handleEmptyDragOver}
-              onDrop={handleEmptyDrop}
-            >
-              {isArchitect
-                ? "Нет узлов на этом уровне. Перетащите сюда форму из раздела «Добавить узел»."
-                : "Нет узлов на этом уровне"}
-            </div>
           ) : (
             <LevelGraph
               nodes={nodes}
@@ -517,18 +496,6 @@ const graphArea: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   position: "relative", // якорь для абсолютного индикатора алертов
-};
-const emptyDrop: CSSProperties = {
-  flex: 1,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  textAlign: "center",
-  padding: 24,
-  color: "#9ca3af",
-  fontSize: 14,
-  border: "1px dashed #d1d5db",
-  borderRadius: 8,
 };
 const crumbLink: CSSProperties = {
   cursor: "pointer",
