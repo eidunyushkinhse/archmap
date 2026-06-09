@@ -102,11 +102,18 @@ interface LevelGraphProps {
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
-  // протянули стрелку от узла sourceId на ЛИСТОВОЙ узел targetId — создать связь
-  onCreateEdge?: (sourceId: string, targetId: string) => void;
+  // протянули стрелку от узла sourceId на ЛИСТОВОЙ узел/хэндл targetId — создать связь.
+  // Хэндлы из жеста: при дропе на хэндл известны оба, на тело листа — только исходный.
+  onCreateEdge?: (
+    sourceId: string, targetId: string,
+    sourceHandle: string | null, targetHandle: string | null,
+  ) => void;
   // протянули стрелку на узел С ДЕТЬМИ (containerId) — открыть выбор его потомка
-  // как дальнего конца межуровневой связи (источник — sourceId)
-  onConnectInto?: (sourceId: string, containerId: string, containerName: string) => void;
+  // как дальнего конца межуровневой связи (источник — sourceId, его хэндл — sourceHandle)
+  onConnectInto?: (
+    sourceId: string, containerId: string, containerName: string,
+    sourceHandle: string | null,
+  ) => void;
   // запрос на удаление узла прямо с канваса (Backspace/Delete по выбранному
   // узлу) — открыть подтверждение со списком связей (как кнопка «Удалить» в
   // модалке узла). Само удаление React Flow отключено (deleteKeyCode=null).

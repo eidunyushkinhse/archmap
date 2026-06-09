@@ -26,10 +26,19 @@ interface Params {
   isContext: boolean;
   // классификация узла-цели по его id (строит вызывающий по rfNodes)
   resolveTarget: (nodeId: string) => ConnectTarget;
-  // лист: создать связь sourceId→targetId
-  onCreate?: (sourceId: string, targetId: string) => void;
+  // лист/хэндл: создать связь sourceId→targetId. Хэндлы берём из жеста: при дропе
+  // на ХЭНДЛ известны оба (sourceHandle+targetHandle), при дропе на ТЕЛО листа —
+  // только исходный (targetHandle=null → дефолт).
+  onCreate?: (
+    sourceId: string, targetId: string,
+    sourceHandle: string | null, targetHandle: string | null,
+  ) => void;
   // узел с детьми: открыть выбор потомка контейнера containerId как дальнего конца
-  onInto?: (sourceId: string, containerId: string, containerName: string) => void;
+  // межуровневой связи; sourceHandle — хэндл, из которого тянули (дальний — дефолт)
+  onInto?: (
+    sourceId: string, containerId: string, containerName: string,
+    sourceHandle: string | null,
+  ) => void;
 }
 
 // Координаты точки отпускания (мышь или тач).
@@ -48,6 +57,9 @@ export function useEdgeConnect({
   const enabled = isArchitect && !isContext;
   // id узла, от которого начато протягивание (null — протягивания нет)
   const sourceRef = useRef<string | null>(null);
+  // хэндл, из которого начато протягивание (для дропа на тело/в зону входа, где
+  // целевого хэндла нет — а исходный известен из onConnectStart)
+  const sourceHandleRef = useRef<string | null>(null);
   // в текущем протягивании конец защёлкнулся на хэндл (onConnect уже создал связь) —
   // тогда onConnectEnd не должен трактовать дроп ещё и как «зону входа»
   const madeRef = useRef(false);
@@ -116,6 +128,7 @@ export function useEdgeConnect({
     (_e: unknown, params: OnConnectStartParams) => {
       if (!enabled || !params.nodeId) return;
       sourceRef.current = params.nodeId;
+      sourceHandleRef.current = params.handleId ?? null;
       madeRef.current = false;
       setConnecting(true);
       document.addEventListener("pointermove", handlePointerMove);
@@ -127,9 +140,10 @@ export function useEdgeConnect({
   const handleConnect = useCallback(
     (conn: Connection) => {
       madeRef.current = true; // глушим «зону входа» в onConnectEnd даже при петле
-      const { source, target } = conn;
+      const { source, target, sourceHandle, targetHandle } = conn;
       if (!enabled || !source || !target || source === target) return;
-      onCreate?.(source, target);
+      // дроп на хэндл — оба конца известны, оба хэндла из жеста
+      onCreate?.(source, target, sourceHandle ?? null, targetHandle ?? null);
     },
     [enabled, onCreate],
   );
@@ -150,6 +164,8 @@ export function useEdgeConnect({
       setConnecting(false);
       const source = sourceRef.current;
       sourceRef.current = null;
+      const sourceHandle = sourceHandleRef.current;
+      sourceHandleRef.current = null;
       if (made) return; // хэндл уже обработан в onConnect
       if (!enabled || !source) return;
 
@@ -166,10 +182,12 @@ export function useEdgeConnect({
       const info = resolveTarget(targetId);
       if (!info) return;
       if (info.kind === "into") {
-        onInto?.(source, targetId, info.name);
+        // межуровневая: исходный хэндл сохраняем, дальний — дефолт (выберется потомок)
+        onInto?.(source, targetId, info.name, sourceHandle);
       } else {
         if (targetId === source) return; // петля сам-на-себя — игнор
-        onCreate?.(source, targetId);
+        // дроп на тело листа: исходный хэндл известен, целевой — дефолт
+        onCreate?.(source, targetId, sourceHandle, null);
       }
     },
     [enabled, resolveTarget, onCreate, onInto, stopTracking],

@@ -7,6 +7,9 @@ interface Props {
   // узел, от которого протянули стрелку (исходный конец связи)
   sourceId: string;
   sourceLabel: string;
+  // хэндл узла-источника, из которого тянули стрелку — закрепляем за концом sourceId;
+  // дальний конец (выбранный потомок) — дефолтная привязка
+  sourceHandle: string | null;
   // узел-контейнер, на который отпустили стрелку — выбираем дальний конец из его потомков
   containerId: string;
   containerName: string;
@@ -23,7 +26,7 @@ interface Props {
  * Направление по умолчанию — от исходного узла к выбранному; тумблер разворачивает.
  */
 export default function EdgeIntoPicker({
-  sourceId, sourceLabel, containerId, containerName, onClose, onCreated,
+  sourceId, sourceLabel, sourceHandle, containerId, containerName, onClose, onCreated,
 }: Props) {
   const [descendants, setDescendants] = useState<Node[] | null>(null);
   const [query, setQuery] = useState("");
@@ -153,6 +156,10 @@ export default function EdgeIntoPicker({
       const data: EdgeCreate = {
         source_id: direction === "out" ? sourceId : picked.id,
         target_id: direction === "out" ? picked.id : sourceId,
+        // исходный хэндл закрепляем за концом sourceId (в какую сторону он смотрит —
+        // зависит от направления), дальний конец — дефолтная привязка
+        source_handle: direction === "out" ? sourceHandle : null,
+        target_handle: direction === "out" ? null : sourceHandle,
         label: label || null,
         technology: technology || null,
       };

@@ -77,6 +77,9 @@ export interface EdgeCreate {
   technology?: string | null;
   source_id: string;
   target_id: string;
+  // хэндлы концов (id вида nodeId--side--idx); опускаются → дефолтная привязка
+  source_handle?: string | null;
+  target_handle?: string | null;
 }
 
 export interface AncestorRef {

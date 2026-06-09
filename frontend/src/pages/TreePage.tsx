@@ -53,11 +53,16 @@ export default function TreePage({ onLogout }: Props) {
     sourceId: string;
     containerId: string;
     containerName: string;
+    // хэндл узла-источника, из которого протянули стрелку (дальний конец — дефолт)
+    sourceHandle: string | null;
   } | null>(null);
-  // протянули стрелку на хэндл (прямая связь) — упрощённый поповер: описание+технология
+  // протянули стрелку на хэндл (прямая связь) — упрощённый поповер: описание+технология.
+  // Хэндлы из жеста: при дропе на хэндл оба, на тело листа — только исходный.
   const [edgeQuick, setEdgeQuick] = useState<{
     sourceId: string;
     targetId: string;
+    sourceHandle: string | null;
+    targetHandle: string | null;
   } | null>(null);
   const [edgeDetailModal, setEdgeDetailModal] = useState<Edge | null>(null);
   // выбор связи из «мастер-стрелки» (несколько слитых связей одного направления)
@@ -215,8 +220,12 @@ export default function TreePage({ onLogout }: Props) {
 
   // Протянули стрелку на хэндл/листовой узел — открываем упрощённый поповер, чтобы
   // сразу заполнить описание и технологию (связь создаётся по «Создать», см. EdgeQuickCreate).
-  function handleCreateEdge(sourceId: string, targetId: string) {
-    setEdgeQuick({ sourceId, targetId });
+  // Хэндлы из жеста прокидываем в поповер, чтобы связь создалась с ними, а не с дефолтными.
+  function handleCreateEdge(
+    sourceId: string, targetId: string,
+    sourceHandle: string | null, targetHandle: string | null,
+  ) {
+    setEdgeQuick({ sourceId, targetId, sourceHandle, targetHandle });
   }
 
   function handleQuickCreated() {
@@ -224,9 +233,13 @@ export default function TreePage({ onLogout }: Props) {
     load(currentParentId);
   }
 
-  // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка.
-  function handleConnectInto(sourceId: string, containerId: string, containerName: string) {
-    setIntoPicker({ sourceId, containerId, containerName });
+  // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка. Хэндл источника
+  // сохраняем (дальний конец — дефолт, см. EdgeIntoPicker).
+  function handleConnectInto(
+    sourceId: string, containerId: string, containerName: string,
+    sourceHandle: string | null,
+  ) {
+    setIntoPicker({ sourceId, containerId, containerName, sourceHandle });
   }
 
   function handleIntoCreated() {
@@ -387,6 +400,8 @@ export default function TreePage({ onLogout }: Props) {
         <EdgeQuickCreate
           sourceId={edgeQuick.sourceId}
           targetId={edgeQuick.targetId}
+          sourceHandle={edgeQuick.sourceHandle}
+          targetHandle={edgeQuick.targetHandle}
           sourceLabel={findNodeLabel(edgeQuick.sourceId)}
           targetLabel={findNodeLabel(edgeQuick.targetId)}
           onClose={() => setEdgeQuick(null)}
@@ -397,6 +412,7 @@ export default function TreePage({ onLogout }: Props) {
         <EdgeIntoPicker
           sourceId={intoPicker.sourceId}
           sourceLabel={findNodeLabel(intoPicker.sourceId)}
+          sourceHandle={intoPicker.sourceHandle}
           containerId={intoPicker.containerId}
           containerName={intoPicker.containerName}
           onClose={() => setIntoPicker(null)}
