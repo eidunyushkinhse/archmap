@@ -221,7 +221,8 @@ function LevelGraphInner({
   // выбор потомка).
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
-      isArchitect, isContext, resolveTarget, onCreate: onCreateEdge, onInto: onConnectInto,
+      isArchitect, isContext, isReconnecting, resolveTarget,
+      onCreate: onCreateEdge, onInto: onConnectInto,
     });
 
   // Общий isValidConnection для двух потоков: при реконнекте — правила реконнекта
@@ -548,11 +549,12 @@ function LevelGraphInner({
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}
         onReconnectEnd={handleReconnectEnd}
-        // Создание новой связи протягиванием от хэндла узла. onConnectStart/Connect/End
-        // — только НОВАЯ связь (реконнект идёт через onReconnect*). onConnect ловит
-        // защёлку конца на ХЭНДЛ (в радиусе connectionRadius) → прямая связь к узлу;
-        // onConnectEnd ловит дроп мимо хэндлов → «зона входа» (тело контейнера) или
-        // прямую связь (тело листа). Связь создаём через API + перезагрузку уровня.
+        // Создание новой связи протягиванием от хэндла узла. RF шлёт onConnect* И при
+        // реконнекте существующего ребра, поэтому useEdgeConnect latch'ит реконнект
+        // (isReconnecting) и глушит свой поток — иначе отпускание перетянутого конца
+        // ВНУТРИ узла открывало бы поповер новой связи. onConnect ловит защёлку конца
+        // на ХЭНДЛ (в радиусе connectionRadius) → прямая связь к узлу; onConnectEnd —
+        // дроп мимо хэндлов → «зона входа» (тело контейнера) или прямая связь (тело листа).
         onConnectStart={handleConnectStart}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}

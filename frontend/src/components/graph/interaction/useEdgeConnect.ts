@@ -24,6 +24,10 @@ export type ConnectTarget =
 interface Params {
   isArchitect: boolean;
   isContext: boolean;
+  // идёт ли сейчас реконнект конца СУЩЕСТВУЮЩЕГО ребра (поток onReconnect*). RF при
+  // реконнекте шлёт и onConnectStart/End, поэтому наш поток создания НОВОЙ связи нужно
+  // заглушить — иначе отпускание конца внутри узла открывало бы поповер новой связи.
+  isReconnecting: () => boolean;
   // классификация узла-цели по его id (строит вызывающий по rfNodes)
   resolveTarget: (nodeId: string) => ConnectTarget;
   // лист/хэндл: создать связь sourceId→targetId. Хэндлы берём из жеста: при дропе
@@ -52,11 +56,15 @@ function endPoint(event: MouseEvent | TouchEvent): { x: number; y: number } | nu
 }
 
 export function useEdgeConnect({
-  isArchitect, isContext, resolveTarget, onCreate, onInto,
+  isArchitect, isContext, isReconnecting, resolveTarget, onCreate, onInto,
 }: Params) {
   const enabled = isArchitect && !isContext;
   // id узла, от которого начато протягивание (null — протягивания нет)
   const sourceRef = useRef<string | null>(null);
+  // latch «текущий жест — реконнект» (ставим в onConnectStart по isReconnecting()).
+  // Не читаем isReconnecting() в onConnectEnd напрямую: порядок onReconnectEnd, который
+  // сбрасывает тот флаг, относительно onConnectEnd не гарантирован.
+  const reconnectGestureRef = useRef(false);
   // хэндл, из которого начато протягивание (для дропа на тело/в зону входа, где
   // целевого хэндла нет — а исходный известен из onConnectStart)
   const sourceHandleRef = useRef<string | null>(null);
@@ -127,18 +135,23 @@ export function useEdgeConnect({
   const handleConnectStart = useCallback(
     (_e: unknown, params: OnConnectStartParams) => {
       if (!enabled || !params.nodeId) return;
+      // Реконнект существующего ребра — не наш поток: latch'им и выходим, чтобы
+      // onConnectEnd не открыл поповер создания новой связи.
+      reconnectGestureRef.current = isReconnecting();
+      if (reconnectGestureRef.current) return;
       sourceRef.current = params.nodeId;
       sourceHandleRef.current = params.handleId ?? null;
       madeRef.current = false;
       setConnecting(true);
       document.addEventListener("pointermove", handlePointerMove);
     },
-    [enabled, handlePointerMove],
+    [enabled, handlePointerMove, isReconnecting],
   );
 
   // Конец защёлкнулся на хэндл узла (в радиусе connectionRadius) — прямая связь к нему.
   const handleConnect = useCallback(
     (conn: Connection) => {
+      if (reconnectGestureRef.current) return; // реконнект — обрабатывает onReconnect
       madeRef.current = true; // глушим «зону входа» в onConnectEnd даже при петле
       const { source, target, sourceHandle, targetHandle } = conn;
       if (!enabled || !source || !target || source === target) return;
@@ -166,6 +179,9 @@ export function useEdgeConnect({
       sourceRef.current = null;
       const sourceHandle = sourceHandleRef.current;
       sourceHandleRef.current = null;
+      // реконнект существующего ребра — связь не создаём (его обрабатывает onReconnect:
+      // на хэндл того же узла → перецепка, иначе → ребро вернётся на исходную позицию)
+      if (reconnectGestureRef.current) { reconnectGestureRef.current = false; return; }
       if (made) return; // хэндл уже обработан в onConnect
       if (!enabled || !source) return;
 
