@@ -54,6 +54,11 @@ const EMPTY_LEVEL_HANDLES: Record<string, string[]> = {};
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер. Считается
 // в async-эффекте (Фаза 4): движок async, поэтому это стейт, а не useMemo рендера.
 type LayoutResult = {
+  // снимок локальных узлов, по которому посчитана раскладка. Сборка RF-узлов читает
+  // позиции/данные ИЗ НЕГО, а не из пропа nodes: иначе при смене nodes эффект сборки
+  // успевал отработать со СТАРЫМ layout (позиции ещё прежние) до резолва async-ELK —
+  // узел на кадр прыгал на исходную позицию. Снимок держит позиции и данные согласованными.
+  nodes: AppNode[];
   entities: DisplayExternal[];
   positions: Map<string, { x: number; y: number }>;
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
@@ -413,7 +418,7 @@ function LevelGraphInner({
       );
     }
 
-      if (!cancelled) setLayout({ entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers });
+      if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers });
     })();
     return () => { cancelled = true; };
   }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, edges, isContext, expanded, stableAncestorIds]);
@@ -425,10 +430,13 @@ function LevelGraphInner({
   // берём из ref (см. cbRef), потому в зависимостях только данные.
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
-    const { entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers } = layout;
+    // nodes берём ИЗ layout (снимок, по которому он посчитан), а не из пропа — чтобы
+    // позиции и данные узлов были согласованы и эффект не срабатывал со старым layout
+    // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
+    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers } = layout;
     const cb = cbRef.current;
     setRfNodes([
-      ...nodes.map((n) => ({
+      ...layoutNodes.map((n) => ({
         id: n.id,
         type: "block" as const,
         position: positions.get(n.id) ?? { x: 0, y: 0 },
@@ -507,7 +515,7 @@ function LevelGraphInner({
         };
       })
     );
-  }, [layout, nodes, isArchitect, depth, isContext, setRfNodes, setRfEdges]);
+  }, [layout, isArchitect, depth, isContext, setRfNodes, setRfEdges]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
