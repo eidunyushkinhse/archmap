@@ -19,13 +19,16 @@ import { canHaveChildren } from "../../types";
 function IntoCue() {
   return (
     <div className="lg-into-cue">
+      {/* лунка с глубиной вместо «лотка» */}
       <svg width={46} height={46} viewBox="0 0 24 24" fill="none"
         stroke="#2563eb" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        {/* стрелка вниз */}
-        <path d="M12 3 V13" />
-        <path d="M8 9 L12 13 L16 9" />
-        {/* лунка, раскрытая вверх */}
-        <path d="M5 15 v2 a2 2 0 0 0 2 2 h10 a2 2 0 0 0 2 -2 v-2" />
+        {/* устье лунки */}
+        <ellipse cx="12" cy="17.6" rx="7" ry="3" fill="rgba(37,99,235,.10)" />
+        {/* тёмное дно — глубина */}
+        <ellipse cx="12" cy="18.3" rx="3.7" ry="1.25" fill="rgba(37,99,235,.32)" stroke="none" />
+        {/* стрелка, входящая за край */}
+        <path d="M12 3 V13.6" />
+        <path d="M8 9.6 L12 14.4 L16 9.6" />
       </svg>
     </div>
   );
