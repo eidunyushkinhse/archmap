@@ -347,8 +347,13 @@ export default function TreePage({ onLogout }: Props) {
           {isArchitect && <SchemaAlerts alerts={alerts} />}
           {/* Подсказка про пустой уровень — тостом в правом верхнем углу. Холст
               (даже пустой) рендерим всегда, чтобы сразу была видна канва и в неё
-              можно было дропнуть первый узел; подсказка уезжает после добавления. */}
-          <EmptyLevelHint visible={!loading && !hasNodes} isArchitect={isArchitect} />
+              можно было дропнуть первый узел. Тост уезжает уже при открытии окна
+              создания узла: пользователь до него дошёл — значит инструкцию прочёл,
+              дальше тост только отвлекает. */}
+          <EmptyLevelHint
+            visible={!loading && !hasNodes && !nodeModal.open}
+            isArchitect={isArchitect}
+          />
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
           ) : (
