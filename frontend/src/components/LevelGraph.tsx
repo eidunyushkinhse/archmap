@@ -52,6 +52,9 @@ import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeC
 // НОВЫЙ объект на каждый рендер, а он — зависимость async-эффекта раскладки → лишний
 // перезапуск ELK и мигание. Один модульный объект держит ссылку стабильной.
 const EMPTY_LEVEL_HANDLES: Record<string, string[]> = {};
+// Тот же приём для пер-уровневых путей гостевых стрелок: стабильная ссылка дефолта,
+// чтобы не дёргать сборку рёбер лишний раз.
+const EMPTY_LEVEL_WAYPOINTS: Record<string, EdgePoint[]> = {};
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер. Считается
 // в async-эффекте (Фаза 4): движок async, поэтому это стейт, а не useMemo рендера.
@@ -81,6 +84,8 @@ interface LevelGraphProps {
   // совпадает с префиксом хэндла; остальные — из колонок ребра / autoHandles.
   // Необязателен: контекст-схема (mode="context") хэндлы не сохраняет — там {}.
   levelEdgeHandles?: Record<string, string[]>;
+  // сохранённые пути гостевых стрелок на уровне: edge_id → точки-сгибы
+  levelEdgeWaypoints?: Record<string, EdgePoint[]>;
   edges: AppEdge[];
   depth: number;
   /** id узла-контейнера текущего уровня (null — корень) */
@@ -106,9 +111,11 @@ interface LevelGraphProps {
       ghost?: { node_id: string; handle: string };
     },
   ) => void;
-  // путь стрелки изменён жестом (изломы) и сохранён в БД — родитель синхронизирует
-  // стейт уровня теми же waypoints, чтобы пересчёт раскладки их не откатил.
+  // путь ЛОКАЛЬНОЙ стрелки изменён жестом и сохранён в колонку ребра — родитель
+  // синхронизирует стейт уровня теми же waypoints, чтобы пересчёт раскладки их не откатил.
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
+  // то же для ГОСТЕВОЙ стрелки — путь сохранён в пер-уровневый слой (level_edge_waypoints).
+  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // узел перетащили и его позиция сохранена в БД — родитель синхронизирует стейт
   // уровня теми же значениями, чтобы пересчёт раскладки БЕЗ рефетча (напр. локальный
   // setEdges при реконнекте хэндла) не откатил узел на прежнюю сохранённую позицию.
@@ -151,6 +158,7 @@ function LevelGraphInner({
   ghostNodes,
   levelPositions,
   levelEdgeHandles = EMPTY_LEVEL_HANDLES,
+  levelEdgeWaypoints = EMPTY_LEVEL_WAYPOINTS,
   edges,
   depth,
   containerId,
@@ -163,6 +171,7 @@ function LevelGraphInner({
   onEdgesChoice,
   onEdgeHandlesChanged,
   onEdgeWaypointsChanged,
+  onLevelEdgeWaypointsChanged,
   onNodeMoved,
   onDropNode,
   onCreateEdge,
@@ -217,8 +226,11 @@ function LevelGraphInner({
     consumeReconnectClick,
   } = useReconnectHandles({ setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged });
 
-  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента.
-  const { commitWaypoints } = useEdgeWaypoints({ isArchitect, onEdgeWaypointsChanged });
+  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: локальная —
+  // в колонку ребра, гостевая — в пер-уровневый слой.
+  const { commitWaypoints } = useEdgeWaypoints({
+    isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
+  });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
   // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
@@ -504,15 +516,16 @@ function LevelGraphInner({
         const data: WrappedEdgeData = isMaster
           ? { items: g.members.map((m) => edgeText(m)), memberIds: g.members.map((m) => m.id) }
           : { label: singleText, memberIds: [single.id] };
-        // Кастомный путь (изломы): только одиночная стрелка, архитектор, не контекст,
-        // оба конца локальны. waypoints из колонки ребра; коммит — в БД + зеркало наверх.
-        const editable =
-          !isMaster && isArchitect && !isContext &&
-          localIds.has(g.source) && localIds.has(g.target);
+        // Кастомный путь (изломы): одиночная стрелка, архитектор, не контекст.
+        // Локальная (оба конца на уровне) — путь в колонке ребра; гостевая/сквозная —
+        // в пер-уровневом слое (geometry уникальна для уровня). bothLocal разводит и
+        // источник waypoints, и слой коммита. Гость возможен только при containerId != null.
+        const bothLocal = localIds.has(g.source) && localIds.has(g.target);
+        const editable = !isMaster && isArchitect && !isContext && (bothLocal || containerId != null);
         if (editable) {
           data.editable = true;
-          data.waypoints = single.waypoints ?? undefined;
-          data.onWaypointsCommit = (wp) => cb.commitWaypoints(single.id, wp);
+          data.waypoints = (bothLocal ? single.waypoints : levelEdgeWaypoints[single.id]) ?? undefined;
+          data.onWaypointsCommit = (wp) => cb.commitWaypoints(single.id, wp, !bothLocal);
         }
         // в контекст-схеме ограничиваем ширину плашки — зазор колонок рассчитан под неё —
         // и кладём подпись на приузловую полку (shelf), если раскладка её посчитала
@@ -538,7 +551,7 @@ function LevelGraphInner({
         };
       })
     );
-  }, [layout, isArchitect, depth, isContext, setRfNodes, setRfEdges]);
+  }, [layout, isArchitect, depth, isContext, containerId, levelEdgeWaypoints, setRfNodes, setRfEdges]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({

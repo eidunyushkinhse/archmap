@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Edge, EdgeCreate, EdgeUpdate, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
+import type { Edge, EdgeCreate, EdgePoint, EdgeUpdate, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -48,6 +48,14 @@ export const nodesApi = {
     handle: { node_id: string; handle: string },
   ): Promise<void> =>
     api.put(`/nodes/${containerId}/ghost-edge-handles/${edgeId}`, handle),
+  // Сохранить кастомный путь (изломы) ГОСТЕВОЙ стрелки на уровне containerId.
+  // Пустой массив — сброс в авто-маршрут (строка пер-уровневого слоя удаляется).
+  saveEdgeWaypoints: (
+    containerId: string,
+    edgeId: string,
+    waypoints: EdgePoint[],
+  ): Promise<void> =>
+    api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints }),
 };
 
 export const edgesApi = {

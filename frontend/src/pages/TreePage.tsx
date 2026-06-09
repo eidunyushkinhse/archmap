@@ -31,6 +31,10 @@ export default function TreePage({ onLogout }: Props) {
   const [levelEdgeHandles, setLevelEdgeHandles] = useState<
     Record<string, string[]>
   >({});
+  // Сохранённые пути (изломы) гостевых стрелок на уровне: edge_id → точки-сгибы.
+  const [levelEdgeWaypoints, setLevelEdgeWaypoints] = useState<
+    Record<string, EdgePoint[]>
+  >({});
   const [edges, setEdges] = useState<Edge[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,6 +96,7 @@ export default function TreePage({ onLogout }: Props) {
       // ?? {} — на случай старого бэкенда без поля: без позиций, но не белый экран
       setLevelPositions(graph.level_positions ?? {});
       setLevelEdgeHandles(graph.level_edge_handles ?? {});
+      setLevelEdgeWaypoints(graph.level_edge_waypoints ?? {});
       setEdges(
         graph.edges.map((ge) => ({
           id: ge.id,
@@ -207,6 +212,12 @@ export default function TreePage({ onLogout }: Props) {
     setEdges((prev) =>
       prev.map((e) => (e.id === edgeId ? { ...e, waypoints } : e)),
     );
+  }
+
+  // То же для ГОСТЕВОЙ стрелки — путь живёт в пер-уровневом слое (level_edge_waypoints),
+  // а не в колонке ребра. Зеркалируем теми же значениями, что вернул бы рефетч.
+  function updateLevelEdgeWaypoints(edgeId: string, waypoints: EdgePoint[]) {
+    setLevelEdgeWaypoints((prev) => ({ ...prev, [edgeId]: waypoints }));
   }
 
   // Узел перетащили — позиция уже сохранена в БД (useSnapAlignment), здесь
@@ -367,6 +378,7 @@ export default function TreePage({ onLogout }: Props) {
               ghostNodes={ghostNodes}
               levelPositions={levelPositions}
               levelEdgeHandles={levelEdgeHandles}
+              levelEdgeWaypoints={levelEdgeWaypoints}
               edges={edges}
               depth={breadcrumb.length}
               containerId={currentParentId}
@@ -379,6 +391,7 @@ export default function TreePage({ onLogout }: Props) {
               onEdgesChoice={(group) => setEdgeChoice(group)}
               onEdgeHandlesChanged={updateEdgeHandles}
               onEdgeWaypointsChanged={updateEdgeWaypoints}
+              onLevelEdgeWaypointsChanged={updateLevelEdgeWaypoints}
               onNodeMoved={handleNodeMoved}
               onDropNode={handleDropNode}
               onCreateEdge={handleCreateEdge}

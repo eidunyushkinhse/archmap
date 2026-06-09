@@ -1,25 +1,39 @@
 // Персист кастомного пути стрелки (waypoints) + синхронизация стейта уровня.
+// Два слоя хранения (как у хэндлов): локальная стрелка (оба конца на этом уровне) —
+// колонка самого ребра (глобально, единственный домашний уровень); гостевая/сквозная
+// стрелка — пер-уровневый слой (container_id, edge_id), т.к. её геометрия уникальна
+// для уровня. Какой слой — решает вызывающий по флагу ghost.
 import { useCallback } from "react";
-import { edgesApi } from "../../../api/nodes";
+import { edgesApi, nodesApi } from "../../../api/nodes";
 import type { EdgePoint } from "../../../types";
 
 interface Params {
   isArchitect: boolean;
-  // путь сохранён — родитель зеркалирует waypoints в стейт уровня теми же значениями,
-  // что вернул бы рефетч, чтобы пересчёт раскладки без рефетча не сбросил изломы.
+  containerId: string | null;
+  // локальная стрелка сохранена в колонку — зеркало в стейт уровня (как вернул бы рефетч)
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
+  // гостевая стрелка сохранена в пер-уровневый слой — зеркало в стейт уровня
+  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
 }
 
-export function useEdgeWaypoints({ isArchitect, onEdgeWaypointsChanged }: Params) {
-  // зафиксировать новый путь ребра по отпусканию драга: PATCH в БД + зеркало наверх.
-  // Пустой массив waypoints = сброс ребра в авто-маршрут.
+export function useEdgeWaypoints({
+  isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
+}: Params) {
+  // зафиксировать путь ребра по отпусканию драга. ghost=false → колонка ребра;
+  // ghost=true → пер-уровневый слой уровня containerId. Пустой массив = сброс в авто.
   const commitWaypoints = useCallback(
-    (edgeId: string, waypoints: EdgePoint[]) => {
+    (edgeId: string, waypoints: EdgePoint[], ghost: boolean) => {
       if (!isArchitect) return;
-      void edgesApi.update(edgeId, { waypoints });
-      onEdgeWaypointsChanged?.(edgeId, waypoints);
+      if (ghost) {
+        if (!containerId) return; // гости только на не-корневых уровнях
+        void nodesApi.saveEdgeWaypoints(containerId, edgeId, waypoints);
+        onLevelEdgeWaypointsChanged?.(edgeId, waypoints);
+      } else {
+        void edgesApi.update(edgeId, { waypoints });
+        onEdgeWaypointsChanged?.(edgeId, waypoints);
+      }
     },
-    [isArchitect, onEdgeWaypointsChanged],
+    [isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged],
   );
   return { commitWaypoints };
 }
