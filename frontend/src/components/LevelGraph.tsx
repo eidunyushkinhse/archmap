@@ -470,7 +470,12 @@ function LevelGraphInner({
       if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, groupArr, spacers });
     })();
     return () => { cancelled = true; };
-  }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, edges, isContext, expanded, stableAncestorIds]);
+    // levelEdgeWaypoints не влияет на позиции/хэндлы, НО включён в зависимости намеренно:
+    // гостевые изломы читает эффект-сборщик ниже, и он должен работать с ОДНИМ снапшотом
+    // (layout). Иначе при реконнекте гостя смена хэндла (async-раскладка) и сброс изломов
+    // (sync-стейт) рассинхронятся: сборщик сработал бы со старым layout → ребро прыгнуло бы
+    // на исходный хэндл. Прогон через раскладку гарантирует свежий layout у сборщика.
+  }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, levelEdgeWaypoints, edges, isContext, expanded, stableAncestorIds]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -587,7 +592,14 @@ function LevelGraphInner({
         };
       })
     );
-  }, [layout, isArchitect, depth, isContext, containerId, levelEdgeWaypoints, setRfNodes, setRfEdges]);
+    // levelEdgeWaypoints читается в сборке (wpOf для гостей), но В ЗАВИСИМОСТЯХ ЕГО НЕТ
+    // НАМЕРЕННО: триггерить сборку напрямую по нему нельзя — она бы запускалась со старым
+    // (async-устаревшим) layout и при реконнекте гостя откатывала хэндл на исходный. Вместо
+    // этого levelEdgeWaypoints входит в зависимости раскладки выше → меняется он → новый
+    // layout → сборка тут же со СВЕЖИМ снапшотом и свежим значением из замыкания. Инвариант:
+    // layout пересобирается при любом изменении levelEdgeWaypoints, поэтому замыкание свежее.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, isArchitect, depth, isContext, containerId, setRfNodes, setRfEdges]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
