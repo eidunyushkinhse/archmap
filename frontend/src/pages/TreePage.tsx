@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
-import { nodesApi, edgesApi } from "../api/nodes";
+import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { Edge, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
 import EdgeModal from "../components/EdgeModal";
 import EdgeIntoPicker from "../components/EdgeIntoPicker";
+import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
 import EdgeDetailModal from "../components/EdgeDetailModal";
 import EdgeChoiceModal from "../components/EdgeChoiceModal";
@@ -52,6 +53,11 @@ export default function TreePage({ onLogout }: Props) {
     sourceId: string;
     containerId: string;
     containerName: string;
+  } | null>(null);
+  // протянули стрелку на хэндл (прямая связь) — упрощённый поповер: описание+технология
+  const [edgeQuick, setEdgeQuick] = useState<{
+    sourceId: string;
+    targetId: string;
   } | null>(null);
   const [edgeDetailModal, setEdgeDetailModal] = useState<Edge | null>(null);
   // выбор связи из «мастер-стрелки» (несколько слитых связей одного направления)
@@ -207,14 +213,15 @@ export default function TreePage({ onLogout }: Props) {
     load(currentParentId);
   }
 
-  // Протянули стрелку на ЛИСТОВОЙ узел — создаём связь sourceId→targetId сразу.
-  async function handleCreateEdge(sourceId: string, targetId: string) {
-    try {
-      await edgesApi.create({ source_id: sourceId, target_id: targetId });
-      load(currentParentId);
-    } catch (e) {
-      console.error("Не удалось создать связь", e);
-    }
+  // Протянули стрелку на хэндл/листовой узел — открываем упрощённый поповер, чтобы
+  // сразу заполнить описание и технологию (связь создаётся по «Создать», см. EdgeQuickCreate).
+  function handleCreateEdge(sourceId: string, targetId: string) {
+    setEdgeQuick({ sourceId, targetId });
+  }
+
+  function handleQuickCreated() {
+    setEdgeQuick(null);
+    load(currentParentId);
   }
 
   // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка.
@@ -374,6 +381,16 @@ export default function TreePage({ onLogout }: Props) {
         <EdgeModal
           onClose={() => setEdgeCreateModal(false)}
           onCreated={handleEdgeCreated}
+        />
+      )}
+      {edgeQuick && (
+        <EdgeQuickCreate
+          sourceId={edgeQuick.sourceId}
+          targetId={edgeQuick.targetId}
+          sourceLabel={findNodeLabel(edgeQuick.sourceId)}
+          targetLabel={findNodeLabel(edgeQuick.targetId)}
+          onClose={() => setEdgeQuick(null)}
+          onCreated={handleQuickCreated}
         />
       )}
       {intoPicker && (
