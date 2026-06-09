@@ -516,16 +516,21 @@ function LevelGraphInner({
         const data: WrappedEdgeData = isMaster
           ? { items: g.members.map((m) => edgeText(m)), memberIds: g.members.map((m) => m.id) }
           : { label: singleText, memberIds: [single.id] };
-        // Кастомный путь (изломы): одиночная стрелка, архитектор, не контекст.
+        // Кастомный путь (изломы): архитектор, не контекст. Мастер-стрелка тоже
+        // редактируется — путь общий для всех её членов (одна линия), поэтому читаем
+        // у первого члена с геометрией, а коммит «размазываем» по всем memberIds.
         // Локальная (оба конца на уровне) — путь в колонке ребра; гостевая/сквозная —
         // в пер-уровневом слое (geometry уникальна для уровня). bothLocal разводит и
         // источник waypoints, и слой коммита. Гость возможен только при containerId != null.
         const bothLocal = localIds.has(g.source) && localIds.has(g.target);
-        const editable = !isMaster && isArchitect && !isContext && (bothLocal || containerId != null);
+        const editable = isArchitect && !isContext && (bothLocal || containerId != null);
         if (editable) {
+          const memberIds = g.members.map((m) => m.id);
+          const wpOf = (m: AppEdge) => (bothLocal ? m.waypoints : levelEdgeWaypoints[m.id]);
+          const rep = g.members.find((m) => { const w = wpOf(m); return w != null && w.length > 0; });
           data.editable = true;
-          data.waypoints = (bothLocal ? single.waypoints : levelEdgeWaypoints[single.id]) ?? undefined;
-          data.onWaypointsCommit = (wp) => cb.commitWaypoints(single.id, wp, !bothLocal);
+          data.waypoints = (rep ? wpOf(rep) : undefined) ?? undefined;
+          data.onWaypointsCommit = (wp) => cb.commitWaypoints(memberIds, wp, !bothLocal);
         }
         // в контекст-схеме ограничиваем ширину плашки — зазор колонок рассчитан под неё —
         // и кладём подпись на приузловую полку (shelf), если раскладка её посчитала

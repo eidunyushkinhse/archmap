@@ -19,18 +19,24 @@ interface Params {
 export function useEdgeWaypoints({
   isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
 }: Params) {
-  // зафиксировать путь ребра по отпусканию драга. ghost=false → колонка ребра;
-  // ghost=true → пер-уровневый слой уровня containerId. Пустой массив = сброс в авто.
+  // зафиксировать путь по отпусканию драга. edgeIds — все члены стрелки (у одиночной
+  // один, у мастер-стрелки несколько): путь общий, поэтому «размазываем» его по всем.
+  // ghost=false → колонка ребра; ghost=true → пер-уровневый слой уровня containerId.
+  // Пустой массив = сброс в авто.
   const commitWaypoints = useCallback(
-    (edgeId: string, waypoints: EdgePoint[], ghost: boolean) => {
+    (edgeIds: string[], waypoints: EdgePoint[], ghost: boolean) => {
       if (!isArchitect) return;
       if (ghost) {
         if (!containerId) return; // гости только на не-корневых уровнях
-        void nodesApi.saveEdgeWaypoints(containerId, edgeId, waypoints);
-        onLevelEdgeWaypointsChanged?.(edgeId, waypoints);
+        for (const edgeId of edgeIds) {
+          void nodesApi.saveEdgeWaypoints(containerId, edgeId, waypoints);
+          onLevelEdgeWaypointsChanged?.(edgeId, waypoints);
+        }
       } else {
-        void edgesApi.update(edgeId, { waypoints });
-        onEdgeWaypointsChanged?.(edgeId, waypoints);
+        for (const edgeId of edgeIds) {
+          void edgesApi.update(edgeId, { waypoints });
+          onEdgeWaypointsChanged?.(edgeId, waypoints);
+        }
       }
     },
     [isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged],
