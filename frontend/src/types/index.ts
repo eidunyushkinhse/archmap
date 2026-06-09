@@ -52,6 +52,12 @@ export interface NodeUpdate {
   shape?: NodeShape;
 }
 
+// Точка-сгиб кастомного пути стрелки в координатах графа уровня.
+export interface EdgePoint {
+  x: number;
+  y: number;
+}
+
 export interface Edge {
   id: string;
   label: string | null;
@@ -60,6 +66,8 @@ export interface Edge {
   target_id: string;
   source_handle: string | null;
   target_handle: string | null;
+  // кастомные точки-сгибы пути (ручные «обходы» узлов); null/пусто — авто-маршрут
+  waypoints?: EdgePoint[] | null;
   created_at: string;
 }
 
@@ -70,6 +78,8 @@ export interface EdgeUpdate {
   target_id?: string;
   source_handle?: string | null;
   target_handle?: string | null;
+  // пустой массив — сброс пути в авто-маршрут
+  waypoints?: EdgePoint[] | null;
 }
 
 export interface EdgeCreate {
@@ -112,6 +122,7 @@ export interface GraphEdge {
   original_target_id: string;
   source_handle: string | null;
   target_handle: string | null;
+  waypoints?: EdgePoint[] | null;
 }
 
 export interface GraphResponse {
