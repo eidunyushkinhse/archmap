@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  orthogonalPoints, orthogonalPointsForHandles, buildRenderPoints, segments, dragSegment, cleanup, interior, snapDragCursor,
+  orthogonalPoints, orthogonalPointsForHandles, buildRenderPoints, segments, dragSegment, cleanup, interior, snapDragCursor, pathCrossesRects, type NodeRect,
 } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
 
@@ -128,6 +128,32 @@ describe("snapDragCursor — примагничивание плеча к хэн
   });
   it("индекс вне диапазона — курсор без изменений", () => {
     expect(snapDragCursor(pts, 99, P(70, 37), 5)).toEqual(P(70, 37));
+  });
+});
+
+describe("pathCrossesRects", () => {
+  const rect: NodeRect = { x: 100, y: 100, w: 190, h: 100 }; // узел [100..290]×[100..200]
+  it("горизонтальный сегмент сквозь узел → true", () => {
+    // линия y=150 от x=0 до x=400 проходит через узел
+    expect(pathCrossesRects([P(0, 150), P(400, 150)], [rect])).toBe(true);
+  });
+  it("вертикальный сегмент сквозь узел → true", () => {
+    expect(pathCrossesRects([P(150, 0), P(150, 400)], [rect])).toBe(true);
+  });
+  it("сегмент мимо узла → false", () => {
+    // y=50 выше узла
+    expect(pathCrossesRects([P(0, 50), P(400, 50)], [rect])).toBe(false);
+  });
+  it("касание ровно по верхней границе не считается пересечением", () => {
+    expect(pathCrossesRects([P(0, 100), P(400, 100)], [rect])).toBe(false);
+  });
+  it("ломаная-обвод над узлом → false (для того и нужен обвод)", () => {
+    // S=(0,150) → вверх до y=40 → вправо до x=350 → вниз: огибает узел сверху
+    const detour = [P(0, 150), P(0, 40), P(350, 40), P(350, 150)];
+    expect(pathCrossesRects(detour, [rect])).toBe(false);
+  });
+  it("пустой список прямоугольников → false", () => {
+    expect(pathCrossesRects([P(0, 150), P(400, 150)], [])).toBe(false);
   });
 });
 

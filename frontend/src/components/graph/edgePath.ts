@@ -181,3 +181,40 @@ export function snapDragCursor(
 export function interior(pts: EdgePoint[]): EdgePoint[] {
   return pts.length <= 2 ? [] : pts.slice(1, -1);
 }
+
+// Прямоугольник узла (для проверки, пересекает ли маршрут стрелки чужие узлы).
+export interface NodeRect { x: number; y: number; w: number; h: number; }
+
+// Пересекает ли ОСЕВОЙ (гориз/верт) сегмент внутренность прямоугольника. eps сжимает
+// прямоугольник, чтобы касание ровно по границе (напр. линия идёт вдоль края соседа или
+// конец у его хэндла) не считалось пересечением — ловим только реальный проход насквозь.
+function axisSegmentHitsRect(
+  x1: number, y1: number, x2: number, y2: number, r: NodeRect, eps: number,
+): boolean {
+  const left = r.x + eps, right = r.x + r.w - eps;
+  const top = r.y + eps, bottom = r.y + r.h - eps;
+  if (left >= right || top >= bottom) return false; // прямоугольник схлопнулся под eps
+  if (eq(y1, y2)) {
+    // горизонтальный сегмент на высоте y1
+    if (y1 <= top || y1 >= bottom) return false;
+    return Math.min(x1, x2) < right && Math.max(x1, x2) > left;
+  }
+  if (eq(x1, x2)) {
+    // вертикальный сегмент на абсциссе x1
+    if (x1 <= left || x1 >= right) return false;
+    return Math.min(y1, y2) < bottom && Math.max(y1, y2) > top;
+  }
+  return false; // диагональ — в наших ортогональных маршрутах не встречается
+}
+
+// Проходит ли ортогональная ломаная сквозь хотя бы один из прямоугольников (узлов).
+// Используется для дефолтного «обвода»: если прямой маршрут гостевой стрелки пересекает
+// чужие узлы, ей строится путь в обход рамки.
+export function pathCrossesRects(pts: EdgePoint[], rects: NodeRect[]): boolean {
+  for (const s of segments(pts)) {
+    for (const r of rects) {
+      if (axisSegmentHitsRect(s.x1, s.y1, s.x2, s.y2, r, 1)) return true;
+    }
+  }
+  return false;
+}
