@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import type { EdgeCreate, Node } from "../types";
 import { edgesApi, nodesApi } from "../api/nodes";
 
@@ -16,9 +16,11 @@ interface Props {
 
 /**
  * Поповер выбора дальнего конца межуровневой связи: стрелку протянули на узел с
- * детьми, и связь ведём к одному из его потомков. Поиск скоупится поддеревом
- * (GET /nodes/{id}/descendants). Направление по умолчанию — от исходного узла к
- * выбранному; тумблер позволяет развернуть (на случай входящей связи).
+ * детьми, и связь ведём к одному из его потомков. Скоуп — поддерево контейнера
+ * (GET /nodes/{id}/descendants, плоский список); дерево собираем на клиенте по
+ * parent_id. Навигация как в боковом дереве: по умолчанию видны только прямые дети,
+ * раскрытие по шеврону. Поиск по имени — автокомплит-дропдаун под полем ввода.
+ * Направление по умолчанию — от исходного узла к выбранному; тумблер разворачивает.
  */
 export default function EdgeIntoPicker({
   sourceId, sourceLabel, containerId, containerName, onClose, onCreated,
@@ -26,6 +28,8 @@ export default function EdgeIntoPicker({
   const [descendants, setDescendants] = useState<Node[] | null>(null);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Node | null>(null);
+  // раскрытые узлы дерева (по умолчанию свёрнуто — видны только прямые дети)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // "out" — связь sourceId→выбранный (по умолчанию); "in" — выбранный→sourceId
   const [direction, setDirection] = useState<"out" | "in">("out");
   const [label, setLabel] = useState("");
@@ -42,12 +46,97 @@ export default function EdgeIntoPicker({
     return () => { cancelled = true; };
   }, [containerId]);
 
-  const filtered = useMemo(() => {
-    const list = descendants ?? [];
+  // Индексы для дерева: узел по id и дети по parent_id (внутри поддерева).
+  const byId = useMemo(() => {
+    const m = new Map<string, Node>();
+    for (const n of descendants ?? []) m.set(n.id, n);
+    return m;
+  }, [descendants]);
+  const childrenOf = useMemo(() => {
+    const m = new Map<string, Node[]>();
+    for (const n of descendants ?? []) {
+      if (!n.parent_id) continue;
+      const arr = m.get(n.parent_id);
+      if (arr) arr.push(n); else m.set(n.parent_id, [n]);
+    }
+    for (const arr of m.values()) arr.sort((a, b) => a.name.localeCompare(b.name));
+    return m;
+  }, [descendants]);
+  // Прямые дети контейнера — корни дерева в поповере.
+  const roots = childrenOf.get(containerId) ?? [];
+
+  // Совпадения для автокомплита (плоский поиск по всему поддереву).
+  const searchMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((n) => n.name.toLowerCase().includes(q));
+    if (!q) return [];
+    return (descendants ?? []).filter((n) => n.name.toLowerCase().includes(q));
   }, [descendants, query]);
+
+  // Путь от контейнера до узла (без него самого) — для подсказки в дропдауне.
+  const pathOf = (n: Node): string => {
+    const parts: string[] = [];
+    let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
+    while (cur && cur.id !== containerId) {
+      parts.unshift(cur.name);
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    }
+    return parts.join(" / ");
+  };
+
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+
+  // Выбор из автокомплита: фиксируем узел, чистим поиск и раскрываем путь к нему
+  // в дереве, чтобы выбранный узел стал виден.
+  const pickFromSearch = (n: Node) => {
+    setPicked(n);
+    setQuery("");
+    setExpanded((prev) => {
+      const s = new Set(prev);
+      let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
+      while (cur && cur.id !== containerId) {
+        s.add(cur.id);
+        cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+      }
+      return s;
+    });
+  };
+
+  const renderNode = (n: Node, depth: number): ReactElement => {
+    const kids = childrenOf.get(n.id) ?? [];
+    const hasKids = kids.length > 0;
+    const isOpen = expanded.has(n.id);
+    const isPicked = picked?.id === n.id;
+    return (
+      <div key={n.id}>
+        <div
+          onClick={() => setPicked(n)}
+          style={{ ...treeRow, paddingLeft: 8 + depth * 16, background: isPicked ? "#eff6ff" : undefined }}
+        >
+          {hasKids ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggle(n.id); }}
+              style={chevBtn}
+              title={isOpen ? "Свернуть" : "Развернуть"}
+            >
+              <span style={{ ...chevIcon, transform: isOpen ? "rotate(90deg)" : "none" }}>▸</span>
+            </button>
+          ) : (
+            <span style={leafMark}>●</span>
+          )}
+          <span style={{ flex: 1 }}>
+            {n.name}
+            {n.role && <span style={roleMuted}>({n.role})</span>}
+          </span>
+        </div>
+        {hasKids && isOpen && kids.map((k) => renderNode(k, depth + 1))}
+      </div>
+    );
+  };
 
   async function handleCreate() {
     if (!picked) {
@@ -101,30 +190,47 @@ export default function EdgeIntoPicker({
           >⇄</button>
         </div>
 
-        {/* Поиск по потомкам */}
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск по имени..."
-          style={input}
-          autoFocus
-        />
+        {/* Поиск: при вводе под полем выпадает автокомплит с совпадениями */}
+        <div style={{ position: "relative", marginBottom: 10 }}>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по имени..."
+            style={{ ...input, marginBottom: 0 }}
+            autoFocus
+          />
+          {query.trim() && (
+            <div style={dropdown}>
+              {descendants === null ? (
+                <div style={hint}>Загрузка...</div>
+              ) : searchMatches.length === 0 ? (
+                <div style={hint}>Ничего не найдено</div>
+              ) : (
+                searchMatches.map((n) => {
+                  const path = pathOf(n);
+                  return (
+                    <div key={n.id} onClick={() => pickFromSearch(n)} style={dropdownItem}>
+                      <div>
+                        {n.name}
+                        {n.role && <span style={roleMuted}>({n.role})</span>}
+                      </div>
+                      {path && <div style={breadcrumb}>{path}</div>}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Дерево потомков: по умолчанию только прямые дети, раскрытие по шеврону */}
         <div style={listBox}>
           {descendants === null ? (
             <div style={hint}>Загрузка...</div>
-          ) : filtered.length === 0 ? (
-            <div style={hint}>{query ? "Ничего не найдено" : "Нет потомков"}</div>
+          ) : roots.length === 0 ? (
+            <div style={hint}>Нет потомков</div>
           ) : (
-            filtered.map((n) => (
-              <div
-                key={n.id}
-                onClick={() => setPicked(n)}
-                style={{ ...listItem, background: picked?.id === n.id ? "#eff6ff" : undefined }}
-              >
-                {n.name}
-                {n.role && <span style={{ color: "#6b7280", marginLeft: 6, fontSize: 12 }}>({n.role})</span>}
-              </div>
-            ))
+            roots.map((n) => renderNode(n, 0))
           )}
         </div>
 
@@ -202,15 +308,71 @@ const input: CSSProperties = {
 const listBox: CSSProperties = {
   border: "1px solid #d1d5db",
   borderRadius: 6,
-  maxHeight: 180,
+  maxHeight: 200,
   overflowY: "auto",
   marginBottom: 14,
 };
-const listItem: CSSProperties = {
+const treeRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  padding: "6px 8px",
+  cursor: "pointer",
+  fontSize: 14,
+  borderBottom: "1px solid #f3f4f6",
+};
+const chevBtn: CSSProperties = {
+  border: "none",
+  background: "none",
+  cursor: "pointer",
+  padding: 0,
+  width: 16,
+  flexShrink: 0,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#6b7280",
+};
+const chevIcon: CSSProperties = {
+  display: "inline-block",
+  fontSize: 11,
+  transition: "transform 0.12s ease",
+};
+const leafMark: CSSProperties = {
+  width: 16,
+  flexShrink: 0,
+  textAlign: "center",
+  color: "#cbd5e1",
+  fontSize: 8,
+};
+const roleMuted: CSSProperties = {
+  color: "#6b7280",
+  marginLeft: 6,
+  fontSize: 12,
+};
+const dropdown: CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 4px)",
+  left: 0,
+  right: 0,
+  background: "#fff",
+  border: "1px solid #d1d5db",
+  borderRadius: 6,
+  boxShadow: "0 6px 20px rgba(0,0,0,.12)",
+  maxHeight: 220,
+  overflowY: "auto",
+  zIndex: 10,
+};
+const dropdownItem: CSSProperties = {
   padding: "8px 12px",
   cursor: "pointer",
   fontSize: 14,
   borderBottom: "1px solid #f3f4f6",
+};
+const breadcrumb: CSSProperties = {
+  color: "#9ca3af",
+  fontSize: 11,
+  marginTop: 2,
 };
 const hint: CSSProperties = {
   padding: "12px",
