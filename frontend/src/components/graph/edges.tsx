@@ -1,7 +1,7 @@
 // Кастомный тип ребра с HTML-лейблом (поддерживает перенос) и реестр edgeTypes.
 // На основной схеме путь можно гнуть жестом: грипы на сегментах тянут излом за курсором
 // (см. edgePath.ts), новая форма хранится в waypoints ребра.
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -199,6 +199,18 @@ function WrappedLabelEdge({
   const capW = d?.maxWidth;
   const lines = labelText ? wrapLabel(labelText) : [];
 
+  // Плашка с описанием — триггер детализации связи (клик по линии на основной схеме
+  // перехватывают грипы изломов). Кликабельна, когда задан onOpenDetails (level-рёбра).
+  const clickable = d?.onOpenDetails != null;
+  const openDetails = useCallback(
+    (e: ReactMouseEvent) => { e.stopPropagation(); d?.onOpenDetails?.(); },
+    [d],
+  );
+  // pointerEvents:"all" — иначе клик не дойдёт (контейнер EdgeLabelRenderer его глушит);
+  // nodrag/nopan — клик по плашке не начинает pan/драг канвы.
+  const clickStyle: CSSProperties = clickable ? { cursor: "pointer", pointerEvents: "all" } : {};
+  const clickCls = clickable ? "nodrag nopan" : undefined;
+
   const boxBase: CSSProperties = {
     position: "absolute",
     transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
@@ -242,7 +254,8 @@ function WrappedLabelEdge({
       {items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
-          <div style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal" }}>
+          <div className={clickCls} onClick={clickable ? openDetails : undefined}
+            style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...clickStyle }}>
             {items.map((it, i) => (
               <div key={i} style={{ display: "flex", gap: 4 }}>
                 <span>•</span><span>{it}</span>
@@ -254,8 +267,18 @@ function WrappedLabelEdge({
         <EdgeLabelRenderer>
           {/* при заданном capW (контекст) подпись переносится по словам и ограничена по
               ширине, чтобы влезть в зазор между фокусом и колонкой и не лезть на узлы */}
-          <div style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW }}>
+          <div className={clickCls} onClick={clickable ? openDetails : undefined}
+            style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...clickStyle }}>
             {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
+        </EdgeLabelRenderer>
+      ) : clickable && d?.editable ? (
+        // Стрелка без описания: грипы изломов перехватывают клик по линии, поэтому даём
+        // компактный плейсхолдер-плашку как триггер детализации (и точку входа в правку).
+        <EdgeLabelRenderer>
+          <div className="nodrag nopan" title="Открыть связь" onClick={openDetails}
+            style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", cursor: "pointer", pointerEvents: "all", fontSize: 13, lineHeight: "16px" }}>
+            •••
           </div>
         </EdgeLabelRenderer>
       ) : null}

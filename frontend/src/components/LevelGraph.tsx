@@ -283,8 +283,24 @@ function LevelGraphInner({
   // нестабильными (новые функции каждый рендер); будь они зависимостями сборки,
   // массив rfNodes пересоздавался бы на каждый рендер родителя и сбрасывал выделение/
   // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
-  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints });
-  cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints };
+  // Открыть детализацию связи по списку её членов: одиночная → поповер информации,
+  // мастер (несколько слитых) → выбор нужной. Общая логика для клика по линии (там,
+  // где он доходит) и по плашке с описанием (триггер на основной схеме, т.к. клик по
+  // линии перехватывают грипы изломов).
+  const openEdgeMembers = useCallback(
+    (memberIds: string[]) => {
+      const members = memberIds
+        .map((mid) => edges.find((e) => e.id === mid))
+        .filter((e): e is AppEdge => e != null);
+      if (members.length === 0) return;
+      if (members.length === 1) onEdgeClick(members[0]);
+      else onEdgesChoice(members);
+    },
+    [edges, onEdgeClick, onEdgesChoice],
+  );
+
+  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers });
+  cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers };
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
   // багов «правка одного ломала соседа»). Зависит ТОЛЬКО от данных. Этапы: проекция
@@ -537,6 +553,9 @@ function LevelGraphInner({
           data.waypoints = (rep ? wpOf(rep) : undefined) ?? undefined;
           data.onWaypointsCommit = (wp) => cb.commitWaypoints(memberIds, wp, !bothLocal);
         }
+        // Триггер детализации связи на плашке с описанием (клик по линии на основной схеме
+        // перехватывают грипы изломов). В контексте схема только для просмотра — не вешаем.
+        if (!isContext) data.onOpenDetails = () => cb.openEdgeMembers(data.memberIds);
         // в контекст-схеме ограничиваем ширину плашки — зазор колонок рассчитан под неё —
         // и кладём подпись на приузловую полку (shelf), если раскладка её посчитала
         if (isContext) {
@@ -575,14 +594,9 @@ function LevelGraphInner({
       // клик-эхо сразу после жеста реконнекта — не открываем поповер информации о связи
       if (consumeReconnectClick()) return;
       const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
-      const members = memberIds
-        .map((mid) => edges.find((e) => e.id === mid))
-        .filter((e): e is AppEdge => e != null);
-      if (members.length === 0) return;
-      if (members.length === 1) onEdgeClick(members[0]);
-      else onEdgesChoice(members);
+      openEdgeMembers(memberIds);
     },
-    [edges, onEdgeClick, onEdgesChoice, consumeReconnectClick]
+    [openEdgeMembers, consumeReconnectClick]
   );
 
   if (nodes.length + ghostNodes.length === 0) return null;

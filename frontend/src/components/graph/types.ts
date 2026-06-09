@@ -30,6 +30,10 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   editable?: boolean;
   // зафиксировать новый набор waypoints (пустой — сброс в авто); зовётся по отпусканию драга
   onWaypointsCommit?: (waypoints: EdgePoint[]) => void;
+  // открыть поповер информации о связи (клик по плашке с описанием). Клик по самой линии
+  // на основной схеме перехватывают грипы изломов, поэтому триггер — плашка. Задаётся
+  // только для level-рёбер (в контексте схема только для просмотра).
+  onOpenDetails?: () => void;
 }
 
 export interface NodeColors { bg: string; border: string; text: string }
