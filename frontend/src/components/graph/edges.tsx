@@ -13,7 +13,8 @@ import {
 import { wrapLabel } from "./text";
 import type { WrappedEdgeData } from "./types";
 import type { EdgePoint } from "../../types";
-import { buildRenderPoints, orthogonalPoints, cleanup, segments, dragSegment, interior } from "./edgePath";
+import { buildRenderPoints, orthogonalPoints, cleanup, segments, dragSegment, interior, snapDragCursor } from "./edgePath";
+import { EDGE_SNAP_PX } from "./constants";
 
 // SVG-путь по ортогональной ломаной со скруглением углов радиуса r. Используется и для
 // обхода «не родной» стрелки bidi (контекст), и для кастомного пути с waypoints (level).
@@ -60,7 +61,16 @@ function WrappedLabelEdge({
   const shelf = d?.shelf;
   const loop = d?.loop;
 
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getZoom } = useReactFlow();
+  // Курсор в координатах графа + примагничивание плеча к ровному положению относительно
+  // хэндла (порог EDGE_SNAP_PX делим на зум — липкость одинакова на любом масштабе).
+  const flowCursor = useCallback(
+    (clientX: number, clientY: number, drag: { startPts: EdgePoint[]; index: number }): EdgePoint => {
+      const c = screenToFlowPosition({ x: clientX, y: clientY });
+      return snapDragCursor(drag.startPts, drag.index, c, EDGE_SNAP_PX / getZoom());
+    },
+    [screenToFlowPosition, getZoom],
+  );
   // Живой набор waypoints во время драга сегмента (null — драга нет). Коммит — на отпускании.
   const [dragWp, setDragWp] = useState<EdgePoint[] | null>(null);
   // Снимок исходного пути и индекс тянущегося сегмента (фиксируются в pointerdown): каждый
@@ -75,14 +85,14 @@ function WrappedLabelEdge({
   const onGripMove = useCallback((e: ReactPointerEvent<SVGPathElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
-    const c = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const c = flowCursor(e.clientX, e.clientY, drag);
     setDragWp(interior(dragSegment(drag.startPts, drag.index, c)));
-  }, [screenToFlowPosition]);
+  }, [flowCursor]);
 
   const onGripUp = useCallback((e: ReactPointerEvent<SVGPathElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
-    const c = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const c = flowCursor(e.clientX, e.clientY, drag);
     const wp = interior(dragSegment(drag.startPts, drag.index, c));
     dragRef.current = null;
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* уже снят */ }
@@ -91,7 +101,7 @@ function WrappedLabelEdge({
     pendingRef.current = wp;
     setDragWp(wp);
     d?.onWaypointsCommit?.(wp);
-  }, [screenToFlowPosition, d]);
+  }, [flowCursor, d]);
 
   // Проп догнал коммит → отпускаем локальный предпросмотр (теперь рисуем от data.waypoints).
   useEffect(() => {

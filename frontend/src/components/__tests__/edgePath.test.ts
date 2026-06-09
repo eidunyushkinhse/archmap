@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  orthogonalPoints, buildRenderPoints, segments, dragSegment, cleanup, interior,
+  orthogonalPoints, buildRenderPoints, segments, dragSegment, cleanup, interior, snapDragCursor,
 } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
 
@@ -76,6 +76,28 @@ describe("buildRenderPoints — нормализация при сдвинуто
   });
   it("без waypoints — прямой [S,T] (или одно колено)", () => {
     expect(buildRenderPoints(P(0, 0), P(100, 0), [])).toEqual([P(0, 0), P(100, 0)]);
+  });
+});
+
+describe("snapDragCursor — примагничивание плеча к хэндлу", () => {
+  const pts = [P(0, 0), P(50, 0), P(50, 40), P(100, 40)]; // S=(0,0), T=(100,40)
+  it("горизонтальный сегмент: Y у y хэндла в пределах порога притягивается", () => {
+    // тянем сегмент 2 (горизонталь у T, y≈40) к y=37 при пороге 5 → прилипает к T.y=40
+    expect(snapDragCursor(pts, 2, P(70, 37), 5)).toEqual(P(70, 40));
+    // к y=3 → прилипает к S.y=0
+    expect(snapDragCursor(pts, 2, P(70, 3), 5)).toEqual(P(70, 0));
+  });
+  it("вне порога — координата не меняется", () => {
+    expect(snapDragCursor(pts, 2, P(70, 25), 5)).toEqual(P(70, 25));
+  });
+  it("вертикальный сегмент: X у x хэндла в пределах порога притягивается", () => {
+    // сегмент 1 (вертикаль, x≈50) к x=97 при пороге 5 → прилипает к T.x=100
+    expect(snapDragCursor(pts, 1, P(97, 20), 5)).toEqual(P(100, 20));
+    // к x=2 → прилипает к S.x=0
+    expect(snapDragCursor(pts, 1, P(2, 20), 5)).toEqual(P(0, 20));
+  });
+  it("индекс вне диапазона — курсор без изменений", () => {
+    expect(snapDragCursor(pts, 99, P(70, 37), 5)).toEqual(P(70, 37));
   });
 });
 

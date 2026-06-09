@@ -116,6 +116,34 @@ export function dragSegment(pts: EdgePoint[], index: number, cursor: EdgePoint):
   return cleanup(out);
 }
 
+// Примагничивание тянущегося сегмента к «ровному» положению относительно хэндлов:
+// перпендикулярную координату курсора притягиваем к одноимённой координате конца S или T,
+// если она ближе threshold. Тогда у соответствующего плеча концевой стаб схлопывается
+// (cleanup убирает коллинеарное звено) и сегмент становится прямым продолжением хэндла —
+// стрелку легко выровнять. Снапятся независимые оси по ориентации сегмента: горизонтальный
+// (тянем по Y) → к y хэндлов; вертикальный (по X) → к x хэндлов. threshold — в координатах
+// графа (вызывающий делит экранный порог на зум, чтобы липкость не зависела от масштаба).
+export function snapDragCursor(
+  pts: EdgePoint[], index: number, cursor: EdgePoint, threshold: number,
+): EdgePoint {
+  const last = pts.length - 1;
+  if (index < 0 || index >= last) return cursor;
+  const a = pts[index], b = pts[index + 1];
+  const isH = Math.abs(a.y - b.y) <= Math.abs(a.x - b.x);
+  const s = pts[0], t = pts[last];
+  const snap = (v: number, cands: number[]): number => {
+    let best = v, bestD = threshold;
+    for (const c of cands) {
+      const d = Math.abs(c - v);
+      if (d <= bestD) { bestD = d; best = c; }
+    }
+    return best;
+  };
+  return isH
+    ? { x: cursor.x, y: snap(cursor.y, [s.y, t.y]) }
+    : { x: snap(cursor.x, [s.x, t.x]), y: cursor.y };
+}
+
 // Внутренние точки (waypoints) из полного пути [S, ..., T].
 export function interior(pts: EdgePoint[]): EdgePoint[] {
   return pts.length <= 2 ? [] : pts.slice(1, -1);

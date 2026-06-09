@@ -19,6 +19,11 @@ export function shapeHeight(shape: NodeShape): number {
 // так, чтобы центры совпали. По духу близко к reconnectRadius у хэндлов.
 export const SNAP_THRESHOLD = 10;
 
+// Примагничивание плеча стрелки к ровному положению относительно хэндла — порог в
+// ЭКРАННЫХ пикселях (делится на зум при использовании, чтобы липкость не зависела от
+// масштаба). См. snapDragCursor в edgePath.ts.
+export const EDGE_SNAP_PX = 8;
+
 // Диапазон авто-подбора шрифта чипа «роль: технология» (px)
 export const MAX_TAG_FONT = 11;
 export const MIN_TAG_FONT = 7;
