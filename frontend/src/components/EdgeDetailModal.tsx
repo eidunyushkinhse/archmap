@@ -68,7 +68,9 @@ export default function EdgeDetailModal({
         target_id: targetId,
       });
       onSaved(updated);
-      setEditing(false);
+      // После сохранения закрываем модалку и возвращаемся прямо на схему (как и крестик),
+      // а не в предыдущий поповер детализации.
+      onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка сохранения");
     } finally {
@@ -140,14 +142,9 @@ export default function EdgeDetailModal({
 
         <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
           {editing ? (
-            <>
-              <button onClick={handleSave} disabled={saving} style={primaryBtn}>
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-              <button onClick={() => setEditing(false)} disabled={saving} style={secondaryBtn}>
-                Отмена
-              </button>
-            </>
+            <button onClick={handleSave} disabled={saving} style={primaryBtn}>
+              {saving ? "Сохранение..." : "Сохранить"}
+            </button>
           ) : isArchitect ? (
             <>
               <button onClick={() => setEditing(true)} style={primaryBtn}>
