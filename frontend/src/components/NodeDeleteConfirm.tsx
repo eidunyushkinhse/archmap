@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node, NodeEdgeInfo } from "../types";
 import { nodesApi } from "../api/nodes";
+import Modal from "../ui/Modal";
+import { dangerBtn, secondaryBtn } from "../ui/styles";
 
 /**
  * Подтверждение удаления узла со списком связей, которые исчезнут. Единый
@@ -64,9 +66,8 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
   if (edges === null && !error) return null;
 
   return (
-    <div style={confirmOverlay}>
-      <div style={confirmModal}>
-        <h3 style={{ margin: "0 0 12px" }}>
+    <Modal onClose={onCancel} closeButton={false} boxStyle={{ width: 460, maxHeight: "80vh", overflowY: "auto", padding: 24 }}>
+      <h3 style={{ margin: "0 0 12px" }}>
           Вы уверены, что хотите удалить «{node.name}»?
         </h3>
         {edges && edges.length > 0 && (
@@ -109,51 +110,14 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
             Нет
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
-const confirmOverlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,.5)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1100, // выше основной модалки узла
-};
-const confirmModal: CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: 24,
-  width: 460,
-  maxHeight: "80vh",
-  overflowY: "auto",
-  boxShadow: "0 8px 32px rgba(0,0,0,.2)",
-};
 const edgeList: CSSProperties = {
   margin: "0 0 4px",
   paddingLeft: 20,
   color: "#374151",
   fontSize: 14,
   lineHeight: 1.5,
-};
-const dangerBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#dc2626",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
-};
-const secondaryBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#f3f4f6",
-  color: "#374151",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
 };

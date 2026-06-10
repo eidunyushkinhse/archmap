@@ -5,6 +5,8 @@ import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import MermaidRenderer from "./MermaidRenderer";
 import NodeDeleteConfirm from "./NodeDeleteConfirm";
+import Modal from "../ui/Modal";
+import { labelStyle, input, primaryBtn, secondaryBtn, dangerBtn } from "../ui/styles";
 
 interface Props {
   node: Node | null;
@@ -91,10 +93,8 @@ export default function NodeModal({
   }
 
   return (
-    <div style={overlay}>
-      <div style={modal}>
-        <button onClick={onClose} style={closeBtn}>✕</button>
-        <h2 style={{ margin: "0 0 16px" }}>{isCreate ? "Новый узел" : node!.name}</h2>
+    <Modal onClose={onClose} boxStyle={{ width: 560, maxHeight: "90vh", overflowY: "auto" }}>
+      <h2 style={{ margin: "0 0 16px" }}>{isCreate ? "Новый узел" : node!.name}</h2>
 
         {editing ? (
           <>
@@ -236,10 +236,10 @@ export default function NodeModal({
             )}
           </>
         )}
-      </div>
 
       {/* Подтверждение удаления со списком связей — общий компонент (он же
-          открывается при удалении узла с канваса по Backspace) */}
+          открывается при удалении узла с канваса по Backspace). Свой <dialog>
+          поверх — верхний в top-layer, Escape закрывает только его. */}
       {confirming && node && (
         <NodeDeleteConfirm
           node={node}
@@ -247,56 +247,10 @@ export default function NodeModal({
           onDeleted={(id) => { setConfirming(false); onDeleted?.(id); }}
         />
       )}
-    </div>
+    </Modal>
   );
 }
 
-const overlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-const modal: CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: 28,
-  width: 560,
-  maxHeight: "90vh",
-  overflowY: "auto",
-  position: "relative",
-  boxShadow: "0 8px 32px rgba(0,0,0,.18)",
-};
-const closeBtn: CSSProperties = {
-  position: "absolute",
-  top: 14,
-  right: 14,
-  border: "none",
-  background: "none",
-  fontSize: 18,
-  cursor: "pointer",
-  color: "#6b7280",
-};
-const labelStyle: CSSProperties = {
-  display: "block",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#374151",
-  marginBottom: 4,
-};
-const input: CSSProperties = {
-  display: "block",
-  width: "100%",
-  marginBottom: 10,
-  padding: "7px 10px",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  fontSize: 14,
-  boxSizing: "border-box",
-};
 const textarea: CSSProperties = {
   display: "block",
   width: "100%",
@@ -307,33 +261,6 @@ const textarea: CSSProperties = {
   fontSize: 14,
   boxSizing: "border-box",
   resize: "vertical",
-};
-const primaryBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#2563eb",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
-};
-const secondaryBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#f3f4f6",
-  color: "#374151",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
-};
-const dangerBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#dc2626",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
 };
 const tabBtn: CSSProperties = {
   padding: "4px 14px",
