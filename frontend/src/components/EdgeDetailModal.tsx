@@ -3,6 +3,8 @@ import type { CSSProperties } from "react";
 import type { Edge } from "../types";
 import { edgesApi } from "../api/nodes";
 import NodeSearchPicker from "./NodeSearchPicker";
+import Modal from "../ui/Modal";
+import { labelStyle, input, primaryBtn, secondaryBtn, dangerBtnSoft } from "../ui/styles";
 
 interface Props {
   edge: Edge;
@@ -79,33 +81,31 @@ export default function EdgeDetailModal({
   }
 
   return (
-    <div style={overlay}>
-      <div style={modal}>
-        <button onClick={onClose} style={closeBtn}>✕</button>
-        <h2 style={{ margin: "0 0 16px" }}>{editing ? "Редактирование связи" : "Связь"}</h2>
+    <Modal onClose={onClose} boxStyle={{ width: 400 }}>
+      <h2 style={{ margin: "0 0 16px" }}>{editing ? "Редактирование связи" : "Связь"}</h2>
 
         {editing ? (
           <>
-            <label style={fieldLabel}>Откуда *</label>
+            <label style={labelStyle}>Откуда *</label>
             <NodeSearchPicker
               value={sourceId}
               initialLabel={srcLabel}
               onChange={(id, lbl) => { setSourceId(id); if (lbl != null) setSrcLabel(lbl); }}
             />
-            <label style={fieldLabel}>Куда *</label>
+            <label style={labelStyle}>Куда *</label>
             <NodeSearchPicker
               value={targetId}
               initialLabel={tgtLabel}
               onChange={(id, lbl) => { setTargetId(id); if (lbl != null) setTgtLabel(lbl); }}
             />
-            <label style={fieldLabel}>Описание</label>
+            <label style={labelStyle}>Описание</label>
             <input
               value={labelText}
               onChange={(e) => setLabelText(e.target.value)}
               placeholder="запрос, событие..."
               style={input}
             />
-            <label style={fieldLabel}>Технология</label>
+            <label style={labelStyle}>Технология</label>
             <input
               value={technology}
               onChange={(e) => setTechnology(e.target.value)}
@@ -150,7 +150,7 @@ export default function EdgeDetailModal({
               <button onClick={() => setEditing(true)} style={primaryBtn}>
                 Редактировать
               </button>
-              <button onClick={handleDelete} disabled={deleting} style={dangerBtn}>
+              <button onClick={handleDelete} disabled={deleting} style={dangerBtnSoft}>
                 {deleting ? "Удаление..." : "Удалить связь"}
               </button>
             </>
@@ -158,38 +158,10 @@ export default function EdgeDetailModal({
             <button onClick={onClose} style={secondaryBtn}>Закрыть</button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
-const overlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-const modal: CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: 28,
-  width: 400,
-  position: "relative",
-  boxShadow: "0 8px 32px rgba(0,0,0,.18)",
-};
-const closeBtn: CSSProperties = {
-  position: "absolute",
-  top: 14,
-  right: 14,
-  border: "none",
-  background: "none",
-  fontSize: 18,
-  cursor: "pointer",
-  color: "#6b7280",
-};
 const row: CSSProperties = {
   display: "flex",
   gap: 12,
@@ -204,48 +176,4 @@ const label: CSSProperties = {
 };
 const value: CSSProperties = {
   color: "#111827",
-};
-const fieldLabel: CSSProperties = {
-  display: "block",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#374151",
-  marginBottom: 4,
-};
-const input: CSSProperties = {
-  display: "block",
-  width: "100%",
-  marginBottom: 10,
-  padding: "7px 10px",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  fontSize: 14,
-  boxSizing: "border-box",
-};
-const primaryBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#2563eb",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
-};
-const secondaryBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#f3f4f6",
-  color: "#374151",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
-};
-const dangerBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#fee2e2",
-  color: "#dc2626",
-  border: "1px solid #fca5a5",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
 };

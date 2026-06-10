@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
 import type { EdgeCreate, Node } from "../types";
 import { edgesApi, nodesApi } from "../api/nodes";
+import Modal from "../ui/Modal";
+import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 
 interface Props {
   // узел, от которого протянули стрелку (исходный конец связи)
@@ -179,10 +181,8 @@ export default function EdgeIntoPicker({
     : `${farLabel} → ${sourceLabel}`;
 
   return (
-    <div style={overlay}>
-      <div style={modal}>
-        <button onClick={onClose} style={closeBtn}>✕</button>
-        <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>Связь внутрь «{containerName}»</h2>
+    <Modal onClose={onClose} boxStyle={{ width: 440 }}>
+      <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>Связь внутрь «{containerName}»</h2>
         <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>
           Выберите узел-потомок — дальний конец межуровневой связи.
         </p>
@@ -204,7 +204,7 @@ export default function EdgeIntoPicker({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Поиск по имени..."
             style={{ ...input, marginBottom: 0 }}
-            autoFocus
+            data-autofocus
           />
           {query.trim() && (
             <div style={dropdown}>
@@ -263,55 +263,10 @@ export default function EdgeIntoPicker({
           </button>
           <button onClick={onClose} style={secondaryBtn}>Отмена</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
-const overlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-const modal: CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: 28,
-  width: 440,
-  position: "relative",
-  boxShadow: "0 8px 32px rgba(0,0,0,.18)",
-};
-const closeBtn: CSSProperties = {
-  position: "absolute",
-  top: 14,
-  right: 14,
-  border: "none",
-  background: "none",
-  fontSize: 18,
-  cursor: "pointer",
-  color: "#6b7280",
-};
-const labelStyle: CSSProperties = {
-  display: "block",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "#374151",
-  marginBottom: 4,
-};
-const input: CSSProperties = {
-  display: "block",
-  width: "100%",
-  marginBottom: 10,
-  padding: "7px 10px",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  fontSize: 14,
-  boxSizing: "border-box",
-};
 const listBox: CSSProperties = {
   border: "1px solid #d1d5db",
   borderRadius: 6,
@@ -385,22 +340,4 @@ const hint: CSSProperties = {
   color: "#6b7280",
   fontSize: 13,
   textAlign: "center",
-};
-const primaryBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#2563eb",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
-};
-const secondaryBtn: CSSProperties = {
-  padding: "8px 18px",
-  background: "#f3f4f6",
-  color: "#374151",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 14,
 };
