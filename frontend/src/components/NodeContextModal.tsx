@@ -77,6 +77,7 @@ export default function NodeContextModal({ node, onClose }: Props) {
   const noNeighbors = !!ctx && ctx.neighbors.length === 0;
 
   return (
+    <>
     <Modal
       onClose={onClose}
       closeOnBackdrop
@@ -112,10 +113,13 @@ export default function NodeContextModal({ node, onClose }: Props) {
           />
         ) : null}
       </div>
+    </Modal>
 
-      {/* Детали/выбор связи — отдельные <dialog> поверх (top-layer). Их клики
-          больше не всплывают на подложку контекста (закрытие по подложке ловит
-          только клик ровно по самому контекст-диалогу — см. Modal). */}
+      {/* Детали/выбор связи — отдельные <dialog> поверх (top-layer), рендерим
+          СИБЛИНГОМ контекст-модалки, а не внутри её <dialog>: вложенный <dialog>
+          бубблил бы cancel (Escape) на контекст и закрывал бы обе модалки. Как
+          сиблинг — Escape закрывает только детали, контекст остаётся; клик по
+          подложке контекста ловит только клик ровно по нему (см. Modal). */}
       {edgeDetail && (
         <EdgeDetailModal
           edge={edgeDetail}
@@ -136,7 +140,7 @@ export default function NodeContextModal({ node, onClose }: Props) {
           onClose={() => setEdgeChoice(null)}
         />
       )}
-    </Modal>
+    </>
   );
 }
 

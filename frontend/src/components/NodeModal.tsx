@@ -93,6 +93,7 @@ export default function NodeModal({
   }
 
   return (
+    <>
     <Modal onClose={onClose} boxStyle={{ width: 560, maxHeight: "90vh", overflowY: "auto" }}>
       <h2 style={{ margin: "0 0 16px" }}>{isCreate ? "Новый узел" : node!.name}</h2>
 
@@ -236,10 +237,14 @@ export default function NodeModal({
             )}
           </>
         )}
+    </Modal>
 
       {/* Подтверждение удаления со списком связей — общий компонент (он же
-          открывается при удалении узла с канваса по Backspace). Свой <dialog>
-          поверх — верхний в top-layer, Escape закрывает только его. */}
+          открывается при удалении узла с канваса по Backspace). Рендерим
+          СИБЛИНГОМ, а не внутри <dialog> узла: вложенный <dialog> бубблил бы
+          событие cancel (Escape) на родителя и закрывал бы обе модалки разом.
+          Как сиблинг — отдельный <dialog> поверх в top-layer, Escape закрывает
+          только его. */}
       {confirming && node && (
         <NodeDeleteConfirm
           node={node}
@@ -247,7 +252,7 @@ export default function NodeModal({
           onDeleted={(id) => { setConfirming(false); onDeleted?.(id); }}
         />
       )}
-    </Modal>
+    </>
   );
 }
 
