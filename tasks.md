@@ -233,6 +233,24 @@
 - [ ] Multi-tenant
 
 Сделано
+- [x] Рефакторинг R4 (диета LevelGraph + lint до нуля), 2026-06-10.
+        • LevelGraph 959→810 строк: два доменных блока async-эффекта раскладки
+          вынесены в graph/layout/* под юнит-тесты (как projectGhosts/engine):
+          outsideGhosts.ts (вынос внешних гостей в колонки за рамку, мутирует
+          positions, отдаёт placedOutside+bbox+хэндлы) и detours.ts (дефолтные
+          обводы гостевых стрелок, чистая функция). +19 тестов (47→66). Тип
+          EdgeGroup переехал в graph/types.ts. Раскладка побайтово идентична
+          (структурная сигнатура 11 уровней, включая гостевые/обводные).
+        • Линт проекта 27→0. eslint.config.js: argsIgnorePattern '^_' для
+          колбэков (TreePage _id/_saved) + scoped-off react-refresh/
+          only-export-components для graph/** (реестры nodeTypes по дизайну RF).
+          Остальные 8 — производным состоянием/точечными disable: NodeContextModal
+          (тройка ctx/loading/error → один node-привязанный стейт, эффект только
+          фетчит, остальное — derive), NodeSearchPicker (мёртвый эффект удалён,
+          показ дропдауна производный), cbRef в latest-ref эффекте; reset-уровня/
+          первичная-загрузка/превью-драга — disable с пояснением.
+        • Хвосты R3: убран мёртвый position:relative из ui/Modal (top-layer форсит
+          fixed); NodeSearchPicker.input заменён импортом из ui/styles.
 - [x] Рефакторинг R3 (модалки на нативном <dialog>), 2026-06-10.
         • Общий <Modal> на нативном <dialog> + showModal(): top-layer (zIndex не
           нужен), Escape, ::backdrop и фокус-менеджмент — бесплатно от браузера.
