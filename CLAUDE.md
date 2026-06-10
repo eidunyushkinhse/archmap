@@ -1,11 +1,11 @@
 # ArchMap — CLAUDE.md
 
 Стек
-- Frontend: React 18 + Vite + TypeScript
+- Frontend: React 19 + Vite + TypeScript
 - Backend: Python 3.11 + FastAPI
 - БД: PostgreSQL 15
 - ORM: SQLAlchemy + Alembic (миграции)
-- Аутентификация: JWT (python-jose)
+- Аутентификация: JWT (PyJWT + pwdlib[bcrypt])
 - Деплой: Railway (позже)
 
 Структура проекта
