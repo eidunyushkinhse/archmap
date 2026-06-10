@@ -233,6 +233,32 @@
 - [ ] Multi-tenant
 
 Сделано
+- [x] Рефакторинг R1+R2 (модернизация auth-стека + генерация типов), 2026-06-10.
+        R1 — бэкенд, уход с неподдерживаемых либ + гигиена:
+        • python-jose (CVE-2024-33663/33664) → PyJWT 2.13.0 (auth.py: import jwt,
+          ловим jwt.PyJWTError; PyJWT сам валидирует exp).
+        • passlib (мёртв с 2020, ломается с bcrypt≥4.1) → pwdlib 0.3.0 строго с
+          BcryptHasher (НЕ recommended()/Argon2 — обязан верить старые passlib-хэши
+          $2b$… в БД); bcrypt пропинен 5.0.0. Новый backend/tests/test_auth.py
+          (5 тестов): round-trip, характеризационный verify референс-хэша passlib,
+          token round-trip, отклонение протухшего токена, сквозной resolve юзера.
+        • config.py: class Config → SettingsConfigDict; CORS-origin вынесен из
+          хардкода main.py в Settings.cors_origins (строка через запятую).
+        • datetime.utcnow → datetime.now(UTC) в auth.py и моделях node/edge/user.
+        R2 — типы фронта генерируются из OpenAPI, а не пишутся руками:
+        • Literal-уточнение схем (серверная валидация + чтобы генерат не вышел
+          слабее рукописных): shape → Literal[service|database|broker|person] во
+          всех Node-схемах; NodeEdgeInfo.direction → Literal[outgoing|incoming];
+          GhostNodeResponse.is_ghost → Literal[True].
+        • npm-скрипт gen:api: дамп app.openapi() venv-python (без сервера) |
+          openapi-typescript → src/types/api.gen.ts (коммитится, идемпотентен).
+          overrides сужает peer typescript у openapi-typescript под наш TS 6.
+        • types/index.ts из 190 строк рукописных интерфейсов → фасад алиасов на
+          components["schemas"][...] (те же экспортируемые имена, импорты по фронту
+          не менялись). Рукописным осталось canHaveChildren/UserRole; NodeShape и
+          EdgePoint выведены из генерата. Поля-с-дефолтом openapi-typescript делает
+          обязательными (--default-non-nullable) → правок по местам не потребовалось,
+          tsc -b --force + vitest зелёные.
 - [x] Frontend: пакет UX-доводок схемы, 2026-06-09.
         (1) Дефолтная позиция гостей. Гости участвовали в общем ELK-потоке с локальными
             узлами → гость без общей с уровнем рамки мог оказаться внутри рамки, упереться
