@@ -12,10 +12,10 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
-from app.models.node import Node
 from app.models.edge import Edge
-from app.models.ghost_position import GhostPosition
 from app.models.ghost_edge_handle import GhostEdgeHandle
+from app.models.ghost_position import GhostPosition
+from app.models.node import Node
 from app.routers.nodes import delete_node
 
 
@@ -39,8 +39,8 @@ def test_delete_node_cascades_subtree_edges_and_ghost_meta(db):
     a1a = _node(db, "A1a", a1)
     x = _node(db, "X")
     y = _node(db, "Y")
-    e_internal = _edge(db, a1, a1a)
-    e_out = _edge(db, a1a, x)
+    _edge(db, a1, a1a)  # внутреннее A1→A1a — должно уйти каскадом (не ссылаемся ниже)
+    _edge(db, a1a, x)   # исходящее наружу A1a→X — тоже каскадом (не ссылаемся ниже)
     e_in = _edge(db, x, a1)
     e_external = _edge(db, x, y)
     db.commit()

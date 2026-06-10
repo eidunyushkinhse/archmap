@@ -47,7 +47,8 @@ def _get_current_user(token: str, db: Session) -> User:
             raise credentials_error
         token_data = TokenData(username=username, role=role)
     except jwt.PyJWTError:
-        raise credentials_error
+        # Детали JWT-ошибки наружу не отдаём — это всегда 401 «не авторизован».
+        raise credentials_error from None
 
     user = db.query(User).filter(User.username == token_data.username).first()
     if user is None:

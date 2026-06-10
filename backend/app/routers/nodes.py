@@ -18,18 +18,18 @@ from app.schemas.node import (
     AncestorRef,
     DisconnectedNodeAlert,
     EdgeWaypointsUpdate,
-    GraphEdgeResponse,
-    GraphResponse,
     GhostEdgeHandleUpdate,
     GhostNodeResponse,
     GhostPositionUpdate,
+    GraphEdgeResponse,
+    GraphResponse,
     IntermediateEdgeAlert,
     NodeContextResponse,
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
-    PosXY,
     NodeUpdate,
+    PosXY,
 )
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])

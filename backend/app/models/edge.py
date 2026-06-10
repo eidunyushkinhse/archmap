@@ -1,10 +1,16 @@
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    # Только для типов/линтера: связь Node ↔ Edge SQLAlchemy резолвит по строке
+    # через свой реестр в рантайме, поэтому здесь импорт не нужен (и создал бы цикл).
+    from app.models.node import Node
 
 
 class Edge(Base):

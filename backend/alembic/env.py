@@ -1,18 +1,18 @@
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.config import settings
-from app.database import Base
+import app.models.edge  # noqa: F401
+import app.models.edge_waypoint  # noqa: F401
+import app.models.ghost_edge_handle  # noqa: F401
+import app.models.ghost_position  # noqa: F401
+import app.models.node  # noqa: F401
 
 # импортируем модели, чтобы Alembic видел их метаданные
 import app.models.user  # noqa: F401
-import app.models.node  # noqa: F401
-import app.models.edge  # noqa: F401
-import app.models.ghost_position  # noqa: F401
-import app.models.ghost_edge_handle  # noqa: F401
-import app.models.edge_waypoint  # noqa: F401
+from alembic import context
+from app.config import settings
+from app.database import Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

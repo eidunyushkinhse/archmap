@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py311"
+# Автогенерат миграций не линтуем (Alembic пишет их сам).
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+# Дефолт (E4/E7/E9 + F) + сортировка импортов (I) + bugbear (B) + pyupgrade (UP).
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+# B008: Depends(...) в дефолтах параметров — идиома FastAPI, не баг.
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# env.py настраивает sys.path до импортов — E402 здесь ожидаем.
+"alembic/env.py" = ["E402"]

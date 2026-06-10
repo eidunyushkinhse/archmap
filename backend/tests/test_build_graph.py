@@ -7,9 +7,9 @@
 
 import uuid
 
-from app.models.node import Node
 from app.models.edge import Edge
 from app.models.ghost_position import GhostPosition
+from app.models.node import Node
 from app.routers.nodes import _build_graph, _collect_subtree_ids
 
 
