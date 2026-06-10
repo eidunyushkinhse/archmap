@@ -1,7 +1,18 @@
 // Общие типы графа уровня. Импортирует только типы — ни от чего не зависит во
 // время выполнения. FrameDef намеренно НЕ здесь: он локален для boundaries.tsx.
 import type { Node as RFNode } from "@xyflow/react";
-import type { Node as AppNode, GhostNode, AncestorRef, EdgePoint } from "../../types";
+import type { Node as AppNode, GhostNode, AncestorRef, EdgePoint, Edge as AppEdge } from "../../types";
+
+// Группа связей одного направления между парой отображаемых узлов, слитая в одну
+// «мастер-стрелку» (members.length > 1) либо одиночная связь (members.length === 1).
+// id — id одиночной связи или синтетический `merge:src->tgt`. Раскладку/хэндлы
+// считаем на мастер-рёбрах (по одной на направление между парой).
+export interface EdgeGroup {
+  id: string;
+  source: string;
+  target: string;
+  members: AppEdge[];
+}
 
 // сегмент с подписью (сосед) и его длина в px. end="target" — сосед это target
 // (исходящее фокус→сосед), end="source" — сосед это source (входящее сосед→фокус).

@@ -17,11 +17,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H, shapeHeight, hid,
-  CTX_LABEL_W, BOUNDARY_PAD, BOUNDARY_STEP,
+  CTX_LABEL_W,
 } from "./graph/constants";
 import {
   cleanup, orthogonalPointsForHandles, pathCrossesRects,
@@ -30,13 +30,13 @@ import {
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
-  DisplayExternal, EdgeShelf, EdgeLoop,
+  DisplayExternal, EdgeShelf, EdgeLoop, EdgeGroup,
 } from "./graph/types";
 import { edgeText } from "./graph/text";
 import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
-import { assignEdgeHandles } from "./graph/layout/level";
+import { placeOutsideGhosts } from "./graph/layout/outsideGhosts";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
@@ -77,7 +77,7 @@ type LayoutResult = {
   // основная схема: рёбра с дефолтным обводом (вынесенный гость ↔ локальный узел, чей
   // прямой маршрут пересекал бы чужие узлы) → высота огибания clearY
   edgeDetours?: Map<string, { clearY: number }>;
-  groupArr: { id: string; source: string; target: string; members: AppEdge[] }[];
+  groupArr: EdgeGroup[];
   spacers: RFNode[];
 };
 
@@ -376,8 +376,8 @@ function LevelGraphInner({
     const displayedIds = new Set<string>([...nodes.map((n) => n.id), ...entities.map((e) => e.id)]);
 
     // Слияние связей одного направления между парой отображаемых узлов в мастер-стрелку
-    const groupArr: { id: string; source: string; target: string; members: AppEdge[] }[] = [];
-    const groupMap = new Map<string, { id: string; source: string; target: string; members: AppEdge[] }>();
+    const groupArr: EdgeGroup[] = [];
+    const groupMap = new Map<string, EdgeGroup>();
     for (const e of remappedEdges) {
       if (!displayedIds.has(e.source_id) || !displayedIds.has(e.target_id)) continue;
       let g = groupMap.get(`${e.source_id}>${e.target_id}`);
@@ -458,170 +458,100 @@ function LevelGraphInner({
       }
     }
 
-    // Дефолтная раскладка ГОСТЕЙ, НЕ входящих в общую с уровнем рамку. ELK кладёт их
-    // в общий поток вместе с локальными узлами, из-за чего такой гость мог оказаться
-    // ВНУТРИ рамки локальных узлов, упереться в неё или налезть на узлы. Гостей без
-    // сохранённой позиции выносим в аккуратные колонки за внешнюю рамку: источник связи
-    // в уровень — слева, приёмник — справа (несколько на сторону — стопкой). Хэндлы после
-    // переноса пересчитываем от новых позиций — это и убирает «сумбур» в их назначении.
-    // Гости С общей рамкой (лежат внутри своей рамки по дизайну) и гости с ручной
-    // позицией не трогаются.
-    if (!isContext && nodes.length > 0) {
-      const bcSet = new Set(stableAncestorIds);
-      const entAncestors = (ent: DisplayExternal): AncestorRef[] =>
-        ent.kind === "leaf" ? (ent.ghost.ancestors ?? []) : (ent.ancestors ?? []);
-      const isOutside = (ent: DisplayExternal): boolean =>
-        !entAncestors(ent).some((a) => bcSet.has(a.id));
-      const localIds = new Set(nodes.map((n) => n.id));
-      const outside = entities.filter((e) => isOutside(e) && !levelPositions[e.id]);
+    // Дефолтная раскладка внешних гостей в колонки за рамку вынесена в
+    // graph/layout/outsideGhosts.ts под юнит-тесты. Модуль МУТИРУЕТ positions
+    // (расставляет колонки) и возвращает placedOutside + bbox рамки + пересчитанные
+    // хэндлы. null — выносить нечего (хэндлы из baseLayout остаются).
+    if (!isContext) {
+      const og = placeOutsideGhosts({
+        nodes, entities, stableAncestorIds, levelPositions, layoutEdges, positions,
+      });
+      if (og) {
+        edgeHandles = og.edgeHandles;
+        const placedOutside = og.placedOutside;
+        const localIds = new Set(nodes.map((n) => n.id));
+        const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
 
-      if (outside.length > 0) {
-        // bbox рамки = локальные узлы + «внутренние» гости (члены breadcrumb-рамок)
-        let fMinX = Infinity, fMinY = Infinity, fMaxX = -Infinity, fMaxY = -Infinity;
-        const frameIds = [
-          ...nodes.map((n) => n.id),
-          ...entities.filter((e) => !isOutside(e)).map((e) => e.id),
-        ];
-        for (const id of frameIds) {
+        // Дефолтный ОБВОД. Вынесенный в колонку гость может быть связан с несколькими
+        // узлами: к ближнему стрелка ложится чисто, а к дальнему прямой маршрут идёт
+        // сквозь середину рамки — рисуется под чужими узлами и теряется. Для таких рёбер
+        // (один конец — вынесенный гость, другой — локальный узел, и прямой маршрут
+        // пересекает чужие узлы) строим путь В ОБХОД рамки: концы переназначаем на
+        // верх/низ-центр, а высоту огибания clearY кладём в edgeDetours (рисует edges.tsx).
+        // Рёбра, которые пользователь уже правил вручную (есть waypoints или сохранённый
+        // хэндл гостевого конца), не трогаем.
+        const DETOUR_MARGIN = 44; // зазор обвода от крайнего узла
+        const DETOUR_STEP = 30;   // разнос параллельных обводов одной стороны (кольца)
+        // вертикальный диапазон содержимого с учётом вынесенных гостей — база для clearY
+        let oMinY = og.frame.minY, oMaxY = og.frame.maxY;
+        for (const id of placedOutside) {
           const p = positions.get(id);
-          if (!p) continue;
-          fMinX = Math.min(fMinX, p.x); fMinY = Math.min(fMinY, p.y);
-          fMaxX = Math.max(fMaxX, p.x + NODE_W); fMaxY = Math.max(fMaxY, p.y + NODE_H);
+          if (p) { oMinY = Math.min(oMinY, p.y); oMaxY = Math.max(oMaxY, p.y + NODE_H); }
         }
-        if (isFinite(fMinX)) {
-          // клиренс за внешнюю рамку: её паддинг растёт с глубиной вложенности; берём
-          // breadcrumb-глубину + запас на один уровень (развёрнутый контейнер-рамка
-          // может быть глубже) + зазор.
-          const clearance = BOUNDARY_PAD + (stableAncestorIds.length + 1) * BOUNDARY_STEP + 48;
-          const leftX = fMinX - clearance - NODE_W;
-          const rightX = fMaxX + clearance;
-          const midY = (fMinY + fMaxY) / 2;
-
-          // Сторона колонки по направлению связей гостя; желаемый Y — у связанных узлов
-          // (чтобы стрелка была короткой). Ничьи/только приём → справа.
-          type Placed = { id: string; desiredY: number };
-          const leftCol: Placed[] = [];
-          const rightCol: Placed[] = [];
-          for (const ent of outside) {
-            let leftVotes = 0, rightVotes = 0;
-            const ys: number[] = [];
-            for (const e of layoutEdges) {
-              if (e.source_id === ent.id && localIds.has(e.target_id)) {
-                leftVotes++;
-                const p = positions.get(e.target_id); if (p) ys.push(p.y + NODE_H / 2);
-              } else if (e.target_id === ent.id && localIds.has(e.source_id)) {
-                rightVotes++;
-                const p = positions.get(e.source_id); if (p) ys.push(p.y + NODE_H / 2);
-              }
-            }
-            const desiredY =
-              (ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : midY) - NODE_H / 2;
-            (rightVotes >= leftVotes ? rightCol : leftCol).push({ id: ent.id, desiredY });
+        const topBase = oMinY - DETOUR_MARGIN;
+        const botBase = oMaxY + DETOUR_MARGIN;
+        const frameMid = (og.frame.minY + og.frame.maxY) / 2;
+        let topRing = 0, botRing = 0;
+        // центр выбранной стороны узла в координатах графа (для пробного маршрута)
+        const sideCenter = (id: string, side: EdgeSide): EdgePoint => {
+          const p = positions.get(id)!;
+          switch (side) {
+            case "left":   return { x: p.x,            y: p.y + NODE_H / 2 };
+            case "right":  return { x: p.x + NODE_W,   y: p.y + NODE_H / 2 };
+            case "top":    return { x: p.x + NODE_W / 2, y: p.y };
+            default:       return { x: p.x + NODE_W / 2, y: p.y + NODE_H };
           }
-          // В каждой колонке раскладываем сверху вниз с минимальным зазором (де-наложение).
-          const placeCol = (col: Placed[], x: number): void => {
-            col.sort((a, b) => a.desiredY - b.desiredY);
-            let lastY = -Infinity;
-            for (const it of col) {
-              const y = Math.max(it.desiredY, lastY + NODE_H + 28);
-              positions.set(it.id, { x, y });
-              lastY = y;
-            }
-          };
-          placeCol(leftCol, leftX);
-          placeCol(rightCol, rightX);
-
-          // Перенос сменил взаимное положение → пересчитываем хэндлы (autoHandles по
-          // новым позициям; сохранённые хэндлы assignEdgeHandles по-прежнему уважает).
-          const displayedNodeList = [
-            ...nodes.map((n) => ({ id: n.id })),
-            ...entities.map((e) => ({ id: e.id })),
-          ];
-          edgeHandles = assignEdgeHandles(displayedNodeList, layoutEdges, positions);
-
-          // Дефолтный ОБВОД. Вынесенный в колонку гость может быть связан с несколькими
-          // узлами: к ближнему стрелка ложится чисто, а к дальнему прямой маршрут идёт
-          // сквозь середину рамки — рисуется под чужими узлами и теряется. Для таких рёбер
-          // (один конец — вынесенный гость, другой — локальный узел, и прямой маршрут
-          // пересекает чужие узлы) строим путь В ОБХОД рамки: концы переназначаем на
-          // верх/низ-центр, а высоту огибания clearY кладём в edgeDetours (рисует edges.tsx).
-          // Рёбра, которые пользователь уже правил вручную (есть waypoints или сохранённый
-          // хэндл гостевого конца), не трогаем.
-          const DETOUR_MARGIN = 44; // зазор обвода от крайнего узла
-          const DETOUR_STEP = 30;   // разнос параллельных обводов одной стороны (кольца)
-          const placedOutside = new Set(outside.map((e) => e.id));
-          const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
-          // вертикальный диапазон содержимого с учётом вынесенных гостей — база для clearY
-          let oMinY = fMinY, oMaxY = fMaxY;
-          for (const ent of outside) {
-            const p = positions.get(ent.id);
-            if (p) { oMinY = Math.min(oMinY, p.y); oMaxY = Math.max(oMaxY, p.y + NODE_H); }
+        };
+        for (const g of groupArr) {
+          const a = g.source, b = g.target;
+          const oneGhost =
+            (placedOutside.has(a) && localIds.has(b)) ||
+            (placedOutside.has(b) && localIds.has(a));
+          if (!oneGhost) continue;
+          // пользователь уже правил это ребро вручную — не навязываем обвод
+          const customized = g.members.some(
+            (m) =>
+              (levelEdgeWaypoints[m.id]?.length ?? 0) > 0 ||
+              (m.waypoints?.length ?? 0) > 0 ||
+              (levelEdgeHandles[m.id]?.length ?? 0) > 0,
+          );
+          if (customized) continue;
+          const sp = positions.get(a), tp = positions.get(b);
+          if (!sp || !tp) continue;
+          // пробный прямой маршрут по доминирующей оси (как autoHandles)
+          const dx = tp.x - sp.x, dy = tp.y - sp.y;
+          let sSide: EdgeSide, tSide: EdgeSide;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            sSide = dx >= 0 ? "right" : "left"; tSide = dx >= 0 ? "left" : "right";
+          } else {
+            sSide = dy >= 0 ? "bottom" : "top"; tSide = dy >= 0 ? "top" : "bottom";
           }
-          const topBase = oMinY - DETOUR_MARGIN;
-          const botBase = oMaxY + DETOUR_MARGIN;
-          const frameMid = (fMinY + fMaxY) / 2;
-          let topRing = 0, botRing = 0;
-          // центр выбранной стороны узла в координатах графа (для пробного маршрута)
-          const sideCenter = (id: string, side: EdgeSide): EdgePoint => {
-            const p = positions.get(id)!;
-            switch (side) {
-              case "left":   return { x: p.x,            y: p.y + NODE_H / 2 };
-              case "right":  return { x: p.x + NODE_W,   y: p.y + NODE_H / 2 };
-              case "top":    return { x: p.x + NODE_W / 2, y: p.y };
-              default:       return { x: p.x + NODE_W / 2, y: p.y + NODE_H };
-            }
-          };
-          for (const g of groupArr) {
-            const a = g.source, b = g.target;
-            const oneGhost =
-              (placedOutside.has(a) && localIds.has(b)) ||
-              (placedOutside.has(b) && localIds.has(a));
-            if (!oneGhost) continue;
-            // пользователь уже правил это ребро вручную — не навязываем обвод
-            const customized = g.members.some(
-              (m) =>
-                (levelEdgeWaypoints[m.id]?.length ?? 0) > 0 ||
-                (m.waypoints?.length ?? 0) > 0 ||
-                (levelEdgeHandles[m.id]?.length ?? 0) > 0,
-            );
-            if (customized) continue;
-            const sp = positions.get(a), tp = positions.get(b);
-            if (!sp || !tp) continue;
-            // пробный прямой маршрут по доминирующей оси (как autoHandles)
-            const dx = tp.x - sp.x, dy = tp.y - sp.y;
-            let sSide: EdgeSide, tSide: EdgeSide;
-            if (Math.abs(dx) >= Math.abs(dy)) {
-              sSide = dx >= 0 ? "right" : "left"; tSide = dx >= 0 ? "left" : "right";
-            } else {
-              sSide = dy >= 0 ? "bottom" : "top"; tSide = dy >= 0 ? "top" : "bottom";
-            }
-            const sPt = sideCenter(a, sSide), tPt = sideCenter(b, tSide);
-            const route = cleanup(
-              orthogonalPointsForHandles(sPt.x, sPt.y, sSide, tPt.x, tPt.y, tSide),
-            );
-            const obstacles: NodeRect[] = displayIds
-              .filter((id) => id !== a && id !== b)
-              .map((id) => {
-                const p = positions.get(id);
-                return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null;
-              })
-              .filter((r): r is NodeRect => r != null);
-            if (!pathCrossesRects(route, obstacles)) continue; // прямой путь чист — не трогаем
-            // обвод нужен: сторону выбираем по локальному концу (к ближнему свободному краю)
-            const localId = localIds.has(a) ? a : b;
-            const lp = positions.get(localId)!;
-            const goTop = lp.y + NODE_H / 2 <= frameMid;
-            const side: EdgeSide = goTop ? "top" : "bottom";
-            const clearY = goTop
-              ? topBase - topRing++ * DETOUR_STEP
-              : botBase + botRing++ * DETOUR_STEP;
-            // оба конца — вертикальный центр выбранной стороны → стрелка выходит/входит вертикально
-            edgeHandles.set(g.id, {
-              sourceHandle: hid(a, side, 1),
-              targetHandle: hid(b, side, 1),
-            });
-            edgeDetours.set(g.id, { clearY });
-          }
+          const sPt = sideCenter(a, sSide), tPt = sideCenter(b, tSide);
+          const route = cleanup(
+            orthogonalPointsForHandles(sPt.x, sPt.y, sSide, tPt.x, tPt.y, tSide),
+          );
+          const obstacles: NodeRect[] = displayIds
+            .filter((id) => id !== a && id !== b)
+            .map((id) => {
+              const p = positions.get(id);
+              return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null;
+            })
+            .filter((r): r is NodeRect => r != null);
+          if (!pathCrossesRects(route, obstacles)) continue; // прямой путь чист — не трогаем
+          // обвод нужен: сторону выбираем по локальному концу (к ближнему свободному краю)
+          const localId = localIds.has(a) ? a : b;
+          const lp = positions.get(localId)!;
+          const goTop = lp.y + NODE_H / 2 <= frameMid;
+          const side: EdgeSide = goTop ? "top" : "bottom";
+          const clearY = goTop
+            ? topBase - topRing++ * DETOUR_STEP
+            : botBase + botRing++ * DETOUR_STEP;
+          // оба конца — вертикальный центр выбранной стороны → стрелка выходит/входит вертикально
+          edgeHandles.set(g.id, {
+            sourceHandle: hid(a, side, 1),
+            targetHandle: hid(b, side, 1),
+          });
+          edgeDetours.set(g.id, { clearY });
         }
       }
     }
