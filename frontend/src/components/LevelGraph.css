@@ -250,3 +250,35 @@
 .lg-edge-grip:hover .lg-edge-grip-dot {
   opacity: 0.9;
 }
+
+/* Плитка «вне уровня»: полоса у верхнего края холста, появляется только при
+   протягивании новой связи на не-корневом уровне (рендер гейтится connecting &&
+   containerId). Отпустил на неё конец стрелки → выбор дальнего конца из всей схемы.
+   pointer-events:auto — чтобы elementFromPoint в useEdgeConnect её находил (ховер и
+   дроп); линия-превью имеет pointer-events:none и сквозь плитку не мешает. */
+.lg-exit-up {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.92);
+  border-bottom: 2px dashed #60a5fa;
+  pointer-events: auto;
+  user-select: none;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+/* Конец стрелки наведён на плитку (lg-exit-up--active из useEdgeConnect) — подсветка. */
+.lg-exit-up--active {
+  background: #2563eb;
+  color: #fff;
+  border-bottom-color: #1d4ed8;
+}

@@ -1,39 +1,49 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
 import type { EdgeCreate, Node } from "../types";
-import { edgesApi, nodesApi } from "../api/nodes";
+import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 
 interface Props {
-  // узел, от которого протянули стрелку (исходный конец связи)
+  title: string;
+  subtitle: string;
+  // узел, от которого протянули стрелку (ближний конец связи)
   sourceId: string;
   sourceLabel: string;
-  // хэндл узла-источника, из которого тянули стрелку — закрепляем за концом sourceId;
-  // дальний конец (выбранный потомок) — дефолтная привязка
+  // хэндл узла-источника, из которого тянули — закрепляем за концом sourceId;
+  // дальний конец (выбранный узел) — дефолтная привязка
   sourceHandle: string | null;
-  // узел-контейнер, на который отпустили стрелку — выбираем дальний конец из его потомков
-  containerId: string;
-  containerName: string;
+  // плоский список узлов-кандидатов; дерево собирается из него по parent_id
+  loadNodes: () => Promise<Node[]>;
+  // ключ скоупа (для перезагрузки при смене источника данных)
+  scopeKey: string;
+  // корни дерева = узлы с этим parent_id; pathOf останавливается на нём.
+  // null — корни всей схемы (parent_id == null).
+  rootParentId: string | null;
+  // узлы, которые нельзя выбрать (greyed, прячем из поиска) — в т.ч. сам источник
+  excludeIds?: Set<string>;
   onClose: () => void;
   onCreated: () => void;
 }
 
 /**
- * Поповер выбора дальнего конца межуровневой связи: стрелку протянули на узел с
- * детьми, и связь ведём к одному из его потомков. Скоуп — поддерево контейнера
- * (GET /nodes/{id}/descendants, плоский список); дерево собираем на клиенте по
- * parent_id. Навигация как в боковом дереве: по умолчанию видны только прямые дети,
- * раскрытие по шеврону. Поиск по имени — автокомплит-дропдаун под полем ввода.
+ * Поповер выбора дальнего конца межуровневой связи: дерево узлов-кандидатов
+ * (собирается на клиенте из плоского списка по parent_id) + автокомплит по имени.
+ * Один компонент для двух жестов: «связь внутрь контейнера» (скоуп — поддерево,
+ * rootParentId = контейнер) и «связь к узлу вне уровня» (скоуп — вся схема,
+ * rootParentId = null, недоступные узлы текущего уровня в excludeIds). Навигация
+ * как в боковом дереве: по умолчанию видны прямые дети корня, раскрытие по шеврону.
  * Направление по умолчанию — от исходного узла к выбранному; тумблер разворачивает.
  */
-export default function EdgeIntoPicker({
-  sourceId, sourceLabel, sourceHandle, containerId, containerName, onClose, onCreated,
+export default function CrossLevelEdgePicker({
+  title, subtitle, sourceId, sourceLabel, sourceHandle,
+  loadNodes, scopeKey, rootParentId, excludeIds, onClose, onCreated,
 }: Props) {
-  const [descendants, setDescendants] = useState<Node[] | null>(null);
+  const [allNodes, setAllNodes] = useState<Node[] | null>(null);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Node | null>(null);
-  // раскрытые узлы дерева (по умолчанию свёрнуто — видны только прямые дети)
+  // раскрытые узлы дерева (по умолчанию свёрнуто — видны только прямые дети корня)
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // "out" — связь sourceId→выбранный (по умолчанию); "in" — выбранный→sourceId
   const [direction, setDirection] = useState<"out" | "in">("out");
@@ -42,46 +52,55 @@ export default function EdgeIntoPicker({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const excluded = useMemo(() => (id: string) => excludeIds?.has(id) ?? false, [excludeIds]);
+
   useEffect(() => {
     let cancelled = false;
-    nodesApi
-      .getDescendants(containerId)
-      .then((d) => { if (!cancelled) setDescendants(d); })
-      .catch(() => { if (!cancelled) { setDescendants([]); setError("Не удалось загрузить потомков"); } });
+    loadNodes()
+      .then((d) => { if (!cancelled) setAllNodes(d); })
+      .catch(() => { if (!cancelled) { setAllNodes([]); setError("Не удалось загрузить узлы"); } });
     return () => { cancelled = true; };
-  }, [containerId]);
+    // loadNodes — нестабильная ссылка из родителя; перезагружаем по scopeKey
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
-  // Индексы для дерева: узел по id и дети по parent_id (внутри поддерева).
+  // Индексы для дерева: узел по id и дети по parent_id.
   const byId = useMemo(() => {
     const m = new Map<string, Node>();
-    for (const n of descendants ?? []) m.set(n.id, n);
+    for (const n of allNodes ?? []) m.set(n.id, n);
     return m;
-  }, [descendants]);
+  }, [allNodes]);
   const childrenOf = useMemo(() => {
     const m = new Map<string, Node[]>();
-    for (const n of descendants ?? []) {
+    for (const n of allNodes ?? []) {
       if (!n.parent_id) continue;
       const arr = m.get(n.parent_id);
       if (arr) arr.push(n); else m.set(n.parent_id, [n]);
     }
     for (const arr of m.values()) arr.sort((a, b) => a.name.localeCompare(b.name));
     return m;
-  }, [descendants]);
-  // Прямые дети контейнера — корни дерева в поповере.
-  const roots = childrenOf.get(containerId) ?? [];
+  }, [allNodes]);
+  // Корни дерева — узлы с parent_id == rootParentId (для «вне уровня» это корни схемы).
+  const roots = useMemo(
+    () =>
+      (allNodes ?? [])
+        .filter((n) => (n.parent_id ?? null) === rootParentId)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [allNodes, rootParentId],
+  );
 
-  // Совпадения для автокомплита (плоский поиск по всему поддереву).
+  // Совпадения для автокомплита (плоский поиск, недоступные узлы скрыты).
   const searchMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return (descendants ?? []).filter((n) => n.name.toLowerCase().includes(q));
-  }, [descendants, query]);
+    return (allNodes ?? []).filter((n) => !excluded(n.id) && n.name.toLowerCase().includes(q));
+  }, [allNodes, query, excluded]);
 
-  // Путь от контейнера до узла (без него самого) — для подсказки в дропдауне.
+  // Путь от корня скоупа до узла (без него самого) — для подсказки в дропдауне.
   const pathOf = (n: Node): string => {
     const parts: string[] = [];
     let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
-    while (cur && cur.id !== containerId) {
+    while (cur && cur.id !== rootParentId) {
       parts.unshift(cur.name);
       cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
     }
@@ -95,15 +114,14 @@ export default function EdgeIntoPicker({
       return s;
     });
 
-  // Выбор из автокомплита: фиксируем узел, чистим поиск и раскрываем путь к нему
-  // в дереве, чтобы выбранный узел стал виден.
+  // Выбор из автокомплита: фиксируем узел, чистим поиск и раскрываем путь к нему.
   const pickFromSearch = (n: Node) => {
     setPicked(n);
     setQuery("");
     setExpanded((prev) => {
       const s = new Set(prev);
       let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
-      while (cur && cur.id !== containerId) {
+      while (cur && cur.id !== rootParentId) {
         s.add(cur.id);
         cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
       }
@@ -116,11 +134,20 @@ export default function EdgeIntoPicker({
     const hasKids = kids.length > 0;
     const isOpen = expanded.has(n.id);
     const isPicked = picked?.id === n.id;
+    const isExcluded = excluded(n.id);
     return (
       <div key={n.id}>
         <div
-          onClick={() => setPicked(n)}
-          style={{ ...treeRow, paddingLeft: 8 + depth * 16, background: isPicked ? "#eff6ff" : undefined }}
+          // Недоступный узел (текущего уровня / источник) не выбираем, но дерево
+          // оставляем проходимым — его потомки могут быть валидными целями.
+          onClick={() => { if (!isExcluded) setPicked(n); }}
+          style={{
+            ...treeRow,
+            paddingLeft: 8 + depth * 16,
+            background: isPicked ? "#eff6ff" : undefined,
+            cursor: isExcluded ? "default" : "pointer",
+            color: isExcluded ? "#9ca3af" : undefined,
+          }}
         >
           {hasKids ? (
             <button
@@ -136,6 +163,7 @@ export default function EdgeIntoPicker({
           <span style={{ flex: 1 }}>
             {n.name}
             {n.role && <span style={roleMuted}>({n.role})</span>}
+            {isExcluded && <span style={roleMuted}>на этом уровне</span>}
           </span>
         </div>
         {hasKids && isOpen && kids.map((k) => renderNode(k, depth + 1))}
@@ -145,7 +173,7 @@ export default function EdgeIntoPicker({
 
   async function handleCreate() {
     if (!picked) {
-      setError("Выберите узел-потомок");
+      setError("Выберите узел");
       return;
     }
     if (picked.id === sourceId) {
@@ -158,8 +186,8 @@ export default function EdgeIntoPicker({
       const data: EdgeCreate = {
         source_id: direction === "out" ? sourceId : picked.id,
         target_id: direction === "out" ? picked.id : sourceId,
-        // исходный хэндл закрепляем за концом sourceId (в какую сторону он смотрит —
-        // зависит от направления), дальний конец — дефолтная привязка
+        // исходный хэндл закрепляем за концом sourceId (куда он смотрит — зависит от
+        // направления), дальний конец — дефолтная привязка
         source_handle: direction === "out" ? sourceHandle : null,
         target_handle: direction === "out" ? null : sourceHandle,
         label: label || null,
@@ -175,17 +203,15 @@ export default function EdgeIntoPicker({
   }
 
   // Текстовое превью направления (что и куда).
-  const farLabel = picked ? picked.name : `узел из «${containerName}»`;
+  const farLabel = picked ? picked.name : "выбранный узел";
   const arrow = direction === "out"
     ? `${sourceLabel} → ${farLabel}`
     : `${farLabel} → ${sourceLabel}`;
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 440 }}>
-      <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>Связь внутрь «{containerName}»</h2>
-        <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>
-          Выберите узел-потомок — дальний конец межуровневой связи.
-        </p>
+      <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>{title}</h2>
+        <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>{subtitle}</p>
 
         {/* Направление */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -208,7 +234,7 @@ export default function EdgeIntoPicker({
           />
           {query.trim() && (
             <div style={dropdown}>
-              {descendants === null ? (
+              {allNodes === null ? (
                 <div style={hint}>Загрузка...</div>
               ) : searchMatches.length === 0 ? (
                 <div style={hint}>Ничего не найдено</div>
@@ -230,12 +256,12 @@ export default function EdgeIntoPicker({
           )}
         </div>
 
-        {/* Дерево потомков: по умолчанию только прямые дети, раскрытие по шеврону */}
+        {/* Дерево: по умолчанию только прямые дети корня, раскрытие по шеврону */}
         <div style={listBox}>
-          {descendants === null ? (
+          {allNodes === null ? (
             <div style={hint}>Загрузка...</div>
           ) : roots.length === 0 ? (
-            <div style={hint}>Нет потомков</div>
+            <div style={hint}>Нет узлов</div>
           ) : (
             roots.map((n) => renderNode(n, 0))
           )}
@@ -279,7 +305,6 @@ const treeRow: CSSProperties = {
   alignItems: "center",
   gap: 6,
   padding: "6px 8px",
-  cursor: "pointer",
   fontSize: 14,
 };
 const chevBtn: CSSProperties = {

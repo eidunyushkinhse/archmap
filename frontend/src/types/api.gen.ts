@@ -73,6 +73,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List All Nodes
+         * @description Плоский список ВСЕХ узлов схемы — для выбора дальнего конца связи к узлу
+         *     вне текущего уровня (фронт собирает из него дерево по parent_id).
+         */
+        get: operations["list_all_nodes_api_v1_nodes_all_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/graph": {
         parameters: {
             query?: never;
@@ -1042,6 +1063,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_all_nodes_api_v1_nodes_all_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeResponse"][];
                 };
             };
         };

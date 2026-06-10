@@ -144,6 +144,9 @@ interface LevelGraphProps {
     sourceId: string, containerId: string, containerName: string,
     sourceHandle: string | null,
   ) => void;
+  // конец стрелки отпустили на плитку «вне уровня» — открыть выбор дальнего конца
+  // из всей схемы (узла, которого нет на текущем холсте)
+  onExitUp?: (sourceId: string, sourceHandle: string | null) => void;
   // запрос на удаление узла прямо с канваса (Backspace/Delete по выбранному
   // узлу) — открыть подтверждение со списком связей (как кнопка «Удалить» в
   // модалке узла). Само удаление React Flow отключено (deleteKeyCode=null).
@@ -181,6 +184,7 @@ function LevelGraphInner({
   onDropNode,
   onCreateEdge,
   onConnectInto,
+  onExitUp,
   onRequestDeleteNode,
   dragShape,
   mode = "level",
@@ -270,7 +274,7 @@ function LevelGraphInner({
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
       isArchitect, isContext, isReconnecting, resolveTarget,
-      onCreate: onCreateEdge, onInto: onConnectInto,
+      onCreate: onCreateEdge, onInto: onConnectInto, onExitUp,
     });
 
   // Общий isValidConnection для двух потоков: при реконнекте — правила реконнекта
@@ -698,7 +702,7 @@ function LevelGraphInner({
         // реконнект над не родным узлом: запрещающий курсор + гасим подсветку хэндлов
         (reconnectBlocked ? " lg-canvas--reconnect-blocked" : "")
       }
-      style={{ flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
+      style={{ position: "relative", flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -708,6 +712,15 @@ function LevelGraphInner({
           прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
           анимация уезда; position:fixed не обрезается overflow:hidden канваса. */}
       {isArchitect && !isContext && <ReconnectBlockedToast visible={reconnectBlocked} />}
+      {/* Плитка «вне уровня»: полоса у верхнего края холста, видна только при
+          протягивании НОВОЙ связи на не-корневом уровне. Отпустил на неё конец
+          стрелки → выбор дальнего конца из всей схемы (useEdgeConnect ловит дроп по
+          data-exit-up). Не объект графа, а элемент интерфейса. */}
+      {connecting && containerId && (
+        <div className="lg-exit-up" data-exit-up>
+          <span aria-hidden>↥</span> Связать с узлом вне уровня
+        </div>
+      )}
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}

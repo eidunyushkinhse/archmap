@@ -13,6 +13,8 @@ export const nodesApi = {
   // дальнего конца межуровневой связи при протягивании стрелки на контейнер
   getDescendants: (id: string): Promise<Node[]> =>
     api.get<Node[]>(`/nodes/${id}/descendants`),
+  // Все узлы схемы (плоско) — выбор дальнего конца связи к узлу ВНЕ уровня
+  getAll: (): Promise<Node[]> => api.get<Node[]>(`/nodes/all`),
   // Связи узла (обоих направлений) с именами связанных узлов — для модалки удаления
   getEdges: (id: string): Promise<NodeEdgeInfo[]> =>
     api.get<NodeEdgeInfo[]>(`/nodes/${id}/edges`),

@@ -259,6 +259,18 @@ def search_nodes(
     return nodes
 
 
+@router.get("/all", response_model=list[NodeResponse])
+def list_all_nodes(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> list[Node]:
+    """Плоский список ВСЕХ узлов схемы — для выбора дальнего конца связи к узлу
+    вне текущего уровня (фронт собирает из него дерево по parent_id)."""
+    nodes = db.query(Node).all()
+    _mark_has_children(db, nodes)
+    return nodes
+
+
 @router.get("/graph", response_model=GraphResponse)
 def get_root_graph(
     db: Session = Depends(get_db),

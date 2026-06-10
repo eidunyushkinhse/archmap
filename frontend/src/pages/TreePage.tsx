@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
-import EdgeIntoPicker from "../components/EdgeIntoPicker";
+import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
 import EdgeDetailModal from "../components/EdgeDetailModal";
@@ -57,6 +57,12 @@ export default function TreePage({ onLogout }: Props) {
     containerId: string;
     containerName: string;
     // хэндл узла-источника, из которого протянули стрелку (дальний конец — дефолт)
+    sourceHandle: string | null;
+  } | null>(null);
+  // протянули стрелку на верхнюю плитку «вне уровня» — выбор дальнего конца из ВСЕЙ
+  // схемы (узел, которого нет на текущем холсте). Доступно только на не-корневом уровне.
+  const [outPicker, setOutPicker] = useState<{
+    sourceId: string;
     sourceHandle: string | null;
   } | null>(null);
   // протянули стрелку на хэндл (прямая связь) — упрощённый поповер: описание+технология.
@@ -274,7 +280,7 @@ export default function TreePage({ onLogout }: Props) {
   }
 
   // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка. Хэндл источника
-  // сохраняем (дальний конец — дефолт, см. EdgeIntoPicker).
+  // сохраняем (дальний конец — дефолт, см. CrossLevelEdgePicker).
   function handleConnectInto(
     sourceId: string, containerId: string, containerName: string,
     sourceHandle: string | null,
@@ -398,6 +404,7 @@ export default function TreePage({ onLogout }: Props) {
               onDropNode={handleDropNode}
               onCreateEdge={handleCreateEdge}
               onConnectInto={handleConnectInto}
+              onExitUp={(sourceId, sourceHandle) => setOutPicker({ sourceId, sourceHandle })}
               onRequestDeleteNode={setPendingDelete}
               dragShape={dragShape}
             />
@@ -438,14 +445,40 @@ export default function TreePage({ onLogout }: Props) {
         />
       )}
       {intoPicker && (
-        <EdgeIntoPicker
+        <CrossLevelEdgePicker
+          title={`Связь внутрь «${intoPicker.containerName}»`}
+          subtitle="Выберите узел-потомок — дальний конец межуровневой связи."
           sourceId={intoPicker.sourceId}
           sourceLabel={findNodeLabel(intoPicker.sourceId)}
           sourceHandle={intoPicker.sourceHandle}
-          containerId={intoPicker.containerId}
-          containerName={intoPicker.containerName}
+          loadNodes={() => nodesApi.getDescendants(intoPicker.containerId)}
+          scopeKey={intoPicker.containerId}
+          rootParentId={intoPicker.containerId}
           onClose={() => setIntoPicker(null)}
           onCreated={handleIntoCreated}
+        />
+      )}
+      {outPicker && (
+        <CrossLevelEdgePicker
+          title="Связь с узлом вне уровня"
+          subtitle="Выберите узел из любой части схемы — связь станет сквозной."
+          sourceId={outPicker.sourceId}
+          sourceLabel={findNodeLabel(outPicker.sourceId)}
+          sourceHandle={outPicker.sourceHandle}
+          loadNodes={() => nodesApi.getAll()}
+          scopeKey="all"
+          rootParentId={null}
+          // на этом уровне уже видны локальные узлы и гости — их (и сам источник)
+          // выбирать незачем: к ним тянут связь прямо на холсте
+          excludeIds={
+            new Set<string>([
+              outPicker.sourceId,
+              ...nodes.map((n) => n.id),
+              ...ghostNodes.map((g) => g.id),
+            ])
+          }
+          onClose={() => setOutPicker(null)}
+          onCreated={() => { setOutPicker(null); load(currentParentId); }}
         />
       )}
       {edgeDetailModal && (

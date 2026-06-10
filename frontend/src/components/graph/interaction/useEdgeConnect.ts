@@ -43,6 +43,9 @@ interface Params {
     sourceId: string, containerId: string, containerName: string,
     sourceHandle: string | null,
   ) => void;
+  // конец отпущен на плитку «вне уровня» (элемент с data-exit-up): открыть выбор
+  // дальнего конца из всей схемы (узла, которого нет на текущем холсте).
+  onExitUp?: (sourceId: string, sourceHandle: string | null) => void;
 }
 
 // Координаты точки отпускания (мышь или тач).
@@ -56,7 +59,7 @@ function endPoint(event: MouseEvent | TouchEvent): { x: number; y: number } | nu
 }
 
 export function useEdgeConnect({
-  isArchitect, isContext, isReconnecting, resolveTarget, onCreate, onInto,
+  isArchitect, isContext, isReconnecting, resolveTarget, onCreate, onInto, onExitUp,
 }: Params) {
   const enabled = isArchitect && !isContext;
   // id узла, от которого начато протягивание (null — протягивания нет)
@@ -81,6 +84,8 @@ export function useEdgeConnect({
   // lg-into-target вешаем прямо на DOM .react-flow__node (узлы во время драга не
   // перерисовываются, RF класс не затирает; снимаем по завершении).
   const targetElRef = useRef<HTMLElement | null>(null);
+  // плитка «вне уровня» под курсором (подсветка при наведении конца стрелки)
+  const bannerElRef = useRef<HTMLElement | null>(null);
   const rafRef = useRef<number | null>(null);
 
   const clearTarget = useCallback(() => {
@@ -90,9 +95,28 @@ export function useEdgeConnect({
     }
   }, []);
 
+  const clearBanner = useCallback(() => {
+    if (bannerElRef.current) {
+      bannerElRef.current.classList.remove("lg-exit-up--active");
+      bannerElRef.current = null;
+    }
+  }, []);
+
   const updateTarget = useCallback(
     (x: number, y: number) => {
       const el = document.elementFromPoint(x, y);
+      // Курсор над плиткой «вне уровня» — подсвечиваем её, подсветку узла снимаем.
+      const banner = el?.closest<HTMLElement>("[data-exit-up]") ?? null;
+      if (banner) {
+        clearTarget();
+        if (banner !== bannerElRef.current) {
+          clearBanner();
+          banner.classList.add("lg-exit-up--active");
+          bannerElRef.current = banner;
+        }
+        return;
+      }
+      clearBanner();
       const nodeEl = el?.closest<HTMLElement>(".react-flow__node") ?? null;
       const id = nodeEl?.getAttribute("data-id");
       // узел-источник не подсвечиваем — связь на самого себя не ведём
@@ -104,7 +128,7 @@ export function useEdgeConnect({
         targetElRef.current = next;
       }
     },
-    [clearTarget],
+    [clearTarget, clearBanner],
   );
 
   // pointermove частый — пересчёт цели троттлим по кадру
@@ -127,7 +151,8 @@ export function useEdgeConnect({
       rafRef.current = null;
     }
     clearTarget();
-  }, [handlePointerMove, clearTarget]);
+    clearBanner();
+  }, [handlePointerMove, clearTarget, clearBanner]);
 
   // размонтирование посреди драга — снять слушатель и подсветку
   useEffect(() => stopTracking, [stopTracking]);
@@ -191,6 +216,12 @@ export function useEdgeConnect({
       const pt = endPoint(event);
       if (!pt) return;
       const el = document.elementFromPoint(pt.x, pt.y);
+      // Отпустили на плитку «вне уровня» — выбор дальнего конца из всей схемы.
+      // Плитка перекрывает узлы (она выше по z-index), поэтому проверяем её первой.
+      if (el?.closest("[data-exit-up]")) {
+        onExitUp?.(source, sourceHandle);
+        return;
+      }
       const nodeEl = el?.closest<HTMLElement>(".react-flow__node");
       const targetId = nodeEl?.getAttribute("data-id");
       if (!targetId) return; // пустой холст — связь не создаём
@@ -206,7 +237,7 @@ export function useEdgeConnect({
         onCreate?.(source, targetId, sourceHandle, null);
       }
     },
-    [enabled, resolveTarget, onCreate, onInto, stopTracking],
+    [enabled, resolveTarget, onCreate, onInto, onExitUp, stopTracking],
   );
 
   return { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection };
