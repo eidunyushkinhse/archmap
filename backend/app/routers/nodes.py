@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
-from app.database import get_db
+from app.database import get_db, upsert
 from app.models.edge import Edge
 from app.models.edge_waypoint import EdgeWaypoint
 from app.models.ghost_edge_handle import GhostEdgeHandle
@@ -652,25 +652,12 @@ def save_ghost_position(
     if not db.get(Node, node_id):
         raise HTTPException(status_code=404, detail="Узел не найден")
 
-    row = (
-        db.query(GhostPosition)
-        .filter(
-            GhostPosition.container_id == container_id,
-            GhostPosition.node_id == node_id,
-        )
-        .one_or_none()
+    upsert(
+        db,
+        GhostPosition,
+        keys={"container_id": container_id, "node_id": node_id},
+        values={"pos_x": payload.pos_x, "pos_y": payload.pos_y},
     )
-    if row is None:
-        row = GhostPosition(
-            container_id=container_id,
-            node_id=node_id,
-            pos_x=payload.pos_x,
-            pos_y=payload.pos_y,
-        )
-        db.add(row)
-    else:
-        row.pos_x = payload.pos_x
-        row.pos_y = payload.pos_y
     db.commit()
 
 
@@ -698,25 +685,16 @@ def save_ghost_edge_handle(
     if not db.get(Node, payload.node_id):
         raise HTTPException(status_code=404, detail="Узел не найден")
 
-    row = (
-        db.query(GhostEdgeHandle)
-        .filter(
-            GhostEdgeHandle.container_id == container_id,
-            GhostEdgeHandle.edge_id == edge_id,
-            GhostEdgeHandle.node_id == payload.node_id,
-        )
-        .one_or_none()
+    upsert(
+        db,
+        GhostEdgeHandle,
+        keys={
+            "container_id": container_id,
+            "edge_id": edge_id,
+            "node_id": payload.node_id,
+        },
+        values={"handle": payload.handle},
     )
-    if row is None:
-        row = GhostEdgeHandle(
-            container_id=container_id,
-            edge_id=edge_id,
-            node_id=payload.node_id,
-            handle=payload.handle,
-        )
-        db.add(row)
-    else:
-        row.handle = payload.handle
     db.commit()
 
 
@@ -741,21 +719,25 @@ def save_edge_waypoints(
     if not db.get(Edge, edge_id):
         raise HTTPException(status_code=404, detail="Связь не найдена")
 
-    row = (
-        db.query(EdgeWaypoint)
-        .filter(
-            EdgeWaypoint.container_id == container_id,
-            EdgeWaypoint.edge_id == edge_id,
-        )
-        .one_or_none()
-    )
     data = [{"x": p.x, "y": p.y} for p in payload.waypoints]
     if not data:
-        # сброс: убираем строку, чтобы уровень вернулся к авто-маршруту
+        # Сброс в авто-маршрут — это удаление строки (нет строки = авто), не апсерт:
+        # находим существующую строку и убираем её.
+        row = (
+            db.query(EdgeWaypoint)
+            .filter(
+                EdgeWaypoint.container_id == container_id,
+                EdgeWaypoint.edge_id == edge_id,
+            )
+            .one_or_none()
+        )
         if row is not None:
             db.delete(row)
-    elif row is None:
-        db.add(EdgeWaypoint(container_id=container_id, edge_id=edge_id, waypoints=data))
     else:
-        row.waypoints = data
+        upsert(
+            db,
+            EdgeWaypoint,
+            keys={"container_id": container_id, "edge_id": edge_id},
+            values={"waypoints": data},
+        )
     db.commit()
