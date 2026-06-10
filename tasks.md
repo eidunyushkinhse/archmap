@@ -233,6 +233,30 @@
 - [ ] Multi-tenant
 
 Сделано
+- [x] Рефакторинг R5 (ruff + pre-commit, upsert, app/tree.py, мёртвый шаблон), 2026-06-10.
+        • ruff как линтер бэка: пин ruff 0.15.16 в requirements.txt + backend/
+          pyproject.toml (select E4/E7/E9/F/I/B/UP, ignore B008 — Depends-идиома
+          FastAPI, per-file E402 для alembic/env.py, exclude alembic/versions).
+          Чистка находок: сортировка импортов, TYPE_CHECKING для forward-ref
+          Node↔Edge (F821), raise … from None в auth (B904), снос неиспользуемых
+          биндингов с сохранением сайд-эффекта (F841). ruff check . — 0.
+        • pre-commit-гейт расширен: ruff перед pytest (бэк, fail-fast + guard
+          «venv есть, ruff нет → блок»), eslint между tsc и vitest (фронт).
+          Негативный тест: probe с F401 → хук блокирует (exit 1).
+        • Апсерт ON CONFLICT вместо select-then-write: хелпер app.database.upsert
+          (диалект-агностичный postgresql/sqlite), переведены 3 PUT в routers/
+          nodes.py (ghost-position, ghost-edge-handle, edge-waypoints — только
+          непустая ветка; []-сброс остаётся удалением строки). Атомарно, без
+          гонки дублей. +3 теста.
+        • app/tree.py: ancestors/node_depth/subtree_ids/collect_subtree_ids_db
+          собраны из дословных копий (замыкания _build_graph, локальные defs
+          get_node_context, _collect_subtree_ids). +4 теста (порядок предков,
+          глубина, инвариант in-memory == БД-обход). pytest 17→24.
+        • Снос мёртвого Vite-шаблона: src/App.css, src/assets/* (hero.png,
+          react.svg, vite.svg) — ноль ссылок. index.css/public/* не тронуты.
+        • Гейты: ruff 0, pytest 24, фронт-четвёрка (tsc -b/build/eslint 0/vitest
+          66), живой смоук на Postgres (ghost-position upsert, waypoints-сброс,
+          4 GET 200). Поведение и API-контракты не менялись (gen:api/spec не нужны).
 - [x] Рефакторинг R4 (диета LevelGraph + lint до нуля), 2026-06-10.
         • LevelGraph 959→810 строк: два доменных блока async-эффекта раскладки
           вынесены в graph/layout/* под юнит-тесты (как projectGhosts/engine):
