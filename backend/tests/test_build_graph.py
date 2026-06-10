@@ -10,7 +10,8 @@ import uuid
 from app.models.edge import Edge
 from app.models.ghost_position import GhostPosition
 from app.models.node import Node
-from app.routers.nodes import _build_graph, _collect_subtree_ids
+from app.routers.nodes import _build_graph
+from app.tree import collect_subtree_ids_db
 
 
 def _node(db, name, parent=None):
@@ -39,14 +40,14 @@ def test_collect_subtree_ids_returns_node_and_all_descendants(db):
     _node(db, "B1", b)
     db.commit()
 
-    ids = _collect_subtree_ids(db, a.id)
+    ids = collect_subtree_ids_db(db, a.id)
     assert ids == {a.id, a1.id, a1a.id}
 
 
 def test_collect_subtree_ids_leaf(db):
     a = _node(db, "A")
     db.commit()
-    assert _collect_subtree_ids(db, a.id) == {a.id}
+    assert collect_subtree_ids_db(db, a.id) == {a.id}
 
 
 # =================== _build_graph: проекция сквозных рёбер ===================

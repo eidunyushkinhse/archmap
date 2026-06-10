@@ -1,9 +1,9 @@
 import uuid
-from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app import tree
 from app.auth import get_current_user, require_architect
 from app.database import get_db, upsert
 from app.models.edge import Edge
@@ -15,7 +15,6 @@ from app.models.user import User
 from app.schemas.edge import Point
 from app.schemas.node import (
     AlertsResponse,
-    AncestorRef,
     DisconnectedNodeAlert,
     EdgeWaypointsUpdate,
     GhostEdgeHandleUpdate,
@@ -50,26 +49,6 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
     }
     for n in nodes:
         n.has_children = n.id in parents_with_children
-
-
-def _collect_subtree_ids(db: Session, root_id: uuid.UUID) -> set[uuid.UUID]:
-    """id всего поддерева: сам узел + все потомки на любой глубине.
-    Обход по уровням через parent_id (один запрос на уровень)."""
-    ids: set[uuid.UUID] = {root_id}
-    frontier = [root_id]
-    while frontier:
-        kids = [
-            kid
-            for (kid,) in db.query(Node.id)
-            .filter(Node.parent_id.in_(frontier))
-            .all()
-        ]
-        kids = [k for k in kids if k not in ids]
-        if not kids:
-            break
-        ids.update(kids)
-        frontier = kids
-    return ids
 
 
 def _build_graph(
@@ -137,28 +116,6 @@ def _build_graph(
         if tgt_ghost:
             ghost_ids.add(eff_tgt)
 
-    def node_depth(node_id: uuid.UUID) -> int:
-        depth = 0
-        current = all_nodes.get(node_id)
-        while current and current.parent_id is not None:
-            depth += 1
-            current = all_nodes.get(current.parent_id)
-        return depth
-
-    def ancestors(node_id: uuid.UUID) -> list[AncestorRef]:
-        """Цепочка предков узла, корень → непосредственный родитель."""
-        chain: list[AncestorRef] = []
-        current = all_nodes.get(node_id)
-        parent_id = current.parent_id if current else None
-        while parent_id is not None:
-            parent = all_nodes.get(parent_id)
-            if parent is None:
-                break
-            chain.append(AncestorRef(id=parent.id, name=parent.name))
-            parent_id = parent.parent_id
-        chain.reverse()  # корень → непосредственный родитель
-        return chain
-
     # Сохранённые координаты гостей на этом уровне.
     # Гости бывают только на не-корневых уровнях (container_id не None).
     #
@@ -173,10 +130,10 @@ def _build_graph(
     level_edge_waypoints: dict[str, list[Point]] = {}
     saved_pos: dict[uuid.UUID, GhostPosition] = {}
     if container_id is not None:
-        breadcrumb_ids = {a.id for a in ancestors(container_id)} | {container_id}
+        breadcrumb_ids = {a.id for a in tree.ancestors(all_nodes, container_id)} | {container_id}
         valid_keys: set[uuid.UUID] = set(ghost_ids)
         for gid in ghost_ids:
-            for a in ancestors(gid):
+            for a in tree.ancestors(all_nodes, gid):
                 if a.id not in breadcrumb_ids:
                     valid_keys.add(a.id)
 
@@ -238,8 +195,8 @@ def _build_graph(
             technology=all_nodes[gid].technology,
             is_external=all_nodes[gid].is_external,
             shape=all_nodes[gid].shape,
-            node_depth=node_depth(gid),
-            ancestors=ancestors(gid),
+            node_depth=tree.node_depth(all_nodes, gid),
+            ancestors=tree.ancestors(all_nodes, gid),
             pos_x=saved_pos[gid].pos_x if gid in saved_pos else None,
             pos_y=saved_pos[gid].pos_y if gid in saved_pos else None,
         )
@@ -451,7 +408,7 @@ def get_descendants(
     node = db.get(Node, node_id)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
-    subtree_ids = _collect_subtree_ids(db, node_id) - {node_id}
+    subtree_ids = tree.collect_subtree_ids_db(db, node_id) - {node_id}
     if not subtree_ids:
         return []
     descendants = db.query(Node).filter(Node.id.in_(subtree_ids)).all()
@@ -474,7 +431,7 @@ def get_node_edges(
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
 
-    subtree = _collect_subtree_ids(db, node_id)
+    subtree = tree.collect_subtree_ids_db(db, node_id)
     edges = (
         db.query(Edge)
         .filter(Edge.source_id.in_(subtree) | Edge.target_id.in_(subtree))
@@ -542,43 +499,8 @@ def get_node_context(
     all_nodes = {n.id: n for n in db.query(Node).all()}
     all_edges = db.query(Edge).all()
 
-    # Карта детей для обхода поддерева
-    children: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
-    for n in all_nodes.values():
-        if n.parent_id is not None:
-            children[n.parent_id].append(n.id)
-
-    # Поддерево фокуса = он сам + все потомки
-    subtree: set[uuid.UUID] = set()
-    stack = [focus.id]
-    while stack:
-        cur = stack.pop()
-        if cur in subtree:
-            continue
-        subtree.add(cur)
-        stack.extend(children.get(cur, []))
-
-    def ancestors_of(nid: uuid.UUID) -> list[AncestorRef]:
-        """Цепочка предков узла, корень → непосредственный родитель."""
-        chain: list[AncestorRef] = []
-        cur = all_nodes.get(nid)
-        pid = cur.parent_id if cur else None
-        while pid is not None:
-            parent = all_nodes.get(pid)
-            if parent is None:
-                break
-            chain.append(AncestorRef(id=parent.id, name=parent.name))
-            pid = parent.parent_id
-        chain.reverse()
-        return chain
-
-    def depth_of(nid: uuid.UUID) -> int:
-        depth = 0
-        cur = all_nodes.get(nid)
-        while cur and cur.parent_id is not None:
-            depth += 1
-            cur = all_nodes.get(cur.parent_id)
-        return depth
+    # Поддерево фокуса = он сам + все потомки (карта всех узлов уже на руках).
+    subtree = tree.subtree_ids(all_nodes, focus.id)
 
     result_edges: list[GraphEdgeResponse] = []
     neighbor_ids: set[uuid.UUID] = set()
@@ -619,8 +541,8 @@ def get_node_context(
             technology=all_nodes[nid].technology,
             is_external=all_nodes[nid].is_external,
             shape=all_nodes[nid].shape,
-            node_depth=depth_of(nid),
-            ancestors=ancestors_of(nid),
+            node_depth=tree.node_depth(all_nodes, nid),
+            ancestors=tree.ancestors(all_nodes, nid),
             pos_x=None,
             pos_y=None,
         )
@@ -629,7 +551,7 @@ def get_node_context(
     _mark_has_children(db, [focus])
     return NodeContextResponse(
         focus=focus,
-        focus_ancestors=ancestors_of(focus.id),
+        focus_ancestors=tree.ancestors(all_nodes, focus.id),
         neighbors=neighbors,
         edges=result_edges,
     )
