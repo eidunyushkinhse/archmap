@@ -5,6 +5,7 @@ import type { Node, NodeContext, Edge as AppEdge } from "../types";
 import LevelGraph from "./LevelGraph";
 import EdgeDetailModal from "./EdgeDetailModal";
 import EdgeChoiceModal from "./EdgeChoiceModal";
+import Modal from "../ui/Modal";
 
 interface Props {
   node: Node;
@@ -76,41 +77,45 @@ export default function NodeContextModal({ node, onClose }: Props) {
   const noNeighbors = !!ctx && ctx.neighbors.length === 0;
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={modal} onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} style={closeBtn}>✕</button>
-        <h2 style={{ margin: "0 0 2px" }}>{node.name}</h2>
-        <p style={sub}>Контекстная схема — узел и его прямые соседи</p>
-        {!loading && !error && noNeighbors && (
-          <p style={emptyHint}>У этого узла нет внешних связей — показан только сам узел.</p>
-        )}
+    <Modal
+      onClose={onClose}
+      closeOnBackdrop
+      boxStyle={{ width: "min(1100px, 94vw)", padding: 24, display: "flex", flexDirection: "column" }}
+    >
+      <h2 style={{ margin: "0 0 2px" }}>{node.name}</h2>
+      <p style={sub}>Контекстная схема — узел и его прямые соседи</p>
+      {!loading && !error && noNeighbors && (
+        <p style={emptyHint}>У этого узла нет внешних связей — показан только сам узел.</p>
+      )}
 
-        <div style={graphWrap}>
-          {loading ? (
-            <p style={hint}>Загрузка…</p>
-          ) : error ? (
-            <p style={{ ...hint, color: "#dc2626" }}>{error}</p>
-          ) : ctx ? (
-            <LevelGraph
-              nodes={focusNodes}
-              ghostNodes={ctx.neighbors}
-              levelPositions={EMPTY_LEVEL_POSITIONS}
-              edges={edges}
-              depth={ctx.focus_ancestors.length}
-              containerId={ctx.focus.parent_id}
-              ancestorNames={ctx.focus_ancestors.map((a) => a.name)}
-              ancestorIds={ctx.focus_ancestors.map((a) => a.id)}
-              isArchitect={false}
-              onDrillDown={() => {}}
-              onEditNode={() => {}}
-              onEdgeClick={(e) => setEdgeDetail(e)}
-              onEdgesChoice={(g) => setEdgeChoice(g)}
-              mode="context"
-            />
-          ) : null}
-        </div>
+      <div style={graphWrap}>
+        {loading ? (
+          <p style={hint}>Загрузка…</p>
+        ) : error ? (
+          <p style={{ ...hint, color: "#dc2626" }}>{error}</p>
+        ) : ctx ? (
+          <LevelGraph
+            nodes={focusNodes}
+            ghostNodes={ctx.neighbors}
+            levelPositions={EMPTY_LEVEL_POSITIONS}
+            edges={edges}
+            depth={ctx.focus_ancestors.length}
+            containerId={ctx.focus.parent_id}
+            ancestorNames={ctx.focus_ancestors.map((a) => a.name)}
+            ancestorIds={ctx.focus_ancestors.map((a) => a.id)}
+            isArchitect={false}
+            onDrillDown={() => {}}
+            onEditNode={() => {}}
+            onEdgeClick={(e) => setEdgeDetail(e)}
+            onEdgesChoice={(g) => setEdgeChoice(g)}
+            mode="context"
+          />
+        ) : null}
       </div>
 
+      {/* Детали/выбор связи — отдельные <dialog> поверх (top-layer). Их клики
+          больше не всплывают на подложку контекста (закрытие по подложке ловит
+          только клик ровно по самому контекст-диалогу — см. Modal). */}
       {edgeDetail && (
         <EdgeDetailModal
           edge={edgeDetail}
@@ -131,39 +136,10 @@ export default function NodeContextModal({ node, onClose }: Props) {
           onClose={() => setEdgeChoice(null)}
         />
       )}
-    </div>
+    </Modal>
   );
 }
 
-const overlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 1000,
-};
-const modal: CSSProperties = {
-  background: "#fff",
-  borderRadius: 10,
-  padding: 24,
-  width: "min(1100px, 94vw)",
-  position: "relative",
-  boxShadow: "0 8px 32px rgba(0,0,0,.18)",
-  display: "flex",
-  flexDirection: "column",
-};
-const closeBtn: CSSProperties = {
-  position: "absolute",
-  top: 14,
-  right: 14,
-  border: "none",
-  background: "none",
-  fontSize: 18,
-  cursor: "pointer",
-  color: "#6b7280",
-};
 const sub: CSSProperties = {
   margin: "0 0 12px",
   fontSize: 13,
