@@ -1,9 +1,14 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.schemas.edge import Point
+
+# C4-формы узла. Источник правды контракта — этот Literal; фронтовый NodeShape
+# генерируется из него (openapi-typescript). Заодно серверная валидация shape.
+NodeShape = Literal["service", "database", "broker", "person"]
 
 
 class NodeCreate(BaseModel):
@@ -15,7 +20,7 @@ class NodeCreate(BaseModel):
     flowchart: str | None = None
     openapi_spec: str | None = None
     is_external: bool = False
-    shape: str = "service"
+    shape: NodeShape = "service"
     # Координаты раскладки: проставляются при создании узла перетаскиванием
     # шаблона из боковой панели на схему (узел появляется там, где его бросили)
     pos_x: float | None = None
@@ -33,7 +38,7 @@ class NodeUpdate(BaseModel):
     pos_x: float | None = None
     pos_y: float | None = None
     is_external: bool | None = None
-    shape: str | None = None
+    shape: NodeShape | None = None
 
 
 class NodeResponse(BaseModel):
@@ -48,7 +53,7 @@ class NodeResponse(BaseModel):
     pos_x: float | None
     pos_y: float | None
     is_external: bool
-    shape: str
+    shape: NodeShape
     # Вычисляемый флаг: есть ли у узла дочерние узлы (для дерева в UI).
     # Проставляется в роутере, в БД не хранится.
     has_children: bool = False
@@ -69,7 +74,7 @@ class GhostNodeResponse(BaseModel):
     role: str | None
     technology: str | None
     is_external: bool
-    shape: str
+    shape: NodeShape
     node_depth: int
     # цепочка предков гостя (корень → непосредственный родитель) —
     # для вложенных рамок-контейнеров на схеме уровня
@@ -77,7 +82,7 @@ class GhostNodeResponse(BaseModel):
     # сохранённые координаты гостя на текущем уровне (null — ещё не двигали)
     pos_x: float | None = None
     pos_y: float | None = None
-    is_ghost: bool = True
+    is_ghost: Literal[True] = True
 
     model_config = {"from_attributes": True}
 
@@ -161,7 +166,7 @@ class NodeEdgeInfo(BaseModel):
     label: str | None
     technology: str | None
     # "outgoing" — связь идёт ОТ удаляемого узла; "incoming" — К нему
-    direction: str
+    direction: Literal["outgoing", "incoming"]
     other_node_id: uuid.UUID
     other_node_name: str
 
