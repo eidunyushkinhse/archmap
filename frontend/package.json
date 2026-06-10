@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:api": "(cd ../backend && venv/bin/python -c \"from app.main import app; import json,sys; json.dump(app.openapi(), sys.stdout)\") | openapi-typescript /dev/stdin -o src/types/api.gen.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.10.2",
@@ -16,6 +17,12 @@
     "mermaid": "^11.15.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
+  },
+  "comment:overrides": "openapi-typescript ещё держит peer typescript ^5.x; проект на TS 6 (bleeding-edge). Сужаем peer этого dev-тула до нашей версии — узко, без глобального legacy-peer-deps. Генерат работает с TS 6 (проверено tsc -b).",
+  "overrides": {
+    "openapi-typescript": {
+      "typescript": "$typescript"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -28,6 +35,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
     "jsdom": "^29.1.1",
+    "openapi-typescript": "^7.13.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",
