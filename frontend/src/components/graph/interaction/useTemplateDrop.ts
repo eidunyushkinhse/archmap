@@ -34,6 +34,7 @@ export function useTemplateDrop({
   // Убираем превью и направляющие.
   useEffect(() => {
     if (!dragShape) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс превью по завершении драга — синхронизация с внешним событием; updater с noop-guard минимизирует рендеры
       setDropPreview((p) => (p === null ? p : null));
       clearGuides();
     }

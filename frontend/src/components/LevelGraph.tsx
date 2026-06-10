@@ -197,6 +197,7 @@ function LevelGraphInner({
   // центрируем дефолтную раскладку детей: раскрытая рамка встаёт туда же, где
   // стоял свёрнутый узел (детям без ручных координат). Эфемерно, как expanded.
   const expandOrigins = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс expand-состояния на смену уровня — осознанный reset-on-prop-change; паттерн prev-в-рендере здесь запрещён сестринским правилом react-hooks/refs (expandOrigins.current.clear() в рендере)
   useEffect(() => { setExpanded(new Set()); expandOrigins.current.clear(); }, [containerId]);
 
   const expandContainer = useCallback((id: string) => {
@@ -311,7 +312,13 @@ function LevelGraphInner({
   );
 
   const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers });
-  cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers };
+  // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
+  // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
+  // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
+  // ноль: и события узлов, и эффекты исполняются после рендера.
+  useEffect(() => {
+    cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers };
+  });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
   // багов «правка одного ломала соседа»). Зависит ТОЛЬКО от данных. Этапы: проекция

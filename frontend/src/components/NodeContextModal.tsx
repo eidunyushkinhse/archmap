@@ -25,27 +25,38 @@ const EMPTY_LEVEL_POSITIONS: Record<string, { pos_x: number; pos_y: number }> = 
  * связи кликабельны только на просмотр деталей.
  */
 export default function NodeContextModal({ node, onClose }: Props) {
-  const [ctx, setCtx] = useState<NodeContext | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Контекст грузим в ОДИН стейт с привязкой к узлу: forNodeId фиксирует, для какого
+  // node.id получен результат. Эффект ТОЛЬКО фетчит и пишет в async-колбэке (без
+  // синхронных setState-зеркал на входе — их и ловил set-state-in-effect). loading/
+  // ctx/error — производные в рендере: при смене node.id `current` сам становится null
+  // (forNodeId ещё старый) → loading, без эффекта-сброса. Сохраняет сценарий смены
+  // node.id при уже открытой модалке.
+  const [state, setState] = useState<{ forNodeId: string; ctx?: NodeContext; error?: string } | null>(null);
   // просмотр деталей связи (и выбор из «мастер-стрелки»)
   const [edgeDetail, setEdgeDetail] = useState<AppEdge | null>(null);
   const [edgeChoice, setEdgeChoice] = useState<AppEdge[] | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setError(null);
-    setCtx(null);
     nodesApi
       .getContext(node.id)
-      .then((c) => { if (alive) setCtx(c); })
+      .then((c) => { if (alive) setState({ forNodeId: node.id, ctx: c }); })
       .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : "Не удалось загрузить контекст");
-      })
-      .finally(() => { if (alive) setLoading(false); });
+        if (alive) {
+          setState({
+            forNodeId: node.id,
+            error: e instanceof Error ? e.message : "Не удалось загрузить контекст",
+          });
+        }
+      });
     return () => { alive = false; };
   }, [node.id]);
+
+  // Производные от стейта: результат «своего» узла или null (идёт загрузка / устарел).
+  const current = state?.forNodeId === node.id ? state : null;
+  const loading = current === null;
+  const ctx = current?.ctx ?? null;
+  const error = current?.error ?? null;
 
   // Рёбра контекста → формат, который ждёт LevelGraph (концы уже спроецированы).
   // Мемоизируем по ctx: пропсы LevelGraph — зависимости async-эффекта раскладки,

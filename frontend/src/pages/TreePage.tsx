@@ -129,6 +129,7 @@ export default function TreePage({ onLogout }: Props) {
     }
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- первичная загрузка при маунте; load() синхронно зовётся и из навигации, в deps зациклил бы эффект
   useEffect(() => { load(null); }, []);
 
   function drillDown(node: Node) {

@@ -23,15 +23,12 @@ export default function NodeSearchPicker({
     value ? { id: value, label: initialLabel ?? value } : null,
   );
 
+  // Дебаунс-поиск: при пустом query результаты НЕ трогаем (показ — производный
+  // `shown` ниже), эффект только фетчит. Пустой query невозможен «извне»: компонент
+  // используется лишь в EdgeDetailModal с value-UUID существующей связи, а очистку
+  // (clear) сам же зануляет локально — поэтому зеркалящего value→selected эффекта нет.
   useEffect(() => {
-    if (!value) setSelected(null);
-  }, [value]);
-
-  useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
-    }
+    if (!query.trim()) return;
     const timer = setTimeout(async () => {
       try {
         const data = await nodesApi.search(query);
@@ -42,6 +39,9 @@ export default function NodeSearchPicker({
     }, 300);
     return () => clearTimeout(timer);
   }, [query]);
+
+  // Что показываем в дропдауне: при пустом query — ничего (производное, не стейт).
+  const shown = query.trim() ? results : [];
 
   function select(node: Node) {
     const label = node.name + (node.role ? ` (${node.role})` : "");
@@ -74,9 +74,9 @@ export default function NodeSearchPicker({
         style={input}
         autoFocus
       />
-      {results.length > 0 && (
+      {shown.length > 0 && (
         <div style={dropdown}>
-          {results.map((n) => (
+          {shown.map((n) => (
             <div key={n.id} onClick={() => select(n)} style={dropdownItem}>
               {n.name}
               {n.role && <span style={{ color: "#6b7280", marginLeft: 6, fontSize: 12 }}>({n.role})</span>}
