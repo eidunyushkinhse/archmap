@@ -25,16 +25,28 @@ export default function ConnectionLine({
   return (
     <g>
       <defs>
+        {/* Точная копия маркера MarkerType.ArrowClosed из React Flow (см. LevelGraph),
+            чтобы наконечник превью совпал по размеру со статичной стрелкой: те же viewBox,
+            размеры и markerUnits="strokeWidth" — наконечник масштабируется от strokeWidth
+            линии (у обоих 1.5), а не фиксирован в пикселях. */}
         <marker
           id="lg-conn-arrow"
-          markerWidth="12"
-          markerHeight="12"
-          refX="8"
-          refY="5"
+          markerWidth="12.5"
+          markerHeight="12.5"
+          viewBox="-10 -10 20 20"
+          refX="0"
+          refY="0"
           orient="auto-start-reverse"
-          markerUnits="userSpaceOnUse"
+          markerUnits="strokeWidth"
         >
-          <path d="M0,0 L9,5 L0,10 z" fill={COLOR} />
+          <polyline
+            points="-5,-4 0,0 -5,4 -5,-4"
+            stroke={COLOR}
+            fill={COLOR}
+            strokeWidth="1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </marker>
       </defs>
       <path
