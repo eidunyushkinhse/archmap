@@ -585,6 +585,10 @@ export interface components {
              * Format: uuid
              */
             original_target_id: string;
+            /** Original Source Name */
+            original_source_name: string;
+            /** Original Target Name */
+            original_target_name: string;
             /** Source Handle */
             source_handle: string | null;
             /** Target Handle */

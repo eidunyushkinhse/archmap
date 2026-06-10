@@ -29,6 +29,21 @@ export type EdgeCreate = Schemas["EdgeCreate"];
 export type AncestorRef = Schemas["AncestorRef"];
 export type GhostNode = Schemas["GhostNodeResponse"];
 export type GraphEdge = Schemas["GraphEdgeResponse"];
+
+// Ребро в стейте уровня/контекста: контрактное EdgeResponse (его source_id/target_id —
+// ЭФФЕКТИВНЫЕ, спроецированные на уровень концы, нужные раскладке) плюс РЕАЛЬНЫЕ концы
+// ребра (original_*), которые граф-эндпоинт отдаёт отдельно. Реальные концы и их имена
+// нужны модалке деталей связи, чтобы показывать/править настоящие узлы, а не их проекцию
+// (на верхнем уровне дочерний узел B сворачивается в контейнер C — раскладке нужен C,
+// а модалке — B).
+export type LevelEdge = Edge &
+  Pick<
+    GraphEdge,
+    | "original_source_id"
+    | "original_target_id"
+    | "original_source_name"
+    | "original_target_name"
+  >;
 export type GraphResponse = Schemas["GraphResponse"];
 export type NodeContext = Schemas["NodeContextResponse"];
 export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];

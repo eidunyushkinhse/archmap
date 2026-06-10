@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
-import type { Node, NodeContext, Edge as AppEdge } from "../types";
+import type { Node, NodeContext, LevelEdge } from "../types";
 import LevelGraph from "./LevelGraph";
 import EdgeDetailModal from "./EdgeDetailModal";
 import EdgeChoiceModal from "./EdgeChoiceModal";
@@ -33,8 +33,8 @@ export default function NodeContextModal({ node, onClose }: Props) {
   // node.id при уже открытой модалке.
   const [state, setState] = useState<{ forNodeId: string; ctx?: NodeContext; error?: string } | null>(null);
   // просмотр деталей связи (и выбор из «мастер-стрелки»)
-  const [edgeDetail, setEdgeDetail] = useState<AppEdge | null>(null);
-  const [edgeChoice, setEdgeChoice] = useState<AppEdge[] | null>(null);
+  const [edgeDetail, setEdgeDetail] = useState<LevelEdge | null>(null);
+  const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -61,7 +61,7 @@ export default function NodeContextModal({ node, onClose }: Props) {
   // Рёбра контекста → формат, который ждёт LevelGraph (концы уже спроецированы).
   // Мемоизируем по ctx: пропсы LevelGraph — зависимости async-эффекта раскладки,
   // новая ссылка на каждый рендер модалки гоняла бы раскладку зря (мигание).
-  const edges: AppEdge[] = useMemo(
+  const edges: LevelEdge[] = useMemo(
     () =>
       (ctx?.edges ?? []).map((ge) => ({
         id: ge.id,
@@ -69,12 +69,22 @@ export default function NodeContextModal({ node, onClose }: Props) {
         technology: ge.technology,
         source_id: ge.source_id,
         target_id: ge.target_id,
+        // реальные концы ребра — модалка деталей показывает их, а не проекцию на фокус
+        original_source_id: ge.original_source_id,
+        original_target_id: ge.original_target_id,
+        original_source_name: ge.original_source_name,
+        original_target_name: ge.original_target_name,
         source_handle: ge.source_handle,
         target_handle: ge.target_handle,
         created_at: "",
       })),
     [ctx],
   );
+
+  // Полное ребро контекста по id — LevelGraph в колбэках сужает тип до Edge (без
+  // original_*); восстанавливаем из мемо (тот же объект) для модалки деталей.
+  const findEdge = (id: string): LevelEdge | null =>
+    edges.find((e) => e.id === id) ?? null;
 
   // Фокус-узел стабильной ссылкой (тоже вход раскладки)
   const focusNodes = useMemo(() => (ctx ? [ctx.focus] : []), [ctx]);
@@ -118,8 +128,12 @@ export default function NodeContextModal({ node, onClose }: Props) {
             isArchitect={false}
             onDrillDown={() => {}}
             onEditNode={() => {}}
-            onEdgeClick={(e) => setEdgeDetail(e)}
-            onEdgesChoice={(g) => setEdgeChoice(g)}
+            onEdgeClick={(e) => setEdgeDetail(findEdge(e.id))}
+            onEdgesChoice={(g) =>
+              setEdgeChoice(
+                g.map((m) => findEdge(m.id)).filter((e): e is LevelEdge => e != null),
+              )
+            }
             mode="context"
           />
         ) : null}
@@ -134,8 +148,10 @@ export default function NodeContextModal({ node, onClose }: Props) {
       {edgeDetail && (
         <EdgeDetailModal
           edge={edgeDetail}
-          sourceLabel={labelOf(edgeDetail.source_id)}
-          targetLabel={labelOf(edgeDetail.target_id)}
+          sourceId={edgeDetail.original_source_id}
+          targetId={edgeDetail.original_target_id}
+          sourceLabel={edgeDetail.original_source_name}
+          targetLabel={edgeDetail.original_target_name}
           isArchitect={false}
           onClose={() => setEdgeDetail(null)}
           onDeleted={() => setEdgeDetail(null)}

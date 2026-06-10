@@ -8,6 +8,12 @@ import { labelStyle, input, primaryBtn, secondaryBtn, dangerBtnSoft } from "../u
 
 interface Props {
   edge: Edge;
+  // РЕАЛЬНЫЕ концы связи (original_*), а не их проекция на уровень: на верхнем
+  // уровне дочерний узел сворачивается в контейнер, но модалка обязана показывать
+  // и править настоящий узел-конец, иначе правка любого поля затирала бы концы
+  // спроецированными значениями.
+  sourceId: string;
+  targetId: string;
   sourceLabel: string;
   targetLabel: string;
   isArchitect: boolean;
@@ -18,6 +24,8 @@ interface Props {
 
 export default function EdgeDetailModal({
   edge,
+  sourceId: initialSourceId,
+  targetId: initialTargetId,
   sourceLabel,
   targetLabel,
   isArchitect,
@@ -29,9 +37,10 @@ export default function EdgeDetailModal({
   // Локальные значения отображаемых полей (обновляются после сохранения)
   const [labelText, setLabelText] = useState(edge.label ?? "");
   const [technology, setTechnology] = useState(edge.technology ?? "");
-  // Концы связи: id для сохранения + подписи для отображения
-  const [sourceId, setSourceId] = useState(edge.source_id);
-  const [targetId, setTargetId] = useState(edge.target_id);
+  // Концы связи: id для сохранения + подписи для отображения. Стартуют с РЕАЛЬНЫХ
+  // концов (original_*), поэтому сохранение без правки пикеров идемпотентно.
+  const [sourceId, setSourceId] = useState(initialSourceId);
+  const [targetId, setTargetId] = useState(initialTargetId);
   const [srcLabel, setSrcLabel] = useState(sourceLabel);
   const [tgtLabel, setTgtLabel] = useState(targetLabel);
   const [deleting, setDeleting] = useState(false);

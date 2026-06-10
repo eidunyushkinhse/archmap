@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { Edge, EdgePoint, GhostNode, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
+import type { Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
 import EdgeIntoPicker from "../components/EdgeIntoPicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
@@ -36,7 +36,7 @@ export default function TreePage({ onLogout }: Props) {
   const [levelEdgeWaypoints, setLevelEdgeWaypoints] = useState<
     Record<string, EdgePoint[]>
   >({});
-  const [edges, setEdges] = useState<Edge[]>([]);
+  const [edges, setEdges] = useState<LevelEdge[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<Node[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -67,9 +67,9 @@ export default function TreePage({ onLogout }: Props) {
     sourceHandle: string | null;
     targetHandle: string | null;
   } | null>(null);
-  const [edgeDetailModal, setEdgeDetailModal] = useState<Edge | null>(null);
+  const [edgeDetailModal, setEdgeDetailModal] = useState<LevelEdge | null>(null);
   // выбор связи из «мастер-стрелки» (несколько слитых связей одного направления)
-  const [edgeChoice, setEdgeChoice] = useState<Edge[] | null>(null);
+  const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
   // узел, для которого открыта контекстная схема (клик по дереву слева)
   const [contextNode, setContextNode] = useState<Node | null>(null);
   // узел, который удаляют с канваса по Backspace/Delete → подтверждение со связями
@@ -105,6 +105,11 @@ export default function TreePage({ onLogout }: Props) {
           technology: ge.technology,
           source_id: ge.source_id,
           target_id: ge.target_id,
+          // реальные концы ребра — нужны модалке деталей (см. LevelEdge)
+          original_source_id: ge.original_source_id,
+          original_target_id: ge.original_target_id,
+          original_source_name: ge.original_source_name,
+          original_target_name: ge.original_target_name,
           source_handle: ge.source_handle,
           target_handle: ge.target_handle,
           waypoints: ge.waypoints,
@@ -288,6 +293,12 @@ export default function TreePage({ onLogout }: Props) {
     setNodeModal({ open: true, node: null, shape, pos });
   }
 
+  // Полное ребро уровня по id — LevelGraph отдаёт в колбэках суженный до Edge тип
+  // (без original_*), а модалке деталей нужны реальные концы. Это тот же объект из
+  // стейта (LevelGraph искал его в том же массиве), просто восстанавливаем тип.
+  const findLevelEdge = (id: string): LevelEdge | null =>
+    edges.find((e) => e.id === id) ?? null;
+
   const findNodeLabel = (id: string): string =>
     nodes.find((n) => n.id === id)?.name ??
     ghostNodes.find((g) => g.id === id)?.name ??
@@ -372,8 +383,14 @@ export default function TreePage({ onLogout }: Props) {
               isArchitect={isArchitect}
               onDrillDown={drillDown}
               onEditNode={(node) => setNodeModal({ open: true, node })}
-              onEdgeClick={(edge) => setEdgeDetailModal(edge)}
-              onEdgesChoice={(group) => setEdgeChoice(group)}
+              onEdgeClick={(edge) => setEdgeDetailModal(findLevelEdge(edge.id))}
+              onEdgesChoice={(group) =>
+                setEdgeChoice(
+                  group
+                    .map((g) => findLevelEdge(g.id))
+                    .filter((e): e is LevelEdge => e != null),
+                )
+              }
               onEdgeHandlesChanged={updateEdgeHandles}
               onEdgeWaypointsChanged={updateEdgeWaypoints}
               onLevelEdgeWaypointsChanged={updateLevelEdgeWaypoints}
@@ -434,8 +451,10 @@ export default function TreePage({ onLogout }: Props) {
       {edgeDetailModal && (
         <EdgeDetailModal
           edge={edgeDetailModal}
-          sourceLabel={findNodeLabel(edgeDetailModal.source_id)}
-          targetLabel={findNodeLabel(edgeDetailModal.target_id)}
+          sourceId={edgeDetailModal.original_source_id}
+          targetId={edgeDetailModal.original_target_id}
+          sourceLabel={edgeDetailModal.original_source_name}
+          targetLabel={edgeDetailModal.original_target_name}
           isArchitect={isArchitect}
           onClose={() => setEdgeDetailModal(null)}
           onDeleted={handleEdgeDeleted}

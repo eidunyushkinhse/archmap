@@ -2,11 +2,13 @@ import type { CSSProperties } from "react";
 import type { Edge } from "../types";
 import Modal from "../ui/Modal";
 
-interface Props {
-  edges: Edge[];
+// Дженерик по типу ребра: onPick возвращает РОВНО тот объект, что пришёл в edges
+// (с original_* полями), не теряя их в типе при сужении до базового Edge.
+interface Props<E extends Edge> {
+  edges: E[];
   sourceLabel: string;
   targetLabel: string;
-  onPick: (edge: Edge) => void;
+  onPick: (edge: E) => void;
   onClose: () => void;
 }
 
@@ -15,13 +17,13 @@ function edgeText(e: Edge): string {
   return [e.label, e.technology].filter(Boolean).join(" · ") || "связь";
 }
 
-export default function EdgeChoiceModal({
+export default function EdgeChoiceModal<E extends Edge>({
   edges,
   sourceLabel,
   targetLabel,
   onPick,
   onClose,
-}: Props) {
+}: Props<E>) {
   return (
     <Modal onClose={onClose} boxStyle={{ width: 420, maxHeight: "80vh", overflowY: "auto" }}>
       <h2 style={{ margin: "0 0 6px" }}>Выберите связь</h2>

@@ -115,6 +115,10 @@ class GraphEdgeResponse(BaseModel):
     # исходные концы ребра (реальные узлы, могут быть с другого уровня)
     original_source_id: uuid.UUID
     original_target_id: uuid.UUID
+    # имена реальных концов — фронт показывает их в модалке деталей связи
+    # (проекция на уровень может скрыть настоящий узел внутри контейнера)
+    original_source_name: str
+    original_target_name: str
     # сохранённые хэндлы точек стыковки
     source_handle: str | None
     target_handle: str | None

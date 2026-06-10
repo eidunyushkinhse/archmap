@@ -105,6 +105,8 @@ def _build_graph(
                 target_id=eff_tgt,
                 original_source_id=edge.source_id,
                 original_target_id=edge.target_id,
+                original_source_name=all_nodes[edge.source_id].name,
+                original_target_name=all_nodes[edge.target_id].name,
                 source_handle=edge.source_handle,
                 target_handle=edge.target_handle,
                 waypoints=edge.waypoints,
@@ -528,6 +530,8 @@ def get_node_context(
                 target_id=tgt,
                 original_source_id=e.source_id,
                 original_target_id=e.target_id,
+                original_source_name=all_nodes[e.source_id].name,
+                original_target_name=all_nodes[e.target_id].name,
                 source_handle=e.source_handle,
                 target_handle=e.target_handle,
             )

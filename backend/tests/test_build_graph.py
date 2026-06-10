@@ -72,6 +72,12 @@ def test_deep_edge_projects_up_to_roots_at_root_level(db):
     assert len(graph.edges) == 1
     assert graph.edges[0].source_id == a.id
     assert graph.edges[0].target_id == b.id
+    # проекция меняет ЭФФЕКТИВНЫЕ концы (a/b), но реальные концы и их имена —
+    # настоящие глубокие листы A1/B1: их показывает модалка деталей связи.
+    assert graph.edges[0].original_source_id == a1.id
+    assert graph.edges[0].original_target_id == b1.id
+    assert graph.edges[0].original_source_name == "A1"
+    assert graph.edges[0].original_target_name == "B1"
     # на корне внешних узлов нет — гостей не образуется
     assert graph.ghost_nodes == []
 
