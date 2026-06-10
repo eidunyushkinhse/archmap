@@ -3,7 +3,8 @@ from datetime import datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from passlib.context import CryptContext
+from pwdlib import PasswordHash
+from pwdlib.hashers.bcrypt import BcryptHasher
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -11,7 +12,9 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas.auth import TokenData
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Строго BcryptHasher (НЕ PasswordHash.recommended() — тот даёт Argon2): в БД лежат
+# bcrypt-хэши $2b$..., созданные старым passlib; новый стек обязан их верифицировать.
+pwd_context = PasswordHash((BcryptHasher(),))
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
