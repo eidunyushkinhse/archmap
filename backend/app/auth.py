@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,7 @@ def _get_current_user(token: str, db: Session) -> User:
         if username is None:
             raise credentials_error
         token_data = TokenData(username=username, role=role)
-    except JWTError:
+    except jwt.PyJWTError:
         raise credentials_error
 
     user = db.query(User).filter(User.username == token_data.username).first()
