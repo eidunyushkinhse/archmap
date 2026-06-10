@@ -39,6 +39,8 @@ if $touch_front; then
   else
     say "Фронт: tsc -b…"
     ( cd frontend && npx tsc -b )
+    say "Фронт: eslint…"
+    ( cd frontend && npx eslint . )
     say "Фронт: vitest run…"
     ( cd frontend && npx vitest run )
     ok "Фронт-гейт зелёный."
@@ -50,6 +52,13 @@ if $touch_back; then
   if [ ! -x backend/venv/bin/python ]; then
     warn "backend/venv нет — пропускаю бэк-гейт (создай venv, см. dev.sh)."
   else
+    # venv есть, но ruff в нём нет — это рассинхрон зависимостей, а не повод пропустить.
+    if [ ! -x backend/venv/bin/ruff ]; then
+      err "backend/venv есть, но ruff в нём нет — выполни: ( cd backend && ./venv/bin/pip install -r requirements.txt )"
+      exit 1
+    fi
+    say "Бэк: ruff check…"
+    ( cd backend && ./venv/bin/ruff check . )
     say "Бэк: pytest…"
     ( cd backend && ./venv/bin/python -m pytest -q )
     ok "Бэк-гейт зелёный."
