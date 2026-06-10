@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node } from "../types";
 import { nodesApi } from "../api/nodes";
+import { input } from "../ui/styles";
 
 /**
  * Поиск узла по имени среди всех уровней. Используется для выбора концов связи —
@@ -88,16 +89,6 @@ export default function NodeSearchPicker({
   );
 }
 
-const input: CSSProperties = {
-  display: "block",
-  width: "100%",
-  marginBottom: 10,
-  padding: "7px 10px",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  fontSize: 14,
-  boxSizing: "border-box",
-};
 const selectedRow: CSSProperties = {
   display: "flex",
   alignItems: "center",

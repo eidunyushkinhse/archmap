@@ -92,7 +92,6 @@ export default function Modal({
 
 // Сброс UA-стилей <dialog> (чёрная рамка, padding, узкий max-*) + наш бокс.
 const dialogBase: CSSProperties = {
-  position: "relative",
   border: "none",
   padding: 0,
   maxWidth: "calc(100vw - 32px)",
