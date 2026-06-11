@@ -1,55 +1,114 @@
-/* Имена узлов в дереве визуально разделены по функциональности клика:
-   - промежуточный узел (есть дети) → ссылка (переход на слой основной схемы);
-   - атомарный узел / лист (детей нет) → кнопка-пилюля (открывает контекст-схему). */
+/* Боковая панель NodeTreePanel. Здесь — только стили, которым нужны псевдоклассы
+   (:hover / :active / :first-child); чистая статика остаётся inline-константами
+   в NodeTreePanel.tsx. */
 
-/* Ссылка — в стиле хлебных крошек */
-.tree-link {
-  color: #2563eb;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  /* усечение длинных имён в узкой панели */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+/* Разделитель секций аккордеона: тонкая линия сверху у всех, кроме первой. */
+.nt-section:not(:first-child) {
+  border-top: 1px solid #eef1f5;
 }
-.tree-link:hover {
+
+/* Строка дерева: единый стиль для контейнеров и листьев (ни ссылок, ни пилюль). */
+.nt-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  margin: 0 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #334155;
+  white-space: nowrap;
+}
+.nt-row--clickable {
+  cursor: pointer;
+}
+/* Hover кликабельной строки: подсветка фона; имя и глиф формы синеют
+   (глиф — через currentColor), справа проявляется подпись действия. */
+.nt-row--clickable:hover {
+  background: #eff6ff;
+}
+.nt-row--clickable:hover .nt-name {
   color: #1d4ed8;
 }
+.nt-row--clickable:hover .nt-glyph {
+  color: #1d4ed8;
+}
+.nt-row--clickable:hover .nt-action {
+  display: inline-flex;
+}
 
-/* Кнопка-пилюля для атомарных узлов */
-.tree-leaf-btn {
-  display: inline-block;
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 1px 9px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #374151;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  cursor: pointer;
+/* Имя узла — усечение в узкой панели. Контейнеры выделены жирнее и темнее. */
+.nt-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
-.tree-leaf-btn:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+.nt-name--container {
+  font-weight: 600;
+  color: #1e293b;
 }
-.tree-leaf-btn:active {
-  background: #e5e7eb;
+
+/* Глиф формы: контурный SVG, цвет наследуется строкой (серый в покое). */
+.nt-glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #64748b;
+}
+
+/* Подпись действия справа в строке — видна только на hover (см. .nt-row--clickable:hover). */
+.nt-action {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+/* Направляющая вложенности: дети раскрытого узла со сдвигом и левой линией. */
+.nt-children {
+  margin-left: 21px;
+  padding-left: 6px;
+  border-left: 1px solid #e6eaf0;
 }
 
 /* Карточка-шаблон в палитре «Добавить узел». Курсор: раскрытая рука по умолчанию,
    «схватившая» (закрытая) при зажатии — :active нельзя задать инлайн-стилем. */
 .template-card {
   cursor: grab;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.template-card:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
 }
 .template-card:active {
   cursor: grabbing;
+}
+
+/* Футер сворачивания панели — нижняя строка вне скролла контента. */
+.nt-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex-shrink: 0;
+  height: 34px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  transition: background 0.12s ease;
+}
+.nt-collapse:hover {
+  background: #f1f5f9;
 }

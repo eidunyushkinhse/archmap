@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, DragEvent } from "react";
+import type { CSSProperties, DragEvent, ReactNode } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
 import { canHaveChildren } from "../types";
@@ -15,7 +15,7 @@ import "./NodeTreePanel.css";
  *     модалке поля «Отображение» больше нет). Видна только архитектору;
  *  3. «Бизнес-процессы» — заглушка под будущий раздел.
  *
- * Вся панель целиком сворачивается в узкую полосу кнопкой-шевроном внизу справа.
+ * Вся панель целиком сворачивается в узкую полосу футером-кнопкой внизу.
  */
 
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
@@ -24,7 +24,7 @@ export const NODE_DRAG_MIME = "application/archmap-node-shape";
 
 /**
  * Дерево узлов отражает иерархию по parent_id. По умолчанию видны только корни;
- * детей подгружаем лениво по клику на шеврон. Клик по имени:
+ * детей подгружаем лениво по клику на шеврон. Клик по строке:
  *  - промежуточный узел (has_children) → провалиться на его слой ОСНОВНОЙ схемы
  *    (onDrillTo получает полный путь от корня до узла);
  *  - лист (детей нет) → открыть контекстную схему узла (onNodeContext).
@@ -66,7 +66,7 @@ const NODE_TEMPLATES: Array<{ shape: NodeShape; label: string }> = [
 
 // Мини-иконка формы узла (C4) для палитры — упрощённые SVG в духе NodeShapeSvg
 function ShapeIcon({ shape }: { shape: NodeShape }) {
-  const W = 40, H = 30, stroke = "#475569", fill = "#e2e8f0", sw = 1.5;
+  const W = 40, H = 30, stroke = "#475569", fill = "#f1f5f9", sw = 1.4;
   const common = { fill, stroke, strokeWidth: sw };
   if (shape === "database") {
     const rx = (W - 4) / 2, ry = 5, cx = W / 2;
@@ -102,12 +102,97 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
+// Глиф формы узла в строке дерева (14×12, контурный, наследует цвет строки через
+// currentColor — серый в покое, синий на hover). Контейнер (узел с детьми) рисуется
+// «коробкой с крышкой» независимо от shape; листья — по своей форме.
+function ShapeGlyph({ container, shape }: { container: boolean; shape: NodeShape }) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  let body: ReactNode;
+  if (container) {
+    body = (
+      <>
+        <rect x={1} y={3.5} width={12} height={7.5} rx={2} {...common} />
+        <path d="M3.5 3.5 V2 a1 1 0 0 1 1-1 h5 a1 1 0 0 1 1 1 v1.5" {...common} />
+      </>
+    );
+  } else if (shape === "database") {
+    body = (
+      <>
+        <path d="M2 2 v6.2 a5 1.8 0 0 0 10 0 V2" {...common} />
+        <ellipse cx={7} cy={2.2} rx={5} ry={1.7} {...common} />
+      </>
+    );
+  } else if (shape === "broker") {
+    body = (
+      <>
+        <path d="M4.5 1.5 h5 a3 4.5 0 0 1 0 9 h-5 a3 4.5 0 0 1 0-9 Z" {...common} />
+        <path d="M4.5 1.5 a3 4.5 0 0 1 0 9" {...common} />
+      </>
+    );
+  } else {
+    body = <rect x={1.5} y={1.5} width={11} height={9} rx={2} {...common} />;
+  }
+  return (
+    <span className="nt-glyph">
+      <svg width={14} height={12} viewBox="0 0 14 12">{body}</svg>
+    </span>
+  );
+}
+
+// Подпись действия справа в строке (видна только на hover). Контейнер → стрелка
+// вправо + «компоненты» (drill на слой); лист → кольцо с точкой + «контекст».
+function ActionLabel({ container }: { container: boolean }) {
+  return (
+    <span className="nt-action">
+      {container ? (
+        <>
+          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 12 H20" />
+            <path d="M14 6 L20 12 L14 18" />
+          </svg>
+          компоненты
+        </>
+      ) : (
+        <>
+          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <circle cx={12} cy={12} r={8} />
+            <circle cx={12} cy={12} r={2.4} fill="currentColor" stroke="none" />
+          </svg>
+          контекст
+        </>
+      )}
+    </span>
+  );
+}
+
+// Двойной шеврон для футера сворачивания (влево — свернуть, вправо — развернуть).
+function DoubleChevron({ dir }: { dir: "left" | "right" }) {
+  const d =
+    dir === "left"
+      ? ["M11 17 L6 12 L11 7", "M17 17 L12 12 L17 7"]
+      : ["M13 17 L18 12 L13 7", "M7 17 L12 12 L7 7"];
+  return (
+    <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d={d[0]} />
+      <path d={d[1]} />
+    </svg>
+  );
+}
+
 // Иконка корзины для оверлея отмены драга. Темнеет при наведении (drop = отмена).
 function TrashIcon({ active }: { active: boolean }) {
   const c = active ? "#475569" : "#94a3b8";
   return (
     <svg
-      width="56" height="56" viewBox="0 0 24 24" fill="none"
+      width="34" height="34" viewBox="0 0 24 24" fill="none"
       stroke={c} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"
       style={{ transition: "stroke 0.12s ease" }}
     >
@@ -132,12 +217,11 @@ function Section({ open, grow, title, onToggle, children }: {
   onToggle: () => void; children: React.ReactNode;
 }) {
   return (
-    <div style={{ ...section, flex: grow && open ? 1 : "none" }}>
+    <div className="nt-section" style={{ ...section, flex: grow && open ? 1 : "none" }}>
       <button onClick={onToggle} style={sectionHeader} title={open ? "Свернуть" : "Развернуть"}>
-        {/* Крупный шеврон секции с эффектом вдавленности (гравировки), чтобы явно
-            отличался от мелких шевронов промежуточных узлов в дереве. */}
-        <span style={{ ...sectionChev, transform: open ? "rotate(90deg)" : "none" }}>▸</span>
         <span>{title}</span>
+        {/* Мелкий шеврон у правого края, поворачивается при раскрытии секции. */}
+        <span style={{ ...sectionChev, transform: open ? "rotate(90deg)" : "none" }}>▸</span>
       </button>
       {open && <div style={sectionBody}>{children}</div>}
     </div>
@@ -229,7 +313,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     setExpanded((p) => new Set(p).add(id));
   }
 
-  function Row({ node, depth }: { node: Node; depth: number }) {
+  function Row({ node }: { node: Node }) {
     const id = node.id;
     const isExpanded = expanded.has(id);
     const isLoading = loadingId.has(id);
@@ -246,13 +330,21 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     const handler = isIntermediate
       ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
       : (onNodeContext ? () => onNodeContext(node) : undefined);
+    const title = !handler
+      ? node.name
+      : isIntermediate ? `Открыть слой: ${node.name}` : `Контекст: ${node.name}`;
     return (
       <>
-        <div style={{ ...row, paddingLeft: 6 + depth * 16 }}>
+        <div
+          className={handler ? "nt-row nt-row--clickable" : "nt-row"}
+          onClick={handler}
+          title={title}
+        >
           {hasChildren ? (
             <button
-              onClick={() => toggle(node)}
-              style={chevBtn}
+              // клик по шеврону раскрывает/сворачивает, не пуская событие на строку
+              onClick={(e) => { e.stopPropagation(); toggle(node); }}
+              style={chev}
               title={isExpanded ? "Свернуть" : "Развернуть"}
             >
               <span style={{ ...chevIcon, transform: isExpanded ? "rotate(90deg)" : "none" }}>
@@ -260,22 +352,20 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
               </span>
             </button>
           ) : (
-            <span style={leafMark}>●</span>
+            <span style={chevSpacer} />
           )}
-          <span
-            className={handler ? (isIntermediate ? "tree-link" : "tree-leaf-btn") : undefined}
-            style={handler ? undefined : nodeName}
-            title={
-              !handler ? node.name
-                : isIntermediate ? `Открыть слой: ${node.name}`
-                : `Контекст: ${node.name}`
-            }
-            onClick={handler}
-          >
+          <ShapeGlyph container={isIntermediate} shape={node.shape} />
+          <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
             {node.name}
           </span>
+          {handler && <ActionLabel container={isIntermediate} />}
         </div>
-        {isExpanded && kids.map((k) => <Row key={k.id} node={k} depth={depth + 1} />)}
+        {/* Дети раскрытого узла — с направляющей вложенности (border-left). */}
+        {isExpanded && kids.length > 0 && (
+          <div className="nt-children">
+            {kids.map((k) => <Row key={k.id} node={k} />)}
+          </div>
+        )}
       </>
     );
   }
@@ -346,7 +436,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
             ) : roots.length === 0 ? (
               <div style={hint}>Нет узлов</div>
             ) : (
-              roots.map((n) => <Row key={n.id} node={n} depth={0} />)
+              roots.map((n) => <Row key={n.id} node={n} />)
             )}
           </div>
         </Section>
@@ -388,7 +478,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
         </Section>
       </div>
 
-      {/* «Корзина» — серая плитка поверх всей панели на время драга шаблона. Рисуется
+      {/* «Корзина» — плитка поверх всей панели на время драга шаблона. Рисуется
           СВЕРХУ (а не заменой контента), чтобы источник драга остался смонтированным:
           размонтирование плитки-источника во время нативного drag отменяет драг. */}
       {dragging && (
@@ -406,25 +496,27 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
         </div>
       )}
 
+      {/* Футер сворачивания — вне скролла контента, виден и в свёрнутом состоянии. */}
       <button
+        className="nt-collapse"
         onClick={() => setCollapsed((c) => !c)}
-        style={toggleBtn}
         title={collapsed ? "Развернуть панель" : "Свернуть панель"}
       >
-        {collapsed ? "›" : "‹"}
+        <DoubleChevron dir={collapsed ? "right" : "left"} />
+        {!collapsed && <span>Свернуть панель</span>}
       </button>
     </aside>
   );
 }
 
 const PANEL_W = 260;          // ширина развёрнутой панели
-const PANEL_COLLAPSED_W = 40; // узкая полоса в свёрнутом виде (под кнопку)
+const PANEL_COLLAPSED_W = 40; // узкая полоса в свёрнутом виде
 
 const panel: CSSProperties = {
   position: "relative",
   flexShrink: 0,
   borderRight: "1px solid #e5e7eb",
-  background: "#fafafa",
+  background: "#fbfcfd",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
@@ -432,68 +524,44 @@ const panel: CSSProperties = {
 };
 const content: CSSProperties = {
   width: PANEL_W,            // фиксированная ширина — без переноса текста при анимации
-  height: "100%",
+  flex: 1,
+  minHeight: 0,
   display: "flex",
   flexDirection: "column",
   transition: "opacity 0.18s ease",
   overflowY: "auto",
 };
-const toggleBtn: CSSProperties = {
-  position: "absolute",
-  bottom: 8,
-  right: 8,
-  width: 26,
-  height: 26,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 6,
-  cursor: "pointer",
-  color: "#6b7280",
-  fontSize: 18,
-  lineHeight: 1,
-  boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
-  zIndex: 2,
-};
-// Секция аккордеона
+// Секция аккордеона (разделители-границы — в .nt-section CSS)
 const section: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   minHeight: 0,
-  borderBottom: "1px solid #e5e7eb",
 };
 const sectionHeader: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 10,
   width: "100%",
-  padding: "10px 14px",
-  fontSize: 12,
+  padding: "13px 14px 7px",
+  fontSize: 11,
   fontWeight: 700,
-  letterSpacing: 0.3,
+  letterSpacing: "0.08em",
   textTransform: "uppercase",
-  color: "#6b7280",
+  color: "#64748b",
   background: "none",
   border: "none",
   cursor: "pointer",
   textAlign: "left",
   flexShrink: 0,
 };
-// Шеврон секции крупный (≈ в 3 раза больше шеврона узла дерева, 15px → 36px).
-// Эффект вдавленности (debossed/гравировка): цвет знака близок к фону панели, тёмная
-// тень сверху + светлый блик снизу создают объём «вглубь» поверхности.
+// Мелкий шеврон секции, прижат к правому краю, поворачивается при раскрытии.
 const sectionChev: CSSProperties = {
-  fontSize: 36,
+  marginLeft: "auto",
+  fontSize: 10,
   lineHeight: 1,
   flexShrink: 0,
-  color: "#cdd2d9",
+  color: "#94a3b8",
   transition: "transform 0.12s ease",
   display: "inline-block",
-  textShadow:
-    "0 -1px 1px rgba(0,0,0,0.35), 0 1px 1px rgba(255,255,255,0.95), 0 2px 2px rgba(0,0,0,0.12)",
 };
 const sectionBody: CSSProperties = {
   minHeight: 0,
@@ -502,18 +570,10 @@ const sectionBody: CSSProperties = {
 const treeList: CSSProperties = {
   padding: "0 0 6px",
 };
-const row: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "4px 8px 4px 0",
-  fontSize: 13,
-  color: "#374151",
-  whiteSpace: "nowrap",
-};
-const chevBtn: CSSProperties = {
-  width: 24,
-  height: 24,
+// Колонка шеврона стабильной ширины (13px) — у листьев заменяется спейсером,
+// чтобы глифы форм и имена выстраивались по вертикали независимо от наличия детей.
+const chev: CSSProperties = {
+  width: 13,
   flexShrink: 0,
   display: "flex",
   alignItems: "center",
@@ -522,26 +582,17 @@ const chevBtn: CSSProperties = {
   background: "none",
   border: "none",
   cursor: "pointer",
-  color: "#6b7280",
+  color: "#94a3b8",
 };
 const chevIcon: CSSProperties = {
-  fontSize: 15,
+  fontSize: 11,
   lineHeight: 1,
   transition: "transform 0.12s ease",
   display: "inline-block",
 };
-const leafMark: CSSProperties = {
-  width: 24,
+const chevSpacer: CSSProperties = {
+  width: 13,
   flexShrink: 0,
-  textAlign: "center",
-  color: "#cbd5e1",
-  fontSize: 10,
-};
-// стиль для НЕкликабельного имени (когда колбэки не переданы); кликабельные имена
-// оформлены классами .tree-link / .tree-leaf-btn в NodeTreePanel.css
-const nodeName: CSSProperties = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
 };
 const hint: CSSProperties = {
   padding: "8px 14px",
@@ -552,7 +603,7 @@ const hint: CSSProperties = {
 const paletteHint: CSSProperties = {
   padding: "0 14px 8px",
   fontSize: 11,
-  color: "#9ca3af",
+  color: "#94a3b8",
 };
 const palette: CSSProperties = {
   display: "grid",
@@ -565,41 +616,17 @@ const templateCard: CSSProperties = {
   flexDirection: "column",
   alignItems: "center",
   gap: 6,
-  padding: "10px 6px",
+  padding: "11px 6px 9px",
   background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 8,
-  // cursor задаётся через класс .template-card (нужен :active → grabbing «схватил»)
+  border: "1px solid #e2e8f0",
+  borderRadius: 10,
+  // cursor (grab/grabbing) и hover-подсветка — в .template-card (нужны :active/:hover)
   userSelect: "none",
 };
-// Оверлей-«корзина» поверх панели на время драга шаблона. Не упирается в края
-// панели (inset-отступ) → плитка «внутри» панели; сплошная рамка, скруглённые углы.
-const trashOverlay: CSSProperties = {
-  position: "absolute",
-  inset: 10,
-  zIndex: 5,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  background: "#eceef1",
-  border: "2px solid #cbd5e1",
-  borderRadius: 12,
-  transition: "background 0.12s ease, border-color 0.12s ease",
-};
-// Активное состояние (курсор над корзиной) — более глубокий оттенок серого
-const trashOverlayActive: CSSProperties = {
-  background: "#d5dae1",
-  borderColor: "#94a3b8",
-};
-const trashInner: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  pointerEvents: "none",
-};
 const templateLabel: CSSProperties = {
-  fontSize: 12,
-  color: "#374151",
+  fontSize: 11.5,
+  color: "#475569",
+  fontWeight: 500,
   textAlign: "center",
 };
 const iconSvg: CSSProperties = {
@@ -607,8 +634,32 @@ const iconSvg: CSSProperties = {
   pointerEvents: "none",
 };
 const stub: CSSProperties = {
-  padding: "4px 14px 14px",
-  fontSize: 13,
-  color: "#9ca3af",
-  fontStyle: "italic",
+  padding: "2px 14px 14px",
+  fontSize: 12,
+  color: "#94a3b8",
+};
+// Оверлей-«корзина» поверх панели на время драга шаблона. Не упирается в края
+// панели (inset-отступ) → плитка «внутри» панели; пунктирная рамка, без подписи.
+const trashOverlay: CSSProperties = {
+  position: "absolute",
+  inset: 10,
+  zIndex: 5,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "rgba(248,250,252,.92)",
+  border: "1.5px dashed #cbd5e1",
+  borderRadius: 10,
+  transition: "background 0.12s ease, border-color 0.12s ease",
+};
+// Активное состояние (курсор над корзиной) — рамка темнее, фон плотнее
+const trashOverlayActive: CSSProperties = {
+  background: "#eef2f6",
+  borderColor: "#94a3b8",
+};
+const trashInner: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  pointerEvents: "none",
 };
