@@ -718,7 +718,24 @@ function LevelGraphInner({
           data-exit-up). Не объект графа, а элемент интерфейса. */}
       {connecting && containerId && (
         <div className="lg-exit-up" data-exit-up>
-          <span aria-hidden>↥</span> Связать с узлом вне уровня
+          <span className="lg-exit-up-node">
+            <span className="lg-exit-up-ico" aria-hidden>
+              <svg
+                width={12}
+                height={12}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.4}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 19 V5" />
+                <path d="M6 11 L12 5 L18 11" />
+              </svg>
+            </span>
+            Узел вне уровня
+          </span>
         </div>
       )}
       <ReactFlow
