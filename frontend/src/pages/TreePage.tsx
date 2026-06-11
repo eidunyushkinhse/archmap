@@ -89,6 +89,10 @@ export default function TreePage({ onLogout }: Props) {
     intermediate_edges: [],
   });
 
+  // сигнал перезагрузки бокового дерева: бампаем после создания/удаления узла,
+  // чтобы новый узел сразу попал в дерево без перезагрузки страницы
+  const [treeReload, setTreeReload] = useState(0);
+
   const isArchitect = getUserRole() === "architect";
   const currentParent =
     breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
@@ -179,6 +183,9 @@ export default function TreePage({ onLogout }: Props) {
     // Этот обработчик не перезагружает уровень (правит локальный стейт) —
     // алерты обновляем явно: добавленный/изменённый узел мог стать «подвисшим».
     void loadAlerts();
+    // боковое дерево перечитываем: новый узел должен появиться, у правленого мог
+    // смениться name/форма/число детей (порядок ранжирования)
+    setTreeReload((t) => t + 1);
   }
 
   function handleNodeDeleted(_id: string) {
@@ -186,6 +193,7 @@ export default function TreePage({ onLogout }: Props) {
     // поэтому проецированные рёбра и гости без связей должны пересчитаться.
     setNodeModal({ open: false, node: null });
     load(currentParentId);
+    setTreeReload((t) => t + 1); // удалённый узел должен уйти и из бокового дерева
   }
 
   // Reconnect в LevelGraph сохранил новые хэндлы (в БД и в локальные rfEdges).
@@ -357,6 +365,7 @@ export default function TreePage({ onLogout }: Props) {
           onNodeContext={setContextNode}
           isArchitect={isArchitect}
           onTemplateDrag={setDragShape}
+          reloadToken={treeReload}
         />
 
         {/* Область графа — заполняет оставшееся пространство */}

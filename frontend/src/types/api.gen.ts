@@ -802,6 +802,11 @@ export interface components {
              */
             shape: "service" | "database" | "broker" | "person";
             /**
+             * Child Count
+             * @default 0
+             */
+            child_count: number;
+            /**
              * Has Children
              * @default false
              */

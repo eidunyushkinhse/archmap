@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import tree
@@ -35,20 +36,20 @@ router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 
 def _mark_has_children(db: Session, nodes: list[Node]) -> None:
-    """Проставляет вычисляемый флаг has_children для отдачи в NodeResponse.
-    Один запрос на весь список: ищем, у каких id есть дочерние узлы."""
+    """Проставляет вычисляемые child_count и has_children для отдачи в NodeResponse.
+    Один запрос на весь список: считаем число прямых детей по каждому id."""
     if not nodes:
         return
     ids = [n.id for n in nodes]
-    parents_with_children = {
-        pid
-        for (pid,) in db.query(Node.parent_id)
+    counts = dict(
+        db.query(Node.parent_id, func.count(Node.id))
         .filter(Node.parent_id.in_(ids))
-        .distinct()
+        .group_by(Node.parent_id)
         .all()
-    }
+    )
     for n in nodes:
-        n.has_children = n.id in parents_with_children
+        n.child_count = counts.get(n.id, 0)
+        n.has_children = n.child_count > 0
 
 
 def _build_graph(

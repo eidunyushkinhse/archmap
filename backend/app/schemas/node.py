@@ -54,8 +54,9 @@ class NodeResponse(BaseModel):
     pos_y: float | None
     is_external: bool
     shape: NodeShape
-    # Вычисляемый флаг: есть ли у узла дочерние узлы (для дерева в UI).
-    # Проставляется в роутере, в БД не хранится.
+    # Вычисляемые в роутере (в БД не хранятся): число прямых детей и булев флаг
+    # их наличия. child_count — для ранжирования узлов в дереве UI («главное» сверху).
+    child_count: int = 0
     has_children: bool = False
     created_at: datetime
     updated_at: datetime

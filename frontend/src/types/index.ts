@@ -16,6 +16,12 @@ export type NodeShape = Schemas["NodeResponse"]["shape"];
 export const canHaveChildren = (shape: NodeShape): boolean => shape === "service";
 
 export type Node = Schemas["NodeResponse"];
+
+// Порядок узлов-сиблингов в дереве: «главное» (с бОльшим числом прямых детей) —
+// выше; при равенстве — по алфавиту. child_count считает бэкенд (_mark_has_children).
+export const compareByRank = (a: Node, b: Node): number =>
+  b.child_count - a.child_count || a.name.localeCompare(b.name);
+
 export type NodeCreate = Schemas["NodeCreate"];
 export type NodeUpdate = Schemas["NodeUpdate"];
 

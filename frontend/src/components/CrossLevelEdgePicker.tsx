@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 import type { EdgeCreate, Node } from "../types";
+import { compareByRank } from "../types";
 import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
@@ -82,7 +83,7 @@ export default function CrossLevelEdgePicker({
       const arr = m.get(n.parent_id);
       if (arr) arr.push(n); else m.set(n.parent_id, [n]);
     }
-    for (const arr of m.values()) arr.sort((a, b) => a.name.localeCompare(b.name));
+    for (const arr of m.values()) arr.sort(compareByRank);
     return m;
   }, [allNodes]);
   // Корни дерева — узлы с parent_id == rootParentId (для «вне уровня» это корни схемы).
@@ -90,7 +91,7 @@ export default function CrossLevelEdgePicker({
     () =>
       (allNodes ?? [])
         .filter((n) => (n.parent_id ?? null) === rootParentId)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .sort(compareByRank),
     [allNodes, rootParentId],
   );
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, ReactNode } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
-import { canHaveChildren } from "../types";
+import { canHaveChildren, compareByRank } from "../types";
 import "./NodeTreePanel.css";
 
 /**
@@ -45,6 +45,9 @@ interface Props {
   // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
   // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
   onTemplateDrag?: (shape: NodeShape | null) => void;
+  // сигнал внешней перезагрузки дерева (инкремент после создания/удаления узла в
+  // TreePage): дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
+  reloadToken?: number;
 }
 
 // Прозрачная 1×1 картинка вместо стандартного drag-image: прячем «снимок» плитки —
@@ -228,7 +231,7 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag, reloadToken }: Props) {
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
@@ -283,10 +286,42 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     let alive = true;
     nodesApi
       .list(null)
-      .then((ns) => { if (alive) setRoots(withoutPersons(ns)); })
+      .then((ns) => { if (alive) setRoots(withoutPersons(ns).sort(compareByRank)); })
       .finally(() => { if (alive) setLoadingRoots(false); });
     return () => { alive = false; };
   }, []);
+
+  // Перезагрузка по внешнему сигналу (создан/удалён узел): перечитываем корни и
+  // детей УЖЕ раскрытых веток, чтобы новый узел появился без сворачивания дерева.
+  // Путь к нему не разворачиваем — если его родитель свёрнут, у того лишь появится
+  // шеврон. expanded читаем снимком на момент сигнала (в deps не включаем).
+  const reloadSkipRef = useRef(false);
+  useEffect(() => {
+    // первый прогон — это монтирование; корни грузит эффект выше, повтор не нужен
+    if (!reloadSkipRef.current) { reloadSkipRef.current = true; return; }
+    let alive = true;
+    (async () => {
+      const ns = withoutPersons(await nodesApi.list(null)).sort(compareByRank);
+      if (!alive) return;
+      setRoots(ns);
+      const ids = [...expanded];
+      const fetched = await Promise.all(
+        ids.map((id) =>
+          nodesApi.getChildren(id)
+            .then((k) => [id, withoutPersons(k).sort(compareByRank)] as const)
+            .catch(() => [id, [] as Node[]] as const),
+        ),
+      );
+      if (!alive) return;
+      setChildrenById((prev) => {
+        const next = { ...prev };
+        for (const [id, kids] of fetched) next[id] = kids;
+        return next;
+      });
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadToken]);
 
   async function toggle(node: Node) {
     const id = node.id;
@@ -299,7 +334,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     if (kids === undefined) {
       setLoadingId((p) => new Set(p).add(id));
       try {
-        kids = withoutPersons(await nodesApi.getChildren(id));
+        kids = withoutPersons(await nodesApi.getChildren(id)).sort(compareByRank);
         setChildrenById((p) => ({ ...p, [id]: kids! }));
       } finally {
         setLoadingId((p) => { const n = new Set(p); n.delete(id); return n; });
