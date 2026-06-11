@@ -126,6 +126,8 @@ class GraphEdgeResponse(BaseModel):
     # кастомные точки-сгибы пути (ручные «обходы»); дефолт — чтобы context-builder
     # (он waypoints не передаёт) собирал ответ без этого поля
     waypoints: list[Point] | None = None
+    # позиция плашки вдоль стрелки (доля пути 0..1); null/дефолт — по центру
+    label_t: float | None = None
 
 
 class PosXY(BaseModel):

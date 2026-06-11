@@ -30,6 +30,8 @@ class EdgeUpdate(BaseModel):
     target_handle: str | None = None
     # Кастомные точки-сгибы пути (ручные «обходы»); пустой список — сброс в авто-маршрут
     waypoints: list[Point] | None = None
+    # Позиция плашки вдоль стрелки (доля пути 0..1); null — сброс в центр
+    label_t: float | None = None
 
 
 class EdgeResponse(BaseModel):
@@ -41,6 +43,7 @@ class EdgeResponse(BaseModel):
     source_handle: str | None
     target_handle: str | None
     waypoints: list[Point] | None = None
+    label_t: float | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

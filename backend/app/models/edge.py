@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -31,6 +31,11 @@ class Edge(Base):
     # {"x": float, "y": float} БЕЗ концов (концы берутся из хэндлов при рендере).
     # null/пусто — авто-маршрут (smoothstep). Ручные «обходы» узлов на основной схеме.
     waypoints: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Позиция плашки с описанием вдоль стрелки: доля arc-length пути в [0, 1]
+    # (0 — у источника, 1 — у цели). null — по центру (дефолт). Доля, а не абсолютные
+    # координаты, поэтому одна на ребро (не пер-уровень): она геометрия-независима и
+    # «адаптируется» к смене хэндлов/изломов сама — пересчитывается от текущего пути.
+    label_t: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

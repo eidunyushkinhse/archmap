@@ -491,6 +491,8 @@ export interface components {
             target_handle: string | null;
             /** Waypoints */
             waypoints?: components["schemas"]["Point"][] | null;
+            /** Label T */
+            label_t?: number | null;
             /**
              * Created At
              * Format: date-time
@@ -513,6 +515,8 @@ export interface components {
             target_handle?: string | null;
             /** Waypoints */
             waypoints?: components["schemas"]["Point"][] | null;
+            /** Label T */
+            label_t?: number | null;
         };
         /** EdgeWaypointsUpdate */
         EdgeWaypointsUpdate: {
@@ -616,6 +620,8 @@ export interface components {
             target_handle: string | null;
             /** Waypoints */
             waypoints?: components["schemas"]["Point"][] | null;
+            /** Label T */
+            label_t?: number | null;
         };
         /** GraphResponse */
         GraphResponse: {
