@@ -1,0 +1,21 @@
+/* Полоса действий модалки узла. Всегда видна (sticky у нижнего края), даже когда
+   форма длиннее окна. Сверху — тонкий разделитель и мягкая тень: подсказка, что
+   контент ещё прокручивается. Когда пользователь долистал донизу, разделитель и
+   тень плавно гаснут (переключение класса --at-bottom из IntersectionObserver). */
+.nm-footer {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  /* full-bleed по горизонтали + съесть нижний padding обёртки модалки (28px),
+     чтобы у самого низа не оставалось белой полосы под кнопками */
+  margin: 0 -28px -28px;
+  padding: 14px 28px;
+  border-top: 1px solid #e5e7eb;
+  box-shadow: 0 -8px 12px -8px rgba(0, 0, 0, 0.12);
+  transition: border-top-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nm-footer--at-bottom {
+  border-top-color: transparent;
+  box-shadow: 0 0 0 0 transparent;
+}

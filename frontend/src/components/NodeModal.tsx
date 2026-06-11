@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
 import { nodesApi } from "../api/nodes";
@@ -7,6 +7,7 @@ import MermaidRenderer from "./MermaidRenderer";
 import NodeDeleteConfirm from "./NodeDeleteConfirm";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn, dangerBtn } from "../ui/styles";
+import "./nodeModal.css";
 
 interface Props {
   node: Node | null;
@@ -45,6 +46,27 @@ export default function NodeModal({
 
   // Открыто ли подтверждение удаления (связи и само удаление — в NodeDeleteConfirm)
   const [confirming, setConfirming] = useState(false);
+
+  // Долистана ли модалка донизу: пока есть скрытый снизу контент — над полосой
+  // действий виден разделитель, у самого низа он гаснет (см. nodeModal.css).
+  const [atBottom, setAtBottom] = useState(true);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  // Следим за маяком в самом низу контента: пересёкся со скролл-контейнером
+  // (<dialog> модалки) — значит долистали донизу. Пересборка при смене режима
+  // (editing): у просмотра и редактирования разные футеры — маяк перемонтируется.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const root = sentinel.closest("dialog");
+    const io = new IntersectionObserver(
+      ([entry]) => setAtBottom(entry.isIntersecting),
+      { root },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [editing]);
+
+  const footerClass = `nm-footer${atBottom ? " nm-footer--at-bottom" : ""}`;
 
   async function handleSave() {
     if (!name.trim()) {
@@ -134,7 +156,7 @@ export default function NodeModal({
                 onChange={(e) => setIsExternal(e.target.checked)}
                 style={{ marginRight: 8, cursor: "pointer" }}
               />
-              Внешний сервис
+              Внешний
             </label>
 
             {/* Flowchart и OpenAPI у пользователя тоже лишние — скрываем для person */}
@@ -184,16 +206,20 @@ export default function NodeModal({
               </>
             )}
 
-            {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={handleSave} disabled={saving} style={primaryBtn}>
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-              {!isCreate && (
-                <button onClick={() => setEditing(false)} style={secondaryBtn}>
-                  Отмена
+            {/* Маяк низа прокрутки (см. эффект с IntersectionObserver) */}
+            <div ref={sentinelRef} style={{ height: 1 }} aria-hidden />
+            <div className={footerClass}>
+              {error && <p style={errStyle}>{error}</p>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleSave} disabled={saving} style={primaryBtn}>
+                  {saving ? "Сохранение..." : "Сохранить"}
                 </button>
-              )}
+                {!isCreate && (
+                  <button onClick={() => setEditing(false)} style={secondaryBtn}>
+                    Отмена
+                  </button>
+                )}
+              </div>
             </div>
           </>
         ) : (
@@ -226,14 +252,20 @@ export default function NodeModal({
             )}
 
             {isArchitect && (
-              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                <button onClick={() => setEditing(true)} style={primaryBtn}>
-                  Редактировать
-                </button>
-                <button onClick={() => setConfirming(true)} style={dangerBtn}>
-                  Удалить
-                </button>
-              </div>
+              <>
+                {/* Маяк низа прокрутки (см. эффект с IntersectionObserver) */}
+                <div ref={sentinelRef} style={{ height: 1 }} aria-hidden />
+                <div className={footerClass}>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setEditing(true)} style={primaryBtn}>
+                      Редактировать
+                    </button>
+                    <button onClick={() => setConfirming(true)} style={dangerBtn}>
+                      Удалить
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </>
         )}
@@ -311,6 +343,10 @@ const tag: CSSProperties = {
   color: "#166534",
   fontSize: 12,
   marginRight: 6,
+};
+const errStyle: CSSProperties = {
+  color: "#dc2626",
+  margin: "0 0 8px",
 };
 const toggleRow: CSSProperties = {
   display: "flex",
