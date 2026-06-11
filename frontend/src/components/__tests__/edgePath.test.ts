@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  orthogonalPoints, orthogonalPointsForHandles, buildRenderPoints, segments, dragSegment, cleanup, interior, snapDragCursor, pathCrossesRects, type NodeRect,
+  orthogonalPoints, orthogonalPointsForHandles, buildRenderPoints, segments, dragSegment, cleanup, interior, snapDragCursor, pathCrossesRects, pointAtFraction, nearestFraction, type NodeRect,
 } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
 
@@ -161,5 +161,53 @@ describe("interior", () => {
   it("возвращает точки между концами", () => {
     expect(interior([P(0, 0), P(50, 0), P(50, 40), P(100, 40)])).toEqual([P(50, 0), P(50, 40)]);
     expect(interior([P(0, 0), P(100, 0)])).toEqual([]);
+  });
+});
+
+describe("pointAtFraction — точка по доле arc-length", () => {
+  const line = [P(0, 0), P(100, 0)];        // прямой отрезок длины 100
+  // Г-образный путь: горизонталь 100 + вертикаль 100, общая длина 200, угол на доле 0.5
+  const ell = [P(0, 0), P(100, 0), P(100, 100)];
+
+  it("t=0/1 → концы пути", () => {
+    expect(pointAtFraction(line, 0)).toEqual(P(0, 0));
+    expect(pointAtFraction(line, 1)).toEqual(P(100, 0));
+    expect(pointAtFraction(ell, 1)).toEqual(P(100, 100));
+  });
+  it("t=0.5 на прямой — середина", () => {
+    expect(pointAtFraction(line, 0.5)).toEqual(P(50, 0));
+  });
+  it("t зажат в [0,1]", () => {
+    expect(pointAtFraction(line, -2)).toEqual(P(0, 0));
+    expect(pointAtFraction(line, 5)).toEqual(P(100, 0));
+  });
+  it("учитывает arc-length по звеньям, а не индексы точек", () => {
+    // на Г-пути доля 0.5 = ровно угол (100 из 200), 0.75 = середина вертикали
+    expect(pointAtFraction(ell, 0.5)).toEqual(P(100, 0));
+    expect(pointAtFraction(ell, 0.75)).toEqual(P(100, 50));
+  });
+  it("вырожденный путь → первая точка", () => {
+    expect(pointAtFraction([P(7, 7)], 0.5)).toEqual(P(7, 7));
+    expect(pointAtFraction([P(7, 7), P(7, 7)], 0.5)).toEqual(P(7, 7));
+  });
+});
+
+describe("nearestFraction — проекция курсора на путь", () => {
+  const line = [P(0, 0), P(100, 0)];
+  const ell = [P(0, 0), P(100, 0), P(100, 100)];
+
+  it("курсор над серединой → t≈0.5", () => {
+    expect(nearestFraction(line, P(50, 30))).toBeCloseTo(0.5, 5);
+  });
+  it("курсор за концом → зажат к концу (t=0 или 1)", () => {
+    expect(nearestFraction(line, P(-40, 5))).toBeCloseTo(0, 5);
+    expect(nearestFraction(line, P(180, -5))).toBeCloseTo(1, 5);
+  });
+  it("обратима с pointAtFraction на середине вертикали Г-пути", () => {
+    // точка чуть правее середины вертикали проецируется на неё → t≈0.75
+    expect(nearestFraction(ell, P(130, 50))).toBeCloseTo(0.75, 5);
+  });
+  it("вырожденный путь → 0", () => {
+    expect(nearestFraction([P(7, 7)], P(9, 9))).toBe(0);
   });
 });

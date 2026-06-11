@@ -182,6 +182,64 @@ export function interior(pts: EdgePoint[]): EdgePoint[] {
   return pts.length <= 2 ? [] : pts.slice(1, -1);
 }
 
+// Длины звеньев ломаной и их сумма (общая arc-length). Пустой путь → нули.
+function arcLengths(pts: EdgePoint[]): { seg: number[]; total: number } {
+  const seg: number[] = [];
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const l = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+    seg.push(l);
+    total += l;
+  }
+  return { seg, total };
+}
+
+// Точка на ломаной по доле arc-length t∈[0,1] (0 — у первой точки, 1 — у последней).
+// Для плашки подписи: t — её позиция вдоль стрелки. Вырожденный путь → первая точка.
+export function pointAtFraction(pts: EdgePoint[], t: number): EdgePoint {
+  if (pts.length === 0) return { x: 0, y: 0 };
+  if (pts.length === 1) return { x: pts[0].x, y: pts[0].y };
+  const { seg, total } = arcLengths(pts);
+  if (total === 0) return { x: pts[0].x, y: pts[0].y };
+  let remain = Math.max(0, Math.min(1, t)) * total;
+  for (let i = 0; i < seg.length; i++) {
+    if (remain <= seg[i] || i === seg.length - 1) {
+      const r = seg[i] === 0 ? 0 : remain / seg[i];
+      return {
+        x: pts[i].x + (pts[i + 1].x - pts[i].x) * r,
+        y: pts[i].y + (pts[i + 1].y - pts[i].y) * r,
+      };
+    }
+    remain -= seg[i];
+  }
+  return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
+}
+
+// Доля arc-length t∈[0,1] ближайшей к cursor точки ломаной (проекция курсора на путь).
+// Для драга плашки: курсор → позиция вдоль стрелки. Вырожденный путь → 0.
+export function nearestFraction(pts: EdgePoint[], cursor: EdgePoint): number {
+  if (pts.length < 2) return 0;
+  const { seg, total } = arcLengths(pts);
+  if (total === 0) return 0;
+  let bestDist = Infinity;
+  let bestLen = 0;
+  let acc = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const ax = pts[i].x, ay = pts[i].y;
+    const dx = pts[i + 1].x - ax, dy = pts[i + 1].y - ay;
+    const len2 = dx * dx + dy * dy;
+    const u = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cursor.x - ax) * dx + (cursor.y - ay) * dy) / len2));
+    const px = ax + dx * u, py = ay + dy * u;
+    const dist = Math.hypot(cursor.x - px, cursor.y - py);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestLen = acc + seg[i] * u;
+    }
+    acc += seg[i];
+  }
+  return bestLen / total;
+}
+
 // Прямоугольник узла (для проверки, пересекает ли маршрут стрелки чужие узлы).
 export interface NodeRect { x: number; y: number; w: number; h: number; }
 

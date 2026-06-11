@@ -17,6 +17,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
+import { edgesApi } from "../api/nodes";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import {
@@ -122,6 +123,9 @@ interface LevelGraphProps {
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // то же для ГОСТЕВОЙ стрелки — путь сохранён в пер-уровневый слой (level_edge_waypoints).
   onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
+  // плашку подписи перетащили вдоль стрелки и доля сохранена в колонку ребра (label_t) —
+  // родитель зеркалит в стейт уровня теми же значениями, что вернул бы рефетч.
+  onEdgeLabelTChanged?: (edgeId: string, t: number) => void;
   // узел перетащили и его позиция сохранена в БД — родитель синхронизирует стейт
   // уровня теми же значениями, чтобы пересчёт раскладки БЕЗ рефетча (напр. локальный
   // setEdges при реконнекте хэндла) не откатил узел на прежнюю сохранённую позицию.
@@ -180,6 +184,7 @@ function LevelGraphInner({
   onEdgeHandlesChanged,
   onEdgeWaypointsChanged,
   onLevelEdgeWaypointsChanged,
+  onEdgeLabelTChanged,
   onNodeMoved,
   onDropNode,
   onCreateEdge,
@@ -236,6 +241,20 @@ function LevelGraphInner({
   const { commitWaypoints } = useEdgeWaypoints({
     isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
   });
+
+  // Персист позиции плашки (доля label_t) по отпусканию её драга. Доля геометрия-
+  // независима → хранится в колонке ребра (одна на ребро, не пер-уровень). У мастер-
+  // стрелки путь общий — «размазываем» долю по всем её членам. Зеркалим в стейт уровня.
+  const commitLabelT = useCallback(
+    (edgeIds: string[], t: number) => {
+      if (!isArchitect) return;
+      for (const edgeId of edgeIds) {
+        void edgesApi.update(edgeId, { label_t: t });
+        onEdgeLabelTChanged?.(edgeId, t);
+      }
+    },
+    [isArchitect, onEdgeLabelTChanged],
+  );
 
   // Реконнект концов рёбер (смена хэндла на том же узле + персист). resetWaypoints —
   // на смену хэндла дропаем изломы в дефолт (см. выше).
@@ -315,13 +334,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers });
+  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers };
+    cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers };
   });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
@@ -623,6 +642,16 @@ function LevelGraphInner({
           data.editable = true;
           data.waypoints = (rep ? wpOf(rep) : undefined) ?? undefined;
           data.onWaypointsCommit = (wp) => cb.commitWaypoints(memberIds, wp, !bothLocal);
+          // Перетаскивание плашки доступно только архитектору (editable) — коммит доли
+          // «размазываем» по всем членам мастер-стрелки (путь у них общий).
+          data.onLabelTCommit = (t) => cb.commitLabelT(memberIds, t);
+        }
+        // Позиция плашки (доля label_t) — общая для членов; читаем у первого с
+        // сохранённой долей. Ставим и viewer'у (отображение сдвига), не только редактору.
+        // null → центр. Контекст-полки долю игнорируют (своя геометрия плашки).
+        if (!isContext) {
+          const lt = g.members.find((m) => m.label_t != null)?.label_t;
+          if (lt != null) data.labelT = lt;
         }
         // Триггер детализации связи на плашке с описанием (клик по линии на основной схеме
         // перехватывают грипы изломов). В контексте схема только для просмотра — не вешаем.

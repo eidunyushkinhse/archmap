@@ -123,6 +123,7 @@ export default function TreePage({ onLogout }: Props) {
           source_handle: ge.source_handle,
           target_handle: ge.target_handle,
           waypoints: ge.waypoints,
+          label_t: ge.label_t,
           created_at: "",
         }))
       );
@@ -239,6 +240,12 @@ export default function TreePage({ onLogout }: Props) {
   // а не в колонке ребра. Зеркалируем теми же значениями, что вернул бы рефетч.
   function updateLevelEdgeWaypoints(edgeId: string, waypoints: EdgePoint[]) {
     setLevelEdgeWaypoints((prev) => ({ ...prev, [edgeId]: waypoints }));
+  }
+
+  // Плашку подписи перетащили — доля label_t сохранена в колонку ребра (commitLabelT).
+  // Зеркалим в стейт уровня теми же значениями, что вернул бы рефетч (доля одна на ребро).
+  function updateEdgeLabelT(edgeId: string, t: number) {
+    setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, label_t: t } : e)));
   }
 
   // Узел перетащили — позиция уже сохранена в БД (useSnapAlignment), здесь
@@ -408,6 +415,7 @@ export default function TreePage({ onLogout }: Props) {
               onEdgeHandlesChanged={updateEdgeHandles}
               onEdgeWaypointsChanged={updateEdgeWaypoints}
               onLevelEdgeWaypointsChanged={updateLevelEdgeWaypoints}
+              onEdgeLabelTChanged={updateEdgeLabelT}
               onNodeMoved={handleNodeMoved}
               onDropNode={handleDropNode}
               onCreateEdge={handleCreateEdge}

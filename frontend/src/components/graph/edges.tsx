@@ -14,7 +14,7 @@ import {
 import { wrapLabel } from "./text";
 import type { WrappedEdgeData } from "./types";
 import type { EdgePoint } from "../../types";
-import { buildRenderPoints, orthogonalPointsForHandles, cleanup, segments, dragSegment, interior, snapDragCursor, type EdgeSide } from "./edgePath";
+import { buildRenderPoints, orthogonalPointsForHandles, cleanup, segments, dragSegment, interior, snapDragCursor, pointAtFraction, nearestFraction, type EdgeSide } from "./edgePath";
 import { EDGE_SNAP_PX } from "./constants";
 
 // Position (сторона хэндла) → сторона для хэндл-ориентированного маршрута грипов.
@@ -121,11 +121,72 @@ function WrappedLabelEdge({
     }
   }, [d?.waypoints]);
 
+  // --- Перетаскивание плашки с описанием вдоль стрелки (доля пути labelT) ---
+  // Живая доля во время драга (null — драга нет); предпросмотр до прихода нового пропа.
+  const [dragLabelT, setDragLabelT] = useState<number | null>(null);
+  const curLabelTRef = useRef<number | null>(null);       // последняя посчитанная доля
+  const pendingLabelT = useRef<number | null>(null);      // закоммичено, ждём проп
+  const labelMoved = useRef(false);                       // драг сдвинул плашку → проглотить click
+  const labelDrag = useRef<{ moved: boolean; startX: number; startY: number } | null>(null);
+  // Геометрия плашки latest-ref'ом: ломаная пути под проекцию курсора + коммит доли.
+  // Заполняется в рендере (см. ниже), читается в pointer-хэндлерах.
+  const labelGeom = useRef<{ pts: EdgePoint[] | null; commit?: (t: number) => void }>({ pts: null });
+
+  const onLabelDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!labelGeom.current.commit || !labelGeom.current.pts) return;
+    e.stopPropagation(); // не начинать pan/выделение
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* нет capture */ }
+    labelDrag.current = { moved: false, startX: e.clientX, startY: e.clientY };
+  }, []);
+
+  const onLabelMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = labelDrag.current;
+    if (!drag) return;
+    // мёртвая зона: пока курсор не сдвинулся на пару пикселей — это ещё клик, не драг
+    if (!drag.moved) {
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 3) return;
+      drag.moved = true;
+    }
+    const pts = labelGeom.current.pts;
+    if (!pts) return;
+    const c = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const t = nearestFraction(pts, c); // уже зажата в [0,1] → дальше концов не уедет
+    curLabelTRef.current = t;
+    setDragLabelT(t);
+  }, [screenToFlowPosition]);
+
+  const onLabelUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = labelDrag.current;
+    labelDrag.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* уже снят */ }
+    if (!drag || !drag.moved) return; // не двигали — это клик (откроет детали)
+    const t = curLabelTRef.current;
+    if (t == null) return;
+    labelMoved.current = true;        // следующий click по плашке проглотим
+    // dragLabelT НЕ гасим — держим предпросмотр, пока проп labelT не догонит коммит
+    // (иначе кадр с плашкой по центру → мигание, как у waypoints).
+    pendingLabelT.current = t;
+    labelGeom.current.commit?.(t);
+  }, []);
+
+  // Проп догнал коммит → отпускаем предпросмотр (рисуем от data.labelT).
+  useEffect(() => {
+    if (pendingLabelT.current == null) return;
+    if (d?.labelT === pendingLabelT.current) {
+      pendingLabelT.current = null;
+      curLabelTRef.current = null;
+      setDragLabelT(null);
+    }
+  }, [d?.labelT]);
+
   let edgePath: string;
   let labelX: number;
   let labelY: number;
   // Сегменты под грипы перетаскивания (только для редактируемого level-ребра).
   let gripPts: EdgePoint[] | null = null;
+  // Ломаная пути для плашки подписи: по ней считаем точку по доле labelT и проекцию
+  // курсора при драге. null — у контекст-полок/петель (там плашка не двигается).
+  let labelPts: EdgePoint[] | null = null;
   if (loop) {
     // Контекст-схема: «не родная» стрелка bidi огибает колонку. Путь от дальней стороны
     // соседа: полка наружу до loopX → вертикаль до clearY (над/под колонкой) → к центру
@@ -180,6 +241,7 @@ function WrappedLabelEdge({
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
+      labelPts = pts;
       if (d?.editable) gripPts = pts;
     } else if (d?.detour) {
       // Дефолтный обвод: прямой маршрут гостевой стрелки пересекал бы чужие узлы, поэтому
@@ -197,6 +259,7 @@ function WrappedLabelEdge({
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
+      labelPts = pts;
       if (d?.editable) gripPts = pts;
     } else if (d?.editable) {
       // Редактируемое ребро без waypoints рисуем СВОЕЙ ортогональной ломаной по
@@ -215,6 +278,7 @@ function WrappedLabelEdge({
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
+      labelPts = pts;
       gripPts = pts;
     } else {
       // Нередактируемое ребро (viewer и т.п.) — прежний авто-smoothstep.
@@ -223,8 +287,33 @@ function WrappedLabelEdge({
         targetX, targetY, targetPosition,
         borderRadius: 12,
       });
+      // Линию viewer'у не меняем (smoothstep), но если архитектор сдвинул плашку —
+      // позицию подписи считаем по ортогональной ломаной (близка к smoothstep).
+      if (d?.labelT != null) {
+        labelPts = cleanup(
+          orthogonalPointsForHandles(
+            sourceX, sourceY, sideOf(sourcePosition),
+            targetX, targetY, sideOf(targetPosition),
+          ),
+        );
+      }
     }
   }
+
+  // Плашка сдвинута вдоль стрелки (драг или сохранённая доля) — кладём её в точку по
+  // доле пути. Иначе остаётся по центру (вычислено выше в ветках). Контекст-полки
+  // labelPts не дают → подпись там всегда по центру полки.
+  const liveLabelT = dragLabelT ?? d?.labelT ?? null;
+  if (labelPts && liveLabelT != null) {
+    const p = pointAtFraction(labelPts, liveLabelT);
+    labelX = p.x;
+    labelY = p.y;
+  }
+  // latest-ref геометрии для pointer-хэндлеров плашки (читают её при драге). Обновляем
+  // в эффекте без deps — после каждого рендера (рефы в рендере трогать нельзя), как cbRef.
+  useEffect(() => {
+    labelGeom.current = { pts: labelPts, commit: d?.onLabelTCommit };
+  });
 
   const onGripDown = useCallback(
     (e: ReactPointerEvent<SVGPathElement>, index: number, startPts: EdgePoint[]) => {
@@ -252,6 +341,24 @@ function WrappedLabelEdge({
   // nodrag/nopan — клик по плашке не начинает pan/драг канвы.
   const clickStyle: CSSProperties = clickable ? { cursor: "pointer", pointerEvents: "all" } : {};
   const clickCls = clickable ? "nodrag nopan" : undefined;
+
+  // Плашку можно тащить вдоль стрелки, если задан onLabelTCommit (редактируемое
+  // level-ребро) и есть геометрия пути. Драг и клик-детализация живут на одной плашке:
+  // короткий клик без сдвига открывает детали, сдвиг — двигает (labelMoved глушит click).
+  const labelDraggable = d?.onLabelTCommit != null && labelPts != null;
+  const onLabelClick = (e: ReactMouseEvent) => {
+    if (labelMoved.current) { labelMoved.current = false; e.stopPropagation(); return; }
+    if (clickable) openDetails(e);
+  };
+  const dragProps = labelDraggable
+    ? { onPointerDown: onLabelDown, onPointerMove: onLabelMove, onPointerUp: onLabelUp }
+    : {};
+  const boxCls = labelDraggable ? "nodrag nopan" : clickCls;
+  const boxClick = labelDraggable ? onLabelClick : clickable ? openDetails : undefined;
+  // курсор move + pointerEvents:"all" в режиме драга; иначе прежний clickStyle
+  const boxInteract: CSSProperties = labelDraggable
+    ? { cursor: "move", pointerEvents: "all" }
+    : clickStyle;
 
   const boxBase: CSSProperties = {
     position: "absolute",
@@ -296,8 +403,8 @@ function WrappedLabelEdge({
       {items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
-          <div className={clickCls} onClick={clickable ? openDetails : undefined}
-            style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...clickStyle }}>
+          <div className={boxCls} onClick={boxClick} {...dragProps}
+            style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...boxInteract }}>
             {items.map((it, i) => (
               <div key={i} style={{ display: "flex", gap: 4 }}>
                 <span>•</span><span>{it}</span>
@@ -309,8 +416,8 @@ function WrappedLabelEdge({
         <EdgeLabelRenderer>
           {/* при заданном capW (контекст) подпись переносится по словам и ограничена по
               ширине, чтобы влезть в зазор между фокусом и колонкой и не лезть на узлы */}
-          <div className={clickCls} onClick={clickable ? openDetails : undefined}
-            style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...clickStyle }}>
+          <div className={boxCls} onClick={boxClick} {...dragProps}
+            style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...boxInteract }}>
             {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
           </div>
         </EdgeLabelRenderer>
@@ -318,8 +425,8 @@ function WrappedLabelEdge({
         // Стрелка без описания: грипы изломов перехватывают клик по линии, поэтому даём
         // компактный плейсхолдер-плашку как триггер детализации (и точку входа в правку).
         <EdgeLabelRenderer>
-          <div className="nodrag nopan" title="Открыть связь" onClick={openDetails}
-            style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", cursor: "pointer", pointerEvents: "all", fontSize: 13, lineHeight: "16px" }}>
+          <div className={boxCls} title="Открыть связь" onClick={boxClick} {...dragProps}
+            style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", fontSize: 13, lineHeight: "16px", cursor: "pointer", pointerEvents: "all", ...boxInteract }}>
             •••
           </div>
         </EdgeLabelRenderer>
