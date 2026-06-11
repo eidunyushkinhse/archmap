@@ -1,3 +1,51 @@
+/* Липкая шапка модалки узла: название и крестик всегда видны при прокрутке формы.
+   Снизу — разделитель и мягкая тень, которые гаснут, когда контент домотан до
+   самого верха (класс --at-top из IntersectionObserver). Полностью симметрична
+   полосе действий ниже. Отрицательные поля -28 — full-bleed и съедание верхнего
+   padding обёртки модалки (28px), чтобы шапка прилегала к краю окна. */
+.nm-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  margin: -28px -28px 16px;
+  padding: 20px 28px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 8px 12px -8px rgba(0, 0, 0, 0.12);
+  transition: border-bottom-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nm-header--at-top {
+  border-bottom-color: transparent;
+  box-shadow: 0 0 0 0 transparent;
+}
+
+.nm-header h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.nm-close {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 2px 4px;
+}
+
+.nm-close:hover {
+  color: #111827;
+}
+
 /* Полоса действий модалки узла. Всегда видна (sticky у нижнего края), даже когда
    форма длиннее окна. Сверху — тонкий разделитель и мягкая тень: подсказка, что
    контент ещё прокручивается. Когда пользователь долистал донизу, разделитель и
@@ -5,6 +53,7 @@
 .nm-footer {
   position: sticky;
   bottom: 0;
+  z-index: 1;
   background: #fff;
   /* full-bleed по горизонтали + съесть нижний padding обёртки модалки (28px),
      чтобы у самого низа не оставалось белой полосы под кнопками */

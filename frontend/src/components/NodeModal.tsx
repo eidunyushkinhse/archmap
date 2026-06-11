@@ -47,25 +47,36 @@ export default function NodeModal({
   // Открыто ли подтверждение удаления (связи и само удаление — в NodeDeleteConfirm)
   const [confirming, setConfirming] = useState(false);
 
-  // Долистана ли модалка донизу: пока есть скрытый снизу контент — над полосой
-  // действий виден разделитель, у самого низа он гаснет (см. nodeModal.css).
+  // У какого края прокрутки находимся: пока есть скрытый контент за липкими
+  // шапкой/полосой действий — у их края виден разделитель; у самого верха/низа
+  // он плавно гаснет (см. nodeModal.css). Маяки — невидимые div'ы у краёв контента.
+  const [atTop, setAtTop] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  // Следим за маяком в самом низу контента: пересёкся со скролл-контейнером
-  // (<dialog> модалки) — значит долистали донизу. Пересборка при смене режима
-  // (editing): у просмотра и редактирования разные футеры — маяк перемонтируется.
+  const topSentinelRef = useRef<HTMLDivElement>(null);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
+  // Один IntersectionObserver на оба маяка: их пересечение со скролл-контейнером
+  // (<dialog> модалки) и есть «мы у этого края». Пересборка при смене режима
+  // (editing): у просмотра и редактирования разные футеры — маяки перемонтируются.
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-    const root = sentinel.closest("dialog");
+    const top = topSentinelRef.current;
+    const bottom = bottomSentinelRef.current;
+    const root = (top ?? bottom)?.closest("dialog");
+    if (!root) return;
     const io = new IntersectionObserver(
-      ([entry]) => setAtBottom(entry.isIntersecting),
+      (entries) => {
+        for (const e of entries) {
+          if (e.target === top) setAtTop(e.isIntersecting);
+          if (e.target === bottom) setAtBottom(e.isIntersecting);
+        }
+      },
       { root },
     );
-    io.observe(sentinel);
+    if (top) io.observe(top);
+    if (bottom) io.observe(bottom);
     return () => io.disconnect();
   }, [editing]);
 
+  const headerClass = `nm-header${atTop ? " nm-header--at-top" : ""}`;
   const footerClass = `nm-footer${atBottom ? " nm-footer--at-bottom" : ""}`;
 
   async function handleSave() {
@@ -116,8 +127,15 @@ export default function NodeModal({
 
   return (
     <>
-    <Modal onClose={onClose} boxStyle={{ width: 560, maxHeight: "90vh", overflowY: "auto" }}>
-      <h2 style={{ margin: "0 0 16px" }}>{isCreate ? "Новый узел" : node!.name}</h2>
+    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 560, maxHeight: "90vh", overflowY: "auto" }}>
+      {/* Липкая шапка: название узла и крестик всегда видны. Свой крестик вместо
+          дефолтного (closeButton={false}) — тот рисуется абсолютом на <dialog> и
+          уезжает при прокрутке. Маяк верха — первым, чтобы ловить позицию у края. */}
+      <div ref={topSentinelRef} style={{ height: 1 }} aria-hidden />
+      <div className={headerClass}>
+        <h2>{isCreate ? "Новый узел" : node!.name}</h2>
+        <button onClick={onClose} className="nm-close" aria-label="Закрыть">✕</button>
+      </div>
 
         {editing ? (
           <>
@@ -207,7 +225,7 @@ export default function NodeModal({
             )}
 
             {/* Маяк низа прокрутки (см. эффект с IntersectionObserver) */}
-            <div ref={sentinelRef} style={{ height: 1 }} aria-hidden />
+            <div ref={bottomSentinelRef} style={{ height: 1 }} aria-hidden />
             <div className={footerClass}>
               {error && <p style={errStyle}>{error}</p>}
               <div style={{ display: "flex", gap: 8 }}>
@@ -254,7 +272,7 @@ export default function NodeModal({
             {isArchitect && (
               <>
                 {/* Маяк низа прокрутки (см. эффект с IntersectionObserver) */}
-                <div ref={sentinelRef} style={{ height: 1 }} aria-hidden />
+                <div ref={bottomSentinelRef} style={{ height: 1 }} aria-hidden />
                 <div className={footerClass}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setEditing(true)} style={primaryBtn}>
