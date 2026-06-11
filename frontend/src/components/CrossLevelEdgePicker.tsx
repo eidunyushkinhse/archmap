@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties, ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 import type { EdgeCreate, Node } from "../types";
 import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
@@ -21,24 +21,27 @@ interface Props {
   // корни дерева = узлы с этим parent_id; pathOf останавливается на нём.
   // null — корни всей схемы (parent_id == null).
   rootParentId: string | null;
-  // узлы, которые нельзя выбрать (greyed, прячем из поиска) — в т.ч. сам источник
+  // узлы, которые нельзя выбрать (greyed, не считаются совпадениями) — в т.ч. сам источник
   excludeIds?: Set<string>;
+  // подпись пустого слота цели (различает жесты: «вне уровня» / «внутрь контейнера»)
+  slotPlaceholder: string;
   onClose: () => void;
   onCreated: () => void;
 }
 
 /**
- * Поповер выбора дальнего конца межуровневой связи: дерево узлов-кандидатов
- * (собирается на клиенте из плоского списка по parent_id) + автокомплит по имени.
- * Один компонент для двух жестов: «связь внутрь контейнера» (скоуп — поддерево,
- * rootParentId = контейнер) и «связь к узлу вне уровня» (скоуп — вся схема,
- * rootParentId = null, недоступные узлы текущего уровня в excludeIds). Навигация
- * как в боковом дереве: по умолчанию видны прямые дети корня, раскрытие по шеврону.
- * Направление по умолчанию — от исходного узла к выбранному; тумблер разворачивает.
+ * Поповер выбора дальнего конца межуровневой связи: визуальный «маршрут»
+ * [источник] → [слот цели] над деревом узлов-кандидатов (собирается на клиенте
+ * из плоского списка по parent_id). Один компонент для двух жестов: «связь внутрь
+ * контейнера» (скоуп — поддерево, rootParentId = контейнер) и «связь к узлу вне
+ * уровня» (скоуп — вся схема, rootParentId = null, недоступные узлы в excludeIds).
+ * Поиск фильтрует дерево на месте (совпадения + их предки, авто-раскрытие), а не
+ * открывает отдельный дропдаун. Направление по умолчанию — от источника к цели;
+ * кнопка на линии разворачивает, не меняя элементы местами.
  */
 export default function CrossLevelEdgePicker({
   title, subtitle, sourceId, sourceLabel, sourceHandle,
-  loadNodes, scopeKey, rootParentId, excludeIds, onClose, onCreated,
+  loadNodes, scopeKey, rootParentId, excludeIds, slotPlaceholder, onClose, onCreated,
 }: Props) {
   const [allNodes, setAllNodes] = useState<Node[] | null>(null);
   const [query, setQuery] = useState("");
@@ -51,6 +54,8 @@ export default function CrossLevelEdgePicker({
   const [technology, setTechnology] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // прокрутка к выбранной строке после выбора из поиска
+  const pickedRowRef = useRef<HTMLDivElement | null>(null);
 
   const excluded = useMemo(() => (id: string) => excludeIds?.has(id) ?? false, [excludeIds]);
 
@@ -89,14 +94,28 @@ export default function CrossLevelEdgePicker({
     [allNodes, rootParentId],
   );
 
-  // Совпадения для автокомплита (плоский поиск, недоступные узлы скрыты).
-  const searchMatches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return (allNodes ?? []).filter((n) => !excluded(n.id) && n.name.toLowerCase().includes(q));
-  }, [allNodes, query, excluded]);
+  const q = query.trim().toLowerCase();
+  const filtering = q.length > 0;
 
-  // Путь от корня скоупа до узла (без него самого) — для подсказки в дропдауне.
+  // Фильтр дерева: при непустом запросе видимы узлы-совпадения и все их предки
+  // (ветки к совпадениям авто-раскрыты). expanded НЕ мутируем — это производное
+  // отображение. null = фильтр выключен (показываем обычное дерево по expanded).
+  const visibleIds = useMemo<Set<string> | null>(() => {
+    if (!filtering) return null;
+    const ids = new Set<string>();
+    for (const n of allNodes ?? []) {
+      if (excluded(n.id) || !n.name.toLowerCase().includes(q)) continue;
+      ids.add(n.id);
+      let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
+      while (cur && cur.id !== rootParentId) {
+        ids.add(cur.id);
+        cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+      }
+    }
+    return ids;
+  }, [allNodes, q, filtering, excluded, byId, rootParentId]);
+
+  // Путь от корня скоупа до узла (без него самого) — подпись под именем в слоте.
   const pathOf = (n: Node): string => {
     const parts: string[] = [];
     let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
@@ -114,10 +133,11 @@ export default function CrossLevelEdgePicker({
       return s;
     });
 
-  // Выбор из автокомплита: фиксируем узел, чистим поиск и раскрываем путь к нему.
-  const pickFromSearch = (n: Node) => {
+  // Выбор узла: фиксируем, чистим поиск и раскрываем путь к нему (чтобы после
+  // очистки фильтра строка осталась видна в обычном дереве).
+  const selectNode = (n: Node) => {
     setPicked(n);
-    setQuery("");
+    if (query) setQuery("");
     setExpanded((prev) => {
       const s = new Set(prev);
       let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
@@ -129,18 +149,41 @@ export default function CrossLevelEdgePicker({
     });
   };
 
-  const renderNode = (n: Node, depth: number): ReactElement => {
+  // Прокрутить выбранную строку в зону видимости (после выбора из поиска).
+  useEffect(() => {
+    pickedRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [picked]);
+
+  // Подсветка совпавшего фрагмента имени (только при активном фильтре).
+  const highlight = (name: string): ReactNode => {
+    if (!filtering) return name;
+    const idx = name.toLowerCase().indexOf(q);
+    if (idx === -1) return name;
+    return (
+      <>
+        {name.slice(0, idx)}
+        <mark style={markStyle}>{name.slice(idx, idx + q.length)}</mark>
+        {name.slice(idx + q.length)}
+      </>
+    );
+  };
+
+  const renderNode = (n: Node, depth: number): ReactElement | null => {
+    // В режиме фильтра показываем только узлы из visibleIds (совпадения + предки).
+    if (visibleIds && !visibleIds.has(n.id)) return null;
     const kids = childrenOf.get(n.id) ?? [];
-    const hasKids = kids.length > 0;
-    const isOpen = expanded.has(n.id);
+    const visibleKids = visibleIds ? kids.filter((k) => visibleIds.has(k.id)) : kids;
+    const showChev = visibleKids.length > 0;
+    const isOpen = visibleIds ? true : expanded.has(n.id);
     const isPicked = picked?.id === n.id;
     const isExcluded = excluded(n.id);
     return (
       <div key={n.id}>
         <div
+          ref={isPicked ? pickedRowRef : undefined}
           // Недоступный узел (текущего уровня / источник) не выбираем, но дерево
           // оставляем проходимым — его потомки могут быть валидными целями.
-          onClick={() => { if (!isExcluded) setPicked(n); }}
+          onClick={() => { if (!isExcluded) selectNode(n); }}
           style={{
             ...treeRow,
             paddingLeft: 8 + depth * 16,
@@ -149,7 +192,7 @@ export default function CrossLevelEdgePicker({
             color: isExcluded ? "#9ca3af" : undefined,
           }}
         >
-          {hasKids ? (
+          {showChev ? (
             <button
               onClick={(e) => { e.stopPropagation(); toggle(n.id); }}
               style={chevBtn}
@@ -160,13 +203,14 @@ export default function CrossLevelEdgePicker({
           ) : (
             <span style={leafMark}>●</span>
           )}
-          <span style={{ flex: 1 }}>
-            {n.name}
+          <span style={{ flex: 1, fontWeight: isPicked ? 600 : undefined, color: isPicked ? "#1d4ed8" : undefined }}>
+            {highlight(n.name)}
             {n.role && <span style={roleMuted}>({n.role})</span>}
             {isExcluded && <span style={roleMuted}>на этом уровне</span>}
           </span>
+          {isPicked && <span style={checkMark}>✓</span>}
         </div>
-        {hasKids && isOpen && kids.map((k) => renderNode(k, depth + 1))}
+        {isOpen && visibleKids.map((k) => renderNode(k, depth + 1))}
       </div>
     );
   };
@@ -202,97 +246,207 @@ export default function CrossLevelEdgePicker({
     }
   }
 
-  // Текстовое превью направления (что и куда).
-  const farLabel = picked ? picked.name : "выбранный узел";
-  const arrow = direction === "out"
-    ? `${sourceLabel} → ${farLabel}`
-    : `${farLabel} → ${sourceLabel}`;
+  const pickedPath = picked ? pathOf(picked) : "";
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 440 }}>
       <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>{title}</h2>
-        <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>{subtitle}</p>
+      <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>{subtitle}</p>
 
-        {/* Направление */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <span style={{ flex: 1, fontSize: 14, color: "#374151" }}>{arrow}</span>
+      {/* Маршрут: чип источника ——стрелка——> слот цели. Позиции фиксированы
+          (источник всегда слева); направление показывает только сторона стрелки. */}
+      <div style={routeRow}>
+        <span style={chip}>{sourceLabel}</span>
+        <div style={routeLine}>
+          {/* стрелка у левого конца при "in" (смотрит в источник) */}
+          {direction === "in" && <span style={arrowLeft} />}
+          <div style={routeRule} />
+          {/* стрелка у правого конца при "out" (смотрит в слот) */}
+          {direction === "out" && <span style={arrowRight} />}
           <button
             onClick={() => setDirection((d) => (d === "out" ? "in" : "out"))}
-            style={secondaryBtn}
+            style={swapBtn}
             title="Поменять направление"
           >⇄</button>
         </div>
+        {picked ? (
+          <div style={slotFilled} onClick={() => setPicked(null)} title="Снять выбор">
+            <span style={slotName}>{picked.name}</span>
+            {pickedPath && <span style={slotPath}>{pickedPath}</span>}
+          </div>
+        ) : (
+          <span style={slotEmpty}>{slotPlaceholder}</span>
+        )}
+      </div>
 
-        {/* Поиск: при вводе под полем выпадает автокомплит с совпадениями */}
-        <div style={{ position: "relative", marginBottom: 10 }}>
+      {/* Поиск фильтрует дерево на месте (без дропдауна) */}
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Найти узел…"
+        style={{ ...input, marginBottom: 10 }}
+        data-autofocus
+      />
+
+      {/* Дерево: по умолчанию только прямые дети корня; при поиске — отфильтровано */}
+      <div style={listBox}>
+        {allNodes === null ? (
+          <div style={hint}>Загрузка…</div>
+        ) : roots.length === 0 ? (
+          <div style={hint}>Нет узлов</div>
+        ) : visibleIds && visibleIds.size === 0 ? (
+          <div style={hint}>Ничего не найдено</div>
+        ) : (
+          roots.map((n) => renderNode(n, 0))
+        )}
+      </div>
+
+      {/* Описание и технология — в одну строку */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <div>
+          <label style={labelStyle}>Описание</label>
           <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск по имени..."
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="запрос, событие…"
             style={{ ...input, marginBottom: 0 }}
-            data-autofocus
           />
-          {query.trim() && (
-            <div style={dropdown}>
-              {allNodes === null ? (
-                <div style={hint}>Загрузка...</div>
-              ) : searchMatches.length === 0 ? (
-                <div style={hint}>Ничего не найдено</div>
-              ) : (
-                searchMatches.map((n) => {
-                  const path = pathOf(n);
-                  return (
-                    <div key={n.id} onClick={() => pickFromSearch(n)} style={dropdownItem}>
-                      <div>
-                        {n.name}
-                        {n.role && <span style={roleMuted}>({n.role})</span>}
-                      </div>
-                      {path && <div style={breadcrumb}>{path}</div>}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
         </div>
-
-        {/* Дерево: по умолчанию только прямые дети корня, раскрытие по шеврону */}
-        <div style={listBox}>
-          {allNodes === null ? (
-            <div style={hint}>Загрузка...</div>
-          ) : roots.length === 0 ? (
-            <div style={hint}>Нет узлов</div>
-          ) : (
-            roots.map((n) => renderNode(n, 0))
-          )}
+        <div>
+          <label style={labelStyle}>Технология</label>
+          <input
+            value={technology}
+            onChange={(e) => setTechnology(e.target.value)}
+            placeholder="REST, Kafka…"
+            style={{ ...input, marginBottom: 0 }}
+          />
         </div>
+      </div>
 
-        <label style={labelStyle}>Описание</label>
-        <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="запрос, событие..."
-          style={input}
-        />
-        <label style={labelStyle}>Технология</label>
-        <input
-          value={technology}
-          onChange={(e) => setTechnology(e.target.value)}
-          placeholder="REST, gRPC, Kafka..."
-          style={input}
-        />
-
-        {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button onClick={handleCreate} disabled={saving || !picked} style={primaryBtn}>
-            {saving ? "Создание..." : "Создать связь"}
-          </button>
-          <button onClick={onClose} style={secondaryBtn}>Отмена</button>
-        </div>
+      {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button onClick={handleCreate} disabled={saving || !picked} style={primaryBtn}>
+          {saving ? "Создание…" : "Создать связь"}
+        </button>
+        <button onClick={onClose} style={secondaryBtn}>Отмена</button>
+      </div>
     </Modal>
   );
 }
 
+// --- Маршрут (шапка) ---
+const routeRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginBottom: 16,
+};
+const chip: CSSProperties = {
+  flex: "none",
+  padding: "7px 13px",
+  border: "1.5px solid #cbd5e1",
+  borderRadius: 10,
+  background: "#fff",
+  fontSize: 13,
+  fontWeight: 600,
+  color: "#374151",
+  boxShadow: "0 1px 2px rgba(15,23,42,.08)",
+};
+const routeLine: CSSProperties = {
+  position: "relative",
+  flex: 1,
+  minWidth: 56,
+  height: 24,
+  display: "flex",
+  alignItems: "center",
+};
+const routeRule: CSSProperties = {
+  flex: 1,
+  height: 2,
+  background: "#6b7280",
+};
+// Треугольники-наконечники на концах линии (CSS-бордеры).
+const arrowRight: CSSProperties = {
+  width: 0,
+  height: 0,
+  borderTop: "5px solid transparent",
+  borderBottom: "5px solid transparent",
+  borderLeft: "8px solid #6b7280",
+  flex: "none",
+};
+const arrowLeft: CSSProperties = {
+  width: 0,
+  height: 0,
+  borderTop: "5px solid transparent",
+  borderBottom: "5px solid transparent",
+  borderRight: "8px solid #6b7280",
+  flex: "none",
+};
+const swapBtn: CSSProperties = {
+  position: "absolute",
+  left: "50%",
+  top: "50%",
+  transform: "translate(-50%,-50%)",
+  width: 24,
+  height: 24,
+  borderRadius: "50%",
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  boxShadow: "0 1px 3px rgba(15,23,42,.15)",
+  cursor: "pointer",
+  fontSize: 12,
+  lineHeight: 1,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#374151",
+  padding: 0,
+};
+const slotBase: CSSProperties = {
+  flex: "none",
+  maxWidth: 170,
+  borderRadius: 10,
+  transition: "border-color .12s ease, background .12s ease",
+};
+const slotEmpty: CSSProperties = {
+  ...slotBase,
+  padding: "7px 13px",
+  border: "1.5px dashed #60a5fa",
+  background: "#eff6ff",
+  fontSize: 13,
+  fontWeight: 500,
+  color: "#60a5fa",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+const slotFilled: CSSProperties = {
+  ...slotBase,
+  display: "flex",
+  flexDirection: "column",
+  gap: 1,
+  padding: "5px 13px",
+  border: "1.5px solid #2563eb",
+  background: "#dbeafe",
+  cursor: "pointer",
+};
+const slotName: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: "#1d4ed8",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+const slotPath: CSSProperties = {
+  fontSize: 10.5,
+  color: "#3b82f6",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+// --- Дерево ---
 const listBox: CSSProperties = {
   border: "1px solid #d1d5db",
   borderRadius: 6,
@@ -336,29 +490,14 @@ const roleMuted: CSSProperties = {
   marginLeft: 6,
   fontSize: 12,
 };
-const dropdown: CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 4px)",
-  left: 0,
-  right: 0,
-  background: "#fff",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  boxShadow: "0 6px 20px rgba(0,0,0,.12)",
-  maxHeight: 220,
-  overflowY: "auto",
-  zIndex: 10,
+const checkMark: CSSProperties = {
+  marginLeft: "auto",
+  color: "#2563eb",
+  fontWeight: 700,
 };
-const dropdownItem: CSSProperties = {
-  padding: "8px 12px",
-  cursor: "pointer",
-  fontSize: 14,
-  borderBottom: "1px solid #f3f4f6",
-};
-const breadcrumb: CSSProperties = {
-  color: "#9ca3af",
-  fontSize: 11,
-  marginTop: 2,
+const markStyle: CSSProperties = {
+  background: "#fef08a",
+  borderRadius: 2,
 };
 const hint: CSSProperties = {
   padding: "12px",

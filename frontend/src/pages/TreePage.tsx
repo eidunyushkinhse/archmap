@@ -454,6 +454,7 @@ export default function TreePage({ onLogout }: Props) {
           loadNodes={() => nodesApi.getDescendants(intoPicker.containerId)}
           scopeKey={intoPicker.containerId}
           rootParentId={intoPicker.containerId}
+          slotPlaceholder={`Узел внутри «${intoPicker.containerName}»…`}
           onClose={() => setIntoPicker(null)}
           onCreated={handleIntoCreated}
         />
@@ -468,6 +469,7 @@ export default function TreePage({ onLogout }: Props) {
           loadNodes={() => nodesApi.getAll()}
           scopeKey="all"
           rootParentId={null}
+          slotPlaceholder="Узел вне уровня…"
           // на этом уровне уже видны локальные узлы и гости — их (и сам источник)
           // выбирать незачем: к ним тянут связь прямо на холсте
           excludeIds={
