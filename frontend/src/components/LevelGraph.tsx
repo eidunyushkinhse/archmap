@@ -103,8 +103,9 @@ interface LevelGraphProps {
   isArchitect: boolean;
   onDrillDown: (node: AppNode) => void;
   onEditNode: (node: AppNode) => void;
-  onEdgeClick: (edge: AppEdge) => void;
-  // клик по «мастер-стрелке» (несколько слитых связей) — выбор нужной
+  // клик по описанию связи (одиночной или «мастер-стрелке») — список для выбора.
+  // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
+  // связь в том же направлении, а не городить отдельную стрелку.
   onEdgesChoice: (edges: AppEdge[]) => void;
   // reconnect сохранил новые хэндлы конца стрелки — родитель синхронизирует стейт
   // уровня, чтобы пересчёт раскладки не откатывал их к autoHandles. column — хэндл
@@ -175,7 +176,6 @@ function LevelGraphInner({
   isArchitect,
   onDrillDown,
   onEditNode,
-  onEdgeClick,
   onEdgesChoice,
   onEdgeHandlesChanged,
   onEdgeWaypointsChanged,
@@ -299,20 +299,20 @@ function LevelGraphInner({
   // нестабильными (новые функции каждый рендер); будь они зависимостями сборки,
   // массив rfNodes пересоздавался бы на каждый рендер родителя и сбрасывал выделение/
   // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
-  // Открыть детализацию связи по списку её членов: одиночная → поповер информации,
-  // мастер (несколько слитых) → выбор нужной. Общая логика для клика по линии (там,
-  // где он доходит) и по плашке с описанием (триггер на основной схеме, т.к. клик по
-  // линии перехватывают грипы изломов).
+  // Открыть список связей по их членам — всегда через «Выберите связь», даже для
+  // одиночной связи: так в модалке доступна кнопка «Добавить связь» (дозапись новой
+  // связи того же направления). Общая логика для клика по линии (там, где он доходит)
+  // и по плашке с описанием (триггер на основной схеме, т.к. клик по линии
+  // перехватывают грипы изломов).
   const openEdgeMembers = useCallback(
     (memberIds: string[]) => {
       const members = memberIds
         .map((mid) => edges.find((e) => e.id === mid))
         .filter((e): e is AppEdge => e != null);
       if (members.length === 0) return;
-      if (members.length === 1) onEdgeClick(members[0]);
-      else onEdgesChoice(members);
+      onEdgesChoice(members);
     },
-    [edges, onEdgeClick, onEdgesChoice],
+    [edges, onEdgesChoice],
   );
 
   const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints, openEdgeMembers });

@@ -128,7 +128,6 @@ export default function NodeContextModal({ node, onClose }: Props) {
             isArchitect={false}
             onDrillDown={() => {}}
             onEditNode={() => {}}
-            onEdgeClick={(e) => setEdgeDetail(findEdge(e.id))}
             onEdgesChoice={(g) =>
               setEdgeChoice(
                 g.map((m) => findEdge(m.id)).filter((e): e is LevelEdge => e != null),

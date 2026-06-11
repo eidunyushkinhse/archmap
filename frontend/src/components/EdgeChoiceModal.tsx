@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { Edge } from "../types";
 import Modal from "../ui/Modal";
+import { secondaryBtn } from "../ui/styles";
 
 // Дженерик по типу ребра: onPick возвращает РОВНО тот объект, что пришёл в edges
 // (с original_* полями), не теряя их в типе при сужении до базового Edge.
@@ -9,6 +10,9 @@ interface Props<E extends Edge> {
   sourceLabel: string;
   targetLabel: string;
   onPick: (edge: E) => void;
+  // Опционально (только для архитектора): дозаписать новую связь в том же
+  // направлении, не протягивая отдельную стрелку. Кнопки нет, если проп не передан.
+  onAdd?: () => void;
   onClose: () => void;
 }
 
@@ -22,6 +26,7 @@ export default function EdgeChoiceModal<E extends Edge>({
   sourceLabel,
   targetLabel,
   onPick,
+  onAdd,
   onClose,
 }: Props<E>) {
   return (
@@ -37,6 +42,11 @@ export default function EdgeChoiceModal<E extends Edge>({
           </button>
         ))}
       </div>
+      {onAdd && (
+        <button onClick={onAdd} style={{ ...secondaryBtn, marginTop: 12, width: "100%" }}>
+          + Добавить связь
+        </button>
+      )}
     </Modal>
   );
 }

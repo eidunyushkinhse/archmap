@@ -398,7 +398,6 @@ export default function TreePage({ onLogout }: Props) {
               isArchitect={isArchitect}
               onDrillDown={drillDown}
               onEditNode={(node) => setNodeModal({ open: true, node })}
-              onEdgeClick={(edge) => setEdgeDetailModal(findLevelEdge(edge.id))}
               onEdgesChoice={(group) =>
                 setEdgeChoice(
                   group
@@ -511,6 +510,22 @@ export default function TreePage({ onLogout }: Props) {
           sourceLabel={findNodeLabel(edgeChoice[0].source_id)}
           targetLabel={findNodeLabel(edgeChoice[0].target_id)}
           onPick={(edge) => { setEdgeChoice(null); setEdgeDetailModal(edge); }}
+          // Архитектору — дозаписать новую связь в том же направлении (концы как у
+          // стрелки на схеме, хэндлы дефолтные). Открываем тот же поповер, что и жест.
+          onAdd={
+            isArchitect
+              ? () => {
+                  const dir = edgeChoice[0];
+                  setEdgeChoice(null);
+                  setEdgeQuick({
+                    sourceId: dir.source_id,
+                    targetId: dir.target_id,
+                    sourceHandle: null,
+                    targetHandle: null,
+                  });
+                }
+              : undefined
+          }
           onClose={() => setEdgeChoice(null)}
         />
       )}
