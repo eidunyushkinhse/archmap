@@ -53,6 +53,35 @@ describe("placeOutsideGhosts — сторона колонки", () => {
     expect(positions.get("G")).toEqual({ x: 0 + NODE_W + clearance(0), y: 0 });
   });
 
+  it("приёмник от ЛЕВОГО узла широкой рамки → левая колонка (близость важнее направления)", () => {
+    // Широкая рамка: Lleft(0,0) и Lright(600,0) → frameCx=395. Гость G — ПРИЁМНИК от
+    // Lleft (по направлению — правая колонка), но Lleft левее центра → кладём СЛЕВА,
+    // у ближнего края (раньше улетал колонкой через всю схему вправо).
+    const nodes = [{ id: "Lleft" }, { id: "Lright" }];
+    const positions = new Map([["Lleft", { x: 0, y: 0 }], ["Lright", { x: 600, y: 0 }]]);
+    const res = placeOutsideGhosts({
+      nodes, entities: [leaf("G")], stableAncestorIds: [], levelPositions: {},
+      layoutEdges: [edge("e", "Lleft", "G")], positions,
+    });
+    expect(res).not.toBeNull();
+    // fMinX=0 → левая колонка; desiredY по Lleft (== 0)
+    expect(positions.get("G")).toEqual({ x: 0 - clearance(0) - NODE_W, y: 0 });
+  });
+
+  it("источник у ПРАВОГО узла широкой рамки → правая колонка (близость важнее направления)", () => {
+    // Зеркально: G — ИСТОЧНИК для Lright (по направлению — левая колонка), но Lright
+    // правее центра → правая колонка у ближнего края.
+    const nodes = [{ id: "Lleft" }, { id: "Lright" }];
+    const positions = new Map([["Lleft", { x: 0, y: 0 }], ["Lright", { x: 600, y: 0 }]]);
+    const res = placeOutsideGhosts({
+      nodes, entities: [leaf("G")], stableAncestorIds: [], levelPositions: {},
+      layoutEdges: [edge("e", "G", "Lright")], positions,
+    });
+    expect(res).not.toBeNull();
+    // fMaxX = 600 + NODE_W = 790 → правая колонка; desiredY по Lright (== 0)
+    expect(positions.get("G")).toEqual({ x: 790 + clearance(0), y: 0 });
+  });
+
   it("гость без связей (ничья) → правая колонка (rightVotes >= leftVotes)", () => {
     const { nodes, positions } = baseLocal();
     placeOutsideGhosts({

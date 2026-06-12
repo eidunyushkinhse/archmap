@@ -3,9 +3,11 @@
 // Зачем модуль существует: ELK кладёт гостей в общий поток вместе с локальными
 // узлами, из-за чего гость без сохранённой позиции мог оказаться ВНУТРИ рамки
 // локальных узлов, упереться в неё или налезть на узлы. Здесь таких гостей выносим
-// в аккуратные колонки за внешнюю рамку: источник связи в уровень — слева, приёмник —
-// справа (несколько на сторону — стопкой сверху вниз). После переноса пересчитываем
-// хэндлы рёбер от новых позиций — это убирает «сумбур» в их назначении.
+// в аккуратные колонки за внешнюю рамку: каждого гостя — у БЛИЖНЕГО к его связанным
+// локальным узлам края рамки (короткая стрелка); направление связи — лишь запасной
+// критерий для узла у центра/без связей (источник слева, приёмник справа). Несколько
+// гостей на сторону — стопкой сверху вниз. После переноса пересчитываем хэндлы рёбер
+// от новых позиций — это убирает «сумбур» в их назначении.
 //
 // Гости С общей рамкой (лежат внутри своей рамки по дизайну) и гости с ручной
 // позицией (levelPositions) не трогаются — КРОМЕ случая, когда внутреннего гостя ELK
@@ -100,27 +102,43 @@ export function placeOutsideGhosts(params: {
   const leftX = fMinX - clearance - NODE_W;
   const rightX = fMaxX + clearance;
   const midY = (fMinY + fMaxY) / 2;
+  const frameCx = (fMinX + fMaxX) / 2;
 
-  // Сторона колонки по направлению связей гостя; желаемый Y — у связанных узлов
-  // (чтобы стрелка была короткой). Ничьи/только приём → справа.
+  // Сторона колонки — у БЛИЖНЕГО к связанным локальным узлам края рамки (чтобы стрелка
+  // была короткой): средний X связанных узлов левее центра рамки → левая колонка, правее
+  // → правая. Раньше сторону задавало направление связи (источник слева, приёмник
+  // справа), из-за чего приёмник от самого ЛЕВОГО узла широкой схемы улетал колонкой
+  // через всю схему вправо. Направление оставляем лишь ЗАПАСНЫМ критерием: когда узел у
+  // центра рамки (обе стороны равноудалены) или связей с уровнем нет — источник слева,
+  // приёмник/ничья справа. Желаемый Y — средний центр связанных узлов.
   type Placed = { id: string; desiredY: number };
   const leftCol: Placed[] = [];
   const rightCol: Placed[] = [];
   for (const ent of toPlace) {
     let leftVotes = 0, rightVotes = 0;
+    const xs: number[] = [];
     const ys: number[] = [];
     for (const e of layoutEdges) {
       if (e.source_id === ent.id && localIds.has(e.target_id)) {
         leftVotes++;
-        const p = positions.get(e.target_id); if (p) ys.push(p.y + NODE_H / 2);
+        const p = positions.get(e.target_id); if (p) { xs.push(p.x + NODE_W / 2); ys.push(p.y + NODE_H / 2); }
       } else if (e.target_id === ent.id && localIds.has(e.source_id)) {
         rightVotes++;
-        const p = positions.get(e.source_id); if (p) ys.push(p.y + NODE_H / 2);
+        const p = positions.get(e.source_id); if (p) { xs.push(p.x + NODE_W / 2); ys.push(p.y + NODE_H / 2); }
       }
     }
     const desiredY =
       (ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : midY) - NODE_H / 2;
-    (rightVotes >= leftVotes ? rightCol : leftCol).push({ id: ent.id, desiredY });
+    // близость к краю рамки; в ничью (узел ровно по центру) или без связей — направление
+    const byDirection = rightVotes >= leftVotes ? "right" : "left";
+    let side: "left" | "right";
+    if (xs.length) {
+      const avgX = xs.reduce((a, b) => a + b, 0) / xs.length;
+      side = avgX < frameCx - 1 ? "left" : avgX > frameCx + 1 ? "right" : byDirection;
+    } else {
+      side = byDirection;
+    }
+    (side === "right" ? rightCol : leftCol).push({ id: ent.id, desiredY });
   }
   // В каждой колонке раскладываем сверху вниз с минимальным зазором (де-наложение).
   const placeCol = (col: Placed[], x: number): void => {
