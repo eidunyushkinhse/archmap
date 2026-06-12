@@ -247,12 +247,32 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
 function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
+  // «Войти» к компонентам гостя — только для промежуточного гостя (есть дети): у
+  // атомарного проваливаться некуда. В контекст-режиме onEnter не задаётся → кнопки нет.
+  const onEnter = data.onEnter;
+  const canEnter = data.appNode.has_children && onEnter != null;
+  const btnStyle: CSSProperties = {
+    ...nodeBtn,
+    background: "rgba(255,255,255,0.18)",
+    color: c.text,
+    borderColor: "rgba(255,255,255,0.3)",
+  };
   // Форма та же, но пунктиром — «призрачность» внешнего узла видна по пунктирному контуру.
   return (
     <div style={{ ...nodeContainer, height: shapeHeight(shape), color: c.text }}>
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
       <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
-      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, false) }}>
+      {canEnter && (
+        <div style={nodeActions}>
+          <button
+            className="nodrag"
+            onClick={(e) => { e.stopPropagation(); onEnter?.(data.appNode); }}
+            style={btnStyle}
+            title="Войти к компонентам"
+          >→</button>
+        </div>
+      )}
+      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, canEnter) }}>
         <NodeName name={data.appNode.name} />
         <div style={{ display: "flex", justifyContent: "flex-start" }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />

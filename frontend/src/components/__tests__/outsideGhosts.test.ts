@@ -11,7 +11,7 @@ import type { Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 function ghost(id: string, ancestors: AncestorRef[] = []): GhostNode {
   return {
     id, name: id, role: null, technology: null, is_external: true,
-    shape: "service", node_depth: 0, ancestors, is_ghost: true,
+    shape: "service", node_depth: 0, has_children: false, ancestors, is_ghost: true,
   };
 }
 function leaf(id: string, ancestors: AncestorRef[] = []): DisplayExternal {

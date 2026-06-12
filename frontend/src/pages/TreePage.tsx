@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
+import type { AncestorRef, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
@@ -37,7 +37,10 @@ export default function TreePage({ onLogout }: Props) {
     Record<string, EdgePoint[]>
   >({});
   const [edges, setEdges] = useState<LevelEdge[]>([]);
-  const [breadcrumb, setBreadcrumb] = useState<Node[]>([]);
+  // Хлебный путь хранит только id+name каждого уровня (этого достаточно для рендера
+  // и навигации вверх). Лёгкий тип нужен, чтобы заходить и к госту из другой ветки:
+  // его полный путь известен только как ancestors (AncestorRef), без целого Node.
+  const [breadcrumb, setBreadcrumb] = useState<AncestorRef[]>([]);
   const [loading, setLoading] = useState(false);
 
   // node — редактируемый узел (null = создание). При создании перетаскиванием
@@ -167,11 +170,18 @@ export default function TreePage({ onLogout }: Props) {
 
   // Клик по промежуточному узлу в дереве → перейти на его слой основной схемы.
   // path — полный путь от корня до узла включительно (последний элемент = открываемый слой).
-  function drillToPath(path: Node[]) {
+  function drillToPath(path: AncestorRef[]) {
     if (path.length === 0) return;
     setContextNode(null); // если была открыта контекст-модалка — закрываем
     setBreadcrumb(path);
     load(path[path.length - 1].id);
+  }
+
+  // «Войти» к компонентам гостя. Гость — из другой ветки дерева, поэтому его путь
+  // строим заново: предки гостя (корень → его родитель) + сам гость. Аппендить к
+  // текущему пути нельзя — он сломался бы (гость не дочерний текущему уровню).
+  function drillIntoGhost(ghost: GhostNode) {
+    drillToPath([...ghost.ancestors, { id: ghost.id, name: ghost.name }]);
   }
 
   function handleNodeSaved(saved: Node) {
@@ -404,6 +414,7 @@ export default function TreePage({ onLogout }: Props) {
               ancestorIds={breadcrumb.map((b) => b.id)}
               isArchitect={isArchitect}
               onDrillDown={drillDown}
+              onEnterGhost={drillIntoGhost}
               onEditNode={(node) => setNodeModal({ open: true, node })}
               onEdgesChoice={(group) =>
                 setEdgeChoice(

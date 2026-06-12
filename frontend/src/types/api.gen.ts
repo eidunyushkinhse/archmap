@@ -556,6 +556,11 @@ export interface components {
             /** Node Depth */
             node_depth: number;
             /**
+             * Has Children
+             * @default false
+             */
+            has_children: boolean;
+            /**
              * Ancestors
              * @default []
              */

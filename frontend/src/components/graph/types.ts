@@ -78,6 +78,10 @@ export interface GhostData extends Record<string, unknown> {
   appNode: GhostNode;
   colors: NodeColors;
   connectable?: boolean;
+  // войти к компонентам гостя: открыть его слой-схему. Задаётся только для
+  // промежуточного гостя в основной схеме; undefined (контекст-режим) → кнопки нет.
+  // Показ кнопки дополнительно гейтится appNode.has_children (атомарному некуда входить).
+  onEnter?: (ghost: GhostNode) => void;
 }
 
 // Свёрнутый узел-контейнер соседней ветки (напр. ProdMon) — с кнопкой-лупой.

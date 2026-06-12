@@ -103,6 +103,9 @@ interface LevelGraphProps {
   ancestorIds: string[];
   isArchitect: boolean;
   onDrillDown: (node: AppNode) => void;
+  // войти к компонентам промежуточного гостя — открыть его слой-схему (другая ветка
+  // дерева, поэтому навигация строит полный путь по предкам гостя, а не аппендит)
+  onEnterGhost?: (ghost: GhostNode) => void;
   onEditNode: (node: AppNode) => void;
   // клик по описанию связи (одиночной или «мастер-стрелке») — список для выбора.
   // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
@@ -179,6 +182,7 @@ function LevelGraphInner({
   ancestorIds,
   isArchitect,
   onDrillDown,
+  onEnterGhost,
   onEditNode,
   onEdgesChoice,
   onEdgeHandlesChanged,
@@ -334,13 +338,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers });
+  const cbRef = useRef({ onDrillDown, onEnterGhost, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers };
+    cbRef.current = { onDrillDown, onEnterGhost, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers };
   });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
@@ -597,6 +601,8 @@ function LevelGraphInner({
               appNode: ent.ghost,
               colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth),
               connectable: isArchitect && !isContext,
+              // в контекст-режиме навигация по слоям отключена (схема — внутри модалки)
+              onEnter: isContext ? undefined : cb.onEnterGhost,
             } satisfies GhostData,
           };
         }

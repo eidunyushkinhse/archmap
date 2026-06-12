@@ -191,6 +191,9 @@ def _build_graph(
                     Point(x=p["x"], y=p["y"]) for p in r.waypoints
                 ]
 
+    # Множество id, у которых есть хотя бы один ребёнок — чтобы отметить «промежуточных»
+    # гостей (есть слой компонентов) одним проходом по всем узлам, без запроса на гостя.
+    parent_ids = {n.parent_id for n in all_nodes.values() if n.parent_id is not None}
     ghost_nodes = [
         GhostNodeResponse(
             id=all_nodes[gid].id,
@@ -200,6 +203,7 @@ def _build_graph(
             is_external=all_nodes[gid].is_external,
             shape=all_nodes[gid].shape,
             node_depth=tree.node_depth(all_nodes, gid),
+            has_children=gid in parent_ids,
             ancestors=tree.ancestors(all_nodes, gid),
             pos_x=saved_pos[gid].pos_x if gid in saved_pos else None,
             pos_y=saved_pos[gid].pos_y if gid in saved_pos else None,

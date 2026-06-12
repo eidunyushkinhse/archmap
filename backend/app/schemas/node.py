@@ -77,6 +77,9 @@ class GhostNodeResponse(BaseModel):
     is_external: bool
     shape: NodeShape
     node_depth: int
+    # есть ли у гостя дети: промежуточному госту даём кнопку «Войти» (провалиться
+    # на его слой-схему компонентов), атомарному (лист) проваливаться некуда.
+    has_children: bool = False
     # цепочка предков гостя (корень → непосредственный родитель) —
     # для вложенных рамок-контейнеров на схеме уровня
     ancestors: list[AncestorRef] = []
