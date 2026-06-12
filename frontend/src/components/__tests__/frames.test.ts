@@ -33,14 +33,19 @@ describe("computeFrames — вложенные родные рамки", () => {
     ancestorNames: ["A", "B"],
   });
 
-  it("обе breadcrumb-рамки нативны; E (ничей) не входит ни в одну", () => {
+  it("обе breadcrumb-рамки нативны; E (ничей) не в родных, но в своей чужой рамке D", () => {
     const A = frames.find((f) => f.id === "A")!;
     const B = frames.find((f) => f.id === "B")!;
     expect(A.native).toBe(true);
     expect(B.native).toBe(true);
     expect([...A.memberIds].sort()).toEqual(["C", "F"]); // F — член A
     expect([...B.memberIds].sort()).toEqual(["C"]);       // F НЕ член B
-    expect(frames.some((f) => f.memberIds.has("E"))).toBe(false);
+    // E не входит ни в одну РОДНУЮ рамку…
+    expect(frames.filter((f) => f.native).some((f) => f.memberIds.has("E"))).toBe(false);
+    // …но обведён своей гостевой рамкой D (чужая ветка от корня)
+    const D = frames.find((f) => f.id === "D")!;
+    expect(D.native).toBe(false);
+    expect([...D.memberIds]).toEqual(["E"]);
   });
 
   it("прямоугольники совпадают с прежней формулой boundaries (паритет)", () => {
@@ -52,7 +57,8 @@ describe("computeFrames — вложенные родные рамки", () => {
   });
 
   it("внешние рамки (меньший depth) идут первыми", () => {
-    expect(frames.map((f) => f.id)).toEqual(["A", "B"]);
+    // A и D — depth 0 (родная и чужая), B — depth 1; сортировка по depth стабильна
+    expect(frames.map((f) => f.id)).toEqual(["A", "D", "B"]);
   });
 });
 
@@ -75,6 +81,32 @@ describe("computeFrames — гостевая рамка (раскрытый пр
     expect(P.native).toBe(false);
     expect([...P.memberIds]).toEqual(["Z"]);
     expect(P.depth).toBe(1);
+  });
+
+  it("гость без общего предка: вся чужая ветка от корня — гостевые рамки", () => {
+    // Просмотр с уровня OM (Объекты мониторинга); локальный BD (БД, родной). Гость DP
+    // (DB Proxy) с предками HelixMon > ObsCore — ни один не в breadcrumb. Обе ветки —
+    // вложенные гостевые рамки вокруг гостя, снаружи родной рамки OM.
+    const pos = (id: string) =>
+      ({ BD: { x: 0, y: 0 }, DP: { x: 300, y: 0 } } as Record<string, { x: number; y: number }>)[id];
+    const frames = computeFrames({
+      localIds: ["BD"],
+      externals: [{ id: "DP", ancestors: [a("HelixMon"), a("ObsCore")] }],
+      pos,
+      ancestorIds: ["OM"],
+      ancestorNames: ["OM"],
+    });
+    const OM = frames.find((f) => f.id === "OM")!;
+    const IM = frames.find((f) => f.id === "HelixMon")!;
+    const MC = frames.find((f) => f.id === "ObsCore")!;
+    expect(OM.native).toBe(true);
+    expect([...OM.memberIds]).toEqual(["BD"]); // гость DP НЕ член родной OM
+    expect(IM.native).toBe(false);
+    expect(MC.native).toBe(false);
+    expect(IM.depth).toBe(0);
+    expect(MC.depth).toBe(1);
+    expect([...IM.memberIds]).toEqual(["DP"]);
+    expect([...MC.memberIds]).toEqual(["DP"]);
   });
 });
 

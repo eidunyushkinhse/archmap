@@ -29,7 +29,9 @@ function nodeOverlapsFrame(pos: { x: number; y: number }, f: FrameRect): boolean
 
 describe("enforceFramesKeepOut — выталкивание", () => {
   it("гость-ничей внутри F_0 вытолкнут к ближайшему краю + зазор", () => {
-    // breadcrumb [A]; локальный L(0,0); E (ничей) внутри рамки A
+    // breadcrumb [A]; локальный L(0,0); E (ничей, предок D вне breadcrumb) внутри рамки A.
+    // E обведён своей гостевой рамкой D — выталкивается ИМЕННО рамка (с паддингом), а не
+    // голый узел: нарисованный пунктир D не должен задевать буфер A.
     const positions = new Map([["L", { x: 0, y: 0 }], ["E", { x: 50, y: 20 }]]);
     const res = enforceFramesKeepOut({
       nodes: [node("L")], entities: [leaf("E", [a("D")])],
@@ -37,8 +39,9 @@ describe("enforceFramesKeepOut — выталкивание", () => {
     });
     expect(res).not.toBeNull();
     expect(res!.moved.has("E")).toBe(true);
-    // A.rect = {-30,-30,250,190} → maxY=160; нижний край ближайший: y = 160 + 28 = 188
-    expect(positions.get("E")).toEqual({ x: 50, y: 188 });
+    // A buffer maxY = 160 + 28 = 188; рамка D = bbox(E)+pad30 (верх = E.y−30).
+    // Низ ближайший: E.y − 30 = 188 → E.y = 218.
+    expect(positions.get("E")).toEqual({ x: 50, y: 218 });
   });
 
   it("«член A, но не B» вытолкнут из B и остаётся внутри A", () => {
@@ -61,17 +64,17 @@ describe("enforceFramesKeepOut — выталкивание", () => {
     expect(nodeOverlapsFrame(positions.get("F")!, A)).toBe(true);  // внутри своей A
   });
 
-  it("гость в зоне буфера (не пересёк реальный край) отжимается к границе буфера", () => {
-    // breadcrumb [A]; L(0,0). A.rect maxY=160; E ниже реального края (minY=170 > 160 —
-    // реальную рамку НЕ пересекает), но в пределах буфера (раздутая maxY=160+28=188).
-    // Должен мягко отжаться к границе буфера (y=188), а не стоять вплотную к рамке.
+  it("гостевая рамка в зоне буфера (не пересекла реальный край) отжимается к границе буфера", () => {
+    // breadcrumb [A]; L(0,0). A buffer maxY = 188. E (предок D) обведён рамкой D; верх
+    // D = E.y−30 = 140 — реальный край A (160) рамка НЕ пересекает, но в зоне буфера.
+    // Должна мягко отжаться к границе буфера (верх D = 188 → E.y = 218), без рывка.
     const positions = new Map([["L", { x: 0, y: 0 }], ["E", { x: 50, y: 170 }]]);
     const res = enforceFramesKeepOut({
       nodes: [node("L")], entities: [leaf("E", [a("D")])],
       ancestorIds: ["A"], layoutEdges: [], positions,
     });
     expect(res).not.toBeNull();
-    expect(positions.get("E")).toEqual({ x: 50, y: 188 });
+    expect(positions.get("E")).toEqual({ x: 50, y: 218 });
   });
 
   it("непересекающийся гость не тронут → null", () => {

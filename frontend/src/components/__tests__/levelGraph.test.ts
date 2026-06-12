@@ -216,8 +216,23 @@ describe("projectGhosts", () => {
     expect(r.emergedFrom.get("g1")).toBe("B");
   });
 
-  it("нет общего предка-рамки → гость показывается как лист", () => {
+  it("нет общего предка-рамки, но есть контейнер-предок → сворачивается к нему (не голый лист)", () => {
+    // напр. лист «БД» под корнем «Объекты мониторинга» (корень-сосед текущей ветки):
+    // общего breadcrumb-предка нет, но гость всё равно представлен верхним контейнером.
     const r = projectGhosts([ghost("g1", [{ id: "X", name: "X" }])], ["root"], new Set());
+    expect(r.ghostToEffective.get("g1")).toBe("X");
+    expect(r.entities[0]).toMatchObject({ kind: "container", id: "X" });
+  });
+
+  it("раскрытие верхнего контейнера без общего предка обнажает лист и фиксирует emergedFrom", () => {
+    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X" }])], ["root"], new Set(["X"]));
+    expect(r.ghostToEffective.get("g1")).toBe("g1");
+    expect(r.entities[0]).toMatchObject({ kind: "leaf", id: "g1" });
+    expect(r.emergedFrom.get("g1")).toBe("X");
+  });
+
+  it("гость вовсе без предков (сам корень) → показывается листом", () => {
+    const r = projectGhosts([ghost("g1", [])], ["root"], new Set());
     expect(r.ghostToEffective.get("g1")).toBe("g1");
     expect(r.entities[0]).toMatchObject({ kind: "leaf", id: "g1" });
   });
