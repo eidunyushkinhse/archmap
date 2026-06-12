@@ -328,6 +328,16 @@ export default function TreePage({ onLogout }: Props) {
     ghostNodes.find((g) => g.id === id)?.name ??
     id;
 
+  // Имя конца связи для заголовка «Выберите связь». Берём ФАКТИЧЕСКИЙ конец ребра
+  // (может быть дочерним узлом при сквозной связи), а не спроецированный на уровень
+  // узел. У членов мастер-стрелки фактические концы могут различаться (общий лишь
+  // спроецированный конец, по нему и сгруппированы) — если расходятся, показываем
+  // спроецированный общий конец (findNodeLabel по общему source_id/target_id группы).
+  const edgeEndLabel = (originalNames: string[], projectedId: string): string => {
+    const uniq = new Set(originalNames);
+    return uniq.size === 1 ? originalNames[0] : findNodeLabel(projectedId);
+  };
+
   const hasNodes = nodes.length + ghostNodes.length > 0;
 
   return (
@@ -519,8 +529,8 @@ export default function TreePage({ onLogout }: Props) {
       {edgeChoice && edgeChoice.length > 0 && (
         <EdgeChoiceModal
           edges={edgeChoice}
-          sourceLabel={findNodeLabel(edgeChoice[0].source_id)}
-          targetLabel={findNodeLabel(edgeChoice[0].target_id)}
+          sourceLabel={edgeEndLabel(edgeChoice.map((e) => e.original_source_name), edgeChoice[0].source_id)}
+          targetLabel={edgeEndLabel(edgeChoice.map((e) => e.original_target_name), edgeChoice[0].target_id)}
           onPick={(edge) => { setEdgeChoice(null); setEdgeDetailModal(edge); }}
           // Архитектору — дозаписать новую связь в том же направлении (концы как у
           // стрелки на схеме, хэндлы дефолтные). Открываем тот же поповер, что и жест.
