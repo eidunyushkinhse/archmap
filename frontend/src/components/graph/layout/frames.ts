@@ -80,7 +80,22 @@ export function computeFrames(params: {
   }
 
   const defs = [...frames.values()];
-  const maxDepth = Math.max(...defs.map((f) => f.depth));
+  // «Кольцевая» глубина каждой рамки — относительно её СОБСТВЕННОГО концентрического
+  // стека, а не глобального максимума. Иначе отдельный (не вложенный в родные) стек
+  // гостевых рамок наследовал бы крупный отступ внешних РОДНЫХ колец и выглядел бы
+  // непропорционально широким (внешний гость-контейнер vs внутренний промежуточный).
+  // Рамки одного стека делят хотя бы один узел-член (концентрически вложены), поэтому
+  // refMaxDepth(F) = самая глубокая рамка, делящая с F хотя бы один член.
+  const refMaxDepth = (f: FrameDef): number => {
+    let m = f.depth;
+    for (const g of defs) {
+      if (g === f || g.depth <= m) continue;
+      for (const id of g.memberIds) {
+        if (f.memberIds.has(id)) { m = g.depth; break; }
+      }
+    }
+    return m;
+  };
 
   const rects: FrameRect[] = [];
   for (const f of defs) {
@@ -92,9 +107,10 @@ export function computeFrames(params: {
       maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
     }
     if (!isFinite(minX)) continue;
-    const pad = BOUNDARY_PAD + (maxDepth - f.depth) * BOUNDARY_STEP;
+    const rings = refMaxDepth(f) - f.depth;
+    const pad = BOUNDARY_PAD + rings * BOUNDARY_STEP;
     // рамку растягиваем вниз сильнее (полоса под подпись); внешним рамкам добавка больше
-    const labelPad = BOUNDARY_LABEL_PAD + (maxDepth - f.depth) * BOUNDARY_LABEL_STEP;
+    const labelPad = BOUNDARY_LABEL_PAD + rings * BOUNDARY_LABEL_STEP;
     rects.push({
       id: f.id, name: f.name, depth: f.depth, native: f.native, memberIds: f.memberIds,
       content: { minX, minY, maxX, maxY },
