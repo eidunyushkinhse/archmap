@@ -15,7 +15,9 @@ import { wrapLabel } from "./text";
 import type { WrappedEdgeData } from "./types";
 import type { EdgePoint } from "../../types";
 import { buildRenderPoints, orthogonalPointsForHandles, cleanup, segments, dragSegment, interior, snapDragCursor, pointAtFraction, nearestFraction, type EdgeSide } from "./edgePath";
-import { EDGE_SNAP_PX } from "./constants";
+import { buildPathWithJumps } from "./edgeJumps";
+import { useEdgeJumps } from "./EdgeJumpContext";
+import { EDGE_SNAP_PX, JUMP_RADIUS } from "./constants";
 
 // Position (сторона хэндла) → сторона для хэндл-ориентированного маршрута грипов.
 function sideOf(p: Position): EdgeSide {
@@ -69,6 +71,9 @@ function WrappedLabelEdge({
   const d = data as WrappedEdgeData | undefined;
   const shelf = d?.shelf;
   const loop = d?.loop;
+
+  // Реестр «мостиков»: публикуем ломаную этого ребра, читаем его точки-прыжки.
+  const { publish, jumpsFor } = useEdgeJumps();
 
   const { screenToFlowPosition, getZoom } = useReactFlow();
   // Курсор в координатах графа + примагничивание плеча к ровному положению относительно
@@ -184,6 +189,14 @@ function WrappedLabelEdge({
   let labelY: number;
   // Сегменты под грипы перетаскивания (только для редактируемого level-ребра).
   let gripPts: EdgePoint[] | null = null;
+  // Ортогональная ломаная этого ребра для реестра «мостиков» (null — стрелка не
+  // участвует: контекст-полки/петли, viewer-smoothstep). Заполняется в орто-ветках.
+  let jumpPoly: EdgePoint[] | null = null;
+  // Орто-путь со скруглением + полудугами над пересечениями (точки прыжков — из реестра).
+  const orthoPath = (pts: EdgePoint[]): string => {
+    jumpPoly = pts;
+    return buildPathWithJumps(pts, 12, jumpsFor(id), JUMP_RADIUS);
+  };
   // Ломаная пути для плашки подписи: по ней считаем точку по доле labelT и проекцию
   // курсора при драге. null — у контекст-полок/петель (там плашка не двигается).
   let labelPts: EdgePoint[] | null = null;
@@ -237,7 +250,7 @@ function WrappedLabelEdge({
     const useCustom = dragWp != null || (d?.waypoints != null && d.waypoints.length > 0);
     if (useCustom) {
       const pts = buildRenderPoints(s, t, activeWp);
-      edgePath = roundedPolyline(pts, 12);
+      edgePath = orthoPath(pts);
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
@@ -255,7 +268,7 @@ function WrappedLabelEdge({
         { x: targetX, y: d.detour.clearY },
         t,
       ]);
-      edgePath = roundedPolyline(pts, 12);
+      edgePath = orthoPath(pts);
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
@@ -274,7 +287,7 @@ function WrappedLabelEdge({
           targetX, targetY, sideOf(targetPosition),
         ),
       );
-      edgePath = roundedPolyline(pts, 12);
+      edgePath = orthoPath(pts);
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
@@ -314,6 +327,14 @@ function WrappedLabelEdge({
   useEffect(() => {
     labelGeom.current = { pts: labelPts, commit: d?.onLabelTCommit };
   });
+
+  // Публикуем ломаную этого ребра в реестр «мостиков» (пересчёт пересечений) и
+  // снимаем при размонтировании. jumpPoly — новый массив каждый рендер, но publish
+  // дедупит по координатам, поэтому лишних бампов версии реестра нет.
+  useEffect(() => {
+    publish(id, jumpPoly);
+  }, [id, jumpPoly, publish]);
+  useEffect(() => () => publish(id, null), [id, publish]);
 
   const onGripDown = useCallback(
     (e: ReactPointerEvent<SVGPathElement>, index: number, startPts: EdgePoint[]) => {

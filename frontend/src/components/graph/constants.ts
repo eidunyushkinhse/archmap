@@ -22,6 +22,10 @@ export const EDGE_SNAP_PX = 8;
 // чтобы статичная редактируемая стрелка вела себя так же. См. orthogonalPointsForHandles.
 export const EDGE_STUB = 20;
 
+// Радиус полудуги-«мостика», которой стрелка перепрыгивает пересекаемую стрелку
+// (в координатах графа). См. edgeJumps.ts.
+export const JUMP_RADIUS = 6;
+
 // Диапазон авто-подбора шрифта чипа «роль: технология» (px)
 export const MAX_TAG_FONT = 11;
 export const MIN_TAG_FONT = 7;

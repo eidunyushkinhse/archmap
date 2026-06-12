@@ -39,6 +39,7 @@ import { computeDetours } from "./graph/layout/detours";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
+import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import ReconnectBlockedToast from "./graph/ReconnectBlockedToast";
@@ -790,6 +791,9 @@ function LevelGraphInner({
           </span>
         </div>
       )}
+      {/* Реестр «мостиков»: рёбра внутри ReactFlow публикуют сюда геометрию и читают
+          точки прыжков. Выключен в контекст-схеме (read-only звезда). */}
+      <EdgeJumpProvider enabled={!isContext}>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -884,6 +888,7 @@ function LevelGraphInner({
           </ViewportPortal>
         )}
       </ReactFlow>
+      </EdgeJumpProvider>
     </div>
   );
 }
