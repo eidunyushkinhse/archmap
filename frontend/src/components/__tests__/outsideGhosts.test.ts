@@ -149,7 +149,7 @@ describe("placeOutsideGhosts — что НЕ выносится", () => {
     ]);
     const res = placeOutsideGhosts({
       nodes,
-      entities: [leaf("Gin", [{ id: "P", name: "P" }]), leaf("Gout")],
+      entities: [leaf("Gin", [{ id: "P", name: "P", is_external: false }]), leaf("Gout")],
       stableAncestorIds: ["P"], levelPositions: {},
       layoutEdges: [], positions,
     });
@@ -176,7 +176,7 @@ describe("placeOutsideGhosts — рескью улетевшего внутре�
     ]);
     const res = placeOutsideGhosts({
       nodes,
-      entities: [leaf("Gin", [{ id: "P", name: "P" }])],
+      entities: [leaf("Gin", [{ id: "P", name: "P", is_external: false }])],
       stableAncestorIds: ["P"], levelPositions: {},
       layoutEdges: [edge("e", "L", "Gin")], positions, // Gin — приёмник → правая колонка
     });
@@ -198,7 +198,7 @@ describe("placeOutsideGhosts — рескью улетевшего внутре�
     ]);
     const res = placeOutsideGhosts({
       nodes,
-      entities: [leaf("Gin", [{ id: "P", name: "P" }])],
+      entities: [leaf("Gin", [{ id: "P", name: "P", is_external: false }])],
       stableAncestorIds: ["P"], levelPositions: {},
       layoutEdges: [edge("e", "L", "Gin")], positions,
     });
@@ -233,7 +233,7 @@ describe("placeOutsideGhosts — клиренс и null-кейсы", () => {
     const nodes = [{ id: "L" }];
     const positions = new Map([["L", { x: 0, y: 0 }]]);
     const res = placeOutsideGhosts({
-      nodes, entities: [leaf("Gin", [{ id: "P", name: "P" }])],
+      nodes, entities: [leaf("Gin", [{ id: "P", name: "P", is_external: false }])],
       stableAncestorIds: ["P"], levelPositions: {},
       layoutEdges: [], positions,
     });

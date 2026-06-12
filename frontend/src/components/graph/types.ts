@@ -105,6 +105,6 @@ export type ContainerRFNode = RFNode<ContainerData, "container">;
 
 // --- Проекция гостей с учётом свёрнутых контейнеров ---
 
-export interface DisplayContainer { kind: "container"; id: string; name: string; depth: number; ancestors: AncestorRef[]; }
+export interface DisplayContainer { kind: "container"; id: string; name: string; depth: number; ancestors: AncestorRef[]; is_external: boolean; }
 export interface DisplayLeaf { kind: "leaf"; id: string; ghost: GhostNode; }
 export type DisplayExternal = DisplayContainer | DisplayLeaf;

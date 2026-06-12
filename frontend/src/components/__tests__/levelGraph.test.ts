@@ -191,9 +191,9 @@ describe("layoutLevel", () => {
 describe("projectGhosts", () => {
   // гость глубоко вложен: root → A → B → (гость)
   const anc: AncestorRef[] = [
-    { id: "root", name: "Root" },
-    { id: "A", name: "A" },
-    { id: "B", name: "B" },
+    { id: "root", name: "Root", is_external: false },
+    { id: "A", name: "A", is_external: false },
+    { id: "B", name: "B", is_external: false },
   ];
 
   it("по умолчанию гость сворачивается к верхнему контейнеру ниже общего предка", () => {
@@ -219,13 +219,13 @@ describe("projectGhosts", () => {
   it("нет общего предка-рамки, но есть контейнер-предок → сворачивается к нему (не голый лист)", () => {
     // напр. лист «БД» под корнем «Объекты мониторинга» (корень-сосед текущей ветки):
     // общего breadcrumb-предка нет, но гость всё равно представлен верхним контейнером.
-    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X" }])], ["root"], new Set());
+    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X", is_external: false }])], ["root"], new Set());
     expect(r.ghostToEffective.get("g1")).toBe("X");
     expect(r.entities[0]).toMatchObject({ kind: "container", id: "X" });
   });
 
   it("раскрытие верхнего контейнера без общего предка обнажает лист и фиксирует emergedFrom", () => {
-    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X" }])], ["root"], new Set(["X"]));
+    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X", is_external: false }])], ["root"], new Set(["X"]));
     expect(r.ghostToEffective.get("g1")).toBe("g1");
     expect(r.entities[0]).toMatchObject({ kind: "leaf", id: "g1" });
     expect(r.emergedFrom.get("g1")).toBe("X");

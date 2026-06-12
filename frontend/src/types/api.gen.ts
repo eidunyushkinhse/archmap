@@ -411,6 +411,11 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+            /**
+             * Is External
+             * @default false
+             */
+            is_external: boolean;
         };
         /** Body_login_api_v1_auth_login_post */
         Body_login_api_v1_auth_login_post: {

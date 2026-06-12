@@ -67,6 +67,8 @@ class NodeResponse(BaseModel):
 class AncestorRef(BaseModel):
     id: uuid.UUID
     name: str
+    # внешний ли узел-предок — нужно для цвета свёрнутого гостя-контейнера на схеме
+    is_external: bool = False
 
 
 class GhostNodeResponse(BaseModel):

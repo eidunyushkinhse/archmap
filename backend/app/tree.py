@@ -31,7 +31,7 @@ def ancestors(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> list[Ance
         parent = all_nodes.get(parent_id)
         if parent is None:
             break
-        chain.append(AncestorRef(id=parent.id, name=parent.name))
+        chain.append(AncestorRef(id=parent.id, name=parent.name, is_external=parent.is_external))
         parent_id = parent.parent_id
     chain.reverse()  # корень → непосредственный родитель
     return chain

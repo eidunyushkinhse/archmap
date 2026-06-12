@@ -616,7 +616,7 @@ function LevelGraphInner({
               // Путь гостя = его предки + он сам (другая ветка дерева).
               onEnter: isContext
                 ? undefined
-                : () => cb.onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name }]),
+                : () => cb.onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }]),
             } satisfies GhostData,
           };
         }
@@ -629,12 +629,12 @@ function LevelGraphInner({
             name: ent.name,
             depth: ent.depth,
             ancestors: ent.ancestors,
-            colors: getNodeColors(false, ent.depth),
+            colors: getNodeColors(ent.is_external, ent.depth),
             onExpand: cb.expandContainer,
             // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
             onEnter: isContext
               ? undefined
-              : () => cb.onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name }]),
+              : () => cb.onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
             connectable: isArchitect && !isContext,
           } satisfies ContainerData,
         };

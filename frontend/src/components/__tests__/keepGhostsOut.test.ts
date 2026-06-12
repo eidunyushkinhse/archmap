@@ -8,7 +8,7 @@ import type { GhostNode, AncestorRef } from "../../types";
 // Запрет проникновения гостей в чужие родные рамки. Чистые данные (позиции заданы явно),
 // ELK не нужен.
 
-const a = (id: string): AncestorRef => ({ id, name: id });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
 function ghost(id: string, ancestors: AncestorRef[]): GhostNode {
   return {
     id, name: id, role: null, technology: null, is_external: true,

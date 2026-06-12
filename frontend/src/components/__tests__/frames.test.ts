@@ -8,7 +8,7 @@ import type { AncestorRef } from "../../types";
 // Геометрия рамок (единый источник правды для рендера boundaries.tsx и энфорса
 // keepGhostsOut.ts). Характеризационные числа фиксируют паритет с прежним boundaries.
 
-const a = (id: string): AncestorRef => ({ id, name: id });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
 // нарисованный прямоугольник рамки глубины d при максимальной глубине md и content-bbox
 function drawn(content: { minX: number; minY: number; maxX: number; maxY: number }, d: number, md: number) {
   const pad = BOUNDARY_PAD + (md - d) * BOUNDARY_STEP;
