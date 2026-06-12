@@ -90,10 +90,12 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
     );
   }
   if (shape === "person") {
+    // Карточка как у сервиса + мини-человечок слева (в духе аватара на узле)
     return (
       <svg width={W} height={H} style={iconSvg}>
-        <circle cx={W / 2} cy={8} r={6} {...common} />
-        <rect x={8} y={15} width={W - 16} height={H - 16} rx={4} {...common} />
+        <rect x={2} y={3} width={36} height={24} rx={4} {...common} />
+        <circle cx={11} cy={11.5} r={2.8} fill="none" stroke="#475569" strokeWidth={1.4} />
+        <path d="M6 18.5 a 5 4.5 0 0 1 10 0" fill="none" stroke="#475569" strokeWidth={1.4} strokeLinecap="round" />
       </svg>
     );
   }

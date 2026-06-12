@@ -1,7 +1,7 @@
 // Презентация формы узла (SVG C4-фигуры), отступы контента и node-стили.
 import { Position } from "@xyflow/react";
 import type { CSSProperties } from "react";
-import { NODE_W, NODE_H, shapeHeight } from "./constants";
+import { NODE_W, NODE_H } from "./constants";
 import type { NodeShape } from "../../types";
 
 // --- Стиль конкретного хэндла из 12 ---
@@ -54,7 +54,7 @@ export interface NodeShapeProps {
 }
 
 export function NodeShapeSvg({ shape, bg, stroke, dashed, outline }: NodeShapeProps) {
-  const W = NODE_W, H = shapeHeight(shape), sw = 1.5;
+  const W = NODE_W, H = NODE_H, sw = 1.5;
   const dash = dashed ? "5 3" : undefined;
   const fill = { fill: bg, stroke, strokeWidth: sw, strokeDasharray: dash };
   const lineStroke = { fill: "none", stroke, strokeWidth: sw, strokeDasharray: dash };
@@ -91,12 +91,20 @@ export function NodeShapeSvg({ shape, bg, stroke, dashed, outline }: NodeShapePr
     );
   }
   if (shape === "person") {
-    // Пользователь (C4): крупная голова-круг + тело-прямоугольник со скруглением.
-    // Голова Ø44 вместо прежней Ø26 — узел выше (PERSON_H), смотрится аккуратнее.
+    // Пользователь — карточка с аватаром: прямоугольник как у сервиса + аватар-диск
+    // с мини-человечком в левом верхнем углу. Пунктир (ghost) — только на рамке;
+    // аватар-диск и человечек всегда сплошные.
     return (
       <svg width={W} height={H} style={svgStyle}>
-        <circle cx={W / 2} cy={26} r={22} {...fill} />
-        <rect x={1} y={50} width={W - 2} height={H - 51} rx={14} {...fill} />
+        <rect x={1} y={1} width={W - 2} height={H - 2} rx={8} {...fill} />
+        {/* Аватар-диск: в обычном режиме — светлая заливка без обводки; в режиме
+            контура (превью дропа, прозрачное тело) — контур цветом из пропса. */}
+        {outline
+          ? <circle cx={28} cy={28} r={15} fill="none" stroke={stroke} strokeWidth={sw} />
+          : <circle cx={28} cy={28} r={15} fill="rgba(255,255,255,0.92)" />}
+        {/* Человечек поверх диска — контуром цвета рамки узла */}
+        <circle cx={28} cy={23.5} r={4.6} fill="none" stroke={stroke} strokeWidth={1.8} />
+        <path d="M20.5 35 a 7.5 6.5 0 0 1 15 0" fill="none" stroke={stroke} strokeWidth={1.8} strokeLinecap="round" />
       </svg>
     );
   }
@@ -108,13 +116,13 @@ export function NodeShapeSvg({ shape, bg, stroke, dashed, outline }: NodeShapePr
   );
 }
 
-/** Отступы контента под форму (чтобы текст не заходил на эллипсы/голову) */
+/** Отступы контента под форму (чтобы текст не заходил на эллипсы/аватар) */
 export function contentPadding(shape: NodeShape, hasActions: boolean): CSSProperties {
   const right = hasActions ? 52 : 14;
   switch (shape) {
     case "database": return { paddingTop: 28, paddingRight: right, paddingBottom: 14, paddingLeft: 16 };
     case "broker": return { paddingTop: 14, paddingRight: right, paddingBottom: 14, paddingLeft: 30 };
-    case "person": return { paddingTop: 54, paddingRight: right, paddingBottom: 8, paddingLeft: 14 };
+    case "person": return { paddingTop: 13, paddingRight: right, paddingBottom: 12, paddingLeft: 52 };
     default: return { paddingTop: 12, paddingRight: right, paddingBottom: 12, paddingLeft: 14 };
   }
 }
@@ -147,12 +155,6 @@ export const nodeActions: CSSProperties = {
   display: "flex",
   gap: 3,
   zIndex: 2, // выше контент-блока (zIndex 1), иначе он перехватывает клики по кнопкам
-};
-// Действия для узла-пользователя: опущены внутрь прямоугольника-тела (тело начинается
-// с y≈50, см. NodeShapeSvg/person), чтобы кнопка не висела сбоку от головы.
-export const personActions: CSSProperties = {
-  ...nodeActions,
-  top: 56,
 };
 export const nodeBtn: CSSProperties = {
   padding: "2px 6px",

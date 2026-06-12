@@ -21,7 +21,7 @@ import { edgesApi } from "../api/nodes";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef } from "../types";
 import { canHaveChildren } from "../types";
 import {
-  NODE_W, NODE_H, shapeHeight,
+  NODE_W, NODE_H,
   CTX_LABEL_W,
 } from "./graph/constants";
 import type {
@@ -442,7 +442,7 @@ function LevelGraphInner({
       isContext && nodes[0]
         ? await layoutContext(
             nodes[0].id,
-            shapeHeight(nodes[0].shape),
+            NODE_H,
             entities,
             layoutEdges,
             stableAncestorIds,
@@ -864,7 +864,7 @@ function LevelGraphInner({
                 left: dropPreview.x,
                 top: dropPreview.y,
                 width: NODE_W,
-                height: shapeHeight(dropPreview.shape),
+                height: NODE_H,
                 pointerEvents: "none",
                 zIndex: 5,
                 opacity: 0.85,

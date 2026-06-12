@@ -2,13 +2,13 @@
 import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties } from "react";
 import { Handle, type NodeProps, type NodeTypes } from "@xyflow/react";
 import {
-  SIDE_HANDLES, hid, shapeHeight, MAX_TAG_FONT, MIN_TAG_FONT, NODE_W, NODE_H,
+  SIDE_HANDLES, hid, MAX_TAG_FONT, MIN_TAG_FONT, NODE_W, NODE_H,
   MAX_NAME_FONT, MIN_NAME_FONT, MAX_NAME_LINES, NAME_LINE_HEIGHT,
 } from "./constants";
 import {
   fixedHandleStyle, NodeShapeSvg, contentPadding,
   nodeContainer, SELECTED_GLOW,
-  tagChip, nodeActions, personActions, nodeBtn,
+  tagChip, nodeActions, nodeBtn,
 } from "./shapes";
 import type { BlockRFNode, GhostRFNode, ContainerRFNode } from "./types";
 import { canHaveChildren } from "../../types";
@@ -176,11 +176,6 @@ function NodeName({ name }: { name: string }) {
 function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
-  // У пользователя «провалиться внутрь» нечего → кнопку «Войти» не показываем.
-  // Голова человечка — узкий круг по центру вверху, поэтому стандартное место
-  // кнопок (правый верхний угол) висит в пустоте сбоку от головы: для персоны
-  // опускаем действия внутрь прямоугольника-тела (personActions).
-  const isPerson = shape === "person";
   // «Провалиться внутрь»/быть зоной входа может только сервис (см. canHaveChildren):
   // у БД/брокера/пользователя детей нет — кнопку «Войти» им не показываем.
   const drillable = canHaveChildren(shape);
@@ -200,7 +195,6 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       data-into={intoZone ? "1" : undefined}
       style={{
         ...nodeContainer,
-        height: shapeHeight(shape),
         color: c.text,
         // Подсветка выбранного узла: синее свечение по силуэту (drop-shadow
         // тянется по альфе SVG-формы, поэтому ореол повторяет контур любой
@@ -216,7 +210,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
           В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
       {intoZone && <IntoCue />}
       {!data.hideActions && (
-        <div style={isPerson ? personActions : nodeActions}>
+        <div style={nodeActions}>
           {drillable && (
             <button
               className="nodrag"
@@ -259,7 +253,7 @@ function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
   };
   // Форма та же, но пунктиром — «призрачность» внешнего узла видна по пунктирному контуру.
   return (
-    <div style={{ ...nodeContainer, height: shapeHeight(shape), color: c.text }}>
+    <div style={{ ...nodeContainer, color: c.text }}>
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
       <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
       {canEnter && (

@@ -5,7 +5,7 @@ import type { DragEvent } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import type { NodeShape } from "../../../types";
 import { NODE_DRAG_MIME } from "../../NodeTreePanel";
-import { NODE_W, shapeHeight } from "../constants";
+import { NODE_W, NODE_H } from "../constants";
 import { snapCenter } from "./snap";
 import type { Guides } from "./useAlignmentGuides";
 
@@ -52,9 +52,8 @@ export function useTemplateDrop({
     // ставим на притянутую позицию, направляющие показываем как при обычном драге.
     if (!dragShape) return;
     const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    const dh = shapeHeight(dragShape);
     const { snapCx, snapCy, hitX, hitY } = snapCenter(flow.x, flow.y, rfNodes);
-    setDropPreview({ shape: dragShape, x: snapCx - NODE_W / 2, y: snapCy - dh / 2 });
+    setDropPreview({ shape: dragShape, x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 });
     const gx = hitX ? snapCx : null;
     const gy = hitY ? snapCy : null;
     setGuides((prev) => (prev.x === gx && prev.y === gy ? prev : { x: gx, y: gy }));
@@ -77,7 +76,7 @@ export function useTemplateDrop({
     const s = shape as NodeShape;
     // Узел создаётся ровно там, где показывало превью (с тем же примагничиванием).
     const { snapCx, snapCy } = snapCenter(flow.x, flow.y, rfNodes);
-    onDropNode(s, { x: snapCx - NODE_W / 2, y: snapCy - shapeHeight(s) / 2 });
+    onDropNode(s, { x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 });
     setDropPreview(null);
     clearGuides();
   }, [isArchitect, isContext, onDropNode, rfNodes, screenToFlowPosition, clearGuides]);
