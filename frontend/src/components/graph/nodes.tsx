@@ -122,7 +122,8 @@ function RoleTechChip({
 // у брокера с узкой полезной шириной) выдавливало бы чип «роль: технология» вниз за
 // край узла. Не влезло даже на минимальном шрифте → обрезаем многоточием (line-clamp),
 // полное имя остаётся в title-тултипе. Парная логика к RoleTechChip, но фит по ВЫСОТЕ
-// (число строк), а не по ширине одной строки.
+// (число строк) И по ширине (длинное слово не должно вылезать за узкую колонку —
+// напр. «Пользователь» у person, где аватар съедает левую часть).
 function NodeName({ name }: { name: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fontSize, setFontSize] = useState(MAX_NAME_FONT);
@@ -133,12 +134,15 @@ function NodeName({ name }: { name: string }) {
     if (!el || !parent) return;
     // Уменьшаем шрифт, пока имя не уложится в MAX_NAME_LINES строки. При line-clamp
     // scrollHeight отражает ПОЛНУЮ высоту контента (все строки), поэтому сравниваем её
-    // с бюджетом «лимит строк × высота строки» текущего шрифта.
+    // с бюджетом «лимит строк × высота строки» текущего шрифта. Плюс ширина: scrollWidth
+    // > clientWidth означает, что самое длинное слово не влезает в колонку (слова не
+    // рвём — см. wordBreak: normal), поэтому ужимаем шрифт, пока слово не уместится целиком.
     const fit = () => {
       let size = MAX_NAME_FONT;
       el.style.fontSize = `${size}px`;
       const fits = () =>
-        el.scrollHeight <= Math.ceil(size * NAME_LINE_HEIGHT * MAX_NAME_LINES) + 1;
+        el.scrollHeight <= Math.ceil(size * NAME_LINE_HEIGHT * MAX_NAME_LINES) + 1 &&
+        el.scrollWidth <= el.clientWidth + 1;
       while (size > MIN_NAME_FONT && !fits()) {
         size -= 0.5;
         el.style.fontSize = `${size}px`;
@@ -165,7 +169,11 @@ function NodeName({ name }: { name: string }) {
         WebkitBoxOrient: "vertical",
         WebkitLineClamp: MAX_NAME_LINES,
         overflow: "hidden",
-        wordBreak: "break-word",
+        // Перенос только между словами; слово целиком не рвём (иначе «Пользовател|ь»).
+        // Слишком длинное для колонки слово ужимается шрифтом (фит по ширине выше),
+        // а в крайнем случае обрезается overflow — но без распила посреди слова.
+        wordBreak: "normal",
+        overflowWrap: "normal",
       }}
     >
       {name}
