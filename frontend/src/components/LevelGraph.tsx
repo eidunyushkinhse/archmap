@@ -33,7 +33,7 @@ import { edgeText } from "./graph/text";
 import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
-import { placeOutsideGhosts } from "./graph/layout/outsideGhosts";
+import { placeGhostsOnRings } from "./graph/layout/ringPlacement";
 import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { computeDetours } from "./graph/layout/detours";
 import { NodeShapeSvg } from "./graph/shapes";
@@ -492,19 +492,18 @@ function LevelGraphInner({
       }
     }
 
-    // Дефолтная раскладка внешних гостей в колонки за рамку + дефолтные обводы их
-    // стрелок: оба шага вынесены в graph/layout/* под юнит-тесты. Блоки исторически
-    // вложены (обводы читают placedOutside и bbox рамки из выноса гостей), поэтому
-    // outsideGhosts отдаёт результат явно, а computeDetours получает его на вход.
-    // outsideGhosts МУТИРУЕТ positions (расставляет колонки); computeDetours чист.
+    // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) + дефолтные
+    // обводы их стрелок: оба шага вынесены в graph/layout/* под юнит-тесты. Блоки исторически
+    // вложены (обводы читают placedOutside и bbox рамки из раскладки гостей), поэтому
+    // ringPlacement отдаёт результат явно, а computeDetours получает его на вход.
+    // ringPlacement МУТИРУЕТ positions (ставит гостей на кольца); computeDetours чист.
     if (!isContext) {
-      const og = placeOutsideGhosts({
-        nodes, entities, stableAncestorIds, levelPositions, layoutEdges, positions,
+      const og = placeGhostsOnRings({
+        nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges, positions,
       });
-      // Строгий запрет проникновения: после выноса внешних гостей выталкиваем за пределы
-      // чужих родных рамок всех гостей и гостевые рамки — в т.ч. с ручной позицией и при
-      // росте рамки (placeOutsideGhosts таких не трогает). Запускается всегда, даже если
-      // выносить было нечего (og === null): «член A, но не B» ELK мог положить внутрь B.
+      // Страховочная сетка keep-out: кольца держат инвариант по построению, но ручные позиции
+      // и рост рамки за ручным гостем ringPlacement не трогает — их добирает enforce. На
+      // авто-гостях после ringPlacement он обязан быть no-op. Запускается всегда.
       const enf = enforceFramesKeepOut({
         nodes, entities, ancestorIds: stableAncestorIds, layoutEdges, positions,
       });

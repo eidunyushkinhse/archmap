@@ -1,6 +1,6 @@
 // Дефолтные ОБВОДЫ гостевых стрелок (основная схема).
 //
-// Зачем модуль существует: вынесенный в колонку гость (см. outsideGhosts.ts) может
+// Зачем модуль существует: вынесенный на кольцо гость (см. ringPlacement.ts) может
 // быть связан с несколькими узлами — к ближнему стрелка ложится чисто, а к дальнему
 // прямой маршрут идёт сквозь середину рамки: рисуется под чужими узлами и теряется.
 // Для таких рёбер (один конец — вынесенный гость, другой — локальный узел, и прямой
@@ -21,7 +21,7 @@ const DETOUR_STEP = 30;   // разнос параллельных обводо�
 
 export function computeDetours(params: {
   groupArr: EdgeGroup[];
-  placedOutside: Set<string>;          // из OutsideGhostsResult
+  placedOutside: Set<string>;          // из RingPlacementResult
   frame: { minX: number; minY: number; maxX: number; maxY: number };
   localIds: Set<string>;
   displayIds: string[];                // все отображаемые id (локальные + entities)

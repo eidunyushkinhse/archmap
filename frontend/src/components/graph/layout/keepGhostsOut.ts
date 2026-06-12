@@ -50,15 +50,18 @@ function pushOut(r: Rect, f: Rect, gap: number): { dx: number; dy: number } | nu
   return bestAxis === "x" ? { dx: best, dy: 0 } : { dx: 0, dy: best };
 }
 
-// нативные рамки, индексированные по depth (0..k); depth непрерывен по breadcrumb
-function nativeByDepth(frames: FrameRect[]): FrameRect[] {
+// нативные рамки, индексированные по depth (0..k); depth непрерывен по breadcrumb.
+// Экспортируется: ту же индексацию использует ringPlacement, чтобы кольцо гостя
+// совпадало с запретной рамкой keep-out (→ keep-out выполняется по построению).
+export function nativeByDepth(frames: FrameRect[]): FrameRect[] {
   const out: FrameRect[] = [];
   for (const f of frames) if (f.native) out[f.depth] = f;
   return out;
 }
 
-// глубина самой глубокой нативной рамки, членом которой является id (или -1)
-function memberDepth(native: FrameRect[], id: string): number {
+// глубина самой глубокой нативной рамки, членом которой является id (или -1).
+// Связывающая запретная рамка гостя = F_{memberDepth+1} (см. инвариант в шапке).
+export function memberDepth(native: FrameRect[], id: string): number {
   let d = -1;
   for (const f of native) if (f && f.memberIds.has(id)) d = Math.max(d, f.depth);
   return d;
