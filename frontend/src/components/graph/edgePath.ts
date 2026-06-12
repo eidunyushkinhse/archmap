@@ -3,6 +3,7 @@
 // [S, ...waypoints, T]: концы (S/T) берутся из хэндлов при рендере, waypoints —
 // абсолютные точки-сгибы в координатах графа уровня (хранятся в БД).
 import type { EdgePoint } from "../../types";
+import { EDGE_STUB } from "./constants";
 
 export type SegOrient = "h" | "v";
 
@@ -48,36 +49,86 @@ export function orthogonalPoints(sx: number, sy: number, tx: number, ty: number)
 }
 
 export type EdgeSide = "left" | "right" | "top" | "bottom";
-const isHoriz = (s: EdgeSide): boolean => s === "left" || s === "right";
+
+// Внешняя нормаль стороны: направление, в котором стрелка ВЫХОДИТ из этого хэндла
+// (а в цель — ВХОДИТ против неё). Нужна, чтобы гарантировать стаб наружу.
+const OUT: Record<EdgeSide, { ox: number; oy: number }> = {
+  left: { ox: -1, oy: 0 }, right: { ox: 1, oy: 0 },
+  top: { ox: 0, oy: -1 }, bottom: { ox: 0, oy: 1 },
+};
+// Знак с допуском: ±1 или 0 (координаты совпали). 0 ≠ ±1 → «не с той стороны».
+const sgn = (v: number): number => (v > 1e-9 ? 1 : v < -1e-9 ? -1 : 0);
 
 // Канонический ортогональный маршрут [S, ...сгибы, T], УЧИТЫВАЮЩИЙ стороны хэндлов
 // (в отличие от orthogonalPoints, что выбирает ось по доминанте dx/dy). Нужен для
-// грипов изломов: видимая линия рисуется getSmoothStepPath, который идёт от СТОРОН
-// хэндлов. У стрелки с сохранённым хэндлом (его не пересчитывает autoHandles) после
-// сдвига узла dx/dy-маршрут расходился с линией → грипы «слетали». Для выровненных
-// (противоположных по оси) сторон даёт тот же серединный Z, что и smoothstep, поэтому
-// у здоровых стрелок ничего не меняется; чинятся лишь смешанные/развёрнутые случаи.
+// грипов изломов: видимая линия идёт от СТОРОН хэндлов, и грипы должны лежать на ней.
+//
+// Чистый Z/L строится, когда сгиб-перемычку можно поставить «снаружи» обоих хэндлов
+// (стороны смотрят в маршрут) — тогда здоровые стрелки выглядят как серединный
+// smoothstep, ничего не меняется. Если же хэндл смотрит ПРОТИВ цели, прямой маршрут
+// сразу ломался назад и прятался за телом узла. Поэтому такому концу даём обязательный
+// стаб stub: стрелка выходит вдоль нормали стороны на stub, и лишь затем изламывается
+// и идёт обратно (поведение совпадает с offset у getSmoothStepPath в превью/viewer).
 export function orthogonalPointsForHandles(
   sx: number, sy: number, sSide: EdgeSide,
   tx: number, ty: number, tSide: EdgeSide,
+  stub: number = EDGE_STUB,
 ): EdgePoint[] {
   const s: EdgePoint = { x: sx, y: sy }, t: EdgePoint = { x: tx, y: ty };
-  const sh = isHoriz(sSide), th = isHoriz(tSide);
+  const { ox: sox, oy: soy } = OUT[sSide];
+  const { ox: tox, oy: toy } = OUT[tSide];
+  const S = stub;
+  const sh = soy === 0; // источник выходит горизонтально
+  const th = toy === 0; // цель входит горизонтально
+
   if (sh && th) {
-    // оба конца горизонтальны → Z через вертикальный сгиб на середине X
-    const mx = (sx + tx) / 2;
-    return [s, { x: mx, y: sy }, { x: mx, y: ty }, t];
-  }
-  if (!sh && !th) {
-    // оба вертикальны → Z через горизонтальный сгиб на середине Y
+    // Оба конца горизонтальны: вертикальная перемычка на X=cx. Чистый Z возможен,
+    // если cx ставится снаружи обоих хэндлов по их сторонам; иначе хэндлы смотрят друг
+    // от друга — выводим оба стаба и перемычку на середине Y (стабы защищены изломом).
+    let cx: number | null = null;
+    if (sox === tox) {
+      cx = sox > 0 ? Math.max(sx, tx) + S : Math.min(sx, tx) - S;
+    } else {
+      const mid = (sx + tx) / 2;
+      if (sgn(mid - sx) === sox && sgn(mid - tx) === tox) cx = mid;
+    }
+    if (cx !== null) return [s, { x: cx, y: sy }, { x: cx, y: ty }, t];
     const my = (sy + ty) / 2;
-    return [s, { x: sx, y: my }, { x: tx, y: my }, t];
+    return [s,
+      { x: sx + sox * S, y: sy }, { x: sx + sox * S, y: my },
+      { x: tx + tox * S, y: my }, { x: tx + tox * S, y: ty }, t];
   }
-  // смешанный (один горизонтален, другой вертикален) → один сгиб (L): источник
-  // выходит вдоль своей оси, цель входит вдоль своей.
-  return sh
-    ? [s, { x: tx, y: sy }, t]  // S выходит горизонтально, T входит вертикально
-    : [s, { x: sx, y: ty }, t]; // S выходит вертикально, T входит горизонтально
+
+  if (!sh && !th) {
+    // Оба вертикальны: горизонтальная перемычка на Y=cy (симметрично HH).
+    let cy: number | null = null;
+    if (soy === toy) {
+      cy = soy > 0 ? Math.max(sy, ty) + S : Math.min(sy, ty) - S;
+    } else {
+      const mid = (sy + ty) / 2;
+      if (sgn(mid - sy) === soy && sgn(mid - ty) === toy) cy = mid;
+    }
+    if (cy !== null) return [s, { x: sx, y: cy }, { x: tx, y: cy }, t];
+    const mx = (sx + tx) / 2;
+    return [s,
+      { x: sx, y: sy + soy * S }, { x: mx, y: sy + soy * S },
+      { x: mx, y: ty + toy * S }, { x: tx, y: ty + toy * S }, t];
+  }
+
+  // Смешанный (один горизонтален, другой вертикален) → угол-L, если стороны «смотрят»
+  // в угол; иначе протектед-джог со стабами по обеим осям (углы L2 защищают стабы).
+  if (sh) {
+    // источник горизонтален, цель вертикальна; чистый угол (tx, sy)
+    if (sgn(tx - sx) === sox && sgn(ty - sy) === -toy) return [s, { x: tx, y: sy }, t];
+    return [s,
+      { x: sx + sox * S, y: sy }, { x: sx + sox * S, y: ty + toy * S },
+      { x: tx, y: ty + toy * S }, t];
+  }
+  // источник вертикален, цель горизонтальна; чистый угол (sx, ty)
+  if (sgn(ty - sy) === soy && sgn(tx - sx) === -tox) return [s, { x: sx, y: ty }, t];
+  return [s,
+    { x: sx, y: sy + soy * S }, { x: tx + tox * S, y: sy + soy * S },
+    { x: tx + tox * S, y: ty }, t];
 }
 
 // Диагональную пару (обе координаты разошлись — обычно концевой сегмент после сдвига
