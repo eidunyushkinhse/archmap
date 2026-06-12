@@ -4,7 +4,7 @@ import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
 import { nodesApi } from "../../../api/nodes";
 import { snapCenter, nodeSize } from "./snap";
-import { computeFrames } from "../layout/frames";
+import { computeFrames, type FrameRect } from "../layout/frames";
 import { clampOutOfNativeFrames } from "../layout/keepGhostsOut";
 import type { GhostData, ContainerData } from "../types";
 import type { AncestorRef } from "../../../types";
@@ -36,6 +36,25 @@ export function useSnapAlignment({
   rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
   ancestorIds, ancestorNames, onNodeMoved,
 }: Params) {
+  // Нативные рамки уровня по текущим узлам — общий вход запрета проникновения гостей
+  // (живой clamp при драге и clamp при отпускании). Запретная рамка гостя не включает
+  // его членом, поэтому от его собственной позиции не зависит.
+  const levelFrames = useCallback((): FrameRect[] => {
+    const blocks = rfNodes.filter((n) => n.type === "block");
+    const externals = rfNodes.filter((n) => n.type === "ghost" || n.type === "container");
+    const extAncestors = (n: RFNode): AncestorRef[] =>
+      n.type === "ghost"
+        ? (n.data as GhostData).appNode.ancestors ?? []
+        : ((n.data as ContainerData).ancestors ?? []);
+    const posById = new Map(rfNodes.map((n) => [n.id, n.position]));
+    return computeFrames({
+      localIds: blocks.map((b) => b.id),
+      externals: externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
+      pos: (id) => posById.get(id),
+      ancestorIds, ancestorNames,
+    });
+  }, [rfNodes, ancestorIds, ancestorNames]);
+
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, rfNode: RFNode) => {
       setGuides({ x: null, y: null }); // прячем направляющие
@@ -59,24 +78,12 @@ export function useSnapAlignment({
         onNodeMoved?.(rfNode.id, "block", pos);
       } else if ((rfNode.type === "ghost" || rfNode.type === "container") && containerId) {
         // Гость (лист) или свёрнутый предок-контейнер — координаты привязаны к
-        // уровню (containerId + id отображаемой сущности = rfNode.id). Строгий запрет:
-        // нельзя задвинуть гостя внутрь чужой родной рамки — клампим наружу.
-        const blocks = rfNodes.filter((n) => n.type === "block");
-        const externals = rfNodes.filter((n) => n.type === "ghost" || n.type === "container");
-        const extAncestors = (n: RFNode): AncestorRef[] =>
-          n.type === "ghost"
-            ? (n.data as GhostData).appNode.ancestors ?? []
-            : ((n.data as ContainerData).ancestors ?? []);
-        const posById = new Map(rfNodes.map((n) => [n.id, n.position]));
-        const frames = computeFrames({
-          localIds: blocks.map((b) => b.id),
-          externals: externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
-          pos: (id) => posById.get(id),
-          ancestorIds, ancestorNames,
-        });
-        const clamped = clampOutOfNativeFrames(rfNode.id, { x: pos.pos_x, y: pos.pos_y }, frames);
+        // уровню (containerId + id отображаемой сущности = rfNode.id). Строгий запрет
+        // проникновения в чужую родную рамку обеспечивает живой clamp в handleNodesChange;
+        // здесь повторяем его для СОХРАНЯЕМОЙ позиции (rfNode.position — сырая RF-координата
+        // без наших правок), чтобы персистнуть валидную точку.
+        const clamped = clampOutOfNativeFrames(rfNode.id, { x: pos.pos_x, y: pos.pos_y }, levelFrames());
         const gpos = { pos_x: clamped.x, pos_y: clamped.y };
-        // если драг завёл внутрь рамки — визуально отбросить узел на клампнутую точку
         if (clamped.x !== pos.pos_x || clamped.y !== pos.pos_y) {
           onNodesChange([{ id: rfNode.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
         }
@@ -84,7 +91,7 @@ export function useSnapAlignment({
         onNodeMoved?.(rfNode.id, rfNode.type, gpos);
       }
     },
-    [isArchitect, containerId, isContext, setGuides, onNodeMoved, onNodesChange, ancestorIds, ancestorNames, rfNodes],
+    [isArchitect, containerId, isContext, setGuides, onNodeMoved, onNodesChange, levelFrames, rfNodes],
   );
 
   // Магнитное выравнивание по центру при драге: перехватываем position-изменения
@@ -97,6 +104,8 @@ export function useSnapAlignment({
     (changes: NodeChange<RFNode>[]) => {
       let guideX: number | null = null;
       let guideY: number | null = null;
+      // нативные рамки считаем лениво — только если тащат гостя/контейнер
+      let frames: FrameRect[] | null = null;
       const snapped = changes.map((change) => {
         if (change.type !== "position" || !change.position) return change;
         const dragged = rfNodes.find((n) => n.id === change.id);
@@ -105,20 +114,30 @@ export function useSnapAlignment({
         const cx = change.position.x + dw / 2;
         const cy = change.position.y + dh / 2;
         const { snapCx, snapCy, hitX, hitY } = snapCenter(cx, cy, rfNodes, change.id);
-        // Направляющие показываем только во время активного драга
-        if (change.dragging) {
-          if (hitX) guideX = snapCx;
-          if (hitY) guideY = snapCy;
+        // Координата угла после притяжки (позиция узла = левый-верхний угол)
+        const baseX = snapCx - dw / 2, baseY = snapCy - dh / 2;
+        let x = baseX, y = baseY;
+        // Строгий запрет проникновения: гостя/контейнер НЕ пускаем внутрь чужой родной
+        // рамки прямо во время драга — он скользит вдоль её края (clamp к ближайшей грани).
+        if (dragged && (dragged.type === "ghost" || dragged.type === "container")) {
+          frames ??= levelFrames();
+          const c = clampOutOfNativeFrames(change.id, { x, y }, frames);
+          x = c.x; y = c.y;
         }
-        // Обратно из центра в координату угла (позиция узла = левый-верхний угол)
-        return { ...change, position: { x: snapCx - dw / 2, y: snapCy - dh / 2 } };
+        // Направляющие — только при активном драге и только по оси, которую clamp не двигал
+        // (иначе линия показывала бы притяжку там, где узел уже оттолкнут рамкой).
+        if (change.dragging) {
+          if (hitX && x === baseX) guideX = snapCx;
+          if (hitY && y === baseY) guideY = snapCy;
+        }
+        return { ...change, position: { x, y } };
       });
       setGuides((prev) =>
         prev.x === guideX && prev.y === guideY ? prev : { x: guideX, y: guideY },
       );
       onNodesChange(snapped);
     },
-    [rfNodes, onNodesChange, setGuides],
+    [rfNodes, onNodesChange, setGuides, levelFrames],
   );
 
   return { handleNodesChange, handleNodeDragStop };
