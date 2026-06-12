@@ -28,15 +28,20 @@ const overlaps = (a: Rect, b: Rect): boolean =>
   a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
 
 /**
- * Минимальный сдвиг (MTV к ближайшему краю), чтобы `r` оказался ЗА пределами `f` + gap.
- * Возвращает {dx, dy} (одна из осей ненулевая) либо null, если не пересекаются.
+ * Минимальный сдвиг (MTV к ближайшему краю), чтобы `r` оказался ЗА пределами `f`,
+ * выдержав зазор `gap`. Запретной считается рамка, РАЗДУТАЯ на gap: узел выталкивается
+ * ровно к её границе (без добавочного зазора). Так буфер — это сама граница: при
+ * подносе узел упирается в него плавно, без скачка на gap (старый порог срабатывал
+ * лишь при касании реального края → рывок). Возвращает {dx, dy} (одна ось ненулевая)
+ * либо null, если `r` вне раздутой рамки.
  */
 function pushOut(r: Rect, f: Rect, gap: number): { dx: number; dy: number } | null {
-  if (!overlaps(r, f)) return null;
-  const left = f.minX - gap - r.maxX;   // < 0 — увести влево
-  const right = f.maxX + gap - r.minX;  // > 0 — увести вправо
-  const up = f.minY - gap - r.maxY;     // < 0 — увести вверх
-  const down = f.maxY + gap - r.minY;   // > 0 — увести вниз
+  const fx: Rect = { minX: f.minX - gap, minY: f.minY - gap, maxX: f.maxX + gap, maxY: f.maxY + gap };
+  if (!overlaps(r, fx)) return null;
+  const left = fx.minX - r.maxX;   // < 0 — увести влево
+  const right = fx.maxX - r.minX;  // > 0 — увести вправо
+  const up = fx.minY - r.maxY;     // < 0 — увести вверх
+  const down = fx.maxY - r.minY;   // > 0 — увести вниз
   // выбираем ось/направление наименьшего по модулю смещения
   let best = left, bestAxis: "x" | "y" = "x";
   if (Math.abs(right) < Math.abs(best)) best = right;

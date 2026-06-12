@@ -61,6 +61,19 @@ describe("enforceFramesKeepOut — выталкивание", () => {
     expect(nodeOverlapsFrame(positions.get("F")!, A)).toBe(true);  // внутри своей A
   });
 
+  it("гость в зоне буфера (не пересёк реальный край) отжимается к границе буфера", () => {
+    // breadcrumb [A]; L(0,0). A.rect maxY=160; E ниже реального края (minY=170 > 160 —
+    // реальную рамку НЕ пересекает), но в пределах буфера (раздутая maxY=160+28=188).
+    // Должен мягко отжаться к границе буфера (y=188), а не стоять вплотную к рамке.
+    const positions = new Map([["L", { x: 0, y: 0 }], ["E", { x: 50, y: 170 }]]);
+    const res = enforceFramesKeepOut({
+      nodes: [node("L")], entities: [leaf("E", [a("D")])],
+      ancestorIds: ["A"], layoutEdges: [], positions,
+    });
+    expect(res).not.toBeNull();
+    expect(positions.get("E")).toEqual({ x: 50, y: 188 });
+  });
+
   it("непересекающийся гость не тронут → null", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["E", { x: 500, y: 0 }]]);
     const res = enforceFramesKeepOut({
