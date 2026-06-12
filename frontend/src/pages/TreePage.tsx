@@ -177,13 +177,6 @@ export default function TreePage({ onLogout }: Props) {
     load(path[path.length - 1].id);
   }
 
-  // «Войти» к компонентам гостя. Гость — из другой ветки дерева, поэтому его путь
-  // строим заново: предки гостя (корень → его родитель) + сам гость. Аппендить к
-  // текущему пути нельзя — он сломался бы (гость не дочерний текущему уровню).
-  function drillIntoGhost(ghost: GhostNode) {
-    drillToPath([...ghost.ancestors, { id: ghost.id, name: ghost.name }]);
-  }
-
   function handleNodeSaved(saved: Node) {
     setNodes((prev) =>
       prev.some((n) => n.id === saved.id)
@@ -414,7 +407,7 @@ export default function TreePage({ onLogout }: Props) {
               ancestorIds={breadcrumb.map((b) => b.id)}
               isArchitect={isArchitect}
               onDrillDown={drillDown}
-              onEnterGhost={drillIntoGhost}
+              onEnterNode={drillToPath}
               onEditNode={(node) => setNodeModal({ open: true, node })}
               onEdgesChoice={(group) =>
                 setEdgeChoice(

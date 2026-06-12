@@ -18,7 +18,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { edgesApi } from "../api/nodes";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef } from "../types";
 import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H, shapeHeight,
@@ -103,9 +103,10 @@ interface LevelGraphProps {
   ancestorIds: string[];
   isArchitect: boolean;
   onDrillDown: (node: AppNode) => void;
-  // войти к компонентам промежуточного гостя — открыть его слой-схему (другая ветка
-  // дерева, поэтому навигация строит полный путь по предкам гостя, а не аппендит)
-  onEnterGhost?: (ghost: GhostNode) => void;
+  // войти к компонентам гостя/контейнера — открыть слой-схему узла по его полному пути
+  // (предки + сам узел). Путь строит граф: гость/контейнер — из другой ветки дерева,
+  // аппендить к текущему breadcrumb нельзя.
+  onEnterNode?: (path: AncestorRef[]) => void;
   onEditNode: (node: AppNode) => void;
   // клик по описанию связи (одиночной или «мастер-стрелке») — список для выбора.
   // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
@@ -182,7 +183,7 @@ function LevelGraphInner({
   ancestorIds,
   isArchitect,
   onDrillDown,
-  onEnterGhost,
+  onEnterNode,
   onEditNode,
   onEdgesChoice,
   onEdgeHandlesChanged,
@@ -338,13 +339,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterGhost, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers });
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterGhost, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers };
   });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
@@ -601,8 +602,11 @@ function LevelGraphInner({
               appNode: ent.ghost,
               colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth),
               connectable: isArchitect && !isContext,
-              // в контекст-режиме навигация по слоям отключена (схема — внутри модалки)
-              onEnter: isContext ? undefined : cb.onEnterGhost,
+              // в контекст-режиме навигация по слоям отключена (схема — внутри модалки).
+              // Путь гостя = его предки + он сам (другая ветка дерева).
+              onEnter: isContext
+                ? undefined
+                : () => cb.onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name }]),
             } satisfies GhostData,
           };
         }
@@ -617,6 +621,10 @@ function LevelGraphInner({
             ancestors: ent.ancestors,
             colors: getNodeColors(false, ent.depth),
             onExpand: cb.expandContainer,
+            // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
+            onEnter: isContext
+              ? undefined
+              : () => cb.onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name }]),
             connectable: isArchitect && !isContext,
           } satisfies ContainerData,
         };

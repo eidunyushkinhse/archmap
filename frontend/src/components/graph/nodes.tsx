@@ -266,7 +266,7 @@ function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
         <div style={nodeActions}>
           <button
             className="nodrag"
-            onClick={(e) => { e.stopPropagation(); onEnter?.(data.appNode); }}
+            onClick={(e) => { e.stopPropagation(); onEnter?.(); }}
             style={btnStyle}
             title="Войти к компонентам"
           >→</button>
@@ -299,6 +299,16 @@ function ContainerNode({ data }: NodeProps<ContainerRFNode>) {
       </svg>
       <NodeHandles nodeId={data.id} color={c.border} connectableStart={data.connectable} />
       <div style={nodeActions}>
+        {/* «Войти» — навигация на собственный слой контейнера (его компоненты), в
+            отличие от лупы, раскрывающей содержимое инлайн на текущем уровне. */}
+        {data.onEnter && (
+          <button
+            className="nodrag"
+            onClick={(e) => { e.stopPropagation(); data.onEnter?.(); }}
+            style={btnStyle}
+            title="Войти к компонентам"
+          >→</button>
+        )}
         <button
           className="nodrag"
           onClick={(e) => { e.stopPropagation(); data.onExpand(data.id); }}

@@ -78,10 +78,10 @@ export interface GhostData extends Record<string, unknown> {
   appNode: GhostNode;
   colors: NodeColors;
   connectable?: boolean;
-  // войти к компонентам гостя: открыть его слой-схему. Задаётся только для
-  // промежуточного гостя в основной схеме; undefined (контекст-режим) → кнопки нет.
+  // войти к компонентам гостя: открыть его слой-схему (колбэк уже замкнут на путь
+  // гостя). Задаётся только в основной схеме; undefined (контекст-режим) → кнопки нет.
   // Показ кнопки дополнительно гейтится appNode.has_children (атомарному некуда входить).
-  onEnter?: (ghost: GhostNode) => void;
+  onEnter?: () => void;
 }
 
 // Свёрнутый узел-контейнер соседней ветки (напр. ProdMon) — с кнопкой-лупой.
@@ -92,6 +92,10 @@ export interface ContainerData extends Record<string, unknown> {
   ancestors: AncestorRef[];
   colors: NodeColors;
   onExpand: (id: string) => void;
+  // войти к компонентам контейнера: открыть его слой-схему (колбэк замкнут на его
+  // путь). Контейнер всегда промежуточный (содержит спроецированного гостя), поэтому
+  // кнопка показывается всегда, когда задан колбэк. undefined (контекст) → кнопки нет.
+  onEnter?: () => void;
   connectable?: boolean;
 }
 
