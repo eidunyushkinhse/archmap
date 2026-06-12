@@ -109,8 +109,9 @@ describe("placeOutsideGhosts — desiredY и стопка", () => {
     expect(positions.get("G")!.y).toBe(100);
   });
 
-  it("два гостя одной колонки с близким desiredY разнесены на ≥ NODE_H + 28", () => {
-    // оба гостя — приёмники одного L(0,0) → одинаковый desiredY=0, одна (правая) колонка
+  it("два гостя одной колонки с близким desiredY разнесены симметрично на ≥ NODE_H + 28", () => {
+    // оба гостя — приёмники одного L(0,0) → одинаковый desiredY=0, одна (правая) колонка.
+    // PAV расходится симметрично вокруг центра масс (0): −64 и +64, а не 0 и +128.
     const nodes = [{ id: "L" }];
     const positions = new Map([["L", { x: 0, y: 0 }]]);
     placeOutsideGhosts({
@@ -118,9 +119,11 @@ describe("placeOutsideGhosts — desiredY и стопка", () => {
       layoutEdges: [edge("e1", "L", "G1"), edge("e2", "L", "G2")], positions,
     });
     const y1 = positions.get("G1")!.y, y2 = positions.get("G2")!.y;
-    expect(y1).toBe(0);
-    expect(y2).toBe(NODE_H + 28); // 128
-    expect(Math.abs(y2 - y1)).toBeGreaterThanOrEqual(NODE_H + 28);
+    const gap = NODE_H + 28; // 128
+    expect(y1).toBe(-gap / 2); // −64
+    expect(y2).toBe(gap / 2);  // +64
+    expect(Math.abs(y2 - y1)).toBeGreaterThanOrEqual(gap);
+    expect(y1 + y2).toBe(0); // центр масс сохранён
   });
 });
 

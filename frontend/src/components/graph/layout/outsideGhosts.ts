@@ -20,6 +20,7 @@ import { NODE_W, NODE_H, BOUNDARY_PAD, BOUNDARY_STEP } from "../constants";
 import type { DisplayExternal } from "../types";
 import type { Edge as AppEdge, AncestorRef } from "../../../types";
 import { assignEdgeHandles } from "./level";
+import { spread1D } from "./pav";
 
 export interface OutsideGhostsResult {
   /** id вынесенных за рамку гостей */
@@ -140,15 +141,13 @@ export function placeOutsideGhosts(params: {
     }
     (side === "right" ? rightCol : leftCol).push({ id: ent.id, desiredY });
   }
-  // В каждой колонке раскладываем сверху вниз с минимальным зазором (де-наложение).
+  // В каждой колонке раздвигаем гостей вокруг их желаемых Y с зазором (де-наложение).
+  // PAV вместо стопки «только вниз»: при конфликте группа расходится симметрично вокруг
+  // центра масс желаемых позиций, а не прибивает верхнего и гонит нижних вниз.
   const placeCol = (col: Placed[], x: number): void => {
-    col.sort((a, b) => a.desiredY - b.desiredY);
-    let lastY = -Infinity;
-    for (const it of col) {
-      const y = Math.max(it.desiredY, lastY + NODE_H + 28);
-      positions.set(it.id, { x, y });
-      lastY = y;
-    }
+    if (col.length === 0) return;
+    const ys = spread1D(col.map((c) => c.desiredY), NODE_H + 28);
+    col.forEach((it, i) => positions.set(it.id, { x, y: ys[i] }));
   };
   placeCol(leftCol, leftX);
   placeCol(rightCol, rightX);
