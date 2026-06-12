@@ -70,7 +70,7 @@ function straightWithJumps(start: EdgePoint, end: EdgePoint, jumps: JumpPoint[],
   for (const hop of hops) {
     const before = hop.x - dir * jr;
     const after = hop.x + dir * jr;
-    const sweep = dir > 0 ? 0 : 1; // выгиб вверх (к меньшему y) независимо от направления
+    const sweep = dir > 0 ? 1 : 0; // выгиб вверх (к меньшему y) независимо от направления
     d += ` L ${before},${y} A ${jr} ${jr} 0 0 ${sweep} ${after},${y}`;
   }
   d += ` L ${end.x},${end.y}`;

@@ -55,8 +55,8 @@ describe("computeJumps", () => {
 describe("buildPathWithJumps", () => {
   it("горизонталь с одним мостиком — дуга радиуса jr", () => {
     const d = buildPathWithJumps(H, 12, [{ x: 50, y: 0 }], 6);
-    // вправо (dir=1): подвод к 44, дуга вверх (sweep 0) до 56, затем к концу
-    expect(d).toBe("M 0,0 L 44,0 A 6 6 0 0 0 56,0 L 100,0");
+    // вправо (dir=1): подвод к 44, дуга вверх (sweep 1) до 56, затем к концу
+    expect(d).toBe("M 0,0 L 44,0 A 6 6 0 0 1 56,0 L 100,0");
   });
 
   it("без мостиков — обычная прямая", () => {
@@ -66,7 +66,7 @@ describe("buildPathWithJumps", () => {
   it("ход справа налево — дуга всё равно вверх (sweep 1)", () => {
     const rtl: EdgePoint[] = [{ x: 100, y: 0 }, { x: 0, y: 0 }];
     const d = buildPathWithJumps(rtl, 12, [{ x: 50, y: 0 }], 6);
-    expect(d).toBe("M 100,0 L 56,0 A 6 6 0 0 1 44,0 L 0,0");
+    expect(d).toBe("M 100,0 L 56,0 A 6 6 0 0 0 44,0 L 0,0");
   });
 
   it("вертикальный сегмент мостики игнорирует", () => {
