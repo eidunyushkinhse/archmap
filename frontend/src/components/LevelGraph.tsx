@@ -857,9 +857,9 @@ function LevelGraphInner({
             />
           </ViewportPortal>
         )}
-        {(guides.x != null || guides.y != null) && (
+        {(guides.x != null || guides.y != null || guides.spacing.length > 0) && (
           <ViewportPortal>
-            <AlignmentGuides x={guides.x} y={guides.y} />
+            <AlignmentGuides x={guides.x} y={guides.y} spacing={guides.spacing} />
           </ViewportPortal>
         )}
         {/* Превью будущего узла: пустая рамка-форма с прозрачным телом. В

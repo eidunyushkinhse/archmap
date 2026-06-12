@@ -6,7 +6,7 @@ import type { Node as RFNode } from "@xyflow/react";
 import type { NodeShape } from "../../../types";
 import { NODE_DRAG_MIME } from "../../NodeTreePanel";
 import { NODE_W, NODE_H } from "../constants";
-import { snapCenter } from "./snap";
+import { snapNode } from "./snap";
 import type { Guides } from "./useAlignmentGuides";
 
 interface Params {
@@ -52,11 +52,15 @@ export function useTemplateDrop({
     // ставим на притянутую позицию, направляющие показываем как при обычном драге.
     if (!dragShape) return;
     const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    const { snapCx, snapCy, hitX, hitY } = snapCenter(flow.x, flow.y, rfNodes);
+    const { snapCx, snapCy, hitX, hitY, spacing } = snapNode(flow.x, flow.y, NODE_W, NODE_H, rfNodes);
     setDropPreview({ shape: dragShape, x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 });
     const gx = hitX ? snapCx : null;
     const gy = hitY ? snapCy : null;
-    setGuides((prev) => (prev.x === gx && prev.y === gy ? prev : { x: gx, y: gy }));
+    setGuides((prev) =>
+      prev.x === gx && prev.y === gy && prev.spacing.length === 0 && spacing.length === 0
+        ? prev
+        : { x: gx, y: gy, spacing },
+    );
   }, [isArchitect, isContext, onDropNode, dragShape, rfNodes, screenToFlowPosition, setGuides]);
 
   // Курсор ушёл с канваса (а не на его дочерний элемент) — убираем превью/направляющие,
@@ -75,7 +79,7 @@ export function useTemplateDrop({
     const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const s = shape as NodeShape;
     // Узел создаётся ровно там, где показывало превью (с тем же примагничиванием).
-    const { snapCx, snapCy } = snapCenter(flow.x, flow.y, rfNodes);
+    const { snapCx, snapCy } = snapNode(flow.x, flow.y, NODE_W, NODE_H, rfNodes);
     onDropNode(s, { x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 });
     setDropPreview(null);
     clearGuides();

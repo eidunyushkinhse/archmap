@@ -5,6 +5,7 @@
 import type { Node as RFNode } from "@xyflow/react";
 import { computeFrames } from "./layout/frames";
 import type { GhostData, ContainerData } from "./types";
+import type { SpacingGuide } from "./interaction/distribute";
 import type { AncestorRef } from "../../types";
 
 /**
@@ -78,10 +79,42 @@ export function LevelBoundary({
   );
 }
 
-// Центральные направляющие при магнитном выравнивании. Рендерятся внутри
-// ViewportPortal, поэтому координаты — в системе графа. Линии тонкие, длинные
-// (перекрывают видимую область при любом зуме/панораме).
-export function AlignmentGuides({ x, y }: { x: number | null; y: number | null }) {
+// Цвет/размер индикаторов равных зазоров (distribution-снап).
+const SPACING_COLOR = "#e635c5";
+const TICK = 6; // длина концевой засечки зазора (в координатах графа)
+
+// Индикатор одного равного зазора: тонкая линия вдоль оси ряда + концевые засечки
+// поперёк. axis — направление зазора, cross — постоянная координата линии ряда.
+function GapMark(
+  { axis, cross, start, end }: { axis: "x" | "y"; cross: number; start: number; end: number },
+) {
+  const base = { position: "absolute" as const, pointerEvents: "none" as const, zIndex: 5 };
+  const line = `1px solid ${SPACING_COLOR}`;
+  if (axis === "x") {
+    return (
+      <>
+        <div style={{ ...base, left: start, top: cross, width: end - start, height: 0, borderTop: line }} />
+        <div style={{ ...base, left: start, top: cross - TICK / 2, width: 0, height: TICK, borderLeft: line }} />
+        <div style={{ ...base, left: end, top: cross - TICK / 2, width: 0, height: TICK, borderLeft: line }} />
+      </>
+    );
+  }
+  return (
+    <>
+      <div style={{ ...base, top: start, left: cross, height: end - start, width: 0, borderLeft: line }} />
+      <div style={{ ...base, top: start, left: cross - TICK / 2, height: 0, width: TICK, borderTop: line }} />
+      <div style={{ ...base, top: end, left: cross - TICK / 2, height: 0, width: TICK, borderTop: line }} />
+    </>
+  );
+}
+
+// Центральные направляющие при магнитном выравнивании + индикаторы равных зазоров
+// (distribution-снап). Рендерятся внутри ViewportPortal, поэтому координаты — в
+// системе графа. Линии тонкие, длинные (перекрывают видимую область при любом
+// зуме/панораме).
+export function AlignmentGuides(
+  { x, y, spacing = [] }: { x: number | null; y: number | null; spacing?: SpacingGuide[] },
+) {
   const SPAN = 1_000_000; // заведомо больше любого практического холста
   return (
     <>
@@ -100,6 +133,11 @@ export function AlignmentGuides({ x, y }: { x: number | null; y: number | null }
             borderTop: "1px solid #22c55e", pointerEvents: "none", zIndex: 4,
           }}
         />
+      )}
+      {spacing.flatMap((g, gi) =>
+        g.segments.map((s, si) => (
+          <GapMark key={`${gi}-${si}`} axis={g.axis} cross={g.cross} start={s.start} end={s.end} />
+        )),
       )}
     </>
   );

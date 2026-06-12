@@ -1,6 +1,8 @@
-// Чистые хелперы магнитного выравнивания по центру при драге узла/превью.
+// Чистые хелперы магнитного выравнивания при драге узла/превью: совпадение центров
+// (snapCenter) + равные зазоры между соседями в линии (distribution, snapNode).
 import type { Node as RFNode } from "@xyflow/react";
 import { SNAP_THRESHOLD, NODE_W, NODE_H } from "../constants";
+import { distributeAxis, type LineBox, type SpacingGuide } from "./distribute";
 
 // Фактический размер узла: берём измеренный React Flow, иначе заданный явно,
 // иначе дефолт. Нужен для выравнивания по центру при узлах разного размера.
@@ -33,4 +35,55 @@ export function snapCenter(
     if (dy <= bestDy) { bestDy = dy; snapCy = ocy; hitY = true; }
   }
   return { snapCx, snapCy, hitX, hitY };
+}
+
+export interface SnapResult {
+  snapCx: number; snapCy: number;
+  hitX: boolean; hitY: boolean;
+  // Distribution-индикаторы (равные зазоры): что подсветить, если сработал снап по
+  // зазорам. По оси, где снап по зазорам применён, центр-выравнивание не срабатывало.
+  spacing: SpacingGuide[];
+}
+
+// Полный снап узла: сначала выравнивание по ЦЕНТРУ соседа (snapCenter), затем —
+// на осях, где центр не сработал, снап по РАВНЫМ ЗАЗОРАМ. Горизонтальный ряд снапит
+// X (зазоры вдоль X, линия общая по Y → cross = snapCy после центр-снапа), вертикальный
+// ряд — Y (cross = snapCx). Центр-выравнивание приоритетнее: distribution применяем
+// только там, где центр свободен (главная ось ряда обычно как раз свободна).
+export function snapNode(
+  cx: number, cy: number, w: number, h: number, rfNodes: RFNode[], excludeId?: string,
+): SnapResult {
+  const { snapCx, snapCy, hitX, hitY } = snapCenter(cx, cy, rfNodes, excludeId);
+
+  // Боксы соседей (без самого узла) в координатах графа
+  const boxes: { cx: number; cy: number; w: number; h: number }[] = [];
+  for (const n of rfNodes) {
+    if (excludeId && n.id === excludeId) continue;
+    const { w: ow, h: oh } = nodeSize(n);
+    boxes.push({ cx: n.position.x + ow / 2, cy: n.position.y + oh / 2, w: ow, h: oh });
+  }
+
+  let outCx = snapCx, outCy = snapCy;
+  const spacing: SpacingGuide[] = [];
+
+  // Горизонтальный ряд: главная ось X, линия по Y (cross = выровненный центр snapCy).
+  if (!hitX) {
+    const rowBoxes: LineBox[] = boxes.map((b) => ({ main: b.cx, size: b.w, cross: b.cy }));
+    const hit = distributeAxis(cx, w, snapCy, rowBoxes, SNAP_THRESHOLD);
+    if (hit) {
+      outCx = hit.snap;
+      spacing.push({ axis: "x", cross: snapCy, gap: hit.gap, segments: [hit.ref, hit.fresh] });
+    }
+  }
+  // Вертикальный ряд: главная ось Y, линия по X (cross = выровненный центр snapCx).
+  if (!hitY) {
+    const colBoxes: LineBox[] = boxes.map((b) => ({ main: b.cy, size: b.h, cross: b.cx }));
+    const hit = distributeAxis(cy, h, snapCx, colBoxes, SNAP_THRESHOLD);
+    if (hit) {
+      outCy = hit.snap;
+      spacing.push({ axis: "y", cross: snapCx, gap: hit.gap, segments: [hit.ref, hit.fresh] });
+    }
+  }
+
+  return { snapCx: outCx, snapCy: outCy, hitX, hitY, spacing };
 }

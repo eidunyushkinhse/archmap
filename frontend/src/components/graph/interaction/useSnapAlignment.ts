@@ -3,7 +3,8 @@ import { useCallback, type Dispatch, type SetStateAction } from "react";
 import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
 import { nodesApi } from "../../../api/nodes";
-import { snapCenter, nodeSize } from "./snap";
+import { snapNode, nodeSize } from "./snap";
+import type { SpacingGuide } from "./distribute";
 import { computeFrames, type FrameRect } from "../layout/frames";
 import { clampOutOfNativeFrames } from "../layout/keepGhostsOut";
 import type { GhostData, ContainerData } from "../types";
@@ -57,7 +58,7 @@ export function useSnapAlignment({
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, rfNode: RFNode) => {
-      setGuides({ x: null, y: null }); // прячем направляющие
+      setGuides({ x: null, y: null, spacing: [] }); // прячем направляющие
       // В контекст-режиме раскладка эфемерная — перетаскивания не сохраняем
       if (isContext) return;
       if (!isArchitect) return;
@@ -68,8 +69,8 @@ export function useSnapAlignment({
       // чтобы СОХРАНИТЬ ровно то, что показывала направляющая, иначе схема чуть
       // разъезжается и стрелки остаются кривыми, хотя визуально выровнялись.
       const { w: dw, h: dh } = nodeSize(rfNode);
-      const { snapCx, snapCy } = snapCenter(
-        rfNode.position.x + dw / 2, rfNode.position.y + dh / 2, rfNodes, rfNode.id,
+      const { snapCx, snapCy } = snapNode(
+        rfNode.position.x + dw / 2, rfNode.position.y + dh / 2, dw, dh, rfNodes, rfNode.id,
       );
       const pos = { pos_x: snapCx - dw / 2, pos_y: snapCy - dh / 2 };
       if (rfNode.type === "block") {
@@ -104,6 +105,7 @@ export function useSnapAlignment({
     (changes: NodeChange<RFNode>[]) => {
       let guideX: number | null = null;
       let guideY: number | null = null;
+      let guideSpacing: SpacingGuide[] = [];
       // нативные рамки считаем лениво — только если тащат гостя/контейнер
       let frames: FrameRect[] | null = null;
       const snapped = changes.map((change) => {
@@ -113,7 +115,7 @@ export function useSnapAlignment({
         // Центр узла в текущей (перетаскиваемой) позиции
         const cx = change.position.x + dw / 2;
         const cy = change.position.y + dh / 2;
-        const { snapCx, snapCy, hitX, hitY } = snapCenter(cx, cy, rfNodes, change.id);
+        const { snapCx, snapCy, hitX, hitY, spacing } = snapNode(cx, cy, dw, dh, rfNodes, change.id);
         // Координата угла после притяжки (позиция узла = левый-верхний угол)
         const baseX = snapCx - dw / 2, baseY = snapCy - dh / 2;
         let x = baseX, y = baseY;
@@ -129,12 +131,22 @@ export function useSnapAlignment({
         if (change.dragging) {
           if (hitX && x === baseX) guideX = snapCx;
           if (hitY && y === baseY) guideY = snapCy;
+          // Индикаторы зазоров — по оси ряда (x→ось X, y→ось Y), тоже только если
+          // clamp не сдвинул узел по этой оси.
+          guideSpacing = spacing.filter((g) => (g.axis === "x" ? x === baseX : y === baseY));
         }
         return { ...change, position: { x, y } };
       });
-      setGuides((prev) =>
-        prev.x === guideX && prev.y === guideY ? prev : { x: guideX, y: guideY },
-      );
+      setGuides((prev) => {
+        // Пустые spacing-массивы считаем равными, чтобы не плодить ререндеры в
+        // обычном случае (ничего не примагнитилось по зазорам).
+        const sameSpacing =
+          prev.spacing === guideSpacing ||
+          (prev.spacing.length === 0 && guideSpacing.length === 0);
+        return prev.x === guideX && prev.y === guideY && sameSpacing
+          ? prev
+          : { x: guideX, y: guideY, spacing: guideSpacing };
+      });
       onNodesChange(snapped);
     },
     [rfNodes, onNodesChange, setGuides, levelFrames],
