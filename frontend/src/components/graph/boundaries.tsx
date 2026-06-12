@@ -1,19 +1,11 @@
 // Границы уровней (C4-подобные вложенные boundary) и центральные направляющие
 // магнитного выравнивания. Оба рендерятся через ViewportPortal — в координатах графа.
+// Геометрия рамок (членство + прямоугольники) живёт в layout/frames.ts — единый
+// источник правды, общий с энфорсом запрета проникновения гостей (keepGhostsOut.ts).
 import type { Node as RFNode } from "@xyflow/react";
-import {
-  NODE_W, NODE_H,
-  BOUNDARY_PAD, BOUNDARY_STEP, BOUNDARY_LABEL_PAD, BOUNDARY_LABEL_STEP,
-} from "./constants";
+import { computeFrames } from "./layout/frames";
 import type { GhostData, ContainerData } from "./types";
 import type { AncestorRef } from "../../types";
-
-interface FrameDef {
-  id: string;
-  name: string;
-  depth: number;          // 0 — самый внешний предок; глубже → меньше отступ
-  memberIds: Set<string>; // id отображаемых узлов-потомков этого контейнера
-}
 
 /**
  * Рамки уровней (C4-boundary). Для каждого контейнера рисуется пунктирный
@@ -43,69 +35,22 @@ export function LevelBoundary({
       ? (n.data as GhostData).appNode.ancestors ?? []
       : ((n.data as ContainerData).ancestors ?? []);
 
-  const localIds = blocks.map((b) => b.id);
-  const bcIndex = new Map(ancestorIds.map((id, i) => [id, i]));
-
-  const frames = new Map<string, FrameDef>();
-  // breadcrumb-рамки: локальные узлы — потомки каждого предка
-  ancestorIds.forEach((id, i) => {
-    frames.set(id, { id, name: ancestorNames[i], depth: i, memberIds: new Set(localIds) });
-  });
-
-  for (const g of externals) {
-    const anc = extAncestors(g);
-    // общий предок = самый глубокий breadcrumb-предок среди предков
-    let lcaIdx = -1, lcaPos = -1;
-    anc.forEach((a, pos) => {
-      const idx = bcIndex.get(a.id);
-      if (idx !== undefined && idx > lcaIdx) { lcaIdx = idx; lcaPos = pos; }
-    });
-    if (lcaIdx === -1) continue; // нет общего предка-рамки → снаружи
-    // узел — член breadcrumb-рамок до общего предка включительно
-    for (let i = 0; i <= lcaIdx; i++) frames.get(ancestorIds[i])!.memberIds.add(g.id);
-    // промежуточные контейнеры (ниже общего предка) — рамки развёрнутых контейнеров
-    for (let pos = lcaPos + 1; pos < anc.length; pos++) {
-      const a = anc[pos];
-      const depth = lcaIdx + (pos - lcaPos);
-      if (!frames.has(a.id)) frames.set(a.id, { id: a.id, name: a.name, depth, memberIds: new Set() });
-      frames.get(a.id)!.memberIds.add(g.id);
-    }
-  }
-
   const posById = new Map(rfNodes.map((n) => [n.id, n.position]));
-  const maxDepth = Math.max(...[...frames.values()].map((f) => f.depth));
-
-  const rects = [...frames.values()].map((f) => {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const id of f.memberIds) {
-      const p = posById.get(id);
-      if (!p) continue;
-      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
-    }
-    if (!isFinite(minX)) return null;
-    const pad = BOUNDARY_PAD + (maxDepth - f.depth) * BOUNDARY_STEP;
-    // рамку растягиваем вниз сильнее, чем по остальным сторонам, чтобы подпись получила
-    // свою полосу под содержимым. Внешним рамкам (меньший depth) добавка больше — так их
-    // подпись уходит ниже нижнего края вложенных рамок и не царапает их.
-    const labelPad = BOUNDARY_LABEL_PAD + (maxDepth - f.depth) * BOUNDARY_LABEL_STEP;
-    return {
-      id: f.id, name: f.name, depth: f.depth,
-      x: minX - pad, y: minY - pad,
-      w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad + labelPad,
-    };
-  }).filter((r): r is NonNullable<typeof r> => r !== null);
-
-  // внешние рамки (меньший depth) рисуем первыми — под внутренними
-  rects.sort((a, b) => a.depth - b.depth);
+  const rects = computeFrames({
+    localIds: blocks.map((b) => b.id),
+    externals: externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
+    pos: (id) => posById.get(id),
+    ancestorIds, ancestorNames,
+  });
 
   return (
     <>
-      {rects.map((r) => {
-        const collapsible = expanded.has(r.id); // развёрнутый контейнер — можно свернуть
+      {rects.map((f) => {
+        const r = f.rect;
+        const collapsible = expanded.has(f.id); // развёрнутый контейнер — можно свернуть
         return (
           <div
-            key={r.id}
+            key={f.id}
             style={{
               position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
               border: "1px dashed #9ca3af", borderRadius: 12, background: "transparent",
@@ -114,7 +59,7 @@ export function LevelBoundary({
           >
             <div
               className={collapsible ? "nodrag nopan" : undefined}
-              onClick={collapsible ? () => onCollapse(r.id) : undefined}
+              onClick={collapsible ? () => onCollapse(f.id) : undefined}
               title={collapsible ? "Свернуть" : undefined}
               style={{
                 position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
@@ -124,7 +69,7 @@ export function LevelBoundary({
                 cursor: collapsible ? "pointer" : "default",
               }}
             >
-              {collapsible ? `🔍 ${r.name} ✕` : r.name}
+              {collapsible ? `🔍 ${f.name} ✕` : f.name}
             </div>
           </div>
         );

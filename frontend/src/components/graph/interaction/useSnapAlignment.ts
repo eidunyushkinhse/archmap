@@ -4,6 +4,10 @@ import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
 import { nodesApi } from "../../../api/nodes";
 import { snapCenter, nodeSize } from "./snap";
+import { computeFrames } from "../layout/frames";
+import { clampOutOfNativeFrames } from "../layout/keepGhostsOut";
+import type { GhostData, ContainerData } from "../types";
+import type { AncestorRef } from "../../../types";
 import type { Guides } from "./useAlignmentGuides";
 
 interface Params {
@@ -13,6 +17,9 @@ interface Params {
   isArchitect: boolean;
   isContext: boolean;
   containerId: string | null;
+  // breadcrumb-предки уровня — нужны для запрета задвинуть гостя в чужую родную рамку
+  ancestorIds: string[];
+  ancestorNames: string[];
   // узел перетащили и позиция сохранена — родитель синхронизирует стейт уровня теми
   // же значениями, что вернул бы рефетч. Без этого пересчёт раскладки БЕЗ рефетча
   // (напр. локальный setEdges при реконнекте хэндла) откатывал бы узел на старую
@@ -26,7 +33,8 @@ interface Params {
 }
 
 export function useSnapAlignment({
-  rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId, onNodeMoved,
+  rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
+  ancestorIds, ancestorNames, onNodeMoved,
 }: Params) {
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, rfNode: RFNode) => {
@@ -51,12 +59,32 @@ export function useSnapAlignment({
         onNodeMoved?.(rfNode.id, "block", pos);
       } else if ((rfNode.type === "ghost" || rfNode.type === "container") && containerId) {
         // Гость (лист) или свёрнутый предок-контейнер — координаты привязаны к
-        // уровню (containerId + id отображаемой сущности = rfNode.id)
-        nodesApi.saveGhostPosition(containerId, rfNode.id, pos);
-        onNodeMoved?.(rfNode.id, rfNode.type, pos);
+        // уровню (containerId + id отображаемой сущности = rfNode.id). Строгий запрет:
+        // нельзя задвинуть гостя внутрь чужой родной рамки — клампим наружу.
+        const blocks = rfNodes.filter((n) => n.type === "block");
+        const externals = rfNodes.filter((n) => n.type === "ghost" || n.type === "container");
+        const extAncestors = (n: RFNode): AncestorRef[] =>
+          n.type === "ghost"
+            ? (n.data as GhostData).appNode.ancestors ?? []
+            : ((n.data as ContainerData).ancestors ?? []);
+        const posById = new Map(rfNodes.map((n) => [n.id, n.position]));
+        const frames = computeFrames({
+          localIds: blocks.map((b) => b.id),
+          externals: externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
+          pos: (id) => posById.get(id),
+          ancestorIds, ancestorNames,
+        });
+        const clamped = clampOutOfNativeFrames(rfNode.id, { x: pos.pos_x, y: pos.pos_y }, frames);
+        const gpos = { pos_x: clamped.x, pos_y: clamped.y };
+        // если драг завёл внутрь рамки — визуально отбросить узел на клампнутую точку
+        if (clamped.x !== pos.pos_x || clamped.y !== pos.pos_y) {
+          onNodesChange([{ id: rfNode.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
+        }
+        nodesApi.saveGhostPosition(containerId, rfNode.id, gpos);
+        onNodeMoved?.(rfNode.id, rfNode.type, gpos);
       }
     },
-    [isArchitect, containerId, isContext, setGuides, onNodeMoved, rfNodes],
+    [isArchitect, containerId, isContext, setGuides, onNodeMoved, onNodesChange, ancestorIds, ancestorNames, rfNodes],
   );
 
   // Магнитное выравнивание по центру при драге: перехватываем position-изменения

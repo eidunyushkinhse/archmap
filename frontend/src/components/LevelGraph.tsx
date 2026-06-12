@@ -34,6 +34,7 @@ import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { placeOutsideGhosts } from "./graph/layout/outsideGhosts";
+import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { computeDetours } from "./graph/layout/detours";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
@@ -231,7 +232,8 @@ function LevelGraphInner({
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId, onNodeMoved,
+    rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
+    ancestorIds, ancestorNames, onNodeMoved,
   });
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
@@ -499,8 +501,16 @@ function LevelGraphInner({
       const og = placeOutsideGhosts({
         nodes, entities, stableAncestorIds, levelPositions, layoutEdges, positions,
       });
+      // Строгий запрет проникновения: после выноса внешних гостей выталкиваем за пределы
+      // чужих родных рамок всех гостей и гостевые рамки — в т.ч. с ручной позицией и при
+      // росте рамки (placeOutsideGhosts таких не трогает). Запускается всегда, даже если
+      // выносить было нечего (og === null): «член A, но не B» ELK мог положить внутрь B.
+      const enf = enforceFramesKeepOut({
+        nodes, entities, ancestorIds: stableAncestorIds, layoutEdges, positions,
+      });
+      if (enf) edgeHandles = enf.edgeHandles;
+      else if (og) edgeHandles = og.edgeHandles;
       if (og) {
-        edgeHandles = og.edgeHandles;
         const localIds = new Set(nodes.map((n) => n.id));
         const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
         const { handles, detours } = computeDetours({
