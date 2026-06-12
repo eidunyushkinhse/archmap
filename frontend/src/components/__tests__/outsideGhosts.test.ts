@@ -93,6 +93,59 @@ describe("placeOutsideGhosts — сторона колонки", () => {
   });
 });
 
+describe("placeOutsideGhosts — выбор стороны по пересечениям (верх/низ)", () => {
+  it("связь к СРЕДНЕМУ узлу ряда: горизонталь сквозь соседей → гость уходит ВНИЗ", () => {
+    // три узла в ряд La(0,0) Lb(300,0) Lc(600,0); гость связан со средним Lb. И левая, и
+    // правая колонка увели бы стрелку сквозь La/Lc — обе дают пересечение. Низ (вертикаль
+    // к Lb по x=395) чист → гостя ставим под рамку, по центру над связью.
+    const nodes = [{ id: "La" }, { id: "Lb" }, { id: "Lc" }];
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 300, y: 0 }], ["Lc", { x: 600, y: 0 }],
+    ]);
+    const res = placeOutsideGhosts({
+      nodes, entities: [leaf("G")], stableAncestorIds: [], levelPositions: {},
+      layoutEdges: [edge("e", "G", "Lb")], positions,
+    });
+    expect(res).not.toBeNull();
+    // botY = fMaxY + clearance(0) = 100 + 112 = 212; along = anchorX − NODE_W/2 = 395 − 95 = 300
+    expect(positions.get("G")).toEqual({ x: 300, y: 100 + clearance(0) });
+  });
+
+  it("якорь ВЫШЕ центра + горизонталь сквозь соседей → гость уходит ВВЕРХ", () => {
+    // верхний ряд La(0,0) Lb(300,0) Lc(600,0) + Ld(300,400) тянет центр рамки вниз
+    // (frameCy=250 > anchorY=50 → ближняя вертикаль ВЕРХ). Связь к среднему Lb: горизонталь
+    // сквозь La/Lc, верх (x=395) чист → гость над рамкой.
+    const nodes = [{ id: "La" }, { id: "Lb" }, { id: "Lc" }, { id: "Ld" }];
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 300, y: 0 }], ["Lc", { x: 600, y: 0 }],
+      ["Ld", { x: 300, y: 400 }],
+    ]);
+    const res = placeOutsideGhosts({
+      nodes, entities: [leaf("G")], stableAncestorIds: [], levelPositions: {},
+      layoutEdges: [edge("e", "G", "Lb")], positions,
+    });
+    expect(res).not.toBeNull();
+    // topY = fMinY − clearance(0) − NODE_H = 0 − 112 − 100 = −212; along = 395 − 95 = 300
+    expect(positions.get("G")).toEqual({ x: 300, y: -clearance(0) - NODE_H });
+  });
+
+  it("связь к КРАЙНЕМУ узлу ряда: горизонталь чиста → остаётся сбоку (не уходит вниз)", () => {
+    // тот же ряд, но связь к ЛЕВОМУ La: левая колонка чиста (соседи правее) → лево, как
+    // прежде. Верх/низ не нужны — конвенция потока сохраняется.
+    const nodes = [{ id: "La" }, { id: "Lb" }, { id: "Lc" }];
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 300, y: 0 }], ["Lc", { x: 600, y: 0 }],
+    ]);
+    const res = placeOutsideGhosts({
+      nodes, entities: [leaf("G")], stableAncestorIds: [], levelPositions: {},
+      layoutEdges: [edge("e", "G", "La")], positions, // G — источник La → левая сторона
+    });
+    expect(res).not.toBeNull();
+    // fMinX=0 → leftX = 0 − clearance(0) − NODE_W; along по y La (центр 50) → 0
+    expect(positions.get("G")).toEqual({ x: -clearance(0) - NODE_W, y: 0 });
+  });
+});
+
 describe("placeOutsideGhosts — desiredY и стопка", () => {
   it("desiredY — средний центр связанных локальных узлов", () => {
     // L1 (0,0) и L2 (0,200); гость G — приёмник обоих → правая колонка
