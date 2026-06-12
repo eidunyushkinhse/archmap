@@ -8,9 +8,12 @@
 // хэндлы рёбер от новых позиций — это убирает «сумбур» в их назначении.
 //
 // Гости С общей рамкой (лежат внутри своей рамки по дизайну) и гости с ручной
-// позицией (levelPositions) не трогаются. Возвращённый результат (placedOutside +
-// bbox рамки + пересчитанные хэндлы) потребляет шаг дефолтных обводов (detours.ts):
-// блоки исторически вложены, поэтому контракт передаётся явно.
+// позицией (levelPositions) не трогаются — КРОМЕ случая, когда внутреннего гостя ELK
+// отбросил вбок за пределы кластера локальных узлов (свежий контейнер-предок —
+// одинокий приёмник межуровневой стрелки улетает на правый край схемы). Такого
+// «улетевшего» тоже выносим в колонку рядом со связью. Возвращённый результат
+// (placedOutside + bbox рамки + пересчитанные хэндлы) потребляет шаг дефолтных обводов
+// (detours.ts): блоки исторически вложены, поэтому контракт передаётся явно.
 import { NODE_W, NODE_H, BOUNDARY_PAD, BOUNDARY_STEP } from "../constants";
 import type { DisplayExternal } from "../types";
 import type { Edge as AppEdge, AncestorRef } from "../../../types";
@@ -49,14 +52,38 @@ export function placeOutsideGhosts(params: {
   const isOutside = (ent: DisplayExternal): boolean =>
     !entAncestors(ent).some((a) => bcSet.has(a.id));
   const localIds = new Set(nodes.map((n) => n.id));
-  const outside = entities.filter((e) => isOutside(e) && !levelPositions[e.id]);
-  if (outside.length === 0) return null;
 
-  // bbox рамки = локальные узлы + «внутренние» гости (члены breadcrumb-рамок)
+  // X-границы кластера локальных узлов — по ним ловим «улетевших» гостей. ELK
+  // раскладывает поток слева-направо (RIGHT), поэтому одинокий приёмник межуровневой
+  // стрелки без других связей улетает на правый край схемы. Внутренний гость, чей
+  // X-диапазон ЦЕЛИКОМ вне кластера, считается улетевшим и тоже выносится в колонку
+  // (вертикально гости законно стопкуются под кластером — по Y «улёт» не ловим).
+  let lMinX = Infinity, lMaxX = -Infinity;
+  for (const n of nodes) {
+    const p = positions.get(n.id);
+    if (!p) continue;
+    lMinX = Math.min(lMinX, p.x); lMaxX = Math.max(lMaxX, p.x + NODE_W);
+  }
+  const isFlung = (ent: DisplayExternal): boolean => {
+    const p = positions.get(ent.id);
+    if (!p || !isFinite(lMinX)) return false;
+    return p.x + NODE_W <= lMinX + 1 || p.x >= lMaxX - 1;
+  };
+
+  // Выносим: внешних гостей (нет общей рамки) + внутренних, которых ELK отбросил вбок
+  // от кластера. Гость с ручной позицией (levelPositions) не трогается в любом случае.
+  const toPlace = entities.filter(
+    (e) => !levelPositions[e.id] && (isOutside(e) || isFlung(e)),
+  );
+  if (toPlace.length === 0) return null;
+  const toPlaceSet = new Set(toPlace.map((e) => e.id));
+
+  // bbox рамки = локальные узлы + «внутренние» гости-члены рамки, КРОМЕ вынесенных
+  // (их прежняя ELK-позиция мусорная — не должна растягивать рамку).
   let fMinX = Infinity, fMinY = Infinity, fMaxX = -Infinity, fMaxY = -Infinity;
   const frameIds = [
     ...nodes.map((n) => n.id),
-    ...entities.filter((e) => !isOutside(e)).map((e) => e.id),
+    ...entities.filter((e) => !isOutside(e) && !toPlaceSet.has(e.id)).map((e) => e.id),
   ];
   for (const id of frameIds) {
     const p = positions.get(id);
@@ -79,7 +106,7 @@ export function placeOutsideGhosts(params: {
   type Placed = { id: string; desiredY: number };
   const leftCol: Placed[] = [];
   const rightCol: Placed[] = [];
-  for (const ent of outside) {
+  for (const ent of toPlace) {
     let leftVotes = 0, rightVotes = 0;
     const ys: number[] = [];
     for (const e of layoutEdges) {
@@ -117,7 +144,7 @@ export function placeOutsideGhosts(params: {
   const edgeHandles = assignEdgeHandles(displayedNodeList, layoutEdges, positions);
 
   return {
-    placedOutside: new Set(outside.map((e) => e.id)),
+    placedOutside: toPlaceSet,
     frame: { minX: fMinX, minY: fMinY, maxX: fMaxX, maxY: fMaxY },
     edgeHandles,
   };

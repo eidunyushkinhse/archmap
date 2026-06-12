@@ -136,6 +136,48 @@ describe("placeOutsideGhosts — что НЕ выносится", () => {
   });
 });
 
+describe("placeOutsideGhosts — рескью улетевшего внутреннего гостя", () => {
+  it("внутренний гость, отброшенный ELK вбок за кластер, выносится в колонку у связи", () => {
+    // L(0,0) — кластер X∈[0,190]. Внутренний гость Gin (предок P в breadcrumb) ELK
+    // забросил далеко вправо (x=1000) — это X целиком вне кластера → «улетел».
+    const nodes = [{ id: "L" }];
+    const positions = new Map([
+      ["L", { x: 0, y: 0 }],
+      ["Gin", { x: 1000, y: 0 }],
+    ]);
+    const res = placeOutsideGhosts({
+      nodes,
+      entities: [leaf("Gin", [{ id: "P", name: "P" }])],
+      stableAncestorIds: ["P"], levelPositions: {},
+      layoutEdges: [edge("e", "L", "Gin")], positions, // Gin — приёмник → правая колонка
+    });
+    expect(res).not.toBeNull();
+    // рамку считаем БЕЗ улетевшего: bbox = только L
+    expect(res!.frame).toEqual({ minX: 0, minY: 0, maxX: NODE_W, maxY: NODE_H });
+    // вынесен в правую колонку (depth=1) на высоте L
+    expect(positions.get("Gin")).toEqual({ x: NODE_W + clearance(1), y: 0 });
+    expect(res!.placedOutside.has("Gin")).toBe(true);
+  });
+
+  it("внутренний гость в пределах X-кластера (вложен ниже) НЕ трогается", () => {
+    // Gin под кластером (x=0 — X пересекается с L), это законная вложенность → null,
+    // если других выносимых нет.
+    const nodes = [{ id: "L" }];
+    const positions = new Map([
+      ["L", { x: 0, y: 0 }],
+      ["Gin", { x: 0, y: 300 }],
+    ]);
+    const res = placeOutsideGhosts({
+      nodes,
+      entities: [leaf("Gin", [{ id: "P", name: "P" }])],
+      stableAncestorIds: ["P"], levelPositions: {},
+      layoutEdges: [edge("e", "L", "Gin")], positions,
+    });
+    expect(res).toBeNull();
+    expect(positions.get("Gin")).toEqual({ x: 0, y: 300 }); // не тронут
+  });
+});
+
 describe("placeOutsideGhosts — клиренс и null-кейсы", () => {
   it("leftX = fMinX − (BOUNDARY_PAD + (depth+1)·BOUNDARY_STEP + 48) − NODE_W", () => {
     const nodes = [{ id: "L" }];
