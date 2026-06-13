@@ -101,8 +101,10 @@ const statusBox: CSSProperties = {
   fontSize: 14,
 };
 const pre: CSSProperties = {
-  flex: 1,
-  minHeight: 0,
+  // Прокручивается ТОЛЬКО блок YAML (заголовок и футер обёртки остаются на месте —
+  // эффект sticky). maxHeight = высота бокса (85vh) минус хром модалки (padding
+  // обёртки + заголовок + футер ≈ 160px), чтобы длинный экспорт не распирал бокс.
+  maxHeight: "calc(85vh - 160px)",
   overflow: "auto",
   margin: 0,
   padding: 14,
