@@ -34,6 +34,7 @@ import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { placeGhostsOnRings } from "./graph/layout/ringPlacement";
+import { centerEmergedChildren } from "./graph/layout/expandCenter";
 import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { computeDetours } from "./graph/layout/detours";
 import { NodeShapeSvg } from "./graph/shapes";
@@ -213,16 +214,33 @@ function LevelGraphInner({
   // центрируем дефолтную раскладку детей: раскрытая рамка встаёт туда же, где
   // стоял свёрнутый узел (детям без ручных координат). Эфемерно, как expanded.
   const expandOrigins = useRef<Map<string, { x: number; y: number }>>(new Map());
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс expand-состояния на смену уровня — осознанный reset-on-prop-change; паттерн prev-в-рендере здесь запрещён сестринским правилом react-hooks/refs (expandOrigins.current.clear() в рендере)
-  useEffect(() => { setExpanded(new Set()); expandOrigins.current.clear(); }, [containerId]);
+  // id контейнера → замороженный сдвиг его группы детей (см. centerEmergedChildren):
+  // фиксируется на первом layout после раскрытия, чтобы драг одного ребёнка не тянул
+  // соседей и не было двойного смещения. Эфемерно, как expanded.
+  const expandDelta = useRef<Map<string, { dx: number; dy: number }>>(new Map());
+  // id детей, которых пользователь подвинул ПОСЛЕ раскрытия — выпадают из центрирования
+  // и держат свою позицию (как авто-ребёнок «промотируется» драгом). Эфемерно.
+  const settledChildren = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс expand-состояния на смену уровня — осознанный reset-on-prop-change; паттерн prev-в-рендере здесь запрещён сестринским правилом react-hooks/refs (expandOrigins.current.clear() в рендере)
+    setExpanded(new Set());
+    expandOrigins.current.clear();
+    expandDelta.current.clear();
+    settledChildren.current.clear();
+  }, [containerId]);
 
   const expandContainer = useCallback((id: string) => {
     // запоминаем центр сворачиваемого контейнера до раскрытия — дефолтная
     // раскладка его детей будет отцентрирована по этой точке
     const c = rfNodes.find((n) => n.id === id);
     if (c) expandOrigins.current.set(id, { x: c.position.x + NODE_W / 2, y: c.position.y + NODE_H / 2 });
+    // свежий спавн: сбрасываем заморозку сдвига и метки «подвинут вручную» у детей,
+    // которые СЕЙЧАС обнажатся раскрытием id (вычисляем проекцию по новому expanded)
+    expandDelta.current.delete(id);
+    const { emergedFrom } = projectGhosts(ghostNodes, ancestorIds, new Set(expanded).add(id));
+    for (const [childId, from] of emergedFrom) if (from === id) settledChildren.current.delete(childId);
     setExpanded((prev) => new Set(prev).add(id));
-  }, [rfNodes]);
+  }, [rfNodes, ghostNodes, ancestorIds, expanded]);
   const collapseContainer = useCallback((id: string) => {
     setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
   }, []);
@@ -231,10 +249,21 @@ function LevelGraphInner({
   // и drop-шаблона).
   const { guides, setGuides, clearGuides } = useAlignmentGuides();
 
+  // Перетаскивание узла «оседает» (settled): ребёнок раскрытого контейнера, которого
+  // подвинули вручную, выпадает из дефолтного центрирования и держит свою позицию.
+  // Для прочих узлов метка безвредна (в группы центрирования они не входят).
+  const markMovedAndPersist = useCallback(
+    (id: string, kind: "block" | "ghost" | "container", pos: { pos_x: number; pos_y: number }) => {
+      settledChildren.current.add(id);
+      onNodeMoved?.(id, kind, pos);
+    },
+    [onNodeMoved],
+  );
+
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-    ancestorIds, ancestorNames, onNodeMoved,
+    ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist,
   });
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
@@ -461,36 +490,20 @@ function LevelGraphInner({
     // дефолтные обводы гостевых стрелок (см. блок выноса гостей ниже) — основная схема
     const edgeDetours = new Map<string, { clearY: number }>();
 
-    // Дефолтная раскладка детей раскрытого контейнера: сдвигаем их так, чтобы центр
-    // их bbox совпал с центром, где стоял свёрнутый узел (запомнен при раскрытии).
-    // Только обычный уровень, только сущности БЕЗ ручных координат (levelPositions),
-    // сгруппированные по контейнеру, из которого они вышли. Сущность с ручной
-    // позицией остаётся на месте и в центрирование не входит.
+    // Дефолтная раскладка детей раскрытого контейнера: всю группу детей (и авто, и с
+    // ручными координатами — их относительную раскладку сохраняем) сдвигаем так, чтобы
+    // центр общего bbox лёг в центр, где стоял свёрнутый узел (запомнен при раскрытии).
+    // Сдвиг замораживается на первом проходе; ребёнок, подвинутый после раскрытия
+    // (settled), выпадает из центрирования. Только обычный уровень. См. expandCenter.ts.
     if (!isContext) {
-      const groups = new Map<string, string[]>();
-      for (const ent of entities) {
-        const from = emergedFrom.get(ent.id);
-        if (from && expandOrigins.current.has(from) && !levelPositions[ent.id]) {
-          (groups.get(from) ?? groups.set(from, []).get(from)!).push(ent.id);
-        }
-      }
-      for (const [from, ids] of groups) {
-        const origin = expandOrigins.current.get(from)!;
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const id of ids) {
-          const p = positions.get(id);
-          if (!p) continue;
-          minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-          maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
-        }
-        if (!isFinite(minX)) continue;
-        const dx = origin.x - (minX + maxX) / 2;
-        const dy = origin.y - (minY + maxY) / 2;
-        for (const id of ids) {
-          const p = positions.get(id);
-          if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
-        }
-      }
+      centerEmergedChildren({
+        entities,
+        emergedFrom,
+        origins: expandOrigins.current,
+        frozenDelta: expandDelta.current,
+        settled: settledChildren.current,
+        positions,
+      });
     }
 
     // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) + дефолтные
