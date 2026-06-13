@@ -8,6 +8,7 @@ import {
   Controls,
   MarkerType,
   ConnectionMode,
+  SelectionMode,
   useNodesState,
   useEdgesState,
   useReactFlow,
@@ -261,7 +262,7 @@ function LevelGraphInner({
   );
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
-  const { handleNodesChange, handleNodeDragStop } = useSnapAlignment({
+  const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
     ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist,
   });
@@ -773,6 +774,9 @@ function LevelGraphInner({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onKeyDown={handleKeyDown}
+      // ПКМ панорамирует холст — гасим браузерное контекст-меню, чтобы оно не
+      // выскакивало при правом клике/перетаскивании по канвасу.
+      onContextMenu={(e) => e.preventDefault()}
     >
       {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
           прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
@@ -816,6 +820,7 @@ function LevelGraphInner({
         onEdgesChange={onEdgesChange}
         onEdgeClick={handleEdgeClick}
         onNodeDragStop={handleNodeDragStop}
+        onSelectionDragStop={handleSelectionDragStop}
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}
         onReconnectEnd={handleReconnectEnd}
@@ -857,6 +862,16 @@ function LevelGraphInner({
         // флагом). Начать связь можно только с хэндла, у которого isConnectableStart
         // (его выставляем лишь архитектору вне контекст-режима — см. nodes.tsx).
         nodesConnectable
+        // Навигация и выделение: холст панорамируем ПРАВОЙ кнопкой мыши (код 2),
+        // ЛЕВАЯ кнопка тянет рамку прямоугольного выделения нескольких узлов
+        // (selectionOnDrag). Ctrl/⌘ добавляет/убирает узлы из выделения кликом.
+        // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
+        // частично. В контекст-схеме (read-only) выделять нечего — там оставляем
+        // привычное панорамирование левой кнопкой и выключаем рамку.
+        panOnDrag={isContext ? true : [2]}
+        selectionOnDrag={!isContext}
+        selectionMode={SelectionMode.Partial}
+        multiSelectionKeyCode={["Control", "Meta"]}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />

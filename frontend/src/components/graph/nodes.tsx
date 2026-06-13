@@ -246,7 +246,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   );
 }
 
-function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
+function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
   // «Войти» к компонентам гостя — только для промежуточного гостя (есть дети): у
@@ -261,7 +261,7 @@ function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
   };
   // Форма та же, но пунктиром — «призрачность» внешнего узла видна по пунктирному контуру.
   return (
-    <div style={{ ...nodeContainer, color: c.text }}>
+    <div style={{ ...nodeContainer, color: c.text, filter: selected ? SELECTED_GLOW : undefined }}>
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
       <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
       {canEnter && (
@@ -284,7 +284,7 @@ function GhostBlockNode({ data }: NodeProps<GhostRFNode>) {
   );
 }
 
-function ContainerNode({ data }: NodeProps<ContainerRFNode>) {
+function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
   const c = data.colors;
   const btnStyle: CSSProperties = {
     ...nodeBtn,
@@ -295,7 +295,7 @@ function ContainerNode({ data }: NodeProps<ContainerRFNode>) {
   return (
     // Свёрнутый контейнер — всегда «зона входа»: его содержимое детализируется,
     // протянутая на него стрелка ведёт к одному из его потомков (data-into).
-    <div data-into="1" style={{ ...nodeContainer, color: c.text }}>
+    <div data-into="1" style={{ ...nodeContainer, color: c.text, filter: selected ? SELECTED_GLOW : undefined }}>
       <svg width={NODE_W} height={NODE_H} style={{ position: "absolute", inset: 0, pointerEvents: "none", filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.12))" }}>
         <rect x={1} y={1} width={NODE_W - 2} height={NODE_H - 2} rx={8} fill={c.bg} stroke={c.border} strokeWidth={1.5} strokeDasharray="5 3" />
       </svg>

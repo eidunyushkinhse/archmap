@@ -56,43 +56,72 @@ export function useSnapAlignment({
     });
   }, [rfNodes, ancestorIds, ancestorNames]);
 
-  const handleNodeDragStop = useCallback(
-    (_event: MouseEvent, rfNode: RFNode) => {
-      setGuides({ x: null, y: null, spacing: [] }); // прячем направляющие
-      // В контекст-режиме раскладка эфемерная — перетаскивания не сохраняем
-      if (isContext) return;
+  // Персист позиций ВСЕХ перетянутых узлов. При мультивыделении RF тащит группу, но
+  // раньше сохранялся только узел-«ручка» — после ближайшего пересчёта раскладки
+  // соседи откатывались на старые сохранённые координаты. Поэтому сохраняем каждый.
+  // Снап применяем только к одиночному узлу: групповой снап считал бы притяжку
+  // каждого к своим соседям и исказил бы взаимные интервалы перемещаемой группы.
+  const persistGroup = useCallback(
+    (group: RFNode[]) => {
+      if (isContext) return; // контекст read-only — перетаскивания не сохраняем
       if (!isArchitect) return;
-      // ВАЖНО: rfNode.position здесь — «сырая» позиция драга React Flow. Наши снап-
-      // правки из onNodesChange меняют ОТРИСОВАННЫЙ стейт (rfNodes), но внутренний
-      // трекер драга RF их не видит — поэтому пришедшая сюда координата без притяжки
-      // (в пределах порога от соседа, но не ровно на нём). Пересчитываем тот же снап,
-      // чтобы СОХРАНИТЬ ровно то, что показывала направляющая, иначе схема чуть
-      // разъезжается и стрелки остаются кривыми, хотя визуально выровнялись.
-      const { w: dw, h: dh } = nodeSize(rfNode);
-      const { snapCx, snapCy } = snapNode(
-        rfNode.position.x + dw / 2, rfNode.position.y + dh / 2, dw, dh, rfNodes, rfNode.id,
-      );
-      const pos = { pos_x: snapCx - dw / 2, pos_y: snapCy - dh / 2 };
-      if (rfNode.type === "block") {
-        // Локальный узел — координаты в самом узле
-        nodesApi.update(rfNode.id, pos);
-        onNodeMoved?.(rfNode.id, "block", pos);
-      } else if ((rfNode.type === "ghost" || rfNode.type === "container") && containerId) {
-        // Гость (лист) или свёрнутый предок-контейнер — координаты привязаны к
-        // уровню (containerId + id отображаемой сущности = rfNode.id). Строгий запрет
-        // проникновения в чужую родную рамку обеспечивает живой clamp в handleNodesChange;
-        // здесь повторяем его для СОХРАНЯЕМОЙ позиции (rfNode.position — сырая RF-координата
-        // без наших правок), чтобы персистнуть валидную точку.
-        const clamped = clampOutOfNativeFrames(rfNode.id, { x: pos.pos_x, y: pos.pos_y }, levelFrames());
-        const gpos = { pos_x: clamped.x, pos_y: clamped.y };
-        if (clamped.x !== pos.pos_x || clamped.y !== pos.pos_y) {
-          onNodesChange([{ id: rfNode.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
+      const single = group.length === 1;
+      // нативные рамки считаем один раз на группу — нужны только при наличии гостей
+      const frames =
+        group.some((n) => n.type === "ghost" || n.type === "container") ? levelFrames() : [];
+      for (const n of group) {
+        const { w: dw, h: dh } = nodeSize(n);
+        let px = n.position.x;
+        let py = n.position.y;
+        if (single) {
+          // ВАЖНО: n.position здесь — «сырая» позиция драга React Flow. Наши снап-правки
+          // из onNodesChange меняют ОТРИСОВАННЫЙ стейт (rfNodes), но внутренний трекер
+          // драга RF их не видит — координата без притяжки. Пересчитываем тот же снап,
+          // чтобы СОХРАНИТЬ ровно то, что показывала направляющая.
+          const { snapCx, snapCy } = snapNode(px + dw / 2, py + dh / 2, dw, dh, rfNodes, n.id);
+          px = snapCx - dw / 2;
+          py = snapCy - dh / 2;
         }
-        nodesApi.saveGhostPosition(containerId, rfNode.id, gpos);
-        onNodeMoved?.(rfNode.id, rfNode.type, gpos);
+        if (n.type === "block") {
+          // Локальный узел — координаты в самом узле
+          const pos = { pos_x: px, pos_y: py };
+          nodesApi.update(n.id, pos);
+          onNodeMoved?.(n.id, "block", pos);
+        } else if ((n.type === "ghost" || n.type === "container") && containerId) {
+          // Гость (лист) или свёрнутый предок-контейнер — координаты привязаны к уровню.
+          // Строгий запрет проникновения в чужую родную рамку держит живой clamp в
+          // handleNodesChange; здесь повторяем его для СОХРАНЯЕМОЙ позиции.
+          const clamped = clampOutOfNativeFrames(n.id, { x: px, y: py }, frames);
+          const gpos = { pos_x: clamped.x, pos_y: clamped.y };
+          if (clamped.x !== px || clamped.y !== py) {
+            onNodesChange([{ id: n.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
+          }
+          nodesApi.saveGhostPosition(containerId, n.id, gpos);
+          onNodeMoved?.(n.id, n.type, gpos);
+        }
       }
     },
-    [isArchitect, containerId, isContext, setGuides, onNodeMoved, onNodesChange, levelFrames, rfNodes],
+    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes],
+  );
+
+  // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт
+  // все перетянутые узлы третьим аргументом — сохраняем их все.
+  const handleNodeDragStop = useCallback(
+    (_event: MouseEvent, rfNode: RFNode, draggedNodes: RFNode[]) => {
+      setGuides({ x: null, y: null, spacing: [] }); // прячем направляющие
+      persistGroup(draggedNodes.length > 0 ? draggedNodes : [rfNode]);
+    },
+    [setGuides, persistGroup],
+  );
+
+  // Отпускание драга рамки выделения (NodesSelection) — RF тащит всю группу через
+  // отдельный обработчик. Сохраняем те же узлы.
+  const handleSelectionDragStop = useCallback(
+    (_event: MouseEvent, draggedNodes: RFNode[]) => {
+      setGuides({ x: null, y: null, spacing: [] });
+      persistGroup(draggedNodes);
+    },
+    [setGuides, persistGroup],
   );
 
   // Магнитное выравнивание по центру при драге: перехватываем position-изменения
@@ -108,20 +137,37 @@ export function useSnapAlignment({
       let guideSpacing: SpacingGuide[] = [];
       // нативные рамки считаем лениво — только если тащат гостя/контейнер
       let frames: FrameRect[] | null = null;
+      // Мультидраг (тянут несколько выделенных узлов сразу): магнитный снап и
+      // направляющие отключаем — групповой снап притянул бы каждый узел к своим
+      // соседям и исказил бы взаимные интервалы группы. Гостей всё равно держим вне
+      // чужих рамок. Считаем по числу одновременных position-изменений драга.
+      const multiDrag =
+        changes.filter((c) => c.type === "position" && c.dragging).length > 1;
       const snapped = changes.map((change) => {
         if (change.type !== "position" || !change.position) return change;
         const dragged = rfNodes.find((n) => n.id === change.id);
         const { w: dw, h: dh } = nodeSize(dragged);
+        let x = change.position.x, y = change.position.y;
+        const isExternal = dragged && (dragged.type === "ghost" || dragged.type === "container");
+        if (multiDrag) {
+          // Без снапа; гостям/контейнерам только запрет проникновения в чужие рамки.
+          if (isExternal) {
+            frames ??= levelFrames();
+            const c = clampOutOfNativeFrames(change.id, { x, y }, frames);
+            x = c.x; y = c.y;
+          }
+          return { ...change, position: { x, y } };
+        }
         // Центр узла в текущей (перетаскиваемой) позиции
-        const cx = change.position.x + dw / 2;
-        const cy = change.position.y + dh / 2;
+        const cx = x + dw / 2;
+        const cy = y + dh / 2;
         const { snapCx, snapCy, hitX, hitY, spacing } = snapNode(cx, cy, dw, dh, rfNodes, change.id);
         // Координата угла после притяжки (позиция узла = левый-верхний угол)
         const baseX = snapCx - dw / 2, baseY = snapCy - dh / 2;
-        let x = baseX, y = baseY;
+        x = baseX; y = baseY;
         // Строгий запрет проникновения: гостя/контейнер НЕ пускаем внутрь чужой родной
         // рамки прямо во время драга — он скользит вдоль её края (clamp к ближайшей грани).
-        if (dragged && (dragged.type === "ghost" || dragged.type === "container")) {
+        if (isExternal) {
           frames ??= levelFrames();
           const c = clampOutOfNativeFrames(change.id, { x, y }, frames);
           x = c.x; y = c.y;
@@ -152,5 +198,5 @@ export function useSnapAlignment({
     [rfNodes, onNodesChange, setGuides, levelFrames],
   );
 
-  return { handleNodesChange, handleNodeDragStop };
+  return { handleNodesChange, handleNodeDragStop, handleSelectionDragStop };
 }
