@@ -267,6 +267,21 @@ function LevelGraphInner({
     ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist,
   });
 
+  // Идёт ли драг узлов/рамки выделения. На время драга замораживаем реестр «мостиков»
+  // (paused у EdgeJumpProvider): иначе его пересчёт каждый кадр перерисовывал бы ВСЕ
+  // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
+  // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
+  const [dragging, setDragging] = useState(false);
+  const handleDragStart = useCallback(() => setDragging(true), []);
+  const handleNodeDragStopP = useCallback(
+    (e: MouseEvent, n: RFNode, ns: RFNode[]) => { setDragging(false); handleNodeDragStop(e, n, ns); },
+    [handleNodeDragStop],
+  );
+  const handleSelectionDragStopP = useCallback(
+    (e: MouseEvent, ns: RFNode[]) => { setDragging(false); handleSelectionDragStop(e, ns); },
+    [handleSelectionDragStop],
+  );
+
   // Удаление выбранного узла с клавиатуры через подтверждение.
   const { handleKeyDown } = useCanvasDelete({
     rfNodes, isArchitect, isContext, onRequestDeleteNode,
@@ -810,7 +825,7 @@ function LevelGraphInner({
       )}
       {/* Реестр «мостиков»: рёбра внутри ReactFlow публикуют сюда геометрию и читают
           точки прыжков. Выключен в контекст-схеме (read-only звезда). */}
-      <EdgeJumpProvider enabled={!isContext}>
+      <EdgeJumpProvider enabled={!isContext} paused={dragging}>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -819,8 +834,10 @@ function LevelGraphInner({
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onEdgeClick={handleEdgeClick}
-        onNodeDragStop={handleNodeDragStop}
-        onSelectionDragStop={handleSelectionDragStop}
+        onNodeDragStart={handleDragStart}
+        onNodeDragStop={handleNodeDragStopP}
+        onSelectionDragStart={handleDragStart}
+        onSelectionDragStop={handleSelectionDragStopP}
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}
         onReconnectEnd={handleReconnectEnd}
