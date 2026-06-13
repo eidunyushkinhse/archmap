@@ -70,6 +70,45 @@ describe("distributeAxis", () => {
     expect(hit!.snap).toBe(-150);
   });
 
+  it("встаёт по центру между двумя соседями (равные зазоры)", () => {
+    // A[0..100], B[300..400] — просвет 200. Узел шириной 100 → по центру просвета
+    // (центр 200), зазор с каждой стороны (200-100)/2 = 50.
+    const wide: LineBox[] = [
+      { main: 50, size: 100, cross: 0 },
+      { main: 350, size: 100, cross: 0 },
+    ];
+    const hit = distributeAxis(198, 100, 0, wide, 10);
+    expect(hit).not.toBeNull();
+    expect(hit!.snap).toBe(200);
+    expect(hit!.gap).toBe(50);
+    expect(hit!.ref).toEqual({ start: 100, end: 150 });   // зазор слева
+    expect(hit!.fresh).toEqual({ start: 250, end: 300 });  // зазор справа (до левого края B)
+  });
+
+  it("центр-вставка между конкретной парой в ряду из трёх", () => {
+    // A[0..100], B[400..500], C[600..700]. Просвет A–B = 300 (центр 250),
+    // просвет B–C = 100 (для узла 100 не влезет). Курсор у 250 → центр A–B.
+    const three: LineBox[] = [
+      { main: 50, size: 100, cross: 0 },
+      { main: 450, size: 100, cross: 0 },
+      { main: 650, size: 100, cross: 0 },
+    ];
+    const hit = distributeAxis(252, 100, 0, three, 10);
+    expect(hit!.snap).toBe(250);
+    expect(hit!.gap).toBe(100); // (300-100)/2
+  });
+
+  it("узел шире просвета между соседями — центр-вставки нет", () => {
+    // просвет A–B = 100, узел шириной 100 → gap=0, не влезает с зазором
+    const tight: LineBox[] = [
+      { main: 50, size: 100, cross: 0 },
+      { main: 250, size: 100, cross: 0 },
+    ];
+    // курсор ровно на центре просвета (150), но центр-кандидата нет (gap<=0);
+    // наружные кандидаты (-150 / 450) дальше порога → null
+    expect(distributeAxis(150, 100, 0, tight, 10)).toBeNull();
+  });
+
   it("перекрывающиеся узлы (зазор <= 0) не дают снапа", () => {
     const overlap: LineBox[] = [
       { main: 50, size: 100, cross: 0 },
