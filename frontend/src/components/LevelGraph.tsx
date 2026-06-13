@@ -52,6 +52,7 @@ import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
 import { useEdgeWaypoints } from "./graph/interaction/useEdgeWaypoints";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
+import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
 
 // --- Основной компонент ---
 
@@ -267,19 +268,40 @@ function LevelGraphInner({
     ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist,
   });
 
+  // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
+  // узлами, а не растягиваются хвостами). См. useGroupEdgeDrag.
+  const groupEdgeDrag = useGroupEdgeDrag({ rfEdges, setRfEdges });
+
   // Идёт ли драг узлов/рамки выделения. На время драга замораживаем реестр «мостиков»
   // (paused у EdgeJumpProvider): иначе его пересчёт каждый кадр перерисовывал бы ВСЕ
   // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
   // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
+  // Те же точки жеста кормят groupEdgeDrag: старт фиксирует базу, drag переносит изломы,
+  // стоп персистит их.
   const [dragging, setDragging] = useState(false);
-  const handleDragStart = useCallback(() => setDragging(true), []);
+  const handleNodeDragStart = useCallback(
+    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { setDragging(true); groupEdgeDrag.begin(ns); },
+    [groupEdgeDrag],
+  );
+  const handleSelectionDragStart = useCallback(
+    (_e: MouseEvent, ns: RFNode[]) => { setDragging(true); groupEdgeDrag.begin(ns); },
+    [groupEdgeDrag],
+  );
+  const handleNodeDrag = useCallback(
+    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => groupEdgeDrag.move(ns),
+    [groupEdgeDrag],
+  );
+  const handleSelectionDrag = useCallback(
+    (_e: MouseEvent, ns: RFNode[]) => groupEdgeDrag.move(ns),
+    [groupEdgeDrag],
+  );
   const handleNodeDragStopP = useCallback(
-    (e: MouseEvent, n: RFNode, ns: RFNode[]) => { setDragging(false); handleNodeDragStop(e, n, ns); },
-    [handleNodeDragStop],
+    (e: MouseEvent, n: RFNode, ns: RFNode[]) => { setDragging(false); groupEdgeDrag.end(ns); handleNodeDragStop(e, n, ns); },
+    [groupEdgeDrag, handleNodeDragStop],
   );
   const handleSelectionDragStopP = useCallback(
-    (e: MouseEvent, ns: RFNode[]) => { setDragging(false); handleSelectionDragStop(e, ns); },
-    [handleSelectionDragStop],
+    (e: MouseEvent, ns: RFNode[]) => { setDragging(false); groupEdgeDrag.end(ns); handleSelectionDragStop(e, ns); },
+    [groupEdgeDrag, handleSelectionDragStop],
   );
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
@@ -834,9 +856,11 @@ function LevelGraphInner({
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onEdgeClick={handleEdgeClick}
-        onNodeDragStart={handleDragStart}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStopP}
-        onSelectionDragStart={handleDragStart}
+        onSelectionDragStart={handleSelectionDragStart}
+        onSelectionDrag={handleSelectionDrag}
         onSelectionDragStop={handleSelectionDragStopP}
         onReconnectStart={handleReconnectStart}
         onReconnect={handleReconnect}
