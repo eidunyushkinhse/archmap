@@ -402,7 +402,7 @@ export default function TreePage({ onLogout }: Props) {
             style={exportBtn}
             title="Скопировать схему (или текущее поддерево) в YAML для LLM"
           >
-            ⤓ Экспорт для LLM
+            ⤓ Экспорт в YAML
           </button>
           <button onClick={onLogout} style={logoutBtn}>Выйти</button>
         </div>
