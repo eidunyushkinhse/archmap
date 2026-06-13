@@ -1,0 +1,62 @@
+/* Поведение и микро-анимации индикатора незавершённости схемы (SchemaAlerts).
+   Раскладка/цвета живут в inline-стилях компонента; здесь — только hover,
+   пульсация знака и тост «Схема завершена». Всё уважает prefers-reduced-motion. */
+
+/* ---- строка-пункт: hover-подсветка + «прицел» перехода ---- */
+.sa-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #374151;
+}
+.sa-item + .sa-item { border-top: 1px solid #f6f7f8; border-radius: 0; }
+.sa-item--clickable { cursor: pointer; transition: background .12s; }
+.sa-item--clickable:hover,
+.sa-item--clickable:focus-visible { background: #fffbeb; outline: none; }
+.sa-item .sa-loc { flex-shrink: 0; display: flex; color: #d97706; opacity: 0; transition: opacity .12s; }
+.sa-item--clickable:hover .sa-loc,
+.sa-item--clickable:focus-visible .sa-loc { opacity: 1; }
+
+/* ---- появление панели ---- */
+.sa-panel { transform-origin: top right; animation: saPanelIn .15s ease; }
+@keyframes saPanelIn {
+  from { opacity: 0; transform: translateY(-6px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- пульс знака: расширяющееся янтарное кольцо, 3 цикла ----
+   span.sa-ring абсолютно перекрывает круглый знак; React пере-монтирует его по
+   key=pulseKey, поэтому конечная анимация перезапускается при каждом росте total. */
+.sa-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: saRing 1.4s ease-out 3;
+}
+@keyframes saRing {
+  0%   { box-shadow: 0 0 0 0 rgba(245, 158, 11, .5); }
+  70%  { box-shadow: 0 0 0 13px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+/* ---- тост «Схема завершена»: въезд справа, затем уезд вправо за край ----
+   Родитель индикатора (область схемы) обрезает overflow — тост уходит за экран. */
+.sa-toast { animation: saToastIn .26s cubic-bezier(.22,.7,.3,1); }
+.sa-toast--leave { animation: saToastOut .26s cubic-bezier(.55,0,.7,.3) forwards; }
+@keyframes saToastIn {
+  from { opacity: 0; transform: translateX(120%); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes saToastOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(120%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sa-panel, .sa-ring, .sa-toast, .sa-toast--leave { animation: none; }
+  /* тост просто появляется/исчезает без сдвига; уезд заменяется мгновенным скрытием */
+}
