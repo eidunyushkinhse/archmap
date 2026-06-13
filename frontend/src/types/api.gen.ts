@@ -368,6 +368,46 @@ export interface paths {
         patch: operations["update_edge_api_v1_edges__edge_id__patch"];
         trace?: never;
     };
+    "/api/v1/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export All
+         * @description Экспорт ВСЕЙ схемы.
+         */
+        get: operations["export_all_api_v1_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/export/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Subtree
+         * @description Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева).
+         */
+        get: operations["export_subtree_api_v1_export__node_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -532,6 +572,21 @@ export interface components {
         EdgeWaypointsUpdate: {
             /** Waypoints */
             waypoints: components["schemas"]["Point"][];
+        };
+        /**
+         * ExportResponse
+         * @description Экспорт схемы как текст. format держим явным полем, чтобы позже добавить
+         *     другие сериализации (mermaid/json) без слома контракта; content — сам документ.
+         */
+        ExportResponse: {
+            /**
+             * Format
+             * @constant
+             * @enum {string}
+             */
+            format: "yaml";
+            /** Content */
+            content: string;
         };
         /** GhostEdgeHandleUpdate */
         GhostEdgeHandleUpdate: {
@@ -1652,6 +1707,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EdgeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_all_api_v1_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportResponse"];
+                };
+            };
+        };
+    };
+    export_subtree_api_v1_export__node_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi } from "../api/nodes";
+import { nodesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { AncestorRef, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
@@ -14,6 +14,7 @@ import NodeContextModal from "../components/NodeContextModal";
 import LevelGraph from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
+import ExportModal from "../components/ExportModal";
 
 interface Props {
   onLogout: () => void;
@@ -97,10 +98,31 @@ export default function TreePage({ onLogout }: Props) {
   // чтобы новый узел сразу попал в дерево без перезагрузки страницы
   const [treeReload, setTreeReload] = useState(0);
 
+  // экспорт схемы в YAML для LLM. Область снимаем на момент открытия (nodeId=null —
+  // вся схема, иначе поддерево узла), чтобы навигация её не сбила.
+  const [exportScope, setExportScope] = useState<{
+    key: string;
+    title: string;
+    nodeId: string | null;
+  } | null>(null);
+
   const isArchitect = getUserRole() === "architect";
   const currentParent =
     breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
   const currentParentId = currentParent?.id ?? null;
+
+  // Открыть экспорт по текущей области: на корне — вся схема, внутри узла — его поддерево.
+  const openExport = () => {
+    if (currentParent) {
+      setExportScope({
+        key: currentParent.id,
+        title: `Экспорт поддерева «${currentParent.name}»`,
+        nodeId: currentParent.id,
+      });
+    } else {
+      setExportScope({ key: "all", title: "Экспорт схемы", nodeId: null });
+    }
+  };
 
   async function load(parentId: string | null) {
     setLoading(true);
@@ -375,6 +397,13 @@ export default function TreePage({ onLogout }: Props) {
           {/* Создание узла — перетаскиванием шаблона из боковой панели (секция
               «Добавить узел»), связи — протягиванием стрелки от хэндла узла.
               Отдельных кнопок создания в шапке больше нет. */}
+          <button
+            onClick={openExport}
+            style={exportBtn}
+            title="Скопировать схему (или текущее поддерево) в YAML для LLM"
+          >
+            ⤓ Экспорт для LLM
+          </button>
           <button onClick={onLogout} style={logoutBtn}>Выйти</button>
         </div>
       </div>
@@ -558,6 +587,17 @@ export default function TreePage({ onLogout }: Props) {
           onClose={() => setContextNode(null)}
         />
       )}
+
+      {exportScope && (
+        <ExportModal
+          title={exportScope.title}
+          loadKey={exportScope.key}
+          load={() =>
+            exportScope.nodeId ? exportApi.subtree(exportScope.nodeId) : exportApi.all()
+          }
+          onClose={() => setExportScope(null)}
+        />
+      )}
     </div>
   );
 }
@@ -628,4 +668,14 @@ const logoutBtn: CSSProperties = {
   borderRadius: 6,
   cursor: "pointer",
   fontSize: 13,
+};
+const exportBtn: CSSProperties = {
+  padding: "6px 12px",
+  background: "#eef2ff",
+  color: "#4338ca",
+  border: "1px solid #c7d2fe",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 600,
 };

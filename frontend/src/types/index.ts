@@ -61,4 +61,7 @@ export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
 
+// Экспорт схемы (или поддерева) в текст для скармливания LLM.
+export type ExportResponse = Schemas["ExportResponse"];
+
 export type UserRole = "architect" | "viewer";

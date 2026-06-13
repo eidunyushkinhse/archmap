@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Edge, EdgeCreate, EdgePoint, EdgeUpdate, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
+import type { Edge, EdgeCreate, EdgePoint, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -58,6 +58,13 @@ export const nodesApi = {
     waypoints: EdgePoint[],
   ): Promise<void> =>
     api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints }),
+};
+
+export const exportApi = {
+  // Экспорт всей схемы или поддерева от узла в текст (YAML) для LLM.
+  all: (): Promise<ExportResponse> => api.get<ExportResponse>("/export"),
+  subtree: (nodeId: string): Promise<ExportResponse> =>
+    api.get<ExportResponse>(`/export/${nodeId}`),
 };
 
 export const edgesApi = {
