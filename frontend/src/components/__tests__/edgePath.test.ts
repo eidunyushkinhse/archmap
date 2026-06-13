@@ -100,24 +100,28 @@ describe("ensureOutwardStubs — обязательный выход из хэн
     return perp < 0.001 && along >= 20 - 0.001;
   };
 
-  it("первый сегмент идёт ВНУТРЬ узла (bottom-хэндл, путь вверх и вбок) → стаб наружу", () => {
-    const pts = [P(0, 100), P(50, 100), P(50, 40)]; // от bottom-хэндла сразу вбок
-    const out = ensureOutwardStubs(pts, "bottom", "top");
-    expect(leavesOutward(out, "bottom")).toBe(true);
-    expect(out[0]).toEqual(P(0, 100)); // сам хэндл не сдвинулся
-  });
-
-  it("конец входит в цель ВНУТРЬ (top-хэндл, подход вбок) → стаб у цели наружу", () => {
-    const pts = [P(0, 0), P(0, -60), P(50, -60)]; // в top-цель приходит сбоку
-    const out = ensureOutwardStubs(pts, "bottom", "top");
-    expect(entersOutward(out, "top")).toBe(true);
-    expect(out[out.length - 1]).toEqual(P(50, -60)); // сам конец не сдвинулся
+  it("реальный кейс: source-right уходит ВЛЕВО, target-bottom входит СВЕРХУ → оба стаба наружу", () => {
+    // геометрия как у ребра HelixMon после сдвига узла: оба конца упирались внутрь
+    const pts = [P(350, 561), P(42, 561), P(42, 130), P(175, 130), P(175, 180)];
+    const out = ensureOutwardStubs(pts, "right", "bottom");
+    expect(leavesOutward(out, "right")).toBe(true);
+    expect(entersOutward(out, "bottom")).toBe(true);
+    expect(out[0]).toEqual(P(350, 561));           // хэндлы на месте
+    expect(out[out.length - 1]).toEqual(P(175, 180));
   });
 
   it("перпендикулярный первый сегмент вдоль края (right-хэндл, путь вверх) → стаб вправо", () => {
-    const pts = [P(0, 0), P(0, -50), P(60, -50), P(60, 0)];
-    const out = ensureOutwardStubs(pts, "right", "right");
+    const pts = [P(0, 0), P(0, -200), P(300, -200), P(300, 0)];
+    const out = ensureOutwardStubs(pts, "right", "left");
     expect(leavesOutward(out, "right")).toBe(true);
+    expect(entersOutward(out, "left")).toBe(true);
+  });
+
+  it("путь строго ПРОТИВ нормали по одной оси (right-хэндл, цель слева) → прямоугольный обвод", () => {
+    const pts = [P(350, 561), P(42, 561)];
+    const out = ensureOutwardStubs(pts, "right", "left");
+    expect(leavesOutward(out, "right")).toBe(true);
+    expect(entersOutward(out, "left")).toBe(true);
   });
 
   it("здоровый путь (стаб уже наружу ≥ 20) — не трогаем", () => {
@@ -126,9 +130,9 @@ describe("ensureOutwardStubs — обязательный выход из хэн
   });
 
   it("идемпотентность: повторный прогон ничего не меняет", () => {
-    const pts = [P(0, 100), P(50, 100), P(50, 40)];
-    const once = ensureOutwardStubs(pts, "bottom", "top");
-    expect(ensureOutwardStubs(once, "bottom", "top")).toEqual(once);
+    const pts = [P(350, 561), P(42, 561), P(42, 130), P(175, 130), P(175, 180)];
+    const once = ensureOutwardStubs(pts, "right", "bottom");
+    expect(ensureOutwardStubs(once, "right", "bottom")).toEqual(once);
   });
 });
 

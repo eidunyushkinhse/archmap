@@ -162,38 +162,59 @@ export function buildRenderPoints(
 // ухватить. Здесь, если крайний сегмент не идёт строго наружу нужной длины, вставляем
 // обязательный стаб-колено (стрелка выходит наружу, затем идёт обратно). Для здоровых
 // путей — no-op (cleanup схлопнёт коллинеарное звено). Сравнение с offset=20 у smoothstep.
+// Сегмент у хэндла «чистый», если идёт строго по оси внешней нормали (без
+// перпендикулярной составляющей) и на длину ≥ stub. Ортогональный сегмент всегда
+// осевой, так что «нечистый» = идёт внутрь, вдоль края узла или короче stub.
+function leavesOutward(a: EdgePoint, b: EdgePoint, ox: number, oy: number, stub: number): boolean {
+  const vx = b.x - a.x, vy = b.y - a.y;
+  const along = vx * ox + vy * oy;
+  const perp = Math.abs(vx) * (1 - Math.abs(ox)) + Math.abs(vy) * (1 - Math.abs(oy));
+  return perp < 0.001 && along >= stub - 0.001;
+}
+
+// Гарантирует стаб НАРУЖУ у начала пути pts (pts[0] — хэндл, нормаль (ox,oy)). Если первый
+// сегмент уже выходит чисто наружу — no-op. Иначе: выходим на stub вдоль нормали (точка a),
+// затем поворачиваем ПЕРПЕНДИКУЛЯРНО к первой точке пути с другой перп-координатой и
+// отбрасываем ведущий «внутренний» участок (он шёл по оси нормали). Так возврат идёт вбок,
+// а не назад по той же линии, и cleanup не схлопнёт его как коллинеарный. Если весь путь
+// идёт строго по оси нормали (вырожденно) — обводим прямоугольным крюком на stub в сторону.
+function stubStart(pts: EdgePoint[], ox: number, oy: number, stub: number): EdgePoint[] {
+  if (pts.length < 2 || leavesOutward(pts[0], pts[1], ox, oy, stub)) return pts;
+  const s = pts[0];
+  const a = { x: s.x + ox * stub, y: s.y + oy * stub };
+  const horiz = ox !== 0;                       // нормаль горизонтальна → перп-ось это Y
+  const sPerp = horiz ? s.y : s.x;
+  const perpOf = (p: EdgePoint): number => (horiz ? p.y : p.x);
+  let k = -1;
+  for (let i = 1; i < pts.length; i++) {
+    if (Math.abs(perpOf(pts[i]) - sPerp) > 0.001) { k = i; break; }
+  }
+  if (k === -1) {
+    // путь строго по оси нормали — прямоугольный обвод: наружу, вбок на stub, обратно к концу
+    const last = pts[pts.length - 1];
+    const t1 = horiz ? { x: a.x, y: a.y + stub } : { x: a.x + stub, y: a.y };
+    const t2 = horiz ? { x: last.x, y: t1.y } : { x: t1.x, y: last.y };
+    return [s, a, t1, t2, last];
+  }
+  const perp = perpOf(pts[k]);
+  const turn = horiz ? { x: a.x, y: perp } : { x: perp, y: a.y };
+  return [s, a, turn, ...pts.slice(k)];
+}
+
+// Гарантирует обязательный стаб НАРУЖУ у обоих концов ломаной (см. EDGE_STUB). Нужен для
+// путей из произвольных waypoints (buildRenderPoints): после залома грипом или сдвига
+// узла-конца крайний сегмент может смотреть ВНУТРЬ тела узла (или вдоль его края) — стрелка
+// прячется за узлом, её не ухватить. orthogonalPointsForHandles это соблюдает по построению,
+// здесь — постобработкой. Цель обрабатываем тем же кодом через разворот пути.
 export function ensureOutwardStubs(
   pts: EdgePoint[], sSide: EdgeSide, tSide: EdgeSide, stub: number = EDGE_STUB,
 ): EdgePoint[] {
   if (pts.length < 2) return pts;
-  const work = pts.map((p) => ({ x: p.x, y: p.y }));
-  // Сегмент у хэндла «чистый», если идёт строго по оси внешней нормали (без
-  // перпендикулярной составляющей) и на длину ≥ stub. Ортогональный сегмент всегда
-  // осевой, так что «нечистый» = идёт внутрь, вдоль края узла или короче stub.
-  const cleanOutward = (a: EdgePoint, b: EdgePoint, ox: number, oy: number): boolean => {
-    const vx = b.x - a.x, vy = b.y - a.y;
-    const along = vx * ox + vy * oy;
-    const perp = Math.abs(vx) * (1 - Math.abs(ox)) + Math.abs(vy) * (1 - Math.abs(oy));
-    return perp < 0.001 && along >= stub - 0.001;
-  };
-  // Стаб от точки end наружу + колено ПЕРПЕНДИКУЛЯРНО к нормали в сторону next: так
-  // возврат уходит вбок, а не назад по той же оси (иначе cleanup схлопнул бы out-and-back).
-  const stubLeg = (end: EdgePoint, next: EdgePoint, ox: number, oy: number): EdgePoint[] => {
-    const a = { x: end.x + ox * stub, y: end.y + oy * stub };   // вышли наружу на stub
-    const knee = ox !== 0 ? { x: a.x, y: next.y } : { x: next.x, y: a.y }; // вбок к next
-    return [a, knee];
-  };
+  let work = pts.map((p) => ({ x: p.x, y: p.y }));
   const { ox: sox, oy: soy } = OUT[sSide];
-  if (!cleanOutward(work[0], work[1], sox, soy)) {
-    work.splice(1, 0, ...stubLeg(work[0], work[1], sox, soy));
-  }
-  const n = work.length;
+  work = stubStart(work, sox, soy, stub);
   const { ox: tox, oy: toy } = OUT[tSide];
-  if (!cleanOutward(work[n - 1], work[n - 2], tox, toy)) {
-    // у цели стаб симметричен: ...prev, колено, стаб-снаружи, T
-    const [a, knee] = stubLeg(work[n - 1], work[n - 2], tox, toy);
-    work.splice(n - 1, 0, knee, a);
-  }
+  work = stubStart(work.reverse(), tox, toy, stub).reverse();
   return cleanup(work);
 }
 
