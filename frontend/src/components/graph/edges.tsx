@@ -14,7 +14,7 @@ import {
 import { wrapLabel } from "./text";
 import type { WrappedEdgeData } from "./types";
 import type { EdgePoint } from "../../types";
-import { buildRenderPoints, orthogonalPointsForHandles, cleanup, segments, dragSegment, interior, snapDragCursor, pointAtFraction, nearestFraction, type EdgeSide } from "./edgePath";
+import { buildRenderPoints, orthogonalPointsForHandles, ensureOutwardStubs, cleanup, segments, dragSegment, interior, snapDragCursor, pointAtFraction, nearestFraction, type EdgeSide } from "./edgePath";
 import { buildPathWithJumps } from "./edgeJumps";
 import { useEdgeJumps } from "./EdgeJumpContext";
 import { EDGE_SNAP_PX, JUMP_RADIUS } from "./constants";
@@ -249,7 +249,17 @@ function WrappedLabelEdge({
     const activeWp = dragWp ?? d?.waypoints ?? null;
     const useCustom = dragWp != null || (d?.waypoints != null && d.waypoints.length > 0);
     if (useCustom) {
-      const pts = buildRenderPoints(s, t, activeWp);
+      // Обязательный стаб наружу у обоих концов: ломаную из waypoints (после залома грипом
+      // или сдвига узла) могло развернуть концевым сегментом внутрь тела узла — стрелка
+      // пряталась за ним. ensureOutwardStubs гарантирует выход вдоль нормали хэндла, как у
+      // авто-пути. Во время активного драга грипа (dragWp) форму ведёт пользователь — не
+      // навязываем, выправим на отпускании (статика).
+      const pts = dragWp != null
+        ? buildRenderPoints(s, t, activeWp)
+        : ensureOutwardStubs(
+            buildRenderPoints(s, t, activeWp),
+            sideOf(sourcePosition), sideOf(targetPosition),
+          );
       edgePath = orthoPath(pts);
       const mid = pathMidpoint(pts);
       labelX = mid.x;

@@ -154,6 +154,49 @@ export function buildRenderPoints(
   return cleanup(normalize(raw));
 }
 
+// Гарантирует, что путь ВЫХОДИТ из source-хэндла и ВХОДИТ в target-хэндл вдоль внешней
+// нормали стороны хотя бы на stub, ПРЕЖДЕ чем изломиться. orthogonalPointsForHandles это
+// соблюдает по построению, но ломаная из произвольных waypoints (buildRenderPoints) — нет:
+// после залома грипом или сдвига узла-конца её крайний сегмент может смотреть ВНУТРЬ тела
+// узла (или идти перпендикулярно вдоль его края), и стрелка прячется за узлом — её не
+// ухватить. Здесь, если крайний сегмент не идёт строго наружу нужной длины, вставляем
+// обязательный стаб-колено (стрелка выходит наружу, затем идёт обратно). Для здоровых
+// путей — no-op (cleanup схлопнёт коллинеарное звено). Сравнение с offset=20 у smoothstep.
+export function ensureOutwardStubs(
+  pts: EdgePoint[], sSide: EdgeSide, tSide: EdgeSide, stub: number = EDGE_STUB,
+): EdgePoint[] {
+  if (pts.length < 2) return pts;
+  const work = pts.map((p) => ({ x: p.x, y: p.y }));
+  // Сегмент у хэндла «чистый», если идёт строго по оси внешней нормали (без
+  // перпендикулярной составляющей) и на длину ≥ stub. Ортогональный сегмент всегда
+  // осевой, так что «нечистый» = идёт внутрь, вдоль края узла или короче stub.
+  const cleanOutward = (a: EdgePoint, b: EdgePoint, ox: number, oy: number): boolean => {
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const along = vx * ox + vy * oy;
+    const perp = Math.abs(vx) * (1 - Math.abs(ox)) + Math.abs(vy) * (1 - Math.abs(oy));
+    return perp < 0.001 && along >= stub - 0.001;
+  };
+  // Стаб от точки end наружу + колено ПЕРПЕНДИКУЛЯРНО к нормали в сторону next: так
+  // возврат уходит вбок, а не назад по той же оси (иначе cleanup схлопнул бы out-and-back).
+  const stubLeg = (end: EdgePoint, next: EdgePoint, ox: number, oy: number): EdgePoint[] => {
+    const a = { x: end.x + ox * stub, y: end.y + oy * stub };   // вышли наружу на stub
+    const knee = ox !== 0 ? { x: a.x, y: next.y } : { x: next.x, y: a.y }; // вбок к next
+    return [a, knee];
+  };
+  const { ox: sox, oy: soy } = OUT[sSide];
+  if (!cleanOutward(work[0], work[1], sox, soy)) {
+    work.splice(1, 0, ...stubLeg(work[0], work[1], sox, soy));
+  }
+  const n = work.length;
+  const { ox: tox, oy: toy } = OUT[tSide];
+  if (!cleanOutward(work[n - 1], work[n - 2], tox, toy)) {
+    // у цели стаб симметричен: ...prev, колено, стаб-снаружи, T
+    const [a, knee] = stubLeg(work[n - 1], work[n - 2], tox, toy);
+    work.splice(n - 1, 0, knee, a);
+  }
+  return cleanup(work);
+}
+
 // Сегменты ломаной с ориентацией (для размещения грипов перетаскивания).
 export function segments(pts: EdgePoint[]): Segment[] {
   const segs: Segment[] = [];
