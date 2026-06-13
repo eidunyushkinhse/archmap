@@ -67,10 +67,6 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
   return (
     <Modal onClose={onClose} boxStyle={boxStyle}>
       <h2 style={heading}>{title}</h2>
-      <p style={hint}>
-        Только семантика (имена, типы, роли, технологии, описания, иерархия и связи) —
-        без координат и раскладки. Скопируйте и отдайте модели.
-      </p>
 
       {loading && <div style={statusBox}>Готовим экспорт…</div>}
       {error && <div style={{ ...statusBox, color: "#b91c1c" }}>{error}</div>}
@@ -93,16 +89,10 @@ const boxStyle: CSSProperties = {
   flexDirection: "column",
 };
 const heading: CSSProperties = {
-  margin: "0 0 6px",
+  margin: "0 0 16px",
   fontSize: 18,
   fontWeight: 700,
   color: "#111827",
-};
-const hint: CSSProperties = {
-  margin: "0 0 14px",
-  fontSize: 13,
-  color: "#6b7280",
-  lineHeight: 1.45,
 };
 const statusBox: CSSProperties = {
   padding: "24px 0",
