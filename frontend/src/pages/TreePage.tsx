@@ -90,6 +90,7 @@ export default function TreePage({ onLogout }: Props) {
   const [alerts, setAlerts] = useState<Alerts>({
     disconnected_nodes: [],
     intermediate_edges: [],
+    isolated_groups: [],
   });
 
   // сигнал перезагрузки бокового дерева: бампаем после создания/удаления узла,

@@ -24,6 +24,7 @@ from app.schemas.node import (
     GraphEdgeResponse,
     GraphResponse,
     IntermediateEdgeAlert,
+    IsolatedGroupAlert,
     NodeContextResponse,
     NodeCreate,
     NodeEdgeInfo,
@@ -347,9 +348,48 @@ def get_alerts(
                 )
             )
 
+    # 3) Изолированные группы — связные компоненты графа РЁБЕР (иерархию
+    #    parent_id игнорируем: иначе всё связано через дерево). Узлы без
+    #    единой связи сюда не попадают (их ловит проверка 1). Алерт зажигаем,
+    #    только если связных групп (≥2 узла) больше одной — иначе это просто
+    #    единственный кластер плюс висячие узлы, и фрагментации нет.
+    adjacency: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for e in all_edges:
+        adjacency.setdefault(e.source_id, set()).add(e.target_id)
+        adjacency.setdefault(e.target_id, set()).add(e.source_id)
+
+    visited: set[uuid.UUID] = set()
+    components: list[list[uuid.UUID]] = []
+    for start in adjacency:
+        if start in visited:
+            continue
+        stack = [start]
+        visited.add(start)
+        comp: list[uuid.UUID] = []
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            for nxt in adjacency[cur]:
+                if nxt not in visited:
+                    visited.add(nxt)
+                    stack.append(nxt)
+        if len(comp) >= 2:
+            components.append(comp)
+
+    isolated_groups: list[IsolatedGroupAlert] = []
+    if len(components) >= 2:
+        for comp in components:
+            isolated_groups.append(
+                IsolatedGroupAlert(
+                    node_ids=comp,
+                    node_names=[name_by_id.get(nid, "?") for nid in comp],
+                )
+            )
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
+        isolated_groups=isolated_groups,
     )
 
 

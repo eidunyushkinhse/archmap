@@ -56,6 +56,7 @@ export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];
 
 export type DisconnectedNodeAlert = Schemas["DisconnectedNodeAlert"];
 export type IntermediateEdgeAlert = Schemas["IntermediateEdgeAlert"];
+export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];

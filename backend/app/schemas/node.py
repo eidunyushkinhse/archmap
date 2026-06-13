@@ -205,6 +205,15 @@ class IntermediateEdgeAlert(BaseModel):
     target_is_intermediate: bool
 
 
+class IsolatedGroupAlert(BaseModel):
+    """Изолированная группа: связная компонента графа рёбер (≥2 узла),
+    не имеющая ни одной связи с другими частями схемы. Считается только
+    по рёбрам (иерархия parent_id игнорируется)."""
+    node_ids: list[uuid.UUID]
+    node_names: list[str]
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
+    isolated_groups: list[IsolatedGroupAlert] = []

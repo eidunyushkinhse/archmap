@@ -7,7 +7,9 @@ import type { SchemaAlerts as Alerts } from "../types";
  * в правом верхнем углу схемы всплывает оранжевая плитка с восклицательным знаком
  * в треугольнике. Клик раскрывает меню с детализацией:
  *  1) атомарные узлы без единой связи («подвисшие»);
- *  2) связи, упирающиеся в промежуточный (контейнерный) узел, а не в атомарный.
+ *  2) связи, упирающиеся в промежуточный (контейнерный) узел, а не в атомарный;
+ *  3) изолированные группы — схема распалась на ≥2 не связанных между собой
+ *     кластера (связные компоненты графа рёбер).
  * Алерты глобальные (по всей схеме), считаются на бэке — здесь только отображение.
  */
 
@@ -35,7 +37,8 @@ export default function SchemaAlerts({ alerts }: Props) {
 
   const disconnected = alerts.disconnected_nodes;
   const intermediate = alerts.intermediate_edges;
-  const total = disconnected.length + intermediate.length;
+  const isolated = alerts.isolated_groups;
+  const total = disconnected.length + intermediate.length + isolated.length;
 
   // Закрытие меню по клику вне плитки и по Escape
   useEffect(() => {
@@ -107,6 +110,25 @@ export default function SchemaAlerts({ alerts }: Props) {
                     <span style={e.target_is_intermediate ? bad : undefined}>
                       {e.target_name}
                     </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div style={section}>
+            <div style={sectionHead}>
+              Изолированные группы
+              <span style={sectionCount}>{isolated.length}</span>
+            </div>
+            {isolated.length === 0 ? (
+              <div style={empty}>Нет</div>
+            ) : (
+              <ul style={list}>
+                {isolated.map((grp, i) => (
+                  <li key={i} style={item}>
+                    <span style={groupLabel}>Группа {i + 1}:</span>{" "}
+                    {grp.node_names.join(", ")}
                   </li>
                 ))}
               </ul>
@@ -203,6 +225,11 @@ const arrow: CSSProperties = {
 // Подсветка конца-нарушителя (промежуточного узла) в строке связи
 const bad: CSSProperties = {
   color: "#b45309",
+  fontWeight: 600,
+};
+// Метка «Группа N:» перед составом изолированного кластера
+const groupLabel: CSSProperties = {
+  color: "#6b7280",
   fontWeight: 600,
 };
 const empty: CSSProperties = {

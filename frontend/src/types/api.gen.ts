@@ -401,6 +401,11 @@ export interface components {
              * @default []
              */
             intermediate_edges: components["schemas"]["IntermediateEdgeAlert"][];
+            /**
+             * Isolated Groups
+             * @default []
+             */
+            isolated_groups: components["schemas"]["IsolatedGroupAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -699,6 +704,18 @@ export interface components {
             source_is_intermediate: boolean;
             /** Target Is Intermediate */
             target_is_intermediate: boolean;
+        };
+        /**
+         * IsolatedGroupAlert
+         * @description Изолированная группа: связная компонента графа рёбер (≥2 узла),
+         *     не имеющая ни одной связи с другими частями схемы. Считается только
+         *     по рёбрам (иерархия parent_id игнорируется).
+         */
+        IsolatedGroupAlert: {
+            /** Node Ids */
+            node_ids: string[];
+            /** Node Names */
+            node_names: string[];
         };
         /**
          * NodeContextResponse
