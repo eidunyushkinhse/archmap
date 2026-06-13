@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
@@ -245,13 +245,48 @@ export default function NodeModal({
             {node!.description && (
               <p style={{ color: "#374151", marginBottom: 12 }}>{node!.description}</p>
             )}
-            <div style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-              <span style={node!.is_external ? tagExternal : tagInternal}>
-                {node!.is_external ? "Внешний" : "Внутренний"}
-              </span>
-              {node!.role && <span style={tag}>{node!.role}</span>}
-              {node!.technology && <span style={{ ...tag, background: "#eff6ff", color: "#1d4ed8" }}>{node!.technology}</span>}
-            </div>
+            {/* Метаданные узла — подписанный список «свойство → значение» с иконками
+                (Вариант A из дизайн-хэндоффа). Подпись слева снимает неоднозначность
+                чипов; пустые Роль/Технология показываем плейсхолдером, а не прячем. */}
+            {(() => {
+              const rows: Array<{
+                key: string; icon: ReactNode; label: string;
+                value: string; empty?: boolean; dot?: string;
+              }> = [
+                { key: "type", icon: META_ICON.type, label: "Тип", value: SHAPE_LABEL[node!.shape] },
+                {
+                  key: "placement", icon: META_ICON.placement, label: "Размещение",
+                  value: node!.is_external ? "Внешний" : "Внутренний",
+                  dot: node!.is_external ? "#9ca3af" : "#2563eb",
+                },
+                {
+                  key: "role", icon: META_ICON.role, label: "Роль",
+                  value: node!.role || "не указана", empty: !node!.role,
+                },
+              ];
+              if (node!.shape !== "person") {
+                rows.push({
+                  key: "tech", icon: META_ICON.tech, label: "Технология",
+                  value: node!.technology || "не указана", empty: !node!.technology,
+                });
+              }
+              return (
+                <dl style={metaList}>
+                  {rows.map((r) => (
+                    <div key={r.key} style={metaRow}>
+                      <dt style={metaTerm}>
+                        <span style={metaIconWrap}>{r.icon}</span>
+                        {r.label}
+                      </dt>
+                      <dd style={{ ...metaValue, ...(r.empty ? metaValueEmpty : null) }}>
+                        {r.dot && <span style={{ ...metaDot, background: r.dot }} />}
+                        {r.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              );
+            })()}
 
             <h4 style={sectionHead}>Flowchart</h4>
             {node!.flowchart ? (
@@ -353,15 +388,6 @@ const preBlock: CSSProperties = {
   wordBreak: "break-all",
   marginBottom: 12,
 };
-const tag: CSSProperties = {
-  display: "inline-block",
-  padding: "2px 10px",
-  borderRadius: 12,
-  background: "#f0fdf4",
-  color: "#166534",
-  fontSize: 12,
-  marginRight: 6,
-};
 const errStyle: CSSProperties = {
   color: "#dc2626",
   margin: "0 0 8px",
@@ -376,24 +402,6 @@ const toggleRow: CSSProperties = {
   cursor: "pointer",
   userSelect: "none",
 };
-const tagInternal: CSSProperties = {
-  display: "inline-block",
-  padding: "2px 10px",
-  borderRadius: 12,
-  background: "#dbeafe",
-  color: "#1e40af",
-  fontSize: 12,
-  fontWeight: 600,
-};
-const tagExternal: CSSProperties = {
-  display: "inline-block",
-  padding: "2px 10px",
-  borderRadius: 12,
-  background: "#f3f4f6",
-  color: "#4b5563",
-  fontSize: 12,
-  fontWeight: 600,
-};
 const sectionHead: CSSProperties = {
   margin: "0 0 8px",
   fontSize: 14,
@@ -402,3 +410,47 @@ const sectionHead: CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: ".04em",
 };
+
+// --- Метаданные узла (режим просмотра): список «свойство → значение» ---
+
+// Форма узла → человекочитаемая подпись типа (словом, без C4-иконки формы).
+const SHAPE_LABEL: Record<NodeShape, string> = {
+  service: "Сервис",
+  database: "База данных",
+  broker: "Брокер сообщений",
+  person: "Пользователь",
+};
+
+// Базовые атрибуты линейных иконок полей (16×16).
+const metaSvg = {
+  width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
+  stroke: "currentColor", strokeWidth: 1.5,
+  strokeLinecap: "round", strokeLinejoin: "round",
+} as const;
+
+// Иконки: Тип (компонент-бокс), Размещение (глобус), Роль (закладка), Технология (</>).
+const META_ICON: Record<"type" | "placement" | "role" | "tech", ReactNode> = {
+  type: <svg {...metaSvg}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
+  placement: <svg {...metaSvg}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
+  role: <svg {...metaSvg}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
+  tech: <svg {...metaSvg}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
+};
+
+const metaList: CSSProperties = { margin: "0 0 12px", borderTop: "1px solid #eef0f2" };
+const metaRow: CSSProperties = {
+  display: "flex", gap: 12, alignItems: "center",
+  padding: "10px 0", borderBottom: "1px solid #f3f4f6",
+};
+const metaTerm: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 9,
+  width: 156, flexShrink: 0, color: "#6b7280", fontSize: 13, fontWeight: 600,
+};
+const metaIconWrap: CSSProperties = { display: "flex", color: "#9ca3af" };
+// NB: metaValue стоит на <dd> — обязательно margin:0, иначе UA-стиль
+// margin-inline-start:40px сдвинет значение.
+const metaValue: CSSProperties = {
+  margin: 0, display: "flex", alignItems: "center", gap: 8,
+  fontSize: 14, color: "#111827",
+};
+const metaValueEmpty: CSSProperties = { color: "#9ca3af", fontStyle: "italic" };
+const metaDot: CSSProperties = { width: 7, height: 7, borderRadius: 4, flexShrink: 0 };
