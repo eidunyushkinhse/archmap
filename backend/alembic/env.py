@@ -2,11 +2,15 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
+import app.models.business_process  # noqa: F401
 import app.models.edge  # noqa: F401
 import app.models.edge_waypoint  # noqa: F401
 import app.models.ghost_edge_handle  # noqa: F401
 import app.models.ghost_position  # noqa: F401
 import app.models.node  # noqa: F401
+import app.models.process_fragment  # noqa: F401
+import app.models.process_message  # noqa: F401
+import app.models.process_participant  # noqa: F401
 
 # импортируем модели, чтобы Alembic видел их метаданные
 import app.models.user  # noqa: F401

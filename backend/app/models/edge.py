@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Uuid
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -27,6 +27,10 @@ class Edge(Base):
     )
     source_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
     target_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Синхронность канала (бизнес-процессы): null = авто-вывод из technology
+    # (см. app.processes.edge_is_synchronous), true/false = явный override архитектора.
+    # Семантика, влияющая на доступные плечи (forward/return) — версионируемое поле.
+    is_synchronous: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # Кастомные точки-сгибы пути стрелки в координатах графа уровня: список
     # {"x": float, "y": float} БЕЗ концов (концы берутся из хэндлов при рендере).
     # null/пусто — авто-маршрут (smoothstep). Ручные «обходы» узлов на основной схеме.
