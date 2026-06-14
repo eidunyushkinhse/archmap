@@ -56,6 +56,7 @@ import type { History } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
+import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { guardPersist } from "./graph/interaction/persistGuard";
 
 // --- Основной компонент ---
@@ -332,6 +333,11 @@ function LevelGraphInner({
   // узлами, а не растягиваются хвостами). См. useGroupEdgeDrag.
   const groupEdgeDrag = useGroupEdgeDrag({ rfEdges, setRfEdges });
 
+  // Живой пересчёт авто-хэндлов локальных стрелок во время драга (WYSIWYG: превью =
+  // итог по отпускании). Снимок входов раскладки кладём в ref в конце async-раскладки.
+  const liveHandleInputs = useRef<LiveHandleInputs | null>(null);
+  const liveDragHandles = useLiveDragHandles({ inputsRef: liveHandleInputs, setRfEdges });
+
   // Идёт ли драг узлов/рамки выделения. На время драга замораживаем реестр «мостиков»
   // (paused у EdgeJumpProvider): иначе его пересчёт каждый кадр перерисовывал бы ВСЕ
   // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
@@ -344,25 +350,27 @@ function LevelGraphInner({
       setDragging(true);
       const grp = ns.length > 0 ? ns : [n];
       groupEdgeDrag.begin(grp);
+      liveDragHandles.begin(rfNodes); // база позиций всех узлов на старте жеста
       noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
     },
-    [groupEdgeDrag, noteDragStart],
+    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
       setDragging(true);
       groupEdgeDrag.begin(ns);
+      liveDragHandles.begin(rfNodes);
       noteDragStart(ns);
     },
-    [groupEdgeDrag, noteDragStart],
+    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart],
   );
   const handleNodeDrag = useCallback(
-    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => groupEdgeDrag.move(ns),
-    [groupEdgeDrag],
+    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); },
+    [groupEdgeDrag, liveDragHandles],
   );
   const handleSelectionDrag = useCallback(
-    (_e: MouseEvent, ns: RFNode[]) => groupEdgeDrag.move(ns),
-    [groupEdgeDrag],
+    (_e: MouseEvent, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); },
+    [groupEdgeDrag, liveDragHandles],
   );
   // Отпускание драга: весь жест (перенос изломов в groupEdgeDrag.end + персист позиций в
   // handleNodeDragStop) сворачиваем в ОДНУ команду истории через beginGroup/commitGroup —
@@ -372,26 +380,28 @@ function LevelGraphInner({
       setDragging(false);
       history.beginGroup();
       try {
+        liveDragHandles.end();
         groupEdgeDrag.end(ns);
         handleNodeDragStop(e, n, ns);
       } finally {
         history.commitGroup("Перемещение группы");
       }
     },
-    [groupEdgeDrag, handleNodeDragStop, history],
+    [groupEdgeDrag, liveDragHandles, handleNodeDragStop, history],
   );
   const handleSelectionDragStopP = useCallback(
     (e: MouseEvent, ns: RFNode[]) => {
       setDragging(false);
       history.beginGroup();
       try {
+        liveDragHandles.end();
         groupEdgeDrag.end(ns);
         handleSelectionDragStop(e, ns);
       } finally {
         history.commitGroup("Перемещение группы");
       }
     },
-    [groupEdgeDrag, handleSelectionDragStop, history],
+    [groupEdgeDrag, liveDragHandles, handleSelectionDragStop, history],
   );
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
@@ -702,6 +712,15 @@ function LevelGraphInner({
         );
       }
     }
+
+      // Снимок входов для живого пересчёта хэндлов при драге (см. useLiveDragHandles):
+      // те же мастер-рёбра и узлы, по которым посчитан текущий layout.
+      liveHandleInputs.current = {
+        layoutEdges,
+        nodeIds: [...nodes.map((n) => ({ id: n.id })), ...entities.map((e) => ({ id: e.id }))],
+        localIds: new Set(nodes.map((n) => n.id)),
+        detourIds: new Set(edgeDetours.keys()),
+      };
 
       if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, groupArr, spacers });
     })();
