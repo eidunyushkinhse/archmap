@@ -12,7 +12,10 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 8px;
+  /* левый паддинг уменьшен (8→2px), т.к. зона раскрытия стала шире (26px вместо
+     13px): так центр глифа формы/шеврона остаётся на прежней позиции (~15px), и
+     плотность дерева не «едет» вправо. */
+  padding: 5px 8px 5px 2px;
   margin: 0 6px;
   border-radius: 6px;
   font-size: 13px;
@@ -55,6 +58,47 @@
   display: inline-flex;
   align-items: center;
   color: #64748b;
+}
+
+/* Зона раскрытия («бережная зона»): глиф визуально прежний, но кликабельная
+   область — на всю высоту строки и ~26px шириной. Подсветка появляется при
+   наведении именно на зону, чтобы аффорданс раскрытия был очевиден и не
+   конфликтовал с кликом по строке (= провалиться на слой). */
+.nt-chevzone {
+  width: 26px;
+  align-self: stretch;          /* на всю высоту строки */
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: -5px 0;               /* съесть вертикальный padding строки (5px сверху/снизу) */
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;               /* как у прежнего шеврона */
+}
+
+/* Компактный хит-бокс внутри зоны — то, что подсвечивается на hover. */
+.nt-chevhit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.nt-chevzone:hover .nt-chevhit {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+/* Спейсер для листьев — той же ширины, чтобы глифы форм и имена выстраивались
+   по вертикали независимо от наличия детей. */
+.nt-chevspacer {
+  width: 26px;
+  flex: none;
 }
 
 /* Подпись действия справа в строке — видна только на hover (см. .nt-row--clickable:hover). */

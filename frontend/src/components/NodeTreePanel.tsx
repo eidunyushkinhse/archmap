@@ -379,17 +379,23 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
         >
           {hasChildren ? (
             <button
-              // клик по шеврону раскрывает/сворачивает, не пуская событие на строку
+              // клик по «бережной зоне» раскрывает/сворачивает, не пуская событие на
+              // строку (иначе провалились бы на слой). Зона широкая (26px, вся высота
+              // строки), глиф визуально остаётся на месте — см. .nt-chevzone/.nt-chevhit.
+              className="nt-chevzone"
               onClick={(e) => { e.stopPropagation(); toggle(node); }}
-              style={chev}
               title={isExpanded ? "Свернуть" : "Развернуть"}
+              aria-label={isExpanded ? "Свернуть ветку" : "Развернуть ветку"}
+              aria-expanded={isExpanded}
             >
-              <span style={{ ...chevIcon, transform: isExpanded ? "rotate(90deg)" : "none" }}>
-                {isLoading ? "⋯" : "▸"}
+              <span className="nt-chevhit">
+                <span style={{ ...chevIcon, transform: isExpanded ? "rotate(90deg)" : "none" }}>
+                  {isLoading ? "⋯" : "▸"}
+                </span>
               </span>
             </button>
           ) : (
-            <span style={chevSpacer} />
+            <span className="nt-chevspacer" />
           )}
           <ShapeGlyph container={isIntermediate} shape={node.shape} />
           <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
@@ -607,29 +613,13 @@ const sectionBody: CSSProperties = {
 const treeList: CSSProperties = {
   padding: "0 0 6px",
 };
-// Колонка шеврона стабильной ширины (13px) — у листьев заменяется спейсером,
-// чтобы глифы форм и имена выстраивались по вертикали независимо от наличия детей.
-const chev: CSSProperties = {
-  width: 13,
-  flexShrink: 0,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  background: "none",
-  border: "none",
-  cursor: "pointer",
-  color: "#94a3b8",
-};
+// Глиф шеврона: размер/поворот. Кликабельная зона и хит-бокс — в CSS
+// (.nt-chevzone / .nt-chevhit), поворот зависит от состояния, поэтому остаётся inline.
 const chevIcon: CSSProperties = {
   fontSize: 11,
   lineHeight: 1,
   transition: "transform 0.12s ease",
   display: "inline-block",
-};
-const chevSpacer: CSSProperties = {
-  width: 13,
-  flexShrink: 0,
 };
 const hint: CSSProperties = {
   padding: "8px 14px",
