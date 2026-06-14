@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useCallback, useRef, useState } from "react";
-import type { MouseEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { MouseEvent } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -271,6 +271,24 @@ function LevelGraphInner({
     history.clear();
   }, [containerId, history]);
 
+  // Клавиши Undo/Redo — ГЛОБАЛЬНО на window (не через onKeyDown канваса): у .lg-canvas
+  // нет tabIndex, поэтому его onKeyDown срабатывает лишь при фокусе внутри холста, а
+  // Ctrl+Z жмут и без выбранного узла (фокус на body). Только архитектор и не контекст
+  // (read-only). В полях ввода не перехватываем — там нативная отмена текста.
+  useEffect(() => {
+    if (!isArchitect || isContext) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const t = document.activeElement as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) { e.preventDefault(); history.undo(); }
+      else if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); history.redo(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isArchitect, isContext, history]);
+
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
@@ -327,23 +345,6 @@ function LevelGraphInner({
     rfNodes, isArchitect, isContext, onRequestDeleteNode,
   });
 
-  // Клавиши канваса: Ctrl/⌘+Z — undo, Ctrl/⌘+Shift+Z или Ctrl/⌘+Y — redo. Только
-  // архитектор и не в контексте (read-only). В полях ввода не перехватываем — там
-  // работает нативная отмена текста. Остальное делегируем в handleKeyDown (Delete).
-  const handleCanvasKeyDown = useCallback(
-    (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      const t = e.target as HTMLElement | null;
-      const inField =
-        !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if ((e.ctrlKey || e.metaKey) && !inField && isArchitect && !isContext) {
-        const key = e.key.toLowerCase();
-        if (key === "z" && !e.shiftKey) { e.preventDefault(); history.undo(); return; }
-        if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); history.redo(); return; }
-      }
-      handleKeyDown(e);
-    },
-    [history, isArchitect, isContext, handleKeyDown],
-  );
 
   // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: локальная —
   // в колонку ребра, гостевая — в пер-уровневый слой. Объявлен до реконнекта: тот при
@@ -865,7 +866,7 @@ function LevelGraphInner({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onKeyDown={handleCanvasKeyDown}
+      onKeyDown={handleKeyDown}
       // ПКМ панорамирует холст — гасим браузерное контекст-меню, чтобы оно не
       // выскакивало при правом клике/перетаскивании по канвасу.
       onContextMenu={(e) => e.preventDefault()}
