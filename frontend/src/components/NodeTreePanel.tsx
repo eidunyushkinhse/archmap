@@ -5,6 +5,7 @@ import type { Node, NodeShape } from "../types";
 import { canHaveChildren, compareByRank, withoutPersons } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon, FlowIcon } from "../ui/icons";
+import BusinessProcessSection from "./BusinessProcessSection";
 import "./NodeTreePanel.css";
 
 /**
@@ -49,6 +50,11 @@ interface Props {
   // сигнал внешней перезагрузки дерева (инкремент после создания/удаления узла в
   // TreePage): дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
   reloadToken?: number;
+  // открыть просмотр/редактор бизнес-процесса (окна живут в TreePage)
+  onOpenProcess?: (id: string) => void;
+  onEditProcess?: (id: string) => void;
+  // токен обновления списка процессов (TreePage бумпит при закрытии окна с правками)
+  processRefreshToken?: number;
 }
 
 // Прозрачная 1×1 картинка вместо стандартного drag-image: прячем «снимок» плитки —
@@ -176,7 +182,7 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag, reloadToken }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag, reloadToken, onOpenProcess, onEditProcess, processRefreshToken }: Props) {
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
@@ -475,13 +481,18 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
           </Section>
         )}
 
-        {/* Секция 3: бизнес-процессы (заглушка) */}
+        {/* Секция 3: бизнес-процессы */}
         <Section
           title="Бизнес-процессы"
           open={openSections.has("bpm")}
           onToggle={() => toggleSection("bpm")}
         >
-          <div style={stub}>Раздел в разработке</div>
+          <BusinessProcessSection
+            isArchitect={isArchitect}
+            onOpen={(id) => onOpenProcess?.(id)}
+            onEdit={(id) => onEditProcess?.(id)}
+            refreshToken={processRefreshToken ?? 0}
+          />
         </Section>
       </div>
       )}
@@ -607,11 +618,6 @@ const templateLabel: CSSProperties = {
 const iconSvg: CSSProperties = {
   display: "block",
   pointerEvents: "none",
-};
-const stub: CSSProperties = {
-  padding: "2px 14px 14px",
-  fontSize: 12,
-  color: "#94a3b8",
 };
 // Оверлей-«корзина» поверх панели на время драга шаблона. Не упирается в края
 // панели (inset-отступ) → плитка «внутри» панели; пунктирная рамка, без подписи.
