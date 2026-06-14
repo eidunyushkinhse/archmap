@@ -56,8 +56,8 @@ export default function EdgeQuickCreate({
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 400 }}>
-      <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>Новая связь</h2>
-      <p style={{ margin: "0 0 16px", color: "#374151", fontSize: 14 }}>
+      <h2 style={{ margin: "0 0 6px", fontSize: 18, color: "#1e293b" }}>Новая связь</h2>
+      <p style={{ margin: "0 0 16px", color: "#475569", fontSize: 14 }}>
         {sourceLabel} → {targetLabel}
       </p>
 
@@ -77,7 +77,7 @@ export default function EdgeQuickCreate({
         style={input}
       />
 
-      {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
+      {error && <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }}>{error}</p>}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={handleCreate} disabled={saving} style={primaryBtn}>
           {saving ? "Создание..." : "Создать связь"}

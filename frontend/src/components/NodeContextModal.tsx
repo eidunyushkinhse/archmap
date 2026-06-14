@@ -173,12 +173,12 @@ export default function NodeContextModal({ node, onClose }: Props) {
 const sub: CSSProperties = {
   margin: "0 0 12px",
   fontSize: 13,
-  color: "#6b7280",
+  color: "#64748b",
 };
 const emptyHint: CSSProperties = {
   margin: "0 0 12px",
   fontSize: 13,
-  color: "#9ca3af",
+  color: "#94a3b8",
 };
 const graphWrap: CSSProperties = {
   display: "flex",
@@ -188,5 +188,5 @@ const graphWrap: CSSProperties = {
 const hint: CSSProperties = {
   margin: "auto",
   fontSize: 14,
-  color: "#9ca3af",
+  color: "#94a3b8",
 };

@@ -69,7 +69,7 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
       <h2 style={heading}>{title}</h2>
 
       {loading && <div style={statusBox}>Готовим экспорт…</div>}
-      {error && <div style={{ ...statusBox, color: "#b91c1c" }}>{error}</div>}
+      {error && <div style={{ ...statusBox, color: "#dc2626" }}>{error}</div>}
       {content !== null && <pre style={pre}>{content}</pre>}
 
       <div style={footer}>
@@ -92,12 +92,12 @@ const heading: CSSProperties = {
   margin: "0 0 16px",
   fontSize: 18,
   fontWeight: 700,
-  color: "#111827",
+  color: "#1e293b",
 };
 const statusBox: CSSProperties = {
   padding: "24px 0",
   textAlign: "center",
-  color: "#6b7280",
+  color: "#64748b",
   fontSize: 14,
 };
 const pre: CSSProperties = {
@@ -109,12 +109,12 @@ const pre: CSSProperties = {
   margin: 0,
   padding: 14,
   background: "#f8fafc",
-  border: "1px solid #e5e7eb",
+  border: "1px solid #e2e8f0",
   borderRadius: 8,
   fontSize: 12.5,
   lineHeight: 1.5,
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-  color: "#1f2937",
+  color: "#0f172a",
   whiteSpace: "pre",
 };
 const footer: CSSProperties = {

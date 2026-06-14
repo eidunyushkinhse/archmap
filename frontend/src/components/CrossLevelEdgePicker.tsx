@@ -191,7 +191,7 @@ export default function CrossLevelEdgePicker({
             paddingLeft: 8 + depth * 16,
             background: isPicked ? "#eff6ff" : undefined,
             cursor: isExcluded ? "default" : "pointer",
-            color: isExcluded ? "#9ca3af" : undefined,
+            color: isExcluded ? "#94a3b8" : undefined,
           }}
         >
           {showChev ? (
@@ -252,8 +252,8 @@ export default function CrossLevelEdgePicker({
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 440 }}>
-      <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>{title}</h2>
-      <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>{subtitle}</p>
+      <h2 style={{ margin: "0 0 6px", fontSize: 18, color: "#1e293b" }}>{title}</h2>
+      <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>{subtitle}</p>
 
       {/* Маршрут: чип источника ——стрелка——> слот цели. Позиции фиксированы
           (источник всегда слева); направление показывает только сторона стрелки. */}
@@ -325,7 +325,7 @@ export default function CrossLevelEdgePicker({
         </div>
       </div>
 
-      {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
+      {error && <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }}>{error}</p>}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={handleCreate} disabled={saving || !picked} style={primaryBtn}>
           {saving ? "Создание…" : "Создать связь"}
@@ -351,7 +351,7 @@ const chip: CSSProperties = {
   background: "#fff",
   fontSize: 13,
   fontWeight: 600,
-  color: "#374151",
+  color: "#475569",
   boxShadow: "0 1px 2px rgba(15,23,42,.08)",
 };
 const routeLine: CSSProperties = {
@@ -365,7 +365,7 @@ const routeLine: CSSProperties = {
 const routeRule: CSSProperties = {
   flex: 1,
   height: 2,
-  background: "#6b7280",
+  background: "#94a3b8",
 };
 // Треугольники-наконечники на концах линии (CSS-бордеры).
 const arrowRight: CSSProperties = {
@@ -373,7 +373,7 @@ const arrowRight: CSSProperties = {
   height: 0,
   borderTop: "5px solid transparent",
   borderBottom: "5px solid transparent",
-  borderLeft: "8px solid #6b7280",
+  borderLeft: "8px solid #94a3b8",
   flex: "none",
 };
 const arrowLeft: CSSProperties = {
@@ -381,7 +381,7 @@ const arrowLeft: CSSProperties = {
   height: 0,
   borderTop: "5px solid transparent",
   borderBottom: "5px solid transparent",
-  borderRight: "8px solid #6b7280",
+  borderRight: "8px solid #94a3b8",
   flex: "none",
 };
 const swapBtn: CSSProperties = {
@@ -392,7 +392,7 @@ const swapBtn: CSSProperties = {
   width: 24,
   height: 24,
   borderRadius: "50%",
-  border: "1px solid #d1d5db",
+  border: "1px solid #e2e8f0",
   background: "#fff",
   boxShadow: "0 1px 3px rgba(15,23,42,.15)",
   cursor: "pointer",
@@ -401,7 +401,7 @@ const swapBtn: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "#374151",
+  color: "#475569",
   padding: 0,
 };
 const slotBase: CSSProperties = {
@@ -450,8 +450,8 @@ const slotPath: CSSProperties = {
 
 // --- Дерево ---
 const listBox: CSSProperties = {
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
   maxHeight: 200,
   overflowY: "auto",
   marginBottom: 14,
@@ -473,7 +473,7 @@ const chevBtn: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "#6b7280",
+  color: "#94a3b8",
 };
 const chevIcon: CSSProperties = {
   display: "inline-block",
@@ -488,7 +488,7 @@ const leafMark: CSSProperties = {
   fontSize: 12,
 };
 const roleMuted: CSSProperties = {
-  color: "#6b7280",
+  color: "#94a3b8",
   marginLeft: 6,
   fontSize: 12,
 };
@@ -498,12 +498,13 @@ const checkMark: CSSProperties = {
   fontWeight: 700,
 };
 const markStyle: CSSProperties = {
-  background: "#fef08a",
+  background: "#dbeafe",
+  color: "#1d4ed8",
   borderRadius: 2,
 };
 const hint: CSSProperties = {
   padding: "12px",
-  color: "#6b7280",
+  color: "#64748b",
   fontSize: 13,
   textAlign: "center",
 };

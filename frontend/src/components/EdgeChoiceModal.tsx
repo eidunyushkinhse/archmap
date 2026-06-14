@@ -31,8 +31,8 @@ export default function EdgeChoiceModal<E extends Edge>({
 }: Props<E>) {
   return (
     <Modal onClose={onClose} boxStyle={{ width: 420, maxHeight: "80vh", overflowY: "auto" }}>
-      <h2 style={{ margin: "0 0 6px" }}>Выберите связь</h2>
-      <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>
+      <h2 style={{ margin: "0 0 6px", color: "#1e293b" }}>Выберите связь</h2>
+      <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>
         {sourceLabel} → {targetLabel}
       </p>
       <div style={list}>
@@ -59,10 +59,11 @@ const list: CSSProperties = {
 const linkRow: CSSProperties = {
   textAlign: "left",
   padding: "10px 12px",
-  background: "#f9fafb",
-  border: "1px solid #e5e7eb",
-  borderRadius: 6,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
   cursor: "pointer",
   fontSize: 14,
+  fontWeight: 600,
   color: "#2563eb",
 };

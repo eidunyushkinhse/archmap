@@ -70,37 +70,41 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
 
   return (
     <Modal onClose={onCancel} closeButton={false} boxStyle={{ width: 460, maxHeight: "80vh", overflowY: "auto", padding: 24 }}>
-      <h3 style={{ margin: "0 0 12px" }}>
-          Вы уверены, что хотите удалить «{node.name}»?
-        </h3>
+      {/* Мягкий danger: знак-предупреждение в плашке (без янтаря) + заголовок. */}
+      <div style={titleRow}>
+        <span style={warnPlaque} aria-hidden>{WARN_ICON}</span>
+        <h3 style={title}>Вы уверены, что хотите удалить «{node.name}»?</h3>
+      </div>
         {edges && edges.length > 0 && (
           <>
-            <p style={{ color: "#374151", margin: "0 0 8px" }}>
+            <p style={lead}>
               {node.has_children
                 ? "Объект и его дочерние объекты будут удалены. Вместе с ними удалятся связи:"
                 : "Его связи будут удалены вместе с ним:"}
             </p>
-            <ul style={edgeList}>
-              {edges.map((e) => {
-                const lbl = e.label || e.technology || "связь";
-                const dir = e.direction === "outgoing" ? "к" : "от";
-                return (
-                  <li key={e.id} style={{ marginBottom: 4 }}>
-                    «{lbl}» {dir} {e.other_node_name}
-                  </li>
-                );
-              })}
-            </ul>
+            <div style={edgeBox}>
+              <ul style={edgeList}>
+                {edges.map((e) => {
+                  const lbl = e.label || e.technology || "связь";
+                  const dir = e.direction === "outgoing" ? "к" : "от";
+                  return (
+                    <li key={e.id} style={{ marginBottom: 4 }}>
+                      «{lbl}» {dir} {e.other_node_name}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           </>
         )}
         {/* Контейнер без внешних связей: связей не покажем, но удаление поддерева
             всё равно подтверждаем */}
         {node.has_children && edges && edges.length === 0 && (
-          <p style={{ color: "#374151", margin: "0 0 8px" }}>
+          <p style={lead}>
             Объект и все его дочерние объекты будут удалены.
           </p>
         )}
-        {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
+        {error && <p style={errText}>{error}</p>}
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           <button
             onClick={confirmDelete}
@@ -117,10 +121,61 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
   );
 }
 
-const edgeList: CSSProperties = {
-  margin: "0 0 4px",
-  paddingLeft: 20,
-  color: "#374151",
+// Знак-предупреждение (линейный SVG, наследует цвет плашки через currentColor).
+const WARN_ICON = (
+  <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M12 4 L21.5 20 H2.5 Z" />
+    <path d="M12 10 V14.5" />
+    <circle cx="12" cy="17.5" r="0.6" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const titleRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  marginBottom: 14,
+};
+const warnPlaque: CSSProperties = {
+  flexShrink: 0,
+  width: 36,
+  height: 36,
+  borderRadius: 10,
+  background: "#fee2e2",
+  color: "#dc2626",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+const title: CSSProperties = {
+  margin: 0,
+  fontSize: 17,
+  fontWeight: 700,
+  color: "#1e293b",
+  lineHeight: 1.3,
+};
+const lead: CSSProperties = {
+  color: "#475569",
+  margin: "0 0 8px",
   fontSize: 14,
-  lineHeight: 1.5,
+};
+const edgeBox: CSSProperties = {
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 10,
+  padding: "10px 12px",
+  marginBottom: 4,
+};
+const edgeList: CSSProperties = {
+  margin: 0,
+  paddingLeft: 18,
+  color: "#475569",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
+const errText: CSSProperties = {
+  color: "#dc2626",
+  margin: "8px 0",
+  fontSize: 13,
 };
