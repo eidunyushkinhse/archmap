@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { EdgeCreate } from "../types";
+import type { Edge, EdgeCreate } from "../types";
 import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
@@ -15,7 +15,8 @@ interface Props {
   sourceLabel: string;
   targetLabel: string;
   onClose: () => void;
-  onCreated: () => void;
+  // created — созданная связь (для отката создания через Undo в TreePage).
+  onCreated: (created: Edge) => void;
 }
 
 /**
@@ -44,8 +45,8 @@ export default function EdgeQuickCreate({
         label: label || null,
         technology: technology || null,
       };
-      await edgesApi.create(data);
-      onCreated();
+      const created = await edgesApi.create(data);
+      onCreated(created);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка создания связи");
     } finally {

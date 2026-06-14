@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi, exportApi } from "../api/nodes";
+import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
@@ -401,9 +401,31 @@ export default function TreePage({ onLogout }: Props) {
     setEdgeQuick({ sourceId, targetId, sourceHandle, targetHandle });
   }
 
-  function handleQuickCreated() {
+  // Откат СОЗДАНИЯ связи (Undo): структурная операция, как создание узла — undo снимает
+  // снимок связи (само ребро + ghost-хэндлы/изломы) и удаляет, redo восстанавливает с
+  // сохранением id. Уровень перечитываем (связь могла спроецироваться гостем).
+  function pushEdgeCreate(created: Edge) {
+    if (!isArchitect) return;
+    const levelAtCreate = currentParentId;
+    const refetch = () => load(levelAtCreate);
+    let snap: DeletionSnapshot | null = null;
+    history.push({
+      label: "Создание связи",
+      undo: () => {
+        void edgesApi.deletionSnapshot(created.id)
+          .then((s) => { snap = s; return edgesApi.delete(created.id); })
+          .then(refetch);
+      },
+      redo: () => {
+        void (snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch);
+      },
+    });
+  }
+
+  function handleQuickCreated(created: Edge) {
     setEdgeQuick(null);
     load(currentParentId);
+    pushEdgeCreate(created);
   }
 
   // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка. Хэндл источника
@@ -415,9 +437,10 @@ export default function TreePage({ onLogout }: Props) {
     setIntoPicker({ sourceId, containerId, containerName, sourceHandle });
   }
 
-  function handleIntoCreated() {
+  function handleIntoCreated(created: Edge) {
     setIntoPicker(null);
     load(currentParentId);
+    pushEdgeCreate(created);
   }
 
   // Шаблон узла отпустили на схему (LevelGraph посчитал координаты в системе графа) —
@@ -627,7 +650,7 @@ export default function TreePage({ onLogout }: Props) {
             ])
           }
           onClose={() => setOutPicker(null)}
-          onCreated={() => { setOutPicker(null); load(currentParentId); }}
+          onCreated={(created) => { setOutPicker(null); load(currentParentId); pushEdgeCreate(created); }}
         />
       )}
       {edgeDetailModal && (

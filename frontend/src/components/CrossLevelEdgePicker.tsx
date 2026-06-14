@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
-import type { EdgeCreate, Node } from "../types";
+import type { Edge, EdgeCreate, Node } from "../types";
 import { compareByRank } from "../types";
 import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
@@ -27,7 +27,8 @@ interface Props {
   // подпись пустого слота цели (различает жесты: «вне уровня» / «внутрь контейнера»)
   slotPlaceholder: string;
   onClose: () => void;
-  onCreated: () => void;
+  // created — созданная связь (для отката создания через Undo в TreePage).
+  onCreated: (created: Edge) => void;
 }
 
 /**
@@ -238,8 +239,8 @@ export default function CrossLevelEdgePicker({
         label: label || null,
         technology: technology || null,
       };
-      await edgesApi.create(data);
-      onCreated();
+      const created = await edgesApi.create(data);
+      onCreated(created);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка создания связи");
     } finally {
