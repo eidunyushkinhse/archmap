@@ -18,6 +18,7 @@ import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ExportModal from "../components/ExportModal";
 import ProcessViewerModal from "../components/ProcessViewerModal";
+import ProcessEditorModal from "../components/ProcessEditorModal";
 import ProfileMenu from "../ui/ProfileMenu";
 import { LogoMark, UpIcon, ExportIcon, ChevronIcon } from "../ui/icons";
 import "../ui/chrome.css";
@@ -836,6 +837,12 @@ export default function TreePage({ onLogout }: Props) {
           isArchitect={isArchitect}
           onClose={() => { setProcessModal(null); setProcessReload((n) => n + 1); }}
           onEdit={(id) => setProcessModal({ id, mode: "edit" })}
+        />
+      )}
+      {processModal?.mode === "edit" && (
+        <ProcessEditorModal
+          id={processModal.id}
+          onClose={() => { setProcessModal(null); setProcessReload((n) => n + 1); }}
         />
       )}
     </div>
