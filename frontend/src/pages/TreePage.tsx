@@ -17,6 +17,7 @@ import LevelGraph from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ExportModal from "../components/ExportModal";
+import ProcessViewerModal from "../components/ProcessViewerModal";
 import ProfileMenu from "../ui/ProfileMenu";
 import { LogoMark, UpIcon, ExportIcon, ChevronIcon } from "../ui/icons";
 import "../ui/chrome.css";
@@ -102,6 +103,11 @@ export default function TreePage({ onLogout }: Props) {
   // сигнал перезагрузки бокового дерева: бампаем после создания/удаления узла,
   // чтобы новый узел сразу попал в дерево без перезагрузки страницы
   const [treeReload, setTreeReload] = useState(0);
+
+  // Открытое окно бизнес-процесса (просмотр/редактор) и токен обновления списка в
+  // панели (бумпим при закрытии окна — счётчик сообщений мог измениться).
+  const [processModal, setProcessModal] = useState<{ id: string; mode: "view" | "edit" } | null>(null);
+  const [processReload, setProcessReload] = useState(0);
 
   // экспорт схемы в YAML для LLM. Область снимаем на момент открытия (nodeId=null —
   // вся схема, иначе поддерево узла), чтобы навигация её не сбила.
@@ -632,6 +638,9 @@ export default function TreePage({ onLogout }: Props) {
           isArchitect={isArchitect}
           onTemplateDrag={setDragShape}
           reloadToken={treeReload}
+          onOpenProcess={(id) => setProcessModal({ id, mode: "view" })}
+          onEditProcess={(id) => setProcessModal({ id, mode: "edit" })}
+          processRefreshToken={processReload}
         />
 
         {/* Область графа — заполняет оставшееся пространство */}
@@ -816,6 +825,17 @@ export default function TreePage({ onLogout }: Props) {
             exportScope.nodeId ? exportApi.subtree(exportScope.nodeId) : exportApi.all()
           }
           onClose={() => setExportScope(null)}
+        />
+      )}
+
+      {/* Окно бизнес-процесса. Закрытие бумпит processReload → панель перечитывает
+          список (счётчик сообщений мог измениться в редакторе). */}
+      {processModal?.mode === "view" && (
+        <ProcessViewerModal
+          id={processModal.id}
+          isArchitect={isArchitect}
+          onClose={() => { setProcessModal(null); setProcessReload((n) => n + 1); }}
+          onEdit={(id) => setProcessModal({ id, mode: "edit" })}
         />
       )}
     </div>

@@ -1294,6 +1294,8 @@ export interface components {
             kind: "forward" | "return" | "async";
             /** Caption */
             caption: string | null;
+            /** Technology */
+            technology: string | null;
             /**
              * From Id
              * Format: uuid

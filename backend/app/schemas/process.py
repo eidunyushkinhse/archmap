@@ -54,6 +54,7 @@ class MessageOut(BaseModel):
     leg: Leg
     kind: Kind
     caption: str | None  # caption ?? default (из edge.label + плеча)
+    technology: str | None  # технология канала (для tech-chip); null у повисшего
     from_id: uuid.UUID  # node_id спроецированного отправителя
     to_id: uuid.UUID  # node_id спроецированного получателя
     valid: bool  # edge_id is not None (false → связь удалена из схемы)

@@ -94,6 +94,7 @@ def _message_out(
         leg=msg.leg,  # type: ignore[arg-type]
         kind=_message_kind(msg.leg, edge),  # type: ignore[arg-type]
         caption=caption,
+        technology=edge.technology if edge is not None else None,
         from_id=part_by_id[msg.from_participant_id].node_id,
         to_id=part_by_id[msg.to_participant_id].node_id,
         valid=msg.edge_id is not None,
