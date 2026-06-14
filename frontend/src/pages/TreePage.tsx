@@ -588,7 +588,9 @@ export default function TreePage({ onLogout }: Props) {
               {i < breadcrumb.length - 1 ? (
                 <button className="crumb" style={crumbLink} onClick={() => navigateTo(i)}>{n.name}</button>
               ) : (
-                <span style={crumbCurrent}>{n.name}</span>
+                // активный уровень — тоже <button> (без onClick), чтобы метрики бокса
+                // совпадали с соседними крошками-кнопками и текст не «съезжал» вниз
+                <button style={crumbCurrent} disabled>{n.name}</button>
               )}
             </span>
           ))}
@@ -880,6 +882,9 @@ const crumbCurrent: CSSProperties = {
   fontSize: 13.5,
   color: "#1e293b",
   fontWeight: 600,
+  background: "none",
+  border: "none",
+  cursor: "default",
 };
 const crumbSep: CSSProperties = {
   color: "#cbd5e1",
