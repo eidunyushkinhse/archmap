@@ -177,6 +177,18 @@ function ActionLabel({ container }: { container: boolean }) {
   );
 }
 
+// Шеврон-«галочка» раскрытия ветки: контурный ">" в свёрнутом состоянии; поворот
+// на 90° (вниз) при раскрытии задаётся снаружи (chevIcon.transform). Наследует цвет
+// строки через currentColor (серый в покое, синий на hover зоны).
+function Chevron() {
+  return (
+    <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+      <path d="M9 6 L15 12 L9 18" />
+    </svg>
+  );
+}
+
 // Двойной шеврон для футера сворачивания (влево — свернуть, вправо — развернуть).
 function DoubleChevron({ dir }: { dir: "left" | "right" }) {
   const d =
@@ -390,7 +402,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
             >
               <span className="nt-chevhit">
                 <span style={{ ...chevIcon, transform: isExpanded ? "rotate(90deg)" : "none" }}>
-                  {isLoading ? "⋯" : "▸"}
+                  {isLoading ? "⋯" : <Chevron />}
                 </span>
               </span>
             </button>
