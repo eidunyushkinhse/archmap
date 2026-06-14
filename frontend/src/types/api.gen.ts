@@ -56,6 +56,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Nodes
+         * @description Восстановить удалённое поддерево из снимка (Undo удаления).
+         *
+         *     Снимок берётся клиентом через GET /{node_id}/deletion-snapshot ДО удаления.
+         */
+        post: operations["restore_nodes_api_v1_nodes_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/search": {
         parameters: {
             query?: never;
@@ -156,6 +178,28 @@ export interface paths {
         head?: never;
         /** Update Node */
         patch: operations["update_node_api_v1_nodes__node_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/deletion-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Deletion Snapshot
+         * @description Снимок всего, что снесёт удаление узла (поддерево + рёбра + ghost-метаданные).
+         *
+         *     Клиент берёт его ПЕРЕД delete, чтобы потом восстановить через POST /restore (Undo).
+         */
+        get: operations["get_deletion_snapshot_api_v1_nodes__node_id__deletion_snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/nodes/{node_id}/children": {
@@ -481,6 +525,40 @@ export interface components {
             client_secret?: string | null;
         };
         /**
+         * DeletionSnapshot
+         * @description Полный снимок того, что снёс БД-каскад при удалении узла: поддерево узлов,
+         *     инцидентные рёбра и ghost-метаданные. Достаточно для точного восстановления.
+         */
+        "DeletionSnapshot-Input": {
+            /** Nodes */
+            nodes: components["schemas"]["NodeSnapshot"][];
+            /** Edges */
+            edges: components["schemas"]["EdgeSnapshot"][];
+            /** Ghost Positions */
+            ghost_positions: components["schemas"]["GhostPositionSnapshot"][];
+            /** Ghost Edge Handles */
+            ghost_edge_handles: components["schemas"]["GhostEdgeHandleSnapshot"][];
+            /** Edge Waypoints */
+            edge_waypoints: components["schemas"]["EdgeWaypointSnapshot"][];
+        };
+        /**
+         * DeletionSnapshot
+         * @description Полный снимок того, что снёс БД-каскад при удалении узла: поддерево узлов,
+         *     инцидентные рёбра и ghost-метаданные. Достаточно для точного восстановления.
+         */
+        "DeletionSnapshot-Output": {
+            /** Nodes */
+            nodes: components["schemas"]["NodeSnapshot"][];
+            /** Edges */
+            edges: components["schemas"]["EdgeSnapshot"][];
+            /** Ghost Positions */
+            ghost_positions: components["schemas"]["GhostPositionSnapshot"][];
+            /** Ghost Edge Handles */
+            ghost_edge_handles: components["schemas"]["GhostEdgeHandleSnapshot"][];
+            /** Edge Waypoints */
+            edge_waypoints: components["schemas"]["EdgeWaypointSnapshot"][];
+        };
+        /**
          * DisconnectedNodeAlert
          * @description Атомарный узел без единой связи («подвисший»).
          */
@@ -549,6 +627,36 @@ export interface components {
              */
             created_at: string;
         };
+        /** EdgeSnapshot */
+        EdgeSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label?: string | null;
+            /** Technology */
+            technology?: string | null;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Target Id
+             * Format: uuid
+             */
+            target_id: string;
+            /** Source Handle */
+            source_handle?: string | null;
+            /** Target Handle */
+            target_handle?: string | null;
+            /** Waypoints */
+            waypoints?: components["schemas"]["Point"][] | null;
+            /** Label T */
+            label_t?: number | null;
+        };
         /** EdgeUpdate */
         EdgeUpdate: {
             /** Label */
@@ -567,6 +675,21 @@ export interface components {
             waypoints?: components["schemas"]["Point"][] | null;
             /** Label T */
             label_t?: number | null;
+        };
+        /** EdgeWaypointSnapshot */
+        EdgeWaypointSnapshot: {
+            /**
+             * Container Id
+             * Format: uuid
+             */
+            container_id: string;
+            /**
+             * Edge Id
+             * Format: uuid
+             */
+            edge_id: string;
+            /** Waypoints */
+            waypoints: components["schemas"]["Point"][];
         };
         /** EdgeWaypointsUpdate */
         EdgeWaypointsUpdate: {
@@ -587,6 +710,26 @@ export interface components {
             format: "yaml";
             /** Content */
             content: string;
+        };
+        /** GhostEdgeHandleSnapshot */
+        GhostEdgeHandleSnapshot: {
+            /**
+             * Container Id
+             * Format: uuid
+             */
+            container_id: string;
+            /**
+             * Edge Id
+             * Format: uuid
+             */
+            edge_id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Handle */
+            handle: string;
         };
         /** GhostEdgeHandleUpdate */
         GhostEdgeHandleUpdate: {
@@ -641,6 +784,23 @@ export interface components {
              * @enum {boolean}
              */
             is_ghost: true;
+        };
+        /** GhostPositionSnapshot */
+        GhostPositionSnapshot: {
+            /**
+             * Container Id
+             * Format: uuid
+             */
+            container_id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Pos X */
+            pos_x: number;
+            /** Pos Y */
+            pos_y: number;
         };
         /** GhostPositionUpdate */
         GhostPositionUpdate: {
@@ -910,6 +1070,43 @@ export interface components {
              */
             updated_at: string;
         };
+        /** NodeSnapshot */
+        NodeSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Role */
+            role?: string | null;
+            /** Technology */
+            technology?: string | null;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Flowchart */
+            flowchart?: string | null;
+            /** Openapi Spec */
+            openapi_spec?: string | null;
+            /** Pos X */
+            pos_x?: number | null;
+            /** Pos Y */
+            pos_y?: number | null;
+            /**
+             * Is External
+             * @default false
+             */
+            is_external: boolean;
+            /**
+             * Shape
+             * @default service
+             * @enum {string}
+             */
+            shape: "service" | "database" | "broker" | "person";
+        };
         /** NodeUpdate */
         NodeUpdate: {
             /** Name */
@@ -1129,6 +1326,37 @@ export interface operations {
             };
         };
     };
+    restore_nodes_api_v1_nodes_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeletionSnapshot-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     search_nodes_api_v1_nodes_search_get: {
         parameters: {
             query?: {
@@ -1302,6 +1530,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_deletion_snapshot_api_v1_nodes__node_id__deletion_snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionSnapshot-Output"];
                 };
             };
             /** @description Validation Error */

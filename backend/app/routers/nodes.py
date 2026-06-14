@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import tree
+from app import restore, tree
 from app.auth import get_current_user, require_architect
 from app.database import get_db, upsert
 from app.models.edge import Edge
@@ -32,6 +32,7 @@ from app.schemas.node import (
     NodeUpdate,
     PosXY,
 )
+from app.schemas.restore import DeletionSnapshot
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
@@ -252,6 +253,34 @@ def create_node(
     return node
 
 
+@router.post("/restore", status_code=status.HTTP_204_NO_CONTENT)
+def restore_nodes(
+    snapshot: DeletionSnapshot,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_architect),
+) -> None:
+    """Восстановить удалённое поддерево из снимка (Undo удаления).
+
+    Снимок берётся клиентом через GET /{node_id}/deletion-snapshot ДО удаления.
+    """
+    ids = {n.id for n in snapshot.nodes}
+    if not ids:
+        raise HTTPException(status_code=400, detail="Пустой снимок")
+    # Узлы не должны уже существовать (двойной restore) — иначе это не «откат удаления».
+    if db.query(Node.id).filter(Node.id.in_(ids)).first():
+        raise HTTPException(status_code=409, detail="Узлы уже существуют — нечего восстанавливать")
+    # Родитель корня поддерева (вне снимка) должен уцелеть, иначе FK не пройдёт.
+    ext_parents = {
+        n.parent_id for n in snapshot.nodes if n.parent_id is not None and n.parent_id not in ids
+    }
+    for pid in ext_parents:
+        if not db.get(Node, pid):
+            raise HTTPException(
+                status_code=409, detail="Родитель удалённого узла больше не существует"
+            )
+    restore.restore_from_snapshot(db, snapshot)
+
+
 # Эти маршруты должны быть до /{node_id}, иначе FastAPI не доберётся до них
 @router.get("/search", response_model=list[NodeResponse])
 def search_nodes(
@@ -422,6 +451,21 @@ def update_node(
     db.refresh(node)
     _mark_has_children(db, [node])
     return node
+
+
+@router.get("/{node_id}/deletion-snapshot", response_model=DeletionSnapshot)
+def get_deletion_snapshot(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_architect),
+) -> DeletionSnapshot:
+    """Снимок всего, что снесёт удаление узла (поддерево + рёбра + ghost-метаданные).
+
+    Клиент берёт его ПЕРЕД delete, чтобы потом восстановить через POST /restore (Undo).
+    """
+    if not db.get(Node, node_id):
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    return restore.build_deletion_snapshot(db, node_id)
 
 
 @router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
