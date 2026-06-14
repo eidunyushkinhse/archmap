@@ -77,3 +77,23 @@ export type DeletionSnapshot = Schemas["DeletionSnapshot-Output"];
 export type ExportResponse = Schemas["ExportResponse"];
 
 export type UserRole = "architect" | "viewer";
+
+// ── Бизнес-процессы (sequence-конструктор) ────────────────────────────────────
+export type ProcessListItem = Schemas["ProcessListItem"];
+export type ProcessDetail = Schemas["ProcessDetail"];
+export type ProcessCreate = Schemas["ProcessCreate"];
+export type ProcessUpdate = Schemas["ProcessUpdate"];
+export type ProcessParticipant = Schemas["ParticipantOut"];
+export type ProcessMessage = Schemas["MessageOut"];
+export type ProcessFragment = Schemas["FragmentOut"];
+export type Channel = Schemas["ChannelOut"];
+export type ChannelLeg = Schemas["LegOut"];
+export type ParticipantCreate = Schemas["ParticipantCreate"];
+export type MessageCreate = Schemas["MessageCreate"];
+export type MessageUpdate = Schemas["MessageUpdate"];
+export type FragmentCreate = Schemas["FragmentCreate"];
+export type FragmentUpdate = Schemas["FragmentUpdate"];
+// Плечо сообщения (хранимое) и стиль стрелки (производный) — Literal из контракта.
+export type MessageLeg = Schemas["MessageOut"]["leg"];
+export type MessageKind = Schemas["MessageOut"]["kind"];
+export type FragmentKind = Schemas["FragmentOut"]["kind"];

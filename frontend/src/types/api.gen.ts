@@ -478,6 +478,181 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Processes */
+        get: operations["list_processes_api_v1_processes_get"];
+        put?: never;
+        /** Create Process */
+        post: operations["create_process_api_v1_processes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Process */
+        get: operations["get_process_api_v1_processes__process_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Process */
+        delete: operations["delete_process_api_v1_processes__process_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Process */
+        patch: operations["update_process_api_v1_processes__process_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Participant */
+        post: operations["add_participant_api_v1_processes__process_id__participants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/participants/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Reorder Participants */
+        patch: operations["reorder_participants_api_v1_processes__process_id__participants_reorder_patch"];
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/participants/{participant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Participant */
+        delete: operations["delete_participant_api_v1_processes__process_id__participants__participant_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Message */
+        post: operations["create_message_api_v1_processes__process_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/messages/{message_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Message */
+        delete: operations["delete_message_api_v1_processes__process_id__messages__message_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Message */
+        patch: operations["update_message_api_v1_processes__process_id__messages__message_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/fragments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Fragment */
+        post: operations["create_fragment_api_v1_processes__process_id__fragments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/fragments/{fragment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Fragment */
+        delete: operations["delete_fragment_api_v1_processes__process_id__fragments__fragment_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Fragment */
+        patch: operations["update_fragment_api_v1_processes__process_id__fragments__fragment_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Channels */
+        get: operations["list_channels_api_v1_processes__process_id__channels_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -549,6 +724,32 @@ export interface components {
             client_id?: string | null;
             /** Client Secret */
             client_secret?: string | null;
+        };
+        /** ChannelOut */
+        ChannelOut: {
+            /**
+             * Edge Id
+             * Format: uuid
+             */
+            edge_id: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Target Id
+             * Format: uuid
+             */
+            target_id: string;
+            /** Technology */
+            technology: string | null;
+            /** Label */
+            label: string | null;
+            /** Synchronous */
+            synchronous: boolean;
+            /** Legs */
+            legs: components["schemas"]["LegOut"][];
         };
         /**
          * DeletionSnapshot
@@ -647,6 +848,8 @@ export interface components {
             waypoints?: components["schemas"]["Point"][] | null;
             /** Label T */
             label_t?: number | null;
+            /** Is Synchronous */
+            is_synchronous?: boolean | null;
             /**
              * Created At
              * Format: date-time
@@ -701,6 +904,8 @@ export interface components {
             waypoints?: components["schemas"]["Point"][] | null;
             /** Label T */
             label_t?: number | null;
+            /** Is Synchronous */
+            is_synchronous?: boolean | null;
         };
         /** EdgeWaypointSnapshot */
         EdgeWaypointSnapshot: {
@@ -736,6 +941,62 @@ export interface components {
             format: "yaml";
             /** Content */
             content: string;
+        };
+        /** FragmentCreate */
+        FragmentCreate: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "alt" | "opt" | "loop" | "par";
+            /** From Order */
+            from_order: number;
+            /** To Order */
+            to_order: number;
+            /** Guard */
+            guard?: string | null;
+            /** Else Guard */
+            else_guard?: string | null;
+            /** Else Order */
+            else_order?: number | null;
+        };
+        /** FragmentOut */
+        FragmentOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "alt" | "opt" | "loop" | "par";
+            /** From Order */
+            from_order: number;
+            /** To Order */
+            to_order: number;
+            /** Guard */
+            guard: string | null;
+            /** Else Guard */
+            else_guard: string | null;
+            /** Else Order */
+            else_order: number | null;
+        };
+        /** FragmentUpdate */
+        FragmentUpdate: {
+            /** Kind */
+            kind?: ("alt" | "opt" | "loop" | "par") | null;
+            /** From Order */
+            from_order?: number | null;
+            /** To Order */
+            to_order?: number | null;
+            /** Guard */
+            guard?: string | null;
+            /** Else Guard */
+            else_guard?: string | null;
+            /** Else Order */
+            else_order?: number | null;
         };
         /** GhostEdgeHandleSnapshot */
         GhostEdgeHandleSnapshot: {
@@ -958,6 +1219,101 @@ export interface components {
             /** Node Names */
             node_names: string[];
         };
+        /** LegOut */
+        LegOut: {
+            /**
+             * Leg
+             * @enum {string}
+             */
+            leg: "forward" | "return";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "forward" | "return" | "async";
+            /**
+             * From Id
+             * Format: uuid
+             */
+            from_id: string;
+            /**
+             * To Id
+             * Format: uuid
+             */
+            to_id: string;
+            /** Default Caption */
+            default_caption: string | null;
+        };
+        /** MessageCreate */
+        MessageCreate: {
+            /**
+             * Edge Id
+             * Format: uuid
+             */
+            edge_id: string;
+            /**
+             * Leg
+             * @enum {string}
+             */
+            leg: "forward" | "return";
+            /**
+             * From Participant Id
+             * Format: uuid
+             */
+            from_participant_id: string;
+            /**
+             * To Participant Id
+             * Format: uuid
+             */
+            to_participant_id: string;
+            /** Caption */
+            caption?: string | null;
+            /** Order */
+            order: number;
+        };
+        /** MessageOut */
+        MessageOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Order */
+            order: number;
+            /** Edge Id */
+            edge_id: string | null;
+            /**
+             * Leg
+             * @enum {string}
+             */
+            leg: "forward" | "return";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "forward" | "return" | "async";
+            /** Caption */
+            caption: string | null;
+            /**
+             * From Id
+             * Format: uuid
+             */
+            from_id: string;
+            /**
+             * To Id
+             * Format: uuid
+             */
+            to_id: string;
+            /** Valid */
+            valid: boolean;
+        };
+        /** MessageUpdate */
+        MessageUpdate: {
+            /** Caption */
+            caption?: string | null;
+            /** Order */
+            order?: number | null;
+        };
         /**
          * NodeContextResponse
          * @description «Контекстная схема» узла: сам узел + его прямые соседи.
@@ -1158,6 +1514,42 @@ export interface components {
             /** Shape */
             shape?: ("service" | "database" | "broker" | "person") | null;
         };
+        /** ParticipantCreate */
+        ParticipantCreate: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Order */
+            order: number;
+        };
+        /** ParticipantOut */
+        ParticipantOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Role */
+            role: string | null;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "service" | "database" | "broker" | "person";
+            /** Is External */
+            is_external: boolean;
+            /** Order */
+            order: number;
+        };
         /**
          * Point
          * @description Точка-сгиб пути стрелки в координатах графа уровня.
@@ -1174,6 +1566,61 @@ export interface components {
             pos_x: number;
             /** Pos Y */
             pos_y: number;
+        };
+        /** ProcessCreate */
+        ProcessCreate: {
+            /** Name */
+            name: string;
+            /** Scope Node Id */
+            scope_node_id?: string | null;
+        };
+        /** ProcessDetail */
+        ProcessDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Scope Node Id */
+            scope_node_id: string | null;
+            /** Scope Name */
+            scope_name: string | null;
+            /** Participants */
+            participants: components["schemas"]["ParticipantOut"][];
+            /** Messages */
+            messages: components["schemas"]["MessageOut"][];
+            /** Fragments */
+            fragments: components["schemas"]["FragmentOut"][];
+        };
+        /** ProcessListItem */
+        ProcessListItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Scope Node Id */
+            scope_node_id: string | null;
+            /** Scope Name */
+            scope_name: string | null;
+            /** Message Count */
+            message_count: number;
+        };
+        /** ProcessUpdate */
+        ProcessUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Scope Node Id */
+            scope_node_id?: string | null;
+        };
+        /** ReorderPayload */
+        ReorderPayload: {
+            /** Ids */
+            ids: string[];
         };
         /** Token */
         Token: {
@@ -2074,6 +2521,490 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_processes_api_v1_processes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessListItem"][];
+                };
+            };
+        };
+    };
+    create_process_api_v1_processes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_process_api_v1_processes__process_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_process_api_v1_processes__process_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_process_api_v1_processes__process_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_participant_api_v1_processes__process_id__participants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reorder_participants_api_v1_processes__process_id__participants_reorder_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_participant_api_v1_processes__process_id__participants__participant_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_message_api_v1_processes__process_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_message_api_v1_processes__process_id__messages__message_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_message_api_v1_processes__process_id__messages__message_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_fragment_api_v1_processes__process_id__fragments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FragmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FragmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_fragment_api_v1_processes__process_id__fragments__fragment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+                fragment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_fragment_api_v1_processes__process_id__fragments__fragment_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                process_id: string;
+                fragment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FragmentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FragmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_channels_api_v1_processes__process_id__channels_get: {
+        parameters: {
+            query: {
+                a: string;
+                b: string;
+            };
+            header?: never;
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelOut"][];
                 };
             };
             /** @description Validation Error */

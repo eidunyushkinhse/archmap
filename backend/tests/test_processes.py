@@ -1,0 +1,244 @@
+"""Тесты бизнес-процессов (ТЗ §6).
+
+Дёргаем функции роутера напрямую с db=db (как остальные тесты): зависимость
+require_architect/get_current_user не используется телом и остаётся Depends-сентинелом.
+Покрываем «запертый слой»: легальность плеч, проекцию концов (вкл. сквозные связи),
+повисшие сообщения, эвристику синхронности.
+"""
+
+import uuid
+
+import pytest
+from fastapi import HTTPException
+
+from app.models.business_process import BusinessProcess
+from app.models.edge import Edge
+from app.models.node import Node
+from app.processes import edge_is_synchronous, resolve_to_participant
+from app.routers.processes import (
+    add_participant,
+    create_message,
+    delete_message,
+    get_process,
+    list_channels,
+)
+from app.schemas.process import MessageCreate, ParticipantCreate
+
+
+# ── Хелперы ───────────────────────────────────────────────────────────────────
+def _node(db, name, parent=None, shape="service"):
+    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None, shape=shape)
+    db.add(n)
+    return n
+
+
+def _edge(db, src, tgt, technology=None, is_sync=None, label=None):
+    e = Edge(
+        id=uuid.uuid4(),
+        source_id=src.id,
+        target_id=tgt.id,
+        technology=technology,
+        is_synchronous=is_sync,
+        label=label,
+    )
+    db.add(e)
+    return e
+
+
+def _process(db, scope=None, name="P"):
+    p = BusinessProcess(id=uuid.uuid4(), name=name, scope_node_id=scope.id if scope else None)
+    db.add(p)
+    return p
+
+
+def _participants(db, proc, nodes):
+    """Добавляет участников по порядку, возвращает {node_id: participant_id}."""
+    out = {}
+    for i, node in enumerate(nodes):
+        p = add_participant(proc.id, ParticipantCreate(node_id=node.id, order=i), db=db)
+        out[node.id] = p.id
+    return out
+
+
+# ── 1. return на асинхронном канале → отказ ───────────────────────────────────
+def test_return_on_async_edge_rejected(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, technology="Kafka")  # async
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+
+    with pytest.raises(HTTPException) as exc:
+        create_message(
+            proc.id,
+            MessageCreate(
+                edge_id=edge.id, leg="return",
+                from_participant_id=parts[b.id], to_participant_id=parts[a.id], order=0,
+            ),
+            db=db,
+        )
+    assert exc.value.status_code == 422
+
+
+# ── 2. конец плеча не покрыт участником → отказ ────────────────────────────────
+def test_message_end_not_participant_rejected(db):
+    a, b, c = _node(db, "A"), _node(db, "B"), _node(db, "C")
+    edge = _edge(db, a, b, technology="REST")  # реальная цель — B
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, c])  # B НЕ участник
+
+    # forward A→B, но получателем указываем C: цель B не проецируется на C → 422
+    with pytest.raises(HTTPException) as exc:
+        create_message(
+            proc.id,
+            MessageCreate(
+                edge_id=edge.id, leg="forward",
+                from_participant_id=parts[a.id], to_participant_id=parts[c.id], order=0,
+            ),
+            db=db,
+        )
+    assert exc.value.status_code == 422
+
+
+# ── 3. легальные forward+return → 201 и корректный GET ────────────────────────
+def test_legal_forward_and_return(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, technology="REST", label="POST /x")  # sync
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+
+    fwd = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db,
+    )
+    ret = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="return",
+                      from_participant_id=parts[b.id], to_participant_id=parts[a.id], order=1),
+        db=db,
+    )
+    assert fwd.kind == "forward" and fwd.caption == "POST /x"
+    assert fwd.from_id == a.id and fwd.to_id == b.id
+    assert ret.kind == "return" and ret.caption == "ответ"
+    assert ret.from_id == b.id and ret.to_id == a.id
+
+    detail = get_process(proc.id, db=db)
+    assert [m.kind for m in detail.messages] == ["forward", "return"]
+    assert detail.messages[0].valid and detail.messages[1].valid
+
+
+# ── 4. /channels: 2 плеча для sync, 1 для async, пусто без рёбер ───────────────
+def test_channels_legs_count_and_empty(db):
+    a, b, c, d = _node(db, "A"), _node(db, "B"), _node(db, "C"), _node(db, "D")
+    _edge(db, a, b, technology="REST")   # sync
+    _edge(db, c, d, technology="Kafka")  # async
+    proc = _process(db)
+    db.commit()
+    _participants(db, proc, [a, b, c, d])
+
+    sync_ch = list_channels(proc.id, a=a.id, b=b.id, db=db)
+    assert len(sync_ch) == 1 and len(sync_ch[0].legs) == 2 and sync_ch[0].synchronous
+
+    async_ch = list_channels(proc.id, a=c.id, b=d.id, db=db)
+    assert len(async_ch) == 1 and len(async_ch[0].legs) == 1 and not async_ch[0].synchronous
+
+    assert list_channels(proc.id, a=a.id, b=d.id, db=db) == []
+
+
+# ── 5. сквозная связь A→C (C под B): канал A–B, фиксирует from=A,to=B ──────────
+def test_cross_level_channel_and_message(db):
+    a = _node(db, "A")
+    b = _node(db, "B")
+    c = _node(db, "C", parent=b)  # C — потомок B
+    edge = _edge(db, a, c, technology="REST")  # ребро вглубь чужого поддерева
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])  # участники A и B (не C)
+
+    ch = list_channels(proc.id, a=a.id, b=b.id, db=db)
+    assert len(ch) == 1
+    fwd = next(leg for leg in ch[0].legs if leg.leg == "forward")
+    assert fwd.from_id == a.id and fwd.to_id == b.id  # спроецировано на B
+
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db,
+    )
+    assert msg.from_id == a.id and msg.to_id == b.id
+    detail = get_process(proc.id, db=db)
+    assert detail.messages[0].from_id == a.id and detail.messages[0].to_id == b.id
+
+    # Если же участник — сам C, канал идёт A→C напрямую
+    proc2 = _process(db, name="P2")
+    db.commit()
+    _participants(db, proc2, [a, c])
+    ch2 = list_channels(proc2.id, a=a.id, b=c.id, db=db)
+    fwd2 = next(leg for leg in ch2[0].legs if leg.leg == "forward")
+    assert fwd2.from_id == a.id and fwd2.to_id == c.id
+
+
+# ── 6. resolve_to_participant: при вложенных участниках побеждает глубочайший ──
+def test_resolve_picks_deepest_participant(db):
+    b = _node(db, "B")
+    d = _node(db, "D", parent=b)
+    x = _node(db, "X", parent=d)  # конец ребра — под D, под B
+    db.commit()
+    all_nodes = {n.id: n for n in db.query(Node).all()}
+    assert resolve_to_participant(x.id, {b.id, d.id}, all_nodes) == d.id  # не B
+
+
+# ── 7. удаление Edge → edge_id=null, valid=false, сообщение не исчезает ────────
+def test_delete_edge_orphans_message(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, technology="REST")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db,
+    )
+
+    db.delete(edge)  # связь удалена из схемы → ON DELETE SET NULL
+    db.commit()
+    db.expire_all()
+
+    detail = get_process(proc.id, db=db)
+    assert len(detail.messages) == 1  # сообщение на месте
+    assert detail.messages[0].edge_id is None and detail.messages[0].valid is False
+
+
+# ── 8. edge_is_synchronous: override > эвристика; Kafka→async, REST/пусто→sync ─
+def test_edge_is_synchronous_heuristic(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    db.commit()
+    assert edge_is_synchronous(_edge(db, a, b, technology="REST", is_sync=False)) is False
+    assert edge_is_synchronous(_edge(db, a, b, technology="Kafka", is_sync=True)) is True
+    assert edge_is_synchronous(_edge(db, a, b, technology="Kafka")) is False
+    assert edge_is_synchronous(_edge(db, a, b, technology="REST")) is True
+    assert edge_is_synchronous(_edge(db, a, b, technology=None)) is True
+
+
+# delete_message импортируем для покрытия пути удаления (smoke).
+def test_delete_message_smoke(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, technology="REST")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db,
+    )
+    delete_message(proc.id, msg.id, db=db)
+    assert get_process(proc.id, db=db).messages == []

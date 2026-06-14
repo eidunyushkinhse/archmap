@@ -32,6 +32,8 @@ class EdgeUpdate(BaseModel):
     waypoints: list[Point] | None = None
     # Позиция плашки вдоль стрелки (доля пути 0..1); null — сброс в центр
     label_t: float | None = None
+    # Синхронность канала (бизнес-процессы): null=авто из technology, true/false=override
+    is_synchronous: bool | None = None
 
 
 class EdgeResponse(BaseModel):
@@ -44,6 +46,8 @@ class EdgeResponse(BaseModel):
     target_handle: str | None
     waypoints: list[Point] | None = None
     label_t: float | None = None
+    # Синхронность канала: null=авто из technology, true/false=override архитектора
+    is_synchronous: bool | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
