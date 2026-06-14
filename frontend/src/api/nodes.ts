@@ -80,4 +80,8 @@ export const edgesApi = {
   update: (id: string, data: EdgeUpdate): Promise<Edge> =>
     api.patch<Edge>(`/edges/${id}`, data),
   delete: (id: string): Promise<void> => api.delete(`/edges/${id}`),
+  // Снимок связи + её ghost-метаданных (хэндлы/изломы по edge_id) для отката
+  // создания/удаления связи через POST /nodes/restore с сохранением исходного id (Undo).
+  deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
+    api.get<DeletionSnapshot>(`/edges/${id}/deletion-snapshot`),
 };

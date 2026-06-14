@@ -19,7 +19,9 @@ interface Props {
   // Координаты, куда бросили шаблон на схему (только для создания).
   initialPos?: { x: number; y: number } | null;
   onClose: () => void;
-  onSaved: (node: Node) => void;
+  // isCreate — true, если узел создан (а не отредактирован): нужно TreePage, чтобы
+  // положить в историю команду создания (undo=delete) вместо команды правки полей.
+  onSaved: (node: Node, isCreate: boolean) => void;
   // snapshot — снимок поддерева для отката удаления (Undo); пробрасывается из NodeDeleteConfirm.
   onDeleted?: (id: string, snapshot: DeletionSnapshot) => void;
 }
@@ -118,7 +120,7 @@ export default function NodeModal({
         };
         saved = await nodesApi.update(node!.id, data);
       }
-      onSaved(saved);
+      onSaved(saved, isCreate);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка сохранения");
     } finally {

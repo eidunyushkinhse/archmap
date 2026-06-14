@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
+import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
@@ -213,7 +213,25 @@ export default function TreePage({ onLogout }: Props) {
     load(path[path.length - 1].id);
   }
 
-  function handleNodeSaved(saved: Node) {
+  // Семантические (версионируемые) поля узла для отката правки — без раскладки
+  // (pos/handle) и parent_id (через модалку не меняется). Совпадает с payload правки
+  // в NodeModal, поэтому update(before)/update(after) точно отменяют/повторяют правку.
+  function nodeFields(n: Node): NodeUpdate {
+    return {
+      name: n.name,
+      description: n.description,
+      role: n.role,
+      technology: n.technology,
+      flowchart: n.flowchart,
+      openapi_spec: n.openapi_spec,
+      is_external: n.is_external,
+      shape: n.shape,
+    };
+  }
+
+  function handleNodeSaved(saved: Node, isCreate: boolean) {
+    // before — оригинал из открытой модалки (для правки полей нужен «как было»).
+    const before = nodeModal.node;
     setNodes((prev) =>
       prev.some((n) => n.id === saved.id)
         ? prev.map((n) => (n.id === saved.id ? saved : n))
@@ -226,6 +244,39 @@ export default function TreePage({ onLogout }: Props) {
     // боковое дерево перечитываем: новый узел должен появиться, у правленого мог
     // смениться name/форма/число детей (порядок ранжирования)
     setTreeReload((t) => t + 1);
+
+    if (!isArchitect) return;
+    if (isCreate) {
+      // Создание узла (Undo): структурная операция, как удаление — undo снимает снимок
+      // и удаляет (с сохранением id), redo восстанавливает; уровень перечитываем.
+      const levelAtCreate = currentParentId;
+      const refetch = () => { load(levelAtCreate); setTreeReload((t) => t + 1); };
+      let snap: DeletionSnapshot | null = null;
+      history.push({
+        label: "Создание объекта",
+        undo: () => {
+          void nodesApi.deletionSnapshot(saved.id)
+            .then((s) => { snap = s; return nodesApi.delete(saved.id); })
+            .then(refetch);
+        },
+        redo: () => {
+          void (snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch);
+        },
+      });
+    } else if (before) {
+      // Правка полей (Undo): возвращаем/повторяем семантику через update, зеркаля в
+      // локальный стейт сразу (мгновенно, как перемещения) + обновляя алерты/дерево.
+      const apply = (n: Node) => {
+        setNodes((prev) => prev.map((x) => (x.id === n.id ? n : x)));
+        void loadAlerts();
+        setTreeReload((t) => t + 1);
+      };
+      history.push({
+        label: "Правка объекта",
+        undo: () => { apply(before); void nodesApi.update(before.id, nodeFields(before)); },
+        redo: () => { apply(saved); void nodesApi.update(saved.id, nodeFields(saved)); },
+      });
+    }
   }
 
   function handleNodeDeleted(id: string, snapshot?: DeletionSnapshot) {
