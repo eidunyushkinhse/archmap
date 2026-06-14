@@ -132,3 +132,71 @@ def test_restore_empty_snapshot_400(db):
     with pytest.raises(HTTPException) as ei:
         restore_nodes(empty, db=db)
     assert ei.value.status_code == 400
+
+
+# --- Откат удаления/создания СВЯЗИ (итерация 3): рёберный снимок (nodes=[]) ---
+
+
+def test_edge_snapshot_restore_round_trip(db):
+    # Связь X→Y с хэндлом/изломом-колонкой плюс ghost-метаданные по edge_id.
+    # Узлы снимок НЕ трогает — только само ребро и его ghost-строки.
+    from app.restore import build_edge_deletion_snapshot
+
+    x = _node(db, "X")
+    y = _node(db, "Y")
+    e = _edge(db, x, y, label="зов", source_handle="x--right--0", label_t=0.4,
+              waypoints=[{"x": 1.0, "y": 2.0}])
+    db.commit()
+    db.add(GhostEdgeHandle(container_id=x.id, edge_id=e.id, node_id=y.id, handle="y--left--1"))
+    db.add(EdgeWaypoint(container_id=x.id, edge_id=e.id, waypoints=[{"x": 3.0, "y": 4.0}]))
+    db.commit()
+    x_id, y_id, e_id = x.id, y.id, e.id
+
+    snap = build_edge_deletion_snapshot(db, e_id)
+    assert snap.nodes == []
+    assert {ed.id for ed in snap.edges} == {e_id}
+    assert len(snap.ghost_edge_handles) == 1
+    assert len(snap.edge_waypoints) == 1
+
+    # Удаляем связь (каскад сносит ghost-хэндл и излом по edge_id), узлы остаются.
+    db.delete(db.get(Edge, e_id))
+    db.commit()
+    assert db.query(Edge).count() == 0
+    assert db.query(GhostEdgeHandle).count() == 0
+    assert db.query(EdgeWaypoint).count() == 0
+    assert {n.id for n in db.query(Node).all()} == {x_id, y_id}
+
+    restore_from_snapshot(db, snap)
+
+    edges = db.query(Edge).all()
+    assert len(edges) == 1
+    e2 = edges[0]
+    assert e2.id == e_id and e2.label == "зов"
+    assert e2.source_handle == "x--right--0" and e2.label_t == 0.4
+    assert e2.waypoints == [{"x": 1.0, "y": 2.0}]
+    gh = db.query(GhostEdgeHandle).one()
+    assert gh.edge_id == e_id and gh.handle == "y--left--1"
+    ew = db.query(EdgeWaypoint).one()
+    assert ew.edge_id == e_id and ew.waypoints == [{"x": 3.0, "y": 4.0}]
+
+
+def test_edge_snapshot_missing_edge_404(db):
+    from app.routers.edges import edge_deletion_snapshot
+
+    with pytest.raises(HTTPException) as ei:
+        edge_deletion_snapshot(uuid.uuid4(), db=db)
+    assert ei.value.status_code == 404
+
+
+def test_restore_conflict_when_edge_exists(db):
+    # Рёберный снимок существующей связи → restore без удаления упирается в 409.
+    from app.restore import build_edge_deletion_snapshot
+
+    x = _node(db, "X")
+    y = _node(db, "Y")
+    e = _edge(db, x, y)
+    db.commit()
+    snap = build_edge_deletion_snapshot(db, e.id)
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(snap, db=db)
+    assert ei.value.status_code == 409

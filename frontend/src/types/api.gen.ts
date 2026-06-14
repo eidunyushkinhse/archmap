@@ -69,7 +69,10 @@ export interface paths {
          * Restore Nodes
          * @description Восстановить удалённое поддерево из снимка (Undo удаления).
          *
-         *     Снимок берётся клиентом через GET /{node_id}/deletion-snapshot ДО удаления.
+         *     Снимок берётся клиентом через GET /{node_id}/deletion-snapshot (удаление узла) или
+         *     GET /edges/{edge_id}/deletion-snapshot (удаление/создание связи) ДО удаления.
+         *     Снимок может быть узловым (поддерево) ИЛИ чисто рёберным (nodes=[]) — обе формы
+         *     восстанавливаются одним путём с сохранением исходных id.
          */
         post: operations["restore_nodes_api_v1_nodes_restore_post"];
         delete?: never;
@@ -410,6 +413,29 @@ export interface paths {
         head?: never;
         /** Update Edge */
         patch: operations["update_edge_api_v1_edges__edge_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/edges/{edge_id}/deletion-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Edge Deletion Snapshot
+         * @description Снимок связи и её ghost-метаданных для отката удаления/создания (Undo).
+         *
+         *     Клиент берёт его ПЕРЕД delete (откат удаления связи) либо при undo создания связи,
+         *     чтобы потом восстановить связь с исходным id через POST /nodes/restore.
+         */
+        get: operations["edge_deletion_snapshot_api_v1_edges__edge_id__deletion_snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/export": {
@@ -1966,6 +1992,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EdgeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edge_deletion_snapshot_api_v1_edges__edge_id__deletion_snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                edge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionSnapshot-Output"];
                 };
             };
             /** @description Validation Error */

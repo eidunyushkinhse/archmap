@@ -86,6 +86,32 @@ def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot
     )
 
 
+def build_edge_deletion_snapshot(db: Session, edge_id: uuid.UUID) -> DeletionSnapshot:
+    """Снимок одной связи и её ghost-метаданных (Undo удаления/создания связи).
+
+    Симметричен build_deletion_snapshot, но узкий: узлы не трогаются (связь их не
+    каскадит), снимок несёт само ребро + ghost-хэндлы и изломы по этому edge_id на
+    всех уровнях — их снёс бы каскад при удалении связи. Восстанавливается тем же
+    restore_from_snapshot (nodes=[]) с сохранением исходного id.
+    """
+    edge = db.get(Edge, edge_id)
+    ghost_edge_handles = (
+        db.query(GhostEdgeHandle).filter(GhostEdgeHandle.edge_id == edge_id).all()
+    )
+    edge_waypoints = (
+        db.query(EdgeWaypoint).filter(EdgeWaypoint.edge_id == edge_id).all()
+    )
+    return DeletionSnapshot(
+        nodes=[],
+        edges=[EdgeSnapshot.model_validate(edge)] if edge is not None else [],
+        ghost_positions=[],
+        ghost_edge_handles=[
+            GhostEdgeHandleSnapshot.model_validate(g) for g in ghost_edge_handles
+        ],
+        edge_waypoints=[EdgeWaypointSnapshot.model_validate(w) for w in edge_waypoints],
+    )
+
+
 def restore_from_snapshot(db: Session, snapshot: DeletionSnapshot) -> None:
     """Воссоздать узлы/рёбра/ghost-строки из снимка с сохранением исходных id.
 

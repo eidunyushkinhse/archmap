@@ -3,12 +3,14 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app import restore
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.user import User
 from app.schemas.edge import EdgeCreate, EdgeResponse, EdgeUpdate
+from app.schemas.restore import DeletionSnapshot
 
 router = APIRouter(prefix="/edges", tags=["edges"])
 
@@ -81,6 +83,22 @@ def update_edge(
     db.commit()
     db.refresh(edge)
     return edge
+
+
+@router.get("/{edge_id}/deletion-snapshot", response_model=DeletionSnapshot)
+def edge_deletion_snapshot(
+    edge_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_architect),
+) -> DeletionSnapshot:
+    """Снимок связи и её ghost-метаданных для отката удаления/создания (Undo).
+
+    Клиент берёт его ПЕРЕД delete (откат удаления связи) либо при undo создания связи,
+    чтобы потом восстановить связь с исходным id через POST /nodes/restore.
+    """
+    if not db.get(Edge, edge_id):
+        raise HTTPException(status_code=404, detail="Связь не найдена")
+    return restore.build_edge_deletion_snapshot(db, edge_id)
 
 
 @router.delete("/{edge_id}", status_code=status.HTTP_204_NO_CONTENT)

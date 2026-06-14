@@ -261,14 +261,20 @@ def restore_nodes(
 ) -> None:
     """Восстановить удалённое поддерево из снимка (Undo удаления).
 
-    Снимок берётся клиентом через GET /{node_id}/deletion-snapshot ДО удаления.
+    Снимок берётся клиентом через GET /{node_id}/deletion-snapshot (удаление узла) или
+    GET /edges/{edge_id}/deletion-snapshot (удаление/создание связи) ДО удаления.
+    Снимок может быть узловым (поддерево) ИЛИ чисто рёберным (nodes=[]) — обе формы
+    восстанавливаются одним путём с сохранением исходных id.
     """
     ids = {n.id for n in snapshot.nodes}
-    if not ids:
+    edge_ids = {e.id for e in snapshot.edges}
+    if not ids and not edge_ids:
         raise HTTPException(status_code=400, detail="Пустой снимок")
-    # Узлы не должны уже существовать (двойной restore) — иначе это не «откат удаления».
-    if db.query(Node.id).filter(Node.id.in_(ids)).first():
+    # Сущности не должны уже существовать (двойной restore) — иначе это не «откат удаления».
+    if ids and db.query(Node.id).filter(Node.id.in_(ids)).first():
         raise HTTPException(status_code=409, detail="Узлы уже существуют — нечего восстанавливать")
+    if edge_ids and db.query(Edge.id).filter(Edge.id.in_(edge_ids)).first():
+        raise HTTPException(status_code=409, detail="Связи уже существуют — нечего восстанавливать")
     # Родитель корня поддерева (вне снимка) должен уцелеть, иначе FK не пройдёт.
     ext_parents = {
         n.parent_id for n in snapshot.nodes if n.parent_id is not None and n.parent_id not in ids
