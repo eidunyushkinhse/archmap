@@ -29,6 +29,13 @@ export interface History {
   // увести пользователя на нужный уровень до того, как сработает undo/redo.
   peekUndo: () => HistoryCommand | undefined;
   peekRedo: () => HistoryCommand | undefined;
+  // Сгруппировать все push-и одного жеста в ОДНУ составную команду. Между beginGroup и
+  // commitGroup каждый push не кладётся в стек, а буферизуется; commitGroup сворачивает
+  // буфер в один HistoryCommand (undo откатывает всё в обратном порядке, redo повторяет
+  // в прямом). Так мультидраг с переносом изломов = один шаг Undo, а не 1+N. Группа в
+  // одну команду → один push → ветка redo обрывается один раз, лимит считает её за шаг.
+  beginGroup: () => void;
+  commitGroup: (label?: string) => void;
   clear: () => void;
 }
 
@@ -40,14 +47,22 @@ const MAX_HISTORY = 50;
 export function createHistory(): History {
   const undoStack: HistoryCommand[] = [];
   const redoStack: HistoryCommand[] = [];
+  // Активный буфер группировки жеста (см. beginGroup/commitGroup). null = пишем сразу.
+  let group: HistoryCommand[] | null = null;
+
+  // Положить готовую команду в undo-стек: обрывает ветку redo (как в любом редакторе),
+  // вытесняет самые старые шаги по лимиту. Единая точка — её зовут push и commitGroup.
+  const commit = (cmd: HistoryCommand) => {
+    undoStack.push(cmd);
+    if (undoStack.length > MAX_HISTORY) undoStack.shift();
+    redoStack.length = 0;
+  };
 
   return {
-    // Новое действие кладётся в undo-стек и ОБРЫВАЕТ ветку redo (как в любом редакторе).
+    // Новое действие. Внутри группы — буферизуем; иначе сразу в undo-стек.
     push(cmd) {
-      undoStack.push(cmd);
-      // лимит: самые старые шаги вытесняются снизу
-      if (undoStack.length > MAX_HISTORY) undoStack.shift();
-      redoStack.length = 0;
+      if (group) group.push(cmd);
+      else commit(cmd);
     },
     // Откат последнего действия. Возвращает false, если откатывать нечего.
     undo() {
@@ -71,11 +86,40 @@ export function createHistory(): History {
     peekRedo() {
       return redoStack[redoStack.length - 1];
     },
+    // Открыть буфер группировки. Повторный beginGroup без commit продолжает текущий
+    // буфер (вложенность не моделируем — жест всегда плоский).
+    beginGroup() {
+      group ??= [];
+    },
+    // Закрыть буфер и свернуть его в стек. Пустой буфер — ничего. Ровно один push —
+    // кладём команду как есть (сохраняя её label/level, без лишней обёртки). Несколько —
+    // составная команда: undo прокручивает буфер в обратном порядке, redo — в прямом.
+    // level берём из первой команды (весь жест — на одном уровне).
+    commitGroup(label) {
+      const cmds = group;
+      group = null;
+      if (!cmds || cmds.length === 0) return;
+      if (cmds.length === 1) {
+        commit(cmds[0]);
+        return;
+      }
+      commit({
+        label: label ?? cmds[cmds.length - 1].label,
+        level: cmds[0].level,
+        undo: () => {
+          for (let i = cmds.length - 1; i >= 0; i--) cmds[i].undo();
+        },
+        redo: () => {
+          for (const c of cmds) c.redo();
+        },
+      });
+    },
     // Сброс истории (например, при логауте). NB: при навигации между уровнями НЕ
     // чистим — история теперь сквозная, кросс-уровневый Undo редиректит на нужный уровень.
     clear() {
       undoStack.length = 0;
       redoStack.length = 0;
+      group = null;
     },
   };
 }

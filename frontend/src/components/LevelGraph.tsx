@@ -357,13 +357,34 @@ function LevelGraphInner({
     (_e: MouseEvent, ns: RFNode[]) => groupEdgeDrag.move(ns),
     [groupEdgeDrag],
   );
+  // Отпускание драга: весь жест (перенос изломов в groupEdgeDrag.end + персист позиций в
+  // handleNodeDragStop) сворачиваем в ОДНУ команду истории через beginGroup/commitGroup —
+  // иначе мультидраг узлов с изломанными рёбрами между ними давал бы 1+N шагов Undo.
   const handleNodeDragStopP = useCallback(
-    (e: MouseEvent, n: RFNode, ns: RFNode[]) => { setDragging(false); groupEdgeDrag.end(ns); handleNodeDragStop(e, n, ns); },
-    [groupEdgeDrag, handleNodeDragStop],
+    (e: MouseEvent, n: RFNode, ns: RFNode[]) => {
+      setDragging(false);
+      history.beginGroup();
+      try {
+        groupEdgeDrag.end(ns);
+        handleNodeDragStop(e, n, ns);
+      } finally {
+        history.commitGroup("Перемещение группы");
+      }
+    },
+    [groupEdgeDrag, handleNodeDragStop, history],
   );
   const handleSelectionDragStopP = useCallback(
-    (e: MouseEvent, ns: RFNode[]) => { setDragging(false); groupEdgeDrag.end(ns); handleSelectionDragStop(e, ns); },
-    [groupEdgeDrag, handleSelectionDragStop],
+    (e: MouseEvent, ns: RFNode[]) => {
+      setDragging(false);
+      history.beginGroup();
+      try {
+        groupEdgeDrag.end(ns);
+        handleSelectionDragStop(e, ns);
+      } finally {
+        history.commitGroup("Перемещение группы");
+      }
+    },
+    [groupEdgeDrag, handleSelectionDragStop, history],
   );
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
