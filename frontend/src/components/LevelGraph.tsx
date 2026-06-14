@@ -135,7 +135,7 @@ interface LevelGraphProps {
   onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // плашку подписи перетащили вдоль стрелки и доля сохранена в колонку ребра (label_t) —
   // родитель зеркалит в стейт уровня теми же значениями, что вернул бы рефетч.
-  onEdgeLabelTChanged?: (edgeId: string, t: number) => void;
+  onEdgeLabelTChanged?: (edgeId: string, t: number | null) => void;
   // узел перетащили и его позиция сохранена в БД — родитель синхронизирует стейт
   // уровня теми же значениями, чтобы пересчёт раскладки БЕЗ рефетча (напр. локальный
   // setEdges при реконнекте хэндла) не откатил узел на прежнюю сохранённую позицию.
@@ -357,7 +357,7 @@ function LevelGraphInner({
   // независима → хранится в колонке ребра (одна на ребро, не пер-уровень). У мастер-
   // стрелки путь общий — «размазываем» долю по всем её членам. Зеркалим в стейт уровня.
   const commitLabelT = useCallback(
-    (edgeIds: string[], t: number) => {
+    (edgeIds: string[], t: number | null) => {
       if (!isArchitect) return;
       for (const edgeId of edgeIds) {
         void edgesApi.update(edgeId, { label_t: t });
@@ -367,15 +367,15 @@ function LevelGraphInner({
     [isArchitect, onEdgeLabelTChanged],
   );
 
-  // Реконнект концов рёбер (смена хэндла на том же узле + персист). resetWaypoints —
-  // на смену хэндла дропаем изломы в дефолт (см. выше).
+  // Реконнект концов рёбер (смена хэндла на том же узле + персист). commitWaypoints —
+  // на смену хэндла дропаем изломы в дефолт, он же восстанавливает старый путь в Undo.
   const {
     handleReconnectStart, handleReconnect, handleReconnectEnd,
     isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked,
     consumeReconnectClick,
   } = useReconnectHandles({
     setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged,
-    resetWaypoints: (edgeIds, ghost) => commitWaypoints(edgeIds, [], ghost),
+    commitWaypoints, push: history.push,
   });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
@@ -445,13 +445,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers });
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push };
   });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
@@ -752,10 +752,29 @@ function LevelGraphInner({
           const rep = g.members.find((m) => { const w = wpOf(m); return w != null && w.length > 0; });
           data.editable = true;
           data.waypoints = (rep ? wpOf(rep) : undefined) ?? undefined;
-          data.onWaypointsCommit = (wp) => cb.commitWaypoints(memberIds, wp, !bothLocal);
+          // «Старые» геометрия/доля на момент сборки = последнее закоммиченное значение
+          // (драг-превью живёт в локальном стейте edges.tsx и сюда не доходит). Это и есть
+          // состояние для инверсии. undefined-путь инвертируется пустым массивом (сброс в авто).
+          const oldWp = data.waypoints;
+          const oldT = g.members.find((m) => m.label_t != null)?.label_t ?? null;
+          data.onWaypointsCommit = (wp) => {
+            cb.commitWaypoints(memberIds, wp, !bothLocal);
+            cb.pushHistory({
+              label: "Изменение пути связи",
+              undo: () => cb.commitWaypoints(memberIds, oldWp ?? [], !bothLocal),
+              redo: () => cb.commitWaypoints(memberIds, wp, !bothLocal),
+            });
+          };
           // Перетаскивание плашки доступно только архитектору (editable) — коммит доли
           // «размазываем» по всем членам мастер-стрелки (путь у них общий).
-          data.onLabelTCommit = (t) => cb.commitLabelT(memberIds, t);
+          data.onLabelTCommit = (t) => {
+            cb.commitLabelT(memberIds, t);
+            cb.pushHistory({
+              label: "Перемещение подписи",
+              undo: () => cb.commitLabelT(memberIds, oldT),
+              redo: () => cb.commitLabelT(memberIds, t),
+            });
+          };
         }
         // Позиция плашки (доля label_t) — общая для членов; читаем у первого с
         // сохранённой долей. Ставим и viewer'у (отображение сдвига), не только редактору.

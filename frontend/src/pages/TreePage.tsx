@@ -270,7 +270,7 @@ export default function TreePage({ onLogout }: Props) {
 
   // Плашку подписи перетащили — доля label_t сохранена в колонку ребра (commitLabelT).
   // Зеркалим в стейт уровня теми же значениями, что вернул бы рефетч (доля одна на ребро).
-  function updateEdgeLabelT(edgeId: string, t: number) {
+  function updateEdgeLabelT(edgeId: string, t: number | null) {
     setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, label_t: t } : e)));
   }
 
