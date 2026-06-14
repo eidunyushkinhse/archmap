@@ -1,10 +1,16 @@
-import { useState } from "react";
-import type { CSSProperties } from "react";
-import type { DeletionSnapshot, Edge, EdgeUpdate } from "../types";
-import { edgesApi } from "../api/nodes";
+import { useEffect, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import type { DeletionSnapshot, Edge, EdgeUpdate, Node } from "../types";
+import { canHaveChildren } from "../types";
+import { edgesApi, nodesApi } from "../api/nodes";
 import NodeSearchPicker from "./NodeSearchPicker";
 import Modal from "../ui/Modal";
+import { useScrollEdges } from "../ui/useScrollEdges";
+import { CloseIcon } from "../ui/icons";
+import { ShapeGlyph } from "./nodeTree.shared";
 import { labelStyle, input, primaryBtn, secondaryBtn, dangerBtnSoft } from "../ui/styles";
+import "../ui/modalShell.css";
+import "./NodeTreePanel.css";
 
 interface Props {
   edge: Edge;
@@ -49,6 +55,38 @@ export default function EdgeDetailModal({
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Узлы-концы (read-only): нужны только чтобы нарисовать глиф формы рядом с
+  // «Откуда/Куда» (тот же ShapeGlyph, что в дереве). Контракт связи не несёт формы
+  // концов, поэтому подтягиваем сами по id. Пока не загрузились — глиф просто не
+  // рисуем (имя видно сразу). Концы off-level, поэтому именно фетч по id.
+  const [ends, setEnds] = useState<Record<string, Node>>({});
+  useEffect(() => {
+    let alive = true;
+    const ids = Array.from(new Set([sourceId, targetId].filter(Boolean)));
+    Promise.all(ids.map((id) => nodesApi.get(id).catch(() => null))).then((nodes) => {
+      if (!alive) return;
+      setEnds((prev) => {
+        const next = { ...prev };
+        for (const n of nodes) if (n) next[n.id] = n;
+        return next;
+      });
+    });
+    return () => { alive = false; };
+  }, [sourceId, targetId]);
+
+  // Глиф формы конца по id (контейнер — «коробка с крышкой», как в дереве).
+  const endGlyph = (id: string): ReactNode => {
+    const n = ends[id];
+    if (!n) return null;
+    return <ShapeGlyph container={canHaveChildren(n.shape) && !!n.has_children} shape={n.shape} />;
+  };
+
+  // Липкая шапка/футер: общий каркас и хук теней краёв (как в NodeModal).
+  // resubKey=editing — у просмотра и правки разные футеры, маяки перемонтируются.
+  const { atTop, atBottom, topRef, bottomRef } = useScrollEdges(editing);
+  const headerClass = `modal-header${atTop ? " modal-header--at-top" : ""}`;
+  const footerClass = `modal-footer${atBottom ? " modal-footer--at-bottom" : ""}`;
 
   async function handleDelete() {
     setDeleting(true);
@@ -108,70 +146,104 @@ export default function EdgeDetailModal({
   }
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 400 }}>
-      <h2 style={{ margin: "0 0 16px" }}>{editing ? "Редактирование связи" : "Связь"}</h2>
+    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 420, maxHeight: "90vh", overflowY: "auto" }}>
+      {/* Липкая шапка со своим SVG-крестиком (дефолтный уехал бы при прокрутке). */}
+      <div ref={topRef} style={{ height: 1 }} aria-hidden />
+      <div className={headerClass}>
+        <h2>{editing ? "Редактирование связи" : "Связь"}</h2>
+        <button onClick={onClose} className="modal-close" aria-label="Закрыть">
+          <CloseIcon />
+        </button>
+      </div>
 
-        {editing ? (
-          <>
-            <label style={labelStyle}>Откуда *</label>
-            <NodeSearchPicker
-              value={sourceId}
-              initialLabel={srcLabel}
-              onChange={(id, lbl) => { setSourceId(id); if (lbl != null) setSrcLabel(lbl); }}
-            />
-            <label style={labelStyle}>Куда *</label>
-            <NodeSearchPicker
-              value={targetId}
-              initialLabel={tgtLabel}
-              onChange={(id, lbl) => { setTargetId(id); if (lbl != null) setTgtLabel(lbl); }}
-            />
-            <label style={labelStyle}>Описание</label>
-            <input
-              value={labelText}
-              onChange={(e) => setLabelText(e.target.value)}
-              placeholder="запрос, событие..."
-              style={input}
-            />
-            <label style={labelStyle}>Технология</label>
-            <input
-              value={technology}
-              onChange={(e) => setTechnology(e.target.value)}
-              placeholder="REST, gRPC, Kafka..."
-              style={input}
-            />
-          </>
-        ) : (
-          <>
-            <div style={row}>
-              <span style={label}>Откуда</span>
-              <span style={value}>{srcLabel}</span>
+      {editing ? (
+        <>
+          <label style={labelStyle}>Откуда *</label>
+          <NodeSearchPicker
+            value={sourceId}
+            initialLabel={srcLabel}
+            onChange={(id, lbl) => { setSourceId(id); if (lbl != null) setSrcLabel(lbl); }}
+          />
+          <label style={labelStyle}>Куда *</label>
+          <NodeSearchPicker
+            value={targetId}
+            initialLabel={tgtLabel}
+            onChange={(id, lbl) => { setTargetId(id); if (lbl != null) setTgtLabel(lbl); }}
+          />
+          <label style={labelStyle}>Описание</label>
+          <input
+            value={labelText}
+            onChange={(e) => setLabelText(e.target.value)}
+            placeholder="запрос, событие..."
+            style={input}
+          />
+          <label style={labelStyle}>Технология</label>
+          <input
+            value={technology}
+            onChange={(e) => setTechnology(e.target.value)}
+            placeholder="REST, gRPC, Kafka..."
+            style={input}
+          />
+        </>
+      ) : (
+        // Строки метаданных «свойство → значение» с иконками-термами (как metaList
+        // в NodeModal). «Откуда/Куда» — объекты: рядом со значением глиф формы конца.
+        <dl style={metaList}>
+          <div style={metaRow}>
+            <dt style={metaTerm}>
+              <span style={metaIconWrap}>{EDGE_META_ICON.source}</span>
+              Откуда
+            </dt>
+            <dd style={metaValue}>
+              {endGlyph(sourceId)}
+              <span style={endName}>{srcLabel}</span>
+            </dd>
+          </div>
+          <div style={metaRow}>
+            <dt style={metaTerm}>
+              <span style={metaIconWrap}>{EDGE_META_ICON.target}</span>
+              Куда
+            </dt>
+            <dd style={metaValue}>
+              {endGlyph(targetId)}
+              <span style={endName}>{tgtLabel}</span>
+            </dd>
+          </div>
+          {labelText && (
+            <div style={metaRow}>
+              <dt style={metaTerm}>
+                <span style={metaIconWrap}>{EDGE_META_ICON.desc}</span>
+                Описание
+              </dt>
+              <dd style={metaValue}>{labelText}</dd>
             </div>
-            <div style={row}>
-              <span style={label}>Куда</span>
-              <span style={value}>{tgtLabel}</span>
+          )}
+          {technology && (
+            <div style={metaRow}>
+              <dt style={metaTerm}>
+                <span style={metaIconWrap}>{EDGE_META_ICON.tech}</span>
+                Технология
+              </dt>
+              <dd style={metaValue}>{technology}</dd>
             </div>
-            {labelText && (
-              <div style={row}>
-                <span style={label}>Описание</span>
-                <span style={value}>{labelText}</span>
-              </div>
-            )}
-            {technology && (
-              <div style={row}>
-                <span style={label}>Технология</span>
-                <span style={value}>{technology}</span>
-              </div>
-            )}
-          </>
-        )}
+          )}
+        </dl>
+      )}
 
-        {error && <p style={{ color: "#dc2626", margin: "8px 0 0" }}>{error}</p>}
-
-        <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+      {/* Липкая полоса действий: текст ошибки над кнопками. */}
+      <div ref={bottomRef} style={{ height: 1 }} aria-hidden />
+      <div className={footerClass}>
+        {error && <p style={errText}>{error}</p>}
+        <div style={{ display: "flex", gap: 8 }}>
           {editing ? (
-            <button onClick={handleSave} disabled={saving} style={primaryBtn}>
-              {saving ? "Сохранение..." : "Сохранить"}
-            </button>
+            <>
+              <button onClick={handleSave} disabled={saving} style={primaryBtn}>
+                {saving ? "Сохранение..." : "Сохранить"}
+              </button>
+              <button onClick={() => setEditing(false)} style={secondaryBtn}>
+                Отмена
+              </button>
+            </>
           ) : isArchitect ? (
             <>
               <button onClick={() => setEditing(true)} style={primaryBtn}>
@@ -185,22 +257,48 @@ export default function EdgeDetailModal({
             <button onClick={onClose} style={secondaryBtn}>Закрыть</button>
           )}
         </div>
+      </div>
     </Modal>
   );
 }
 
-const row: CSSProperties = {
-  display: "flex",
-  gap: 12,
-  marginBottom: 10,
-  fontSize: 14,
+// --- Строки метаданных связи (режим просмотра) ---
+
+// Базовые атрибуты линейных иконок-термов (16×16, как metaSvg в NodeModal).
+const metaSvg = {
+  width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
+  stroke: "currentColor", strokeWidth: 1.5,
+  strokeLinecap: "round", strokeLinejoin: "round",
+} as const;
+
+// Откуда — узел со стрелкой наружу; Куда — стрелка в узел; Описание — метка-ярлык;
+// Технология — </> (идентична иконке технологии узла в NodeModal).
+const EDGE_META_ICON: Record<"source" | "target" | "desc" | "tech", ReactNode> = {
+  source: <svg {...metaSvg}><circle cx="3.5" cy="8" r="2.25" /><path d="M6 8h7" /><path d="M10.5 5.4 13.2 8l-2.7 2.6" /></svg>,
+  target: <svg {...metaSvg}><path d="M2.8 8h7" /><path d="M7.3 5.4 10 8l-2.7 2.6" /><circle cx="12.5" cy="8" r="2.25" /></svg>,
+  desc: <svg {...metaSvg}><path d="M8.4 2.6 13 7.2a1.3 1.3 0 0 1 0 1.8l-3.9 3.9a1.3 1.3 0 0 1-1.8 0L2.7 8.3V4a1.3 1.3 0 0 1 1.3-1.3Z" /><circle cx="5.6" cy="5.5" r=".9" fill="currentColor" stroke="none" /></svg>,
+  tech: <svg {...metaSvg}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
 };
-const label: CSSProperties = {
-  width: 90,
-  color: "#6b7280",
-  fontWeight: 600,
-  flexShrink: 0,
+
+const metaList: CSSProperties = { margin: 0, borderTop: "1px solid #eef2f6" };
+const metaRow: CSSProperties = {
+  display: "flex", gap: 12, alignItems: "center",
+  padding: "11px 0", borderBottom: "1px solid #eef2f6",
 };
-const value: CSSProperties = {
-  color: "#111827",
+const metaTerm: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 9,
+  width: 132, flexShrink: 0, color: "#64748b", fontSize: 13, fontWeight: 600,
 };
+const metaIconWrap: CSSProperties = { display: "flex", color: "#94a3b8" };
+// NB: metaValue на <dd> — обязательно margin:0, иначе UA-стиль margin-inline-start
+// сдвинет значение.
+const metaValue: CSSProperties = {
+  margin: 0, display: "flex", alignItems: "center", gap: 8,
+  fontSize: 14, color: "#0f172a", minWidth: 0,
+};
+// Значение-объект («Откуда/Куда») — жирнее; длинное имя усекаем многоточием.
+const endName: CSSProperties = {
+  fontWeight: 600, minWidth: 0,
+  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+};
+const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "0 0 8px" };
