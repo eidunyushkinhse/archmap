@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { AncestorRef, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
+import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, SchemaAlerts as Alerts } from "../types";
+import { useHistory } from "../components/graph/interaction/useHistory";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
@@ -106,6 +107,14 @@ export default function TreePage({ onLogout }: Props) {
     nodeId: string | null;
   } | null>(null);
 
+  // История Undo/Redo всего вида уровня: команды перемещений/изломов кладёт LevelGraph,
+  // команду удаления — handleNodeDeleted (удаление инициируется здесь). История
+  // per-level-view: чистим при смене уровня. Чистка живёт ЗДЕСЬ, а не в LevelGraph,
+  // потому что после удаления load() на миг подменяет LevelGraph спиннером — его
+  // эффект-на-mount затёр бы только что положенную команду удаления. TreePage на load
+  // не ремаунтится, поэтому эффект на currentParentId срабатывает лишь на реальной навигации.
+  const history = useHistory();
+
   const isArchitect = getUserRole() === "architect";
   const currentParent =
     breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
@@ -174,6 +183,10 @@ export default function TreePage({ onLogout }: Props) {
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- первичная загрузка при маунте; load() синхронно зовётся и из навигации, в deps зациклил бы эффект
   useEffect(() => { load(null); }, []);
 
+  // История per-level-view: чистим при переходе на другой уровень (но НЕ при удалении —
+  // там currentParentId не меняется, команда удаления остаётся доступной для Undo).
+  useEffect(() => { history.clear(); }, [currentParentId, history]);
+
   function drillDown(node: Node) {
     setBreadcrumb((prev) => [...prev, node]);
     load(node.id);
@@ -215,12 +228,34 @@ export default function TreePage({ onLogout }: Props) {
     setTreeReload((t) => t + 1);
   }
 
-  function handleNodeDeleted(_id: string) {
+  function handleNodeDeleted(id: string, snapshot?: DeletionSnapshot) {
     // Перезагружаем уровень: вместе с узлом удалились его связи (в т.ч. сквозные),
     // поэтому проецированные рёбра и гости без связей должны пересчитаться.
     setNodeModal({ open: false, node: null });
     load(currentParentId);
     setTreeReload((t) => t + 1); // удалённый узел должен уйти и из бокового дерева
+
+    // Откат удаления (Undo): restore воссоздаёт поддерево с исходными id, redo —
+    // повторное удаление по тому же id. В отличие от перемещений (мгновенное зеркало
+    // в стейт), структурное восстановление требует серверной проекции гостей/рёбер,
+    // поэтому undo/redo перечитывают уровень — та же цена, что и у самого удаления.
+    // Уровень фиксируем на момент удаления: история чистится при навигации, так что
+    // на момент undo пользователь на том же уровне.
+    if (!snapshot) return;
+    const levelAtDelete = currentParentId;
+    const refetch = () => {
+      load(levelAtDelete);
+      setTreeReload((t) => t + 1);
+    };
+    history.push({
+      label: "Удаление объекта",
+      undo: () => {
+        void nodesApi.restore(snapshot).then(refetch);
+      },
+      redo: () => {
+        void nodesApi.delete(id).then(refetch);
+      },
+    });
   }
 
   // Reconnect в LevelGraph сохранил новые хэндлы (в БД и в локальные rfEdges).
@@ -467,6 +502,7 @@ export default function TreePage({ onLogout }: Props) {
               onExitUp={(sourceId, sourceHandle) => setOutPicker({ sourceId, sourceHandle })}
               onRequestDeleteNode={setPendingDelete}
               dragShape={dragShape}
+              history={history}
             />
           )}
         </div>
@@ -489,7 +525,7 @@ export default function TreePage({ onLogout }: Props) {
         <NodeDeleteConfirm
           node={pendingDelete}
           onCancel={() => setPendingDelete(null)}
-          onDeleted={(id) => { setPendingDelete(null); handleNodeDeleted(id); }}
+          onDeleted={(id, snapshot) => { setPendingDelete(null); handleNodeDeleted(id, snapshot); }}
         />
       )}
       {edgeQuick && (

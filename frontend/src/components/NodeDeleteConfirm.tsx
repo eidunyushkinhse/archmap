@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import type { Node, NodeEdgeInfo } from "../types";
+import type { DeletionSnapshot, Node, NodeEdgeInfo } from "../types";
 import { nodesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { dangerBtn, secondaryBtn } from "../ui/styles";
@@ -19,7 +19,8 @@ import { dangerBtn, secondaryBtn } from "../ui/styles";
 interface Props {
   node: Node;
   onCancel: () => void;
-  onDeleted: (id: string) => void;
+  // snapshot — снимок поддерева, снятый ПЕРЕД удалением; нужен для отката (Undo).
+  onDeleted: (id: string, snapshot: DeletionSnapshot) => void;
 }
 
 export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) {
@@ -31,8 +32,10 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
     setDeleting(true);
     setError(null);
     try {
+      // Снимок снимаем ДО удаления — после каскада восстанавливать будет нечего из чего.
+      const snapshot = await nodesApi.deletionSnapshot(node.id);
       await nodesApi.delete(node.id);
-      onDeleted(node.id);
+      onDeleted(node.id, snapshot);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка удаления");
       setDeleting(false);

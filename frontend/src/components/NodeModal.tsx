@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
+import type { DeletionSnapshot, Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import MermaidRenderer from "./MermaidRenderer";
@@ -20,7 +20,8 @@ interface Props {
   initialPos?: { x: number; y: number } | null;
   onClose: () => void;
   onSaved: (node: Node) => void;
-  onDeleted?: (id: string) => void;
+  // snapshot — снимок поддерева для отката удаления (Undo); пробрасывается из NodeDeleteConfirm.
+  onDeleted?: (id: string, snapshot: DeletionSnapshot) => void;
 }
 
 export default function NodeModal({
@@ -334,7 +335,7 @@ export default function NodeModal({
         <NodeDeleteConfirm
           node={node}
           onCancel={() => setConfirming(false)}
-          onDeleted={(id) => { setConfirming(false); onDeleted?.(id); }}
+          onDeleted={(id, snapshot) => { setConfirming(false); onDeleted?.(id, snapshot); }}
         />
       )}
     </>

@@ -51,6 +51,7 @@ import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
 import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
 import { useEdgeWaypoints } from "./graph/interaction/useEdgeWaypoints";
 import { useHistory } from "./graph/interaction/useHistory";
+import type { History } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
@@ -171,6 +172,10 @@ interface LevelGraphProps {
   // dataTransfer.getData в dragover недоступен (только на drop), поэтому форму
   // прокидываем через состояние из TreePage.
   dragShape?: NodeShape | null;
+  // Общая история Undo/Redo, поднятая в TreePage: команды перемещений/изломов кладёт
+  // сам LevelGraph, а команду удаления — TreePage (удаление инициируется там, в
+  // NodeDeleteConfirm). Если не передана (контекст-модалка) — заводим свою локальную.
+  history?: History;
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
@@ -203,6 +208,7 @@ function LevelGraphInner({
   onExitUp,
   onRequestDeleteNode,
   dragShape,
+  history: historyProp,
   mode = "level",
 }: LevelGraphProps) {
   const isContext = mode === "context";
@@ -266,10 +272,14 @@ function LevelGraphInner({
   // История Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). Живёт на уровне канваса; команды кладут
   // лишь персистнутые правки. Сбрасывается при навигации между уровнями (эффект ниже) —
   // история per-level-view, кросс-уровневый undo отложен.
-  const history = useHistory();
-  useEffect(() => {
-    history.clear();
-  }, [containerId, history]);
+  // На основном канвасе историю поднимают в TreePage (туда же кладётся команда
+  // удаления); ownHistory — фолбэк для контекст-модалки, где истории не нужно.
+  // Чистку истории при смене уровня НЕ делаем здесь: после удаления TreePage на время
+  // load() подменяет LevelGraph спиннером, и эффект-на-mount затирал бы только что
+  // положенную команду удаления. Чистит TreePage по смене currentParentId (он не
+  // ремаунтится на load). Для контекст-модалки ownHistory и так свежая на каждый показ.
+  const ownHistory = useHistory();
+  const history = historyProp ?? ownHistory;
 
   // Клавиши Undo/Redo — ГЛОБАЛЬНО на window (не через onKeyDown канваса): у .lg-canvas
   // нет tabIndex, поэтому его onKeyDown срабатывает лишь при фокусе внутри холста, а

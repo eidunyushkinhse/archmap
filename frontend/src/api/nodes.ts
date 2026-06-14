@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Edge, EdgeCreate, EdgePoint, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
+import type { DeletionSnapshot, Edge, EdgeCreate, EdgePoint, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -35,6 +35,13 @@ export const nodesApi = {
   update: (id: string, data: NodeUpdate): Promise<Node> =>
     api.patch<Node>(`/nodes/${id}`, data),
   delete: (id: string): Promise<void> => api.delete(`/nodes/${id}`),
+  // Снимок всего, что снесёт удаление узла (поддерево + рёбра + ghost-метаданные).
+  // Берётся ПЕРЕД delete, чтобы откатить удаление через restore (Undo).
+  deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
+    api.get<DeletionSnapshot>(`/nodes/${id}/deletion-snapshot`),
+  // Восстановить удалённое поддерево из снимка (Undo удаления) — с исходными id.
+  restore: (snapshot: DeletionSnapshot): Promise<void> =>
+    api.post<void>(`/nodes/restore`, snapshot),
   // Сохранить координаты гостевого узла на уровне containerId
   saveGhostPosition: (
     containerId: string,

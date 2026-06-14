@@ -61,6 +61,12 @@ export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
 
+// Снимок удаляемого поддерева (узлы + рёбра + ghost-метаданные) для отката удаления
+// через Undo: берётся ПЕРЕД delete, восстанавливается через POST /nodes/restore.
+// openapi-typescript разводит Input/Output (у полей снимка есть дефолты) — берём
+// Output (то, что отдаёт GET, со всеми полями); он присваиваем во входной body restore.
+export type DeletionSnapshot = Schemas["DeletionSnapshot-Output"];
+
 // Экспорт схемы (или поддерева) в текст для скармливания LLM.
 export type ExportResponse = Schemas["ExportResponse"];
 
