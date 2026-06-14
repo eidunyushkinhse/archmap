@@ -60,6 +60,25 @@ describe("createHistory", () => {
     expect(h.redo()).toBe(false);
   });
 
+  it("peekUndo/peekRedo возвращают верхнюю команду НЕ выполняя её (с level)", () => {
+    const log: string[] = [];
+    const h = createHistory();
+    expect(h.peekUndo()).toBeUndefined();
+    expect(h.peekRedo()).toBeUndefined();
+
+    h.push({ ...cmd(log, "A"), level: "lvl-1" });
+    // peek не трогает стек и не вызывает undo/redo
+    expect(h.peekUndo()?.label).toBe("A");
+    expect(h.peekUndo()?.level).toBe("lvl-1");
+    expect(log).toEqual([]);
+
+    h.undo(); // A ушла в redo-стек
+    expect(h.peekUndo()).toBeUndefined();
+    expect(h.peekRedo()?.label).toBe("A");
+    expect(h.peekRedo()?.level).toBe("lvl-1");
+    expect(log).toEqual(["undo:A"]);
+  });
+
   it("лимит 50: самые старые шаги вытесняются", () => {
     const log: string[] = [];
     const h = createHistory();

@@ -183,9 +183,52 @@ export default function TreePage({ onLogout }: Props) {
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- первичная загрузка при маунте; load() синхронно зовётся и из навигации, в deps зациклил бы эффект
   useEffect(() => { load(null); }, []);
 
-  // История per-level-view: чистим при переходе на другой уровень (но НЕ при удалении —
-  // там currentParentId не меняется, команда удаления остаётся доступной для Undo).
-  useEffect(() => { history.clear(); }, [currentParentId, history]);
+  // История теперь СКВОЗНАЯ (не чистится при навигации): кросс-уровневый Undo сам
+  // редиректит пользователя на уровень правки (см. navigateToLevel/dispatchUndo).
+
+  // Перейти на уровень по его containerId (для кросс-уровневого Undo/Redo). Достраивает
+  // breadcrumb по цепочке parent_id из плоского списка всех узлов и грузит уровень.
+  // Возвращает промис загрузки — дисптчер ждёт его, чтобы зеркало команды село на
+  // уже загруженные данные нужного уровня.
+  async function navigateToLevel(level: string | null): Promise<void> {
+    if (level === currentParentId) return;
+    setContextNode(null);
+    if (level === null) {
+      setBreadcrumb([]);
+      await load(null);
+      return;
+    }
+    const all = await nodesApi.getAll();
+    const byId = new Map(all.map((n) => [n.id, n]));
+    const path: AncestorRef[] = [];
+    let cur: Node | undefined = byId.get(level);
+    while (cur) {
+      path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    }
+    setBreadcrumb(path);
+    await load(level);
+  }
+
+  // Дисптчеры Undo/Redo: если правка сделана на другом уровне — сперва редиректим туда,
+  // затем выполняем команду (её зеркало/рефетч сядут на нужный уровень). На текущем
+  // уровне работают как раньше (мгновенно). Заглушка level === undefined = текущий.
+  async function dispatchUndo() {
+    const cmd = history.peekUndo();
+    if (!cmd) return;
+    if (cmd.level !== undefined && cmd.level !== currentParentId) {
+      await navigateToLevel(cmd.level);
+    }
+    history.undo();
+  }
+  async function dispatchRedo() {
+    const cmd = history.peekRedo();
+    if (!cmd) return;
+    if (cmd.level !== undefined && cmd.level !== currentParentId) {
+      await navigateToLevel(cmd.level);
+    }
+    history.redo();
+  }
 
   function drillDown(node: Node) {
     setBreadcrumb((prev) => [...prev, node]);
@@ -254,6 +297,7 @@ export default function TreePage({ onLogout }: Props) {
       let snap: DeletionSnapshot | null = null;
       history.push({
         label: "Создание объекта",
+        level: levelAtCreate,
         undo: () => {
           void nodesApi.deletionSnapshot(saved.id)
             .then((s) => { snap = s; return nodesApi.delete(saved.id); })
@@ -273,6 +317,7 @@ export default function TreePage({ onLogout }: Props) {
       };
       history.push({
         label: "Правка объекта",
+        level: currentParentId,
         undo: () => { apply(before); void nodesApi.update(before.id, nodeFields(before)); },
         redo: () => { apply(saved); void nodesApi.update(saved.id, nodeFields(saved)); },
       });
@@ -389,6 +434,7 @@ export default function TreePage({ onLogout }: Props) {
     const refetch = () => load(levelAtDelete);
     history.push({
       label: "Удаление связи",
+      level: levelAtDelete,
       undo: () => { void nodesApi.restore(snapshot).then(refetch); },
       redo: () => { void edgesApi.delete(id).then(refetch); },
     });
@@ -406,6 +452,7 @@ export default function TreePage({ onLogout }: Props) {
     const refetch = () => load(levelAtEdit);
     history.push({
       label: "Правка связи",
+      level: levelAtEdit,
       undo: () => { void edgesApi.update(updated.id, undoPayload).then(refetch); },
       redo: () => { void edgesApi.update(updated.id, redoPayload).then(refetch); },
     });
@@ -431,6 +478,7 @@ export default function TreePage({ onLogout }: Props) {
     let snap: DeletionSnapshot | null = null;
     history.push({
       label: "Создание связи",
+      level: levelAtCreate,
       undo: () => {
         void edgesApi.deletionSnapshot(created.id)
           .then((s) => { snap = s; return edgesApi.delete(created.id); })
@@ -597,6 +645,8 @@ export default function TreePage({ onLogout }: Props) {
               onRequestDeleteNode={setPendingDelete}
               dragShape={dragShape}
               history={history}
+              onUndo={dispatchUndo}
+              onRedo={dispatchRedo}
             />
           )}
         </div>

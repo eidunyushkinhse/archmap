@@ -9,6 +9,12 @@ import { useState } from "react";
 export interface HistoryCommand {
   // человекочитаемая метка действия (для будущих тостов/индикатора)
   label: string;
+  // Уровень (containerId), на котором сделано изменение; null = корень. Нужен для
+  // кросс-уровневого Undo: перед откатом TreePage редиректит пользователя на этот
+  // уровень, если он открыт другой (зеркало правки садится на загруженные данные
+  // уровня). Команды основного канваса штампуются текущим containerId, структурные
+  // (TreePage) — уровнем, где произошла правка. undefined трактуется как «текущий».
+  level?: string | null;
   // вернуть состояние «как было до действия»
   undo: () => void;
   // повторно применить действие
@@ -19,6 +25,10 @@ export interface History {
   push: (cmd: HistoryCommand) => void;
   undo: () => boolean;
   redo: () => boolean;
+  // Верхняя команда соответствующего стека БЕЗ её выполнения — чтобы дисптчер успел
+  // увести пользователя на нужный уровень до того, как сработает undo/redo.
+  peekUndo: () => HistoryCommand | undefined;
+  peekRedo: () => HistoryCommand | undefined;
   clear: () => void;
 }
 
@@ -55,7 +65,14 @@ export function createHistory(): History {
       undoStack.push(cmd);
       return true;
     },
-    // Сброс истории (при навигации между уровнями — история per-level-view).
+    peekUndo() {
+      return undoStack[undoStack.length - 1];
+    },
+    peekRedo() {
+      return redoStack[redoStack.length - 1];
+    },
+    // Сброс истории (например, при логауте). NB: при навигации между уровнями НЕ
+    // чистим — история теперь сквозная, кросс-уровневый Undo редиректит на нужный уровень.
     clear() {
       undoStack.length = 0;
       redoStack.length = 0;

@@ -176,6 +176,11 @@ interface LevelGraphProps {
   // сам LevelGraph, а команду удаления — TreePage (удаление инициируется там, в
   // NodeDeleteConfirm). Если не передана (контекст-модалка) — заводим свою локальную.
   history?: History;
+  // Дисптчеры Undo/Redo из TreePage: они умеют редиректить на уровень правки перед
+  // откатом (кросс-уровневый Undo). Кнопки и клавиши канваса зовут именно их, а не
+  // history.undo/redo напрямую. В контекст-модалке не передаются (истории там нет).
+  onUndo?: () => void;
+  onRedo?: () => void;
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
@@ -209,6 +214,8 @@ function LevelGraphInner({
   onRequestDeleteNode,
   dragShape,
   history: historyProp,
+  onUndo,
+  onRedo,
   mode = "level",
 }: LevelGraphProps) {
   const isContext = mode === "context";
@@ -269,17 +276,26 @@ function LevelGraphInner({
     [onNodeMoved],
   );
 
-  // История Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). Живёт на уровне канваса; команды кладут
-  // лишь персистнутые правки. Сбрасывается при навигации между уровнями (эффект ниже) —
-  // история per-level-view, кросс-уровневый undo отложен.
-  // На основном канвасе историю поднимают в TreePage (туда же кладётся команда
-  // удаления); ownHistory — фолбэк для контекст-модалки, где истории не нужно.
-  // Чистку истории при смене уровня НЕ делаем здесь: после удаления TreePage на время
-  // load() подменяет LevelGraph спиннером, и эффект-на-mount затирал бы только что
-  // положенную команду удаления. Чистит TreePage по смене currentParentId (он не
-  // ремаунтится на load). Для контекст-модалки ownHistory и так свежая на каждый показ.
+  // История Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). На основном канвасе её поднимают в
+  // TreePage (туда же кладутся структурные команды и дисптчеры с кросс-уровневым
+  // редиректом); ownHistory — фолбэк для контекст-модалки, где истории не нужно.
   const ownHistory = useHistory();
-  const history = historyProp ?? ownHistory;
+  const baseHistory = historyProp ?? ownHistory;
+  // Команды этого канваса (перемещения/изломы/доля/хэндлы) ШТАМПУЕМ текущим containerId,
+  // чтобы кросс-уровневый Undo знал, на какой уровень вернуть пользователя перед откатом.
+  // Адаптер оборачивает только push; остальные методы — как есть.
+  const history = useMemo<History>(
+    () => ({
+      ...baseHistory,
+      push: (cmd) => baseHistory.push({ ...cmd, level: containerId ?? null }),
+    }),
+    [baseHistory, containerId],
+  );
+  // Клавиши/кнопки зовут дисптчеры из TreePage (кросс-уровневый редирект). В контекст-
+  // модалке дисптчеров нет — там Undo/Redo и так не показываются. Мемоизируем, чтобы не
+  // пересоздавать слушатель клавиш на каждый рендер.
+  const runUndo = useMemo(() => onUndo ?? (() => { history.undo(); }), [onUndo, history]);
+  const runRedo = useMemo(() => onRedo ?? (() => { history.redo(); }), [onRedo, history]);
 
   // Клавиши Undo/Redo — ГЛОБАЛЬНО на window (не через onKeyDown канваса): у .lg-canvas
   // нет tabIndex, поэтому его onKeyDown срабатывает лишь при фокусе внутри холста, а
@@ -292,12 +308,12 @@ function LevelGraphInner({
       const t = document.activeElement as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const key = e.key.toLowerCase();
-      if (key === "z" && !e.shiftKey) { e.preventDefault(); history.undo(); }
-      else if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); history.redo(); }
+      if (key === "z" && !e.shiftKey) { e.preventDefault(); runUndo(); }
+      else if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); runRedo(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isArchitect, isContext, history]);
+  }, [isArchitect, isContext, runUndo, runRedo]);
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
@@ -882,14 +898,14 @@ function LevelGraphInner({
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Тулбар Undo/Redo (архитектор, не контекст). Кнопка надёжнее клавиш — не зависит
-          от фокуса. Redo пока заглушка (disabled), undo вызывает историю напрямую. */}
+          от фокуса. Обе зовут дисптчеры из TreePage (кросс-уровневый редирект). */}
       {isArchitect && !isContext && (
         <div
           style={{ position: "absolute", top: 8, left: 8, zIndex: 5, display: "flex", gap: 4 }}
         >
           <button
             type="button"
-            onClick={() => history.undo()}
+            onClick={runUndo}
             title="Отменить (Ctrl+Z)"
             style={{
               padding: "4px 10px", fontSize: 13, borderRadius: 6, cursor: "pointer",
@@ -900,11 +916,11 @@ function LevelGraphInner({
           </button>
           <button
             type="button"
-            disabled
-            title="Вернуть — скоро"
+            onClick={runRedo}
+            title="Вернуть (Ctrl+Shift+Z)"
             style={{
-              padding: "4px 10px", fontSize: 13, borderRadius: 6, cursor: "not-allowed",
-              border: "1px solid #e5e7eb", background: "#f9fafb", color: "#9ca3af", opacity: 0.7,
+              padding: "4px 10px", fontSize: 13, borderRadius: 6, cursor: "pointer",
+              border: "1px solid #d1d5db", background: "#fff", color: "#111827",
             }}
           >
             ↷ Вернуть
