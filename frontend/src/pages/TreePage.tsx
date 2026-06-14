@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
+import { guardPersist } from "../components/graph/interaction/persistGuard";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
@@ -170,6 +171,17 @@ export default function TreePage({ onLogout }: Props) {
     void loadAlerts();
   }
 
+  // Компенсирующий/оптимистичный персист правки канваса упал — БД осталась в прежнем
+  // состоянии, а зеркало уже показывает новое. Возвращаем зеркало к истине, перезагружая
+  // уровень из БД. Дедуп: при пачке отказов (групповой драг — N узлов разом) хватает
+  // одной перезагрузки, иначе спиннер дёргался бы N раз.
+  const resyncingRef = useRef(false);
+  function resyncOnPersistError() {
+    if (resyncingRef.current) return;
+    resyncingRef.current = true;
+    void load(currentParentId).finally(() => { resyncingRef.current = false; });
+  }
+
   // Алерты считаются на бэке по всей схеме; viewer'у эндпоинт недоступен.
   async function loadAlerts() {
     if (!isArchitect) return;
@@ -299,12 +311,15 @@ export default function TreePage({ onLogout }: Props) {
         label: "Создание объекта",
         level: levelAtCreate,
         undo: () => {
-          void nodesApi.deletionSnapshot(saved.id)
-            .then((s) => { snap = s; return nodesApi.delete(saved.id); })
-            .then(refetch);
+          guardPersist(
+            nodesApi.deletionSnapshot(saved.id)
+              .then((s) => { snap = s; return nodesApi.delete(saved.id); })
+              .then(refetch),
+            resyncOnPersistError,
+          );
         },
         redo: () => {
-          void (snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch);
+          guardPersist((snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch), resyncOnPersistError);
         },
       });
     } else if (before) {
@@ -318,8 +333,8 @@ export default function TreePage({ onLogout }: Props) {
       history.push({
         label: "Правка объекта",
         level: currentParentId,
-        undo: () => { apply(before); void nodesApi.update(before.id, nodeFields(before)); },
-        redo: () => { apply(saved); void nodesApi.update(saved.id, nodeFields(saved)); },
+        undo: () => { apply(before); guardPersist(nodesApi.update(before.id, nodeFields(before)), resyncOnPersistError); },
+        redo: () => { apply(saved); guardPersist(nodesApi.update(saved.id, nodeFields(saved)), resyncOnPersistError); },
       });
     }
   }
@@ -346,10 +361,10 @@ export default function TreePage({ onLogout }: Props) {
     history.push({
       label: "Удаление объекта",
       undo: () => {
-        void nodesApi.restore(snapshot).then(refetch);
+        guardPersist(nodesApi.restore(snapshot).then(refetch), resyncOnPersistError);
       },
       redo: () => {
-        void nodesApi.delete(id).then(refetch);
+        guardPersist(nodesApi.delete(id).then(refetch), resyncOnPersistError);
       },
     });
   }
@@ -435,8 +450,8 @@ export default function TreePage({ onLogout }: Props) {
     history.push({
       label: "Удаление связи",
       level: levelAtDelete,
-      undo: () => { void nodesApi.restore(snapshot).then(refetch); },
-      redo: () => { void edgesApi.delete(id).then(refetch); },
+      undo: () => { guardPersist(nodesApi.restore(snapshot).then(refetch), resyncOnPersistError); },
+      redo: () => { guardPersist(edgesApi.delete(id).then(refetch), resyncOnPersistError); },
     });
   }
 
@@ -453,8 +468,8 @@ export default function TreePage({ onLogout }: Props) {
     history.push({
       label: "Правка связи",
       level: levelAtEdit,
-      undo: () => { void edgesApi.update(updated.id, undoPayload).then(refetch); },
-      redo: () => { void edgesApi.update(updated.id, redoPayload).then(refetch); },
+      undo: () => { guardPersist(edgesApi.update(updated.id, undoPayload).then(refetch), resyncOnPersistError); },
+      redo: () => { guardPersist(edgesApi.update(updated.id, redoPayload).then(refetch), resyncOnPersistError); },
     });
   }
 
@@ -480,12 +495,15 @@ export default function TreePage({ onLogout }: Props) {
       label: "Создание связи",
       level: levelAtCreate,
       undo: () => {
-        void edgesApi.deletionSnapshot(created.id)
-          .then((s) => { snap = s; return edgesApi.delete(created.id); })
-          .then(refetch);
+        guardPersist(
+          edgesApi.deletionSnapshot(created.id)
+            .then((s) => { snap = s; return edgesApi.delete(created.id); })
+            .then(refetch),
+          resyncOnPersistError,
+        );
       },
       redo: () => {
-        void (snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch);
+        guardPersist((snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch), resyncOnPersistError);
       },
     });
   }
@@ -647,6 +665,7 @@ export default function TreePage({ onLogout }: Props) {
               history={history}
               onUndo={dispatchUndo}
               onRedo={dispatchRedo}
+              onPersistError={resyncOnPersistError}
             />
           )}
         </div>

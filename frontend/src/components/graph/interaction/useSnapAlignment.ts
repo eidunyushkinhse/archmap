@@ -3,6 +3,7 @@ import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
 import { nodesApi } from "../../../api/nodes";
+import { guardPersist } from "./persistGuard";
 import type { History } from "./useHistory";
 import { snapNode, nodeSize } from "./snap";
 import type { SpacingGuide } from "./distribute";
@@ -34,11 +35,13 @@ interface Params {
   ) => void;
   // запись действия в историю Undo/Redo (перемещение группы = одна команда)
   push?: History["push"];
+  // фоновый персист позиции упал — вернуть зеркало к истине (ресинк уровня из БД)
+  onPersistError?: (e: unknown) => void;
 }
 
 export function useSnapAlignment({
   rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-  ancestorIds, ancestorNames, onNodeMoved, push,
+  ancestorIds, ancestorNames, onNodeMoved, push, onPersistError,
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
   // Заполняется noteDragStart на onNodeDragStart/onSelectionDragStart (до сдвига).
@@ -103,7 +106,7 @@ export function useSnapAlignment({
         if (n.type === "block") {
           // Локальный узел — координаты в самом узле
           const pos = { pos_x: px, pos_y: py };
-          nodesApi.update(n.id, pos);
+          guardPersist(nodesApi.update(n.id, pos), onPersistError);
           onNodeMoved?.(n.id, "block", pos);
           if (start && (start.x !== pos.pos_x || start.y !== pos.pos_y)) {
             moves.push({ id: n.id, kind: "block", old: { pos_x: start.x, pos_y: start.y }, next: pos });
@@ -117,7 +120,7 @@ export function useSnapAlignment({
           if (clamped.x !== px || clamped.y !== py) {
             onNodesChange([{ id: n.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
           }
-          nodesApi.saveGhostPosition(containerId, n.id, gpos);
+          guardPersist(nodesApi.saveGhostPosition(containerId, n.id, gpos), onPersistError);
           onNodeMoved?.(n.id, n.type, gpos);
           if (start && (start.x !== gpos.pos_x || start.y !== gpos.pos_y)) {
             moves.push({ id: n.id, kind: n.type, old: { pos_x: start.x, pos_y: start.y }, next: gpos });
@@ -132,10 +135,10 @@ export function useSnapAlignment({
           for (const m of moves) {
             const p = m[which];
             if (m.kind === "block") {
-              void nodesApi.update(m.id, p);
+              guardPersist(nodesApi.update(m.id, p), onPersistError);
               onNodeMoved?.(m.id, "block", p);
             } else if (containerId) {
-              void nodesApi.saveGhostPosition(containerId, m.id, p);
+              guardPersist(nodesApi.saveGhostPosition(containerId, m.id, p), onPersistError);
               onNodeMoved?.(m.id, m.kind, p);
             }
           }
@@ -147,7 +150,7 @@ export function useSnapAlignment({
         });
       }
     },
-    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes, push],
+    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes, push, onPersistError],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт

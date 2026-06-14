@@ -5,6 +5,7 @@
 // для уровня. Какой слой — решает вызывающий по флагу ghost.
 import { useCallback } from "react";
 import { edgesApi, nodesApi } from "../../../api/nodes";
+import { guardPersist } from "./persistGuard";
 import type { EdgePoint } from "../../../types";
 
 interface Params {
@@ -14,10 +15,12 @@ interface Params {
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // гостевая стрелка сохранена в пер-уровневый слой — зеркало в стейт уровня
   onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
+  // фоновый персист пути упал — вернуть зеркало к истине (ресинк уровня из БД)
+  onPersistError?: (e: unknown) => void;
 }
 
 export function useEdgeWaypoints({
-  isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
+  isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged, onPersistError,
 }: Params) {
   // зафиксировать путь по отпусканию драга. edgeIds — все члены стрелки (у одиночной
   // один, у мастер-стрелки несколько): путь общий, поэтому «размазываем» его по всем.
@@ -29,17 +32,17 @@ export function useEdgeWaypoints({
       if (ghost) {
         if (!containerId) return; // гости только на не-корневых уровнях
         for (const edgeId of edgeIds) {
-          void nodesApi.saveEdgeWaypoints(containerId, edgeId, waypoints);
+          guardPersist(nodesApi.saveEdgeWaypoints(containerId, edgeId, waypoints), onPersistError);
           onLevelEdgeWaypointsChanged?.(edgeId, waypoints);
         }
       } else {
         for (const edgeId of edgeIds) {
-          void edgesApi.update(edgeId, { waypoints });
+          guardPersist(edgesApi.update(edgeId, { waypoints }), onPersistError);
           onEdgeWaypointsChanged?.(edgeId, waypoints);
         }
       }
     },
-    [isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged],
+    [isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged, onPersistError],
   );
   return { commitWaypoints };
 }

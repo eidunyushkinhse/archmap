@@ -55,6 +55,7 @@ import type { History } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
+import { guardPersist } from "./graph/interaction/persistGuard";
 
 // --- Основной компонент ---
 
@@ -181,6 +182,10 @@ interface LevelGraphProps {
   // history.undo/redo напрямую. В контекст-модалке не передаются (истории там нет).
   onUndo?: () => void;
   onRedo?: () => void;
+  // фоновый («оптимистичный»/компенсирующий) персист правки канваса упал — родитель
+  // возвращает зеркало к истине, перезагружая уровень из БД. Без него зеркало и БД
+  // молча расходятся при сетевой ошибке/409. В контекст-модалке не нужен (read-only).
+  onPersistError?: (e: unknown) => void;
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
@@ -216,6 +221,7 @@ function LevelGraphInner({
   history: historyProp,
   onUndo,
   onRedo,
+  onPersistError,
   mode = "level",
 }: LevelGraphProps) {
   const isContext = mode === "context";
@@ -318,7 +324,7 @@ function LevelGraphInner({
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-    ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist, push: history.push,
+    ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist, push: history.push, onPersistError,
   });
 
   // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
@@ -398,7 +404,7 @@ function LevelGraphInner({
   // смене хэндла сбрасывает waypoints (пустой массив) — старый путь считался относительно
   // прежних концов и после смены хэндла кривой; дефолтный авто-маршрут корректнее.
   const { commitWaypoints } = useEdgeWaypoints({
-    isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged,
+    isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged, onPersistError,
   });
 
   // Персист позиции плашки (доля label_t) по отпусканию её драга. Доля геометрия-
@@ -408,11 +414,11 @@ function LevelGraphInner({
     (edgeIds: string[], t: number | null) => {
       if (!isArchitect) return;
       for (const edgeId of edgeIds) {
-        void edgesApi.update(edgeId, { label_t: t });
+        guardPersist(edgesApi.update(edgeId, { label_t: t }), onPersistError);
         onEdgeLabelTChanged?.(edgeId, t);
       }
     },
-    [isArchitect, onEdgeLabelTChanged],
+    [isArchitect, onEdgeLabelTChanged, onPersistError],
   );
 
   // Реконнект концов рёбер (смена хэндла на том же узле + персист). commitWaypoints —
@@ -423,7 +429,7 @@ function LevelGraphInner({
     consumeReconnectClick,
   } = useReconnectHandles({
     setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged,
-    commitWaypoints, push: history.push,
+    commitWaypoints, push: history.push, onPersistError,
   });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —

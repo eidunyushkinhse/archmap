@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import type { MouseEvent } from "react";
 import { reconnectEdge, type Edge as RFEdge, type Connection } from "@xyflow/react";
 import { nodesApi, edgesApi } from "../../../api/nodes";
+import { guardPersist } from "./persistGuard";
 import type { Node as AppNode, EdgePoint } from "../../../types";
 import type { WrappedEdgeData } from "../types";
 import type { History } from "./useHistory";
@@ -28,10 +29,12 @@ interface Params {
   commitWaypoints: (edgeIds: string[], waypoints: EdgePoint[], ghost: boolean) => void;
   // запись смены хэндла в историю Undo/Redo (составная инверсия: хэндлы + изломы)
   push?: History["push"];
+  // фоновый персист хэндлов упал — вернуть зеркало к истине (ресинк уровня из БД)
+  onPersistError?: (e: unknown) => void;
 }
 
 export function useReconnectHandles({
-  setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged, commitWaypoints, push,
+  setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged, commitWaypoints, push, onPersistError,
 }: Params) {
   // Reconnect: отслеживаем активное ребро и успех операции
   const reconnectingEdge = useRef<RFEdge | null>(null);
@@ -156,8 +159,8 @@ export function useReconnectHandles({
         // что вернул бы рефетч, иначе пересчёт раскладки откатит к autoHandles).
         const persistHandles = (h: HandleSet) => {
           for (const mid of memberIds) {
-            if (h.column) void edgesApi.update(mid, h.column);
-            if (h.ghost && containerId) void nodesApi.saveGhostEdgeHandle(containerId, mid, h.ghost);
+            if (h.column) guardPersist(edgesApi.update(mid, h.column), onPersistError);
+            if (h.ghost && containerId) guardPersist(nodesApi.saveGhostEdgeHandle(containerId, mid, h.ghost), onPersistError);
             onEdgeHandlesChanged?.(mid, { column: h.column, ghost: h.ghost });
           }
         };
@@ -186,7 +189,7 @@ export function useReconnectHandles({
         }
       }
     },
-    [isArchitect, nodes, containerId, onEdgeHandlesChanged, commitWaypoints, push, setRfEdges],
+    [isArchitect, nodes, containerId, onEdgeHandlesChanged, commitWaypoints, push, setRfEdges, onPersistError],
   );
 
   const handleReconnectEnd = useCallback(() => {
