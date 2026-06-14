@@ -22,6 +22,12 @@ export type Node = Schemas["NodeResponse"];
 export const compareByRank = (a: Node, b: Node): number =>
   b.child_count - a.child_count || a.name.localeCompare(b.name);
 
+// Узлы-«пользователи» (shape: person) в дереве-навигаторе не показываем: дерево —
+// навигатор детализации, «провалиться» внутрь пользователя нечего. Общий отсев для
+// боковой панели (NodeTreePanel) и ветки детей в модалке (NodeModal).
+export const withoutPersons = (nodes: Node[]): Node[] =>
+  nodes.filter((n) => n.shape !== "person");
+
 export type NodeCreate = Schemas["NodeCreate"];
 export type NodeUpdate = Schemas["NodeUpdate"];
 

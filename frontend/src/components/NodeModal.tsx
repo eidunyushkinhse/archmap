@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { DeletionSnapshot, Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
+import { canHaveChildren, compareByRank, withoutPersons } from "../types";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import MermaidRenderer from "./MermaidRenderer";
 import NodeDeleteConfirm from "./NodeDeleteConfirm";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn, dangerBtn } from "../ui/styles";
+import { ShapeGlyph, Chevron } from "./nodeTree.shared";
 import "./nodeModal.css";
+import "./NodeTreePanel.css";
 
 interface Props {
   node: Node | null;
@@ -49,6 +52,18 @@ export default function NodeModal({
 
   // Открыто ли подтверждение удаления (связи и само удаление — в NodeDeleteConfirm)
   const [confirming, setConfirming] = useState(false);
+
+  // Прямые дети узла для справочной ветки «Дочерние объекты» (только просмотр).
+  // null — ещё грузим (показываем плейсхолдер, НЕ мигаем «Нет»); [] — детей нет.
+  const [rootKids, setRootKids] = useState<Node[] | null>(null);
+  useEffect(() => {
+    if (isCreate || editing) return; // ветка нужна только в просмотре существующего узла
+    let alive = true;
+    nodesApi.getChildren(node!.id)
+      .then((cs) => { if (alive) setRootKids(withoutPersons(cs).sort(compareByRank)); })
+      .catch(() => { if (alive) setRootKids([]); });
+    return () => { alive = false; };
+  }, [node, isCreate, editing]);
 
   // У какого края прокрутки находимся: пока есть скрытый контент за липкими
   // шапкой/полосой действий — у их края виден разделитель; у самого верха/низа
@@ -273,6 +288,10 @@ export default function NodeModal({
                   value: node!.technology || "не указана", empty: !node!.technology,
                 });
               }
+              // Состояние ветки детей: null — ещё грузим (плейсхолдер), [] — «Нет».
+              const loadingKids = rootKids === null;
+              const kids = rootKids ?? [];
+              const hasKids = kids.length > 0;
               return (
                 <dl style={metaList}>
                   {rows.map((r) => (
@@ -287,6 +306,26 @@ export default function NodeModal({
                       </dd>
                     </div>
                   ))}
+                  {/* Строка «Дочерние объекты»: тот же ряд метаданных, но в колонке
+                      значения — справочная ветка дерева либо «Нет» (во время загрузки
+                      «Нет» НЕ мигаем). При наличии детей терм выравниваем по верху. */}
+                  <div style={{ ...metaRow, alignItems: hasKids ? "flex-start" : "center" }}>
+                    <dt style={{ ...metaTerm, ...(hasKids ? { alignSelf: "flex-start", paddingTop: 6 } : null) }}>
+                      <span style={metaIconWrap}>{META_ICON.children}</span>
+                      Дочерние объекты
+                    </dt>
+                    <dd style={{ ...metaValue, display: "block", flex: 1, minWidth: 0 }}>
+                      {loadingKids ? (
+                        <span style={metaValueEmpty}>загрузка…</span>
+                      ) : hasKids ? (
+                        <div className="nt-tree nt-tree--inline">
+                          {kids.map((k) => <ModalTreeRow key={k.id} node={k} />)}
+                        </div>
+                      ) : (
+                        <span style={metaValueEmpty}>Нет</span>
+                      )}
+                    </dd>
+                  </div>
                 </dl>
               );
             })()}
@@ -339,6 +378,53 @@ export default function NodeModal({
           onCancel={() => setConfirming(false)}
           onDeleted={(id, snapshot) => { setConfirming(false); onDeleted?.(id, snapshot); }}
         />
+      )}
+    </>
+  );
+}
+
+// Строка справочной ветки детей в модалке: мини-аналог Row из NodeTreePanel, но
+// БЕЗ построчного клика (drill/контекст) и без подписи действия — работает только
+// раскрытие шевроном с ленивой подгрузкой. Глиф формы/шеврон/направляющая —
+// общие с деревом слева (nodeTree.shared + классы nt-* из NodeTreePanel.css).
+function ModalTreeRow({ node }: { node: Node }) {
+  const [open, setOpen] = useState(false);
+  const [kids, setKids] = useState<Node[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const expandable = canHaveChildren(node.shape) && node.has_children;
+
+  async function toggle() {
+    if (open) { setOpen(false); return; }
+    if (kids === null) {
+      setLoading(true);
+      try {
+        const got = withoutPersons(await nodesApi.getChildren(node.id)).sort(compareByRank);
+        setKids(got);
+        if (got.length === 0) return; // после отсева персон — лист, не раскрываем
+      } finally { setLoading(false); }
+    } else if (kids.length === 0) { return; }
+    setOpen(true);
+  }
+
+  const isContainer = expandable; // глиф «коробка с крышкой» как в дереве
+  return (
+    <>
+      <div className="nt-row">
+        {expandable ? (
+          <button className="nt-chevzone" onClick={toggle}
+            aria-label={open ? "Свернуть ветку" : "Развернуть ветку"} aria-expanded={open}>
+            <span className="nt-chevhit">
+              <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>
+                {loading ? "⋯" : <Chevron />}
+              </span>
+            </span>
+          </button>
+        ) : <span className="nt-chevspacer" />}
+        <ShapeGlyph container={isContainer} shape={node.shape} />
+        <span className={isContainer ? "nt-name nt-name--container" : "nt-name"}>{node.name}</span>
+      </div>
+      {open && kids && kids.length > 0 && (
+        <div className="nt-children">{kids.map((k) => <ModalTreeRow key={k.id} node={k} />)}</div>
       )}
     </>
   );
@@ -431,12 +517,19 @@ const metaSvg = {
   strokeLinecap: "round", strokeLinejoin: "round",
 } as const;
 
-// Иконки: Тип (компонент-бокс), Размещение (глобус), Роль (закладка), Технология (</>).
-const META_ICON: Record<"type" | "placement" | "role" | "tech", ReactNode> = {
+// Иконки: Тип (компонент-бокс), Размещение (глобус), Роль (закладка), Технология (</>),
+// Дочерние объекты (мини-оргсхема «родитель → два потомка»).
+const META_ICON: Record<"type" | "placement" | "role" | "tech" | "children", ReactNode> = {
   type: <svg {...metaSvg}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
   placement: <svg {...metaSvg}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
   role: <svg {...metaSvg}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
   tech: <svg {...metaSvg}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
+  children: <svg {...metaSvg}>
+    <rect x="6" y="2.5" width="4" height="3" rx="0.6" />
+    <rect x="1.75" y="10.5" width="4" height="3" rx="0.6" />
+    <rect x="10.25" y="10.5" width="4" height="3" rx="0.6" />
+    <path d="M8 5.5V8 M3.75 8H12.25 M3.75 8V10.5 M12.25 8V10.5" />
+  </svg>,
 };
 
 const metaList: CSSProperties = { margin: "0 0 12px", borderTop: "1px solid #eef0f2" };

@@ -12,6 +12,7 @@ import {
 } from "./shapes";
 import type { BlockRFNode, GhostRFNode, ContainerRFNode } from "./types";
 import { canHaveChildren } from "../../types";
+import { DrillInIcon, MoreIcon } from "./icons";
 
 // Оверлей «зоны входа»: во время протягивания связи (CSS .lg-canvas--connecting)
 // контент узла-контейнера прячется, а по центру показывается «стрелка вниз в лунку» —
@@ -225,14 +226,14 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
               onClick={(e) => { e.stopPropagation(); data.onDrillDown(data.appNode); }}
               style={btnStyle}
               title="Войти"
-            >→</button>
+            ><DrillInIcon /></button>
           )}
           <button
             className="nodrag"
             onClick={(e) => { e.stopPropagation(); data.onEdit(data.appNode); }}
             style={btnStyle}
-            title={data.isArchitect ? "Изменить" : "Просмотр"}
-          >{data.isArchitect ? "✎" : "◉"}</button>
+            title="Подробнее"
+          ><MoreIcon /></button>
         </div>
       )}
 
@@ -271,7 +272,7 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
             onClick={(e) => { e.stopPropagation(); onEnter?.(); }}
             style={btnStyle}
             title="Войти к компонентам"
-          >→</button>
+          ><DrillInIcon /></button>
         </div>
       )}
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, canEnter) }}>
@@ -309,7 +310,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
             onClick={(e) => { e.stopPropagation(); data.onEnter?.(); }}
             style={btnStyle}
             title="Войти к компонентам"
-          >→</button>
+          ><DrillInIcon /></button>
         )}
         <button
           className="nodrag"

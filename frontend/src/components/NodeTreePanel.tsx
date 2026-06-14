@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, DragEvent, ReactNode } from "react";
+import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
-import { canHaveChildren, compareByRank } from "../types";
+import { canHaveChildren, compareByRank, withoutPersons } from "../types";
+import { ShapeGlyph, Chevron } from "./nodeTree.shared";
 import "./NodeTreePanel.css";
 
 /**
@@ -28,11 +29,10 @@ export const NODE_DRAG_MIME = "application/archmap-node-shape";
  *  - промежуточный узел (has_children) → провалиться на его слой ОСНОВНОЙ схемы
  *    (onDrillTo получает полный путь от корня до узла);
  *  - лист (детей нет) → открыть контекстную схему узла (onNodeContext).
- * Узлы-«пользователи» (shape: person) в дереве не показываем: дерево — навигатор
- * детализации, «провалиться» внутрь пользователя нечего.
+ * Узлы-«пользователи» (shape: person) в дереве не показываем (общий отсев
+ * withoutPersons в nodeTree.shared): дерево — навигатор детализации, «провалиться»
+ * внутрь пользователя нечего.
  */
-const withoutPersons = (nodes: Node[]): Node[] =>
-  nodes.filter((n) => n.shape !== "person");
 
 interface Props {
   // клик по промежуточному узлу (есть дети) → провалиться на его слой основной схемы;
@@ -107,49 +107,6 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
-// Глиф формы узла в строке дерева (14×12, контурный, наследует цвет строки через
-// currentColor — серый в покое, синий на hover). Контейнер (узел с детьми) рисуется
-// «коробкой с крышкой» независимо от shape; листья — по своей форме.
-function ShapeGlyph({ container, shape }: { container: boolean; shape: NodeShape }) {
-  const common = {
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.2,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-  };
-  let body: ReactNode;
-  if (container) {
-    body = (
-      <>
-        <rect x={1} y={3.5} width={12} height={7.5} rx={2} {...common} />
-        <path d="M3.5 3.5 V2 a1 1 0 0 1 1-1 h5 a1 1 0 0 1 1 1 v1.5" {...common} />
-      </>
-    );
-  } else if (shape === "database") {
-    body = (
-      <>
-        <path d="M2 2 v6.2 a5 1.8 0 0 0 10 0 V2" {...common} />
-        <ellipse cx={7} cy={2.2} rx={5} ry={1.7} {...common} />
-      </>
-    );
-  } else if (shape === "broker") {
-    body = (
-      <>
-        <path d="M4.5 1.5 h5 a3 4.5 0 0 1 0 9 h-5 a3 4.5 0 0 1 0-9 Z" {...common} />
-        <path d="M4.5 1.5 a3 4.5 0 0 1 0 9" {...common} />
-      </>
-    );
-  } else {
-    body = <rect x={1.5} y={1.5} width={11} height={9} rx={2} {...common} />;
-  }
-  return (
-    <span className="nt-glyph">
-      <svg width={14} height={12} viewBox="0 0 14 12">{body}</svg>
-    </span>
-  );
-}
-
 // Подпись действия справа в строке (видна только на hover). Контейнер → стрелка
 // вправо + «компоненты» (drill на слой); лист → кольцо с точкой + «контекст».
 function ActionLabel({ container }: { container: boolean }) {
@@ -174,18 +131,6 @@ function ActionLabel({ container }: { container: boolean }) {
         </>
       )}
     </span>
-  );
-}
-
-// Шеврон-«галочка» раскрытия ветки: контурный ">" в свёрнутом состоянии; поворот
-// на 90° (вниз) при раскрытии задаётся снаружи (chevIcon.transform). Наследует цвет
-// строки через currentColor (серый в покое, синий на hover зоны).
-function Chevron() {
-  return (
-    <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
-      <path d="M9 6 L15 12 L9 18" />
-    </svg>
   );
 }
 

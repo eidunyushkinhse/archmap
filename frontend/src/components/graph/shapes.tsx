@@ -165,4 +165,9 @@ export const nodeBtn: CSSProperties = {
   cursor: "pointer",
   fontSize: 12,
   lineHeight: 1.4,
+  // центрируем SVG-глиф кнопки (стрелка-в-лунку «Войти», три точки «Подробнее»);
+  // на текстовые глифы (лупа «Раскрыть») не влияет
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
