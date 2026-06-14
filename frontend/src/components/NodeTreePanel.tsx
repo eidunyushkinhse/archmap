@@ -4,6 +4,7 @@ import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
 import { canHaveChildren, compareByRank, withoutPersons } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
+import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon, FlowIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 
 /**
@@ -134,21 +135,6 @@ function ActionLabel({ container }: { container: boolean }) {
   );
 }
 
-// Двойной шеврон для футера сворачивания (влево — свернуть, вправо — развернуть).
-function DoubleChevron({ dir }: { dir: "left" | "right" }) {
-  const d =
-    dir === "left"
-      ? ["M11 17 L6 12 L11 7", "M17 17 L12 12 L17 7"]
-      : ["M13 17 L18 12 L13 7", "M7 17 L12 12 L7 7"];
-  return (
-    <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d={d[0]} />
-      <path d={d[1]} />
-    </svg>
-  );
-}
-
 // Иконка корзины для оверлея отмены драга. Темнеет при наведении (drop = отмена).
 function TrashIcon({ active }: { active: boolean }) {
   const c = active ? "#475569" : "#94a3b8";
@@ -180,10 +166,10 @@ function Section({ open, grow, title, onToggle, children }: {
 }) {
   return (
     <div className="nt-section" style={{ ...section, flex: grow && open ? 1 : "none" }}>
-      <button onClick={onToggle} style={sectionHeader} title={open ? "Свернуть" : "Развернуть"}>
+      <button className="nt-sechead" onClick={onToggle} title={open ? "Свернуть" : "Развернуть"}>
         <span>{title}</span>
-        {/* Мелкий шеврон у правого края, поворачивается при раскрытии секции. */}
-        <span style={{ ...sectionChev, transform: open ? "rotate(90deg)" : "none" }}>▸</span>
+        {/* SVG-шеврон у правого края, поворачивается на 90° при раскрытии секции. */}
+        <span className={open ? "nt-secchev nt-secchev--open" : "nt-secchev"}><ChevronIcon /></span>
       </button>
       {open && <div style={sectionBody}>{children}</div>}
     </div>
@@ -414,18 +400,39 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
 
   return (
     <aside style={{ ...panel, width: collapsed ? PANEL_COLLAPSED_W : PANEL_W }}>
-      {/* Контент фиксированной ширины: при сворачивании панель сужается и клиппит
-          его (плюс лёгкое затухание), поэтому текст не переносится и не дёргается. */}
-      <div
-        style={{
-          ...content,
-          opacity: collapsed ? 0 : 1,
-          pointerEvents: collapsed ? "none" : "auto",
-        }}
-      >
-        {/* Секция 1: дерево узлов */}
+      {/* Свёрнутая панель — рейл с иконками секций: клик разворачивает панель и
+          открывает соответствующую секцию (а не пустая полоса). */}
+      {collapsed ? (
+        <div style={rail}>
+          <button
+            className="nt-railbtn"
+            title="Дерево объектов"
+            onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("tree")); }}
+          >
+            <TreeIcon />
+          </button>
+          {isArchitect && (
+            <button
+              className="nt-railbtn"
+              title="Добавить объект"
+              onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("add")); }}
+            >
+              <PlusIcon />
+            </button>
+          )}
+          <button
+            className="nt-railbtn"
+            title="Бизнес-процессы"
+            onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("bpm")); }}
+          >
+            <FlowIcon />
+          </button>
+        </div>
+      ) : (
+      <div style={content}>
+        {/* Секция 1: дерево объектов */}
         <Section
-          title="Дерево узлов"
+          title="Дерево объектов"
           grow
           open={openSections.has("tree")}
           onToggle={() => toggleSection("tree")}
@@ -434,17 +441,17 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
             {loadingRoots ? (
               <div style={hint}>Загрузка…</div>
             ) : roots.length === 0 ? (
-              <div style={hint}>Нет узлов</div>
+              <div style={hint}>Нет объектов</div>
             ) : (
               roots.map((n) => <Row key={n.id} node={n} />)
             )}
           </div>
         </Section>
 
-        {/* Секция 2: палитра шаблонов для создания узла (только архитектор) */}
+        {/* Секция 2: палитра шаблонов для создания объекта (только архитектор) */}
         {isArchitect && (
           <Section
-            title="Добавить узел"
+            title="Добавить объект"
             open={openSections.has("add")}
             onToggle={() => toggleSection("add")}
           >
@@ -477,6 +484,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
           <div style={stub}>Раздел в разработке</div>
         </Section>
       </div>
+      )}
 
       {/* «Корзина» — плитка поверх всей панели на время драга шаблона. Рисуется
           СВЕРХУ (а не заменой контента), чтобы источник драга остался смонтированным:
@@ -502,7 +510,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
         onClick={() => setCollapsed((c) => !c)}
         title={collapsed ? "Развернуть панель" : "Свернуть панель"}
       >
-        <DoubleChevron dir={collapsed ? "right" : "left"} />
+        <CollapseIcon dir={collapsed ? "right" : "left"} />
         {!collapsed && <span>Свернуть панель</span>}
       </button>
     </aside>
@@ -510,17 +518,26 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
 }
 
 const PANEL_W = 260;          // ширина развёрнутой панели
-const PANEL_COLLAPSED_W = 40; // узкая полоса в свёрнутом виде
+const PANEL_COLLAPSED_W = 48; // узкий рейл с иконками секций в свёрнутом виде
 
 const panel: CSSProperties = {
   position: "relative",
   flexShrink: 0,
-  borderRight: "1px solid #e5e7eb",
+  borderRight: "1px solid #e2e8f0",
   background: "#fbfcfd",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
   transition: "width 0.22s ease",
+};
+// Рейл свёрнутой панели: вертикальный ряд иконочных кнопок секций.
+const rail: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 6,
+  paddingTop: 12,
+  flex: 1,
 };
 const content: CSSProperties = {
   width: PANEL_W,            // фиксированная ширина — без переноса текста при анимации
@@ -536,32 +553,6 @@ const section: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   minHeight: 0,
-};
-const sectionHeader: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  width: "100%",
-  padding: "13px 14px 7px",
-  fontSize: 11,
-  fontWeight: 700,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: "#64748b",
-  background: "none",
-  border: "none",
-  cursor: "pointer",
-  textAlign: "left",
-  flexShrink: 0,
-};
-// Мелкий шеврон секции, прижат к правому краю, поворачивается при раскрытии.
-const sectionChev: CSSProperties = {
-  marginLeft: "auto",
-  fontSize: 10,
-  lineHeight: 1,
-  flexShrink: 0,
-  color: "#94a3b8",
-  transition: "transform 0.12s ease",
-  display: "inline-block",
 };
 const sectionBody: CSSProperties = {
   minHeight: 0,

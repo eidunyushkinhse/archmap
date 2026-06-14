@@ -105,9 +105,9 @@ export default function NodeContextModal({ node, onClose }: Props) {
       boxStyle={{ width: "min(1100px, 94vw)", padding: 24, display: "flex", flexDirection: "column" }}
     >
       <h2 style={{ margin: "0 0 2px" }}>{node.name}</h2>
-      <p style={sub}>Контекстная схема — узел и его прямые соседи</p>
+      <p style={sub}>Контекстная схема — объект и его прямые соседи</p>
       {!loading && !error && noNeighbors && (
-        <p style={emptyHint}>У этого узла нет внешних связей — показан только сам узел.</p>
+        <p style={emptyHint}>У этого объекта нет внешних связей — показан только сам объект.</p>
       )}
 
       <div style={graphWrap}>

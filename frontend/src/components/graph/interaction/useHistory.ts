@@ -29,6 +29,11 @@ export interface History {
   // увести пользователя на нужный уровень до того, как сработает undo/redo.
   peekUndo: () => HistoryCommand | undefined;
   peekRedo: () => HistoryCommand | undefined;
+  // Есть ли что отменять/повторять — для disabled-состояния кнопок тулбара. Предикаты
+  // читаются на рендере; стек меняется вместе с правкой стейта (push/undo/redo зовут
+  // setState), поэтому кнопки пересчитываются естественным ререндером.
+  canUndo: () => boolean;
+  canRedo: () => boolean;
   // Сгруппировать все push-и одного жеста в ОДНУ составную команду. Между beginGroup и
   // commitGroup каждый push не кладётся в стек, а буферизуется; commitGroup сворачивает
   // буфер в один HistoryCommand (undo откатывает всё в обратном порядке, redo повторяет
@@ -85,6 +90,12 @@ export function createHistory(): History {
     },
     peekRedo() {
       return redoStack[redoStack.length - 1];
+    },
+    canUndo() {
+      return undoStack.length > 0;
+    },
+    canRedo() {
+      return redoStack.length > 0;
     },
     // Открыть буфер группировки. Повторный beginGroup без commit продолжает текущий
     // буфер (вложенность не моделируем — жест всегда плоский).

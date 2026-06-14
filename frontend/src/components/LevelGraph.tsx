@@ -18,6 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
+import { UndoIcon, RedoIcon } from "../ui/icons";
 import { edgesApi } from "../api/nodes";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef } from "../types";
 import { canHaveChildren } from "../types";
@@ -927,31 +928,27 @@ function LevelGraphInner({
       {/* Тулбар Undo/Redo (архитектор, не контекст). Кнопка надёжнее клавиш — не зависит
           от фокуса. Обе зовут дисптчеры из TreePage (кросс-уровневый редирект). */}
       {isArchitect && !isContext && (
-        <div
-          style={{ position: "absolute", top: 8, left: 8, zIndex: 5, display: "flex", gap: 4 }}
-        >
-          <button
-            type="button"
-            onClick={runUndo}
-            title="Отменить (Ctrl+Z)"
-            style={{
-              padding: "4px 10px", fontSize: 13, borderRadius: 6, cursor: "pointer",
-              border: "1px solid #d1d5db", background: "#fff", color: "#111827",
-            }}
-          >
-            ↶ Отменить
-          </button>
-          <button
-            type="button"
-            onClick={runRedo}
-            title="Вернуть (Ctrl+Shift+Z)"
-            style={{
-              padding: "4px 10px", fontSize: 13, borderRadius: 6, cursor: "pointer",
-              border: "1px solid #d1d5db", background: "#fff", color: "#111827",
-            }}
-          >
-            ↷ Вернуть
-          </button>
+        <div style={{ position: "absolute", top: 14, left: 14, zIndex: 5 }}>
+          <div className="lg-seg">
+            <button
+              type="button"
+              onClick={runUndo}
+              disabled={!history.canUndo()}
+              title="Отменить · Ctrl+Z"
+              aria-label="Отменить"
+            >
+              <UndoIcon />
+            </button>
+            <button
+              type="button"
+              onClick={runRedo}
+              disabled={!history.canRedo()}
+              title="Вернуть · Ctrl+Shift+Z"
+              aria-label="Вернуть"
+            >
+              <RedoIcon />
+            </button>
+          </div>
         </div>
       )}
       {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
@@ -980,7 +977,7 @@ function LevelGraphInner({
                 <path d="M6 11 L12 5 L18 11" />
               </svg>
             </span>
-            Узел вне уровня
+            Объект вне уровня
           </span>
         </div>
       )}

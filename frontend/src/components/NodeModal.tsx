@@ -151,7 +151,7 @@ export default function NodeModal({
           уезжает при прокрутке. Маяк верха — первым, чтобы ловить позицию у края. */}
       <div ref={topSentinelRef} style={{ height: 1 }} aria-hidden />
       <div className={headerClass}>
-        <h2>{isCreate ? "Новый узел" : node!.name}</h2>
+        <h2>{isCreate ? "Новый объект" : node!.name}</h2>
         <button onClick={onClose} className="nm-close" aria-label="Закрыть">✕</button>
       </div>
 

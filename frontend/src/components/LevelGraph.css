@@ -1,3 +1,40 @@
+/* Сегментированная пара Undo/Redo поверх холста. */
+.lg-seg {
+  display: inline-flex;
+  align-items: stretch;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.lg-seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #475569;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.lg-seg button + button {
+  border-left: 1px solid #e8edf2;
+}
+.lg-seg button:hover:not(:disabled) {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.lg-seg button:active:not(:disabled) {
+  background: #dbeafe;
+}
+.lg-seg button:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+
 /* Точки контакта (12 хэндлов на узел) скрыты в покое.
    Показываем только тот хэндл, к которому архитектор сейчас подтягивает конец
    стрелки: React Flow вешает класс .connectingto на хэндл, попавший в зону

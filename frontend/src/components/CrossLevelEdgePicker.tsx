@@ -65,7 +65,7 @@ export default function CrossLevelEdgePicker({
     let cancelled = false;
     loadNodes()
       .then((d) => { if (!cancelled) setAllNodes(d); })
-      .catch(() => { if (!cancelled) { setAllNodes([]); setError("Не удалось загрузить узлы"); } });
+      .catch(() => { if (!cancelled) { setAllNodes([]); setError("Не удалось загрузить объекты"); } });
     return () => { cancelled = true; };
     // loadNodes — нестабильная ссылка из родителя; перезагружаем по scopeKey
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -219,11 +219,11 @@ export default function CrossLevelEdgePicker({
 
   async function handleCreate() {
     if (!picked) {
-      setError("Выберите узел");
+      setError("Выберите объект");
       return;
     }
     if (picked.id === sourceId) {
-      setError("Узел не может ссылаться сам на себя");
+      setError("Объект не может ссылаться сам на себя");
       return;
     }
     setSaving(true);
@@ -285,7 +285,7 @@ export default function CrossLevelEdgePicker({
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Найти узел…"
+        placeholder="Найти объект…"
         style={{ ...input, marginBottom: 10 }}
         data-autofocus
       />
@@ -295,7 +295,7 @@ export default function CrossLevelEdgePicker({
         {allNodes === null ? (
           <div style={hint}>Загрузка…</div>
         ) : roots.length === 0 ? (
-          <div style={hint}>Нет узлов</div>
+          <div style={hint}>Нет объектов</div>
         ) : visibleIds && visibleIds.size === 0 ? (
           <div style={hint}>Ничего не найдено</div>
         ) : (

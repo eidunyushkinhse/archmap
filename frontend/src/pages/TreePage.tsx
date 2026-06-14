@@ -17,6 +17,9 @@ import LevelGraph from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ExportModal from "../components/ExportModal";
+import ProfileMenu from "../ui/ProfileMenu";
+import { LogoMark, UpIcon, ExportIcon, ChevronIcon } from "../ui/icons";
+import "../ui/chrome.css";
 
 interface Props {
   onLogout: () => void;
@@ -563,43 +566,59 @@ export default function TreePage({ onLogout }: Props) {
       {/* Шапка + панель управления */}
       <div style={topBar}>
         <div style={topLeft}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#111827", marginRight: 20 }}>
-            ArchMap
-          </span>
-          {/* Хлебные крошки */}
-          <span
+          {/* Логомарк + вордмарк */}
+          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <LogoMark />
+            <span style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-0.01em", color: "#0f172a" }}>
+              Arch<span style={{ color: "#2563eb" }}>Map</span>
+            </span>
+          </div>
+          <span style={{ width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" }} />
+          {/* Хлебные крошки — без подчёркиваний, разделители-шевроны */}
+          <button
+            className="crumb"
             style={crumbLink}
             onClick={() => { setBreadcrumb([]); load(null); }}
           >
             Контекст
-          </span>
+          </button>
           {breadcrumb.map((n, i) => (
             <span key={n.id} style={{ display: "flex", alignItems: "center" }}>
-              <span style={{ color: "#9ca3af", margin: "0 6px" }}>/</span>
+              <span style={crumbSep}><ChevronIcon /></span>
               {i < breadcrumb.length - 1 ? (
-                <span style={crumbLink} onClick={() => navigateTo(i)}>{n.name}</span>
+                <button className="crumb" style={crumbLink} onClick={() => navigateTo(i)}>{n.name}</button>
               ) : (
-                <span style={{ color: "#374151" }}>{n.name}</span>
+                <span style={crumbCurrent}>{n.name}</span>
               )}
             </span>
           ))}
           {breadcrumb.length > 0 && (
-            <button onClick={goUp} style={upBtn}>↑ Наверх</button>
+            <button
+              className="icon-btn"
+              onClick={goUp}
+              style={{ ...iconBtn, width: 30, height: 30 }}
+              title="На уровень выше"
+              aria-label="На уровень выше"
+            >
+              <UpIcon />
+            </button>
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {/* Создание узла — перетаскиванием шаблона из боковой панели (секция
-              «Добавить узел»), связи — протягиванием стрелки от хэндла узла.
+              «Добавить объект»), связи — протягиванием стрелки от хэндла узла.
               Отдельных кнопок создания в шапке больше нет. */}
           <button
+            className="icon-btn"
             onClick={openExport}
-            style={exportBtn}
+            style={iconBtn}
             title="Скопировать схему (или текущее поддерево) в YAML для LLM"
+            aria-label="Экспорт в YAML"
           >
-            ⤓ Экспорт в YAML
+            <ExportIcon />
           </button>
-          <button onClick={onLogout} style={logoutBtn}>Выйти</button>
+          <ProfileMenu role={isArchitect ? "Архитектор" : "Наблюдатель"} onLogout={onLogout} />
         </div>
       </div>
 
@@ -706,29 +725,29 @@ export default function TreePage({ onLogout }: Props) {
       {intoPicker && (
         <CrossLevelEdgePicker
           title={`Связь внутрь «${intoPicker.containerName}»`}
-          subtitle="Выберите узел-потомок — дальний конец межуровневой связи."
+          subtitle="Выберите объект-потомок — дальний конец межуровневой связи."
           sourceId={intoPicker.sourceId}
           sourceLabel={findNodeLabel(intoPicker.sourceId)}
           sourceHandle={intoPicker.sourceHandle}
           loadNodes={() => nodesApi.getDescendants(intoPicker.containerId)}
           scopeKey={intoPicker.containerId}
           rootParentId={intoPicker.containerId}
-          slotPlaceholder={`Узел внутри «${intoPicker.containerName}»…`}
+          slotPlaceholder={`Объект внутри «${intoPicker.containerName}»…`}
           onClose={() => setIntoPicker(null)}
           onCreated={handleIntoCreated}
         />
       )}
       {outPicker && (
         <CrossLevelEdgePicker
-          title="Связь с узлом вне уровня"
-          subtitle="Выберите узел из любой части схемы — связь станет сквозной."
+          title="Связь с объектом вне уровня"
+          subtitle="Выберите объект из любой части схемы — связь станет сквозной."
           sourceId={outPicker.sourceId}
           sourceLabel={findNodeLabel(outPicker.sourceId)}
           sourceHandle={outPicker.sourceHandle}
           loadNodes={() => nodesApi.getAll()}
           scopeKey="all"
           rootParentId={null}
-          slotPlaceholder="Узел вне уровня…"
+          slotPlaceholder="Объект вне уровня…"
           // на этом уровне уже видны локальные узлы и гости — их (и сам источник)
           // выбирать незачем: к ним тянут связь прямо на холсте
           excludeIds={
@@ -812,8 +831,8 @@ const topBar: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  padding: "10px 20px",
-  borderBottom: "1px solid #e5e7eb",
+  padding: "11px 20px",
+  borderBottom: "1px solid #e2e8f0",
   background: "#fff",
   flexShrink: 0,
   gap: 12,
@@ -844,37 +863,38 @@ const graphArea: CSSProperties = {
   position: "relative", // якорь для абсолютного индикатора алертов
 };
 const crumbLink: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "3px 7px",
+  borderRadius: 7,
+  fontSize: 13.5,
+  color: "#64748b",
   cursor: "pointer",
-  color: "#2563eb",
-  textDecoration: "underline",
-  textUnderlineOffset: 2,
-};
-const upBtn: CSSProperties = {
-  marginLeft: 8,
-  padding: "3px 10px",
-  background: "#f3f4f6",
-  color: "#374151",
-  border: "1px solid #d1d5db",
-  borderRadius: 5,
-  cursor: "pointer",
-  fontSize: 13,
-};
-const logoutBtn: CSSProperties = {
-  padding: "6px 12px",
   background: "none",
-  color: "#6b7280",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 13,
-};
-const exportBtn: CSSProperties = {
-  padding: "6px 12px",
-  background: "#eef2ff",
-  color: "#4338ca",
-  border: "1px solid #c7d2fe",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 13,
+  border: "none",
+}; // hover (фон/синий) — класс .crumb в chrome.css
+const crumbCurrent: CSSProperties = {
+  padding: "3px 7px",
+  fontSize: 13.5,
+  color: "#1e293b",
   fontWeight: 600,
 };
+const crumbSep: CSSProperties = {
+  color: "#cbd5e1",
+  display: "inline-flex",
+  alignItems: "center",
+  margin: "0 1px",
+};
+const iconBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 34,
+  height: 34,
+  flex: "none",
+  background: "#fff",
+  color: "#475569",
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
+  cursor: "pointer",
+}; // hover — класс .icon-btn в chrome.css

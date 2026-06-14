@@ -4,7 +4,61 @@
 
 /* Разделитель секций аккордеона: тонкая линия сверху у всех, кроме первой. */
 .nt-section:not(:first-child) {
-  border-top: 1px solid #eef1f5;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Заголовок секции аккордеона: caps-микролейбл с SVG-шевроном справа и hover-строкой. */
+.nt-sechead {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  transition: color 0.12s ease;
+}
+.nt-sechead:hover {
+  color: #334155;
+}
+.nt-sechead:hover .nt-secchev {
+  color: #64748b;
+}
+.nt-secchev {
+  margin-left: auto;
+  flex: none;
+  color: #94a3b8;
+  display: inline-flex;
+  transition: transform 0.15s ease, color 0.12s ease;
+}
+.nt-secchev--open {
+  transform: rotate(90deg);
+}
+
+/* Иконочная кнопка секции в свёрнутом рейле. */
+.nt-railbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: #94a3b8;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.nt-railbtn:hover {
+  background: #eff6ff;
+  color: #2563eb;
 }
 
 /* Строка дерева: единый стиль для контейнеров и листьев (ни ссылок, ни пилюль). */
@@ -153,10 +207,11 @@
   background: none;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: #64748b;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 .nt-collapse:hover {
   background: #f1f5f9;
+  color: #334155;
 }

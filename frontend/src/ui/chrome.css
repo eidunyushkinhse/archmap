@@ -1,0 +1,26 @@
+/* Стили «хрома» приложения, которым нужны псевдоклассы (:hover) — задать инлайном
+   нельзя. Статика контролов остаётся style-константами в TreePage/ProfileMenu. */
+
+/* Хлебная крошка-ссылка: подсветка фона и синева на hover (без подчёркиваний). */
+.crumb:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+/* Иконочная кнопка шапки (экспорт, «наверх»). */
+.icon-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+/* Аватар профиля. */
+.pf-avatar:hover {
+  border-color: #93c5fd;
+  background: #dbeafe;
+}
+
+/* Пункт меню профиля «Выйти». */
+.pf-logout:hover {
+  background: #fef2f2;
+}

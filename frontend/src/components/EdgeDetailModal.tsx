@@ -67,11 +67,11 @@ export default function EdgeDetailModal({
 
   async function handleSave() {
     if (!sourceId || !targetId) {
-      setError("Выберите исходный и целевой узлы");
+      setError("Выберите исходный и целевой объекты");
       return;
     }
     if (sourceId === targetId) {
-      setError("Узел не может ссылаться сам на себя");
+      setError("Объект не может ссылаться сам на себя");
       return;
     }
     setSaving(true);

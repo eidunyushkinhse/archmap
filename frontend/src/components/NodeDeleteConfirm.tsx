@@ -58,7 +58,7 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
       })
       .catch((e: unknown) => {
         if (alive) {
-          setError(e instanceof Error ? e.message : "Не удалось получить связи узла");
+          setError(e instanceof Error ? e.message : "Не удалось получить связи объекта");
         }
       });
     return () => { alive = false; };
@@ -77,7 +77,7 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
           <>
             <p style={{ color: "#374151", margin: "0 0 8px" }}>
               {node.has_children
-                ? "Узел и его дочерние узлы будут удалены. Вместе с ними удалятся связи:"
+                ? "Объект и его дочерние объекты будут удалены. Вместе с ними удалятся связи:"
                 : "Его связи будут удалены вместе с ним:"}
             </p>
             <ul style={edgeList}>
@@ -97,7 +97,7 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
             всё равно подтверждаем */}
         {node.has_children && edges && edges.length === 0 && (
           <p style={{ color: "#374151", margin: "0 0 8px" }}>
-            Узел и все его дочерние узлы будут удалены.
+            Объект и все его дочерние объекты будут удалены.
           </p>
         )}
         {error && <p style={{ color: "#dc2626", margin: "8px 0" }}>{error}</p>}
