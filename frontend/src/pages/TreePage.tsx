@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, GhostNode, LevelEdge, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
+import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
@@ -379,16 +379,36 @@ export default function TreePage({ onLogout }: Props) {
     }
   }
 
-  function handleEdgeDeleted(_id: string) {
+  function handleEdgeDeleted(id: string, snapshot?: DeletionSnapshot) {
     setEdgeDetailModal(null);
     load(currentParentId);
+    // Откат удаления связи (Undo): restore воссоздаёт связь с исходным id, redo —
+    // повторное удаление. Симметрично удалению узла (та же цена — рефетч уровня).
+    if (!snapshot || !isArchitect) return;
+    const levelAtDelete = currentParentId;
+    const refetch = () => load(levelAtDelete);
+    history.push({
+      label: "Удаление связи",
+      undo: () => { void nodesApi.restore(snapshot).then(refetch); },
+      redo: () => { void edgesApi.delete(id).then(refetch); },
+    });
   }
 
-  function handleEdgeSaved(_saved: Edge) {
-    // Перезагружаем уровень — метка/технология обновятся на стрелке. Саму модалку
+  function handleEdgeSaved(updated: Edge, undoPayload?: EdgeUpdate, redoPayload?: EdgeUpdate) {
+    // Перезагружаем уровень — метка/технология/концы обновятся на стрелке. Саму модалку
     // не трогаем: её концы — спроецированные (а PATCH вернул бы сырые), а новые
     // метка/технология уже показаны из локального состояния модалки.
     load(currentParentId);
+    // Откат ПРАВКИ полей связи (Undo): update(undoPayload)/update(redoPayload), рефетч —
+    // смена концов меняет проекцию гостей/рёбер, поэтому зеркалить в стейт нельзя.
+    if (!undoPayload || !redoPayload || !isArchitect) return;
+    const levelAtEdit = currentParentId;
+    const refetch = () => load(levelAtEdit);
+    history.push({
+      label: "Правка связи",
+      undo: () => { void edgesApi.update(updated.id, undoPayload).then(refetch); },
+      redo: () => { void edgesApi.update(updated.id, redoPayload).then(refetch); },
+    });
   }
 
   // Протянули стрелку на хэндл/листовой узел — открываем упрощённый поповер, чтобы

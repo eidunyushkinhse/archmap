@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
-import type { Edge } from "../types";
+import type { DeletionSnapshot, Edge, EdgeUpdate } from "../types";
 import { edgesApi } from "../api/nodes";
 import NodeSearchPicker from "./NodeSearchPicker";
 import Modal from "../ui/Modal";
@@ -18,8 +18,11 @@ interface Props {
   targetLabel: string;
   isArchitect: boolean;
   onClose: () => void;
-  onDeleted: (id: string) => void;
-  onSaved: (edge: Edge) => void;
+  // snapshot — снимок связи, снятый ПЕРЕД удалением (для отката удаления через Undo).
+  onDeleted: (id: string, snapshot: DeletionSnapshot) => void;
+  // undoPayload/redoPayload — обратимая правка полей для Undo: undoPayload возвращает
+  // прежние значения (включая концы и хэндлы), redoPayload повторяет правку.
+  onSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
 }
 
 export default function EdgeDetailModal({
@@ -51,8 +54,10 @@ export default function EdgeDetailModal({
     setDeleting(true);
     setError(null);
     try {
+      // Снимок снимаем ДО удаления — после каскада восстанавливать будет нечего.
+      const snapshot = await edgesApi.deletionSnapshot(edge.id);
       await edgesApi.delete(edge.id);
-      onDeleted(edge.id);
+      onDeleted(edge.id, snapshot);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка удаления");
     } finally {
@@ -72,13 +77,26 @@ export default function EdgeDetailModal({
     setSaving(true);
     setError(null);
     try {
-      const updated = await edgesApi.update(edge.id, {
+      // redoPayload — ровно то, что отправляем сейчас (повтор правки воспроизводит и
+      // авто-сброс хэндлов при смене концов на бэке). undoPayload возвращает прежние
+      // значения, ЯВНО передавая исходные хэндлы (иначе при возврате концов бэк их
+      // обнулит). Концы берём реальные (initial*), не спроецированные.
+      const redoPayload: EdgeUpdate = {
         label: labelText || null,
         technology: technology || null,
         source_id: sourceId,
         target_id: targetId,
-      });
-      onSaved(updated);
+      };
+      const undoPayload: EdgeUpdate = {
+        label: edge.label ?? null,
+        technology: edge.technology ?? null,
+        source_id: initialSourceId,
+        target_id: initialTargetId,
+        source_handle: edge.source_handle ?? null,
+        target_handle: edge.target_handle ?? null,
+      };
+      const updated = await edgesApi.update(edge.id, redoPayload);
+      onSaved(updated, undoPayload, redoPayload);
       // После сохранения закрываем модалку и возвращаемся прямо на схему (как и крестик),
       // а не в предыдущий поповер детализации.
       onClose();
