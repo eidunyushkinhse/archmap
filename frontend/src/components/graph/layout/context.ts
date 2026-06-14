@@ -127,13 +127,22 @@ export function computeContextLayout(
     return order.map((k) => map.get(k)!).sort((a, b) => b.lcaIdx - a.lcaIdx);
   };
 
-  // Раскладка одной стороны: фокус по центру (y=0), группы расходятся вверх/вниз —
-  // каждая на менее заполненную сторону, по lcaIdx (глубже-делящие рамку — ближе к фокусу).
-  // Тогда каждая общая рамка — вложенная полоса вокруг центра, а сосед, который ей не член,
-  // всегда снаружи. Зазор у границы рамки добавляем, когда lcaIdx падает относительно
-  // предыдущего на этой стороне; «предыдущий» для первой группы — сам ФОКУС (он член всех
-  // рамок предков, эффективный lca = lastDepth), поэтому приватная рамка фокуса корректно
-  // отодвигает первого не-члена.
+  // Раскладка одной стороны. Двухфазная, чтобы раскрытие контейнера НЕ пересобирало
+  // колонку (иначе дети «убегают» в другую часть схемы):
+  //   фаза 1 — СЛОТ-центры: «свёрнутая» раскладка, каждая группа считается ЕДИНИЦЕЙ
+  //     высотой NODE_H. Слот стабилен независимо от раскрытия (число членов на него не
+  //     влияет). Группы расходятся вверх/вниз — каждая на менее заполненную сторону, по
+  //     lcaIdx (глубже-делящие рамку — ближе к фокусу). При нечётном числе ГРУПП одна
+  //     (groups[0], самая глубоко-делящая) центрируется на горизонтали фокуса (slot 0),
+  //     иначе колонка «провисает». Зазор у границы рамки добавляем, когда lcaIdx падает.
+  //   фаза 2 — раскрытие НА МЕСТЕ: члены группы расходятся симметрично вокруг её слота,
+  //     затем наружный проход от центра убирает наложения — ближние к фокусу группы (и
+  //     центрированный слот) держат место, внешние уступают, отъезжая ДАЛЬШЕ от фокуса.
+  //     Так центр раскрытой рамки остаётся там, где стоял свёрнутый узел, а соседи лишь
+  //     сдвигаются наружу. И исключение «дети не лезут в чужую рамку» соблюдается само:
+  //     более глубоко-делящая (ближняя) группа обрабатывается раньше и не двигается, а
+  //     растущая группа может только уехать наружу, на свою сторону от фокуса.
+  // Свёрнутая раскладка (1 член/группа) — фаза 2 это no-op, позиции те же, что и раньше.
   const layoutSide = (sideIds: string[], dir: 1 | -1): void => {
     if (sideIds.length === 0) return;
     // базовый зазор учитывает место под подпись ребра (CTX_LABEL_W) + поля, чтобы плашка
@@ -141,57 +150,80 @@ export function computeContextLayout(
     const sideGap = Math.max(CTX_LABEL_W + 60, ...sideIds.map(clearanceOf));
     const x = dir === 1 ? NODE_W + sideGap : -(sideGap + NODE_W);
     const groups = buildGroups(sideIds);
+    const baseGap = ROW - NODE_H; // базовый зазор между соседними узлами
 
-    const placed: Array<{ id: string; cy: number }> = [];
-    const baseGap = ROW - NODE_H;        // базовый зазор между соседними узлами
-    let downBot = focusHeight / 2;       // нижняя занятая граница (центр фокуса = 0)
-    let upTop = -focusHeight / 2;        // верхняя занятая граница
-    let prevDownLca = lastDepth;         // фокус — член всех рамок предков
+    // паддинг рамки на глубине группы (её члены — внутренние соседи/фокус, но не эта
+    // группа) + собственный паддинг, если группа обёрнута своей рамкой (раскрытый контейнер)
+    const framePadOf = (g: Grp): number =>
+      BOUNDARY_PAD + Math.max(0, maxDepth - (g.lcaIdx + 1)) * BOUNDARY_STEP +
+      (g.framed ? BOUNDARY_PAD : 0);
+    // половина вертикального размера группы (членов) с учётом собственной рамки — для зазоров
+    const halfOf = (g: Grp): number =>
+      ((g.members.length - 1) * ROW) / 2 + NODE_H / 2 + (g.framed ? BOUNDARY_PAD : 0);
+
+    // --- фаза 1: слот-центры (каждая группа как единица высотой NODE_H) ---
+    const slot = new Map<Grp, number>();
+    const centered = groups.length % 2 === 1 ? groups[0] : null;
+    let downBot = focusHeight / 2;  // нижняя занятая граница (центр фокуса = 0)
+    let upTop = -focusHeight / 2;   // верхняя занятая граница
+    let prevDownLca = lastDepth;    // фокус — член всех рамок предков (эффективный lca)
     let prevUpLca = lastDepth;
-
-    // При НЕЧЁТНОМ числе соседей на стороне один обязан лежать на горизонтали фокуса
-    // (cy=0) — иначе колонка «провисает» в одну сторону и стрелки зря изгибаются.
-    // Центрируем самую глубоко-делящую рамку группу (groups[0] — ближайшую к центру по
-    // lcaIdx): её средний член встаёт в 0, остальные расходятся как обычно. Безопасно по
-    // рамкам: глубочайший на стороне сосед делит с фокусом самую внутреннюю рамку, а
-    // приватные рамки фокуса при этом колоночно-локальны (разводятся горизонтально через
-    // sideGap), вертикального наложения не дают. Многочленную группу центрируем, только
-    // если в ней нечётное число членов (иначе ни один член не попадёт ровно в 0) —
-    // редкий случай раскрытого контейнера с чётным числом детей оставляем как было.
     let startIdx = 0;
-    if (sideIds.length % 2 === 1 && groups[0].members.length % 2 === 1) {
-      const g = groups[0];
-      const mid = (g.members.length - 1) / 2;
-      g.members.forEach((id, i) => placed.push({ id, cy: (i - mid) * ROW }));
-      upTop = -(mid * ROW + NODE_H / 2);
-      downBot = (g.members.length - 1 - mid) * ROW + NODE_H / 2;
-      prevDownLca = prevUpLca = g.lcaIdx;
+    if (centered) {
+      slot.set(centered, 0);
+      upTop = -NODE_H / 2;
+      downBot = NODE_H / 2;
+      prevDownLca = prevUpLca = centered.lcaIdx;
       startIdx = 1;
     }
-
     for (let gi = startIdx; gi < groups.length; gi++) {
       const g = groups[gi];
-      // паддинг рамки на глубине g.lcaIdx+1 (её члены — внутренние соседи/фокус, но не эта
-      // группа) + собственный паддинг группы, если она обёрнута своей рамкой (раскрытый контейнер)
-      const boundaryPad =
-        BOUNDARY_PAD + Math.max(0, maxDepth - (g.lcaIdx + 1)) * BOUNDARY_STEP +
-        (g.framed ? BOUNDARY_PAD : 0);
       if (downBot <= -upTop) {
-        const gap = baseGap + (g.lcaIdx < prevDownLca ? boundaryPad : 0);
-        const c = downBot + gap + NODE_H / 2; // центр первого (ближнего к фокусу) члена
-        g.members.forEach((id, i) => placed.push({ id, cy: c + i * ROW }));
-        downBot = c + (g.members.length - 1) * ROW + NODE_H / 2;
-        prevDownLca = g.lcaIdx;
+        const gap = baseGap + (g.lcaIdx < prevDownLca ? framePadOf(g) : 0);
+        const c = downBot + gap + NODE_H / 2;
+        slot.set(g, c); downBot = c + NODE_H / 2; prevDownLca = g.lcaIdx;
       } else {
-        const gap = baseGap + (g.lcaIdx < prevUpLca ? boundaryPad : 0);
+        const gap = baseGap + (g.lcaIdx < prevUpLca ? framePadOf(g) : 0);
         const c = upTop - gap - NODE_H / 2;
-        g.members.forEach((id, i) => placed.push({ id, cy: c - i * ROW }));
-        upTop = c - (g.members.length - 1) * ROW - NODE_H / 2;
-        prevUpLca = g.lcaIdx;
+        slot.set(g, c); upTop = c - NODE_H / 2; prevUpLca = g.lcaIdx;
       }
     }
 
-    for (const p of placed) positions.set(p.id, { x, y: p.cy - NODE_H / 2 });
+    // --- фаза 2: раскрытие на месте + наружный проход против наложений ---
+    const center = new Map<Grp, number>();
+    if (centered) center.set(centered, 0);
+    // нижняя сторона: слоты >= 0 (кроме центрированного), снизу вверх по слоту;
+    // верхняя: слоты < 0, сверху вниз по |слоту|. Стартовая граница прохода — край
+    // центрированной группы (с её ростом) либо фокуса.
+    const belowGroups = groups
+      .filter((g) => g !== centered && slot.get(g)! >= 0)
+      .sort((a, b) => slot.get(a)! - slot.get(b)!);
+    const aboveGroups = groups
+      .filter((g) => g !== centered && slot.get(g)! < 0)
+      .sort((a, b) => slot.get(b)! - slot.get(a)!);
+    let prevBot = centered ? halfOf(centered) : focusHeight / 2;
+    let prevBotLca = centered ? centered.lcaIdx : lastDepth;
+    for (const g of belowGroups) {
+      const half = halfOf(g);
+      const gap = baseGap + (g.lcaIdx < prevBotLca ? framePadOf(g) : 0);
+      const c = Math.max(slot.get(g)!, prevBot + gap + half);
+      center.set(g, c); prevBot = c + half; prevBotLca = g.lcaIdx;
+    }
+    let prevTop = centered ? -halfOf(centered) : -focusHeight / 2;
+    let prevTopLca = centered ? centered.lcaIdx : lastDepth;
+    for (const g of aboveGroups) {
+      const half = halfOf(g);
+      const gap = baseGap + (g.lcaIdx < prevTopLca ? framePadOf(g) : 0);
+      const c = Math.min(slot.get(g)!, prevTop - gap - half);
+      center.set(g, c); prevTop = c - half; prevTopLca = g.lcaIdx;
+    }
+
+    // позиции членов: симметрично вокруг центра группы
+    for (const g of groups) {
+      const c = center.get(g)!;
+      const mid = (g.members.length - 1) / 2;
+      g.members.forEach((id, i) => positions.set(id, { x, y: c + (i - mid) * ROW - NODE_H / 2 }));
+    }
   };
   layoutSide(left, -1);
   layoutSide(right, 1);
