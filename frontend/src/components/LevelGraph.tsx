@@ -871,6 +871,36 @@ function LevelGraphInner({
       // выскакивало при правом клике/перетаскивании по канвасу.
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Тулбар Undo/Redo (архитектор, не контекст). Кнопка надёжнее клавиш — не зависит
+          от фокуса. Redo пока заглушка (disabled), undo вызывает историю напрямую. */}
+      {isArchitect && !isContext && (
+        <div
+          style={{ position: "absolute", top: 8, left: 8, zIndex: 5, display: "flex", gap: 4 }}
+        >
+          <button
+            type="button"
+            onClick={() => history.undo()}
+            title="Отменить (Ctrl+Z)"
+            style={{
+              padding: "4px 10px", fontSize: 13, borderRadius: 6, cursor: "pointer",
+              border: "1px solid #d1d5db", background: "#fff", color: "#111827",
+            }}
+          >
+            ↶ Отменить
+          </button>
+          <button
+            type="button"
+            disabled
+            title="Вернуть — скоро"
+            style={{
+              padding: "4px 10px", fontSize: 13, borderRadius: 6, cursor: "not-allowed",
+              border: "1px solid #e5e7eb", background: "#f9fafb", color: "#9ca3af", opacity: 0.7,
+            }}
+          >
+            ↷ Вернуть
+          </button>
+        </div>
+      )}
       {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
           прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
           анимация уезда; position:fixed не обрезается overflow:hidden канваса. */}
