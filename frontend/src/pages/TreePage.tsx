@@ -874,6 +874,8 @@ const crumbLink: CSSProperties = {
   border: "none",
 }; // hover (фон/синий) — класс .crumb в chrome.css
 const crumbCurrent: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
   padding: "3px 7px",
   fontSize: 13.5,
   color: "#1e293b",
