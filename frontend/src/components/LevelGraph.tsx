@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useCallback, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type { MouseEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -50,6 +50,7 @@ import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
 import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
 import { useEdgeWaypoints } from "./graph/interaction/useEdgeWaypoints";
+import { useHistory } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
@@ -262,10 +263,18 @@ function LevelGraphInner({
     [onNodeMoved],
   );
 
+  // История Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). Живёт на уровне канваса; команды кладут
+  // лишь персистнутые правки. Сбрасывается при навигации между уровнями (эффект ниже) —
+  // история per-level-view, кросс-уровневый undo отложен.
+  const history = useHistory();
+  useEffect(() => {
+    history.clear();
+  }, [containerId, history]);
+
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
-  const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop } = useSnapAlignment({
+  const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-    ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist,
+    ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist, push: history.push,
   });
 
   // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
@@ -280,12 +289,21 @@ function LevelGraphInner({
   // стоп персистит их.
   const [dragging, setDragging] = useState(false);
   const handleNodeDragStart = useCallback(
-    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { setDragging(true); groupEdgeDrag.begin(ns); },
-    [groupEdgeDrag],
+    (_e: MouseEvent, n: RFNode, ns: RFNode[]) => {
+      setDragging(true);
+      const grp = ns.length > 0 ? ns : [n];
+      groupEdgeDrag.begin(grp);
+      noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
+    },
+    [groupEdgeDrag, noteDragStart],
   );
   const handleSelectionDragStart = useCallback(
-    (_e: MouseEvent, ns: RFNode[]) => { setDragging(true); groupEdgeDrag.begin(ns); },
-    [groupEdgeDrag],
+    (_e: MouseEvent, ns: RFNode[]) => {
+      setDragging(true);
+      groupEdgeDrag.begin(ns);
+      noteDragStart(ns);
+    },
+    [groupEdgeDrag, noteDragStart],
   );
   const handleNodeDrag = useCallback(
     (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => groupEdgeDrag.move(ns),
@@ -308,6 +326,24 @@ function LevelGraphInner({
   const { handleKeyDown } = useCanvasDelete({
     rfNodes, isArchitect, isContext, onRequestDeleteNode,
   });
+
+  // Клавиши канваса: Ctrl/⌘+Z — undo, Ctrl/⌘+Shift+Z или Ctrl/⌘+Y — redo. Только
+  // архитектор и не в контексте (read-only). В полях ввода не перехватываем — там
+  // работает нативная отмена текста. Остальное делегируем в handleKeyDown (Delete).
+  const handleCanvasKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      const t = e.target as HTMLElement | null;
+      const inField =
+        !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      if ((e.ctrlKey || e.metaKey) && !inField && isArchitect && !isContext) {
+        const key = e.key.toLowerCase();
+        if (key === "z" && !e.shiftKey) { e.preventDefault(); history.undo(); return; }
+        if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); history.redo(); return; }
+      }
+      handleKeyDown(e);
+    },
+    [history, isArchitect, isContext, handleKeyDown],
+  );
 
   // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: локальная —
   // в колонку ребра, гостевая — в пер-уровневый слой. Объявлен до реконнекта: тот при
@@ -810,7 +846,7 @@ function LevelGraphInner({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onKeyDown={handleKeyDown}
+      onKeyDown={handleCanvasKeyDown}
       // ПКМ панорамирует холст — гасим браузерное контекст-меню, чтобы оно не
       // выскакивало при правом клике/перетаскивании по канвасу.
       onContextMenu={(e) => e.preventDefault()}
