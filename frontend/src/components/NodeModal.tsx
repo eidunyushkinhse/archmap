@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { DeletionSnapshot, Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
 import { canHaveChildren, compareByRank, withoutPersons } from "../types";
@@ -8,8 +8,10 @@ import MermaidRenderer from "./MermaidRenderer";
 import NodeDeleteConfirm from "./NodeDeleteConfirm";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn, dangerBtn } from "../ui/styles";
+import { useScrollEdges } from "../ui/useScrollEdges";
+import { CloseIcon } from "../ui/icons";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
-import "./nodeModal.css";
+import "../ui/modalShell.css";
 import "./NodeTreePanel.css";
 
 interface Props {
@@ -66,36 +68,14 @@ export default function NodeModal({
   }, [node, isCreate, editing]);
 
   // У какого края прокрутки находимся: пока есть скрытый контент за липкими
-  // шапкой/полосой действий — у их края виден разделитель; у самого верха/низа
-  // он плавно гаснет (см. nodeModal.css). Маяки — невидимые div'ы у краёв контента.
-  const [atTop, setAtTop] = useState(true);
-  const [atBottom, setAtBottom] = useState(true);
-  const topSentinelRef = useRef<HTMLDivElement>(null);
-  const bottomSentinelRef = useRef<HTMLDivElement>(null);
-  // Один IntersectionObserver на оба маяка: их пересечение со скролл-контейнером
-  // (<dialog> модалки) и есть «мы у этого края». Пересборка при смене режима
-  // (editing): у просмотра и редактирования разные футеры — маяки перемонтируются.
-  useEffect(() => {
-    const top = topSentinelRef.current;
-    const bottom = bottomSentinelRef.current;
-    const root = (top ?? bottom)?.closest("dialog");
-    if (!root) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.target === top) setAtTop(e.isIntersecting);
-          if (e.target === bottom) setAtBottom(e.isIntersecting);
-        }
-      },
-      { root },
-    );
-    if (top) io.observe(top);
-    if (bottom) io.observe(bottom);
-    return () => io.disconnect();
-  }, [editing]);
+  // шапкой/полосой действий — у их края виден разделитель; у самого верха/низа он
+  // плавно гаснет (см. modalShell.css). Общий хук для всех крупных модалок; маяки —
+  // невидимые div'ы у краёв контента. resubKey=editing: у просмотра и редактирования
+  // разные футеры — маяки перемонтируются, наблюдатель пересобирается.
+  const { atTop, atBottom, topRef, bottomRef } = useScrollEdges(editing);
 
-  const headerClass = `nm-header${atTop ? " nm-header--at-top" : ""}`;
-  const footerClass = `nm-footer${atBottom ? " nm-footer--at-bottom" : ""}`;
+  const headerClass = `modal-header${atTop ? " modal-header--at-top" : ""}`;
+  const footerClass = `modal-footer${atBottom ? " modal-footer--at-bottom" : ""}`;
 
   async function handleSave() {
     if (!name.trim()) {
@@ -149,10 +129,12 @@ export default function NodeModal({
       {/* Липкая шапка: название узла и крестик всегда видны. Свой крестик вместо
           дефолтного (closeButton={false}) — тот рисуется абсолютом на <dialog> и
           уезжает при прокрутке. Маяк верха — первым, чтобы ловить позицию у края. */}
-      <div ref={topSentinelRef} style={{ height: 1 }} aria-hidden />
+      <div ref={topRef} style={{ height: 1 }} aria-hidden />
       <div className={headerClass}>
         <h2>{isCreate ? "Новый объект" : node!.name}</h2>
-        <button onClick={onClose} className="nm-close" aria-label="Закрыть">✕</button>
+        <button onClick={onClose} className="modal-close" aria-label="Закрыть">
+          <CloseIcon />
+        </button>
       </div>
 
         {editing ? (
@@ -242,8 +224,8 @@ export default function NodeModal({
               </>
             )}
 
-            {/* Маяк низа прокрутки (см. эффект с IntersectionObserver) */}
-            <div ref={bottomSentinelRef} style={{ height: 1 }} aria-hidden />
+            {/* Маяк низа прокрутки (см. useScrollEdges) */}
+            <div ref={bottomRef} style={{ height: 1 }} aria-hidden />
             <div className={footerClass}>
               {error && <p style={errStyle}>{error}</p>}
               <div style={{ display: "flex", gap: 8 }}>
@@ -348,8 +330,8 @@ export default function NodeModal({
 
             {isArchitect && (
               <>
-                {/* Маяк низа прокрутки (см. эффект с IntersectionObserver) */}
-                <div ref={bottomSentinelRef} style={{ height: 1 }} aria-hidden />
+                {/* Маяк низа прокрутки (см. useScrollEdges) */}
+                <div ref={bottomRef} style={{ height: 1 }} aria-hidden />
                 <div className={footerClass}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setEditing(true)} style={primaryBtn}>
@@ -434,29 +416,33 @@ const textarea: CSSProperties = {
   display: "block",
   width: "100%",
   marginBottom: 10,
-  padding: "7px 10px",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
+  padding: "9px 11px",
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
   fontSize: 14,
   boxSizing: "border-box",
+  color: "#0f172a",
   resize: "vertical",
 };
 const tabBtn: CSSProperties = {
-  padding: "4px 14px",
-  border: "1px solid #d1d5db",
-  borderRadius: 6,
-  background: "#f9fafb",
+  padding: "5px 14px",
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
+  background: "#f1f5f9",
+  color: "#475569",
   cursor: "pointer",
   fontSize: 13,
+  fontWeight: 600,
 };
 const activeTab: CSSProperties = {
-  padding: "4px 14px",
+  padding: "5px 14px",
   border: "1px solid #2563eb",
-  borderRadius: 6,
+  borderRadius: 8,
   background: "#2563eb",
   color: "#fff",
   cursor: "pointer",
   fontSize: 13,
+  fontWeight: 600,
 };
 const previewBox: CSSProperties = {
   border: "1px solid #e5e7eb",

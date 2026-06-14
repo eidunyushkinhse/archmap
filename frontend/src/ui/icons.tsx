@@ -30,6 +30,10 @@ export const LogoutIcon = ({ size = 16 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M15 4 H19 a1 1 0 0 1 1 1 V19 a1 1 0 0 1-1 1 H15" />
     <path d="M10 17 L15 12 L10 7" /><path d="M15 12 H3" /></svg>);
+// Крестик закрытия модалки — линейный SVG (две скрещённые линии), не текстовый ✕.
+export const CloseIcon = ({ size = 18 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
+    <path d="M6 6 L18 18" /><path d="M18 6 L6 18" /></svg>);
 
 // Двойной шеврон сворачивания панели (влево — свернуть, вправо — развернуть).
 export const CollapseIcon = ({ size = 13, dir = "left" }: IcoProps & { dir?: "left" | "right" }) => {

@@ -1,0 +1,73 @@
+/* Общий каркас крупных модалок: липкая шапка и полоса действий, всегда видимые
+   при прокрутке длинного контента. Раньше жили только в модалке узла (nm-*) —
+   вынесены сюда, чтобы узел, связь и экспорт тянули ОДИН каркас. Палитра — slate.
+
+   Шапка снизу / футер сверху несут тонкий разделитель и мягкую тень, которые
+   гаснут, когда контент домотан до края (классы --at-top / --at-bottom из
+   IntersectionObserver, см. useScrollEdges). Отрицательные поля -28 — full-bleed и
+   съедание padding обёртки модалки (28px), чтобы каркас прилегал к краю окна. */
+.modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  margin: -28px -28px 16px;
+  padding: 20px 28px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 8px 12px -8px rgba(15, 23, 42, 0.12);
+  transition: border-bottom-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.modal-header--at-top {
+  border-bottom-color: transparent;
+  box-shadow: 0 0 0 0 transparent;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.modal-close {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  line-height: 1;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 2px 4px;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.15s ease;
+}
+
+.modal-close:hover {
+  color: #1e293b;
+}
+
+/* Полоса действий: всегда видна (sticky у нижнего края), даже когда контент
+   длиннее окна. Симметрична шапке. */
+.modal-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: #fff;
+  margin: 0 -28px -28px;
+  padding: 14px 28px;
+  border-top: 1px solid #e2e8f0;
+  box-shadow: 0 -8px 12px -8px rgba(15, 23, 42, 0.12);
+  transition: border-top-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.modal-footer--at-bottom {
+  border-top-color: transparent;
+  box-shadow: 0 0 0 0 transparent;
+}

@@ -1,7 +1,24 @@
 /* Подложка нативного <dialog> для всех модалок проекта. Единый полупрозрачный
-   фон; ::backdrop стилизуется только из CSS (инлайн-стилями недоступен).
+   slate-фон; ::backdrop стилизуется только из CSS (инлайн-стилями недоступен).
    У вложенных диалогов (узел → подтверждение удаления, контекст → детали связи)
    два ::backdrop складываются — разница неразличима, оставлено намеренно. */
 dialog.app-modal::backdrop {
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+/* Focus-кольцо и hover «китчена» — каскадом на всех потребителей (инлайн-стилями
+   псевдоклассы недоступны). Накрывает любые инпуты/кнопки внутри .app-modal. */
+.app-modal input:focus,
+.app-modal textarea:focus,
+.app-modal select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px #bfdbfe;
+}
+
+.app-modal .app-close {
+  color: #94a3b8;
+}
+.app-modal .app-close:hover {
+  color: #1e293b;
 }

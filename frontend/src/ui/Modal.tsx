@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { CloseIcon } from "./icons";
 import "./modal.css";
 
 interface ModalProps {
@@ -83,7 +84,9 @@ export default function Modal({
       }}
     >
       {closeButton && (
-        <button onClick={onClose} style={closeBtn} aria-label="Закрыть">✕</button>
+        <button onClick={onClose} className="app-close" style={closeBtn} aria-label="Закрыть">
+          <CloseIcon />
+        </button>
       )}
       <div style={{ ...wrapperBase, ...wrapperOverrides }}>{children}</div>
     </dialog>
@@ -96,8 +99,8 @@ const dialogBase: CSSProperties = {
   padding: 0,
   maxWidth: "calc(100vw - 32px)",
   background: "#fff",
-  borderRadius: 10,
-  boxShadow: "0 8px 32px rgba(0,0,0,.18)",
+  borderRadius: 12,
+  boxShadow: "0 16px 40px rgba(15,23,42,.18)",
   color: "inherit",
 };
 // Обёртка контента: дефолтный padding 28 (переопределяется через boxStyle.padding)
@@ -110,8 +113,9 @@ const closeBtn: CSSProperties = {
   right: 14,
   border: "none",
   background: "none",
-  fontSize: 18,
   cursor: "pointer",
-  color: "#6b7280",
+  color: "#94a3b8", // hover #1e293b — каскадом из modal.css (.app-close)
+  display: "inline-flex",
+  padding: 2,
   zIndex: 1, // поверх контента обёртки
 };
