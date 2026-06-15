@@ -36,7 +36,6 @@ import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { placeGhostsOnRings } from "./graph/layout/ringPlacement";
-import { centerEmergedChildren } from "./graph/layout/expandCenter";
 import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { computeDetours } from "./graph/layout/detours";
 import { NodeShapeSvg } from "./graph/shapes";
@@ -238,10 +237,6 @@ function LevelGraphInner({
   // центрируем дефолтную раскладку детей: раскрытая рамка встаёт туда же, где
   // стоял свёрнутый узел (детям без ручных координат). Эфемерно, как expanded.
   const expandOrigins = useRef<Map<string, { x: number; y: number }>>(new Map());
-  // id контейнера → замороженный сдвиг его группы детей (см. centerEmergedChildren):
-  // фиксируется на первом layout после раскрытия, чтобы драг одного ребёнка не тянул
-  // соседей и не было двойного смещения. Эфемерно, как expanded.
-  const expandDelta = useRef<Map<string, { dx: number; dy: number }>>(new Map());
   // id детей, которых пользователь подвинул ПОСЛЕ раскрытия — выпадают из центрирования
   // и держат свою позицию (как авто-ребёнок «промотируется» драгом). Эфемерно.
   const settledChildren = useRef<Set<string>>(new Set());
@@ -249,7 +244,6 @@ function LevelGraphInner({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс expand-состояния на смену уровня — осознанный reset-on-prop-change; паттерн prev-в-рендере здесь запрещён сестринским правилом react-hooks/refs (expandOrigins.current.clear() в рендере)
     setExpanded(new Set());
     expandOrigins.current.clear();
-    expandDelta.current.clear();
     settledChildren.current.clear();
   }, [containerId]);
 
@@ -258,9 +252,8 @@ function LevelGraphInner({
     // раскладка его детей будет отцентрирована по этой точке
     const c = rfNodes.find((n) => n.id === id);
     if (c) expandOrigins.current.set(id, { x: c.position.x + NODE_W / 2, y: c.position.y + NODE_H / 2 });
-    // свежий спавн: сбрасываем заморозку сдвига и метки «подвинут вручную» у детей,
-    // которые СЕЙЧАС обнажатся раскрытием id (вычисляем проекцию по новому expanded)
-    expandDelta.current.delete(id);
+    // свежий спавн: сбрасываем метки «подвинут вручную» у детей, которые СЕЙЧАС
+    // обнажатся раскрытием id (вычисляем проекцию по новому expanded)
     const { emergedFrom } = projectGhosts(ghostNodes, ancestorIds, new Set(expanded).add(id));
     for (const [childId, from] of emergedFrom) if (from === id) settledChildren.current.delete(childId);
     setExpanded((prev) => new Set(prev).add(id));
@@ -535,7 +528,7 @@ function LevelGraphInner({
     let cancelled = false;
     void (async () => {
     // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
-    const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, stableAncestorIds, expanded);
+    const { entities, ghostToEffective } = projectGhosts(ghostNodes, stableAncestorIds, expanded);
     const remap = (id: string) => ghostToEffective.get(id) ?? id;
     // Рёбра с концами, переадресованными на отображаемые сущности. Хэндл гостевого
     // конца подменяем сохранённым per-level значением для ТЕКУЩЕЙ проекции (узла,
@@ -628,22 +621,6 @@ function LevelGraphInner({
     const edgeLoops = ctxLayout?.edgeLoops;
     // дефолтные обводы гостевых стрелок (см. блок выноса гостей ниже) — основная схема
     const edgeDetours = new Map<string, { clearY: number }>();
-
-    // Дефолтная раскладка детей раскрытого контейнера: всю группу детей (и авто, и с
-    // ручными координатами — их относительную раскладку сохраняем) сдвигаем так, чтобы
-    // центр общего bbox лёг в центр, где стоял свёрнутый узел (запомнен при раскрытии).
-    // Сдвиг замораживается на первом проходе; ребёнок, подвинутый после раскрытия
-    // (settled), выпадает из центрирования. Только обычный уровень. См. expandCenter.ts.
-    if (!isContext) {
-      centerEmergedChildren({
-        entities,
-        emergedFrom,
-        origins: expandOrigins.current,
-        frozenDelta: expandDelta.current,
-        settled: settledChildren.current,
-        positions,
-      });
-    }
 
     // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) + дефолтные
     // обводы их стрелок: оба шага вынесены в graph/layout/* под юнит-тесты. Блоки исторически
