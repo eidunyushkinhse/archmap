@@ -2,7 +2,8 @@
 
 Связь C4 (Edge) — не одна стрелка, а «канал с плечами»: синхронный канал отдаёт
 два плеча (вызов forward + ответ return), асинхронный — одно (forward, рисуется как
-событие). Синхронность выводится из technology (с override на ребре). Это «запертый
+событие). Синхронность задаётся явно тумблером в UI связи (Edge.is_synchronous;
+дефолт — синхронный). Это «запертый
 слой» из ТЗ §0: сообщение процесса может ссылаться только на легальное плечо
 существующего канала, концы которого проецируются на участников процесса.
 """
@@ -14,25 +15,12 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.tree import ancestors
 
-# Технологии-подсказки синхронности канала (нижний регистр). Дефолт при неизвестной —
-# синхронный (большинство связей запрос/ответ).
-SYNC_HINTS = {
-    "rest", "http", "https", "grpc", "graphql", "soap", "sql", "jdbc", "odbc", "tcp",
-}
-ASYNC_HINTS = {
-    "kafka", "rabbitmq", "amqp", "nats", "mqtt", "sns", "sqs", "webhook", "event",
-    "events", "pubsub", "pub/sub", "websocket",
-}
-
 
 def edge_is_synchronous(edge: Edge) -> bool:
-    """Синхронен ли канал: override бьёт эвристику; неизвестное/пусто → синхронный."""
-    if edge.is_synchronous is not None:
-        return edge.is_synchronous
-    tech = (edge.technology or "").strip().lower()
-    if tech in ASYNC_HINTS:
-        return False
-    return True  # дефолт: большинство связей — запрос/ответ
+    """Синхронен ли канал. Задаётся явно тумблером в UI связи (Edge.is_synchronous).
+    Авто-определения по технологии больше нет: оно зависело от текста, что неочевидно.
+    Дефолт для связей без явного значения (null, в т.ч. легаси) — синхронный."""
+    return edge.is_synchronous if edge.is_synchronous is not None else True
 
 
 @dataclass(frozen=True)

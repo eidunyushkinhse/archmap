@@ -18,6 +18,8 @@ class EdgeCreate(BaseModel):
     target_id: uuid.UUID
     source_handle: str | None = None
     target_handle: str | None = None
+    # Синхронность канала (бизнес-процессы): null=дефолт (синхронный), true/false=явный выбор
+    is_synchronous: bool | None = None
 
 
 class EdgeUpdate(BaseModel):
@@ -32,7 +34,7 @@ class EdgeUpdate(BaseModel):
     waypoints: list[Point] | None = None
     # Позиция плашки вдоль стрелки (доля пути 0..1); null — сброс в центр
     label_t: float | None = None
-    # Синхронность канала (бизнес-процессы): null=авто из technology, true/false=override
+    # Синхронность канала (бизнес-процессы): null=дефолт (синхронный), true/false=явный выбор
     is_synchronous: bool | None = None
 
 
@@ -46,7 +48,7 @@ class EdgeResponse(BaseModel):
     target_handle: str | None
     waypoints: list[Point] | None = None
     label_t: float | None = None
-    # Синхронность канала: null=авто из technology, true/false=override архитектора
+    # Синхронность канала: null=дефолт (синхронный), true/false=явный выбор архитектора
     is_synchronous: bool | None = None
     created_at: datetime
 

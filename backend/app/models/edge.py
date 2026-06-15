@@ -27,8 +27,8 @@ class Edge(Base):
     )
     source_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
     target_handle: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # Синхронность канала (бизнес-процессы): null = авто-вывод из technology
-    # (см. app.processes.edge_is_synchronous), true/false = явный override архитектора.
+    # Синхронность канала (бизнес-процессы): задаётся явно тумблером в UI связи.
+    # null = дефолт (синхронный, в т.ч. легаси); true/false = явный выбор архитектора.
     # Семантика, влияющая на доступные плечи (forward/return) — версионируемое поле.
     is_synchronous: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # Кастомные точки-сгибы пути стрелки в координатах графа уровня: список

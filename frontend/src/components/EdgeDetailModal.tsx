@@ -4,6 +4,7 @@ import type { DeletionSnapshot, Edge, EdgeUpdate, Node } from "../types";
 import { canHaveChildren } from "../types";
 import { edgesApi, nodesApi } from "../api/nodes";
 import NodeSearchPicker from "./NodeSearchPicker";
+import SyncSegmented from "./SyncSegmented";
 import Modal from "../ui/Modal";
 import { useScrollEdges } from "../ui/useScrollEdges";
 import { CloseIcon } from "../ui/icons";
@@ -46,6 +47,8 @@ export default function EdgeDetailModal({
   // Локальные значения отображаемых полей (обновляются после сохранения)
   const [labelText, setLabelText] = useState(edge.label ?? "");
   const [technology, setTechnology] = useState(edge.technology ?? "");
+  // Тип связи (бизнес-процессы): null у легаси-связей трактуем как синхронную.
+  const [isSync, setIsSync] = useState(edge.is_synchronous ?? true);
   // Концы связи: id для сохранения + подписи для отображения. Стартуют с РЕАЛЬНЫХ
   // концов (original_*), поэтому сохранение без правки пикеров идемпотентно.
   const [sourceId, setSourceId] = useState(initialSourceId);
@@ -124,6 +127,7 @@ export default function EdgeDetailModal({
         technology: technology || null,
         source_id: sourceId,
         target_id: targetId,
+        is_synchronous: isSync,
       };
       const undoPayload: EdgeUpdate = {
         label: edge.label ?? null,
@@ -132,6 +136,7 @@ export default function EdgeDetailModal({
         target_id: initialTargetId,
         source_handle: edge.source_handle ?? null,
         target_handle: edge.target_handle ?? null,
+        is_synchronous: edge.is_synchronous ?? null,
       };
       const updated = await edgesApi.update(edge.id, redoPayload);
       onSaved(updated, undoPayload, redoPayload);
@@ -184,6 +189,8 @@ export default function EdgeDetailModal({
             placeholder="REST, gRPC, Kafka..."
             style={input}
           />
+          <label style={labelStyle}>Тип связи</label>
+          <SyncSegmented value={isSync} onChange={setIsSync} disabled={saving} />
         </>
       ) : (
         // Строки метаданных «свойство → значение» с иконками-термами (как metaList
@@ -227,6 +234,13 @@ export default function EdgeDetailModal({
               <dd style={metaValue}>{technology}</dd>
             </div>
           )}
+          <div style={metaRow}>
+            <dt style={metaTerm}>
+              <span style={metaIconWrap}>{EDGE_META_ICON.sync}</span>
+              Тип связи
+            </dt>
+            <dd style={metaValue}>{isSync ? "Синхронная" : "Асинхронная"}</dd>
+          </div>
         </dl>
       )}
 
@@ -273,11 +287,12 @@ const metaSvg = {
 
 // Откуда — узел со стрелкой наружу; Куда — стрелка в узел; Описание — метка-ярлык;
 // Технология — </> (идентична иконке технологии узла в NodeModal).
-const EDGE_META_ICON: Record<"source" | "target" | "desc" | "tech", ReactNode> = {
+const EDGE_META_ICON: Record<"source" | "target" | "desc" | "tech" | "sync", ReactNode> = {
   source: <svg {...metaSvg}><circle cx="3.5" cy="8" r="2.25" /><path d="M6 8h7" /><path d="M10.5 5.4 13.2 8l-2.7 2.6" /></svg>,
   target: <svg {...metaSvg}><path d="M2.8 8h7" /><path d="M7.3 5.4 10 8l-2.7 2.6" /><circle cx="12.5" cy="8" r="2.25" /></svg>,
   desc: <svg {...metaSvg}><path d="M8.4 2.6 13 7.2a1.3 1.3 0 0 1 0 1.8l-3.9 3.9a1.3 1.3 0 0 1-1.8 0L2.7 8.3V4a1.3 1.3 0 0 1 1.3-1.3Z" /><circle cx="5.6" cy="5.5" r=".9" fill="currentColor" stroke="none" /></svg>,
   tech: <svg {...metaSvg}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
+  sync: <svg {...metaSvg}><path d="M3 6h8l-2-2" /><path d="M13 10H5l2 2" /></svg>,
 };
 
 const metaList: CSSProperties = { margin: 0, borderTop: "1px solid #eef2f6" };

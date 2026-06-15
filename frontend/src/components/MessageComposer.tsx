@@ -6,6 +6,7 @@ import type { Channel, ProcessParticipant } from "../types";
 import { C4Glyph, IcoArrowR, IcoClose, IcoLink, IcoWarn } from "./processes/icons";
 import { legMeta } from "./processes/legMeta";
 import { BPT } from "./processes/tokens";
+import SyncSegmented from "./SyncSegmented";
 import "./processes/processes.css";
 
 /**
@@ -41,6 +42,8 @@ export default function MessageComposer({
   const [sel, setSel] = useState<{ edgeId: string; leg: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Тип связи для «достроить схему»: синхронная (вызов+ответ) или асинхронная (событие).
+  const [newSync, setNewSync] = useState(true);
 
   const partByNode = useMemo(() => {
     const m: Record<string, ProcessParticipant> = {};
@@ -80,8 +83,8 @@ export default function MessageComposer({
     setError(null);
     try {
       // «Достроить схему»: документируем связь source→target — она тут же появится
-      // как плечо (канал). MVP без tech/label — связь синхронная по умолчанию.
-      await edgesApi.create({ source_id: fromNode, target_id: toNode });
+      // как плечо (канал). Тип (синхронная/асинхронная) выбран тумблером ниже.
+      await edgesApi.create({ source_id: fromNode, target_id: toNode, is_synchronous: newSync });
       const ch = await processesApi.channels(processId, fromNode, toNode);
       setResult({ key: pairKey, data: ch });
     } catch (e: unknown) {
@@ -160,6 +163,10 @@ export default function MessageComposer({
                 «{nameOf(fromNode)} → {nameOf(toNode)}» в схему — и она появится здесь как плечо.
               </div>
             </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: BPT.micro, flex: "none" }}>Тип связи</span>
+            <SyncSegmented value={newSync} onChange={setNewSync} />
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
             <button className="bp-btn-ghost" onClick={onClose}>

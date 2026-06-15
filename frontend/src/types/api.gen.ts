@@ -818,6 +818,8 @@ export interface components {
             source_handle?: string | null;
             /** Target Handle */
             target_handle?: string | null;
+            /** Is Synchronous */
+            is_synchronous?: boolean | null;
         };
         /** EdgeResponse */
         EdgeResponse: {

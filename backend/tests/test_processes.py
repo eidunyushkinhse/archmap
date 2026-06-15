@@ -63,7 +63,7 @@ def _participants(db, proc, nodes):
 # ── 1. return на асинхронном канале → отказ ───────────────────────────────────
 def test_return_on_async_edge_rejected(db):
     a, b = _node(db, "A"), _node(db, "B")
-    edge = _edge(db, a, b, technology="Kafka")  # async
+    edge = _edge(db, a, b, is_sync=False)  # async
     proc = _process(db)
     db.commit()
     parts = _participants(db, proc, [a, b])
@@ -134,8 +134,8 @@ def test_legal_forward_and_return(db):
 # ── 4. /channels: 2 плеча для sync, 1 для async, пусто без рёбер ───────────────
 def test_channels_legs_count_and_empty(db):
     a, b, c, d = _node(db, "A"), _node(db, "B"), _node(db, "C"), _node(db, "D")
-    _edge(db, a, b, technology="REST")   # sync
-    _edge(db, c, d, technology="Kafka")  # async
+    _edge(db, a, b)                 # sync (дефолт)
+    _edge(db, c, d, is_sync=False)  # async
     proc = _process(db)
     db.commit()
     _participants(db, proc, [a, b, c, d])
@@ -216,14 +216,15 @@ def test_delete_edge_orphans_message(db):
     assert detail.messages[0].edge_id is None and detail.messages[0].valid is False
 
 
-# ── 8. edge_is_synchronous: override > эвристика; Kafka→async, REST/пусто→sync ─
-def test_edge_is_synchronous_heuristic(db):
+# ── 8. edge_is_synchronous: только явный флаг; null → дефолт sync (без эвристики) ─
+def test_edge_is_synchronous_explicit(db):
     a, b = _node(db, "A"), _node(db, "B")
     db.commit()
-    assert edge_is_synchronous(_edge(db, a, b, technology="REST", is_sync=False)) is False
+    # Явный флаг определяет всё; технология больше ни на что не влияет.
+    assert edge_is_synchronous(_edge(db, a, b, is_sync=False)) is False
+    assert edge_is_synchronous(_edge(db, a, b, is_sync=True)) is True
     assert edge_is_synchronous(_edge(db, a, b, technology="Kafka", is_sync=True)) is True
-    assert edge_is_synchronous(_edge(db, a, b, technology="Kafka")) is False
-    assert edge_is_synchronous(_edge(db, a, b, technology="REST")) is True
+    assert edge_is_synchronous(_edge(db, a, b, technology="Kafka")) is True  # без флага → дефолт sync
     assert edge_is_synchronous(_edge(db, a, b, technology=None)) is True
 
 
