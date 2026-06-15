@@ -34,10 +34,44 @@ export interface RingPlacementResult {
   frame: { minX: number; minY: number; maxX: number; maxY: number };
   /** хэндлы рёбер, пересчитанные по финальным позициям */
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
+  /** ленивая миграция легаси-абсолютов детей раскрытых рамок в офсеты от якоря (ТЗ D3):
+   *  id → ОФСЕТ, который надо персистнуть с anchor_rel=true. Позиция на экране не меняется. */
+  migrations: { id: string; pos_x: number; pos_y: number }[];
 }
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 type XY = { x: number; y: number };
+
+/**
+ * Живой якорь группы (anchorG, ТЗ D2): центроид ЦЕНТРОВ связанных локальных узлов
+ * группы. Относительно него хранятся офсеты детей раскрытой гостевой рамки, поэтому
+ * ОДНА и та же функция считает якорь при пине (шаг 4) и при восстановлении (здесь) —
+ * иначе восстановление сместило бы раскладку. Нет связанных локалов → центроид ВСЕХ
+ * локалов (стабильный фолбэк, ТЗ §9 «без якоря»); нет локалов вовсе → null.
+ */
+export function groupAnchor(
+  memberIds: Iterable<string>,
+  localIds: string[],
+  edges: AppEdge[],
+  pos: (id: string) => XY | undefined,
+): XY | null {
+  const members = new Set(memberIds);
+  const localSet = new Set(localIds);
+  const connected = new Set<string>();
+  for (const e of edges) {
+    if (members.has(e.source_id) && localSet.has(e.target_id)) connected.add(e.target_id);
+    else if (members.has(e.target_id) && localSet.has(e.source_id)) connected.add(e.source_id);
+  }
+  const avg = (ids: Iterable<string>): XY | null => {
+    let sx = 0, sy = 0, c = 0;
+    for (const id of ids) {
+      const p = pos(id);
+      if (p) { sx += p.x + NODE_W / 2; sy += p.y + NODE_H / 2; c++; }
+    }
+    return c ? { x: sx / c, y: sy / c } : null;
+  };
+  return avg(connected) ?? avg(localIds);
+}
 
 /**
  * Расставляет авто-гостей (без ручной позиции) на кольца их запретных рамок. `positions`
@@ -50,8 +84,10 @@ export function placeGhostsOnRings(params: {
   levelPositions: Record<string, LevelPos>;
   layoutEdges: AppEdge[];
   positions: Map<string, XY>;
+  /** раскрытые контейнеры — их дети подчиняются модели офсетов от якоря (ТЗ D2-D4) */
+  expanded: Set<string>;
 }): RingPlacementResult | null {
-  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions } = params;
+  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, expanded } = params;
   if (nodes.length === 0 || ancestorIds.length === 0) return null;
 
   const localIds = nodes.map((n) => n.id);
@@ -65,11 +101,11 @@ export function placeGhostsOnRings(params: {
 
   // авто-гости (без ручной позиции) — кандидаты на кольца
   const autoIds = new Set(entities.filter((e) => !levelPositions[e.id]).map((e) => e.id));
-  if (autoIds.size === 0) return null;
 
-  // --- ГРУППЫ (жёсткие): авто-гость → внешняя (min depth) гостевая рамка, что его содержит,
-  // либо одиночка. Если в гостевой рамке есть хоть один НЕ-авто (ручной) гость — всю группу
-  // не трогаем (ручная позиция якорит рамку; нарушения добирает enforceFramesKeepOut).
+  // --- ГРУППЫ (жёсткие): гость → внешняя (min depth) гостевая рамка, что его содержит,
+  // либо одиночка. Авто-группа (все члены без ручной позиции) расставляется кольцом/полкой;
+  // владеемая гостевая группа восстанавливается офсетами (ниже); ручной одиночный гость не
+  // трогается (его позиция якорит рамку, нарушения добирает enforceFramesKeepOut).
   const frames0 = framesNow();
   if (frames0.length === 0) return null;
   const native0 = nativeByDepth(frames0);
@@ -94,8 +130,35 @@ export function placeGhostsOnRings(params: {
     g.ids.push(e.id);
     if (!autoIds.has(e.id)) g.auto = false;
   }
+
+  const placedOutside = new Set<string>();
+
+  // --- ВЛАДЕЕМЫЕ ГОСТЕВЫЕ ГРУППЫ (ТЗ D2/D4): дети раскрытой гостевой рамки с сохранённой
+  // позицией раскладываются ОФСЕТАМИ от живого якоря — абсолют = anchorG + офсет, пересчёт
+  // каждый layout (рамка едет за якорем). Легаси-абсолют (anchor_rel=false) лениво мигрируем
+  // в офсет, НЕ двигая узел на экране. Группа подчиняется модели, только если её рамка-ключ
+  // РАСКРЫТА; иначе это обычный свёрнутый гость с ручной позицией (прежнее поведение).
+  const migrations: { id: string; pos_x: number; pos_y: number }[] = [];
+  for (const g of groupMap.values()) {
+    if (!expanded.has(g.key)) continue;                       // не дети раскрытой рамки
+    if (g.ids.every((id) => !levelPositions[id])) continue;   // авто-группа → каскад/полка ниже
+    const anchor = groupAnchor(g.ids, localIds, layoutEdges, pos);
+    if (!anchor) continue;
+    for (const id of g.ids) {
+      const lp = levelPositions[id];
+      if (!lp) continue;                                      // новый ребёнок без офсета — §9, не трогаем
+      if (lp.anchor_rel) {
+        positions.set(id, { x: anchor.x + lp.pos_x, y: anchor.y + lp.pos_y });
+      } else {
+        // миграция абсолют→офсет: позиция (savedPos) уже абсолют, оставляем её на экране
+        const cur = positions.get(id) ?? { x: lp.pos_x, y: lp.pos_y };
+        migrations.push({ id, pos_x: cur.x - anchor.x, pos_y: cur.y - anchor.y });
+      }
+      placedOutside.add(id);
+    }
+  }
+
   const groups = [...groupMap.values()].filter((g) => g.auto);
-  if (groups.length === 0) return null;
 
   // bbox связанных локальных узлов гостя (для пробных маршрутов выбора стороны)
   const localRects: { id: string; rect: NodeRect }[] = [];
@@ -135,8 +198,6 @@ export function placeGhostsOnRings(params: {
     }
     return crossings;
   };
-
-  const placedOutside = new Set<string>();
 
   // bbox группы по текущим позициям её членов (null, если ни у кого нет позиции)
   const groupBbox = (ids: string[]): Rect | null => {
@@ -333,5 +394,5 @@ export function placeGhostsOnRings(params: {
     : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   const displayed = [...localIds.map((id) => ({ id })), ...entities.map((e) => ({ id: e.id }))];
-  return { placedOutside, frame, edgeHandles: assignEdgeHandles(displayed, layoutEdges, positions) };
+  return { placedOutside, frame, edgeHandles: assignEdgeHandles(displayed, layoutEdges, positions), migrations };
 }

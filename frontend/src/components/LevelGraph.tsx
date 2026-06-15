@@ -19,7 +19,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
-import { edgesApi } from "../api/nodes";
+import { edgesApi, nodesApi } from "../api/nodes";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef, LevelPos } from "../types";
 import { canHaveChildren } from "../types";
 import {
@@ -503,13 +503,29 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push });
+  // Персист ленивой миграции легаси-абсолютов детей раскрытых рамок в офсеты (ТЗ D3).
+  // Зовётся из async-раскладки через cbRef (latest-ref), чтобы не тащить containerId/
+  // isArchitect/колбэки в зависимости эффекта раскладки. Только архитектор и основной канвас.
+  const migrateGhostPositions = useCallback(
+    (migrations: { id: string; pos_x: number; pos_y: number }[], ents: { id: string; kind: "leaf" | "container" }[]) => {
+      if (!isArchitect || !containerId) return;
+      for (const m of migrations) {
+        const kind = ents.find((e) => e.id === m.id)?.kind === "container" ? "container" : "ghost";
+        const off = { pos_x: m.pos_x, pos_y: m.pos_y, anchor_rel: true };
+        guardPersist(nodesApi.saveGhostPosition(containerId, m.id, off), onPersistError);
+        onNodeMoved?.(m.id, kind, off);
+      }
+    },
+    [isArchitect, containerId, onNodeMoved, onPersistError],
+  );
+
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions };
   });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
@@ -629,8 +645,15 @@ function LevelGraphInner({
     // ringPlacement МУТИРУЕТ positions (ставит гостей на кольца); computeDetours чист.
     if (!isContext) {
       const og = placeGhostsOnRings({
-        nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges, positions,
+        nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges, positions, expanded,
       });
+      // Ленивая миграция легаси-абсолютов детей раскрытых рамок в офсеты от якоря (ТЗ D3):
+      // персистим офсет с anchor_rel=true и зеркалим — на экране узел не двигается, но дальше
+      // рамка едет за якорем. Один раз на ребёнка (флаг переключается → миграции больше нет).
+      // Только архитектор и основной канвас: контекст read-only, эндпоинт требует архитектора.
+      if (og && og.migrations.length > 0 && !cancelled) {
+        cbRef.current.migrateGhostPositions(og.migrations, entities);
+      }
       // Страховочная сетка keep-out: кольца держат инвариант по построению, но ручные позиции
       // и рост рамки за ручным гостем ringPlacement не трогает — их добирает enforce. На
       // авто-гостях после ringPlacement он обязан быть no-op. Запускается всегда.

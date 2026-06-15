@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { placeGhostsOnRings } from "../graph/layout/ringPlacement";
 import { enforceFramesKeepOut } from "../graph/layout/keepGhostsOut";
-import { NODE_W } from "../graph/constants";
+import { NODE_W, NODE_H } from "../graph/constants";
 import type { DisplayExternal } from "../graph/types";
 import type { Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 
@@ -32,7 +32,7 @@ describe("placeGhostsOnRings — сторона по потоку", () => {
     const res = placeGhostsOnRings({
       nodes: [node("L")],
       entities: [leaf("Gs", [a("D")]), leaf("Gt", [a("E")])],
-      ancestorIds: ["A"], levelPositions: {},
+      ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
       layoutEdges: [edge("e1", "Gs", "L"), edge("e2", "L", "Gt")], positions,
     });
     expect(res).not.toBeNull();
@@ -51,7 +51,7 @@ describe("placeGhostsOnRings — сторона по потоку", () => {
     const res = placeGhostsOnRings({
       nodes: [node("La"), node("Lb"), node("Lc")],
       entities: [leaf("G", [a("D")])],
-      ancestorIds: ["A"], levelPositions: {},
+      ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
       layoutEdges: [edge("e", "G", "Lb")], positions,
     });
     expect(res).not.toBeNull();
@@ -65,7 +65,7 @@ describe("placeGhostsOnRings — keep-out по построению", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5, y: 5 }]]);
     const ents = [leaf("G", [a("D")])];
     placeGhostsOnRings({
-      nodes: [node("L")], entities: ents, ancestorIds: ["A"], levelPositions: {},
+      nodes: [node("L")], entities: ents, ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
       layoutEdges: [edge("e", "G", "L")], positions,
     });
     const enf = enforceFramesKeepOut({
@@ -84,7 +84,7 @@ describe("placeGhostsOnRings — keep-out по построению", () => {
     const res = placeGhostsOnRings({
       nodes: [node("C")],
       entities: [leaf("Gin", [a("A")]), leaf("Gout", [a("D")])],
-      ancestorIds: ["A", "B"], levelPositions: {},
+      ancestorIds: ["A", "B"], levelPositions: {}, expanded: new Set(),
       layoutEdges: [edge("e1", "Gin", "C"), edge("e2", "Gout", "C")], positions,
     });
     expect(res).not.toBeNull();
@@ -109,6 +109,7 @@ describe("placeGhostsOnRings — внутренняя полка детей го
     nodes: [node("La"), node("Lb"), node("Lc")],
     entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")]), leaf("g3", [a("P")])],
     ancestorIds: ["A"], levelPositions: {} as Record<string, { pos_x: number; pos_y: number; anchor_rel: boolean }>,
+    expanded: new Set(["P"]),
     layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb"), edge("e3", "g3", "Lc")],
   });
   const localPos = (): [string, { x: number; y: number }][] => [
@@ -167,7 +168,7 @@ describe("placeGhostsOnRings — ручные позиции", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5, y: 5 }]]);
     const res = placeGhostsOnRings({
       nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: ["A"],
-      levelPositions: { G: { pos_x: 999, pos_y: 999, anchor_rel: false } },
+      levelPositions: { G: { pos_x: 999, pos_y: 999, anchor_rel: false } }, expanded: new Set(),
       layoutEdges: [edge("e", "G", "L")], positions,
     });
     expect(res).toBeNull();
@@ -177,7 +178,7 @@ describe("placeGhostsOnRings — ручные позиции", () => {
   it("frame (для обводов) = bbox локальных узлов, без вынесенных гостей", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5, y: 5 }]]);
     const res = placeGhostsOnRings({
-      nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: ["A"], levelPositions: {},
+      nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
       layoutEdges: [edge("e", "G", "L")], positions,
     });
     expect(res).not.toBeNull();
@@ -185,16 +186,87 @@ describe("placeGhostsOnRings — ручные позиции", () => {
   });
 });
 
+describe("placeGhostsOnRings — живой якорь и офсеты владеемой группы (D2/D3)", () => {
+  // Раскрытая гостевая рамка P (expanded) с детьми g1/g2, у каждого СОХРАНЁННЫЙ офсет
+  // (anchor_rel=true). Абсолют = anchorG + офсет, где anchorG — центроид связанных локалов.
+  const owned = (localX: number) => {
+    const positions = new Map([
+      ["La", { x: localX, y: 0 }], ["Lb", { x: localX, y: 200 }],
+      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }], // savedPos не важен — owned-проход перезапишет
+    ]);
+    const res = placeGhostsOnRings({
+      nodes: [node("La"), node("Lb")],
+      entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")])],
+      ancestorIds: ["A"],
+      levelPositions: {
+        g1: { pos_x: 50, pos_y: -30, anchor_rel: true },
+        g2: { pos_x: 50, pos_y: 80, anchor_rel: true },
+      },
+      expanded: new Set(["P"]),
+      layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb")],
+      positions,
+    });
+    return { positions, res };
+  };
+
+  it("восстановление = anchorG + офсет", () => {
+    const { positions, res } = owned(0);
+    expect(res).not.toBeNull();
+    // anchorG = центроид центров La(95,50) и Lb(95,250) = (95,150); g1 = anchorG + (50,-30)
+    const g1 = positions.get("g1")!;
+    expect(g1.x).toBeCloseTo(NODE_W / 2 + 50);
+    expect(g1.y).toBeCloseTo(150 - 30);
+    expect(res!.placedOutside.has("g1")).toBe(true);
+  });
+
+  it("сдвиг локалов двигает рамку за якорем, относительная расстановка стабильна", () => {
+    const a0 = owned(0).positions;
+    const a1 = owned(300).positions;
+    const g1a = a0.get("g1")!, g2a = a0.get("g2")!;
+    const g1b = a1.get("g1")!, g2b = a1.get("g2")!;
+    // локалы уехали на +300 по x → anchorG тоже → оба ребёнка сдвинулись на +300
+    expect(g1b.x - g1a.x).toBeCloseTo(300);
+    expect(g2b.x - g2a.x).toBeCloseTo(300);
+    expect(g1b.y).toBeCloseTo(g1a.y);
+    // взаимное расположение детей не изменилось
+    expect(g2b.x - g1b.x).toBeCloseTo(g2a.x - g1a.x);
+    expect(g2b.y - g1b.y).toBeCloseTo(g2a.y - g1a.y);
+  });
+
+  it("легаси-абсолют ребёнка раскрытой рамки мигрирует в офсет, не двигаясь", () => {
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
+      ["g1", { x: NODE_W / 2 + 50, y: NODE_H / 2 + 70 }], // savedPos = абсолют
+    ]);
+    const res = placeGhostsOnRings({
+      nodes: [node("La"), node("Lb")],
+      entities: [leaf("g1", [a("P")])],
+      ancestorIds: ["A"],
+      levelPositions: { g1: { pos_x: NODE_W / 2 + 50, pos_y: NODE_H / 2 + 70, anchor_rel: false } },
+      expanded: new Set(["P"]),
+      layoutEdges: [edge("e1", "g1", "La")],
+      positions,
+    });
+    expect(res).not.toBeNull();
+    // g1 связан только с La → anchorG = центр La (95,50); на экране узел НЕ двинулся
+    expect(positions.get("g1")).toEqual({ x: NODE_W / 2 + 50, y: NODE_H / 2 + 70 });
+    // миграция вернула офсет = абсолют − anchorG = (50, 70)
+    const mig = res!.migrations.find((m) => m.id === "g1")!;
+    expect(mig.pos_x).toBeCloseTo(50);
+    expect(mig.pos_y).toBeCloseTo(70);
+  });
+});
+
 describe("placeGhostsOnRings — вырожденные входы", () => {
   it("нет локальных узлов → null", () => {
     expect(placeGhostsOnRings({
-      nodes: [], entities: [leaf("G", [a("D")])], ancestorIds: ["A"], levelPositions: {},
+      nodes: [], entities: [leaf("G", [a("D")])], ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
       layoutEdges: [], positions: new Map(),
     })).toBeNull();
   });
   it("нет breadcrumb-предков (нет колец) → null", () => {
     expect(placeGhostsOnRings({
-      nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: [], levelPositions: {},
+      nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: [], levelPositions: {}, expanded: new Set(),
       layoutEdges: [], positions: new Map([["L", { x: 0, y: 0 }]]),
     })).toBeNull();
   });
