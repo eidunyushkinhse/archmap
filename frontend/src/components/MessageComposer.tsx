@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import { edgesApi } from "../api/nodes";
 import { processesApi } from "../api/processes";
@@ -253,10 +254,35 @@ function ParticipantSelect({
   onPick: (nodeId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Снимок на момент открытия: координаты кнопки (позиционируем по ним дропдаун) и
+  // хост портала. Композитор лежит в .bp-composer с overflow:hidden, который обрезал
+  // бы дропдаун, поэтому рендерим список порталом прямо в <dialog> (top-layer
+  // модалки) с position:fixed — он ложится ПОВЕРХ границы и не обрезается. Портал в
+  // body не подошёл бы — ушёл бы под top-layer диалога.
+  const [anchor, setAnchor] = useState<{ rect: DOMRect; host: Element } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const sel = participants.find((p) => p.node_id === value);
+
+  const toggle = () => {
+    setOpen((o) => {
+      const next = !o;
+      if (next && btnRef.current) {
+        setAnchor({
+          rect: btnRef.current.getBoundingClientRect(),
+          host: btnRef.current.closest("dialog") ?? document.body,
+        });
+      }
+      return next;
+    });
+  };
+
   return (
     <div style={{ position: "relative" }}>
-      <button className={"bp-pairsel" + (sel ? "" : " is-placeholder")} onClick={() => setOpen((o) => !o)}>
+      <button
+        ref={btnRef}
+        className={"bp-pairsel" + (sel ? "" : " is-placeholder")}
+        onClick={toggle}
+      >
         {sel ? (
           <>
             <span style={{ color: sel.is_external ? BPT.mut : BPT.sec, display: "inline-flex" }}>
@@ -271,29 +297,38 @@ function ParticipantSelect({
           <IcoChevron s={11} open={open} />
         </span>
       </button>
-      {open && (
-        <>
-          <div style={ddBackdrop} onClick={() => setOpen(false)} />
-          <div style={dropdown}>
-            {participants.length === 0 ? (
-              <div style={{ padding: "8px 11px", fontSize: 12, color: BPT.mut }}>Нет участников</div>
-            ) : (
-              participants.map((p) => (
-                <button
-                  key={p.id}
-                  style={ddItem}
-                  onClick={() => { onPick(p.node_id); setOpen(false); }}
-                >
-                  <span style={{ color: p.is_external ? BPT.mut : BPT.sec, display: "inline-flex" }}>
-                    <C4Glyph shape={p.shape} s={15} />
-                  </span>
-                  <span style={{ fontSize: 13, color: BPT.head }}>{p.name}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </>
-      )}
+      {open && anchor &&
+        createPortal(
+          <>
+            <div style={ddBackdrop} onClick={() => setOpen(false)} />
+            <div
+              style={{
+                ...dropdown,
+                top: anchor.rect.bottom + 4,
+                left: anchor.rect.left,
+                width: anchor.rect.width,
+              }}
+            >
+              {participants.length === 0 ? (
+                <div style={{ padding: "8px 11px", fontSize: 12, color: BPT.mut }}>Нет участников</div>
+              ) : (
+                participants.map((p) => (
+                  <button
+                    key={p.id}
+                    style={ddItem}
+                    onClick={() => { onPick(p.node_id); setOpen(false); }}
+                  >
+                    <span style={{ color: p.is_external ? BPT.mut : BPT.sec, display: "inline-flex" }}>
+                      <C4Glyph shape={p.shape} s={15} />
+                    </span>
+                    <span style={{ fontSize: 13, color: BPT.head }}>{p.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </>,
+          anchor.host,
+        )}
     </div>
   );
 }
@@ -306,13 +341,10 @@ const validator: CSSProperties = {
   border: "1px solid " + BPT.amberLine,
   borderRadius: 10,
 };
-const ddBackdrop: CSSProperties = { position: "fixed", inset: 0, zIndex: 10 };
+const ddBackdrop: CSSProperties = { position: "fixed", inset: 0, zIndex: 2147483646 };
 const dropdown: CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 4px)",
-  left: 0,
-  right: 0,
-  zIndex: 11,
+  position: "fixed",
+  zIndex: 2147483647,
   background: "#fff",
   border: "1px solid " + BPT.line,
   borderRadius: 8,
