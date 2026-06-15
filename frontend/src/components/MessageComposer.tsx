@@ -44,6 +44,8 @@ export default function MessageComposer({
   const [busy, setBusy] = useState(false);
   // Тип связи для «достроить схему»: синхронная (вызов+ответ) или асинхронная (событие).
   const [newSync, setNewSync] = useState(true);
+  // edge_id связи, у которой сейчас переключаем тип (на время запроса блокируем тумблеры).
+  const [syncEdge, setSyncEdge] = useState<string | null>(null);
 
   const partByNode = useMemo(() => {
     const m: Record<string, ProcessParticipant> = {};
@@ -91,6 +93,25 @@ export default function MessageComposer({
       setError(e instanceof Error ? e.message : "Не удалось добавить связь");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Сменить тип уже задокументированной связи — ЕДИНСТВЕННОЕ место правки
+  // синхронности (в C4-модалке её нет). Тип меняет состав плеч, поэтому после
+  // апдейта перечитываем каналы и сбрасываем выбор, если он был у этой связи.
+  async function setChannelSync(edgeId: string, v: boolean) {
+    if (syncEdge) return;
+    setSyncEdge(edgeId);
+    setError(null);
+    try {
+      await edgesApi.update(edgeId, { is_synchronous: v });
+      const ch = await processesApi.channels(processId, fromNode, toNode);
+      setResult({ key: pairKey, data: ch });
+      setSel((s) => (s && s.edgeId === edgeId ? null : s));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Не удалось изменить тип связи");
+    } finally {
+      setSyncEdge(null);
     }
   }
 
@@ -207,8 +228,13 @@ export default function MessageComposer({
                       {ch.technology}
                     </span>
                   )}
-                  <span className={"bp-channeltag" + (ch.synchronous ? "" : " bp-channeltag--async")}>
-                    {ch.synchronous ? "синхронный" : "async"}
+                  <span style={{ marginLeft: "auto", flex: "none" }}>
+                    <SyncSegmented
+                      value={ch.synchronous}
+                      onChange={(v) => void setChannelSync(ch.edge_id, v)}
+                      disabled={syncEdge !== null}
+                      compact
+                    />
                   </span>
                 </div>
                 {ch.legs.map((leg) => {

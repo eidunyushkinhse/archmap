@@ -9,18 +9,20 @@ export default function SyncSegmented({
   value,
   onChange,
   disabled,
+  compact,
 }: {
   value: boolean; // true = синхронная
   onChange: (v: boolean) => void;
   disabled?: boolean;
+  compact?: boolean; // мелкий вариант для шапки канала (короткие подписи)
 }) {
   return (
-    <div role="group" aria-label="Тип связи" style={wrap}>
-      <button type="button" disabled={disabled} aria-pressed={value} onClick={() => onChange(true)} style={seg(value)}>
-        Синхронная
+    <div role="group" aria-label="Тип связи" style={compact ? wrapSm : wrap}>
+      <button type="button" disabled={disabled} aria-pressed={value} onClick={() => onChange(true)} style={seg(value, compact)}>
+        {compact ? "синхр." : "Синхронная"}
       </button>
-      <button type="button" disabled={disabled} aria-pressed={!value} onClick={() => onChange(false)} style={seg(!value)}>
-        Асинхронная
+      <button type="button" disabled={disabled} aria-pressed={!value} onClick={() => onChange(false)} style={seg(!value, compact)}>
+        {compact ? "асинхр." : "Асинхронная"}
       </button>
     </div>
   );
@@ -35,11 +37,12 @@ const wrap: CSSProperties = {
   border: "1px solid #e2e8f0",
   borderRadius: 8,
 };
-const seg = (on: boolean): CSSProperties => ({
+const wrapSm: CSSProperties = { ...wrap, padding: 1, gap: 1, borderRadius: 6 };
+const seg = (on: boolean, compact?: boolean): CSSProperties => ({
   border: "none",
-  borderRadius: 6,
-  padding: "5px 11px",
-  fontSize: 12,
+  borderRadius: compact ? 5 : 6,
+  padding: compact ? "2px 7px" : "5px 11px",
+  fontSize: compact ? 10 : 12,
   fontWeight: 600,
   cursor: "pointer",
   background: on ? ACCENT : "transparent",
