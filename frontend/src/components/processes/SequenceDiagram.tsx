@@ -2,6 +2,8 @@
 // плеч задокументированных каналов (вызов/ответ/событие), полосы активации, фрагмент
 // alt. Портировано 1:1 из дизайн-референса (bp-parts.jsx SequenceDiagram) на TS.
 // Чистый презентационный компонент: раскладка выводится из пропсов, ничего не грузит.
+import { useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { C4Glyph, IcoPlus } from "./icons";
 import { legMeta } from "./legMeta";
 import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
@@ -15,7 +17,9 @@ interface Props {
   activations?: SeqActivation[];
   fragment?: SeqFragment | null;
   ghost?: boolean;
-  onGhostClick?: () => void;
+  // Пользователь протянул стрелку из кружка одного участника к другому: создаём
+  // сообщение между ними (id = node_id). Источник = откуда тянули, цель = куда отпустили.
+  onConnect?: (fromId: string, toId: string) => void;
   onMessageClick?: (id: string) => void;
 }
 
@@ -25,9 +29,15 @@ export default function SequenceDiagram({
   activations = [],
   fragment,
   ghost,
-  onGhostClick,
+  onConnect,
   onMessageClick,
 }: Props) {
+  // Состояние drag-to-connect: откуда тянем и текущая точка курсора (в координатах
+  // контейнера); hover — ближайший участник-цель под курсором.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{ from: string; px: number; py: number } | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
+
   const idx: Record<string, number> = {};
   participants.forEach((p, k) => (idx[p.id] = k));
   const n = participants.length;
@@ -64,8 +74,45 @@ export default function SequenceDiagram({
     }
   }
 
+  // Начало драга из кружка участника k: захватываем указатель (чтобы движения шли
+  // даже за пределами кружка) и фиксируем источник.
+  function onCircleDown(e: ReactPointerEvent<HTMLButtonElement>, id: string, k: number) {
+    if (!onConnect) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({ from: id, px: PX(k), py: ghostY });
+  }
+  // Движение во время драга: тянем резиновую стрелку и подсвечиваем ближайший
+  // участник-цель (в пределах половины колонки, не сам источник).
+  function onRootMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!drag || !rootRef.current) return;
+    const r = rootRef.current.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    let best: string | null = null;
+    let bestD = Infinity;
+    participants.forEach((p, k) => {
+      if (p.id === drag.from) return;
+      const d = Math.abs(x - PX(k));
+      if (d < bestD) { bestD = d; best = p.id; }
+    });
+    setHover(bestD <= SQ.COL_W / 2 ? best : null);
+    setDrag((d) => (d ? { ...d, px: x, py: y } : d));
+  }
+  // Отпускание: если над валидной целью — создаём связь источник→цель.
+  function onRootUp() {
+    if (drag && hover && hover !== drag.from) onConnect?.(drag.from, hover);
+    setDrag(null);
+    setHover(null);
+  }
+
   return (
-    <div style={{ position: "relative", width: W, height: H, fontFamily: "system-ui, sans-serif" }}>
+    <div
+      ref={rootRef}
+      onPointerMove={ghost ? onRootMove : undefined}
+      onPointerUp={ghost ? onRootUp : undefined}
+      style={{ position: "relative", width: W, height: H, fontFamily: "system-ui, sans-serif" }}
+    >
       {/* alt-фрагмент (под сообщениями) */}
       {frag && fragment && (
         <>
@@ -330,7 +377,9 @@ export default function SequenceDiagram({
         </div>
       ))}
 
-      {/* призрак «+ сообщение» (режим редактирования) */}
+      {/* Уровень создания сообщения (режим редактирования): кружок «+» под каждым
+          участником. Из кружка тянут стрелку к нужному участнику — при драге кружки
+          становятся хэндлами-целями. */}
       {ghost && (
         <>
           <div
@@ -343,16 +392,70 @@ export default function SequenceDiagram({
               zIndex: 2,
             }}
           />
-          <button
-            className="bp-ghoststep"
-            onClick={onGhostClick}
-            style={{ position: "absolute", left: W / 2, top: ghostY, transform: "translate(-50%,-50%)", zIndex: 5 }}
-          >
-            <IcoPlus s={14} />
-            <span>сообщение</span>
-          </button>
+          {/* резиновая стрелка от источника к курсору */}
+          {drag && (
+            <svg style={{ position: "absolute", inset: 0, width: W, height: H, pointerEvents: "none", overflow: "visible", zIndex: 5 }}>
+              <line
+                x1={PX(idx[drag.from])}
+                y1={ghostY}
+                x2={drag.px}
+                y2={drag.py}
+                stroke={BPT.accent}
+                strokeWidth="2"
+                strokeDasharray="5 4"
+                markerEnd="url(#sq-call)"
+              />
+            </svg>
+          )}
+          {participants.map((p, k) => {
+            const isSource = drag?.from === p.id;
+            const isTarget = !!drag && !isSource;
+            const isHover = hover === p.id;
+            return (
+              <button
+                key={"g" + p.id}
+                title={drag ? `Связь с «${p.name}»` : `Сообщение от «${p.name}»`}
+                onPointerDown={(e) => onCircleDown(e, p.id, k)}
+                style={{
+                  ...circleBase,
+                  left: PX(k),
+                  top: ghostY,
+                  transform: isHover ? "translate(-50%,-50%) scale(1.12)" : "translate(-50%,-50%)",
+                  cursor: drag ? "grabbing" : "grab",
+                  ...(isSource
+                    ? { background: BPT.accent, color: "#fff", borderColor: BPT.accent }
+                    : isHover
+                      ? { background: BPT.accent, color: "#fff", borderColor: BPT.accent }
+                      : isTarget
+                        ? { background: BPT.wash }
+                        : null),
+                }}
+              >
+                <IcoPlus s={15} />
+              </button>
+            );
+          })}
         </>
       )}
     </div>
   );
 }
+
+// Кружок «+» под участником — источник/цель drag-to-connect.
+const circleBase: CSSProperties = {
+  position: "absolute",
+  width: 34,
+  height: 34,
+  borderRadius: "50%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  background: "#fff",
+  border: "1.5px solid " + BPT.accent,
+  color: BPT.accent,
+  boxShadow: "0 1px 3px rgba(15,23,42,.12)",
+  touchAction: "none",
+  zIndex: 6,
+  transition: "background .12s, transform .08s",
+};

@@ -1,33 +1,42 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { edgesApi } from "../api/nodes";
 import { processesApi } from "../api/processes";
 import type { Channel, ProcessParticipant } from "../types";
-import { C4Glyph, IcoArrowR, IcoChevron, IcoClose, IcoLink, IcoWarn } from "./processes/icons";
+import { C4Glyph, IcoArrowR, IcoClose, IcoLink, IcoWarn } from "./processes/icons";
 import { legMeta } from "./processes/legMeta";
 import { BPT } from "./processes/tokens";
 import "./processes/processes.css";
 
 /**
- * Композитор сообщения (звезда фичи). Сообщение НЕ рисуется, а выбирается из плеч
- * задокументированных каналов между двумя участниками (GET /channels). Нет канала →
- * валидатор ведёт достроить схему. Легальность плеч проверяет бэк — мы только показываем.
+ * Композитор сообщения (звезда фичи). Пара участников приходит готовой: её задаёт
+ * пользователь, протянув стрелку между линиями жизни на схеме (drag-to-connect),
+ * поэтому полей «От кого/Кому» тут больше нет — только схема выбранной пары.
+ * Сообщение НЕ рисуется, а выбирается из плеч задокументированных каналов между
+ * двумя участниками (GET /channels). Нет канала → валидатор ведёт достроить схему.
  */
 interface Props {
   processId: string;
   participants: ProcessParticipant[];
+  fromNode: string; // node_id источника (откуда тянули стрелку)
+  toNode: string; // node_id цели (куда отпустили)
   defaultOrder: number; // order для нового сообщения (в конец)
   onClose: () => void;
   onAdded: () => void; // перечитать детали процесса
 }
 
-export default function MessageComposer({ processId, participants, defaultOrder, onClose, onAdded }: Props) {
-  const [fromNode, setFromNode] = useState<string>("");
-  const [toNode, setToNode] = useState<string>("");
+export default function MessageComposer({
+  processId,
+  participants,
+  fromNode,
+  toNode,
+  defaultOrder,
+  onClose,
+  onAdded,
+}: Props) {
   // Результат /channels привязан к паре (key): пока key не совпал с текущей парой —
-  // считаем «грузим» (channels=null). Так setState живёт только в async-колбэке, без
-  // синхронного setState в эффекте (производное — в рендере).
+  // считаем «грузим» (channels=null). Так нет синхронного setState в эффекте —
+  // «сброс» при смене пары выводится в рендере, а не зеркалится через setState.
   const [result, setResult] = useState<{ key: string; data: Channel[] } | null>(null);
   const [sel, setSel] = useState<{ edgeId: string; leg: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,29 +49,37 @@ export default function MessageComposer({ processId, participants, defaultOrder,
   }, [participants]);
   const nameOf = (nodeId: string) => partByNode[nodeId]?.name ?? nodeId;
 
-  const pairReady = fromNode !== "" && toNode !== "" && fromNode !== toNode;
-  const pairKey = pairReady ? `${fromNode}|${toNode}` : "";
+  // Колоночный порядок участников на схеме (как в SequenceDiagram — по order). Карточки
+  // в модалке показываем в той же раскладке, что и на схеме, а стрелку направляем
+  // source→target: если цель правее источника — стрелка вправо, иначе влево.
+  const colIdx = useMemo(() => {
+    const m: Record<string, number> = {};
+    [...participants].sort((a, b) => a.order - b.order).forEach((p, k) => (m[p.node_id] = k));
+    return m;
+  }, [participants]);
+  const targetRight = (colIdx[toNode] ?? 0) > (colIdx[fromNode] ?? 0);
+  const leftId = targetRight ? fromNode : toNode;
+  const rightId = targetRight ? toNode : fromNode;
+
+  const pairKey = `${fromNode}|${toNode}`;
   const channels = result && result.key === pairKey ? result.data : null;
 
+  // Каналы пары грузим один раз (пара фиксирована пропсами). Бэк берёт {a,b} как
+  // множество — порядок аргументов не влияет на результат.
   useEffect(() => {
-    if (!pairReady) return;
     let alive = true;
     processesApi
       .channels(processId, fromNode, toNode)
       .then((ch) => alive && setResult({ key: pairKey, data: ch }))
       .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Ошибка загрузки каналов"));
     return () => { alive = false; };
-  }, [processId, fromNode, toNode, pairReady, pairKey]);
-
-  // Смена участника сбрасывает выбранное плечо (в обработчиках, не в эффекте).
-  const pickFrom = (n: string) => { setFromNode(n); setSel(null); };
-  const pickTo = (n: string) => { setToNode(n); setSel(null); };
+  }, [processId, fromNode, toNode, pairKey]);
 
   async function addSchemaEdge() {
     setBusy(true);
     setError(null);
     try {
-      // «Достроить схему»: документируем связь между узлами — она тут же появится
+      // «Достроить схему»: документируем связь source→target — она тут же появится
       // как плечо (канал). MVP без tech/label — связь синхронная по умолчанию.
       await edgesApi.create({ source_id: fromNode, target_id: toNode });
       const ch = await processesApi.channels(processId, fromNode, toNode);
@@ -113,27 +130,20 @@ export default function MessageComposer({ processId, participants, defaultOrder,
         </button>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px 6px" }}>
-        <div style={{ flex: 1 }}>
-          <div className="bp-fieldlab">От кого</div>
-          <ParticipantSelect participants={participants} value={fromNode} onPick={pickFrom} />
+      {/* Схема выбранной пары: узлы в порядке колонок схемы, стрелка source→target */}
+      <div style={{ display: "flex", alignItems: "stretch", gap: 8, padding: "14px 14px 10px" }}>
+        <NodeChip part={partByNode[leftId]} fallback={leftId} />
+        <div style={{ display: "flex", alignItems: "center", color: BPT.accent, flex: "none" }}>
+          <span style={{ display: "inline-flex", transform: targetRight ? "none" : "scaleX(-1)" }}>
+            <IcoArrowR s={18} />
+          </span>
         </div>
-        <span style={{ color: BPT.mut, marginTop: 16, flex: "none" }}>
-          <IcoArrowR s={16} />
-        </span>
-        <div style={{ flex: 1 }}>
-          <div className="bp-fieldlab">Кому</div>
-          <ParticipantSelect participants={participants} value={toNode} onPick={pickTo} />
-        </div>
+        <NodeChip part={partByNode[rightId]} fallback={rightId} />
       </div>
 
       {error && <div style={{ color: "#dc2626", fontSize: 12, padding: "0 14px 6px" }}>{error}</div>}
 
-      {!pairReady ? (
-        <div style={{ fontSize: 12, color: BPT.mut, padding: "6px 14px 16px" }}>
-          Выберите двух разных участников.
-        </div>
-      ) : channels === null ? (
+      {channels === null ? (
         <div style={{ fontSize: 12, color: BPT.mut, padding: "6px 14px 16px" }}>Загрузка каналов…</div>
       ) : channels.length === 0 ? (
         <div style={{ padding: "8px 14px 14px" }}>
@@ -152,8 +162,8 @@ export default function MessageComposer({ processId, participants, defaultOrder,
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
-            <button className="bp-btn-ghost" onClick={() => { setFromNode(""); setToNode(""); setSel(null); }}>
-              Выбрать другую пару
+            <button className="bp-btn-ghost" onClick={onClose}>
+              Отмена
             </button>
             <button className="bp-btn-primary" onClick={() => void addSchemaEdge()} disabled={busy}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -242,97 +252,32 @@ export default function MessageComposer({ processId, participants, defaultOrder,
   );
 }
 
-// Выбор участника (От/Кому) — кнопка с дропдауном. Вынесен из композитора, чтобы не
-// ремаунтился на каждый рендер.
-function ParticipantSelect({
-  participants,
-  value,
-  onPick,
-}: {
-  participants: ProcessParticipant[];
-  value: string;
-  onPick: (nodeId: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  // Снимок на момент открытия: координаты кнопки (позиционируем по ним дропдаун) и
-  // хост портала. Композитор лежит в .bp-composer с overflow:hidden, который обрезал
-  // бы дропдаун, поэтому рендерим список порталом прямо в <dialog> (top-layer
-  // модалки) с position:fixed — он ложится ПОВЕРХ границы и не обрезается. Портал в
-  // body не подошёл бы — ушёл бы под top-layer диалога.
-  const [anchor, setAnchor] = useState<{ rect: DOMRect; host: Element } | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const sel = participants.find((p) => p.node_id === value);
-
-  const toggle = () => {
-    setOpen((o) => {
-      const next = !o;
-      if (next && btnRef.current) {
-        setAnchor({
-          rect: btnRef.current.getBoundingClientRect(),
-          host: btnRef.current.closest("dialog") ?? document.body,
-        });
-      }
-      return next;
-    });
-  };
-
+// Схематичная карточка узла (иконка C4 + имя, без подробностей).
+function NodeChip({ part, fallback }: { part: ProcessParticipant | undefined; fallback: string }) {
   return (
-    <div style={{ position: "relative" }}>
-      <button
-        ref={btnRef}
-        className={"bp-pairsel" + (sel ? "" : " is-placeholder")}
-        onClick={toggle}
-      >
-        {sel ? (
-          <>
-            <span style={{ color: sel.is_external ? BPT.mut : BPT.sec, display: "inline-flex" }}>
-              <C4Glyph shape={sel.shape} s={16} />
-            </span>
-            <b>{sel.name}</b>
-          </>
-        ) : (
-          <span style={{ fontSize: 13 }}>Выбрать…</span>
-        )}
-        <span className="bp-caret">
-          <IcoChevron s={11} open={open} />
-        </span>
-      </button>
-      {open && anchor &&
-        createPortal(
-          <>
-            <div style={ddBackdrop} onClick={() => setOpen(false)} />
-            <div
-              style={{
-                ...dropdown,
-                top: anchor.rect.bottom + 4,
-                left: anchor.rect.left,
-                width: anchor.rect.width,
-              }}
-            >
-              {participants.length === 0 ? (
-                <div style={{ padding: "8px 11px", fontSize: 12, color: BPT.mut }}>Нет участников</div>
-              ) : (
-                participants.map((p) => (
-                  <button
-                    key={p.id}
-                    style={ddItem}
-                    onClick={() => { onPick(p.node_id); setOpen(false); }}
-                  >
-                    <span style={{ color: p.is_external ? BPT.mut : BPT.sec, display: "inline-flex" }}>
-                      <C4Glyph shape={p.shape} s={15} />
-                    </span>
-                    <span style={{ fontSize: 13, color: BPT.head }}>{p.name}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </>,
-          anchor.host,
-        )}
+    <div style={chip}>
+      <span style={{ color: part?.is_external ? BPT.mut : BPT.sec, display: "inline-flex", flex: "none" }}>
+        <C4Glyph shape={part?.shape ?? "service"} s={17} />
+      </span>
+      <b style={{ fontSize: 13, fontWeight: 600, color: BPT.head, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {part?.name ?? fallback}
+      </b>
     </div>
   );
 }
 
+const chip: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flex: 1,
+  minWidth: 0,
+  height: 40,
+  padding: "0 11px",
+  background: "#fff",
+  border: "1px solid " + BPT.line,
+  borderRadius: 9,
+};
 const validator: CSSProperties = {
   display: "flex",
   gap: 11,
@@ -340,28 +285,4 @@ const validator: CSSProperties = {
   background: BPT.amberBg,
   border: "1px solid " + BPT.amberLine,
   borderRadius: 10,
-};
-const ddBackdrop: CSSProperties = { position: "fixed", inset: 0, zIndex: 2147483646 };
-const dropdown: CSSProperties = {
-  position: "fixed",
-  zIndex: 2147483647,
-  background: "#fff",
-  border: "1px solid " + BPT.line,
-  borderRadius: 8,
-  boxShadow: "0 14px 36px rgba(15,23,42,.16)",
-  padding: 4,
-  maxHeight: 200,
-  overflow: "auto",
-};
-const ddItem: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  width: "100%",
-  padding: "7px 9px",
-  background: "none",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  textAlign: "left",
 };

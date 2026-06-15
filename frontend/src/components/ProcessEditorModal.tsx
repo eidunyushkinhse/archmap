@@ -30,7 +30,8 @@ const FRAGMENTS: FragmentKind[] = ["alt", "opt", "loop", "par"];
 export default function ProcessEditorModal({ id, onClose }: Props) {
   const [detail, setDetail] = useState<ProcessDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [composer, setComposer] = useState(false);
+  // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
+  const [composer, setComposer] = useState<{ from: string; to: string } | null>(null);
   const [partPanel, setPartPanel] = useState(false);
   const [fragKind, setFragKind] = useState<FragmentKind | null>(null);
   const [fragGuard, setFragGuard] = useState("");
@@ -165,7 +166,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                 activations={activations}
                 fragment={seq.fragment}
                 ghost
-                onGhostClick={() => setComposer(true)}
+                onConnect={(from, to) => setComposer({ from, to })}
                 onMessageClick={(mid) => setDelMsg(mid)}
               />
             </div>
@@ -174,13 +175,15 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
           {/* Композитор сообщения — оверлей по центру тела */}
           {composer && detail && (
             <>
-              <div style={overlayDim} onClick={() => setComposer(false)} />
+              <div style={overlayDim} onClick={() => setComposer(null)} />
               <div style={overlayCenter}>
                 <MessageComposer
                   processId={id}
                   participants={detail.participants}
+                  fromNode={composer.from}
+                  toNode={composer.to}
                   defaultOrder={nextOrder}
-                  onClose={() => setComposer(false)}
+                  onClose={() => setComposer(null)}
                   onAdded={reload}
                 />
               </div>
