@@ -173,6 +173,7 @@ def restore_from_snapshot(db: Session, snapshot: DeletionSnapshot) -> None:
                 node_id=gp.node_id,
                 pos_x=gp.pos_x,
                 pos_y=gp.pos_y,
+                anchor_rel=gp.anchor_rel,
             )
         )
     for gh in snapshot.ghost_edge_handles:

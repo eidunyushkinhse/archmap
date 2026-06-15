@@ -96,6 +96,9 @@ class GhostNodeResponse(BaseModel):
 class GhostPositionUpdate(BaseModel):
     pos_x: float
     pos_y: float
+    # true — pos_x/pos_y это офсет от живого якоря группы (раскладка детей раскрытой
+    # гостевой рамки, ТЗ D2/D4); по умолчанию абсолют (как все прочие гостевые позиции)
+    anchor_rel: bool = False
 
 
 class GhostEdgeHandleUpdate(BaseModel):
@@ -138,6 +141,8 @@ class GraphEdgeResponse(BaseModel):
 class PosXY(BaseModel):
     pos_x: float
     pos_y: float
+    # true — pos_x/pos_y это офсет от живого якоря группы (см. GhostPositionUpdate)
+    anchor_rel: bool = False
 
 
 class GraphResponse(BaseModel):

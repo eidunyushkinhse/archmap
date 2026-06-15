@@ -51,6 +51,7 @@ class GhostPositionSnapshot(BaseModel):
     node_id: uuid.UUID
     pos_x: float
     pos_y: float
+    anchor_rel: bool = False
 
     model_config = {"from_attributes": True}
 
