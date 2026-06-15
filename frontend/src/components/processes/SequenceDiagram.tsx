@@ -2,7 +2,7 @@
 // плеч задокументированных каналов (вызов/ответ/событие), полосы активации, фрагмент
 // alt. Портировано 1:1 из дизайн-референса (bp-parts.jsx SequenceDiagram) на TS.
 // Чистый презентационный компонент: раскладка выводится из пропсов, ничего не грузит.
-import { useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { C4Glyph, IcoPlus } from "./icons";
 import { legMeta } from "./legMeta";
@@ -10,6 +10,9 @@ import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./s
 import { BPT, SQ } from "./tokens";
 
 const DANGER = "#dc2626"; // повисшее сообщение (связь удалена из схемы)
+const DEFAULT_LH = 18; // высота однострочной подписи до замера
+const LABEL_GAP = 10; // зазор между низом подписи и стрелкой
+const LABEL_PAD = 26; // запас в шаге строки сверх высоты подписи (одна строка → шаг ROW_GAP)
 
 interface Props {
   participants: SeqParticipant[];
@@ -38,19 +41,59 @@ export default function SequenceDiagram({
   const [drag, setDrag] = useState<{ from: string; px: number; py: number } | null>(null);
   const [hover, setHover] = useState<string | null>(null);
 
+  // Подписи сообщений переносятся по словам, поэтому их высота заранее неизвестна.
+  // Замеряем реальную высоту каждой подписи (ResizeObserver — переживает и смену
+  // ширины при перестановке колонок) и раздвигаем строки под самую высокую подпись,
+  // чтобы текст влезал целиком и не наезжал на соседнюю стрелку/шапки.
+  const labelEls = useRef<Map<string, HTMLElement>>(new Map());
+  const [labelH, setLabelH] = useState<Record<string, number>>({});
+  const bindLabel = useCallback((el: HTMLDivElement | null) => {
+    if (el?.dataset.mid) labelEls.current.set(el.dataset.mid, el);
+  }, []);
+  useLayoutEffect(() => {
+    const ro = new ResizeObserver(() => {
+      const next: Record<string, number> = {};
+      for (const m of messages) {
+        const el = labelEls.current.get(m.id);
+        if (el) next[m.id] = el.offsetHeight;
+      }
+      setLabelH((prev) => {
+        const keys = Object.keys(next);
+        if (keys.length === Object.keys(prev).length && keys.every((k) => prev[k] === next[k])) return prev;
+        return next;
+      });
+    });
+    for (const m of messages) {
+      const el = labelEls.current.get(m.id);
+      if (el) ro.observe(el);
+    }
+    return () => ro.disconnect();
+  }, [messages]);
+
   const idx: Record<string, number> = {};
   participants.forEach((p, k) => (idx[p.id] = k));
   const n = participants.length;
   const PX = (k: number) => SQ.MARGIN + k * SQ.COL_W;
   const lifeTop = SQ.TOP + SQ.PHEAD_H;
+
+  const R = messages.length ? Math.max(...messages.map((m) => m.r)) + 1 : 0;
+  const lhOf = (id: string) => labelH[id] ?? DEFAULT_LH;
+  // Высота подписи по строке = высота её сообщения (одно сообщение на строку).
+  const rowLabelH: number[] = new Array(R).fill(DEFAULT_LH);
+  for (const m of messages) rowLabelH[m.r] = lhOf(m.id);
+  // Накопленные вертикальные смещения строк: зазор перед строкой r вмещает её подпись.
+  const rowOff: number[] = new Array(R + 1).fill(0);
+  rowOff[0] = R > 0 ? Math.max(SQ.ROW0, rowLabelH[0] + LABEL_GAP + 6) : SQ.ROW0;
+  for (let r = 1; r <= R; r++) {
+    const lh = r < R ? rowLabelH[r] : DEFAULT_LH;
+    rowOff[r] = rowOff[r - 1] + Math.max(SQ.ROW_GAP, lh + LABEL_PAD);
+  }
   const rowY = (r: number) =>
     lifeTop +
-    SQ.ROW0 +
-    r * SQ.ROW_GAP +
+    rowOff[r] +
     (fragment && r >= fragment.fromRow ? SQ.FRAG_HEAD : 0) +
     (fragment && fragment.elseRow != null && r >= fragment.elseRow ? SQ.ELSE_GAP : 0);
 
-  const R = messages.length ? Math.max(...messages.map((m) => m.r)) + 1 : 0;
   const ghostY = ghost ? rowY(R) - 6 : 0;
   const W = SQ.MARGIN * 2 + Math.max(0, n - 1) * SQ.COL_W;
   const contentBottom = R > 0 ? rowY(R - 1) : lifeTop + SQ.ROW0;
@@ -259,14 +302,17 @@ export default function SequenceDiagram({
         return (
           <div
             key={"l" + m.id}
+            data-mid={m.id}
+            ref={bindLabel}
             onClick={onMessageClick ? () => onMessageClick(m.id) : undefined}
             style={{
               position: "absolute",
               left: left + 8,
-              top: rowY(m.r) - 23,
+              // подпись висит над стрелкой: её низ — на LABEL_GAP выше линии
+              top: rowY(m.r) - lhOf(m.id) - LABEL_GAP,
               width: w - 16,
               display: "flex",
-              alignItems: "center",
+              alignItems: "flex-start",
               justifyContent: "center",
               gap: 5,
               zIndex: 3,
@@ -297,9 +343,13 @@ export default function SequenceDiagram({
                 fontSize: 11.5,
                 fontWeight: 500,
                 color: m.valid ? BPT.head : DANGER,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
+                // переносим по словам (и рвём слишком длинные слова), чтобы текст влезал
+                whiteSpace: "normal",
+                overflowWrap: "anywhere",
+                textAlign: "center",
+                lineHeight: 1.35,
+                flex: "0 1 auto",
+                minWidth: 0,
               }}
             >
               {m.label}
