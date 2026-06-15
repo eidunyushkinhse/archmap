@@ -34,6 +34,11 @@ export type NodeUpdate = Schemas["NodeUpdate"];
 // Точка-сгиб кастомного пути стрелки в координатах графа уровня.
 export type EdgePoint = Schemas["Point"];
 
+// Сохранённая позиция гостя на уровне (level_positions). anchor_rel=true → pos_x/pos_y
+// это ОФСЕТ от живого якоря группы (раскладка детей раскрытой гостевой рамки, ТЗ D2/D3),
+// иначе обычный абсолют уровня. См. ringPlacement.
+export type LevelPos = Schemas["PosXY"];
+
 export type Edge = Schemas["EdgeResponse"];
 export type EdgeUpdate = Schemas["EdgeUpdate"];
 export type EdgeCreate = Schemas["EdgeCreate"];

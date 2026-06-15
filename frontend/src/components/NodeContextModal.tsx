@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
-import type { Node, NodeContext, LevelEdge } from "../types";
+import type { Node, NodeContext, LevelEdge, LevelPos } from "../types";
 import LevelGraph from "./LevelGraph";
 import EdgeDetailModal from "./EdgeDetailModal";
 import EdgeChoiceModal from "./EdgeChoiceModal";
@@ -14,7 +14,7 @@ interface Props {
 
 // Стабильная пустая ссылка: контекст-схема координаты не сохраняет, но проп —
 // зависимость раскладки, поэтому держим один объект, а не новый `{}` на рендер.
-const EMPTY_LEVEL_POSITIONS: Record<string, { pos_x: number; pos_y: number }> = {};
+const EMPTY_LEVEL_POSITIONS: Record<string, LevelPos> = {};
 
 /**
  * Модалка «контекстная схема узла». Открывается кликом по узлу в дереве и

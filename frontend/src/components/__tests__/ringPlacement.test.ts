@@ -108,7 +108,7 @@ describe("placeGhostsOnRings — внутренняя полка детей го
   const vertLocals = () => ({
     nodes: [node("La"), node("Lb"), node("Lc")],
     entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")]), leaf("g3", [a("P")])],
-    ancestorIds: ["A"], levelPositions: {} as Record<string, { pos_x: number; pos_y: number }>,
+    ancestorIds: ["A"], levelPositions: {} as Record<string, { pos_x: number; pos_y: number; anchor_rel: boolean }>,
     layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb"), edge("e3", "g3", "Lc")],
   });
   const localPos = (): [string, { x: number; y: number }][] => [
@@ -167,7 +167,7 @@ describe("placeGhostsOnRings — ручные позиции", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5, y: 5 }]]);
     const res = placeGhostsOnRings({
       nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: ["A"],
-      levelPositions: { G: { pos_x: 999, pos_y: 999 } },
+      levelPositions: { G: { pos_x: 999, pos_y: 999, anchor_rel: false } },
       layoutEdges: [edge("e", "G", "L")], positions,
     });
     expect(res).toBeNull();

@@ -20,7 +20,7 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
 import { edgesApi } from "../api/nodes";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef, LevelPos } from "../types";
 import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H,
@@ -93,7 +93,7 @@ interface LevelGraphProps {
   ghostNodes: GhostNode[];
   // сохранённые координаты гостей на уровне, ключ — id отображаемой сущности
   // (лист-гость ИЛИ предок-контейнер, в который гость свёрнут)
-  levelPositions: Record<string, { pos_x: number; pos_y: number }>;
+  levelPositions: Record<string, LevelPos>;
   // сохранённые хэндлы гостевых концов рёбер: edge_id → список значений хэндлов
   // (по одному на проекцию). Применяются к концу, чей текущий показанный узел
   // совпадает с префиксом хэндла; остальные — из колонок ребра / autoHandles.

@@ -23,7 +23,7 @@ import { assignEdgeHandles } from "./level";
 import { spread1DSized } from "./pav";
 import { cleanup, orthogonalPointsForHandles, pathCrossesRects, type EdgeSide, type NodeRect } from "../edgePath";
 import type { DisplayExternal } from "../types";
-import type { Edge as AppEdge, AncestorRef } from "../../../types";
+import type { Edge as AppEdge, AncestorRef, LevelPos } from "../../../types";
 
 const SHELF_GAP = 28; // зазор между соседними гостями вдоль стороны кольца
 
@@ -47,7 +47,7 @@ export function placeGhostsOnRings(params: {
   nodes: { id: string }[];
   entities: DisplayExternal[];
   ancestorIds: string[];
-  levelPositions: Record<string, { pos_x: number; pos_y: number }>;
+  levelPositions: Record<string, LevelPos>;
   layoutEdges: AppEdge[];
   positions: Map<string, XY>;
 }): RingPlacementResult | null {
