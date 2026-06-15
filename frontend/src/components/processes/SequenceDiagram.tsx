@@ -4,7 +4,7 @@
 // Чистый презентационный компонент: раскладка выводится из пропсов, ничего не грузит.
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import { C4Glyph, IcoPlus } from "./icons";
+import { C4Glyph, IcoClose, IcoPlus } from "./icons";
 import { legMeta } from "./legMeta";
 import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
 import { BPT, SQ } from "./tokens";
@@ -24,6 +24,9 @@ interface Props {
   // сообщение между ними (id = node_id). Источник = откуда тянули, цель = куда отпустили.
   onConnect?: (fromId: string, toId: string) => void;
   onMessageClick?: (id: string) => void;
+  // Удаление участника со схемы (крестик по ховеру на шапке). id = node_id.
+  // Передаётся только в режиме редактирования — в read-only окне крестика нет.
+  onDeleteParticipant?: (nodeId: string) => void;
 }
 
 export default function SequenceDiagram({
@@ -34,6 +37,7 @@ export default function SequenceDiagram({
   ghost,
   onConnect,
   onMessageClick,
+  onDeleteParticipant,
 }: Props) {
   // Состояние drag-to-connect: откуда тянем и текущая точка курсора (в координатах
   // контейнера); hover — ближайший участник-цель под курсором.
@@ -382,6 +386,7 @@ export default function SequenceDiagram({
       {participants.map((p, k) => (
         <div
           key={p.id}
+          className="bp-phead"
           style={{
             position: "absolute",
             left: PX(k) - 78,
@@ -400,6 +405,17 @@ export default function SequenceDiagram({
             zIndex: 4,
           }}
         >
+          {/* Крестик удаления участника — проявляется по ховеру на шапке. */}
+          {onDeleteParticipant && (
+            <button
+              className="bp-phead-del"
+              title={`Удалить «${p.name}» из процесса`}
+              onClick={(e) => { e.stopPropagation(); onDeleteParticipant(p.id); }}
+              style={pheadDel}
+            >
+              <IcoClose s={11} />
+            </button>
+          )}
           <span
             style={{
               width: 28,
@@ -490,6 +506,27 @@ export default function SequenceDiagram({
     </div>
   );
 }
+
+// Крестик удаления участника в правом верхнем углу шапки (видимость — по ховеру,
+// через CSS .bp-phead:hover .bp-phead-del).
+const pheadDel: CSSProperties = {
+  position: "absolute",
+  top: -8,
+  right: -8,
+  width: 20,
+  height: 20,
+  borderRadius: "50%",
+  border: "1px solid #fecaca",
+  background: "#fff",
+  color: "#dc2626",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  cursor: "pointer",
+  boxShadow: "0 1px 3px rgba(15,23,42,.12)",
+  zIndex: 5,
+};
 
 // Кружок «+» под участником — источник/цель drag-to-connect.
 const circleBase: CSSProperties = {

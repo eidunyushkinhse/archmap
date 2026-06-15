@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { processesApi } from "../api/processes";
-import type { FragmentKind, ProcessDetail } from "../types";
+import type { FragmentKind, ProcessDetail, ProcessParticipant } from "../types";
 import Modal from "../ui/Modal";
 import MessageComposer from "./MessageComposer";
 import NodeSearchPicker from "./NodeSearchPicker";
+import ParticipantDeleteConfirm from "./processes/ParticipantDeleteConfirm";
 import { C4Glyph, IcoClose, IcoPlus } from "./processes/icons";
 import LegLegend from "./processes/LegLegend";
 import ProcessWindow from "./processes/ProcessWindow";
@@ -36,6 +37,10 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   const [fragKind, setFragKind] = useState<FragmentKind | null>(null);
   const [fragGuard, setFragGuard] = useState("");
   const [delMsg, setDelMsg] = useState<string | null>(null);
+  // Участник, чьё удаление подтверждаем (есть проведённые связи). null — модалки нет.
+  const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
+  const [delPartBusy, setDelPartBusy] = useState(false);
+  const [delPartErr, setDelPartErr] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     processesApi
@@ -52,6 +57,28 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
     () => (detail ? detail.messages.reduce((mx, m) => Math.max(mx, m.order), -1) + 1 : 0),
     [detail],
   );
+  // Имя участника по node_id (для подписи концов в подтверждении удаления).
+  const nameByNode = useMemo(() => {
+    const m: Record<string, string> = {};
+    if (detail) for (const p of detail.participants) m[p.node_id] = p.name;
+    return m;
+  }, [detail]);
+  // Связи удаляемого участника на схеме: подпись сообщения + направление + другой конец.
+  const delLinks = useMemo(() => {
+    if (!detail || !delPart) return [];
+    return detail.messages
+      .filter((m) => m.from_id === delPart.node_id || m.to_id === delPart.node_id)
+      .map((m) => {
+        const outgoing = m.from_id === delPart.node_id;
+        const other = outgoing ? m.to_id : m.from_id;
+        return {
+          id: m.id,
+          label: m.caption || m.technology || "сообщение",
+          dir: (outgoing ? "к" : "от") as "к" | "от",
+          other: nameByNode[other] ?? other,
+        };
+      });
+  }, [detail, delPart, nameByNode]);
 
   async function addParticipant(nodeId: string) {
     if (!detail) return;
@@ -62,12 +89,41 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
       setError(e instanceof Error ? e.message : "Не удалось добавить участника");
     }
   }
+  // Сообщения процесса, проходящие через узел (по любому концу) — то, что исчезнет
+  // вместе с участником (бэк сносит их каскадом).
+  function messagesThrough(nodeId: string) {
+    return detail ? detail.messages.filter((m) => m.from_id === nodeId || m.to_id === nodeId) : [];
+  }
+  // Запрос на удаление участника: если связей на схеме нет — удаляем сразу (как в C4
+  // NodeDeleteConfirm — подтверждать нечего); иначе показываем подтверждение со списком.
+  function requestRemoveParticipant(p: ProcessParticipant) {
+    if (messagesThrough(p.node_id).length === 0) {
+      void removeParticipant(p.id);
+      return;
+    }
+    setDelPartErr(null);
+    setDelPart(p);
+  }
   async function removeParticipant(pid: string) {
     try {
       await processesApi.removeParticipant(id, pid);
       reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось удалить участника");
+    }
+  }
+  async function confirmRemoveParticipant() {
+    if (!delPart) return;
+    setDelPartBusy(true);
+    setDelPartErr(null);
+    try {
+      await processesApi.removeParticipant(id, delPart.id);
+      setDelPart(null);
+      reload();
+    } catch (e: unknown) {
+      setDelPartErr(e instanceof Error ? e.message : "Не удалось удалить участника");
+    } finally {
+      setDelPartBusy(false);
     }
   }
   async function removeMessage(mid: string) {
@@ -168,6 +224,10 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                 ghost
                 onConnect={(from, to) => setComposer({ from, to })}
                 onMessageClick={(mid) => setDelMsg(mid)}
+                onDeleteParticipant={(nodeId) => {
+                  const p = detail.participants.find((pp) => pp.node_id === nodeId);
+                  if (p) requestRemoveParticipant(p);
+                }}
               />
             </div>
           )}
@@ -204,6 +264,23 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                     </button>
                   </div>
                 </div>
+              </div>
+            </>
+          )}
+
+          {/* Подтверждение удаления участника (со списком связей на схеме) */}
+          {delPart && (
+            <>
+              <div style={overlayDim} onClick={() => { if (!delPartBusy) setDelPart(null); }} />
+              <div style={overlayCenter}>
+                <ParticipantDeleteConfirm
+                  name={delPart.name}
+                  links={delLinks}
+                  deleting={delPartBusy}
+                  error={delPartErr}
+                  onConfirm={() => void confirmRemoveParticipant()}
+                  onCancel={() => setDelPart(null)}
+                />
               </div>
             </>
           )}
@@ -260,7 +337,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                               <C4Glyph shape={p.shape} s={15} />
                             </span>
                             <span style={{ fontSize: 13, color: BPT.head, flex: 1 }}>{p.name}</span>
-                            <button style={partX} title="Убрать" onClick={() => void removeParticipant(p.id)}>
+                            <button style={partX} title="Убрать" onClick={() => requestRemoveParticipant(p)}>
                               <IcoClose s={13} />
                             </button>
                           </div>
