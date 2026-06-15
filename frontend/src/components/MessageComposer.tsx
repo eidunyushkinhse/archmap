@@ -42,8 +42,6 @@ export default function MessageComposer({
   const [sel, setSel] = useState<{ edgeId: string; leg: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Тип связи для «достроить схему»: синхронная (вызов+ответ) или асинхронная (событие).
-  const [newSync, setNewSync] = useState(true);
   // edge_id связи, у которой сейчас переключаем тип (на время запроса блокируем тумблеры).
   const [syncEdge, setSyncEdge] = useState<string | null>(null);
 
@@ -85,8 +83,9 @@ export default function MessageComposer({
     setError(null);
     try {
       // «Достроить схему»: документируем связь source→target — она тут же появится
-      // как плечо (канал). Тип (синхронная/асинхронная) выбран тумблером ниже.
-      await edgesApi.create({ source_id: fromNode, target_id: toNode, is_synchronous: newSync });
+      // как плечо (канал). Новая связь по умолчанию синхронная; переключить в
+      // асинхронную можно тумблером в шапке канала (когда он появится в списке).
+      await edgesApi.create({ source_id: fromNode, target_id: toNode });
       const ch = await processesApi.channels(processId, fromNode, toNode);
       setResult({ key: pairKey, data: ch });
     } catch (e: unknown) {
@@ -184,10 +183,6 @@ export default function MessageComposer({
                 «{nameOf(fromNode)} → {nameOf(toNode)}» в схему — и она появится здесь как плечо.
               </div>
             </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: BPT.micro, flex: "none" }}>Тип связи</span>
-            <SyncSegmented value={newSync} onChange={setNewSync} />
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
             <button className="bp-btn-ghost" onClick={onClose}>
