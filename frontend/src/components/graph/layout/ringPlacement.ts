@@ -236,9 +236,61 @@ export function placeGhostsOnRings(params: {
       buckets[bestSide].push({ g, bbox, side: bestSide, along });
     }
 
+    // Внутренняя раскладка детей раскрытой гостевой рамки (D1): вместо жёсткого переноса
+    // группы расставляем её детей ОДНОЙ полкой вдоль стороны рамки, обращённой к кольцу,
+    // в порядке проекции их якорей (центроидов связанных локалов) на ось полки. Перетасовка
+    // входных ELK-позиций детей на результат НЕ влияет — порядок задаёт только якорь.
+    // Мутирует positions; возвращает новый bbox ГОСТЕВОЙ РАМКИ (дети + паддинг), которым
+    // группа затем садится на кольцо (так keep-out остаётся no-op по построению).
+    const layoutGuestChildrenShelf = (it: Placed, axis: "x" | "y"): Rect | null => {
+      const ids = it.g.ids;
+      const oldCB = groupBbox(ids);
+      const oldFR = gfRect.get(it.g.key);
+      if (!oldCB || !oldFR) return null;
+      // паддинг рамки (симметричный по бокам/сверху) + полку под подпись снизу выводим из
+      // старого frame-rect, чтобы воссоздать рамку по новой раскладке детей без computeFrames
+      const pad = oldCB.minX - oldFR.minX;
+      const labelPad = oldFR.maxY - oldFR.minY - (oldCB.maxY - oldCB.minY) - 2 * pad;
+      const half = axis === "y" ? NODE_H / 2 : NODE_W / 2;
+      // проекция якоря ребёнка на ось полки (центроид связанных локалов); без связей — в хвост
+      const proj = new Map<string, number>();
+      let lastAnchor = -Infinity;
+      for (const id of ids) {
+        let s = 0, c = 0;
+        for (const lid of connectedLocal([id])) {
+          const p = positions.get(lid);
+          if (p) { s += axis === "y" ? p.y + NODE_H / 2 : p.x + NODE_W / 2; c++; }
+        }
+        const v = c ? s / c : Infinity;
+        proj.set(id, v);
+        if (isFinite(v)) lastAnchor = Math.max(lastAnchor, v);
+      }
+      // порядок: по проекции якоря; бесхвостые (без связей) — в конец, стабильно по id
+      const order = [...ids].sort((p, q) =>
+        (proj.get(p)! - proj.get(q)!) || (p < q ? -1 : p > q ? 1 : 0));
+      // желаемые координаты вдоль оси = проекция якоря; хвост без якоря — за последним якорем
+      if (!isFinite(lastAnchor)) lastAnchor = axis === "y" ? (ring.minY + ring.maxY) / 2 : (ring.minX + ring.maxX) / 2;
+      const desired = order.map((id) => (isFinite(proj.get(id)!) ? proj.get(id)! : lastAnchor));
+      const centers = spread1DSized(desired, order.map(() => half), SHELF_GAP);
+      // одна колонка (cross = 0), вдоль оси — по центрам; абсолют задаст перенос рамки ниже
+      order.forEach((id, i) => {
+        if (axis === "y") positions.set(id, { x: 0, y: centers[i] - NODE_H / 2 });
+        else positions.set(id, { x: centers[i] - NODE_W / 2, y: 0 });
+      });
+      const newCB = groupBbox(ids)!;
+      return { minX: newCB.minX - pad, minY: newCB.minY - pad, maxX: newCB.maxX + pad, maxY: newCB.maxY + pad + labelPad };
+    };
+
     // де-наложение вдоль стороны (PAV с учётом размеров групп) + перенос группы целиком
     const settle = (items: Placed[], axis: "x" | "y"): void => {
       if (items.length === 0) return;
+      // сначала внутренняя раскладка детей многодетных гостевых рамок (D1) — обновляет их bbox
+      for (const it of items) {
+        if (it.g.ids.length > 1 && gfRect.has(it.g.key)) {
+          const nb = layoutGuestChildrenShelf(it, axis);
+          if (nb) it.bbox = nb;
+        }
+      }
       const half = items.map((it) =>
         axis === "y" ? (it.bbox.maxY - it.bbox.minY) / 2 : (it.bbox.maxX - it.bbox.minX) / 2);
       const centers = spread1DSized(items.map((it) => it.along), half, SHELF_GAP);

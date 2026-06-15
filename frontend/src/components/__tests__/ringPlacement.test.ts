@@ -100,26 +100,68 @@ describe("placeGhostsOnRings — keep-out по построению", () => {
   });
 });
 
-describe("placeGhostsOnRings — жёсткая группа и ручные позиции", () => {
-  it("дети раскрытого контейнера-гостя двигаются ВМЕСТЕ (рамка не рвётся)", () => {
-    // g1,g2 в общей гостевой рамке P (оба предок P, ничей). Стоят стопкой (Δy=135).
-    const positions = new Map([
-      ["L", { x: 0, y: 0 }], ["g1", { x: 5, y: 5 }], ["g2", { x: 5, y: 140 }],
-    ]);
-    const res = placeGhostsOnRings({
-      nodes: [node("L")],
-      entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")])],
-      ancestorIds: ["A"], levelPositions: {},
-      layoutEdges: [edge("e", "g1", "L")], positions,
-    });
-    expect(res).not.toBeNull();
-    const g1 = positions.get("g1")!, g2 = positions.get("g2")!;
-    // относительное смещение сохранено (жёсткий перенос группы)
-    expect(g2.x - g1.x).toBe(0);
-    expect(g2.y - g1.y).toBe(135);
-    expect(res!.placedOutside.has("g1")).toBe(true);
-    expect(res!.placedOutside.has("g2")).toBe(true);
+describe("placeGhostsOnRings — внутренняя полка детей гостевой рамки (D1)", () => {
+  // Вертикальный столбец локалов La/Lb/Lc; раскрытая гостевая рамка P с детьми g1/g2/g3,
+  // каждый связан со своим локалом. Гость садится сбоку (горизонтальные связи не режут
+  // соседей) → дети встают одной вертикальной полкой в ПОРЯДКЕ ЯКОРЕЙ (по проекции y
+  // связанных локалов), независимо от входных ELK-позиций детей.
+  const vertLocals = () => ({
+    nodes: [node("La"), node("Lb"), node("Lc")],
+    entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")]), leaf("g3", [a("P")])],
+    ancestorIds: ["A"], levelPositions: {} as Record<string, { pos_x: number; pos_y: number }>,
+    layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb"), edge("e3", "g3", "Lc")],
   });
+  const localPos = (): [string, { x: number; y: number }][] => [
+    ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 260 }], ["Lc", { x: 0, y: 520 }],
+  ];
+
+  it("дети упорядочены по якорю и стоят одной колонкой", () => {
+    // входные позиции детей НАМЕРЕННО перепутаны относительно их якорей
+    const positions = new Map([
+      ...localPos(),
+      ["g1", { x: 5, y: 999 }], ["g2", { x: 5, y: 5 }], ["g3", { x: 5, y: 480 }],
+    ]);
+    const res = placeGhostsOnRings({ ...vertLocals(), positions });
+    expect(res).not.toBeNull();
+    const g1 = positions.get("g1")!, g2 = positions.get("g2")!, g3 = positions.get("g3")!;
+    // порядок по якорю: La(y0) < Lb(y260) < Lc(y520) → g1 выше g2 выше g3
+    expect(g1.y).toBeLessThan(g2.y);
+    expect(g2.y).toBeLessThan(g3.y);
+    // одна колонка — общий x
+    expect(g1.x).toBe(g2.x);
+    expect(g2.x).toBe(g3.x);
+    // якоря разнесены > NODE_H+зазор → дети сидят РОВНО на проекциях якорей (Δ = Δлокалов)
+    expect(g2.y - g1.y).toBeCloseTo(260);
+    expect(g3.y - g2.y).toBeCloseTo(260);
+  });
+
+  it("раскладка не зависит от входных ELK-позиций детей", () => {
+    const run = (childPos: [string, { x: number; y: number }][]) => {
+      const positions = new Map([...localPos(), ...childPos]);
+      placeGhostsOnRings({ ...vertLocals(), positions });
+      return ["g1", "g2", "g3"].map((id) => positions.get(id)!);
+    };
+    const a1 = run([["g1", { x: 5, y: 999 }], ["g2", { x: 5, y: 5 }], ["g3", { x: 5, y: 480 }]]);
+    const a2 = run([["g1", { x: 700, y: 12 }], ["g2", { x: 5, y: 700 }], ["g3", { x: 5, y: 50 }]]);
+    expect(a2).toEqual(a1);
+  });
+
+  it("после внутренней полки enforceFramesKeepOut — no-op (рамка села на буфер)", () => {
+    const positions = new Map([
+      ...localPos(),
+      ["g1", { x: 5, y: 999 }], ["g2", { x: 5, y: 5 }], ["g3", { x: 5, y: 480 }],
+    ]);
+    placeGhostsOnRings({ ...vertLocals(), positions });
+    const v = vertLocals();
+    const enf = enforceFramesKeepOut({
+      nodes: v.nodes, entities: v.entities, ancestorIds: v.ancestorIds,
+      layoutEdges: v.layoutEdges, positions,
+    });
+    expect(enf).toBeNull();
+  });
+});
+
+describe("placeGhostsOnRings — ручные позиции", () => {
 
   it("гость с ручной позицией не двигается; один такой → null", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5, y: 5 }]]);
