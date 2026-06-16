@@ -162,6 +162,67 @@ describe("placeGhostsOnRings — внутренняя полка детей го
   });
 });
 
+describe("placeGhostsOnRings — перелив детей в колонки (D6/D7)", () => {
+  // Два близких локала La(y0)/Lb(y150) → пролёт кольца мал, 6 детей не влезают в одну
+  // колонку по высоте → перелив в несколько колонок. Все рёбра ghost→local → сторона
+  // left, ось полки y, колонки растут поперёк (по x). g1 связан с ОБОИМИ локалами
+  // (2 связи) → самый «тяготеющий к контенту» → ВНУТРЕННЯЯ колонка (у кольца).
+  const COL_GAP = 24, SHELF_GAP = 28; // = одноимённые константы в ringPlacement.ts (не экспортируются)
+  const step = NODE_W + COL_GAP;
+  const pitch = NODE_H + SHELF_GAP;
+  const run = () => {
+    const positions = new Map<string, { x: number; y: number }>([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 150 }],
+      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }], ["g3", { x: 0, y: 0 }],
+      ["g4", { x: 0, y: 0 }], ["g5", { x: 0, y: 0 }], ["g6", { x: 0, y: 0 }],
+    ]);
+    const res = placeGhostsOnRings({
+      nodes: [node("La"), node("Lb")],
+      entities: ["g1", "g2", "g3", "g4", "g5", "g6"].map((id) => leaf(id, [a("P")])),
+      ancestorIds: ["A"], levelPositions: {}, expanded: new Set(["P"]),
+      layoutEdges: [
+        edge("e1a", "g1", "La"), edge("e1b", "g1", "Lb"), // g1 — 2 связи
+        edge("e2", "g2", "La"), edge("e3", "g3", "Lb"),
+        edge("e4", "g4", "La"), edge("e5", "g5", "Lb"), edge("e6", "g6", "La"),
+      ],
+      positions,
+    });
+    const kids = ["g1", "g2", "g3", "g4", "g5", "g6"].map((id) => ({ id, ...positions.get(id)! }));
+    return { res, kids };
+  };
+
+  it("дети переливаются минимум в 2 колонки, разнесённые на NODE_W+COL_GAP", () => {
+    const { res, kids } = run();
+    expect(res).not.toBeNull();
+    const xs = [...new Set(kids.map((k) => Math.round(k.x)))].sort((p, q) => p - q);
+    expect(xs.length).toBeGreaterThanOrEqual(2); // перелив случился
+    // соседние колонки разнесены ровно на шаг колонки
+    for (let i = 1; i < xs.length; i++) expect(xs[i] - xs[i - 1]).toBeCloseTo(step);
+  });
+
+  it("самый связный ребёнок — во внутренней колонке (крайняя к кольцу)", () => {
+    const { kids } = run();
+    const g1x = kids.find((k) => k.id === "g1")!.x;
+    const allX = kids.map((k) => k.x);
+    // внутренняя колонка (cross=0) после посадки на сторону = крайняя x; g1 на её краю
+    expect(g1x === Math.max(...allX) || g1x === Math.min(...allX)).toBe(true);
+  });
+
+  it("внутри колонки порядок по якорю, плотная стопка с шагом NODE_H+SHELF_GAP", () => {
+    const { kids } = run();
+    const byCol = new Map<number, { id: string; x: number; y: number }[]>();
+    for (const k of kids) {
+      const key = Math.round(k.x);
+      (byCol.get(key) ?? byCol.set(key, []).get(key)!).push(k);
+    }
+    for (const col of byCol.values()) {
+      if (col.length < 2) continue;
+      const sorted = [...col].sort((p, q) => p.y - q.y);
+      for (let i = 1; i < sorted.length; i++) expect(sorted[i].y - sorted[i - 1].y).toBeCloseTo(pitch);
+    }
+  });
+});
+
 describe("placeGhostsOnRings — ручные позиции", () => {
 
   it("гость с ручной позицией не двигается; один такой → null", () => {

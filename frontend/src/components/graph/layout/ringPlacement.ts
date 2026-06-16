@@ -26,6 +26,7 @@ import type { DisplayExternal } from "../types";
 import type { Edge as AppEdge, AncestorRef, LevelPos } from "../../../types";
 
 const SHELF_GAP = 28; // зазор между соседними гостями вдоль стороны кольца
+const COL_GAP = 24; // зазор между колонками перелива (поперёк полки, D6)
 
 export interface RingPlacementResult {
   /** id гостей, поставленных на кольцо (для дефолтных обводов detours.ts) */
@@ -359,18 +360,50 @@ export function placeGhostsOnRings(params: {
         proj.set(id, v);
         if (isFinite(v)) lastAnchor = Math.max(lastAnchor, v);
       }
-      // порядок: по проекции якоря; бесхвостые (без связей) — в конец, стабильно по id
-      const order = [...ids].sort((p, q) =>
-        (proj.get(p)! - proj.get(q)!) || (p < q ? -1 : p > q ? 1 : 0));
-      // желаемые координаты вдоль оси = проекция якоря; хвост без якоря — за последним якорем
+      // хвост без якоря — за последним якорем; эффективная проекция ребёнка вдоль оси
       if (!isFinite(lastAnchor)) lastAnchor = axis === "y" ? (ring.minY + ring.maxY) / 2 : (ring.minX + ring.maxX) / 2;
-      const desired = order.map((id) => (isFinite(proj.get(id)!) ? proj.get(id)! : lastAnchor));
-      const centers = spread1DSized(desired, order.map(() => half), SHELF_GAP);
-      // одна колонка (cross = 0), вдоль оси — по центрам; абсолют задаст перенос рамки ниже
-      order.forEach((id, i) => {
-        if (axis === "y") positions.set(id, { x: 0, y: centers[i] - NODE_H / 2 });
-        else positions.set(id, { x: centers[i] - NODE_W / 2, y: 0 });
-      });
+      const eff = (id: string) => (isFinite(proj.get(id)!) ? proj.get(id)! : lastAnchor);
+      // ставит узел: along — центр вдоль оси полки, cross — координата поперёк (0 = к кольцу)
+      const place = (id: string, along: number, cross: number): void => {
+        if (axis === "y") positions.set(id, { x: cross, y: along - NODE_H / 2 });
+        else positions.set(id, { x: along - NODE_W / 2, y: cross });
+      };
+      // D6: сколько детей влезает в одну колонку по пролёту кольца вдоль оси полки
+      const span = axis === "y" ? ring.maxY - ring.minY : ring.maxX - ring.minX;
+      const nodeAlong = axis === "y" ? NODE_H : NODE_W;
+      const perCol = Math.max(1, Math.floor(span / (nodeAlong + SHELF_GAP)));
+
+      if (ids.length <= perCol) {
+        // одна колонка (cross = 0), вдоль оси — по якорю через PAV; перенос рамки ниже
+        const order = [...ids].sort((p, q) =>
+          (eff(p) - eff(q)) || (p < q ? -1 : p > q ? 1 : 0));
+        const centers = spread1DSized(order.map(eff), order.map(() => half), SHELF_GAP);
+        order.forEach((id, i) => place(id, centers[i], 0));
+      } else {
+        // D6/D7: перелив в несколько колонок. Назначение колонок по «тяготению к контенту»:
+        // дети с бОльшей связностью и ближе к центру масс якорей — во ВНУТРЕННЮЮ колонку
+        // (cross = 0, к кольцу), остальные выталкиваются наружу колонками по perCol штук.
+        const com = ids.reduce((s, id) => s + eff(id), 0) / ids.length;
+        const links = new Map<string, number>(ids.map((id) => [id, connectedLocal([id]).length]));
+        const byPull = [...ids].sort((p, q) =>
+          (links.get(q)! - links.get(p)!) ||
+          (Math.abs(eff(p) - com) - Math.abs(eff(q) - com)) ||
+          (p < q ? -1 : p > q ? 1 : 0));
+        const columns: string[][] = [];
+        for (let i = 0; i < byPull.length; i += perCol) columns.push(byPull.slice(i, i + perCol));
+        // наружу: left/top → к меньшим координатам, right/bottom → к бОльшим (внутр. колонка у кольца)
+        const sign = it.side === "left" || it.side === "top" ? -1 : 1;
+        const crossNode = axis === "y" ? NODE_W : NODE_H;
+        const step = crossNode + COL_GAP;
+        const pitch = nodeAlong + SHELF_GAP;
+        columns.forEach((col, j) => {
+          // внутри колонки — порядок по якорю, плотная стопка, центр по якорям колонки
+          const sorted = [...col].sort((a, b) => (eff(a) - eff(b)) || (a < b ? -1 : a > b ? 1 : 0));
+          const colCom = sorted.reduce((s, id) => s + eff(id), 0) / sorted.length;
+          const start = colCom - ((sorted.length - 1) * pitch) / 2;
+          sorted.forEach((id, k) => place(id, start + k * pitch, sign * j * step));
+        });
+      }
       const newCB = groupBbox(ids)!;
       return { minX: newCB.minX - pad, minY: newCB.minY - pad, maxX: newCB.maxX + pad, maxY: newCB.maxY + pad + labelPad };
     };
