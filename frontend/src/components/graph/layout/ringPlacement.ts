@@ -175,6 +175,22 @@ export function placeGhostsOnRings(params: {
     }
   }
 
+  // --- СВЁРНУТАЯ КОРОБКА С ОФСЕТНЫМ ПОЛОЖЕНИЕМ. После сворачивания рамки её перетащенная
+  // позиция хранится офсетом от якоря (anchor_rel — результат композиции/миграции выше).
+  // Коробка теперь отображается как одиночный гость, и её собственную позицию надо
+  // восстановить как groupAnchor([коробка]) + офсет — иначе seeding (LevelGraph) прочитал
+  // бы офсет как абсолют, и коробка улетела бы к началу координат (баг сворачивания).
+  // Ключ — id САМОЙ сущности (там лежит levelPositions), а не g.key: коробка может быть
+  // вложена в другую гостевую рамку, тогда её groupKey ≠ её id. Детей раскрытых рамок
+  // (уже расставлены офсетами выше) пропускаем по placedOutside. Абсолютные ручные позиции
+  // не трогаем — прежнее поведение свёрнутого гостя.
+  for (const e of entities) {
+    const lp = levelPositions[e.id];
+    if (!lp || !lp.anchor_rel || placedOutside.has(e.id)) continue;
+    const a = groupAnchor([e.id], localIds, layoutEdges, pos);
+    if (a) positions.set(e.id, { x: a.x + lp.pos_x, y: a.y + lp.pos_y });
+  }
+
   const groups = [...groupMap.values()].filter((g) => g.auto);
 
   // bbox связанных локальных узлов гостя (для пробных маршрутов выбора стороны)

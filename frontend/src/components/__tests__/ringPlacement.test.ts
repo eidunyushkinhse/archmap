@@ -354,6 +354,24 @@ describe("placeGhostsOnRings — композиция якоря: сдвиг к�
     expect(mig.pos_x).toBeCloseTo(300 - NODE_W / 2);
     expect(mig.pos_y).toBeCloseTo(250);
   });
+
+  it("СВЁРНУТАЯ коробка с офсетом восстанавливается как groupAnchor + офсет (не улетает)", () => {
+    // Сворачивание: коробка G отображается одиночным гостем, её позиция — офсет от якоря
+    // (anchor_rel). seeding кладёт офсет как абсолют (баг) — owned-restore должен поправить.
+    const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 40, y: 100 }]]); // seed = офсет-как-абсолют
+    placeGhostsOnRings({
+      nodes: [node("L")],
+      entities: [leaf("G", [a("P")])],
+      ancestorIds: ["A"],
+      levelPositions: { G: { pos_x: 40, pos_y: 100, anchor_rel: true } },
+      expanded: new Set(), // СВЁРНУТО
+      layoutEdges: [edge("e", "G", "L")],
+      positions,
+    });
+    // groupAnchor = центр L (NODE_W/2, 50); коробка = якорь + офсет, а не сырой (40,100)
+    expect(positions.get("G")!.x).toBeCloseTo(NODE_W / 2 + 40);
+    expect(positions.get("G")!.y).toBeCloseTo(150);
+  });
 });
 
 describe("placeGhostsOnRings — вырожденные входы", () => {
