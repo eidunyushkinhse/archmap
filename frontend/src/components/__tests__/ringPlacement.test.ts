@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { placeGhostsOnRings } from "../graph/layout/ringPlacement";
+import { placeGhostsOnRings, groupAnchor } from "../graph/layout/ringPlacement";
 import { enforceFramesKeepOut } from "../graph/layout/keepGhostsOut";
 import { NODE_W, NODE_H } from "../graph/constants";
 import type { DisplayExternal } from "../graph/types";
@@ -254,6 +254,45 @@ describe("placeGhostsOnRings — живой якорь и офсеты влад�
     const mig = res!.migrations.find((m) => m.id === "g1")!;
     expect(mig.pos_x).toBeCloseTo(50);
     expect(mig.pos_y).toBeCloseTo(70);
+  });
+});
+
+describe("placeGhostsOnRings — пин владеемой группы (D4)", () => {
+  // Round-trip: первый драг ОДНОГО ребёнка пинит офсеты ВСЕХ детей от живого якоря (как
+  // useSnapAlignment), а placeGhostsOnRings восстанавливает их один-в-один. Якорь считает
+  // groupAnchor — ОДНА функция в пине и восстановлении, поэтому anchorG + (pos − anchorG) === pos.
+  it("офсеты пина восстанавливаются в исходные позиции (drag одного ребёнка пинит обоих)", () => {
+    const locals = new Map([["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }]]);
+    const edges = [edge("e1", "g1", "La"), edge("e2", "g2", "Lb")];
+    // позиции членов на момент драга: g1 пользователь утащил, g2 остался на авто-полке
+    const memberPos = new Map([["g1", { x: 300, y: 40 }], ["g2", { x: 120, y: 150 }]]);
+    const posOf = (id: string) => locals.get(id) ?? memberPos.get(id);
+    const anchorG = groupAnchor(["g1", "g2"], ["La", "Lb"], edges, posOf);
+    expect(anchorG).not.toBeNull();
+    // пин: офсет каждого члена = его позиция − якорь (anchor_rel=true)
+    const off = (id: string) => ({
+      pos_x: memberPos.get(id)!.x - anchorG!.x,
+      pos_y: memberPos.get(id)!.y - anchorG!.y,
+      anchor_rel: true,
+    });
+    const positions = new Map([...locals, ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }]]);
+    const res = placeGhostsOnRings({
+      nodes: [node("La"), node("Lb")],
+      entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")])],
+      ancestorIds: ["A"],
+      levelPositions: { g1: off("g1"), g2: off("g2") },
+      expanded: new Set(["P"]),
+      layoutEdges: edges,
+      positions,
+    });
+    expect(res).not.toBeNull();
+    // восстановление вернуло обоих ровно туда, где они были на момент пина
+    expect(positions.get("g1")!.x).toBeCloseTo(300);
+    expect(positions.get("g1")!.y).toBeCloseTo(40);
+    expect(positions.get("g2")!.x).toBeCloseTo(120);
+    expect(positions.get("g2")!.y).toBeCloseTo(150);
+    // офсеты уже anchor_rel → ленивой миграции нет
+    expect(res!.migrations.length).toBe(0);
   });
 });
 
