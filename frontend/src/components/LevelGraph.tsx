@@ -299,7 +299,7 @@ function LevelGraphInner({
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-    ancestorIds, ancestorNames, onNodeMoved, expanded, projectedEdgesRef, push: history.push, onPersistError,
+    ancestorIds, ancestorNames, onNodeMoved, expanded, projectedEdgesRef, levelPositions, push: history.push, onPersistError,
   });
 
   // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с

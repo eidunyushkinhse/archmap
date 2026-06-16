@@ -296,6 +296,66 @@ describe("placeGhostsOnRings — пин владеемой группы (D4)", (
   });
 });
 
+describe("placeGhostsOnRings — композиция якоря: сдвиг коробки-родителя", () => {
+  // Раскрытая рамка P (expanded) с детьми g1/g2 (офсеты anchor_rel). Пользователь ДО этого
+  // перетащил саму свёрнутую коробку → её сдвиг лежит в levelPositions["P"]. Композитный
+  // якорь = живой якорь локалов + сдвиг коробки, поэтому весь блок детей едет вслед за
+  // коробкой, сохраняя внутреннюю расстановку. anchorG = (NODE_W/2, 150) при La(0,0)/Lb(0,200).
+  const base = () => ({
+    nodes: [node("La"), node("Lb")],
+    entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")])],
+    ancestorIds: ["A"],
+    layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb")],
+    expanded: new Set(["P"]),
+  });
+  const childOffsets = {
+    g1: { pos_x: 50, pos_y: -30, anchor_rel: true },
+    g2: { pos_x: 50, pos_y: 80, anchor_rel: true },
+  };
+
+  it("офсет коробки (anchor_rel) сдвигает весь блок детей, расстановка стабильна", () => {
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
+      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }],
+    ]);
+    const res = placeGhostsOnRings({
+      ...base(),
+      levelPositions: { ...childOffsets, P: { pos_x: 40, pos_y: 100, anchor_rel: true } },
+      positions,
+    });
+    expect(res).not.toBeNull();
+    // anchor = anchorG(NODE_W/2,150) + boxOff(40,100); g1 = anchor + (50,-30)
+    const g1 = positions.get("g1")!, g2 = positions.get("g2")!;
+    expect(g1.x).toBeCloseTo(NODE_W / 2 + 40 + 50);
+    expect(g1.y).toBeCloseTo(150 + 100 - 30);
+    // взаимное расположение детей не изменилось (блок едет целиком)
+    expect(g2.x).toBeCloseTo(g1.x);
+    expect(g2.y - g1.y).toBeCloseTo(110);
+    // коробка и дети уже anchor_rel → ленивой миграции нет
+    expect(res!.migrations.length).toBe(0);
+  });
+
+  it("легаси-абсолют коробки = композитный якорь + мигрирует в офсет", () => {
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
+      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }],
+    ]);
+    const res = placeGhostsOnRings({
+      ...base(),
+      levelPositions: { ...childOffsets, P: { pos_x: 300, pos_y: 400, anchor_rel: false } },
+      positions,
+    });
+    expect(res).not.toBeNull();
+    // абсолют коробки (300,400) и есть композитный якорь; g1 = якорь + (50,-30)
+    expect(positions.get("g1")!.x).toBeCloseTo(350);
+    expect(positions.get("g1")!.y).toBeCloseTo(370);
+    // миграция коробки: офсет = абсолют − anchorG = (300−NODE_W/2, 400−150)
+    const mig = res!.migrations.find((m) => m.id === "P")!;
+    expect(mig.pos_x).toBeCloseTo(300 - NODE_W / 2);
+    expect(mig.pos_y).toBeCloseTo(250);
+  });
+});
+
 describe("placeGhostsOnRings — вырожденные входы", () => {
   it("нет локальных узлов → null", () => {
     expect(placeGhostsOnRings({

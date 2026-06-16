@@ -11,7 +11,7 @@ import { computeFrames, type FrameRect } from "../layout/frames";
 import { clampOutOfNativeFrames } from "../layout/keepGhostsOut";
 import { groupAnchor } from "../layout/ringPlacement";
 import type { GhostData, ContainerData } from "../types";
-import type { AncestorRef, Edge as AppEdge } from "../../../types";
+import type { AncestorRef, Edge as AppEdge, LevelPos } from "../../../types";
 import type { Guides } from "./useAlignmentGuides";
 
 interface Params {
@@ -42,6 +42,10 @@ interface Params {
   // ringPlacement, — иначе восстановление сместило бы раскладку. Ref, т.к. рёбра
   // пересчитываются каждый layout, а персист стабильным колбэком не должен от них зависеть.
   projectedEdgesRef: RefObject<AppEdge[]>;
+  // позиции уровня — нужны пину, чтобы офсеты детей считались от КОМПОЗИТНОГО якоря
+  // (живой якорь + ручной сдвиг рамки-родителя levelPositions[key]). Иначе пин ПОСЛЕ
+  // сдвига коробки давал бы двойной учёт офсета при восстановлении в ringPlacement.
+  levelPositions: Record<string, LevelPos>;
   // запись действия в историю Undo/Redo (перемещение группы = одна команда)
   push?: History["push"];
   // фоновый персист позиции упал — вернуть зеркало к истине (ресинк уровня из БД)
@@ -50,7 +54,7 @@ interface Params {
 
 export function useSnapAlignment({
   rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-  ancestorIds, ancestorNames, onNodeMoved, expanded, projectedEdgesRef, push, onPersistError,
+  ancestorIds, ancestorNames, onNodeMoved, expanded, projectedEdgesRef, levelPositions, push, onPersistError,
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
   // Заполняется noteDragStart на onNodeDragStart/onSelectionDragStart (до сдвига).
@@ -174,7 +178,17 @@ export function useSnapAlignment({
           const members = rfNodes
             .filter((n) => (n.type === "ghost" || n.type === "container") && groupKeyOf(n.id) === key)
             .map((n) => n.id);
-          const anchorG = groupAnchor(members, localIds, edges, (id) => posById.get(id));
+          const baseAnchor = groupAnchor(members, localIds, edges, (id) => posById.get(id));
+          // Композитный якорь = живой якорь + ручной сдвиг рамки-родителя (levelPositions[key]).
+          // ТА ЖЕ композиция, что в ringPlacement: офсет ребёнка = его угол − композитный якорь,
+          // иначе пин ПОСЛЕ сдвига коробки дал бы двойной учёт офсета при восстановлении.
+          const boxLp = levelPositions[key];
+          const anchorG =
+            baseAnchor && boxLp
+              ? boxLp.anchor_rel
+                ? { x: baseAnchor.x + boxLp.pos_x, y: baseAnchor.y + boxLp.pos_y }
+                : { x: boxLp.pos_x, y: boxLp.pos_y }
+              : baseAnchor;
           if (!anchorG) {
             // без якоря (нет локалов с позицией) — фолбэк: абсолютный сейв перетянутых членов
             for (const id of members) {
@@ -228,7 +242,7 @@ export function useSnapAlignment({
         });
       }
     },
-    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes, expanded, projectedEdgesRef, push, onPersistError],
+    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes, expanded, projectedEdgesRef, levelPositions, push, onPersistError],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт

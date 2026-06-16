@@ -134,16 +134,33 @@ export function placeGhostsOnRings(params: {
   const placedOutside = new Set<string>();
 
   // --- ВЛАДЕЕМЫЕ ГОСТЕВЫЕ ГРУППЫ (ТЗ D2/D4): дети раскрытой гостевой рамки с сохранённой
-  // позицией раскладываются ОФСЕТАМИ от живого якоря — абсолют = anchorG + офсет, пересчёт
-  // каждый layout (рамка едет за якорем). Легаси-абсолют (anchor_rel=false) лениво мигрируем
-  // в офсет, НЕ двигая узел на экране. Группа подчиняется модели, только если её рамка-ключ
-  // РАСКРЫТА; иначе это обычный свёрнутый гость с ручной позицией (прежнее поведение).
+  // позицией раскладываются ОФСЕТАМИ от КОМПОЗИТНОГО якоря — абсолют = anchor + офсет,
+  // пересчёт каждый layout. Композитный якорь = живой якорь локалов (groupAnchor, едет за
+  // локалами D2) + ручной сдвиг самой коробки-родителя (levelPositions[g.key], едет вслед за
+  // тем, как пользователь перетащил свёрнутую рамку). Легаси-абсолюты (детей и коробки)
+  // лениво мигрируем в офсет, НЕ двигая узел на экране. Группа подчиняется модели, только
+  // если её рамка-ключ РАСКРЫТА; иначе это обычный свёрнутый гость (прежнее поведение).
   const migrations: { id: string; pos_x: number; pos_y: number }[] = [];
   for (const g of groupMap.values()) {
     if (!expanded.has(g.key)) continue;                       // не дети раскрытой рамки
     if (g.ids.every((id) => !levelPositions[id])) continue;   // авто-группа → каскад/полка ниже
-    const anchor = groupAnchor(g.ids, localIds, layoutEdges, pos);
-    if (!anchor) continue;
+    const baseAnchor = groupAnchor(g.ids, localIds, layoutEdges, pos);
+    if (!baseAnchor) continue;
+    // Композиция якоря (ТЗ): рамка едет И за локалами (живой якорь, D2), И вслед за тем,
+    // как пользователь перетащил САМУ коробку-родителя. Свёрнутую коробку двигают как
+    // одиночного гостя → её позиция лежит в levelPositions[g.key] (id внешней гостевой
+    // рамки, он же ключ группы). Композитный якорь = baseAnchor + офсет коробки. Легаси-
+    // абсолют коробки лениво мигрируем в офсет (как у детей), на экране не двигая.
+    const boxLp = levelPositions[g.key];
+    let anchor = baseAnchor;
+    if (boxLp) {
+      if (boxLp.anchor_rel) {
+        anchor = { x: baseAnchor.x + boxLp.pos_x, y: baseAnchor.y + boxLp.pos_y };
+      } else {
+        anchor = { x: boxLp.pos_x, y: boxLp.pos_y };          // абсолют коробки = композитный якорь
+        migrations.push({ id: g.key, pos_x: boxLp.pos_x - baseAnchor.x, pos_y: boxLp.pos_y - baseAnchor.y });
+      }
+    }
     for (const id of g.ids) {
       const lp = levelPositions[id];
       if (!lp) continue;                                      // новый ребёнок без офсета — §9, не трогаем
