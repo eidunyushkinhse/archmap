@@ -25,6 +25,7 @@ from app.schemas.node import (
     GraphResponse,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
+    LevelWaypoints,
     NodeContextResponse,
     NodeCreate,
     NodeEdgeInfo,
@@ -133,7 +134,7 @@ def _build_graph(
     # предка-кандидата. Общую рамку отсекаем по цепочке предков самого уровня.
     level_positions: dict[str, PosXY] = {}
     level_edge_handles: dict[str, list[str]] = {}
-    level_edge_waypoints: dict[str, list[Point]] = {}
+    level_edge_waypoints: dict[str, LevelWaypoints] = {}
     saved_pos: dict[uuid.UUID, GhostPosition] = {}
     if container_id is not None:
         breadcrumb_ids = {a.id for a in tree.ancestors(all_nodes, container_id)} | {container_id}
@@ -191,9 +192,10 @@ def _build_graph(
         )
         for r in wp_rows:
             if r.edge_id in ghost_edge_ids and r.waypoints:
-                level_edge_waypoints[str(r.edge_id)] = [
-                    Point(x=p["x"], y=p["y"]) for p in r.waypoints
-                ]
+                level_edge_waypoints[str(r.edge_id)] = LevelWaypoints(
+                    waypoints=[Point(x=p["x"], y=p["y"]) for p in r.waypoints],
+                    anchor_rel=r.anchor_rel,
+                )
 
     # Множество id, у которых есть хотя бы один ребёнок — чтобы отметить «промежуточных»
     # гостей (есть слой компонентов) одним проходом по всем узлам, без запроса на гостя.
@@ -774,6 +776,6 @@ def save_edge_waypoints(
             db,
             EdgeWaypoint,
             keys={"container_id": container_id, "edge_id": edge_id},
-            values={"waypoints": data},
+            values={"waypoints": data, "anchor_rel": payload.anchor_rel},
         )
     db.commit()

@@ -39,6 +39,11 @@ export type EdgePoint = Schemas["Point"];
 // иначе обычный абсолют уровня. См. ringPlacement.
 export type LevelPos = Schemas["PosXY"];
 
+// Изломы гостевой стрелки на уровне (level_edge_waypoints). anchor_rel=true → точки
+// waypoints это ОФСЕТЫ от живого якоря группы (изломы владеемой группы едут за рамкой,
+// ТЗ D8), иначе абсолют уровня. Зеркало LevelPos для пути. См. ringPlacement/LevelGraph.
+export type LevelWaypoints = Schemas["LevelWaypoints"];
+
 export type Edge = Schemas["EdgeResponse"];
 export type EdgeUpdate = Schemas["EdgeUpdate"];
 export type EdgeCreate = Schemas["EdgeCreate"];

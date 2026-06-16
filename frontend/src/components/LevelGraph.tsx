@@ -20,7 +20,7 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
 import { edgesApi, nodesApi } from "../api/nodes";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef, LevelPos } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef, LevelPos, LevelWaypoints } from "../types";
 import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H,
@@ -36,6 +36,7 @@ import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { placeGhostsOnRings } from "./graph/layout/ringPlacement";
+import { reconstructOwnedWaypoints } from "./graph/layout/ownedWaypoints";
 import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { computeDetours } from "./graph/layout/detours";
 import { NodeShapeSvg } from "./graph/shapes";
@@ -66,7 +67,7 @@ import { guardPersist } from "./graph/interaction/persistGuard";
 const EMPTY_LEVEL_HANDLES: Record<string, string[]> = {};
 // Тот же приём для пер-уровневых путей гостевых стрелок: стабильная ссылка дефолта,
 // чтобы не дёргать сборку рёбер лишний раз.
-const EMPTY_LEVEL_WAYPOINTS: Record<string, EdgePoint[]> = {};
+const EMPTY_LEVEL_WAYPOINTS: Record<string, LevelWaypoints> = {};
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер. Считается
 // в async-эффекте (Фаза 4): движок async, поэтому это стейт, а не useMemo рендера.
@@ -84,6 +85,9 @@ type LayoutResult = {
   // основная схема: рёбра с дефолтным обводом (вынесенный гость ↔ локальный узел, чей
   // прямой маршрут пересекал бы чужие узлы) → высота огибания clearY
   edgeDetours?: Map<string, { clearY: number }>;
+  // изломы гостевых стрелок, РЕКОНСТРУИРОВАННЫЕ в абсолют (владеемой группы — anchorG +
+  // офсет, ТЗ D8; прочие — как пришли). Сборка читает путь отсюда, а не из сырого пропа.
+  levelWaypoints: Record<string, EdgePoint[]>;
   groupArr: EdgeGroup[];
   spacers: RFNode[];
 };
@@ -100,7 +104,7 @@ interface LevelGraphProps {
   // Необязателен: контекст-схема (mode="context") хэндлы не сохраняет — там {}.
   levelEdgeHandles?: Record<string, string[]>;
   // сохранённые пути гостевых стрелок на уровне: edge_id → точки-сгибы
-  levelEdgeWaypoints?: Record<string, EdgePoint[]>;
+  levelEdgeWaypoints?: Record<string, LevelWaypoints>;
   edges: AppEdge[];
   depth: number;
   /** id узла-контейнера текущего уровня (null — корень) */
@@ -135,7 +139,7 @@ interface LevelGraphProps {
   // синхронизирует стейт уровня теми же waypoints, чтобы пересчёт раскладки их не откатил.
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // то же для ГОСТЕВОЙ стрелки — путь сохранён в пер-уровневый слой (level_edge_waypoints).
-  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
+  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[], anchorRel?: boolean) => void;
   // плашку подписи перетащили вдоль стрелки и доля сохранена в колонку ребра (label_t) —
   // родитель зеркалит в стейт уровня теми же значениями, что вернул бы рефетч.
   onEdgeLabelTChanged?: (edgeId: string, t: number | null) => void;
@@ -495,13 +499,27 @@ function LevelGraphInner({
     [isArchitect, containerId, onNodeMoved, onPersistError],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions });
+  // Персист ленивой миграции легаси-абсолютных изломов гостевых стрелок владеемых групп
+  // в офсеты от якоря (ТЗ D8) — зеркало migrateGhostPositions для пути. На экране излом не
+  // двигается; дальше он едет за рамкой (реконструкция anchorG + офсет). Раз на стрелку.
+  const migrateLevelWaypoints = useCallback(
+    (migrations: { edge_id: string; waypoints: EdgePoint[] }[]) => {
+      if (!isArchitect || !containerId) return;
+      for (const m of migrations) {
+        guardPersist(nodesApi.saveEdgeWaypoints(containerId, m.edge_id, m.waypoints, true), onPersistError);
+        onLevelEdgeWaypointsChanged?.(m.edge_id, m.waypoints, true);
+      }
+    },
+    [isArchitect, containerId, onLevelEdgeWaypointsChanged, onPersistError],
+  );
+
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints };
   });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
@@ -613,6 +631,9 @@ function LevelGraphInner({
     const edgeLoops = ctxLayout?.edgeLoops;
     // дефолтные обводы гостевых стрелок (см. блок выноса гостей ниже) — основная схема
     const edgeDetours = new Map<string, { clearY: number }>();
+    // изломы гостевых стрелок, реконструированные в абсолют (владеемой группы → anchorG +
+    // офсет, ТЗ D8). Заполняется в блоке выноса гостей; сборка читает путь отсюда.
+    const effectiveLevelWaypoints: Record<string, EdgePoint[]> = {};
 
     // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) + дефолтные
     // обводы их стрелок: оба шага вынесены в graph/layout/* под юнит-тесты. Блоки исторически
@@ -638,12 +659,23 @@ function LevelGraphInner({
       });
       if (enf) edgeHandles = enf.edgeHandles;
       else if (og) edgeHandles = og.edgeHandles;
+
+      // Реконструкция изломов владеемых групп (ТЗ D8): путь хранится офсетом от якоря,
+      // абсолют = офсет + (позиция_ребёнка − его_офсет). Тот же базис, что у позиции, →
+      // излом едет ровно с ребёнком (и за якорем, и при выталкивании). Позиции здесь уже
+      // финальные (после колец + enforce). Легаси-абсолют лениво мигрируем в офсет.
+      const { effective: ownedWp, migrations: wpMigrations } = reconstructOwnedWaypoints({
+        levelEdgeWaypoints, edges: remappedEdges, levelPositions, pos: (id) => positions.get(id),
+      });
+      Object.assign(effectiveLevelWaypoints, ownedWp);
+      if (wpMigrations.length > 0 && !cancelled) cbRef.current.migrateLevelWaypoints(wpMigrations);
+
       if (og) {
         const localIds = new Set(nodes.map((n) => n.id));
         const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
         const { handles, detours } = computeDetours({
           groupArr, placedOutside: og.placedOutside, frame: og.frame,
-          localIds, displayIds, positions, levelEdgeWaypoints, levelEdgeHandles,
+          localIds, displayIds, positions, levelEdgeWaypoints: effectiveLevelWaypoints, levelEdgeHandles,
         });
         for (const [id, h] of handles) edgeHandles.set(id, h);
         for (const [id, d] of detours) edgeDetours.set(id, d);
@@ -701,7 +733,7 @@ function LevelGraphInner({
       // по которому посчитан layout, — пин и восстановление считают якорь синхронно.
       projectedEdgesRef.current = layoutEdges;
 
-      if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, groupArr, spacers });
+      if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, levelWaypoints: effectiveLevelWaypoints, groupArr, spacers });
     })();
     return () => { cancelled = true; };
     // levelEdgeWaypoints не влияет на позиции/хэндлы, НО включён в зависимости намеренно:
@@ -721,7 +753,7 @@ function LevelGraphInner({
     // nodes берём ИЗ layout (снимок, по которому он посчитан), а не из пропа — чтобы
     // позиции и данные узлов были согласованы и эффект не срабатывал со старым layout
     // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
-    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, groupArr, spacers } = layout;
+    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, levelWaypoints, groupArr, spacers } = layout;
     const cb = cbRef.current;
     // локальные узлы уровня — у редактируемой жестом стрелки оба конца должны быть
     // локальны (waypoints в координатах этого уровня; гость/контейнер — чужая система)
@@ -801,7 +833,9 @@ function LevelGraphInner({
         const editable = isArchitect && !isContext && (bothLocal || containerId != null);
         if (editable) {
           const memberIds = g.members.map((m) => m.id);
-          const wpOf = (m: AppEdge) => (bothLocal ? m.waypoints : levelEdgeWaypoints[m.id]);
+          // гостевой путь — из РЕКОНСТРУИРОВАННОГО снимка (владеемой группы = anchorG +
+          // офсет, ТЗ D8), а не из сырого пропа: иначе изломы не ехали бы за рамкой
+          const wpOf = (m: AppEdge) => (bothLocal ? m.waypoints : levelWaypoints[m.id]);
           const rep = g.members.find((m) => { const w = wpOf(m); return w != null && w.length > 0; });
           data.editable = true;
           data.waypoints = (rep ? wpOf(rep) : undefined) ?? undefined;
@@ -870,13 +904,10 @@ function LevelGraphInner({
         };
       })
     );
-    // levelEdgeWaypoints читается в сборке (wpOf для гостей), но В ЗАВИСИМОСТЯХ ЕГО НЕТ
-    // НАМЕРЕННО: триггерить сборку напрямую по нему нельзя — она бы запускалась со старым
-    // (async-устаревшим) layout и при реконнекте гостя откатывала хэндл на исходный. Вместо
-    // этого levelEdgeWaypoints входит в зависимости раскладки выше → меняется он → новый
-    // layout → сборка тут же со СВЕЖИМ снапшотом и свежим значением из замыкания. Инвариант:
-    // layout пересобирается при любом изменении levelEdgeWaypoints, поэтому замыкание свежее.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Гостевой путь сборка читает из layout.levelWaypoints (реконструированный снимок D8),
+    // а НЕ из сырого пропа levelEdgeWaypoints: последний входит в зависимости раскладки выше
+    // → его правка даёт новый layout (со свежим levelWaypoints), и сборка идёт со СВЕЖИМ
+    // снапшотом. Прямой триггер сборки по сырому пропу откатывал бы хэндл гостя при реконнекте.
   }, [layout, isArchitect, depth, isContext, containerId, setRfNodes, setRfEdges]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.

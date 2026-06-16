@@ -13,8 +13,10 @@ interface Params {
   containerId: string | null;
   // локальная стрелка сохранена в колонку — зеркало в стейт уровня (как вернул бы рефетч)
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
-  // гостевая стрелка сохранена в пер-уровневый слой — зеркало в стейт уровня
-  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
+  // гостевая стрелка сохранена в пер-уровневый слой — зеркало в стейт уровня.
+  // anchorRel помечает изломы владеемой группы (офсет от якоря, ТЗ D8); ручной коммит
+  // всегда абсолютный (false) — в офсет их лениво мигрирует раскладка.
+  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[], anchorRel?: boolean) => void;
   // фоновый персист пути упал — вернуть зеркало к истине (ресинк уровня из БД)
   onPersistError?: (e: unknown) => void;
 }

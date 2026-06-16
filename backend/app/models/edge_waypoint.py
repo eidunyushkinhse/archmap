@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import JSON, ForeignKey, UniqueConstraint, Uuid
+from sqlalchemy import JSON, Boolean, ForeignKey, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -35,3 +35,8 @@ class EdgeWaypoint(Base):
         Uuid, ForeignKey("edges.id", ondelete="CASCADE"), nullable=False
     )
     waypoints: Mapped[list] = mapped_column(JSON, nullable=False)
+    # true — точки waypoints хранятся ОФСЕТОМ от живого якоря группы (изломы гостевой
+    # стрелки владеемой группы едут за рамкой, ТЗ D8); по умолчанию абсолют уровня.
+    anchor_rel: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )

@@ -923,11 +923,21 @@ export interface components {
             edge_id: string;
             /** Waypoints */
             waypoints: components["schemas"]["Point"][];
+            /**
+             * Anchor Rel
+             * @default false
+             */
+            anchor_rel: boolean;
         };
         /** EdgeWaypointsUpdate */
         EdgeWaypointsUpdate: {
             /** Waypoints */
             waypoints: components["schemas"]["Point"][];
+            /**
+             * Anchor Rel
+             * @default false
+             */
+            anchor_rel: boolean;
         };
         /**
          * ExportResponse
@@ -1179,7 +1189,7 @@ export interface components {
              * @default {}
              */
             level_edge_waypoints: {
-                [key: string]: components["schemas"]["Point"][];
+                [key: string]: components["schemas"]["LevelWaypoints"];
             };
         };
         /** HTTPValidationError */
@@ -1255,6 +1265,16 @@ export interface components {
             to_id: string;
             /** Default Caption */
             default_caption: string | null;
+        };
+        /** LevelWaypoints */
+        LevelWaypoints: {
+            /** Waypoints */
+            waypoints: components["schemas"]["Point"][];
+            /**
+             * Anchor Rel
+             * @default false
+             */
+            anchor_rel: boolean;
         };
         /** MessageCreate */
         MessageCreate: {

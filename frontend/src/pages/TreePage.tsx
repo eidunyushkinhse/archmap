@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, LevelPos, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
+import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, LevelPos, LevelWaypoints, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import { guardPersist } from "../components/graph/interaction/persistGuard";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
@@ -42,7 +42,7 @@ export default function TreePage({ onLogout }: Props) {
   >({});
   // Сохранённые пути (изломы) гостевых стрелок на уровне: edge_id → точки-сгибы.
   const [levelEdgeWaypoints, setLevelEdgeWaypoints] = useState<
-    Record<string, EdgePoint[]>
+    Record<string, LevelWaypoints>
   >({});
   const [edges, setEdges] = useState<LevelEdge[]>([]);
   // Хлебный путь хранит только id+name каждого уровня (этого достаточно для рендера
@@ -419,9 +419,10 @@ export default function TreePage({ onLogout }: Props) {
   }
 
   // То же для ГОСТЕВОЙ стрелки — путь живёт в пер-уровневом слое (level_edge_waypoints),
-  // а не в колонке ребра. Зеркалируем теми же значениями, что вернул бы рефетч.
-  function updateLevelEdgeWaypoints(edgeId: string, waypoints: EdgePoint[]) {
-    setLevelEdgeWaypoints((prev) => ({ ...prev, [edgeId]: waypoints }));
+  // а не в колонке ребра. Зеркалируем теми же значениями, что вернул бы рефетч; anchor_rel
+  // помечает изломы владеемой группы (офсет от якоря, ТЗ D8) — по умолчанию абсолют.
+  function updateLevelEdgeWaypoints(edgeId: string, waypoints: EdgePoint[], anchorRel = false) {
+    setLevelEdgeWaypoints((prev) => ({ ...prev, [edgeId]: { waypoints, anchor_rel: anchorRel } }));
   }
 
   // Плашку подписи перетащили — доля label_t сохранена в колонку ребра (commitLabelT).

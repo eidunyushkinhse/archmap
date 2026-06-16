@@ -65,8 +65,11 @@ export const nodesApi = {
     containerId: string,
     edgeId: string,
     waypoints: EdgePoint[],
+    // anchor_rel=true → точки это офсеты от живого якоря группы (изломы владеемой
+    // группы, ТЗ D8); по умолчанию абсолют уровня
+    anchorRel = false,
   ): Promise<void> =>
-    api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints }),
+    api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints, anchor_rel: anchorRel }),
 };
 
 export const exportApi = {

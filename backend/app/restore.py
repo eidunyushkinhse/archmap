@@ -191,6 +191,7 @@ def restore_from_snapshot(db: Session, snapshot: DeletionSnapshot) -> None:
                 container_id=ew.container_id,
                 edge_id=ew.edge_id,
                 waypoints=[p.model_dump() for p in ew.waypoints],
+                anchor_rel=ew.anchor_rel,
             )
         )
 
