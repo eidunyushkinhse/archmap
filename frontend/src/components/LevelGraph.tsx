@@ -233,31 +233,14 @@ function LevelGraphInner({
   // Развёрнутые соседние контейнеры (свёрнуты по умолчанию). Эфемерно: сбрасываем
   // при переходе на другой уровень.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Центр (в координатах графа) контейнера на момент его раскрытия. По нему
-  // центрируем дефолтную раскладку детей: раскрытая рамка встаёт туда же, где
-  // стоял свёрнутый узел (детям без ручных координат). Эфемерно, как expanded.
-  const expandOrigins = useRef<Map<string, { x: number; y: number }>>(new Map());
-  // id детей, которых пользователь подвинул ПОСЛЕ раскрытия — выпадают из центрирования
-  // и держат свою позицию (как авто-ребёнок «промотируется» драгом). Эфемерно.
-  const settledChildren = useRef<Set<string>>(new Set());
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс expand-состояния на смену уровня — осознанный reset-on-prop-change; паттерн prev-в-рендере здесь запрещён сестринским правилом react-hooks/refs (expandOrigins.current.clear() в рендере)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс expand-состояния на смену уровня — осознанный reset-on-prop-change
     setExpanded(new Set());
-    expandOrigins.current.clear();
-    settledChildren.current.clear();
   }, [containerId]);
 
   const expandContainer = useCallback((id: string) => {
-    // запоминаем центр сворачиваемого контейнера до раскрытия — дефолтная
-    // раскладка его детей будет отцентрирована по этой точке
-    const c = rfNodes.find((n) => n.id === id);
-    if (c) expandOrigins.current.set(id, { x: c.position.x + NODE_W / 2, y: c.position.y + NODE_H / 2 });
-    // свежий спавн: сбрасываем метки «подвинут вручную» у детей, которые СЕЙЧАС
-    // обнажатся раскрытием id (вычисляем проекцию по новому expanded)
-    const { emergedFrom } = projectGhosts(ghostNodes, ancestorIds, new Set(expanded).add(id));
-    for (const [childId, from] of emergedFrom) if (from === id) settledChildren.current.delete(childId);
     setExpanded((prev) => new Set(prev).add(id));
-  }, [rfNodes, ghostNodes, ancestorIds, expanded]);
+  }, []);
   const collapseContainer = useCallback((id: string) => {
     setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
   }, []);
@@ -265,17 +248,6 @@ function LevelGraphInner({
   // Состояние центральных направляющих магнитного выравнивания (общее для snap-драга
   // и drop-шаблона).
   const { guides, setGuides, clearGuides } = useAlignmentGuides();
-
-  // Перетаскивание узла «оседает» (settled): ребёнок раскрытого контейнера, которого
-  // подвинули вручную, выпадает из дефолтного центрирования и держит свою позицию.
-  // Для прочих узлов метка безвредна (в группы центрирования они не входят).
-  const markMovedAndPersist = useCallback(
-    (id: string, kind: "block" | "ghost" | "container", pos: { pos_x: number; pos_y: number }) => {
-      settledChildren.current.add(id);
-      onNodeMoved?.(id, kind, pos);
-    },
-    [onNodeMoved],
-  );
 
   // История Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). На основном канвасе её поднимают в
   // TreePage (туда же кладутся структурные команды и дисптчеры с кросс-уровневым
@@ -319,7 +291,7 @@ function LevelGraphInner({
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-    ancestorIds, ancestorNames, onNodeMoved: markMovedAndPersist, push: history.push, onPersistError,
+    ancestorIds, ancestorNames, onNodeMoved, push: history.push, onPersistError,
   });
 
   // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
