@@ -11,12 +11,17 @@ if TYPE_CHECKING:
     # Только для типов/линтера: связь Node ↔ Edge SQLAlchemy резолвит по строке
     # через свой реестр в рантайме, поэтому здесь импорт не нужен (и создал бы цикл).
     from app.models.edge import Edge
+    from app.models.project import Project
 
 
 class Node(Base):
     __tablename__ = "nodes"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Проект-владелец: вся доменная модель скоупится им (NOT NULL, каскад при удалении).
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -40,6 +45,7 @@ class Node(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
+    project: Mapped["Project"] = relationship("Project", back_populates="nodes")
     parent: Mapped["Node | None"] = relationship(
         "Node", remote_side="Node.id", back_populates="children"
     )

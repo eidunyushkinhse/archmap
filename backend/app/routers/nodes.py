@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session
 from app import restore, tree
 from app.auth import get_current_user, require_architect
 from app.database import get_db, upsert
+from app.deps import get_current_project, scoped_edge, scoped_node, touch_project
 from app.models.edge import Edge
 from app.models.edge_waypoint import EdgeWaypoint
 from app.models.ghost_edge_handle import GhostEdgeHandle
 from app.models.ghost_position import GhostPosition
 from app.models.node import Node
+from app.models.project import Project
 from app.models.user import User
 from app.schemas.edge import Point
 from app.schemas.node import (
@@ -232,9 +234,14 @@ def _build_graph(
 def list_nodes(
     parent_id: uuid.UUID | None = None,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[Node]:
-    nodes = db.query(Node).filter(Node.parent_id == parent_id).all()
+    nodes = (
+        db.query(Node)
+        .filter(Node.project_id == project.id, Node.parent_id == parent_id)
+        .all()
+    )
     _mark_has_children(db, nodes)
     return nodes
 
@@ -243,14 +250,17 @@ def list_nodes(
 def create_node(
     payload: NodeCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> Node:
     if payload.parent_id:
-        parent = db.get(Node, payload.parent_id)
+        parent = scoped_node(db, payload.parent_id, project)
         if not parent:
             raise HTTPException(status_code=404, detail="Родительский узел не найден")
-    node = Node(**payload.model_dump())
+    # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
+    node = Node(**payload.model_dump(), project_id=project.id)
     db.add(node)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(node)
     _mark_has_children(db, [node])  # только что создан — детей нет, но для единообразия
@@ -261,7 +271,8 @@ def create_node(
 def restore_nodes(
     snapshot: DeletionSnapshot,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> None:
     """Восстановить удалённое поддерево из снимка (Undo удаления).
 
@@ -284,11 +295,16 @@ def restore_nodes(
         n.parent_id for n in snapshot.nodes if n.parent_id is not None and n.parent_id not in ids
     }
     for pid in ext_parents:
-        if not db.get(Node, pid):
+        # Родитель должен уцелеть И принадлежать текущему проекту (нельзя восстановить
+        # поддерево «в чужой» проект).
+        if not scoped_node(db, pid, project):
             raise HTTPException(
                 status_code=409, detail="Родитель удалённого узла больше не существует"
             )
-    restore.restore_from_snapshot(db, snapshot)
+    # Восстанавливаем в текущий проект: всем воссоздаваемым узлам/связям проставляем project_id.
+    restore.restore_from_snapshot(db, snapshot, project_id=project.id)
+    touch_project(db, project, user.id)
+    db.commit()
 
 
 # Эти маршруты должны быть до /{node_id}, иначе FastAPI не доберётся до них
@@ -296,11 +312,17 @@ def restore_nodes(
 def search_nodes(
     q: str = "",
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[Node]:
     if not q.strip():
         return []
-    nodes = db.query(Node).filter(Node.name.ilike(f"%{q}%")).limit(20).all()
+    nodes = (
+        db.query(Node)
+        .filter(Node.project_id == project.id, Node.name.ilike(f"%{q}%"))
+        .limit(20)
+        .all()
+    )
     _mark_has_children(db, nodes)
     return nodes
 
@@ -308,11 +330,12 @@ def search_nodes(
 @router.get("/all", response_model=list[NodeResponse])
 def list_all_nodes(
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[Node]:
     """Плоский список ВСЕХ узлов схемы — для выбора дальнего конца связи к узлу
     вне текущего уровня (фронт собирает из него дерево по parent_id)."""
-    nodes = db.query(Node).all()
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
     _mark_has_children(db, nodes)
     return nodes
 
@@ -320,14 +343,19 @@ def list_all_nodes(
 @router.get("/graph", response_model=GraphResponse)
 def get_root_graph(
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> GraphResponse:
     """Граф корневого уровня: узлы без родителя + сквозные рёбра."""
-    local_nodes = db.query(Node).filter(Node.parent_id.is_(None)).all()
+    local_nodes = (
+        db.query(Node)
+        .filter(Node.project_id == project.id, Node.parent_id.is_(None))
+        .all()
+    )
     if not local_nodes:
         return GraphResponse(nodes=[], edges=[], ghost_nodes=[])
-    all_nodes = {n.id: n for n in db.query(Node).all()}
-    all_edges = db.query(Edge).all()
+    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
+    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return _build_graph(local_nodes, None, all_nodes, all_edges, db)
 
 
@@ -335,6 +363,7 @@ def get_root_graph(
 @router.get("/alerts", response_model=AlertsResponse)
 def get_alerts(
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> AlertsResponse:
     """Глобальные алерты незавершённости схемы (только архитектор):
@@ -344,15 +373,15 @@ def get_alerts(
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
-    all_nodes = db.query(Node).all()
-    all_edges = db.query(Edge).all()
+    all_nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     name_by_id = {n.id: n.name for n in all_nodes}
 
     # Промежуточные узлы = те, что являются чьим-то родителем (есть дети)
     intermediate_ids = {
         pid
         for (pid,) in db.query(Node.parent_id)
-        .filter(Node.parent_id.isnot(None))
+        .filter(Node.project_id == project.id, Node.parent_id.isnot(None))
         .distinct()
         .all()
     }
@@ -436,9 +465,10 @@ def get_alerts(
 def get_node(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> Node:
-    node = db.get(Node, node_id)
+    node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
     _mark_has_children(db, [node])
@@ -450,13 +480,15 @@ def update_node(
     node_id: uuid.UUID,
     payload: NodeUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> Node:
-    node = db.get(Node, node_id)
+    node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(node, field, value)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(node)
     _mark_has_children(db, [node])
@@ -467,13 +499,14 @@ def update_node(
 def get_deletion_snapshot(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> DeletionSnapshot:
     """Снимок всего, что снесёт удаление узла (поддерево + рёбра + ghost-метаданные).
 
     Клиент берёт его ПЕРЕД delete, чтобы потом восстановить через POST /restore (Undo).
     """
-    if not db.get(Node, node_id):
+    if not scoped_node(db, node_id, project):
         raise HTTPException(status_code=404, detail="Узел не найден")
     return restore.build_deletion_snapshot(db, node_id)
 
@@ -482,9 +515,10 @@ def get_deletion_snapshot(
 def delete_node(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> None:
-    node = db.get(Node, node_id)
+    node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
     # Удаляем узел со всем поддеревом (потомки любой глубины), их рёбрами (исходящими,
@@ -492,6 +526,7 @@ def delete_node(
     # (ondelete="CASCADE" на parent_id, source_id/target_id, ghost-FK), а passive_deletes
     # на связях Node не даёт ORM лезть в эти строки в Python (раньше из-за этого падал
     # IntegrityError, отсюда и был bulk-костыль). Достаточно одного db.delete.
+    touch_project(db, project, user.id)
     db.delete(node)
     db.commit()
 
@@ -500,9 +535,10 @@ def delete_node(
 def get_children(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[Node]:
-    node = db.get(Node, node_id)
+    node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
     children = db.query(Node).filter(Node.parent_id == node_id).all()
@@ -514,12 +550,13 @@ def get_children(
 def get_descendants(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[Node]:
     """Все потомки узла на любой глубине (без самого узла) — для скоупленного
     выбора дальнего конца межуровневой связи: тянешь стрелку на узел-контейнер,
     поиск идёт только по его поддереву."""
-    node = db.get(Node, node_id)
+    node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
     subtree_ids = tree.collect_subtree_ids_db(db, node_id) - {node_id}
@@ -534,6 +571,7 @@ def get_descendants(
 def get_node_edges(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[NodeEdgeInfo]:
     """Внешние связи поддерева узла (он сам + потомки любой глубины) — те, что
@@ -541,7 +579,7 @@ def get_node_edges(
     Для предупреждения перед удалением. Чисто внутренние связи ветки не включаем —
     они уходят вместе с самой веткой и «потерей связи наружу» не являются.
     Направление/имя соседа считаются относительно поддерева (внешний конец)."""
-    node = db.get(Node, node_id)
+    node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
 
@@ -551,7 +589,7 @@ def get_node_edges(
         .filter(Edge.source_id.in_(subtree) | Edge.target_id.in_(subtree))
         .all()
     )
-    names = {n.id: n.name for n in db.query(Node).all()}
+    names = {n.id: n.name for n in db.query(Node).filter(Node.project_id == project.id).all()}
 
     result: list[NodeEdgeInfo] = []
     for e in edges:
@@ -579,10 +617,11 @@ def get_node_edges(
 def get_node_graph(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> GraphResponse:
     """Граф для уровня node_id: дочерние узлы + рёбра + гостевые узлы из других уровней."""
-    parent = db.get(Node, node_id)
+    parent = scoped_node(db, node_id, project)
     if not parent:
         raise HTTPException(status_code=404, detail="Узел не найден")
 
@@ -590,8 +629,8 @@ def get_node_graph(
     if not local_nodes:
         return GraphResponse(nodes=[], edges=[], ghost_nodes=[])
 
-    all_nodes = {n.id: n for n in db.query(Node).all()}
-    all_edges = db.query(Edge).all()
+    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
+    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return _build_graph(local_nodes, node_id, all_nodes, all_edges, db)
 
 
@@ -599,6 +638,7 @@ def get_node_graph(
 def get_node_context(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> NodeContextResponse:
     """Контекстная схема узла: сам узел + его прямые соседи.
@@ -606,12 +646,12 @@ def get_node_context(
     фокуса (сам узел ИЛИ любой его потомок на любой глубине). Конец внутри
     поддерева проецируется на фокус, внешний конец — это узел-сосед.
     """
-    focus = db.get(Node, node_id)
+    focus = scoped_node(db, node_id, project)
     if not focus:
         raise HTTPException(status_code=404, detail="Узел не найден")
 
-    all_nodes = {n.id: n for n in db.query(Node).all()}
-    all_edges = db.query(Edge).all()
+    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
+    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
 
     # Поддерево фокуса = он сам + все потомки (карта всех узлов уже на руках).
     subtree = tree.subtree_ids(all_nodes, focus.id)
@@ -682,12 +722,13 @@ def save_ghost_position(
     node_id: uuid.UUID,
     payload: GhostPositionUpdate,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> None:
     """Сохраняет (upsert) координаты гостевого узла node_id на уровне container_id."""
-    if not db.get(Node, container_id):
+    if not scoped_node(db, container_id, project):
         raise HTTPException(status_code=404, detail="Уровень не найден")
-    if not db.get(Node, node_id):
+    if not scoped_node(db, node_id, project):
         raise HTTPException(status_code=404, detail="Узел не найден")
 
     upsert(
@@ -708,6 +749,7 @@ def save_ghost_edge_handle(
     edge_id: uuid.UUID,
     payload: GhostEdgeHandleUpdate,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> None:
     """Сохраняет (upsert) хэндл гостевого конца ребра edge_id на уровне container_id,
@@ -716,11 +758,11 @@ def save_ghost_edge_handle(
     У каждой проекции гостевого конца своя строка — поэтому привязка к свёрнутому
     контейнеру и к развёрнутому листу хранятся раздельно и не затирают друг друга.
     """
-    if not db.get(Node, container_id):
+    if not scoped_node(db, container_id, project):
         raise HTTPException(status_code=404, detail="Уровень не найден")
-    if not db.get(Edge, edge_id):
+    if not scoped_edge(db, edge_id, project):
         raise HTTPException(status_code=404, detail="Связь не найдена")
-    if not db.get(Node, payload.node_id):
+    if not scoped_node(db, payload.node_id, project):
         raise HTTPException(status_code=404, detail="Узел не найден")
 
     upsert(
@@ -745,6 +787,7 @@ def save_edge_waypoints(
     edge_id: uuid.UUID,
     payload: EdgeWaypointsUpdate,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> None:
     """Сохраняет (upsert) кастомный путь ГОСТЕВОЙ стрелки edge_id на уровне container_id.
@@ -752,9 +795,9 @@ def save_edge_waypoints(
     Пустой список waypoints — сброс в авто-маршрут: строку пер-уровневого слоя удаляем
     (нет строки = авто). Путь локальной стрелки сюда не пишется — он в колонке ребра.
     """
-    if not db.get(Node, container_id):
+    if not scoped_node(db, container_id, project):
         raise HTTPException(status_code=404, detail="Уровень не найден")
-    if not db.get(Edge, edge_id):
+    if not scoped_edge(db, edge_id, project):
         raise HTTPException(status_code=404, detail="Связь не найдена")
 
     data = [{"x": p.x, "y": p.y} for p in payload.waypoints]

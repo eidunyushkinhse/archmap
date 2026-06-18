@@ -24,6 +24,7 @@ from app.models.node import Node  # noqa: F401
 from app.models.process_fragment import ProcessFragment  # noqa: F401
 from app.models.process_message import ProcessMessage  # noqa: F401
 from app.models.process_participant import ProcessParticipant  # noqa: F401
+from app.models.project import Project
 from app.models.user import User  # noqa: F401
 
 
@@ -53,3 +54,38 @@ def db():
         session.close()
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+@pytest.fixture()
+def project(db):
+    """Проект-владелец для доменных строк теста (project_id у Node/Edge/процессов
+    теперь NOT NULL). Фабрики узлов/связей в тестах берут project.id отсюда."""
+    return ensure_project(db)
+
+
+# ── Хелперы для тестов (импортируются как `from conftest import ...`) ──────────
+def ensure_project(db) -> Project:
+    """Лениво создаёт/возвращает единственный проект-владелец доменных строк.
+    project_id у Node/Edge/BusinessProcess теперь NOT NULL — фабрики тестов берут
+    его отсюда, не меняя сигнатуры самих тестов."""
+    import uuid
+
+    p = db.query(Project).first()
+    if p is None:
+        p = Project(id=uuid.uuid4(), name="Тестовый проект")
+        db.add(p)
+        db.flush()
+    return p
+
+
+def ensure_architect(db) -> User:
+    """Лениво создаёт/возвращает architect-пользователя. Нужен мутациям роутеров,
+    вызываемым напрямую: touch_project читает user.id (в проде это require_architect)."""
+    import uuid
+
+    u = db.query(User).filter(User.role == "architect").first()
+    if u is None:
+        u = User(id=uuid.uuid4(), username="arch", hashed_password="x", role="architect")
+        db.add(u)
+        db.flush()
+    return u

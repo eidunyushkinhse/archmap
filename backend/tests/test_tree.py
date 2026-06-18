@@ -6,12 +6,19 @@ collect_subtree_ids_db) дают один и тот же набор id.
 
 import uuid
 
+from conftest import ensure_project
+
 from app import tree
 from app.models.node import Node
 
 
 def _node(db, name: str, parent: Node | None = None) -> Node:
-    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None)
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+    )
     db.add(n)
     return n
 

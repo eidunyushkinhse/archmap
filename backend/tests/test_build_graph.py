@@ -7,6 +7,8 @@
 
 import uuid
 
+from conftest import ensure_project
+
 from app.models.edge import Edge
 from app.models.ghost_position import GhostPosition
 from app.models.node import Node
@@ -15,13 +17,18 @@ from app.tree import collect_subtree_ids_db
 
 
 def _node(db, name, parent=None):
-    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None)
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+    )
     db.add(n)
     return n
 
 
 def _edge(db, src, tgt):
-    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id)
+    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id, project_id=ensure_project(db).id)
     db.add(e)
     return e
 

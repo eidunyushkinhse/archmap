@@ -9,6 +9,7 @@ require_architect/get_current_user не используется телом и �
 import uuid
 
 import pytest
+from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.models.business_process import BusinessProcess
@@ -27,7 +28,13 @@ from app.schemas.process import MessageCreate, ParticipantCreate
 
 # ── Хелперы ───────────────────────────────────────────────────────────────────
 def _node(db, name, parent=None, shape="service"):
-    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None, shape=shape)
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        shape=shape,
+        project_id=ensure_project(db).id,
+    )
     db.add(n)
     return n
 
@@ -40,13 +47,19 @@ def _edge(db, src, tgt, technology=None, is_sync=None, label=None):
         technology=technology,
         is_synchronous=is_sync,
         label=label,
+        project_id=ensure_project(db).id,
     )
     db.add(e)
     return e
 
 
 def _process(db, scope=None, name="P"):
-    p = BusinessProcess(id=uuid.uuid4(), name=name, scope_node_id=scope.id if scope else None)
+    p = BusinessProcess(
+        id=uuid.uuid4(),
+        name=name,
+        scope_node_id=scope.id if scope else None,
+        project_id=ensure_project(db).id,
+    )
     db.add(p)
     return p
 
@@ -55,7 +68,13 @@ def _participants(db, proc, nodes):
     """Добавляет участников по порядку, возвращает {node_id: participant_id}."""
     out = {}
     for i, node in enumerate(nodes):
-        p = add_participant(proc.id, ParticipantCreate(node_id=node.id, order=i), db=db)
+        p = add_participant(
+            proc.id,
+            ParticipantCreate(node_id=node.id, order=i),
+            db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
+        )
         out[node.id] = p.id
     return out
 
@@ -76,6 +95,8 @@ def test_return_on_async_edge_rejected(db):
                 from_participant_id=parts[b.id], to_participant_id=parts[a.id], order=0,
             ),
             db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
         )
     assert exc.value.status_code == 422
 
@@ -97,6 +118,8 @@ def test_message_end_not_participant_rejected(db):
                 from_participant_id=parts[a.id], to_participant_id=parts[c.id], order=0,
             ),
             db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
         )
     assert exc.value.status_code == 422
 
@@ -114,19 +137,23 @@ def test_legal_forward_and_return(db):
         MessageCreate(edge_id=edge.id, leg="forward",
                       from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
         db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
     )
     ret = create_message(
         proc.id,
         MessageCreate(edge_id=edge.id, leg="return",
                       from_participant_id=parts[b.id], to_participant_id=parts[a.id], order=1),
         db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
     )
     assert fwd.kind == "forward" and fwd.caption == "POST /x"
     assert fwd.from_id == a.id and fwd.to_id == b.id
     assert ret.kind == "return" and ret.caption == "ответ"
     assert ret.from_id == b.id and ret.to_id == a.id
 
-    detail = get_process(proc.id, db=db)
+    detail = get_process(proc.id, db=db, project=ensure_project(db))
     assert [m.kind for m in detail.messages] == ["forward", "return"]
     assert detail.messages[0].valid and detail.messages[1].valid
 
@@ -140,13 +167,13 @@ def test_channels_legs_count_and_empty(db):
     db.commit()
     _participants(db, proc, [a, b, c, d])
 
-    sync_ch = list_channels(proc.id, a=a.id, b=b.id, db=db)
+    sync_ch = list_channels(proc.id, a=a.id, b=b.id, db=db, project=ensure_project(db))
     assert len(sync_ch) == 1 and len(sync_ch[0].legs) == 2 and sync_ch[0].synchronous
 
-    async_ch = list_channels(proc.id, a=c.id, b=d.id, db=db)
+    async_ch = list_channels(proc.id, a=c.id, b=d.id, db=db, project=ensure_project(db))
     assert len(async_ch) == 1 and len(async_ch[0].legs) == 1 and not async_ch[0].synchronous
 
-    assert list_channels(proc.id, a=a.id, b=d.id, db=db) == []
+    assert list_channels(proc.id, a=a.id, b=d.id, db=db, project=ensure_project(db)) == []
 
 
 # ── 5. сквозная связь A→C (C под B): канал A–B, фиксирует from=A,to=B ──────────
@@ -159,7 +186,7 @@ def test_cross_level_channel_and_message(db):
     db.commit()
     parts = _participants(db, proc, [a, b])  # участники A и B (не C)
 
-    ch = list_channels(proc.id, a=a.id, b=b.id, db=db)
+    ch = list_channels(proc.id, a=a.id, b=b.id, db=db, project=ensure_project(db))
     assert len(ch) == 1
     fwd = next(leg for leg in ch[0].legs if leg.leg == "forward")
     assert fwd.from_id == a.id and fwd.to_id == b.id  # спроецировано на B
@@ -169,16 +196,18 @@ def test_cross_level_channel_and_message(db):
         MessageCreate(edge_id=edge.id, leg="forward",
                       from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
         db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
     )
     assert msg.from_id == a.id and msg.to_id == b.id
-    detail = get_process(proc.id, db=db)
+    detail = get_process(proc.id, db=db, project=ensure_project(db))
     assert detail.messages[0].from_id == a.id and detail.messages[0].to_id == b.id
 
     # Если же участник — сам C, канал идёт A→C напрямую
     proc2 = _process(db, name="P2")
     db.commit()
     _participants(db, proc2, [a, c])
-    ch2 = list_channels(proc2.id, a=a.id, b=c.id, db=db)
+    ch2 = list_channels(proc2.id, a=a.id, b=c.id, db=db, project=ensure_project(db))
     fwd2 = next(leg for leg in ch2[0].legs if leg.leg == "forward")
     assert fwd2.from_id == a.id and fwd2.to_id == c.id
 
@@ -205,13 +234,15 @@ def test_delete_edge_orphans_message(db):
         MessageCreate(edge_id=edge.id, leg="forward",
                       from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
         db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
     )
 
     db.delete(edge)  # связь удалена из схемы → ON DELETE SET NULL
     db.commit()
     db.expire_all()
 
-    detail = get_process(proc.id, db=db)
+    detail = get_process(proc.id, db=db, project=ensure_project(db))
     assert len(detail.messages) == 1  # сообщение на месте
     assert detail.messages[0].edge_id is None and detail.messages[0].valid is False
 
@@ -240,6 +271,8 @@ def test_delete_message_smoke(db):
         MessageCreate(edge_id=edge.id, leg="forward",
                       from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
         db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
     )
-    delete_message(proc.id, msg.id, db=db)
-    assert get_process(proc.id, db=db).messages == []
+    delete_message(proc.id, msg.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert get_process(proc.id, db=db, project=ensure_project(db)).messages == []

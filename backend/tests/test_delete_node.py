@@ -10,6 +10,7 @@ ghost-метаданные, ссылающиеся на удаляемые уз�
 import uuid
 
 import pytest
+from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.models.edge import Edge
@@ -20,13 +21,18 @@ from app.routers.nodes import delete_node
 
 
 def _node(db, name, parent=None):
-    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None)
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+    )
     db.add(n)
     return n
 
 
 def _edge(db, src, tgt):
-    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id)
+    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id, project_id=ensure_project(db).id)
     db.add(e)
     return e
 
@@ -53,7 +59,7 @@ def test_delete_node_cascades_subtree_edges_and_ghost_meta(db):
     db.add(GhostEdgeHandle(container_id=x.id, edge_id=e_in.id, node_id=a1.id, handle="a1--left--1"))  # edge+node в поддереве → каскад
     db.commit()
 
-    delete_node(a.id, db=db)
+    delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
 
     node_ids = {n.id for n in db.query(Node).all()}
     assert node_ids == {x.id, y.id}  # поддерево A снесено, X и Y живы
@@ -69,5 +75,5 @@ def test_delete_node_cascades_subtree_edges_and_ghost_meta(db):
 
 def test_delete_missing_node_404(db):
     with pytest.raises(HTTPException) as ei:
-        delete_node(uuid.uuid4(), db=db)
+        delete_node(uuid.uuid4(), db=db, project=ensure_project(db), user=ensure_architect(db))
     assert ei.value.status_code == 404

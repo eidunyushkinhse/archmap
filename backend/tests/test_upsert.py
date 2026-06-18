@@ -7,6 +7,8 @@ sqlite.insert. Цель: апсерт по ключу UniqueConstraint обно�
 
 import uuid
 
+from conftest import ensure_project
+
 from app.database import upsert
 from app.models.ghost_edge_handle import GhostEdgeHandle
 from app.models.ghost_position import GhostPosition
@@ -14,7 +16,7 @@ from app.models.node import Node
 
 
 def _node(db, name: str) -> Node:
-    n = Node(name=name)
+    n = Node(name=name, project_id=ensure_project(db).id)
     db.add(n)
     db.flush()  # нужен id для FK-ссылок ниже
     return n
@@ -76,7 +78,12 @@ def test_upsert_ghost_edge_handle_projections_do_not_clobber(db):
     target = _node(db, "Цель")
     from app.models.edge import Edge
 
-    edge = Edge(id=uuid.uuid4(), source_id=source.id, target_id=target.id)
+    edge = Edge(
+        id=uuid.uuid4(),
+        source_id=source.id,
+        target_id=target.id,
+        project_id=ensure_project(db).id,
+    )
     db.add(edge)
     db.flush()
 

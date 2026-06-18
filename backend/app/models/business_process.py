@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.process_fragment import ProcessFragment
     from app.models.process_message import ProcessMessage
     from app.models.process_participant import ProcessParticipant
+    from app.models.project import Project
 
 
 class BusinessProcess(Base):
@@ -25,6 +26,10 @@ class BusinessProcess(Base):
     __tablename__ = "business_processes"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Проект-владелец: процесс скоупится им (NOT NULL, каскад при удалении проекта).
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     # null = корень всей схемы (участников можно брать откуда угодно)
     scope_node_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -39,6 +44,7 @@ class BusinessProcess(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
+    project: Mapped["Project"] = relationship("Project", back_populates="business_processes")
     # Каскад на уровне ORM + passive_deletes: при удалении процесса БД сама сносит
     # участников/сообщения/фрагменты (ondelete CASCADE на их FK).
     participants: Mapped[list["ProcessParticipant"]] = relationship(

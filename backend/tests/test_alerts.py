@@ -9,19 +9,26 @@
 
 import uuid
 
+from conftest import ensure_project
+
 from app.models.edge import Edge
 from app.models.node import Node
 from app.routers.nodes import get_alerts
 
 
 def _node(db, name, parent=None):
-    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None)
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+    )
     db.add(n)
     return n
 
 
 def _edge(db, src, tgt):
-    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id)
+    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id, project_id=ensure_project(db).id)
     db.add(e)
     return e
 
@@ -38,7 +45,7 @@ def test_disconnected_and_intermediate(db):
     _edge(db, child, b)    # ребёнок связан → не подвисает (иначе попал бы в disconnected)
     db.commit()
 
-    res = get_alerts(db=db)
+    res = get_alerts(db=db, project=ensure_project(db))
 
     # «Подвисший» без связей — в disconnected; контейнер (промежуточный) и
     # связанный ребёнок туда не идут.
@@ -64,7 +71,7 @@ def test_isolated_groups_when_fragmented(db):
     _edge(db, v, g)
     db.commit()
 
-    res = get_alerts(db=db)
+    res = get_alerts(db=db, project=ensure_project(db))
 
     assert len(res.isolated_groups) == 2
     groups = sorted(sorted(grp.node_names) for grp in res.isolated_groups)
@@ -82,7 +89,7 @@ def test_single_cluster_plus_dangling_is_not_fragmented(db):
     _edge(db, b, c)
     db.commit()
 
-    res = get_alerts(db=db)
+    res = get_alerts(db=db, project=ensure_project(db))
 
     assert res.isolated_groups == []
     assert len(res.disconnected_nodes) == 2

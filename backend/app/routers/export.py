@@ -12,9 +12,11 @@ from sqlalchemy.orm import Session
 from app import tree
 from app.auth import get_current_user
 from app.database import get_db
+from app.deps import get_current_project
 from app.export import build_export
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.project import Project
 from app.models.user import User
 from app.schemas.export import ExportResponse
 
@@ -24,11 +26,12 @@ router = APIRouter(prefix="/export", tags=["export"])
 @router.get("", response_model=ExportResponse)
 def export_all(
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _user: User = Depends(get_current_user),
 ) -> ExportResponse:
-    """Экспорт ВСЕЙ схемы."""
-    nodes = db.query(Node).all()
-    edges = db.query(Edge).all()
+    """Экспорт ВСЕЙ схемы текущего проекта."""
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return ExportResponse(format="yaml", content=build_export(nodes, edges))
 
 
@@ -36,10 +39,11 @@ def export_all(
 def export_subtree(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _user: User = Depends(get_current_user),
 ) -> ExportResponse:
     """Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева)."""
-    nodes = db.query(Node).all()
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
     by_id = {n.id: n for n in nodes}
     if node_id not in by_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
@@ -49,7 +53,7 @@ def export_subtree(
     # не тянем в сериализатор заведомо лишнее).
     edges = [
         e
-        for e in db.query(Edge).all()
+        for e in db.query(Edge).filter(Edge.project_id == project.id).all()
         if e.source_id in sub_ids and e.target_id in sub_ids
     ]
     return ExportResponse(format="yaml", content=build_export(sub_nodes, edges, root_id=node_id))

@@ -112,12 +112,15 @@ def build_edge_deletion_snapshot(db: Session, edge_id: uuid.UUID) -> DeletionSna
     )
 
 
-def restore_from_snapshot(db: Session, snapshot: DeletionSnapshot) -> None:
+def restore_from_snapshot(
+    db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID
+) -> None:
     """Воссоздать узлы/рёбра/ghost-строки из снимка с сохранением исходных id.
 
     Узлы вставляются родителями раньше детей: FK parent_id проверяется сразу, а
     корень поддерева ссылается на уцелевший (внешний) узел уровня. Рёбра и ghost-строки
-    — после узлов (их FK на nodes/edges уже валидны).
+    — после узлов (их FK на nodes/edges уже валидны). project_id — проект, в который
+    восстанавливаем (снимок его не несёт; восстановление всегда в текущий проект).
     """
     by_id = {n.id: n for n in snapshot.nodes}
 
@@ -133,6 +136,7 @@ def restore_from_snapshot(db: Session, snapshot: DeletionSnapshot) -> None:
         db.add(
             Node(
                 id=ns.id,
+                project_id=project_id,
                 name=ns.name,
                 description=ns.description,
                 role=ns.role,
@@ -152,6 +156,7 @@ def restore_from_snapshot(db: Session, snapshot: DeletionSnapshot) -> None:
         db.add(
             Edge(
                 id=es.id,
+                project_id=project_id,
                 label=es.label,
                 technology=es.technology,
                 source_id=es.source_id,

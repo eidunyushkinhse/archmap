@@ -8,6 +8,7 @@ Round-trip: build_deletion_snapshot ДО удаления → delete_node (ка�
 import uuid
 
 import pytest
+from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.models.edge import Edge
@@ -20,13 +21,18 @@ from app.routers.nodes import delete_node, restore_nodes
 
 
 def _node(db, name, parent=None):
-    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None)
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+    )
     db.add(n)
     return n
 
 
 def _edge(db, src, tgt, **kw):
-    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id, **kw)
+    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id, project_id=ensure_project(db).id, **kw)
     db.add(e)
     return e
 
@@ -66,11 +72,11 @@ def test_snapshot_restore_round_trip(db):
     assert len(snap.ghost_edge_handles) == 1
     assert len(snap.edge_waypoints) == 1
 
-    delete_node(a_id, db=db)
+    delete_node(a_id, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert {n.id for n in db.query(Node).all()} == {x_id, y_id}
     assert {e.id for e in db.query(Edge).all()} == {e_ext_id}
 
-    restore_from_snapshot(db, snap)
+    restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
 
     # Узлы вернулись с теми же id и связями родителя
     nodes = {n.id: n for n in db.query(Node).all()}
@@ -97,7 +103,7 @@ def test_get_snapshot_missing_node_404(db):
     from app.routers.nodes import get_deletion_snapshot
 
     with pytest.raises(HTTPException) as ei:
-        get_deletion_snapshot(uuid.uuid4(), db=db)
+        get_deletion_snapshot(uuid.uuid4(), db=db, project=ensure_project(db))
     assert ei.value.status_code == 404
 
 
@@ -107,7 +113,7 @@ def test_restore_conflict_when_nodes_exist(db):
     snap = build_deletion_snapshot(db, a.id)
     # Узел A не удаляли — restore того же снимка должен упереться в конфликт.
     with pytest.raises(HTTPException) as ei:
-        restore_nodes(snap, db=db)
+        restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert ei.value.status_code == 409
 
 
@@ -116,10 +122,10 @@ def test_restore_conflict_when_parent_gone(db):
     child = _node(db, "C", parent)
     db.commit()
     snap = build_deletion_snapshot(db, child.id)  # снимок только ребёнка
-    delete_node(child.id, db=db)
-    delete_node(parent.id, db=db)  # родитель тоже исчез
+    delete_node(child.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    delete_node(parent.id, db=db, project=ensure_project(db), user=ensure_architect(db))  # родитель тоже исчез
     with pytest.raises(HTTPException) as ei:
-        restore_nodes(snap, db=db)
+        restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert ei.value.status_code == 409
 
 
@@ -130,7 +136,7 @@ def test_restore_empty_snapshot_400(db):
         nodes=[], edges=[], ghost_positions=[], ghost_edge_handles=[], edge_waypoints=[]
     )
     with pytest.raises(HTTPException) as ei:
-        restore_nodes(empty, db=db)
+        restore_nodes(empty, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert ei.value.status_code == 400
 
 
@@ -166,7 +172,7 @@ def test_edge_snapshot_restore_round_trip(db):
     assert db.query(EdgeWaypoint).count() == 0
     assert {n.id for n in db.query(Node).all()} == {x_id, y_id}
 
-    restore_from_snapshot(db, snap)
+    restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
 
     edges = db.query(Edge).all()
     assert len(edges) == 1
@@ -184,7 +190,7 @@ def test_edge_snapshot_missing_edge_404(db):
     from app.routers.edges import edge_deletion_snapshot
 
     with pytest.raises(HTTPException) as ei:
-        edge_deletion_snapshot(uuid.uuid4(), db=db)
+        edge_deletion_snapshot(uuid.uuid4(), db=db, project=ensure_project(db))
     assert ei.value.status_code == 404
 
 
@@ -198,5 +204,5 @@ def test_restore_conflict_when_edge_exists(db):
     db.commit()
     snap = build_edge_deletion_snapshot(db, e.id)
     with pytest.raises(HTTPException) as ei:
-        restore_nodes(snap, db=db)
+        restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert ei.value.status_code == 409

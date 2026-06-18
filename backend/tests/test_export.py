@@ -9,6 +9,7 @@ import uuid
 
 import pytest
 import yaml
+from conftest import ensure_project
 from fastapi import HTTPException
 
 from app.models.edge import Edge
@@ -17,13 +18,26 @@ from app.routers.export import export_all, export_subtree
 
 
 def _node(db, name, parent=None, **kw):
-    n = Node(id=uuid.uuid4(), name=name, parent_id=parent.id if parent else None, **kw)
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+        **kw,
+    )
     db.add(n)
     return n
 
 
 def _edge(db, src, tgt, label=None, technology=None):
-    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id, label=label, technology=technology)
+    e = Edge(
+        id=uuid.uuid4(),
+        source_id=src.id,
+        target_id=tgt.id,
+        label=label,
+        technology=technology,
+        project_id=ensure_project(db).id,
+    )
     db.add(e)
     return e
 
@@ -36,7 +50,7 @@ def test_export_all_tree_and_edges(db):
     _edge(db, a, b, label="события", technology="Kafka")
     db.commit()
 
-    res = export_all(db=db)
+    res = export_all(db=db, project=ensure_project(db))
     assert res.format == "yaml"
     doc = yaml.safe_load(res.content)
 
@@ -72,7 +86,7 @@ def test_export_omits_layout_and_documents(db):
     )
     db.commit()
 
-    doc = yaml.safe_load(export_all(db=db).content)
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
     node = doc["nodes"][0]
     assert set(node) == {"name", "shape", "external", "description"}
     assert node["external"] is True
@@ -84,7 +98,7 @@ def test_export_omits_internal_node_without_external_flag(db):
     # is_external=False → ключа external нет вовсе (не external: false).
     _node(db, "Внутренний", shape="service")
     db.commit()
-    node = yaml.safe_load(export_all(db=db).content)["nodes"][0]
+    node = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)["nodes"][0]
     assert "external" not in node
 
 
@@ -99,7 +113,7 @@ def test_duplicate_name_uses_qualified_path_in_edges(db):
     _edge(db, svc2, db2)
     db.commit()
 
-    doc = yaml.safe_load(export_all(db=db).content)
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
     # В дереве — голое имя.
     a = next(n for n in doc["nodes"] if n["name"] == "Сервис A")
     assert [c["name"] for c in a["children"]] == ["БД"]
@@ -118,7 +132,7 @@ def test_export_subtree_scopes_nodes_and_edges(db):
     _edge(db, child1, outsider, label="наружу")
     db.commit()
 
-    doc = yaml.safe_load(export_subtree(node_id=box.id, db=db).content)
+    doc = yaml.safe_load(export_subtree(node_id=box.id, db=db, project=ensure_project(db)).content)
     # Корень поддерева — сам контейнер; "Чужой" отсутствует.
     assert [n["name"] for n in doc["nodes"]] == ["Контейнер"]
     names = {c["name"] for c in doc["nodes"][0]["children"]}
@@ -129,10 +143,10 @@ def test_export_subtree_scopes_nodes_and_edges(db):
 
 def test_export_subtree_unknown_id_404(db):
     with pytest.raises(HTTPException) as exc:
-        export_subtree(node_id=uuid.uuid4(), db=db)
+        export_subtree(node_id=uuid.uuid4(), db=db, project=ensure_project(db))
     assert exc.value.status_code == 404
 
 
 def test_export_empty_schema(db):
-    doc = yaml.safe_load(export_all(db=db).content)
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
     assert doc == {"nodes": [], "edges": []}

@@ -11,6 +11,7 @@ import app.models.node  # noqa: F401
 import app.models.process_fragment  # noqa: F401
 import app.models.process_message  # noqa: F401
 import app.models.process_participant  # noqa: F401
+import app.models.project  # noqa: F401
 
 # импортируем модели, чтобы Alembic видел их метаданные
 import app.models.user  # noqa: F401

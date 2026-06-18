@@ -13,12 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
+from app.deps import get_current_project, scoped_edge, touch_project
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_fragment import ProcessFragment
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
+from app.models.project import Project
 from app.models.user import User
 from app.processes import edge_is_synchronous, legs_for_edge, resolve_to_participant
 from app.schemas.process import (
@@ -44,14 +46,15 @@ router = APIRouter(prefix="/processes", tags=["processes"])
 
 
 # ── Вспомогательные ───────────────────────────────────────────────────────────
-def _load_nodes(db: Session) -> dict[uuid.UUID, Node]:
-    """Карта всех узлов схемы — для проекции концов и проверки области."""
-    return {n.id: n for n in db.query(Node).all()}
+def _load_nodes(db: Session, project: Project) -> dict[uuid.UUID, Node]:
+    """Карта узлов ТЕКУЩЕГО проекта — для проекции концов и проверки области."""
+    return {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
 
 
-def _get_process(db: Session, process_id: uuid.UUID) -> BusinessProcess:
+def _get_process(db: Session, process_id: uuid.UUID, project: Project) -> BusinessProcess:
+    """Процесс текущего проекта, иначе 404 (чужой процесс недоступен — изоляция)."""
     proc = db.get(BusinessProcess, process_id)
-    if proc is None:
+    if proc is None or proc.project_id != project.id:
         raise HTTPException(status_code=404, detail="Процесс не найден")
     return proc
 
@@ -152,16 +155,25 @@ def _scope_node_ids(all_nodes: dict[uuid.UUID, Node], scope_node_id: uuid.UUID |
 @router.get("", response_model=list[ProcessListItem])
 def list_processes(
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[ProcessListItem]:
-    all_nodes = _load_nodes(db)
+    all_nodes = _load_nodes(db, project)
+    # Счётчик сообщений только по процессам текущего проекта (join к BusinessProcess).
     counts = dict(
         db.query(ProcessMessage.process_id, func.count(ProcessMessage.id))
+        .join(BusinessProcess, BusinessProcess.id == ProcessMessage.process_id)
+        .filter(BusinessProcess.project_id == project.id)
         .group_by(ProcessMessage.process_id)
         .all()
     )
     out: list[ProcessListItem] = []
-    for proc in db.query(BusinessProcess).order_by(BusinessProcess.created_at).all():
+    for proc in (
+        db.query(BusinessProcess)
+        .filter(BusinessProcess.project_id == project.id)
+        .order_by(BusinessProcess.created_at)
+        .all()
+    ):
         scope = all_nodes.get(proc.scope_node_id) if proc.scope_node_id else None
         out.append(
             ProcessListItem(
@@ -179,25 +191,31 @@ def list_processes(
 def create_process(
     payload: ProcessCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> ProcessDetail:
-    if payload.scope_node_id is not None and not db.get(Node, payload.scope_node_id):
+    all_nodes = _load_nodes(db, project)
+    if payload.scope_node_id is not None and payload.scope_node_id not in all_nodes:
         raise HTTPException(status_code=404, detail="Узел области не найден")
-    proc = BusinessProcess(name=payload.name, scope_node_id=payload.scope_node_id)
+    proc = BusinessProcess(
+        name=payload.name, scope_node_id=payload.scope_node_id, project_id=project.id
+    )
     db.add(proc)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(proc)
-    return _build_detail(db, proc, _load_nodes(db))
+    return _build_detail(db, proc, all_nodes)
 
 
 @router.get("/{process_id}", response_model=ProcessDetail)
 def get_process(
     process_id: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> ProcessDetail:
-    proc = _get_process(db, process_id)
-    return _build_detail(db, proc, _load_nodes(db))
+    proc = _get_process(db, process_id, project)
+    return _build_detail(db, proc, _load_nodes(db, project))
 
 
 @router.patch("/{process_id}", response_model=ProcessDetail)
@@ -205,28 +223,33 @@ def update_process(
     process_id: uuid.UUID,
     payload: ProcessUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> ProcessDetail:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
+    all_nodes = _load_nodes(db, project)
     data = payload.model_dump(exclude_unset=True)
     if "scope_node_id" in data and data["scope_node_id"] is not None:
-        if not db.get(Node, data["scope_node_id"]):
+        if data["scope_node_id"] not in all_nodes:
             raise HTTPException(status_code=404, detail="Узел области не найден")
     for field, value in data.items():
         setattr(proc, field, value)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(proc)
-    return _build_detail(db, proc, _load_nodes(db))
+    return _build_detail(db, proc, all_nodes)
 
 
 @router.delete("/{process_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_process(
     process_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> None:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     db.delete(proc)  # каскад сносит участников/сообщения/фрагменты
+    touch_project(db, project, user.id)
     db.commit()
 
 
@@ -240,10 +263,11 @@ def add_participant(
     process_id: uuid.UUID,
     payload: ParticipantCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> ParticipantOut:
-    proc = _get_process(db, process_id)
-    all_nodes = _load_nodes(db)
+    proc = _get_process(db, process_id, project)
+    all_nodes = _load_nodes(db, project)
     node = all_nodes.get(payload.node_id)
     if node is None:
         raise HTTPException(status_code=404, detail="Узел не найден")
@@ -253,6 +277,7 @@ def add_participant(
         raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
     part = ProcessParticipant(process_id=proc.id, node_id=payload.node_id, order=payload.order)
     db.add(part)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(part)
     return _participant_out(part, node)
@@ -263,17 +288,19 @@ def reorder_participants(
     process_id: uuid.UUID,
     payload: ReorderPayload,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> list[ParticipantOut]:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     by_id = {p.id: p for p in proc.participants}
     for index, pid in enumerate(payload.ids):
         part = by_id.get(pid)
         if part is None:
             raise HTTPException(status_code=422, detail="Участник не из этого процесса")
         part.order = index
+    touch_project(db, project, user.id)
     db.commit()
-    all_nodes = _load_nodes(db)
+    all_nodes = _load_nodes(db, project)
     parts = sorted(proc.participants, key=lambda p: p.order)
     return [_participant_out(p, all_nodes[p.node_id]) for p in parts]
 
@@ -286,13 +313,15 @@ def delete_participant(
     process_id: uuid.UUID,
     participant_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> None:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     part = db.get(ProcessParticipant, participant_id)
     if part is None or part.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Участник не найден")
     db.delete(part)  # каскад сносит сообщения с этим концом (FK ON DELETE CASCADE)
+    touch_project(db, project, user.id)
     db.commit()
 
 
@@ -306,10 +335,11 @@ def create_message(
     process_id: uuid.UUID,
     payload: MessageCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> MessageOut:
-    proc = _get_process(db, process_id)
-    edge = db.get(Edge, payload.edge_id)
+    proc = _get_process(db, process_id, project)
+    edge = scoped_edge(db, payload.edge_id, project)
     if edge is None:
         raise HTTPException(status_code=404, detail="Связь не найдена")
     # 2) leg легален: return только для синхронного канала
@@ -323,7 +353,7 @@ def create_message(
     if to is None or to.process_id != proc.id:
         raise HTTPException(status_code=422, detail="Получатель не участник процесса")
     # 4) проекция сырых концов плеча сходится именно на этих участников
-    all_nodes = _load_nodes(db)
+    all_nodes = _load_nodes(db, project)
     participant_ids = {p.node_id for p in proc.participants}
     leg = next((leg for leg in legs_for_edge(edge) if leg.leg == payload.leg), None)
     if leg is None:
@@ -346,6 +376,7 @@ def create_message(
         caption=payload.caption,
     )
     db.add(msg)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
@@ -358,15 +389,17 @@ def update_message(
     message_id: uuid.UUID,
     payload: MessageUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> MessageOut:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     msg = db.get(ProcessMessage, message_id)
     if msg is None or msg.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
         setattr(msg, field, value)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
@@ -381,13 +414,15 @@ def delete_message(
     process_id: uuid.UUID,
     message_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> None:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     msg = db.get(ProcessMessage, message_id)
     if msg is None or msg.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     db.delete(msg)
+    touch_project(db, project, user.id)
     db.commit()
 
 
@@ -401,9 +436,10 @@ def create_fragment(
     process_id: uuid.UUID,
     payload: FragmentCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> FragmentOut:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     if payload.from_order > payload.to_order:
         raise HTTPException(status_code=422, detail="from_order должен быть ≤ to_order")
     frag = ProcessFragment(
@@ -416,6 +452,7 @@ def create_fragment(
         else_order=payload.else_order,
     )
     db.add(frag)
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(frag)
     return FragmentOut(
@@ -435,9 +472,10 @@ def update_fragment(
     fragment_id: uuid.UUID,
     payload: FragmentUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> FragmentOut:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     frag = db.get(ProcessFragment, fragment_id)
     if frag is None or frag.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Фрагмент не найден")
@@ -446,6 +484,7 @@ def update_fragment(
         setattr(frag, field, value)
     if frag.from_order > frag.to_order:
         raise HTTPException(status_code=422, detail="from_order должен быть ≤ to_order")
+    touch_project(db, project, user.id)
     db.commit()
     db.refresh(frag)
     return FragmentOut(
@@ -467,13 +506,15 @@ def delete_fragment(
     process_id: uuid.UUID,
     fragment_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
 ) -> None:
-    proc = _get_process(db, process_id)
+    proc = _get_process(db, process_id, project)
     frag = db.get(ProcessFragment, fragment_id)
     if frag is None or frag.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Фрагмент не найден")
     db.delete(frag)
+    touch_project(db, project, user.id)
     db.commit()
 
 
@@ -484,14 +525,15 @@ def list_channels(
     a: uuid.UUID,
     b: uuid.UUID,
     db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[ChannelOut]:
-    proc = _get_process(db, process_id)
-    all_nodes = _load_nodes(db)
+    proc = _get_process(db, process_id, project)
+    all_nodes = _load_nodes(db, project)
     participant_ids = {p.node_id for p in proc.participants}
     pair = {a, b}
     out: list[ChannelOut] = []
-    for edge in db.query(Edge).all():
+    for edge in db.query(Edge).filter(Edge.project_id == project.id).all():
         p = resolve_to_participant(edge.source_id, participant_ids, all_nodes)
         q = resolve_to_participant(edge.target_id, participant_ids, all_nodes)
         if p is None or q is None or p == q or {p, q} != pair:
