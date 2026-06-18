@@ -4,6 +4,7 @@ import { getUserRole } from "../api/auth";
 import { projectsApi } from "../api/projects";
 import type { Project } from "../types";
 import CreateProjectDialog from "../components/project/CreateProjectDialog";
+import EditProjectDialog from "../components/project/EditProjectDialog";
 import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components/project/ProjectDialogs";
 import SchemaPreview from "../components/project/SchemaPreview";
 import ProfileMenu from "../ui/ProfileMenu";
@@ -23,7 +24,7 @@ interface Props {
 type Tab = "active" | "archived";
 type Dialog =
   | { kind: "create" }
-  | { kind: "archive" | "restore" | "delete"; project: Project }
+  | { kind: "edit" | "archive" | "restore" | "delete"; project: Project }
   | null;
 
 export default function ProjectsPage({ onOpenProject, onLogout }: Props) {
@@ -129,6 +130,7 @@ export default function ProjectsPage({ onOpenProject, onLogout }: Props) {
                 isArchitect={isArchitect}
                 archivedTab={tab === "archived"}
                 onOpen={() => onOpenProject(p.id)}
+                onEdit={() => setDialog({ kind: "edit", project: p })}
                 onArchive={() => setDialog({ kind: "archive", project: p })}
                 onRestore={() => setDialog({ kind: "restore", project: p })}
                 onDelete={() => setDialog({ kind: "delete", project: p })}
@@ -144,6 +146,13 @@ export default function ProjectsPage({ onOpenProject, onLogout }: Props) {
           projects={active}
           onClose={() => setDialog(null)}
           onCreated={(id) => { setDialog(null); onOpenProject(id); }}
+        />
+      )}
+      {dialog?.kind === "edit" && (
+        <EditProjectDialog
+          project={dialog.project}
+          onClose={() => setDialog(null)}
+          onSaved={() => { setDialog(null); flash("Проект обновлён"); void reload(); }}
         />
       )}
       {dialog?.kind === "archive" && (
@@ -175,12 +184,13 @@ export default function ProjectsPage({ onOpenProject, onLogout }: Props) {
 
 // ── Карточка проекта ──────────────────────────────────────────────────────────
 function ProjectCard({
-  project, isArchitect, archivedTab, onOpen, onArchive, onRestore, onDelete,
+  project, isArchitect, archivedTab, onOpen, onEdit, onArchive, onRestore, onDelete,
 }: {
   project: Project;
   isArchitect: boolean;
   archivedTab: boolean;
   onOpen: () => void;
+  onEdit: () => void;
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
@@ -197,7 +207,7 @@ function ProjectCard({
           <SchemaPreview seed={project.id} objectCount={project.object_count} edgeCount={project.edge_count} />
         </button>
         {isArchitect && (
-          <CardMenu archivedTab={archivedTab} onOpen={onOpen} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} />
+          <CardMenu archivedTab={archivedTab} onOpen={onOpen} onEdit={onEdit} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} />
         )}
       </div>
       <button style={cardBody} onClick={onOpen}>
@@ -220,10 +230,11 @@ function ProjectCard({
 }
 
 function CardMenu({
-  archivedTab, onOpen, onArchive, onRestore, onDelete,
+  archivedTab, onOpen, onEdit, onArchive, onRestore, onDelete,
 }: {
   archivedTab: boolean;
   onOpen: () => void;
+  onEdit: () => void;
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
@@ -249,6 +260,7 @@ function CardMenu({
       {open && (
         <div style={cardMenu} role="menu">
           {item("Открыть", onOpen)}
+          {item("Редактировать", onEdit)}
           {archivedTab ? (
             <>
               {item("Восстановить", onRestore)}
