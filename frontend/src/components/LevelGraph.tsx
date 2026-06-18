@@ -29,8 +29,9 @@ import {
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
-  DisplayExternal, EdgeShelf, EdgeLoop, EdgeGroup,
+  DisplayExternal, EdgeShelf, EdgeLoop, EdgeGroup, QuickConnectHandlers,
 } from "./graph/types";
+import type { EdgeSide } from "./graph/edgePath";
 import { edgeText } from "./graph/text";
 import { getNodeColors } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
@@ -55,6 +56,8 @@ import { useHistory } from "./graph/interaction/useHistory";
 import type { History } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
+import { findQuickConnectTarget, type QcNode } from "./graph/interaction/quickConnect";
+import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { guardPersist } from "./graph/interaction/persistGuard";
@@ -458,6 +461,44 @@ function LevelGraphInner({
     [isReconnecting, isValidReconnect, isValidNewConnection],
   );
 
+  // --- «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседним
+  // узлом. enter (навели на стрелку) → подбираем цель и рисуем превью; leave → гасим;
+  // activate (клик) → создаём связь через ту же модалку, что и ручное протягивание.
+  const [qc, setQc] = useState<{ sourceId: string; sourceHandle: string; side: EdgeSide; frac: number } | null>(null);
+  // Кандидат-цель для текущего qc — из геометрии узлов уровня (фикс. размер NODE_W×NODE_H).
+  const qcCandidate = useMemo(() => {
+    if (!qc) return null;
+    const src = rfNodes.find((n) => n.id === qc.sourceId);
+    if (!src) return null;
+    const cands: QcNode[] = rfNodes
+      .filter((n) => n.type !== "spacer" && n.id !== qc.sourceId)
+      .map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
+    return findQuickConnectTarget(
+      qc.sourceId, qc.side, qc.frac,
+      { id: src.id, x: src.position.x, y: src.position.y }, cands,
+    );
+  }, [qc, rfNodes]);
+  // latest-refs для стабильного activate: handlers кладём в data узлов, и они НЕ должны
+  // менять идентичность (иначе пересборка раскладки на каждый ховер). Обновляем в эффекте
+  // без зависимостей (как cbRef ниже) — activate читает их в обработчике клика, после рендера.
+  const qcRef = useRef(qc);
+  const qcCandidateRef = useRef(qcCandidate);
+  const onCreateEdgeRef = useRef(onCreateEdge);
+  useEffect(() => {
+    qcRef.current = qc;
+    qcCandidateRef.current = qcCandidate;
+    onCreateEdgeRef.current = onCreateEdge;
+  });
+  const quickConnectHandlers = useMemo<QuickConnectHandlers>(() => ({
+    enter: (sourceId, sourceHandle, side, frac) => setQc({ sourceId, sourceHandle, side, frac }),
+    leave: () => setQc(null),
+    activate: () => {
+      const q = qcRef.current, c = qcCandidateRef.current;
+      setQc(null);
+      if (q && c) onCreateEdgeRef.current?.(q.sourceId, c.targetId, q.sourceHandle, c.targetHandle);
+    },
+  }), []);
+
   // Стабилизируем массив id предков ПО ЗНАЧЕНИЮ: родители отдают новый массив с тем
   // же содержимым на каждый рендер, а пересчитывать раскладку (и сбрасывать драг/
   // выделение) нужно только при реальной смене breadcrumb. Раньше эту роль играл
@@ -517,13 +558,13 @@ function LevelGraphInner({
     [isArchitect, containerId, onLevelEdgeWaypointsChanged, onPersistError],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints });
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints, quickConnect: quickConnectHandlers };
   });
 
   // Чистая раскладка (производное в рендере, не в эффекте — это и закрывает класс
@@ -775,6 +816,7 @@ function LevelGraphInner({
           colors: getNodeColors(n.is_external, depth),
           hideActions: isContext,
           connectable: isArchitect && !isContext,
+          quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
         } satisfies BlockData,
       })),
       ...entities.map((ent) => {
@@ -788,6 +830,7 @@ function LevelGraphInner({
               appNode: ent.ghost,
               colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth),
               connectable: isArchitect && !isContext,
+              quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
               // в контекст-режиме навигация по слоям отключена (схема — внутри модалки).
               // Путь гостя = его предки + он сам (другая ветка дерева).
               onEnter: isContext
@@ -812,6 +855,7 @@ function LevelGraphInner({
               ? undefined
               : () => cb.onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
             connectable: isArchitect && !isContext,
+            quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
           } satisfies ContainerData,
         };
       }),
@@ -1123,6 +1167,13 @@ function LevelGraphInner({
             >
               <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" outline />
             </div>
+          </ViewportPortal>
+        )}
+        {/* Превью «быстрой связи»: автоопределённая стрелка от хэндла к соседу. Гасим во
+            время ручного протягивания (connecting), чтобы превью не накладывались. */}
+        {qcCandidate && !connecting && (
+          <ViewportPortal>
+            <QuickConnectPreview points={qcCandidate.points} />
           </ViewportPortal>
         )}
       </ReactFlow>

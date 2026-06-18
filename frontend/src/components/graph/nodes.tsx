@@ -10,7 +10,8 @@ import {
   nodeContainer, SELECTED_GLOW,
   tagChip, nodeActions, nodeBtn,
 } from "./shapes";
-import type { BlockRFNode, GhostRFNode, ContainerRFNode } from "./types";
+import type { BlockRFNode, GhostRFNode, ContainerRFNode, QuickConnectHandlers } from "./types";
+import type { EdgeSide } from "./edgePath";
 import { canHaveChildren } from "../../types";
 import { DrillInIcon, MoreIcon } from "./icons";
 
@@ -37,8 +38,8 @@ function IntoCue() {
 }
 
 function NodeHandles({
-  nodeId, color, connectableStart = false,
-}: { nodeId: string; color: string; connectableStart?: boolean }) {
+  nodeId, color, connectableStart = false, quickConnect,
+}: { nodeId: string; color: string; connectableStart?: boolean; quickConnect?: QuickConnectHandlers }) {
   return (
     <>
       {SIDE_HANDLES.flatMap(({ side, pos, offsets }) =>
@@ -59,6 +60,23 @@ function NodeHandles({
                 наведения (:hover всплывает на родителя). На измерение хэндла не влияет
                 (position:absolute не расширяет getBoundingClientRect родителя). */}
             <span className="lg-handle-dot" style={{ background: color }} />
+            {/* Прозрачная зона «быстрой связи» поверх стрелки-подсказки хэндла: навёл
+                курсор → система подбирает цель и рисует превью, клик → создаёт связь.
+                pointer-events включаются только на ховере хэндла (CSS), чтобы зоны вокруг
+                каждого хэндла не перехватывали курсор в покое. stopPropagation на
+                pointer/mouse-down — чтобы клик по стрелке не запускал ручное протягивание. */}
+            {quickConnect && connectableStart && (
+              <button
+                type="button"
+                className="nodrag lg-quick-arrow"
+                aria-label="Создать связь"
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseEnter={() => quickConnect.enter(nodeId, hid(nodeId, side, idx), side as EdgeSide, offset)}
+                onMouseLeave={() => quickConnect.leave()}
+                onClick={(e) => { e.stopPropagation(); quickConnect.activate(); }}
+              />
+            )}
           </Handle>
         ))
       )}
@@ -213,7 +231,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       }}
     >
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
-      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
+      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
 
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
           В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
@@ -264,7 +282,7 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
   return (
     <div style={{ ...nodeContainer, color: c.text, filter: selected ? SELECTED_GLOW : undefined }}>
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
-      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} />
+      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
       {canEnter && (
         <div style={nodeActions}>
           <button
@@ -300,7 +318,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
       <svg width={NODE_W} height={NODE_H} style={{ position: "absolute", inset: 0, pointerEvents: "none", filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.12))" }}>
         <rect x={1} y={1} width={NODE_W - 2} height={NODE_H - 2} rx={8} fill={c.bg} stroke={c.border} strokeWidth={1.5} strokeDasharray="5 3" />
       </svg>
-      <NodeHandles nodeId={data.id} color={c.border} connectableStart={data.connectable} />
+      <NodeHandles nodeId={data.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
       <div style={nodeActions}>
         {/* «Войти» — навигация на собственный слой контейнера (его компоненты), в
             отличие от лупы, раскрывающей содержимое инлайн на текущем уровне. */}

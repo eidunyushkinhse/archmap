@@ -274,6 +274,46 @@
   border-top: 8px solid rgba(37, 99, 235, 0.55);
 }
 
+/* Зона «быстрой связи» — прозрачная кнопка-хитбокс поверх стрелки-подсказки хэндла.
+   Навёл на неё курсор → система подбирает цель и рисует превью; клик → создаёт связь.
+   pointer-events выключены в покое (чтобы хитбоксы вокруг каждого хэндла не перехватывали
+   курсор), включаются только пока хэндл под ховером — а так как кнопка ДОЧЕРНЯЯ хэндлу,
+   :hover на хэндле держится, пока курсор над кнопкой, и переход дот→стрелка не рвётся.
+   Хитбокс начинается от центра хэндла (перекрывает зазор до дота) и тянется наружу вдоль
+   стороны — поэтому смещение из дота на стрелку не проваливается в «мёртвую зону». */
+.lg-quick-arrow {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  pointer-events: none;
+  z-index: 5; /* поверх дота — в зоне перекрытия курсор попадает на кнопку */
+}
+.lg-canvas--editable .react-flow__handle:hover .lg-quick-arrow {
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* Во время ручного протягивания связи быстрые связи не предлагаем — хитбоксы инертны. */
+.lg-canvas--connecting .lg-quick-arrow {
+  pointer-events: none !important;
+}
+/* Геометрия хитбокса по стороне хэндла: внутренняя кромка у рубежа дота (+4px от центра —
+   лёгкое перекрытие рубежа, чтобы переход дот→стрелка не провалился), наружу 24px вдоль
+   стороны, 18px поперёк. Центр дота (≈10px) остаётся свободным для ручного протягивания. */
+.react-flow__handle-right .lg-quick-arrow {
+  left: calc(50% + 4px); top: 50%; width: 24px; height: 18px; transform: translateY(-50%);
+}
+.react-flow__handle-left .lg-quick-arrow {
+  right: calc(50% + 4px); top: 50%; width: 24px; height: 18px; transform: translateY(-50%);
+}
+.react-flow__handle-top .lg-quick-arrow {
+  left: 50%; bottom: calc(50% + 4px); width: 18px; height: 24px; transform: translateX(-50%);
+}
+.react-flow__handle-bottom .lg-quick-arrow {
+  left: 50%; top: calc(50% + 4px); width: 18px; height: 24px; transform: translateX(-50%);
+}
+
 /* Грипы изломов стрелок: видимая точка по центру подвижного сегмента. По умолчанию
    скрыта, проявляется при наведении на стрелку; ярче — при наведении на сам грип. */
 .lg-edge-grip-dot {

@@ -2,6 +2,7 @@
 // время выполнения. FrameDef намеренно НЕ здесь: он локален для boundaries.tsx.
 import type { Node as RFNode } from "@xyflow/react";
 import type { Node as AppNode, GhostNode, AncestorRef, EdgePoint, Edge as AppEdge } from "../../types";
+import type { EdgeSide } from "./edgePath";
 
 // Группа связей одного направления между парой отображаемых узлов, слитая в одну
 // «мастер-стрелку» (members.length > 1) либо одиночная связь (members.length === 1).
@@ -61,6 +62,16 @@ export interface WrappedEdgeData extends Record<string, unknown> {
 
 export interface NodeColors { bg: string; border: string; text: string }
 
+// Колбэки «быстрой связи» (стрелка-кнопка у хэндла). enter — навели курсор на стрелку
+// хэндла (side+frac), система подбирает цель и рисует превью; leave — увели курсор (превью
+// гаснет); activate — клик по стрелке (создать предложенную связь через модалку). Стабильны
+// (useCallback в LevelGraph) — кладём в data узлов, не пересобирая раскладку на каждый ховер.
+export interface QuickConnectHandlers {
+  enter: (sourceId: string, sourceHandle: string, side: EdgeSide, frac: number) => void;
+  leave: () => void;
+  activate: () => void;
+}
+
 export interface BlockData extends Record<string, unknown> {
   appNode: AppNode;
   onDrillDown: (node: AppNode) => void;
@@ -72,12 +83,15 @@ export interface BlockData extends Record<string, unknown> {
   // можно ли НАЧАТЬ связь с хэндлов узла (архитектор, не контекст-режим) — раскрытие
   // хэндлов по ховеру для протягивания новой стрелки
   connectable?: boolean;
+  // «быстрая связь» по стрелке-кнопке у хэндла (только когда connectable)
+  quickConnect?: QuickConnectHandlers;
 }
 
 export interface GhostData extends Record<string, unknown> {
   appNode: GhostNode;
   colors: NodeColors;
   connectable?: boolean;
+  quickConnect?: QuickConnectHandlers;
   // войти к компонентам гостя: открыть его слой-схему (колбэк уже замкнут на путь
   // гостя). Задаётся только в основной схеме; undefined (контекст-режим) → кнопки нет.
   // Показ кнопки дополнительно гейтится appNode.has_children (атомарному некуда входить).
@@ -97,6 +111,7 @@ export interface ContainerData extends Record<string, unknown> {
   // кнопка показывается всегда, когда задан колбэк. undefined (контекст) → кнопки нет.
   onEnter?: () => void;
   connectable?: boolean;
+  quickConnect?: QuickConnectHandlers;
 }
 
 export type BlockRFNode = RFNode<BlockData, "block">;
