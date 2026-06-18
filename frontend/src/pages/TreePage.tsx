@@ -21,14 +21,20 @@ import ExportModal from "../components/ExportModal";
 import ProcessViewerModal from "../components/ProcessViewerModal";
 import ProcessEditorModal from "../components/ProcessEditorModal";
 import ProfileMenu from "../ui/ProfileMenu";
+import ProjectSwitcher from "../components/ProjectSwitcher";
 import { LogoMark, UpIcon, ExportIcon, ChevronIcon } from "../ui/icons";
 import "../ui/chrome.css";
 
 interface Props {
+  // id текущего проекта (схема скоупится им; смена проекта ремаунтит TreePage по key)
+  projectId: string;
   onLogout: () => void;
+  // навигация лендинга/свитчера проектов
+  onAllProjects: () => void;
+  onSwitchProject: (id: string) => void;
 }
 
-export default function TreePage({ onLogout }: Props) {
+export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchProject }: Props) {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [ghostNodes, setGhostNodes] = useState<GhostNode[]>([]);
   // сохранённые координаты гостей на уровне (ключ — id отображаемой сущности:
@@ -618,6 +624,14 @@ export default function TreePage({ onLogout }: Props) {
               Arch<span style={{ color: "#2563eb" }}>Map</span>
             </span>
           </div>
+          <span style={{ width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" }} />
+          {/* Свитчер проектов: имя текущего + дропдаун (поиск, выбор, новый/все) */}
+          <ProjectSwitcher
+            projectId={projectId}
+            isArchitect={isArchitect}
+            onAllProjects={onAllProjects}
+            onSwitchProject={onSwitchProject}
+          />
           <span style={{ width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" }} />
           {/* Хлебные крошки — без подчёркиваний, разделители-шевроны */}
           <button

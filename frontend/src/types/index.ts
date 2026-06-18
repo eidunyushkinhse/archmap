@@ -15,6 +15,11 @@ export type NodeShape = Schemas["NodeResponse"]["shape"];
 // детей у них не заводим, на схеме они не «зона входа» для сквозной связи.
 export const canHaveChildren = (shape: NodeShape): boolean => shape === "service";
 
+// Проект — изолированная схема. Мета (счётчики/редактор/даты) считается бэком.
+export type Project = Schemas["ProjectResponse"];
+export type ProjectCreate = Schemas["ProjectCreate"];
+export type ProjectUpdate = Schemas["ProjectUpdate"];
+
 export type Node = Schemas["NodeResponse"];
 
 // Порядок узлов-сиблингов в дереве: «главное» (с бОльшим числом прямых детей) —

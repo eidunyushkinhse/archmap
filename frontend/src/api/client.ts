@@ -1,14 +1,24 @@
+import { getCurrentProjectId } from "./projectScope";
+
 const BASE_URL = "/api/v1";
 
 function getToken(): string | null {
   return localStorage.getItem("access_token");
 }
 
+// Запросы к управлению проектами и авторизации скоупом проекта не оборачиваются
+// (они оперируют самими проектами / логином); все доменные — оборачиваются.
+function needsProjectScope(path: string): boolean {
+  return !path.startsWith("/projects") && !path.startsWith("/auth");
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
+  const projectId = needsProjectScope(path) ? getCurrentProjectId() : null;
   const headers: HeadersInit = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(projectId ? { "X-Project-Id": projectId } : {}),
     ...options.headers,
   };
 
