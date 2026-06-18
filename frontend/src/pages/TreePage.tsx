@@ -12,6 +12,7 @@ import EdgeDetailModal from "../components/EdgeDetailModal";
 import EdgeChoiceModal from "../components/EdgeChoiceModal";
 import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
+import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import NodeContextModal from "../components/NodeContextModal";
 import LevelGraph from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
@@ -91,6 +92,8 @@ export default function TreePage({ onLogout }: Props) {
   const [contextNode, setContextNode] = useState<Node | null>(null);
   // узел, который удаляют с канваса по Backspace/Delete → подтверждение со связями
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
+  // Несколько выбранных узлов под удаление (мультиудаление с канваса). null — нет.
+  const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
   // форма шаблона, который сейчас тянут из палитры (null — драга нет). Прокидываем
   // в LevelGraph, чтобы он рисовал превью-рамку будущего узла под курсором.
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
@@ -375,6 +378,35 @@ export default function TreePage({ onLogout }: Props) {
       },
       redo: () => {
         guardPersist(nodesApi.delete(id).then(refetch), resyncOnPersistError);
+      },
+    });
+  }
+
+  // Мультиудаление с канваса: несколько узлов снесены одним действием. Откат —
+  // ОДНА запись истории, восстанавливающая/повторно сносящая всю пачку (узлы
+  // уровня — сиблинги, удаления независимы, поэтому restore/delete параллельны).
+  function handleNodesDeleted(ids: string[], snapshots: DeletionSnapshot[]) {
+    load(currentParentId);
+    setTreeReload((t) => t + 1);
+    if (snapshots.length === 0) return;
+    const levelAtDelete = currentParentId;
+    const refetch = () => {
+      load(levelAtDelete);
+      setTreeReload((t) => t + 1);
+    };
+    history.push({
+      label: `Удаление объектов (${ids.length})`,
+      undo: () => {
+        guardPersist(
+          Promise.all(snapshots.map((s) => nodesApi.restore(s))).then(refetch),
+          resyncOnPersistError,
+        );
+      },
+      redo: () => {
+        guardPersist(
+          Promise.all(ids.map((id) => nodesApi.delete(id))).then(refetch),
+          resyncOnPersistError,
+        );
       },
     });
   }
@@ -698,6 +730,7 @@ export default function TreePage({ onLogout }: Props) {
               onConnectInto={handleConnectInto}
               onExitUp={(sourceId, sourceHandle) => setOutPicker({ sourceId, sourceHandle })}
               onRequestDeleteNode={setPendingDelete}
+              onRequestDeleteNodes={setPendingMultiDelete}
               dragShape={dragShape}
               history={history}
               onUndo={dispatchUndo}
@@ -726,6 +759,14 @@ export default function TreePage({ onLogout }: Props) {
           node={pendingDelete}
           onCancel={() => setPendingDelete(null)}
           onDeleted={(id, snapshot) => { setPendingDelete(null); handleNodeDeleted(id, snapshot); }}
+        />
+      )}
+      {/* Мультиудаление с канваса (несколько выбранных узлов по Backspace/Delete) */}
+      {pendingMultiDelete && (
+        <NodesDeleteConfirm
+          nodes={pendingMultiDelete}
+          onCancel={() => setPendingMultiDelete(null)}
+          onDeleted={(ids, snapshots) => { setPendingMultiDelete(null); handleNodesDeleted(ids, snapshots); }}
         />
       )}
       {edgeQuick && (

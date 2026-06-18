@@ -173,6 +173,9 @@ interface LevelGraphProps {
   // узлу) — открыть подтверждение со списком связей (как кнопка «Удалить» в
   // модалке узла). Само удаление React Flow отключено (deleteKeyCode=null).
   onRequestDeleteNode?: (node: AppNode) => void;
+  // запрос на удаление НЕСКОЛЬКИХ выбранных узлов (Backspace/Delete по рамке
+  // выделения) — открыть агрегированное подтверждение (мультиудаление).
+  onRequestDeleteNodes?: (nodes: AppNode[]) => void;
   // форма шаблона, который СЕЙЧАС перетаскивают из палитры (null — драга нет).
   // Нужна, чтобы во время dragover показать на схеме превью-рамку будущего узла:
   // dataTransfer.getData в dragover недоступен (только на drop), поэтому форму
@@ -222,6 +225,7 @@ function LevelGraphInner({
   onConnectInto,
   onExitUp,
   onRequestDeleteNode,
+  onRequestDeleteNodes,
   dragShape,
   history: historyProp,
   onUndo,
@@ -379,7 +383,7 @@ function LevelGraphInner({
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
   const { handleKeyDown } = useCanvasDelete({
-    rfNodes, isArchitect, isContext, onRequestDeleteNode,
+    rfNodes, isArchitect, isContext, onRequestDeleteNode, onRequestDeleteNodes,
   });
 
 

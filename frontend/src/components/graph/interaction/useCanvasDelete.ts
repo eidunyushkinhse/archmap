@@ -10,32 +10,43 @@ interface Params {
   isArchitect: boolean;
   isContext: boolean;
   onRequestDeleteNode?: (node: AppNode) => void;
+  onRequestDeleteNodes?: (nodes: AppNode[]) => void;
 }
 
 export function useCanvasDelete({
-  rfNodes, isArchitect, isContext, onRequestDeleteNode,
+  rfNodes, isArchitect, isContext, onRequestDeleteNode, onRequestDeleteNodes,
 }: Params) {
-  // По Backspace/Delete находим единственный выбранный локальный узел и просим
-  // открыть то же подтверждение со списком связей, что и кнопка «Удалить».
+  // По Backspace/Delete находим выбранные локальные узлы и просим открыть
+  // подтверждение удаления. Один узел → та же модалка со списком связей, что и
+  // кнопка «Удалить»; несколько → агрегированное подтверждение (мультиудаление).
   // Встроенное удаление React Flow отключено (deleteKeyCode=null), иначе Backspace
-  // сносил бы узел и его связи прямо с канваса — без предупреждения и в обход модалки.
+  // сносил бы узлы и их связи прямо с канваса — без предупреждения и в обход модалки.
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if (e.key !== "Backspace" && e.key !== "Delete") return;
-      if (isContext || !isArchitect || !onRequestDeleteNode) return;
+      if (isContext || !isArchitect) return;
       // не перехватываем удаление, когда правят текст в поле
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
         return;
       }
-      // действуем только при ровно одном выбранном узле; мульти/ноль — игнор,
-      // чтобы случайно не снести пачку
+      // удаляем только локальные узлы (block); гости/контейнеры — проекции с других
+      // уровней, их с канваса не сносим. Узлы уровня — сиблинги (общий родитель),
+      // вложенности между ними нет, поэтому пачку можно сносить параллельно.
       const selected = rfNodes.filter((n) => n.type === "block" && n.selected);
-      if (selected.length !== 1) return;
+      if (selected.length === 0) return;
+      const appNodes = selected.map((n) => (n.data as BlockData).appNode);
+      if (appNodes.length === 1) {
+        if (!onRequestDeleteNode) return;
+        e.preventDefault();
+        onRequestDeleteNode(appNodes[0]);
+        return;
+      }
+      if (!onRequestDeleteNodes) return;
       e.preventDefault();
-      onRequestDeleteNode((selected[0].data as BlockData).appNode);
+      onRequestDeleteNodes(appNodes);
     },
-    [rfNodes, isArchitect, isContext, onRequestDeleteNode],
+    [rfNodes, isArchitect, isContext, onRequestDeleteNode, onRequestDeleteNodes],
   );
 
   return { handleKeyDown };
