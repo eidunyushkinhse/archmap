@@ -11,7 +11,7 @@ import ProfileMenu from "../ui/ProfileMenu";
 import { LogoMark, PlusIcon } from "../ui/icons";
 
 /**
- * Лендинг «Мои проекты»: сетка карточек со схемой-превью, метаданными и меню ⋯.
+ * Лендинг «Проекты»: сетка карточек со схемой-превью, метаданными и меню ⋯.
  * Табы Активные/Архив, поиск, пустые состояния. Открытие проекта — клик по телу
  * карточки. Управление (создать/архив/восстановить/удалить) — только architect.
  */
@@ -83,8 +83,7 @@ export default function ProjectsPage({ onOpenProject, onLogout }: Props) {
       <div style={container}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div>
-            <h1 style={h1}>Мои проекты</h1>
-            <p style={subtitle}>Каждый проект — отдельная, изолированная схема системы</p>
+            <h1 style={h1}>Проекты</h1>
           </div>
           {isArchitect && (
             <button style={newBtn} onClick={() => setDialog({ kind: "create" })}>
@@ -343,7 +342,6 @@ const topBar: CSSProperties = {
 };
 const container: CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: "28px 24px 60px" };
 const h1: CSSProperties = { margin: 0, fontSize: 26, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" };
-const subtitle: CSSProperties = { margin: "6px 0 0", color: "#64748b", fontSize: 14.5 };
 const newBtn: CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px",
   background: "#2563eb", color: "#fff", border: "none", borderRadius: 10,
