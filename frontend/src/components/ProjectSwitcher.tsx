@@ -63,20 +63,14 @@ export default function ProjectSwitcher({ projectId, isArchitect, onAllProjects,
           />
           <div style={listWrap}>
             {filtered.length === 0 && <div style={{ padding: "10px 12px", color: "#94a3b8", fontSize: 13 }}>Ничего не найдено</div>}
-            {filtered.map((p) => {
-              const isCurrent = p.id === projectId;
-              return (
-                <button
-                  key={p.id}
-                  style={{ ...itemRow, background: isCurrent ? "#eff6ff" : "transparent", color: isCurrent ? "#1d4ed8" : "#1e293b" }}
-                  onClick={() => { setOpen(false); if (!isCurrent) onSwitchProject(p.id); }}
-                  role="menuitem"
-                >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                  {isCurrent && <CheckIcon />}
-                </button>
-              );
-            })}
+            {filtered.map((p) => (
+              <SwitcherItem
+                key={p.id}
+                name={p.name}
+                current={p.id === projectId}
+                onClick={() => { setOpen(false); if (p.id !== projectId) onSwitchProject(p.id); }}
+              />
+            ))}
           </div>
           <div style={footer}>
             {isArchitect && (
@@ -99,6 +93,25 @@ export default function ProjectSwitcher({ projectId, isArchitect, onAllProjects,
         />
       )}
     </div>
+  );
+}
+
+// Пункт списка проектов с подсветкой по ховеру (как в ⋯-меню карточки). Текущий
+// проект подсвечен синим всегда и помечен галочкой; остальные сереют под курсором.
+function SwitcherItem({ name, current, onClick }: { name: string; current: boolean; onClick: () => void }) {
+  const [hover, setHover] = useState(false);
+  const bg = current ? "#eff6ff" : hover ? "#f1f5f9" : "transparent";
+  return (
+    <button
+      style={{ ...itemRow, background: bg, color: current ? "#1d4ed8" : "#1e293b" }}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      role="menuitem"
+    >
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+      {current && <CheckIcon />}
+    </button>
   );
 }
 
