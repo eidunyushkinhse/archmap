@@ -38,6 +38,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Projects
+         * @description Список проектов: активные (archived=false) или архив, сорт. по дате изменения.
+         */
+        get: operations["list_projects_api_v1_projects_get"];
+        put?: never;
+        /**
+         * Create Project
+         * @description Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
+         *     "copy:<projectId>" — глубокая копия схемы другого проекта.
+         */
+        post: operations["create_project_api_v1_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project */
+        get: operations["get_project_api_v1_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Project
+         * @description Необратимое удаление со всей схемой (БД-каскад). Разрешено только из архива
+         *     и с ?confirm=<точное имя проекта> — двойная защита от случайного сноса.
+         */
+        delete: operations["delete_project_api_v1_projects__project_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Project */
+        patch: operations["update_project_api_v1_projects__project_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Project
+         * @description Мягкое удаление: проставляем archived_at. Данные сохраняются.
+         */
+        post: operations["archive_project_api_v1_projects__project_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Project
+         * @description Вернуть из архива: archived_at = null.
+         */
+        post: operations["restore_project_api_v1_projects__project_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/": {
         parameters: {
             query?: never;
@@ -447,7 +535,7 @@ export interface paths {
         };
         /**
          * Export All
-         * @description Экспорт ВСЕЙ схемы.
+         * @description Экспорт ВСЕЙ схемы текущего проекта.
          */
         get: operations["export_all_api_v1_export_get"];
         put?: never;
@@ -1656,6 +1744,59 @@ export interface components {
             /** Scope Node Id */
             scope_node_id?: string | null;
         };
+        /** ProjectCreate */
+        ProjectCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Start
+             * @default blank
+             */
+            start: string;
+        };
+        /**
+         * ProjectResponse
+         * @description Проект с метаданными для карточки лендинга. Счётчики/редактор — вычисляемые,
+         *     поэтому собирается вручную в роутере (не from_attributes).
+         */
+        ProjectResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Object Count */
+            object_count: number;
+            /** Edge Count */
+            edge_count: number;
+            /** Updated By */
+            updated_by: string | null;
+        };
+        /** ProjectUpdate */
+        ProjectUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+        };
         /** ReorderPayload */
         ReorderPayload: {
             /** Ids */
@@ -1774,12 +1915,237 @@ export interface operations {
             };
         };
     };
+    list_projects_api_v1_projects_get: {
+        parameters: {
+            query?: {
+                archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_project_api_v1_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_api_v1_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_project_api_v1_projects__project_id__delete: {
+        parameters: {
+            query?: {
+                confirm?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_api_v1_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_project_api_v1_projects__project_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_project_api_v1_projects__project_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_nodes_api_v1_nodes__get: {
         parameters: {
             query?: {
                 parent_id?: string | null;
             };
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1808,7 +2174,9 @@ export interface operations {
     create_node_api_v1_nodes__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1841,7 +2209,9 @@ export interface operations {
     restore_nodes_api_v1_nodes_restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1874,7 +2244,9 @@ export interface operations {
             query?: {
                 q?: string;
             };
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1903,7 +2275,9 @@ export interface operations {
     list_all_nodes_api_v1_nodes_all_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1918,12 +2292,23 @@ export interface operations {
                     "application/json": components["schemas"]["NodeResponse"][];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_root_graph_api_v1_nodes_graph_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1938,12 +2323,23 @@ export interface operations {
                     "application/json": components["schemas"]["GraphResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_alerts_api_v1_nodes_alerts_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1958,12 +2354,23 @@ export interface operations {
                     "application/json": components["schemas"]["AlertsResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_node_api_v1_nodes__node_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -1994,7 +2401,9 @@ export interface operations {
     delete_node_api_v1_nodes__node_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2023,7 +2432,9 @@ export interface operations {
     update_node_api_v1_nodes__node_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2058,7 +2469,9 @@ export interface operations {
     get_deletion_snapshot_api_v1_nodes__node_id__deletion_snapshot_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2089,7 +2502,9 @@ export interface operations {
     get_children_api_v1_nodes__node_id__children_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2120,7 +2535,9 @@ export interface operations {
     get_descendants_api_v1_nodes__node_id__descendants_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2151,7 +2568,9 @@ export interface operations {
     get_node_edges_api_v1_nodes__node_id__edges_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2182,7 +2601,9 @@ export interface operations {
     get_node_graph_api_v1_nodes__node_id__graph_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2213,7 +2634,9 @@ export interface operations {
     get_node_context_api_v1_nodes__node_id__context_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2244,7 +2667,9 @@ export interface operations {
     save_ghost_position_api_v1_nodes__container_id__ghost_positions__node_id__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 container_id: string;
                 node_id: string;
@@ -2278,7 +2703,9 @@ export interface operations {
     save_ghost_edge_handle_api_v1_nodes__container_id__ghost_edge_handles__edge_id__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 container_id: string;
                 edge_id: string;
@@ -2312,7 +2739,9 @@ export interface operations {
     save_edge_waypoints_api_v1_nodes__container_id__edge_waypoints__edge_id__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 container_id: string;
                 edge_id: string;
@@ -2346,7 +2775,9 @@ export interface operations {
     list_edges_api_v1_edges__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2361,12 +2792,23 @@ export interface operations {
                     "application/json": components["schemas"]["EdgeResponse"][];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     create_edge_api_v1_edges__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2399,7 +2841,9 @@ export interface operations {
     get_edge_api_v1_edges__edge_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 edge_id: string;
             };
@@ -2430,7 +2874,9 @@ export interface operations {
     delete_edge_api_v1_edges__edge_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 edge_id: string;
             };
@@ -2459,7 +2905,9 @@ export interface operations {
     update_edge_api_v1_edges__edge_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 edge_id: string;
             };
@@ -2494,7 +2942,9 @@ export interface operations {
     edge_deletion_snapshot_api_v1_edges__edge_id__deletion_snapshot_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 edge_id: string;
             };
@@ -2525,7 +2975,9 @@ export interface operations {
     export_all_api_v1_export_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2540,12 +2992,23 @@ export interface operations {
                     "application/json": components["schemas"]["ExportResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     export_subtree_api_v1_export__node_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 node_id: string;
             };
@@ -2576,7 +3039,9 @@ export interface operations {
     list_processes_api_v1_processes_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2591,12 +3056,23 @@ export interface operations {
                     "application/json": components["schemas"]["ProcessListItem"][];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     create_process_api_v1_processes_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2629,7 +3105,9 @@ export interface operations {
     get_process_api_v1_processes__process_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };
@@ -2660,7 +3138,9 @@ export interface operations {
     delete_process_api_v1_processes__process_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };
@@ -2689,7 +3169,9 @@ export interface operations {
     update_process_api_v1_processes__process_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };
@@ -2724,7 +3206,9 @@ export interface operations {
     add_participant_api_v1_processes__process_id__participants_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };
@@ -2759,7 +3243,9 @@ export interface operations {
     reorder_participants_api_v1_processes__process_id__participants_reorder_patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };
@@ -2794,7 +3280,9 @@ export interface operations {
     delete_participant_api_v1_processes__process_id__participants__participant_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
                 participant_id: string;
@@ -2824,7 +3312,9 @@ export interface operations {
     create_message_api_v1_processes__process_id__messages_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };
@@ -2859,7 +3349,9 @@ export interface operations {
     delete_message_api_v1_processes__process_id__messages__message_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
                 message_id: string;
@@ -2889,7 +3381,9 @@ export interface operations {
     update_message_api_v1_processes__process_id__messages__message_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
                 message_id: string;
@@ -2925,7 +3419,9 @@ export interface operations {
     create_fragment_api_v1_processes__process_id__fragments_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };
@@ -2960,7 +3456,9 @@ export interface operations {
     delete_fragment_api_v1_processes__process_id__fragments__fragment_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
                 fragment_id: string;
@@ -2990,7 +3488,9 @@ export interface operations {
     update_fragment_api_v1_processes__process_id__fragments__fragment_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
                 fragment_id: string;
@@ -3029,7 +3529,9 @@ export interface operations {
                 a: string;
                 b: string;
             };
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path: {
                 process_id: string;
             };

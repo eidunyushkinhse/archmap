@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, edges, export, nodes, processes
+from app.routers import auth, edges, export, nodes, processes, projects
 
 app = FastAPI(title="ArchMap API", version="1.0.0")
 
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(projects.router, prefix="/api/v1")
 app.include_router(nodes.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
