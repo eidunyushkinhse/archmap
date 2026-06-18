@@ -74,13 +74,13 @@ export default function ProjectSwitcher({ projectId, isArchitect, onAllProjects,
           </div>
           <div style={footer}>
             {isArchitect && (
-              <button style={footerBtn} onClick={() => { setOpen(false); setCreating(true); }}>
+              <FooterBtn onClick={() => { setOpen(false); setCreating(true); }}>
                 <PlusIcon size={15} /> Новый проект
-              </button>
+              </FooterBtn>
             )}
-            <button style={footerBtn} onClick={() => { setOpen(false); onAllProjects(); }}>
+            <FooterBtn onClick={() => { setOpen(false); onAllProjects(); }}>
               Все проекты
-            </button>
+            </FooterBtn>
           </div>
         </div>
       )}
@@ -111,6 +111,31 @@ function SwitcherItem({ name, current, onClick }: { name: string; current: boole
     >
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
       {current && <CheckIcon />}
+    </button>
+  );
+}
+
+// Кнопка футера свитчера с аккуратным эффектом нажатия: под курсором слегка
+// темнеет, при нажатии «вдавливается» (фон темнее + сдвиг на 1px). Инлайн-стили
+// :hover/:active не умеют — держим состояние.
+function FooterBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  const [hover, setHover] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  return (
+    <button
+      style={{
+        ...footerBtn,
+        background: pressed ? "#e2e8f0" : hover ? "#eef2f6" : "#f8fafc",
+        transform: pressed ? "translateY(1px)" : "none",
+        transition: "background .12s ease, transform .06s ease",
+      }}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setPressed(false); }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+    >
+      {children}
     </button>
   );
 }
