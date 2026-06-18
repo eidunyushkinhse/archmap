@@ -250,9 +250,7 @@ function CardMenu({
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [open]);
   const item = (label: string, fn: () => void, danger = false): React.ReactNode => (
-    <button style={{ ...menuItem, color: danger ? "#dc2626" : "#1e293b" }} onClick={() => { setOpen(false); fn(); }}>
-      {label}
-    </button>
+    <MenuItem label={label} danger={danger} onClick={() => { setOpen(false); fn(); }} />
   );
   return (
     <div ref={ref} style={{ position: "absolute", top: 8, right: 8 }}>
@@ -295,6 +293,26 @@ function EmptyState({
         <button style={newBtn} onClick={onCreate}><PlusIcon /> Создать первый проект</button>
       )}
     </div>
+  );
+}
+
+// Пункт дропдауна ⋯ с подсветкой активной зоны по ховеру (инлайн-стили :hover не
+// умеют — держим состояние). Danger-пункт («Удалить») подсвечивается красноватым.
+function MenuItem({ label, danger, onClick }: { label: string; danger?: boolean; onClick: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      style={{
+        ...menuItem,
+        color: danger ? "#dc2626" : "#1e293b",
+        background: hover ? (danger ? "#fef2f2" : "#f1f5f9") : "transparent",
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={onClick}
+    >
+      {label}
+    </button>
   );
 }
 
