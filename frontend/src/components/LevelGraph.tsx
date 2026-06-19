@@ -426,7 +426,7 @@ function LevelGraphInner({
   // на смену хэндла дропаем изломы в дефолт, он же восстанавливает старый путь в Undo.
   const {
     handleReconnectStart, handleReconnect, handleReconnectEnd,
-    isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked,
+    isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked, reconnectChildDrill,
     consumeReconnectClick,
   } = useReconnectHandles({
     setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged,
@@ -1095,6 +1095,10 @@ function LevelGraphInner({
           прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
           анимация уезда; position:fixed не обрезается overflow:hidden канваса. */}
       {isArchitect && !isContext && <ReconnectBlockedToast visible={reconnectBlocked} />}
+      {/* Тост «нельзя привязать к дочернему объекту» — конец завис над зоной входа
+          своего узла-родителя (явная попытка провалить связь вглубь). Тот же компонент,
+          вариант child. Взаимоисключающ с foreign-тостом (свой узел vs чужой). */}
+      {isArchitect && !isContext && <ReconnectBlockedToast visible={reconnectChildDrill} variant="child" />}
       {/* Плитка «вне уровня»: полоса у верхнего края холста, видна только при
           протягивании НОВОЙ связи на не-корневом уровне. Отпустил на неё конец
           стрелки → выбор дальнего конца из всей схемы (useEdgeConnect ловит дроп по

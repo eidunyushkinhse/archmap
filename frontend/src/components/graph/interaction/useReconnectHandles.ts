@@ -33,6 +33,11 @@ interface Params {
   onPersistError?: (e: unknown) => void;
 }
 
+// Сколько конец связи должен «зависнуть» над зоной входа своего узла-родителя, прежде
+// чем счесть это явной попыткой провалить конец в дочерний объект (и показать тост).
+// Проезд над узлом к дальнему хэндлу короче этого — ложного срабатывания не будет.
+const CHILD_DRILL_DWELL_MS = 2000;
+
 export function useReconnectHandles({
   setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged, commitWaypoints, push, onPersistError,
 }: Params) {
@@ -54,16 +59,52 @@ export function useReconnectHandles({
   const [blocked, setBlocked] = useState(false);
   const rafRef = useRef<number | null>(null);
 
+  // Отдельный запрет: конец завис над зоной входа СВОЕГО узла-родителя (data-into) —
+  // явная попытка провалить его в дочерний объект. В отличие от «чужого узла» (живой
+  // тост сразу), наведение на свой узел легитимно (можно идти к дальнему хэндлу),
+  // поэтому требуем зависания CHILD_DRILL_DWELL_MS на одном и том же узле. Движение
+  // ВНУТРИ того же узла таймер не перезапускает — считаем «зависание над узлом».
+  const [childDrill, setChildDrill] = useState(false);
+  const dwellNodeRef = useRef<string | null>(null); // id узла, над которым сейчас зависаем
+  const dwellTimerRef = useRef<number | null>(null);
+
+  const cancelDwell = useCallback(() => {
+    if (dwellTimerRef.current != null) {
+      clearTimeout(dwellTimerRef.current);
+      dwellTimerRef.current = null;
+    }
+    dwellNodeRef.current = null;
+    setChildDrill(false);
+  }, []);
+
   const updateBlocked = useCallback((x: number, y: number) => {
     const edge = reconnectingEdge.current;
-    if (!edge) { setBlocked(false); return; }
-    const nodeEl = document
-      .elementFromPoint(x, y)
-      ?.closest<HTMLElement>(".react-flow__node");
+    if (!edge) { setBlocked(false); cancelDwell(); return; }
+    const el = document.elementFromPoint(x, y);
+    const nodeEl = el?.closest<HTMLElement>(".react-flow__node");
     const id = nodeEl?.getAttribute("data-id");
+    const own = !!id && (id === edge.source || id === edge.target);
     // не родной узел = под курсором узел, не являющийся ни источником, ни целью ребра
-    setBlocked(!!id && id !== edge.source && id !== edge.target);
-  }, []);
+    setBlocked(!!id && !own);
+
+    // Кандидат на «проваливание»: свой узел-родитель в зоне входа (data-into="1" — атрибут
+    // на ВНУТРЕННЕМ div BlockNode, не на обёртке .react-flow__node, поэтому ищем closest),
+    // курсор НЕ на хэндле (хэндл — легитимная смена точки стыковки, а не проваливание).
+    const onHandle = !!el?.closest(".react-flow__handle");
+    const inIntoZone = !!el?.closest('[data-into="1"]');
+    const candidate = own && !onHandle && inIntoZone ? id! : null;
+    if (candidate !== dwellNodeRef.current) {
+      // цель зависания сменилась (вошли/вышли/перескочили) — сброс и перезапуск таймера
+      cancelDwell();
+      dwellNodeRef.current = candidate;
+      if (candidate) {
+        dwellTimerRef.current = window.setTimeout(() => {
+          dwellTimerRef.current = null;
+          setChildDrill(true);
+        }, CHILD_DRILL_DWELL_MS);
+      }
+    }
+  }, [cancelDwell]);
 
   // pointermove частый — пересчёт цели троттлим по кадру
   const handlePointerMove = useCallback(
@@ -85,7 +126,8 @@ export function useReconnectHandles({
       rafRef.current = null;
     }
     setBlocked(false);
-  }, [handlePointerMove]);
+    cancelDwell();
+  }, [handlePointerMove, cancelDwell]);
 
   // размонтирование посреди реконнекта — снять слушатель и сбросить тост
   useEffect(() => stopTracking, [stopTracking]);
@@ -233,6 +275,8 @@ export function useReconnectHandles({
     isValidConnection, isReconnecting,
     // курсор над не родным узлом во время реконнекта — для запрещающего курсора и тоста
     reconnectBlocked: blocked,
+    // конец завис над зоной входа своего узла-родителя (попытка провалить в ребёнка) — тост
+    reconnectChildDrill: childDrill,
     // гасит клик-эхо по ребру сразу после жеста реконнекта (иначе всплывал бы поповер)
     consumeReconnectClick,
   };
