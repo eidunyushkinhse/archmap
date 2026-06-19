@@ -20,7 +20,7 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
 import { edgesApi, nodesApi } from "../api/nodes";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, EdgePoint, AncestorRef, LevelPos, LevelWaypoints } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, EdgePoint, AncestorRef, LevelPos, LevelWaypoints } from "../types";
 import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H,
@@ -33,7 +33,7 @@ import type {
 } from "./graph/types";
 import type { EdgeSide } from "./graph/edgePath";
 import { edgeText } from "./graph/text";
-import { getNodeColors } from "./graph/colors";
+import { getNodeColors, STATUS_META } from "./graph/colors";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { placeGhostsOnRings } from "./graph/layout/ringPlacement";
@@ -803,6 +803,22 @@ function LevelGraphInner({
     // локальные узлы уровня — у редактируемой жестом стрелки оба конца должны быть
     // локальны (waypoints в координатах этого уровня; гость/контейнер — чужая система)
     const localIds = new Set(layoutNodes.map((n) => n.id));
+    // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
+    // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
+    // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
+    const statusOf = new Map<string, NodeStatus>();
+    for (const n of layoutNodes) statusOf.set(n.id, n.status);
+    for (const ent of entities) {
+      statusOf.set(ent.id, ent.kind === "leaf" ? ent.ghost.status : "existing");
+    }
+    // Самый «сильный» статус конца ребра: deprecated > planned > existing.
+    const edgeStatus = (s: string, t: string): NodeStatus => {
+      const a = statusOf.get(s) ?? "existing";
+      const b = statusOf.get(t) ?? "existing";
+      if (a === "deprecated" || b === "deprecated") return "deprecated";
+      if (a === "planned" || b === "planned") return "planned";
+      return "existing";
+    };
     setRfNodes([
       ...layoutNodes.map((n) => ({
         id: n.id,
@@ -936,6 +952,9 @@ function LevelGraphInner({
           if (lp) data.loop = lp;       // не родная стрелка bidi — обход
           else if (sh) data.shelf = sh; // родная/обычная — приузловая полка
         }
+        // Цвет ребра по статусу сильнейшего конца; deprecated — пунктир («связь уходит»).
+        const est = edgeStatus(g.source, g.target);
+        const eColor = STATUS_META[est].edge;
         return {
           id: g.id,
           source: g.source,
@@ -944,8 +963,12 @@ function LevelGraphInner({
           targetHandle: h?.targetHandle,
           type: "wrapped",
           data,
-          markerEnd: { type: MarkerType.ArrowClosed, color: "#6b7280" },
-          style: { stroke: "#6b7280", strokeWidth: 1.5 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: eColor },
+          style: {
+            stroke: eColor,
+            strokeWidth: 1.5,
+            ...(est === "deprecated" ? { strokeDasharray: "6 4" } : null),
+          },
           // хэндл мастер-стрелки общий для всех членов — реконнект фанаутит его на все
           // (смена узла-конца по-прежнему запрещена в handleReconnect: правится только хэндл)
           reconnectable: isArchitect,
