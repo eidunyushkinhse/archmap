@@ -528,7 +528,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
   );
 }
 
-const PANEL_W = 260;          // ширина развёрнутой панели
+const PANEL_W = 320;          // ширина развёрнутой панели (симметрично правой панели схемы)
 const PANEL_COLLAPSED_W = 48; // узкий рейл с иконками секций в свёрнутом виде
 
 const panel: CSSProperties = {

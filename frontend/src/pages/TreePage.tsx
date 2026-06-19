@@ -1040,7 +1040,7 @@ const graphArea: CSSProperties = {
 // Правая панель схемы (вид схемы; позже — мета узлов/связей) — зеркало левого дерева:
 // сворачивается в узкий рейл, футер-кнопка снизу. Стили .nt-collapse/.nt-railbtn
 // переиспользуем из NodeTreePanel.css.
-const RIGHT_W = 264;          // ширина развёрнутой панели
+const RIGHT_W = 320;          // ширина развёрнутой панели (под поле «Статус», чтобы не было гор. скролла)
 const RIGHT_COLLAPSED_W = 48; // узкий рейл со значком в свёрнутом виде
 const rightPanel: CSSProperties = {
   position: "relative",
