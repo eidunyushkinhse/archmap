@@ -1028,6 +1028,7 @@ const rightRail: CSSProperties = {
 };
 const rightContent: CSSProperties = {
   width: RIGHT_W,   // фиксированная ширина — без переноса при анимации сворачивания
+  boxSizing: "border-box", // паддинг ВНУТРИ ширины, иначе контент шире панели и сегмент уезжает
   flex: 1,
   minHeight: 0,
   overflowY: "auto",
