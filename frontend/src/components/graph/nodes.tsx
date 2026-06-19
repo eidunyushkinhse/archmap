@@ -24,12 +24,11 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
   if (!m.badge) return null;
   return (
     <span style={{
-      // Бейдж страддлит верхнюю кромку узла (как было), но НИЗКИЙ — тугая высота
-      // (lineHeight:1 + минимальный верт. паддинг), чтобы его нижний край не доставал
-      // до первой строки названия и наложения с текстом не было.
-      position: "absolute", top: -9, left: 10, zIndex: 3,
-      fontSize: 9, fontWeight: 700, letterSpacing: ".03em", lineHeight: 1,
-      padding: "1px 7px", borderRadius: 20, color: "#fff",
+      // Бейдж страддлит верхнюю кромку узла; опущен ниже (top:-4), чтобы лежать на
+      // рамке, но не доставать до первой строки названия. Размер читаемый (fontSize 10).
+      position: "absolute", top: -4, left: 10, zIndex: 3,
+      fontSize: 10, fontWeight: 700, letterSpacing: ".03em", lineHeight: 1.15,
+      padding: "2px 8px", borderRadius: 20, color: "#fff",
       background: border, whiteSpace: "nowrap",
       boxShadow: "0 1px 3px rgba(0,0,0,.18)", pointerEvents: "none",
     }}>{m.badge}</span>
