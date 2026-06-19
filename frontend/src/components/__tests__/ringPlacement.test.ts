@@ -12,7 +12,7 @@ const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
 function ghost(id: string, ancestors: AncestorRef[]): GhostNode {
   return {
     id, name: id, role: null, technology: null, is_external: true,
-    shape: "service", status: "existing", node_depth: ancestors.length, has_children: false, ancestors, is_ghost: true,
+    shape: "service", status: "existing", node_depth: ancestors.length, has_children: false, child_count: 0, ancestors, is_ghost: true,
   };
 }
 function leaf(id: string, ancestors: AncestorRef[]): DisplayExternal {

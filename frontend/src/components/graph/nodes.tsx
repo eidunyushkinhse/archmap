@@ -37,6 +37,31 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
   );
 }
 
+// Бейдж «есть дети»: глиф-дерево (узел-родитель сверху, ветви к детям вниз) + число
+// прямых детей. Показывается у узлов с под-схемой — сигнал «сюда можно войти», читаемый
+// без вглядывания в кнопки. Цвет наследует text-цвет узла. child_count считает бэкенд.
+function ChildrenBadge({ count, color }: { count: number; color: string }) {
+  return (
+    <span style={{
+      position: "absolute", right: 12, bottom: 12, zIndex: 1,
+      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 11, fontWeight: 700, lineHeight: 1,
+      color, opacity: 0.95, pointerEvents: "none",
+    }}>
+      <svg width={13} height={13} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+        style={{ display: "block" }} aria-hidden>
+        <circle cx="12" cy="6" r="2.3" />
+        <circle cx="6" cy="18" r="2.3" />
+        <circle cx="18" cy="18" r="2.3" />
+        <path d="M12 8.3 V13" />
+        <path d="M6 15.7 V13 H18 V15.7" />
+      </svg>
+      {count}
+    </span>
+  );
+}
+
 // Оверлей «зоны входа»: во время протягивания связи (CSS .lg-canvas--connecting)
 // контент узла-контейнера прячется, а по центру показывается «стрелка вниз в лунку» —
 // явный сигнал «отпусти здесь, чтобы выбрать узел внутри». pointer-events:none —
@@ -259,6 +284,8 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
           В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
       {intoZone && <IntoCue />}
+      {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
+      {intoZone && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
           кнопки «Подробнее» больше нет — остаётся только «Войти» у сервисов. */}
       {!data.hideActions && drillable && (
@@ -274,7 +301,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
 
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, !data.hideActions && drillable) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start" }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>
@@ -288,7 +315,8 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
   // «Войти» к компонентам гостя — только для промежуточного гостя (есть дети): у
   // атомарного проваливаться некуда. В контекст-режиме onEnter не задаётся → кнопки нет.
   const onEnter = data.onEnter;
-  const canEnter = data.appNode.has_children && onEnter != null;
+  const hasChildren = data.appNode.has_children;
+  const canEnter = hasChildren && onEnter != null;
   const btnStyle: CSSProperties = {
     ...nodeBtn,
     background: "rgba(255,255,255,0.18)",
@@ -311,9 +339,11 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
           ><DrillInIcon /></button>
         </div>
       )}
+      {/* Бейдж «есть дети» — у промежуточного гостя (есть под-схема), без привязки к onEnter. */}
+      {hasChildren && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, canEnter) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start" }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: hasChildren ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>

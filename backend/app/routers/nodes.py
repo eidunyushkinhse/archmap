@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
@@ -199,9 +200,10 @@ def _build_graph(
                     anchor_rel=r.anchor_rel,
                 )
 
-    # Множество id, у которых есть хотя бы один ребёнок — чтобы отметить «промежуточных»
-    # гостей (есть слой компонентов) одним проходом по всем узлам, без запроса на гостя.
-    parent_ids = {n.parent_id for n in all_nodes.values() if n.parent_id is not None}
+    # Число прямых детей у каждого родителя — одним проходом по всем узлам, без запроса
+    # на гостя. Отмечает «промежуточных» гостей (есть слой компонентов) и питает бейдж
+    # «есть дети (N)» на схеме уровня.
+    child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
     ghost_nodes = [
         GhostNodeResponse(
             id=all_nodes[gid].id,
@@ -212,7 +214,8 @@ def _build_graph(
             shape=all_nodes[gid].shape,
             status=all_nodes[gid].status,
             node_depth=tree.node_depth(all_nodes, gid),
-            has_children=gid in parent_ids,
+            has_children=child_counts.get(gid, 0) > 0,
+            child_count=child_counts.get(gid, 0),
             ancestors=tree.ancestors(all_nodes, gid),
             pos_x=saved_pos[gid].pos_x if gid in saved_pos else None,
             pos_y=saved_pos[gid].pos_y if gid in saved_pos else None,

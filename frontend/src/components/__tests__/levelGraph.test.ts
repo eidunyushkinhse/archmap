@@ -22,6 +22,7 @@ function ghost(id: string, ancestors: AncestorRef[], over: Partial<GhostNode> = 
     shape: "service",
     node_depth: ancestors.length,
     has_children: false,
+    child_count: 0,
     ancestors,
     status: "existing",
     pos_x: null,

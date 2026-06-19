@@ -1,15 +1,14 @@
 // Иконки кнопок узла. Линейные, наследуют currentColor (на узле — text-цвет).
 export function DrillInIcon({ size = 13 }: { size?: number }) {
-  // Мотив курсора межуровневой связи (IntoCue): стрелка вниз в устье лунки —
-  // «провалиться внутрь этого узла». Согласован со знаком, всплывающим при
-  // протягивании связи на узел-зону входа.
+  // «Ветвь в потомка» — линия уходит вправо и спускается стрелкой на уровень ниже.
+  // Раньше был мотив «стрелка вниз в лунку», но он путался со стандартным «Скачать»;
+  // drop-cue лунки (IntoCue в nodes.tsx) намеренно остался лункой.
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round"
       style={{ display: "block" }} aria-hidden>
-      <path d="M12 3 V13" />
-      <path d="M8 9 L12 13.6 L16 9" />
-      <path d="M5 17.5 a7 3 0 0 0 14 0" />
+      <path d="M6 3 V11 a3 3 0 0 0 3 3 H18" />
+      <path d="M14 10 L18.5 14 L14 18" />
     </svg>
   );
 }

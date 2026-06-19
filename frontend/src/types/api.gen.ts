@@ -1162,6 +1162,11 @@ export interface components {
              */
             has_children: boolean;
             /**
+             * Child Count
+             * @default 0
+             */
+            child_count: number;
+            /**
              * Ancestors
              * @default []
              */
