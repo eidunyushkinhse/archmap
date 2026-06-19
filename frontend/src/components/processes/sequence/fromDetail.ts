@@ -7,7 +7,7 @@ import type { SeqFragment, SeqMessage, SeqParticipant } from "./layout";
 export function toSeqParticipants(participants: ProcessParticipant[]): SeqParticipant[] {
   return [...participants]
     .sort((a, b) => a.order - b.order)
-    .map((p) => ({ id: p.node_id, shape: p.shape, name: p.name, role: p.role, external: p.is_external }));
+    .map((p) => ({ id: p.node_id, shape: p.shape, name: p.name, role: p.role, external: p.is_external, status: p.status }));
 }
 
 export function toSeqMessages(messages: ProcessMessage[]): SeqMessage[] {

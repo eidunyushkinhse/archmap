@@ -1,9 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import { processesApi } from "../api/processes";
-import type { ProcessListItem } from "../types";
+import type { NodeStatus, ProcessListItem } from "../types";
+import { getNodeColors } from "./graph/colors";
 import { IcoDots, IcoFlow, IcoPlus } from "./processes/icons";
+import { BPT, withAlpha } from "./processes/tokens";
 import "./processes/processes.css";
+
+// Производный бейдж процесса из статусов его участников: planned+deprecated → миграция,
+// только planned → to-be, только deprecated → вывод, всё existing → бейджа нет.
+type BadgeTone = "planned" | "deprecated" | "neutral";
+function processBadge(statuses: NodeStatus[]): { t: string; tone: BadgeTone } | null {
+  const hasP = statuses.includes("planned");
+  const hasD = statuses.includes("deprecated");
+  if (hasP && hasD) return { t: "миграция", tone: "neutral" };
+  if (hasP) return { t: "to-be", tone: "planned" };
+  if (hasD) return { t: "вывод", tone: "deprecated" };
+  return null;
+}
+// Тинт пилюли из статусной палитры (planned/deprecated) или нейтрали (миграция).
+function pillStyle(tone: BadgeTone): CSSProperties {
+  const base: CSSProperties = {
+    flex: "none", fontSize: 9.5, fontWeight: 700, letterSpacing: ".02em",
+    padding: "1px 6px", borderRadius: 5, lineHeight: 1.4,
+  };
+  if (tone === "neutral") return { ...base, color: BPT.sec, background: BPT.line2, border: "1px solid " + BPT.line };
+  const sc = getNodeColors(false, 0, tone);
+  return { ...base, color: sc.border, background: withAlpha(sc.bg, 0.12), border: "1px solid " + withAlpha(sc.border, 0.4) };
+}
 
 /**
  * Тело секции «Бизнес-процессы» левой панели (вынесено из NodeTreePanel).
@@ -121,7 +145,9 @@ export default function BusinessProcessSection({ isArchitect, onOpen, onEdit, re
         <div style={hint}>Пока нет процессов</div>
       ) : (
         <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 1 }}>
-          {items?.map((p) => (
+          {items?.map((p) => {
+            const badge = processBadge(p.statuses);
+            return (
             <div
               key={p.id}
               className="bp-procrow"
@@ -133,7 +159,10 @@ export default function BusinessProcessSection({ isArchitect, onOpen, onEdit, re
                 <IcoFlow s={15} />
               </span>
               <span className="bp-proctext">
-                <span className="bp-procname">{p.name}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span className="bp-procname" style={{ minWidth: 0 }}>{p.name}</span>
+                  {badge && <span style={pillStyle(badge.tone)}>{badge.t}</span>}
+                </span>
                 <span className="bp-procsub">
                   {p.message_count} {plural(p.message_count)} · {p.scope_name ?? "Вся схема"}
                 </span>
@@ -194,7 +223,8 @@ export default function BusinessProcessSection({ isArchitect, onOpen, onEdit, re
                 </>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

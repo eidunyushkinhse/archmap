@@ -1,18 +1,22 @@
 // UML sequence-диаграмма: участники = линии жизни (узлы C4), сообщения = стрелки
 // плеч задокументированных каналов (вызов/ответ/событие), полосы активации, фрагмент
-// alt. Портировано 1:1 из дизайн-референса (bp-parts.jsx SequenceDiagram) на TS.
-// Чистый презентационный компонент: раскладка выводится из пропсов, ничего не грузит.
+// alt. Цвет = статус жизненного цикла узла (единообразно с C4), тип плеча = форма
+// (линия + наконечник). Чистый презентационный компонент: раскладка выводится из пропсов.
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import { C4Glyph, IcoClose, IcoPlus } from "./icons";
+import type { NodeStatus } from "../../types";
+import { getNodeColors, STATUS_META } from "../graph/colors";
+import { viewShows, type SchemaView } from "../schemaView";
+import { C4Glyph, IcoBrokenLink, IcoClose, IcoPlus } from "./icons";
 import { legMeta } from "./legMeta";
+import { strongestStatus } from "./sequence/layout";
 import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
-import { BPT, SQ } from "./tokens";
+import { BPT, BROKEN, SQ, STATUS_LEG, withAlpha } from "./tokens";
 
-const DANGER = "#dc2626"; // повисшее сообщение (связь удалена из схемы)
 const DEFAULT_LH = 18; // высота однострочной подписи до замера
 const LABEL_GAP = 10; // зазор между низом подписи и стрелкой
 const LABEL_PAD = 26; // запас в шаге строки сверх высоты подписи (одна строка → шаг ROW_GAP)
+const STATUSES: NodeStatus[] = ["existing", "planned", "deprecated"];
 
 interface Props {
   participants: SeqParticipant[];
@@ -20,6 +24,8 @@ interface Props {
   activations?: SeqActivation[];
   fragment?: SeqFragment | null;
   ghost?: boolean;
+  // Вид схемы: участники/сообщения вне вида приглушаются (opacity), но не удаляются.
+  view?: SchemaView;
   // Пользователь протянул стрелку из кружка одного участника к другому: создаём
   // сообщение между ними (id = node_id). Источник = откуда тянули, цель = куда отпустили.
   onConnect?: (fromId: string, toId: string) => void;
@@ -35,6 +41,7 @@ export default function SequenceDiagram({
   activations = [],
   fragment,
   ghost,
+  view = "all",
   onConnect,
   onMessageClick,
   onDeleteParticipant,
@@ -75,10 +82,16 @@ export default function SequenceDiagram({
   }, [messages]);
 
   const idx: Record<string, number> = {};
-  participants.forEach((p, k) => (idx[p.id] = k));
+  const pById: Record<string, SeqParticipant> = {};
+  participants.forEach((p, k) => { idx[p.id] = k; pById[p.id] = p; });
   const n = participants.length;
   const PX = (k: number) => SQ.MARGIN + k * SQ.COL_W;
   const lifeTop = SQ.TOP + SQ.PHEAD_H;
+
+  // Приглушение по виду схемы: участник со статусом вне вида гаснет (см. ТЗ статусов).
+  const statusOf = (id: string): NodeStatus => pById[id]?.status ?? "existing";
+  const dimP = (id: string) => !viewShows(view, statusOf(id));
+  const dimMsg = (m: SeqMessage) => dimP(m.from) || dimP(m.to);
 
   const R = messages.length ? Math.max(...messages.map((m) => m.r)) + 1 : 0;
   const lhOf = (id: string) => labelH[id] ?? DEFAULT_LH;
@@ -230,38 +243,55 @@ export default function SequenceDiagram({
       {/* SVG: линии жизни, активации, стрелки */}
       <svg style={{ position: "absolute", inset: 0, width: W, height: H, pointerEvents: "none", overflow: "visible", zIndex: 2 }}>
         <defs>
-          <marker id="sq-call" markerWidth="10" markerHeight="10" refX="7" refY="4.5" orient="auto">
-            <path d="M0 0 L8 4.5 L0 9 z" fill={BPT.accent} />
-          </marker>
-          <marker id="sq-ret" markerWidth="11" markerHeight="11" refX="7.5" refY="5" orient="auto">
-            <path d="M1 1 L8 5 L1 9" fill="none" stroke={BPT.retInk} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </marker>
-          <marker id="sq-async" markerWidth="11" markerHeight="11" refX="7.5" refY="5" orient="auto">
-            <path d="M1 1 L8 5 L1 9" fill="none" stroke={BPT.asyncInk} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </marker>
-          <marker id="sq-bad" markerWidth="10" markerHeight="10" refX="7" refY="4.5" orient="auto">
-            <path d="M0 0 L8 4.5 L0 9 z" fill={DANGER} />
+          {/* Наконечники по статусам × форме (markers нельзя красить через currentColor —
+              генерируем по одному на каждый цвет). fill — закрашенный треугольник (вызов),
+              open — открытая «галка» (ответ/событие). Плюс открытый янтарный для повисшего. */}
+          {STATUSES.map((st) => (
+            <marker key={"f" + st} id={`sqcap-fill-${st}`} markerWidth="10" markerHeight="10" refX="7" refY="4.5" orient="auto">
+              <path d="M0 0 L8 4.5 L0 9 z" fill={STATUS_LEG[st]} />
+            </marker>
+          ))}
+          {STATUSES.map((st) => (
+            <marker key={"o" + st} id={`sqcap-open-${st}`} markerWidth="11" markerHeight="11" refX="7.5" refY="5" orient="auto">
+              <path d="M1 1 L8 5 L1 9" fill="none" stroke={STATUS_LEG[st]} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </marker>
+          ))}
+          <marker id="sqcap-open-broken" markerWidth="11" markerHeight="11" refX="7.5" refY="5" orient="auto">
+            <path d="M1 1 L8 5 L1 9" fill="none" stroke={BROKEN.ln} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </marker>
         </defs>
-        {/* линии жизни */}
-        {participants.map((p, k) => (
-          <line key={p.id} x1={PX(k)} y1={lifeTop} x2={PX(k)} y2={H - 16} stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="5 5" />
-        ))}
-        {/* полосы активации */}
-        {activations.map((a, i) => (
-          <rect
-            key={i}
-            x={PX(idx[a.lane]) - SQ.ACT_W / 2}
-            y={rowY(a.from) - 7}
-            width={SQ.ACT_W}
-            height={rowY(a.to) - rowY(a.from) + 14}
-            rx="2"
-            fill={BPT.actFill}
-            stroke={BPT.actLine}
-            strokeWidth="1"
-          />
-        ))}
-        {/* стрелки сообщений */}
+        {/* линии жизни — цвет/прозрачность по статусу участника */}
+        {participants.map((p, k) => {
+          const st = p.status;
+          const dimmed = dimP(p.id);
+          const stroke = st === "existing" ? "#94a3b8" : STATUS_LEG[st];
+          const op = dimmed ? 0.12 : st === "existing" ? 0.85 : 0.7;
+          return (
+            <line key={p.id} x1={PX(k)} y1={lifeTop} x2={PX(k)} y2={H - 16} stroke={stroke} strokeWidth="1.5" strokeDasharray="5 5" opacity={op} />
+          );
+        })}
+        {/* полосы активации — тинт по статусу дорожки */}
+        {activations.map((a, i) => {
+          const st = statusOf(a.lane);
+          const sc = getNodeColors(false, 0, st);
+          const fill = st === "existing" ? BPT.actFill : withAlpha(sc.bg, 0.16);
+          const stroke = st === "existing" ? BPT.actLine : sc.border;
+          return (
+            <rect
+              key={i}
+              x={PX(idx[a.lane]) - SQ.ACT_W / 2}
+              y={rowY(a.from) - 7}
+              width={SQ.ACT_W}
+              height={rowY(a.to) - rowY(a.from) + 14}
+              rx="2"
+              fill={fill}
+              stroke={stroke}
+              strokeWidth="1"
+              opacity={dimP(a.lane) ? 0.12 : 1}
+            />
+          );
+        })}
+        {/* стрелки сообщений — цвет по «сильнейшему» статусу концов, форма по типу плеча */}
         {messages.map((m) => {
           const k1 = idx[m.from];
           const k2 = idx[m.to];
@@ -269,15 +299,11 @@ export default function SequenceDiagram({
           const x1 = PX(k1) + dir * (SQ.ACT_W / 2);
           const x2 = PX(k2) - dir * (SQ.ACT_W / 2);
           const y = rowY(m.r);
-          const meta = legMeta(m.kind);
-          const dash = m.kind === "return" || m.kind === "async" ? "6 4" : "none";
-          const head = !m.valid
-            ? "url(#sq-bad)"
-            : m.kind === "return"
-              ? "url(#sq-ret)"
-              : m.kind === "async"
-                ? "url(#sq-async)"
-                : "url(#sq-call)";
+          const shape = legMeta(m.kind);
+          const st = strongestStatus(statusOf(m.from), statusOf(m.to));
+          const color = m.valid ? STATUS_LEG[st] : BROKEN.ln;
+          const dash = m.valid ? shape.dash : "2 5";
+          const marker = m.valid ? `url(#sqcap-${shape.cap}-${st})` : "url(#sqcap-open-broken)";
           return (
             <line
               key={m.id}
@@ -285,10 +311,11 @@ export default function SequenceDiagram({
               y1={y}
               x2={x2}
               y2={y}
-              stroke={m.valid ? meta.ink : DANGER}
+              stroke={color}
               strokeWidth="1.7"
               strokeDasharray={dash}
-              markerEnd={head}
+              markerEnd={marker}
+              opacity={dimMsg(m) ? 0.12 : 1}
             />
           );
         })}
@@ -302,7 +329,12 @@ export default function SequenceDiagram({
         const xb = PX(k2);
         const left = Math.min(xa, xb);
         const w = Math.abs(xb - xa);
-        const meta = legMeta(m.kind);
+        const shape = legMeta(m.kind);
+        const st = strongestStatus(statusOf(m.from), statusOf(m.to));
+        const sc = getNodeColors(false, 0, st);
+        const badgeBg = m.valid ? withAlpha(sc.bg, 0.14) : BROKEN.soft;
+        const badgeBorder = m.valid ? sc.border : BROKEN.border;
+        const badgeInk = m.valid ? STATUS_LEG[st] : BROKEN.ink;
         return (
           <div
             key={"l" + m.id}
@@ -320,18 +352,19 @@ export default function SequenceDiagram({
               justifyContent: "center",
               gap: 5,
               zIndex: 3,
-              pointerEvents: onMessageClick ? "auto" : "none",
+              opacity: dimMsg(m) ? 0.12 : 1,
+              pointerEvents: dimMsg(m) ? "none" : onMessageClick ? "auto" : "none",
               cursor: onMessageClick ? "pointer" : "default",
             }}
           >
             <span
               style={{
-                width: 15,
+                width: 16,
                 height: 15,
                 borderRadius: 5,
-                background: m.valid ? meta.bg : "#fef2f2",
-                color: m.valid ? meta.ink : DANGER,
-                border: "1px solid " + (m.valid ? meta.line : "#fecaca"),
+                background: badgeBg,
+                color: badgeInk,
+                border: "1px solid " + badgeBorder,
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -340,13 +373,20 @@ export default function SequenceDiagram({
                 flex: "none",
               }}
             >
-              {m.n}
+              {m.valid ? m.n : <IcoBrokenLink s={11} />}
             </span>
+            {/* маленький type-глиф рядом с цифрой — тип читается даже в ч/б */}
+            {m.valid && (
+              <span style={{ color: badgeInk, display: "inline-flex", flex: "none", marginTop: 1 }}>
+                <shape.Icon s={12} />
+              </span>
+            )}
             <span
               style={{
                 fontSize: 11.5,
                 fontWeight: 500,
-                color: m.valid ? BPT.head : DANGER,
+                color: m.valid ? BPT.head : BROKEN.ink,
+                textDecoration: m.valid ? "none" : "line-through",
                 // переносим по словам (и рвём слишком длинные слова), чтобы текст влезал
                 whiteSpace: "normal",
                 overflowWrap: "anywhere",
@@ -357,8 +397,24 @@ export default function SequenceDiagram({
               }}
             >
               {m.label}
-              {!m.valid && " · связь удалена из схемы"}
             </span>
+            {!m.valid && (
+              <span
+                style={{
+                  flex: "none",
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  color: BROKEN.ink,
+                  background: BROKEN.soft,
+                  border: "1px solid " + BROKEN.border,
+                  borderRadius: 4,
+                  padding: "1px 5px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                связь удалена
+              </span>
+            )}
             {m.valid && m.tech && (
               <span style={{ flex: "none" }}>
                 <span
@@ -383,65 +439,101 @@ export default function SequenceDiagram({
       })}
 
       {/* шапки участников (линии жизни) */}
-      {participants.map((p, k) => (
-        <div
-          key={p.id}
-          className="bp-phead"
-          style={{
-            position: "absolute",
-            left: PX(k) - 78,
-            top: SQ.TOP,
-            width: 156,
-            height: SQ.PHEAD_H,
-            background: "#fff",
-            border: "1px solid " + (p.external ? BPT.line : "#d6dee8"),
-            borderRadius: 9,
-            boxShadow: "0 1px 3px rgba(15,23,42,.06)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "0 11px",
-            boxSizing: "border-box",
-            zIndex: 4,
-          }}
-        >
-          {/* Крестик удаления участника — проявляется по ховеру на шапке. */}
-          {onDeleteParticipant && (
-            <button
-              className="bp-phead-del"
-              title={`Удалить «${p.name}» из процесса`}
-              onClick={(e) => { e.stopPropagation(); onDeleteParticipant(p.id); }}
-              style={pheadDel}
-            >
-              <IcoClose s={11} />
-            </button>
-          )}
-          <span
+      {participants.map((p, k) => {
+        const st = p.status;
+        const isStatus = st !== "existing";
+        const sc = getNodeColors(false, 0, st);
+        const badge = STATUS_META[st].badge;
+        const dimmed = dimP(p.id);
+        return (
+          <div
+            key={p.id}
+            className="bp-phead"
             style={{
-              width: 28,
-              height: 28,
-              borderRadius: 7,
-              background: p.external ? "#f8fafc" : BPT.wash,
-              color: p.external ? BPT.mut : BPT.accent,
-              display: "inline-flex",
+              position: "absolute",
+              left: PX(k) - 78,
+              top: SQ.TOP,
+              width: 156,
+              height: SQ.PHEAD_H,
+              background: isStatus ? withAlpha(sc.bg, 0.1) : "#fff",
+              border: "1px solid " + (isStatus ? sc.border : p.external ? BPT.line : "#d6dee8"),
+              borderRadius: 9,
+              boxShadow: "0 1px 3px rgba(15,23,42,.06)",
+              display: "flex",
               alignItems: "center",
-              justifyContent: "center",
-              flex: "none",
+              gap: 8,
+              padding: "0 11px",
+              boxSizing: "border-box",
+              zIndex: 4,
+              opacity: dimmed ? 0.12 : 1,
+              pointerEvents: dimmed ? "none" : undefined,
             }}
           >
-            <C4Glyph shape={p.shape} s={17} />
-          </span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: BPT.head, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {p.name}
-            </div>
-            <div style={{ fontSize: 9.5, color: BPT.mut, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {p.role}
-              {p.external ? " · внеш." : ""}
+            {/* плавающий статус-бейдж «новый»/«выводится» (как на C4-узле) */}
+            {badge && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -8,
+                  left: 10,
+                  height: 16,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  letterSpacing: ".03em",
+                  lineHeight: 1,
+                  padding: "0 7px",
+                  borderRadius: 20,
+                  color: "#fff",
+                  background: sc.border,
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 1px 3px rgba(0,0,0,.18)",
+                  pointerEvents: "none",
+                  zIndex: 5,
+                }}
+              >
+                {badge}
+              </span>
+            )}
+            {/* Крестик удаления участника — проявляется по ховеру на шапке. */}
+            {onDeleteParticipant && (
+              <button
+                className="bp-phead-del"
+                title={`Удалить «${p.name}» из процесса`}
+                onClick={(e) => { e.stopPropagation(); onDeleteParticipant(p.id); }}
+                style={pheadDel}
+              >
+                <IcoClose s={11} />
+              </button>
+            )}
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 7,
+                background: isStatus ? sc.bg : p.external ? "#f8fafc" : BPT.wash,
+                color: isStatus ? "#fff" : p.external ? BPT.mut : BPT.accent,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: "none",
+              }}
+            >
+              <C4Glyph shape={p.shape} s={17} />
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: BPT.head, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {p.name}
+              </div>
+              <div style={{ fontSize: 9.5, color: BPT.mut, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {p.role}
+                {p.external ? " · внеш." : ""}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* Уровень создания сообщения (режим редактирования): кружок «+» под каждым
           участником. Из кружка тянут стрелку к нужному участнику — при драге кружки
@@ -469,7 +561,7 @@ export default function SequenceDiagram({
                 stroke={BPT.accent}
                 strokeWidth="2"
                 strokeDasharray="5 4"
-                markerEnd="url(#sq-call)"
+                markerEnd="url(#sqcap-fill-existing)"
               />
             </svg>
           )}

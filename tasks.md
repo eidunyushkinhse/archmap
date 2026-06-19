@@ -353,6 +353,27 @@
         (technology/label) прямо из композитора; экспорт диаграммы процесса
 
 Сделано
+- [x] Frontend+Backend: статусы узлов в бизнес-процессах (sequence), 2026-06-19.
+        Дополнение к фиче статусов: статус узла живёт и на sequence-диаграммах.
+        • Backend: ParticipantOut.status (из Node.status) + ProcessListItem.statuses
+          (набор статусов участников — для производного бейджа процесса в списке).
+        • Sequence: цвет = статус узла (existing чёрный #1e293b — как стрелки C4,
+          planned зелёный, deprecated красный), тип плеча = ФОРМА (вызов сплошная+
+          закрашенный, ответ пунктир+открытый, событие сплошная+открытый). legMeta
+          отдаёт форму (dash/cap), не цвет; STATUS_LEG/BROKEN в tokens.ts;
+          strongestStatus в layout.ts. Markers генерятся по статусам×форме.
+        • Повисшее (valid=false) переехало с красного на янтарь (BROKEN): глиф
+          IcoBrokenLink, пунктир «2 5», чип «связь удалена», текст line-through.
+        • Шапки/линии жизни/активации planned+deprecated тонированы по статусу
+          (withAlpha), шапка несёт бейдж «новый»/«выводится»; existing без изменений.
+        • Окно процесса: переключатель «Вид схемы» (SchemaViewChrome.SchemaViewSeg) в
+          actions, подсказка вида над канвой (ViewHint), легенда статусов в футере
+          (StatusLegend — только если есть не-existing участник). Приглушение по виду
+          (opacity, мгновенно). Вид персистится тем же ключом, что и C4 (общая привычка).
+        • Список процессов: производный бейдж to-be/вывод/миграция (processBadge).
+        • LegLegend — монохромные глифы типов + «связь удалена». MessageComposer:
+          глиф/слово плеча обесцвечены (тип больше не несёт цвет).
+        • Гейты: pytest 64, vitest 175, tsc -b 0, eslint 0, ruff 0.
 - [x] Frontend+Backend: статусы узлов (as-is/to-be/deprecated) + фильтр «Вид схемы», 2026-06-19.
         Сквозное поле Node.status (existing|planned|deprecated, дефолт existing) —
         кастдев-запрос: визуально отделить существующее от проектируемого/выводимого.

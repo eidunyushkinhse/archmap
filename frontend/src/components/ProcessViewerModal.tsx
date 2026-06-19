@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { processesApi } from "../api/processes";
-import type { ProcessDetail } from "../types";
+import type { NodeStatus, ProcessDetail } from "../types";
 import Modal from "../ui/Modal";
 import { IcoClose, IcoEdit } from "./processes/icons";
 import LegLegend from "./processes/LegLegend";
 import ProcessWindow from "./processes/ProcessWindow";
+import { SchemaViewSeg, StatusLegend, ViewHint } from "./processes/SchemaViewChrome";
 import SequenceDiagram from "./processes/SequenceDiagram";
 import { deriveActivations } from "./processes/sequence/layout";
 import { detailToSeq } from "./processes/sequence/fromDetail";
 import { BPT } from "./processes/tokens";
+import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "./schemaView";
 import "./processes/processes.css";
 
 /**
@@ -25,6 +27,10 @@ interface Props {
 export default function ProcessViewerModal({ id, isArchitect, onClose, onEdit }: Props) {
   const [detail, setDetail] = useState<ProcessDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Вид схемы — общая привычка пользователя (тот же ключ, что у C4-схемы); персистим
+  // в localStorage, не на сервер.
+  const [view, setView] = useState<SchemaView>(readSchemaView);
+  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, view); }, [view]);
 
   useEffect(() => {
     let alive = true;
@@ -38,6 +44,13 @@ export default function ProcessViewerModal({ id, isArchitect, onClose, onEdit }:
   const seq = useMemo(() => (detail ? detailToSeq(detail) : null), [detail]);
   const activations = useMemo(() => (seq ? deriveActivations(seq.messages) : []), [seq]);
   const invalid = seq ? seq.messages.filter((m) => !m.valid).length : 0;
+  // Счётчики участников по статусам (для легенды) и признак «есть что фильтровать».
+  const counts = useMemo<Record<NodeStatus, number>>(() => {
+    const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
+    if (detail) for (const p of detail.participants) c[p.status]++;
+    return c;
+  }, [detail]);
+  const hasStatus = counts.planned + counts.deprecated > 0;
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ padding: 0, width: 1040, display: "flex", flexDirection: "column" }}>
@@ -48,6 +61,7 @@ export default function ProcessViewerModal({ id, isArchitect, onClose, onEdit }:
         height="min(800px, 88vh)"
         actions={
           <>
+            {hasStatus && <SchemaViewSeg view={view} onChange={setView} />}
             {isArchitect && (
               <button className="bp-btn-ghost" onClick={() => onEdit(id)}>
                 <IcoEdit s={15} />
@@ -65,6 +79,7 @@ export default function ProcessViewerModal({ id, isArchitect, onClose, onEdit }:
               Плечи каналов
             </span>
             <LegLegend />
+            <StatusLegend view={view} counts={counts} />
             <span style={{ marginLeft: "auto", fontSize: 12, color: invalid ? "#dc2626" : BPT.mut }}>
               {detail
                 ? invalid
@@ -75,6 +90,7 @@ export default function ProcessViewerModal({ id, isArchitect, onClose, onEdit }:
           </>
         }
       >
+        {hasStatus && <ViewHint view={view} />}
         <div className="bp-canvas" style={{ flex: 1, overflow: "auto" }}>
           {error ? (
             <div style={{ padding: 24, color: "#dc2626", fontSize: 14 }}>{error}</div>
@@ -91,6 +107,7 @@ export default function ProcessViewerModal({ id, isArchitect, onClose, onEdit }:
                 messages={seq.messages}
                 activations={activations}
                 fragment={seq.fragment}
+                view={view}
               />
             </div>
           )}

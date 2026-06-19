@@ -1,22 +1,20 @@
-// Плечо канала: визуальный стиль типа сообщения (вызов / ответ / событие).
-// Портировано из дизайн-референса (bp-parts.jsx legMeta).
+// Тип сообщения = ФОРМА плеча (линия + наконечник), а НЕ цвет. Цвет задаёт статус
+// узла-конца (см. STATUS_LEG). UML-конвенция: синхронный вызов — сплошная + закрашенный
+// треугольник; ответ — пунктир + открытая «галка»; асинхронное событие — сплошная +
+// открытая «галка». Три типа различимы без цвета.
 import type { ComponentType } from "react";
 import type { MessageKind } from "../../types";
 import { IcoArrowR, IcoAsync, IcoReturn } from "./icons";
-import { BPT } from "./tokens";
 
-export interface LegMeta {
-  ink: string;
-  bg: string;
-  line: string;
+export interface LegShape {
   Icon: ComponentType<{ s?: number }>;
-  word: string;
+  word: string; // «вызов» | «ответ» | «событие»
+  dash: string; // "none" | "6 4"
+  cap: "fill" | "open"; // закрашенный треугольник | открытая «галка»
 }
 
-export function legMeta(kind: MessageKind): LegMeta {
-  if (kind === "return")
-    return { ink: BPT.retInk, bg: "#f4f1ff", line: "#ddd5ff", Icon: IcoReturn, word: "ответ" };
-  if (kind === "async")
-    return { ink: BPT.asyncInk, bg: "#ecfeff", line: "#bae6f0", Icon: IcoAsync, word: "событие" };
-  return { ink: BPT.accent, bg: BPT.wash, line: "#cfe0fd", Icon: IcoArrowR, word: "вызов" };
+export function legMeta(kind: MessageKind): LegShape {
+  if (kind === "return") return { Icon: IcoReturn, word: "ответ", dash: "6 4", cap: "open" };
+  if (kind === "async") return { Icon: IcoAsync, word: "событие", dash: "none", cap: "open" };
+  return { Icon: IcoArrowR, word: "вызов", dash: "none", cap: "fill" };
 }

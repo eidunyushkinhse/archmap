@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { processesApi } from "../api/processes";
-import type { FragmentKind, ProcessDetail, ProcessParticipant } from "../types";
+import type { FragmentKind, NodeStatus, ProcessDetail, ProcessParticipant } from "../types";
 import Modal from "../ui/Modal";
 import MessageComposer from "./MessageComposer";
 import NodeSearchPicker from "./NodeSearchPicker";
@@ -9,10 +9,12 @@ import ParticipantDeleteConfirm from "./processes/ParticipantDeleteConfirm";
 import { C4Glyph, IcoClose, IcoPlus } from "./processes/icons";
 import LegLegend from "./processes/LegLegend";
 import ProcessWindow from "./processes/ProcessWindow";
+import { SchemaViewSeg, StatusLegend, ViewHint } from "./processes/SchemaViewChrome";
 import SequenceDiagram from "./processes/SequenceDiagram";
 import { deriveActivations } from "./processes/sequence/layout";
 import { detailToSeq } from "./processes/sequence/fromDetail";
 import { BPT } from "./processes/tokens";
+import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "./schemaView";
 import "./processes/processes.css";
 
 /**
@@ -41,6 +43,9 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
   const [delPartErr, setDelPartErr] = useState<string | null>(null);
+  // Вид схемы — общая привычка пользователя (тот же ключ, что у C4-схемы).
+  const [view, setView] = useState<SchemaView>(readSchemaView);
+  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, view); }, [view]);
 
   const reload = useCallback(() => {
     processesApi
@@ -53,6 +58,12 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
 
   const seq = useMemo(() => (detail ? detailToSeq(detail) : null), [detail]);
   const activations = useMemo(() => (seq ? deriveActivations(seq.messages) : []), [seq]);
+  const counts = useMemo<Record<NodeStatus, number>>(() => {
+    const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
+    if (detail) for (const p of detail.participants) c[p.status]++;
+    return c;
+  }, [detail]);
+  const hasStatus = counts.planned + counts.deprecated > 0;
   const nextOrder = useMemo(
     () => (detail ? detail.messages.reduce((mx, m) => Math.max(mx, m.order), -1) + 1 : 0),
     [detail],
@@ -166,6 +177,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
         height="min(800px, 88vh)"
         actions={
           <>
+            {hasStatus && <SchemaViewSeg view={view} onChange={setView} />}
             <span style={{ fontSize: 12, color: "#0e9f6e", display: "inline-flex", alignItems: "center", gap: 5, marginRight: 2 }}>
               <span style={{ width: 7, height: 7, borderRadius: 4, background: "#0e9f6e" }} />
               сохранено
@@ -200,12 +212,14 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
               <span>Добавить участника</span>
               <span className="bp-addparthint">из узлов схемы</span>
             </button>
-            <span style={{ marginLeft: "auto", display: "flex", gap: 14 }}>
+            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+              <StatusLegend view={view} counts={counts} />
               <LegLegend />
             </span>
           </>
         }
       >
+        {hasStatus && <ViewHint view={view} />}
         <div className="bp-canvas" style={{ flex: 1, overflow: "auto", position: "relative" }}>
           {error && <div style={{ padding: "8px 14px 0", color: "#dc2626", fontSize: 12 }}>{error}</div>}
           {!detail || !seq ? (
@@ -221,6 +235,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                 messages={seq.messages}
                 activations={activations}
                 fragment={seq.fragment}
+                view={view}
                 ghost
                 onConnect={(from, to) => setComposer({ from, to })}
                 onMessageClick={(mid) => setDelMsg(mid)}

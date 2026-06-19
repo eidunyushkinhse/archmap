@@ -242,14 +242,14 @@ export default function MessageComposer({
                       onClick={() => setSel({ edgeId: ch.edge_id, leg: leg.leg })}
                     >
                       <span className={"bp-legradio" + (on ? " is-on" : "")} />
-                      <span style={{ color: m.ink, flex: "none", display: "inline-flex" }}>
+                      <span style={{ color: BPT.head, flex: "none", display: "inline-flex" }}>
                         <m.Icon s={13} />
                       </span>
                       <span
                         style={{
                           fontSize: 11,
                           fontWeight: 700,
-                          color: m.ink,
+                          color: BPT.head,
                           textTransform: "uppercase",
                           letterSpacing: ".03em",
                           flex: "none",

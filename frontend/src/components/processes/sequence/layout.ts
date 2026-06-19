@@ -1,7 +1,7 @@
 // Презентационная модель sequence-диаграммы и деривация полос активации.
 // Раскладка детерминирована из данных и НЕ персистится (ТЗ §4.2): координаты считаем
 // в SequenceDiagram, активации выводим здесь простым стеком.
-import type { FragmentKind, MessageKind, NodeShape } from "../../../types";
+import type { FragmentKind, MessageKind, NodeShape, NodeStatus } from "../../../types";
 
 // Участник = линия жизни. id — node_id узла C4 (он же ключ дорожки для сообщений).
 export interface SeqParticipant {
@@ -10,6 +10,7 @@ export interface SeqParticipant {
   name: string;
   role: string | null;
   external: boolean;
+  status: NodeStatus; // статус узла-участника (existing | planned | deprecated)
 }
 
 // Сообщение = горизонтальная стрелка. r — индекс строки (время, 0..R-1), n — номер
@@ -49,6 +50,13 @@ export interface SeqFragment {
  * async — одиночная полоса в одну строку (ответа нет); подвисшие открытые активации
  * закрываем на последней строке. Не персистится.
  */
+// «Сильнейший» из двух статусов: deprecated > planned > existing. Цвет плеча задаёт
+// сильнейший конец сообщения (на C4 ребро красится так же).
+const STATUS_RANK: Record<NodeStatus, number> = { existing: 0, planned: 1, deprecated: 2 };
+export function strongestStatus(a: NodeStatus, b: NodeStatus): NodeStatus {
+  return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
+}
+
 export function deriveActivations(messages: SeqMessage[]): SeqActivation[] {
   const open: Record<string, number[]> = {}; // дорожка → стек строк-начал
   const acts: SeqActivation[] = [];

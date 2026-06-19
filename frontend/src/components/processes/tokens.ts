@@ -1,6 +1,8 @@
 // Токены бизнес-процессов — портированы 1:1 из дизайн-референса (bp-parts.jsx BPT).
 // Визуальный язык хрома: system-ui, slate-нейтрали, единый синий #2563eb, янтарь
 // только для валидатора/фрагментов. Новых цветов не вводим.
+import type { NodeStatus } from "../../types";
+
 export const BPT = {
   accent: "#2563eb",
   accentHover: "#1d4ed8",
@@ -24,6 +26,27 @@ export const BPT = {
   actFill: "#eaf1fe",
   actLine: "#cfe0fd", // полоса активации
 } as const;
+
+// Цвет плеча по статусу узла. existing — чёрный (как стрелки связей на C4-схеме),
+// planned/deprecated — те же edge-тона, что у рёбер C4 (STATUS_META.edge).
+export const STATUS_LEG: Record<NodeStatus, string> = {
+  existing: "#1e293b",
+  planned: "#3f9e6e",
+  deprecated: "#cf6d63",
+};
+
+// Повисшее сообщение (valid=false) переезжает на янтарь валидатора: красный занят под
+// deprecated. Глиф «разорванная цепь» + чип «связь удалена». ln — янтарная линия (amber-600).
+export const BROKEN = { ln: "#d97706", soft: BPT.amberBg, border: BPT.amberLine, ink: BPT.amber } as const;
+
+// Полупрозрачный тинт hex-цвета (мягкая заливка шапки/активации статусной дорожки —
+// «посветлённый» тон из той же палитры, без новых цветов). hex — #rrggbb.
+export function withAlpha(hex: string, a: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
 
 // Геометрия sequence-диаграммы (bp-parts.jsx SQ).
 export const SQ = {

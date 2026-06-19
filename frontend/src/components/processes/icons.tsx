@@ -119,6 +119,17 @@ export function IcoLink({ s = 14 }: { s?: number }) {
     </svg>
   );
 }
+// Разорванная цепь — глиф повисшего сообщения (связь удалена из схемы). Два звена
+// разведены, между ними штрих разрыва.
+export function IcoBrokenLink({ s = 14 }: { s?: number }) {
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>
+      <path d="M9.5 14.5 7 17a3.5 3.5 0 0 1-5-5l2.5-2.5" />
+      <path d="M14.5 9.5 17 7a3.5 3.5 0 0 1 5 5l-2.5 2.5" />
+      <path d="M12 4.5 V2 M19.5 12 H22 M4.5 12 H2 M12 19.5 V22" />
+    </svg>
+  );
+}
 export function IcoSearch({ s = 14 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>
