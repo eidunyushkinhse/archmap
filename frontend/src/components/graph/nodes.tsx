@@ -24,11 +24,13 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
   if (!m.badge) return null;
   return (
     <span style={{
-      // Бейдж страддлит верхнюю кромку узла; опущен ниже (top:-4), чтобы лежать на
-      // рамке, но не доставать до первой строки названия. Размер читаемый (fontSize 10).
-      position: "absolute", top: -4, left: 10, zIndex: 3,
-      fontSize: 10, fontWeight: 700, letterSpacing: ".03em", lineHeight: 1.15,
-      padding: "2px 8px", borderRadius: 20, color: "#fff",
+      // Бейдж страддлит верхнюю кромку узла так, что его ЦЕНТР лежит ровно на рамке
+      // (фиксированная height + top = -height/2). Текст центрируется по вертикали
+      // флексом (inline-flex + alignItems center), иначе lineHeight тянул его вниз.
+      position: "absolute", top: -8, left: 10, zIndex: 3, height: 16,
+      display: "inline-flex", alignItems: "center",
+      fontSize: 10, fontWeight: 700, letterSpacing: ".03em", lineHeight: 1,
+      padding: "0 8px", borderRadius: 20, color: "#fff",
       background: border, whiteSpace: "nowrap",
       boxShadow: "0 1px 3px rgba(0,0,0,.18)", pointerEvents: "none",
     }}>{m.badge}</span>
