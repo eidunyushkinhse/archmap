@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { useMemo } from "react";
 import type { ProjectPreview } from "../../types";
+import { resolvePoints } from "./schemaPreviewLayout";
 
 /**
  * Мини-превью схемы для карточки проекта: РЕАЛЬНАЯ топология корневого уровня
@@ -104,16 +105,8 @@ function computeLayout(
   const padX = NODE_W / 2 + 8;
   const padY = NODE_H / 2 + 8;
 
-  const allPositioned = raw.every((n) => n.x !== null && n.y !== null);
-  // Базовые точки в произвольном пространстве: сохранённые координаты холста либо
-  // окружность (детерминированный порядок — бэкенд уже отсортировал узлы).
-  const pts = allPositioned
-    ? raw.map((n) => ({ x: n.x as number, y: n.y as number }))
-    : raw.map((_, i) => {
-        if (raw.length === 1) return { x: 0, y: 0 };
-        const a = (i / raw.length) * Math.PI * 2 - Math.PI / 2;
-        return { x: Math.cos(a), y: Math.sin(a) };
-      });
+  // Базовые точки в координатном пространстве холста.
+  const pts = resolvePoints(raw, preview.edges);
 
   // Вписываем bbox точек в безопасную область вьюпорта, сохраняя пропорции.
   const xs = pts.map((p) => p.x);
