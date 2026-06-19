@@ -813,7 +813,7 @@ function LevelGraphInner({
           onDrillDown: cb.onDrillDown,
           onEdit: cb.onEditNode,
           isArchitect,
-          colors: getNodeColors(n.is_external, depth),
+          colors: getNodeColors(n.is_external, depth, n.status),
           hideActions: isContext,
           connectable: isArchitect && !isContext,
           quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
@@ -828,7 +828,7 @@ function LevelGraphInner({
             position,
             data: {
               appNode: ent.ghost,
-              colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth),
+              colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth, ent.ghost.status),
               connectable: isArchitect && !isContext,
               quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
               // в контекст-режиме навигация по слоям отключена (схема — внутри модалки).

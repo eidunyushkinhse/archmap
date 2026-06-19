@@ -12,8 +12,26 @@ import {
 } from "./shapes";
 import type { BlockRFNode, GhostRFNode, ContainerRFNode, QuickConnectHandlers } from "./types";
 import type { EdgeSide } from "./edgePath";
-import { canHaveChildren } from "../../types";
+import { canHaveChildren, type NodeStatus } from "../../types";
+import { STATUS_META } from "./colors";
 import { DrillInIcon, MoreIcon } from "./icons";
+
+// Бейдж статуса в левом-верхнем углу узла (правые углы заняты кнопками действий).
+// У existing бейджа нет — кодируем только проектируемое/выводимое. Цвет фона —
+// бордер статусной заливки тела (STATUS_FILL.border приходит как c.border).
+function StatusBadge({ status, border }: { status: NodeStatus; border: string }) {
+  const m = STATUS_META[status];
+  if (!m.badge) return null;
+  return (
+    <span style={{
+      position: "absolute", top: -9, left: 10, zIndex: 3,
+      fontSize: 9, fontWeight: 700, letterSpacing: ".03em",
+      padding: "2px 7px", borderRadius: 20, color: "#fff",
+      background: border, whiteSpace: "nowrap",
+      boxShadow: "0 1px 3px rgba(0,0,0,.18)", pointerEvents: "none",
+    }}>{m.badge}</span>
+  );
+}
 
 // Оверлей «зоны входа»: во время протягивания связи (CSS .lg-canvas--connecting)
 // контент узла-контейнера прячется, а по центру показывается «стрелка вниз в лунку» —
@@ -231,6 +249,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       }}
     >
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
+      <StatusBadge status={data.appNode.status} border={c.border} />
       <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
 
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
@@ -282,6 +301,7 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
   return (
     <div style={{ ...nodeContainer, color: c.text, filter: selected ? SELECTED_GLOW : undefined }}>
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
+      <StatusBadge status={data.appNode.status} border={c.border} />
       <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
       {canEnter && (
         <div style={nodeActions}>
