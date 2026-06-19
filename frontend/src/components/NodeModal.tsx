@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { DeletionSnapshot, Node, NodeCreate, NodeUpdate, NodeShape } from "../types";
+import type { DeletionSnapshot, Node, NodeCreate, NodeUpdate, NodeShape, NodeStatus } from "../types";
 import { canHaveChildren, compareByRank, withoutPersons } from "../types";
+import { getNodeColors, STATUS_META } from "./graph/colors";
 import { nodesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import MermaidRenderer from "./MermaidRenderer";
@@ -45,6 +46,8 @@ export default function NodeModal({
   const [flowchart, setFlowchart] = useState(node?.flowchart ?? "");
   const [openapi, setOpenapi] = useState(node?.openapi_spec ?? "");
   const [isExternal, setIsExternal] = useState(node?.is_external ?? false);
+  // Статус жизненного цикла: existing (дефолт) | planned | deprecated.
+  const [status, setStatus] = useState<NodeStatus>(node?.status ?? "existing");
   // Форма узла не редактируется в модалке: при создании — из шаблона, при
   // редактировании — из самого узла. Используется для скрытия полей у person.
   const shape: NodeShape = node?.shape ?? templateShape ?? "service";
@@ -97,6 +100,7 @@ export default function NodeModal({
           openapi_spec: openapi || null,
           is_external: isExternal,
           shape,
+          status,
           // координаты места, куда бросили шаблон (если узел создаётся дрэгом)
           pos_x: initialPos?.x ?? null,
           pos_y: initialPos?.y ?? null,
@@ -112,6 +116,7 @@ export default function NodeModal({
           openapi_spec: openapi || null,
           is_external: isExternal,
           shape,
+          status,
         };
         saved = await nodesApi.update(node!.id, data);
       }
@@ -176,6 +181,29 @@ export default function NodeModal({
               />
               Внешний
             </label>
+
+            {/* Статус жизненного цикла — сегментированный выбор из трёх вариантов
+                с цветным маркером статуса (тот же цвет, что и тело узла на схеме). */}
+            <label style={labelStyle}>Статус</label>
+            <div style={statusSeg} role="radiogroup" aria-label="Статус">
+              {STATUS_ORDER.map((st) => {
+                const active = status === st;
+                const dot = getNodeColors(isExternal, 0, st).bg;
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setStatus(st)}
+                    style={active ? statusSegBtnActive : statusSegBtn}
+                  >
+                    <span style={{ ...metaDot, background: dot }} />
+                    {STATUS_META[st].label}
+                  </button>
+                );
+              })}
+            </div>
 
             {/* Flowchart и OpenAPI у пользователя тоже лишние — скрываем для person */}
             {shape !== "person" && (
@@ -258,6 +286,14 @@ export default function NodeModal({
                   key: "placement", icon: META_ICON.placement, label: "Размещение",
                   value: node!.is_external ? "Внешний" : "Внутренний",
                   dot: node!.is_external ? "#9ca3af" : "#2563eb",
+                },
+                {
+                  key: "status", icon: META_ICON.status, label: "Статус",
+                  value: STATUS_META[node!.status].label,
+                  // existing — нейтральный тон; planned/deprecated — статусный цвет тела узла
+                  dot: node!.status === "existing"
+                    ? "#9ca3af"
+                    : getNodeColors(node!.is_external, 0, node!.status).bg,
                 },
                 {
                   key: "role", icon: META_ICON.role, label: "Роль",
@@ -505,9 +541,10 @@ const metaSvg = {
 
 // Иконки: Тип (компонент-бокс), Размещение (глобус), Роль (закладка), Технология (</>),
 // Дочерние объекты (мини-оргсхема «родитель → два потомка»).
-const META_ICON: Record<"type" | "placement" | "role" | "tech" | "children", ReactNode> = {
+const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "children", ReactNode> = {
   type: <svg {...metaSvg}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
   placement: <svg {...metaSvg}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
+  status: <svg {...metaSvg}><path d="M1.75 8h2.5l1.6-3.8 2.2 7.2 1.7-5 1 1.6h3.5" /></svg>,
   role: <svg {...metaSvg}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
   tech: <svg {...metaSvg}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
   children: <svg {...metaSvg}>
@@ -516,6 +553,22 @@ const META_ICON: Record<"type" | "placement" | "role" | "tech" | "children", Rea
     <rect x="10.25" y="10.5" width="4" height="3" rx="0.6" />
     <path d="M8 5.5V8 M3.75 8H12.25 M3.75 8V10.5 M12.25 8V10.5" />
   </svg>,
+};
+
+// Порядок вариантов статуса в сегментированном контроле.
+const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
+
+const statusSeg: CSSProperties = {
+  display: "flex", gap: 6, marginBottom: 12,
+};
+const statusSegBtn: CSSProperties = {
+  flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+  padding: "8px 6px", border: "1px solid #e2e8f0", borderRadius: 8,
+  background: "#f8fafc", color: "#475569", cursor: "pointer",
+  fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+};
+const statusSegBtnActive: CSSProperties = {
+  ...statusSegBtn, border: "1px solid #2563eb", background: "#eff6ff", color: "#1e3a8a",
 };
 
 const metaList: CSSProperties = { margin: "0 0 12px", borderTop: "1px solid #eef0f2" };

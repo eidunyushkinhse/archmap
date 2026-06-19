@@ -23,6 +23,7 @@ function ghost(id: string, ancestors: AncestorRef[], over: Partial<GhostNode> = 
     node_depth: ancestors.length,
     has_children: false,
     ancestors,
+    status: "existing",
     pos_x: null,
     pos_y: null,
     is_ghost: true,

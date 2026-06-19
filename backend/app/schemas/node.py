@@ -10,6 +10,9 @@ from app.schemas.edge import Point
 # генерируется из него (openapi-typescript). Заодно серверная валидация shape.
 NodeShape = Literal["service", "database", "broker", "person"]
 
+# Статус жизненного цикла узла. Источник правды контракта — этот Literal.
+NodeStatus = Literal["existing", "planned", "deprecated"]
+
 
 class NodeCreate(BaseModel):
     name: str
@@ -21,6 +24,7 @@ class NodeCreate(BaseModel):
     openapi_spec: str | None = None
     is_external: bool = False
     shape: NodeShape = "service"
+    status: NodeStatus = "existing"
     # Координаты раскладки: проставляются при создании узла перетаскиванием
     # шаблона из боковой панели на схему (узел появляется там, где его бросили)
     pos_x: float | None = None
@@ -39,6 +43,7 @@ class NodeUpdate(BaseModel):
     pos_y: float | None = None
     is_external: bool | None = None
     shape: NodeShape | None = None
+    status: NodeStatus | None = None
 
 
 class NodeResponse(BaseModel):
@@ -54,6 +59,7 @@ class NodeResponse(BaseModel):
     pos_y: float | None
     is_external: bool
     shape: NodeShape
+    status: NodeStatus
     # Вычисляемые в роутере (в БД не хранятся): число прямых детей и булев флаг
     # их наличия. child_count — для ранжирования узлов в дереве UI («главное» сверху).
     child_count: int = 0
@@ -78,6 +84,7 @@ class GhostNodeResponse(BaseModel):
     technology: str | None
     is_external: bool
     shape: NodeShape
+    status: NodeStatus = "existing"
     node_depth: int
     # есть ли у гостя дети: промежуточному госту даём кнопку «Войти» (провалиться
     # на его слой-схему компонентов), атомарному (лист) проваливаться некуда.

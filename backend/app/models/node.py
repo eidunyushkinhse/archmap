@@ -36,6 +36,9 @@ class Node(Base):
     is_external: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # вариант отображения: service | database | broker | person (C4-формы)
     shape: Mapped[str] = mapped_column(String(32), default="service", server_default="service")
+    # статус жизненного цикла: existing (as-is, дефолт) | planned (to-be) | deprecated.
+    # Версионируемая семантика, не раскладка. Кодируется на схеме цветом тела узла.
+    status: Mapped[str] = mapped_column(String(16), default="existing", server_default="existing")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

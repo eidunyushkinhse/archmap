@@ -1148,6 +1148,12 @@ export interface components {
              * @enum {string}
              */
             shape: "service" | "database" | "broker" | "person";
+            /**
+             * Status
+             * @default existing
+             * @enum {string}
+             */
+            status: "existing" | "planned" | "deprecated";
             /** Node Depth */
             node_depth: number;
             /**
@@ -1489,6 +1495,12 @@ export interface components {
              * @enum {string}
              */
             shape: "service" | "database" | "broker" | "person";
+            /**
+             * Status
+             * @default existing
+             * @enum {string}
+             */
+            status: "existing" | "planned" | "deprecated";
             /** Pos X */
             pos_x?: number | null;
             /** Pos Y */
@@ -1553,6 +1565,11 @@ export interface components {
              * @enum {string}
              */
             shape: "service" | "database" | "broker" | "person";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "existing" | "planned" | "deprecated";
             /**
              * Child Count
              * @default 0
@@ -1635,6 +1652,8 @@ export interface components {
             is_external?: boolean | null;
             /** Shape */
             shape?: ("service" | "database" | "broker" | "person") | null;
+            /** Status */
+            status?: ("existing" | "planned" | "deprecated") | null;
         };
         /** ParticipantCreate */
         ParticipantCreate: {

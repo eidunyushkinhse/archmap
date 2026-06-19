@@ -75,6 +75,8 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
         # Порядок ключей осознанный (sort_keys=False при дампе): сперва идентичность
         # и тип, потом необязательная семантика, дети — последними.
         d: dict = {"name": node.name, "shape": node.shape}
+        if node.status != "existing":
+            d["status"] = node.status
         if node.role:
             d["role"] = node.role
         if node.technology:
