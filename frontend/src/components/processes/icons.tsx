@@ -80,12 +80,13 @@ export function IcoChevron({ s = 13, open }: { s?: number; open?: boolean }) {
     </svg>
   );
 }
+// Классическое «меню действий» — вертикальное многоточие (kebab).
 export function IcoDots({ s = 16 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor">
-      <circle cx="5" cy="12" r="1.7" />
-      <circle cx="12" cy="12" r="1.7" />
-      <circle cx="19" cy="12" r="1.7" />
+      <circle cx="12" cy="5" r="1.9" />
+      <circle cx="12" cy="12" r="1.9" />
+      <circle cx="12" cy="19" r="1.9" />
     </svg>
   );
 }

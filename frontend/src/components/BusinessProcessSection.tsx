@@ -48,6 +48,8 @@ export default function BusinessProcessSection({ isArchitect, onOpen, onEdit, re
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [menuId, setMenuId] = useState<string | null>(null);
+  // Куда открывать дропдаун действий: вниз по умолчанию, вверх — если снизу мало места.
+  const [menuUp, setMenuUp] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -173,7 +175,14 @@ export default function BusinessProcessSection({ isArchitect, onOpen, onEdit, re
                 onClick={(e) => {
                   e.stopPropagation();
                   setConfirmId(null);
-                  setMenuId(menuId === p.id ? null : p.id);
+                  const opening = menuId !== p.id;
+                  if (opening) {
+                    // Высота меню: 4 пункта у архитектора, 1 — у зрителя (с запасом).
+                    const estH = isArchitect ? 176 : 52;
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setMenuUp(window.innerHeight - r.bottom < estH + 12);
+                  }
+                  setMenuId(opening ? p.id : null);
                 }}
               >
                 <IcoDots s={15} />
@@ -189,7 +198,7 @@ export default function BusinessProcessSection({ isArchitect, onOpen, onEdit, re
                       setConfirmId(null);
                     }}
                   />
-                  <div className="bp-procmenu" onClick={(e) => e.stopPropagation()}>
+                  <div className={"bp-procmenu" + (menuUp ? " bp-procmenu--up" : "")} onClick={(e) => e.stopPropagation()}>
                     <button className="bp-menuitem" onClick={() => { setMenuId(null); onOpen(p.id); }}>
                       Открыть
                     </button>

@@ -201,6 +201,12 @@
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
   padding: 4px;
 }
+/* Открытие вверх — когда снизу не хватает места (раскрыты все секции панели). */
+.bp-procmenu--up {
+  top: auto;
+  bottom: 100%;
+  margin-bottom: 4px;
+}
 .bp-menuitem {
   display: block;
   width: 100%;
