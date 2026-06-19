@@ -24,8 +24,9 @@ import ProcessViewerModal from "../components/ProcessViewerModal";
 import ProcessEditorModal from "../components/ProcessEditorModal";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
-import { LogoMark, UpIcon, ExportIcon, ChevronIcon } from "../ui/icons";
+import { LogoMark, UpIcon, ExportIcon, ChevronIcon, CollapseIcon } from "../ui/icons";
 import "../ui/chrome.css";
+import "../components/NodeTreePanel.css"; // классы .nt-collapse / .nt-railbtn для правой панели
 
 interface Props {
   // id текущего проекта (схема скоупится им; смена проекта ремаунтит TreePage по key)
@@ -110,6 +111,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // + легенда). Переживает перезагрузку (localStorage), не серверное и не раскладка.
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+  // Свёрнута ли правая панель схемы (как у левого дерева — локально, без персиста).
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   // Глобальные алерты незавершённости схемы (только для архитектора)
   const [alerts, setAlerts] = useState<Alerts>({
     disconnected_nodes: [],
@@ -767,11 +770,38 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           )}
         </div>
 
-        {/* Правая панель схемы. Пока в ней только переключатель «Вид схемы» (показываем,
-            когда есть что фильтровать); со временем сюда переедет мета узлов/связей. */}
+        {/* Правая панель схемы — сворачиваемая, по аналогии с левым деревом. Пока в ней
+            только переключатель «Вид схемы» (показываем, когда есть что фильтровать);
+            со временем сюда переедет мета узлов/связей. */}
         {hasStatusInfo && (
-          <aside style={rightPanel}>
-            <SchemaViewFilter view={schemaView} onChange={setSchemaView} />
+          <aside style={{ ...rightPanel, width: rightCollapsed ? RIGHT_COLLAPSED_W : RIGHT_W }}>
+            {rightCollapsed ? (
+              <div style={rightRail}>
+                <button
+                  className="nt-railbtn"
+                  title="Вид схемы"
+                  onClick={() => setRightCollapsed(false)}
+                >
+                  {/* воронка-фильтр */}
+                  <svg width={17} height={17} viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 5h18l-7 8v6l-4-2v-4z" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div style={rightContent}>
+                <SchemaViewFilter view={schemaView} onChange={setSchemaView} />
+              </div>
+            )}
+            <button
+              className="nt-collapse"
+              onClick={() => setRightCollapsed((c) => !c)}
+              title={rightCollapsed ? "Развернуть панель" : "Свернуть панель"}
+            >
+              <CollapseIcon dir={rightCollapsed ? "left" : "right"} />
+              {!rightCollapsed && <span>Свернуть панель</span>}
+            </button>
           </aside>
         )}
       </div>
@@ -973,15 +1003,35 @@ const graphArea: CSSProperties = {
   flexDirection: "column",
   position: "relative", // якорь для абсолютного индикатора алертов
 };
-// Правая панель схемы (вид схемы; позже — мета узлов/связей). Зеркало левого дерева:
-// фиксированной ширины колонка с разделителем-бордером, прокрутка по вертикали.
+// Правая панель схемы (вид схемы; позже — мета узлов/связей) — зеркало левого дерева:
+// сворачивается в узкий рейл, футер-кнопка снизу. Стили .nt-collapse/.nt-railbtn
+// переиспользуем из NodeTreePanel.css.
+const RIGHT_W = 264;          // ширина развёрнутой панели
+const RIGHT_COLLAPSED_W = 48; // узкий рейл со значком в свёрнутом виде
 const rightPanel: CSSProperties = {
-  flex: "none",
-  width: 288,
+  position: "relative",
+  flexShrink: 0,
   borderLeft: "1px solid #e2e8f0",
-  background: "#fff",
-  padding: "16px 16px 20px",
+  background: "#fbfcfd",
+  display: "flex",
+  flexDirection: "column",
+  overflow: "hidden",
+  transition: "width 0.22s ease",
+};
+const rightRail: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 6,
+  paddingTop: 12,
+  flex: 1,
+};
+const rightContent: CSSProperties = {
+  width: RIGHT_W,   // фиксированная ширина — без переноса при анимации сворачивания
+  flex: 1,
+  minHeight: 0,
   overflowY: "auto",
+  padding: "14px 14px",
 };
 const crumbLink: CSSProperties = {
   display: "inline-flex",
