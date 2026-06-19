@@ -39,9 +39,39 @@ def test_create_blank_lists_with_meta(db):
     p = create_project(ProjectCreate(name="Пустой", description="опис"), db=db, user=user)
     assert p.object_count == 0 and p.edge_count == 0
     assert p.updated_by == user.username
+    assert p.preview.nodes == [] and p.preview.edges == []
 
     active = list_projects(archived=False, db=db)
     assert [x.name for x in active] == ["Пустой"]
+
+
+def test_preview_projects_edges_to_root_ancestors(db):
+    """Превью карточки = корневой уровень: узлы — корни дерева, связь глубокого
+    потомка проецируется на его корневого предка (как ghost на холсте)."""
+    user = ensure_architect(db)
+    p = create_project(ProjectCreate(name="Превью"), db=db, user=user)
+    # Два корня: R1 (с ребёнком-листом) и R2.
+    r1 = Node(id=uuid.uuid4(), name="R1", project_id=p.id, pos_x=10, pos_y=20)
+    r2 = Node(id=uuid.uuid4(), name="R2", project_id=p.id, pos_x=200, pos_y=20)
+    db.add_all([r1, r2])
+    db.flush()
+    child = Node(id=uuid.uuid4(), name="C", project_id=p.id, parent_id=r1.id)
+    db.add(child)
+    db.flush()
+    # Связь от потомка R1 к R2 — на корневом уровне это ребро R1→R2.
+    db.add(Edge(id=uuid.uuid4(), source_id=child.id, target_id=r2.id, project_id=p.id))
+    db.commit()
+
+    fresh = get_project(p.id, db=db)
+    node_ids = {n.id for n in fresh.preview.nodes}
+    assert node_ids == {r1.id, r2.id}  # потомок в превью не попадает
+    by_id = {n.id: n for n in fresh.preview.nodes}
+    assert by_id[r1.id].x == 10 and by_id[r1.id].y == 20  # сохранённые координаты
+    assert fresh.preview.edges == [] or (
+        len(fresh.preview.edges) == 1
+        and {fresh.preview.edges[0].source, fresh.preview.edges[0].target} == {r1.id, r2.id}
+    )
+    assert len(fresh.preview.edges) == 1  # проекция дала ровно одно ребро R1↔R2
 
 
 def test_create_from_template_seeds_schema(db):

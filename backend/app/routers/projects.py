@@ -7,6 +7,7 @@
 """
 
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,10 +21,21 @@ from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
 from app.projects import copy_project_schema
-from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectPreview,
+    ProjectPreviewEdge,
+    ProjectPreviewNode,
+    ProjectResponse,
+    ProjectUpdate,
+)
 from app.templates import seed_template
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+# Сколько корневых узлов максимум кладём в превью карточки (миниатюра ~280×132).
+# Больше — берём узлы с наибольшим числом связей (самые «центральные»).
+MAX_PREVIEW_NODES = 12
 
 
 def _counts(db: Session, project_ids: list[uuid.UUID]) -> tuple[dict, dict]:
@@ -45,7 +57,94 @@ def _counts(db: Session, project_ids: list[uuid.UUID]) -> tuple[dict, dict]:
     return node_counts, edge_counts
 
 
-def _to_response(p: Project, node_counts: dict, edge_counts: dict, users: dict) -> ProjectResponse:
+def _previews(db: Session, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, ProjectPreview]:
+    """Мини-граф корневого уровня для каждого проекта — батчем, без N+1.
+
+    Топология как на холсте корневого уровня: узлы = корни дерева (parent_id is
+    null), связи = все рёбра проекта с концами, спроецированными на корневого
+    предка (как ghost-проекция сквозных связей). Петли (оба конца под одним корнем)
+    отбрасываются. При переборе MAX_PREVIEW_NODES оставляем самые связные корни.
+    """
+    if not project_ids:
+        return {}
+
+    # Все узлы проектов (только нужные для превью/проекции поля).
+    node_rows = (
+        db.query(Node.id, Node.project_id, Node.parent_id, Node.is_external, Node.pos_x, Node.pos_y)
+        .filter(Node.project_id.in_(project_ids))
+        .all()
+    )
+    by_project: dict[uuid.UUID, list] = defaultdict(list)
+    parent_of: dict[uuid.UUID, uuid.UUID | None] = {}
+    for r in node_rows:
+        by_project[r.project_id].append(r)
+        parent_of[r.id] = r.parent_id
+
+    # Корневой предок узла (подъём по parent_id) с мемоизацией по цепочке.
+    root_cache: dict[uuid.UUID, uuid.UUID] = {}
+
+    def root_of(node_id: uuid.UUID) -> uuid.UUID:
+        path: list[uuid.UUID] = []
+        cur = node_id
+        while True:
+            if cur in root_cache:
+                root = root_cache[cur]
+                break
+            path.append(cur)
+            par = parent_of.get(cur)
+            if par is None or par not in parent_of:
+                root = cur  # корень дерева (либо родитель вне проекта — обрываемся)
+                break
+            cur = par
+        for c in path:
+            root_cache[c] = root
+        return root
+
+    # Рёбра, спроецированные на корневых предков, по проектам (множество пар).
+    edge_rows = (
+        db.query(Edge.project_id, Edge.source_id, Edge.target_id)
+        .filter(Edge.project_id.in_(project_ids))
+        .all()
+    )
+    project_edges: dict[uuid.UUID, set[tuple[uuid.UUID, uuid.UUID]]] = defaultdict(set)
+    for e in edge_rows:
+        rs, rt = root_of(e.source_id), root_of(e.target_id)
+        if rs != rt:
+            project_edges[e.project_id].add((rs, rt))
+
+    out: dict[uuid.UUID, ProjectPreview] = {}
+    for pid in project_ids:
+        roots = [r for r in by_project.get(pid, []) if r.parent_id is None]
+        edges = project_edges.get(pid, set())
+        degree: dict[uuid.UUID, int] = defaultdict(int)
+        for s, t in edges:
+            degree[s] += 1
+            degree[t] += 1
+        # Самые связные корни вперёд; tie-break по id для детерминизма.
+        roots.sort(key=lambda r: (-degree[r.id], str(r.id)))
+        kept = roots[:MAX_PREVIEW_NODES]
+        kept_ids = {r.id for r in kept}
+        out[pid] = ProjectPreview(
+            nodes=[
+                ProjectPreviewNode(id=r.id, is_external=r.is_external, x=r.pos_x, y=r.pos_y)
+                for r in kept
+            ],
+            edges=[
+                ProjectPreviewEdge(source=s, target=t)
+                for (s, t) in edges
+                if s in kept_ids and t in kept_ids
+            ],
+        )
+    return out
+
+
+def _to_response(
+    p: Project,
+    node_counts: dict,
+    edge_counts: dict,
+    users: dict,
+    previews: dict[uuid.UUID, ProjectPreview],
+) -> ProjectResponse:
     return ProjectResponse(
         id=p.id,
         name=p.name,
@@ -56,6 +155,7 @@ def _to_response(p: Project, node_counts: dict, edge_counts: dict, users: dict) 
         object_count=node_counts.get(p.id, 0),
         edge_count=edge_counts.get(p.id, 0),
         updated_by=users.get(p.updated_by_id) if p.updated_by_id else None,
+        preview=previews.get(p.id) or ProjectPreview(nodes=[], edges=[]),
     )
 
 
@@ -77,9 +177,11 @@ def list_projects(
     q = db.query(Project)
     q = q.filter(Project.archived_at.isnot(None)) if archived else q.filter(Project.archived_at.is_(None))
     projects = q.order_by(Project.updated_at.desc()).all()
-    nc, ec = _counts(db, [p.id for p in projects])
+    ids = [p.id for p in projects]
+    nc, ec = _counts(db, ids)
     users = _users_map(db, projects)
-    return [_to_response(p, nc, ec, users) for p in projects]
+    previews = _previews(db, ids)
+    return [_to_response(p, nc, ec, users, previews) for p in projects]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -92,7 +194,7 @@ def get_project(
     if p is None:
         raise HTTPException(status_code=404, detail="Проект не найден")
     nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]))
+    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -134,7 +236,7 @@ def create_project(
     db.commit()
     db.refresh(project)
     nc, ec = _counts(db, [project.id])
-    return _to_response(project, nc, ec, _users_map(db, [project]))
+    return _to_response(project, nc, ec, _users_map(db, [project]), _previews(db, [project.id]))
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -155,7 +257,7 @@ def update_project(
     db.commit()
     db.refresh(p)
     nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]))
+    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
 
 
 @router.post("/{project_id}/archive", response_model=ProjectResponse)
@@ -173,7 +275,7 @@ def archive_project(
         db.commit()
         db.refresh(p)
     nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]))
+    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
 
 
 @router.post("/{project_id}/restore", response_model=ProjectResponse)
@@ -190,7 +292,7 @@ def restore_project(
     db.commit()
     db.refresh(p)
     nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]))
+    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

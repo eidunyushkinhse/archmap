@@ -1757,9 +1757,55 @@ export interface components {
             start: string;
         };
         /**
+         * ProjectPreview
+         * @description Реальная топология корневого уровня схемы в миниатюре (узлы + связи между
+         *     ними). Пустая схема → пустые списки.
+         */
+        ProjectPreview: {
+            /** Nodes */
+            nodes: components["schemas"]["ProjectPreviewNode"][];
+            /** Edges */
+            edges: components["schemas"]["ProjectPreviewEdge"][];
+        };
+        /**
+         * ProjectPreviewEdge
+         * @description Связь корневого уровня: концы спроецированы на корневых предков (как ghost-
+         *     проекция на холсте). source/target — id узлов из nodes того же превью.
+         */
+        ProjectPreviewEdge: {
+            /**
+             * Source
+             * Format: uuid
+             */
+            source: string;
+            /**
+             * Target
+             * Format: uuid
+             */
+            target: string;
+        };
+        /**
+         * ProjectPreviewNode
+         * @description Корневой узел схемы для мини-превью карточки. x/y — сохранённая раскладка
+         *     холста (null, если узел ни разу не двигали — тогда фронт раскладывает сам).
+         */
+        ProjectPreviewNode: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is External */
+            is_external: boolean;
+            /** X */
+            x: number | null;
+            /** Y */
+            y: number | null;
+        };
+        /**
          * ProjectResponse
-         * @description Проект с метаданными для карточки лендинга. Счётчики/редактор — вычисляемые,
-         *     поэтому собирается вручную в роутере (не from_attributes).
+         * @description Проект с метаданными для карточки лендинга. Счётчики/редактор/превью —
+         *     вычисляемые, поэтому собирается вручную в роутере (не from_attributes).
          */
         ProjectResponse: {
             /**
@@ -1789,6 +1835,7 @@ export interface components {
             edge_count: number;
             /** Updated By */
             updated_by: string | null;
+            preview: components["schemas"]["ProjectPreview"];
         };
         /** ProjectUpdate */
         ProjectUpdate: {

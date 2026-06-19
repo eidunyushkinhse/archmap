@@ -1,44 +1,48 @@
 import type { CSSProperties } from "react";
+import { useMemo } from "react";
+import type { ProjectPreview } from "../../types";
 
 /**
- * Мини-превью схемы для карточки проекта: синие узлы-блоки на точечном фоне с
- * ортогональными связями — «как на холсте». Раскладка детерминированная (seed —
- * id проекта), число блоков выводится из object_count. Это репрезентативная
- * миниатюра, не реальная топология (реальную тянуть по каждой карточке = N
- * graph-запросов; отложено до отдельной задачи).
+ * Мини-превью схемы для карточки проекта: РЕАЛЬНАЯ топология корневого уровня
+ * (узлы-корни + связи между ними, спроецированные на корневых предков — как
+ * ghost-проекция на холсте). Бэкенд отдаёт preview в ответе /projects.
+ *
+ * Раскладка: если у всех узлов есть сохранённые координаты холста — берём их
+ * (вписываем bbox во вьюпорт). Иначе раскладываем сами по окружности (порядок
+ * узлов детерминированный — бэкенд сортирует по связности). Цвет блока — как на
+ * холсте корневого уровня (depth 0): внутренний синий, внешний серый.
  */
 
 interface Props {
-  seed: string;
-  objectCount: number;
-  edgeCount: number;
+  preview: ProjectPreview;
 }
 
 const W = 280;
 const H = 132;
-const NODE_W = 46;
-const NODE_H = 24;
 
-// Детерминированный PRNG (mulberry32) от строкового seed — одна и та же карточка
-// всегда раскладывается одинаково.
-function makeRng(seed: string): () => number {
-  let h = 1779033703 ^ seed.length;
-  for (let i = 0; i < seed.length; i++) {
-    h = Math.imul(h ^ seed.charCodeAt(i), 3432918353);
-    h = (h << 13) | (h >>> 19);
-  }
-  let a = h >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+// C4-палитра корневого уровня (depth 0) — синхронно с graph/colors.ts.
+const INTERNAL = { fill: "#1168bd", stroke: "#0d5196" };
+const EXTERNAL = { fill: "#7b8794", stroke: "#5a6573" };
+const EDGE_STROKE = "#bcd0ee";
+
+interface Placed {
+  id: string;
+  isExternal: boolean;
+  cx: number;
+  cy: number;
 }
 
-export default function SchemaPreview({ seed, objectCount, edgeCount }: Props) {
-  if (objectCount === 0) {
+// Размер блока подбираем под число узлов, чтобы миниатюра не «забивалась».
+function nodeSize(count: number): { w: number; h: number } {
+  if (count <= 4) return { w: 46, h: 24 };
+  if (count <= 8) return { w: 34, h: 18 };
+  return { w: 26, h: 15 };
+}
+
+export default function SchemaPreview({ preview }: Props) {
+  const layout = useMemo(() => computeLayout(preview), [preview]);
+
+  if (layout === null) {
     return (
       <div style={{ ...frame, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <span style={{ color: "#94a3b8", fontSize: 12 }}>Пустая схема</span>
@@ -46,56 +50,95 @@ export default function SchemaPreview({ seed, objectCount, edgeCount }: Props) {
     );
   }
 
-  const rng = makeRng(seed);
-  const count = Math.min(objectCount, 6);
-  // Раскладываем блоки по сетке-джиттеру внутри безопасных полей.
-  const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
-  const rows = Math.ceil(count / cols);
-  const padX = 14;
-  const padY = 14;
-  const cellW = (W - padX * 2) / cols;
-  const cellH = (H - padY * 2) / rows;
-  const blocks = Array.from({ length: count }, (_, i) => {
-    const c = i % cols;
-    const r = Math.floor(i / cols);
-    const jx = (rng() - 0.5) * (cellW - NODE_W - 6);
-    const jy = (rng() - 0.5) * (cellH - NODE_H - 6);
-    const x = padX + c * cellW + (cellW - NODE_W) / 2 + jx;
-    const y = padY + r * cellH + (cellH - NODE_H) / 2 + jy;
-    return { x, y, cx: x + NODE_W / 2, cy: y + NODE_H / 2 };
-  });
-
-  // Ортогональные связи между последовательными блоками (ограничиваем edgeCount).
-  const links = Math.min(edgeCount, count - 1, 5);
-  const paths: string[] = [];
-  for (let i = 0; i < links; i++) {
-    const a = blocks[i];
-    const b = blocks[i + 1];
-    const midX = (a.cx + b.cx) / 2;
-    paths.push(`M ${a.cx} ${a.cy} H ${midX} V ${b.cy} H ${b.cx}`);
-  }
+  const { nodes, edges } = layout;
+  const { w: NODE_W, h: NODE_H } = nodeSize(nodes.length);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
 
   return (
     <div style={frame}>
-      <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice">
-        {paths.map((d, i) => (
-          <path key={i} d={d} fill="none" stroke="#bcd0ee" strokeWidth={1.5} />
-        ))}
-        {blocks.map((b, i) => (
-          <rect
-            key={i}
-            x={b.x}
-            y={b.y}
-            width={NODE_W}
-            height={NODE_H}
-            rx={5}
-            fill="#2f80ed"
-            opacity={0.92}
-          />
-        ))}
+      <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+        {edges.map((e, i) => {
+          const a = byId.get(e.source);
+          const b = byId.get(e.target);
+          if (!a || !b) return null;
+          const midX = (a.cx + b.cx) / 2;
+          return (
+            <path
+              key={i}
+              d={`M ${a.cx} ${a.cy} H ${midX} V ${b.cy} H ${b.cx}`}
+              fill="none"
+              stroke={EDGE_STROKE}
+              strokeWidth={1.5}
+            />
+          );
+        })}
+        {nodes.map((n) => {
+          const c = n.isExternal ? EXTERNAL : INTERNAL;
+          return (
+            <rect
+              key={n.id}
+              x={n.cx - NODE_W / 2}
+              y={n.cy - NODE_H / 2}
+              width={NODE_W}
+              height={NODE_H}
+              rx={5}
+              fill={c.fill}
+              stroke={c.stroke}
+              strokeWidth={1}
+            />
+          );
+        })}
       </svg>
     </div>
   );
+}
+
+// Считает центры узлов в координатах вьюпорта (или null для пустой схемы).
+function computeLayout(
+  preview: ProjectPreview,
+): { nodes: Placed[]; edges: { source: string; target: string }[] } | null {
+  const raw = preview.nodes;
+  if (raw.length === 0) return null;
+
+  const { w: NODE_W, h: NODE_H } = nodeSize(raw.length);
+  const padX = NODE_W / 2 + 8;
+  const padY = NODE_H / 2 + 8;
+
+  const allPositioned = raw.every((n) => n.x !== null && n.y !== null);
+  // Базовые точки в произвольном пространстве: сохранённые координаты холста либо
+  // окружность (детерминированный порядок — бэкенд уже отсортировал узлы).
+  const pts = allPositioned
+    ? raw.map((n) => ({ x: n.x as number, y: n.y as number }))
+    : raw.map((_, i) => {
+        if (raw.length === 1) return { x: 0, y: 0 };
+        const a = (i / raw.length) * Math.PI * 2 - Math.PI / 2;
+        return { x: Math.cos(a), y: Math.sin(a) };
+      });
+
+  // Вписываем bbox точек в безопасную область вьюпорта, сохраняя пропорции.
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const innerW = W - padX * 2;
+  const innerH = H - padY * 2;
+  const scale = Math.min(innerW / spanX, innerH / spanY);
+  // Центрируем масштабированный bbox во вьюпорте.
+  const offX = padX + (innerW - spanX * scale) / 2;
+  const offY = padY + (innerH - spanY * scale) / 2;
+
+  const nodes: Placed[] = raw.map((n, i) => ({
+    id: n.id,
+    isExternal: n.is_external,
+    cx: offX + (pts[i].x - minX) * scale,
+    cy: offY + (pts[i].y - minY) * scale,
+  }));
+
+  return { nodes, edges: preview.edges };
 }
 
 const frame: CSSProperties = {

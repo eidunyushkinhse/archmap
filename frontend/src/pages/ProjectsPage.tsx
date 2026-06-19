@@ -203,7 +203,7 @@ function ProjectCard({
     >
       <div style={{ position: "relative" }}>
         <button style={cardPreviewBtn} onClick={onOpen} title="Открыть проект">
-          <SchemaPreview seed={project.id} objectCount={project.object_count} edgeCount={project.edge_count} />
+          <SchemaPreview preview={project.preview} />
         </button>
         {isArchitect && (
           <CardMenu archivedTab={archivedTab} onOpen={onOpen} onEdit={onEdit} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} />

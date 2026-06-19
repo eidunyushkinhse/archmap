@@ -19,6 +19,7 @@ export const canHaveChildren = (shape: NodeShape): boolean => shape === "service
 export type Project = Schemas["ProjectResponse"];
 export type ProjectCreate = Schemas["ProjectCreate"];
 export type ProjectUpdate = Schemas["ProjectUpdate"];
+export type ProjectPreview = Schemas["ProjectPreview"];
 
 export type Node = Schemas["NodeResponse"];
 
