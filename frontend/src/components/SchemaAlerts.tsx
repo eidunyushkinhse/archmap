@@ -68,9 +68,10 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
   const disconnected = alerts.disconnected_nodes;
   const intermediate = alerts.intermediate_edges;
   const isolated = alerts.isolated_groups;
-  // Изолированные группы — это ОДНА проблема связности, проявляющаяся как «не хватает
-  // (групп − 1) связей»: 2 группы → 1 недостающая связь, 3 → 2 и т.д. Поэтому в счётчик
-  // идёт groups − 1, а не само число групп (иначе цифра завышает число проблем).
+  // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
+  // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
+  // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
+  // показываются как «2», но в сумму незавершённости дают «1».
   const isolatedProblems = Math.max(0, isolated.length - 1);
   const total = disconnected.length + intermediate.length + isolatedProblems;
 
@@ -162,7 +163,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
             ))}
           </Section>
 
-          <Section icon={IcoScatter(13)} title="Изолированные группы" count={isolatedProblems}>
+          <Section icon={IcoScatter(13)} title="Изолированные группы" count={isolated.length}>
             {isolated.map((grp, i) => (
               <Item key={i} onClick={onLocate && (() => onLocate({ kind: "group", ids: grp.node_ids }))}>
                 <span style={{ color: "#6b7280", fontWeight: 600 }}>Группа {i + 1}:</span> {grp.node_names.join(", ")}
