@@ -82,6 +82,7 @@ def _participant_out(p: ProcessParticipant, node: Node) -> ParticipantOut:
         role=node.role,
         shape=node.shape,  # type: ignore[arg-type]
         is_external=node.is_external,
+        status=node.status,  # type: ignore[arg-type]
         order=p.order,
     )
 
@@ -167,6 +168,17 @@ def list_processes(
         .group_by(ProcessMessage.process_id)
         .all()
     )
+    # Статусы узлов-участников по процессам — для производного бейджа в списке.
+    proc_statuses: dict[uuid.UUID, set[str]] = {}
+    for proc_id, node_id in (
+        db.query(ProcessParticipant.process_id, ProcessParticipant.node_id)
+        .join(BusinessProcess, BusinessProcess.id == ProcessParticipant.process_id)
+        .filter(BusinessProcess.project_id == project.id)
+        .all()
+    ):
+        node = all_nodes.get(node_id)
+        if node is not None:
+            proc_statuses.setdefault(proc_id, set()).add(node.status)
     out: list[ProcessListItem] = []
     for proc in (
         db.query(BusinessProcess)
@@ -182,6 +194,7 @@ def list_processes(
                 scope_node_id=proc.scope_node_id,
                 scope_name=scope.name if scope else None,
                 message_count=counts.get(proc.id, 0),
+                statuses=sorted(proc_statuses.get(proc.id, set())),  # type: ignore[arg-type]
             )
         )
     return out

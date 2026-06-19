@@ -1688,6 +1688,11 @@ export interface components {
             shape: "service" | "database" | "broker" | "person";
             /** Is External */
             is_external: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "existing" | "planned" | "deprecated";
             /** Order */
             order: number;
         };
@@ -1755,6 +1760,8 @@ export interface components {
             scope_name: string | null;
             /** Message Count */
             message_count: number;
+            /** Statuses */
+            statuses: ("existing" | "planned" | "deprecated")[];
         };
         /** ProcessUpdate */
         ProcessUpdate: {

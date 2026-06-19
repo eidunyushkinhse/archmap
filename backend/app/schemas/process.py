@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.node import NodeStatus
+
 Leg = Literal["forward", "return"]
 Kind = Literal["forward", "return", "async"]
 FragmentKind = Literal["alt", "opt", "loop", "par"]
@@ -35,6 +37,9 @@ class ProcessListItem(BaseModel):
     scope_node_id: uuid.UUID | None
     scope_name: str | None
     message_count: int
+    # Различные статусы узлов-участников (для производного бейджа процесса в списке:
+    # to-be / вывод / миграция). Пусто/только existing → бейджа нет.
+    statuses: list[NodeStatus]
 
 
 class ParticipantOut(BaseModel):
@@ -44,6 +49,7 @@ class ParticipantOut(BaseModel):
     role: str | None
     shape: Shape
     is_external: bool
+    status: NodeStatus  # статус жизненного цикла узла-участника (цвет плеча/линии жизни)
     order: int
 
 
