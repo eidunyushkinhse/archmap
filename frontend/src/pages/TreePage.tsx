@@ -1066,7 +1066,10 @@ const rightContent: CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: "auto",
-  padding: "14px 14px",
+  // gutter под бегунок резервируем отдельной дорожкой: на Linux/WSL Chrome бегунок —
+  // оверлей и иначе наезжал бы на правый паддинг, из-за чего поля меты упирались в него.
+  scrollbarGutter: "stable",
+  padding: "14px 16px",
 };
 const crumbLink: CSSProperties = {
   display: "inline-flex",
