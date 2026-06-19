@@ -68,7 +68,11 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
   const disconnected = alerts.disconnected_nodes;
   const intermediate = alerts.intermediate_edges;
   const isolated = alerts.isolated_groups;
-  const total = disconnected.length + intermediate.length + isolated.length;
+  // Изолированные группы — это ОДНА проблема связности, проявляющаяся как «не хватает
+  // (групп − 1) связей»: 2 группы → 1 недостающая связь, 3 → 2 и т.д. Поэтому в счётчик
+  // идёт groups − 1, а не само число групп (иначе цифра завышает число проблем).
+  const isolatedProblems = Math.max(0, isolated.length - 1);
+  const total = disconnected.length + intermediate.length + isolatedProblems;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -158,7 +162,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
             ))}
           </Section>
 
-          <Section icon={IcoScatter(13)} title="Изолированные группы" count={isolated.length}>
+          <Section icon={IcoScatter(13)} title="Изолированные группы" count={isolatedProblems}>
             {isolated.map((grp, i) => (
               <Item key={i} onClick={onLocate && (() => onLocate({ kind: "group", ids: grp.node_ids }))}>
                 <span style={{ color: "#6b7280", fontWeight: 600 }}>Группа {i + 1}:</span> {grp.node_names.join(", ")}
