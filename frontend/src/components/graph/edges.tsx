@@ -71,6 +71,9 @@ function WrappedLabelEdge({
   const d = data as WrappedEdgeData | undefined;
   const shelf = d?.shelf;
   const loop = d?.loop;
+  // Приглушение фильтром «Вид схемы»: линию гасит style.opacity (из LevelGraph),
+  // а плашку подписи — этот стиль (она рендерится в отдельном слое EdgeLabelRenderer).
+  const dimStyle: CSSProperties | null = d?.dimmed ? { opacity: 0.12, pointerEvents: "none" } : null;
 
   // Реестр «мостиков»: публикуем ломаную этого ребра, читаем его точки-прыжки.
   const { publish, jumpsFor } = useEdgeJumps();
@@ -435,7 +438,7 @@ function WrappedLabelEdge({
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
           <div className={boxCls} onClick={boxClick} {...dragProps}
-            style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...boxInteract }}>
+            style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...boxInteract, ...dimStyle }}>
             {items.map((it, i) => (
               <div key={i} style={{ display: "flex", gap: 4 }}>
                 <span>•</span><span>{it}</span>
@@ -448,7 +451,7 @@ function WrappedLabelEdge({
           {/* при заданном capW (контекст) подпись переносится по словам и ограничена по
               ширине, чтобы влезть в зазор между фокусом и колонкой и не лезть на узлы */}
           <div className={boxCls} onClick={boxClick} {...dragProps}
-            style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...boxInteract }}>
+            style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...boxInteract, ...dimStyle }}>
             {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
           </div>
         </EdgeLabelRenderer>
@@ -457,7 +460,7 @@ function WrappedLabelEdge({
         // компактный плейсхолдер-плашку как триггер детализации (и точку входа в правку).
         <EdgeLabelRenderer>
           <div className={boxCls} title="Открыть связь" onClick={boxClick} {...dragProps}
-            style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", fontSize: 13, lineHeight: "16px", cursor: "pointer", pointerEvents: "all", ...boxInteract }}>
+            style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", fontSize: 13, lineHeight: "16px", cursor: "pointer", pointerEvents: "all", ...boxInteract, ...dimStyle }}>
             •••
           </div>
         </EdgeLabelRenderer>

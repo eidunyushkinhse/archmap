@@ -34,6 +34,8 @@ import type {
 import type { EdgeSide } from "./graph/edgePath";
 import { edgeText } from "./graph/text";
 import { getNodeColors, STATUS_META } from "./graph/colors";
+import { SchemaViewFilter, SchemaLegend } from "./SchemaViewFilter";
+import { viewShows, type SchemaView } from "./schemaView";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { placeGhostsOnRings } from "./graph/layout/ringPlacement";
@@ -71,6 +73,14 @@ const EMPTY_LEVEL_HANDLES: Record<string, string[]> = {};
 // Тот же приём для пер-уровневых путей гостевых стрелок: стабильная ссылка дефолта,
 // чтобы не дёргать сборку рёбер лишний раз.
 const EMPTY_LEVEL_WAYPOINTS: Record<string, LevelWaypoints> = {};
+
+// Ключ localStorage для выбранного «Вида схемы» (as-is/переход/to-be). Глобальный,
+// не по проектам: вид — привычка пользователя, не свойство конкретной схемы.
+const SCHEMA_VIEW_KEY = "archmap-schema-view";
+
+// Стиль приглушения узла, скрытого фильтром «Вид схемы» (мгновенно, без transition —
+// см. ТЗ: fade на opacity в наших прогонах вёл себя нестабильно).
+const DIM_STYLE = { opacity: 0.12, pointerEvents: "none" as const };
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер. Считается
 // в async-эффекте (Фаза 4): движок async, поэтому это стейт, а не useMemo рендера.
@@ -252,6 +262,14 @@ function LevelGraphInner({
   const expandContainer = useCallback((id: string) => {
     setExpanded((prev) => new Set(prev).add(id));
   }, []);
+
+  // Вид схемы (as-is/переход/to-be) — клиентский визуальный фильтр статусов, переживает
+  // перезагрузку (localStorage). Не серверное и не раскладка. В контексте не применяется.
+  const [schemaView, setSchemaView] = useState<SchemaView>(() => {
+    const saved = localStorage.getItem(SCHEMA_VIEW_KEY);
+    return saved === "asis" || saved === "tobe" || saved === "all" ? saved : "all";
+  });
+  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
   const collapseContainer = useCallback((id: string) => {
     setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
   }, []);
@@ -819,11 +837,15 @@ function LevelGraphInner({
       if (a === "planned" || b === "planned") return "planned";
       return "existing";
     };
+    // Приглушён ли узел статуса st фильтром вида (в контексте фильтра нет). Скрытый
+    // узел НЕ удаляем — гасим opacity, сохраняя пространственную память раскладки.
+    const dimNode = (st: NodeStatus): boolean => !isContext && !viewShows(schemaView, st);
     setRfNodes([
       ...layoutNodes.map((n) => ({
         id: n.id,
         type: "block" as const,
         position: positions.get(n.id) ?? { x: 0, y: 0 },
+        ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
         data: {
           appNode: n,
           onDrillDown: cb.onDrillDown,
@@ -842,6 +864,7 @@ function LevelGraphInner({
             id: ent.id,
             type: "ghost" as const,
             position,
+            ...(dimNode(ent.ghost.status) ? { style: DIM_STYLE } : null),
             data: {
               appNode: ent.ghost,
               colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth, ent.ghost.status),
@@ -955,6 +978,10 @@ function LevelGraphInner({
         // Цвет ребра по статусу сильнейшего конца; deprecated — пунктир («связь уходит»).
         const est = edgeStatus(g.source, g.target);
         const eColor = STATUS_META[est].edge;
+        // Приглушаем ребро, если приглушён ЛЮБОЙ его конец (фильтр вида).
+        const eDimmed = dimNode(statusOf.get(g.source) ?? "existing")
+          || dimNode(statusOf.get(g.target) ?? "existing");
+        if (eDimmed) data.dimmed = true;
         return {
           id: g.id,
           source: g.source,
@@ -968,6 +995,7 @@ function LevelGraphInner({
             stroke: eColor,
             strokeWidth: 1.5,
             ...(est === "deprecated" ? { strokeDasharray: "6 4" } : null),
+            ...(eDimmed ? { opacity: 0.12 } : null),
           },
           // хэндл мастер-стрелки общий для всех членов — реконнект фанаутит его на все
           // (смена узла-конца по-прежнему запрещена в handleReconnect: правится только хэндл)
@@ -979,7 +1007,7 @@ function LevelGraphInner({
     // а НЕ из сырого пропа levelEdgeWaypoints: последний входит в зависимости раскладки выше
     // → его правка даёт новый layout (со свежим levelWaypoints), и сборка идёт со СВЕЖИМ
     // снапшотом. Прямой триггер сборки по сырому пропу откатывал бы хэндл гостя при реконнекте.
-  }, [layout, isArchitect, depth, isContext, containerId, setRfNodes, setRfEdges]);
+  }, [layout, isArchitect, depth, isContext, containerId, schemaView, setRfNodes, setRfEdges]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
@@ -996,6 +1024,18 @@ function LevelGraphInner({
     },
     [openEdgeMembers, consumeReconnectClick]
   );
+
+  // Счётчики узлов уровня по статусу (для легенды) + есть ли вообще не-existing узлы.
+  // Фильтр вида и легенду показываем только когда на уровне есть что фильтровать —
+  // на чистой as-is-схеме не засоряем холст.
+  const statusCounts = useMemo(() => {
+    const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
+    if (!layout) return c;
+    for (const n of layout.nodes) c[n.status]++;
+    for (const ent of layout.entities) c[ent.kind === "leaf" ? ent.ghost.status : "existing"]++;
+    return c;
+  }, [layout]);
+  const showViewChrome = !isContext && statusCounts.planned + statusCounts.deprecated > 0;
 
   // Контекст-схема без фокус-узла не бывает — защитно ничего не рисуем. Обычный
   // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
@@ -1050,6 +1090,18 @@ function LevelGraphInner({
             </button>
           </div>
         </div>
+      )}
+      {/* Фильтр «Вид схемы» (сверху по центру) и легенда статусов (снизу слева, правее
+          контролов зума). Показываем только когда на уровне есть не-existing узлы. */}
+      {showViewChrome && (
+        <>
+          <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 5 }}>
+            <SchemaViewFilter view={schemaView} onChange={setSchemaView} />
+          </div>
+          <div style={{ position: "absolute", bottom: 14, left: 56, zIndex: 5 }}>
+            <SchemaLegend view={schemaView} counts={statusCounts} />
+          </div>
+        </>
       )}
       {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
           прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
