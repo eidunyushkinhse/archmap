@@ -24,7 +24,10 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
   if (!m.badge) return null;
   return (
     <span style={{
-      position: "absolute", top: -9, left: 10, zIndex: 3,
+      // Бейдж сидит ПОЛНОСТЬЮ над верхней кромкой узла (низ чипа на самой кромке),
+      // иначе он наползал бы на первую строку названия. nodeContainer с overflow:visible
+      // (форма-SVG абсолютна) — чип не обрезается.
+      position: "absolute", bottom: "100%", marginBottom: 2, left: 10, zIndex: 3,
       fontSize: 9, fontWeight: 700, letterSpacing: ".03em",
       padding: "2px 7px", borderRadius: 20, color: "#fff",
       background: border, whiteSpace: "nowrap",
