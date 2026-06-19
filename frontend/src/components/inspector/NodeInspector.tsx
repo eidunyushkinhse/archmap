@@ -261,7 +261,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           {(isArchitect || node.flowchart) && (
             <button type="button" className="insp-heavy" onClick={() => setDoc("flowchart")}>
               <span className="insp-heavy-ico">{META_ICON.flow}</span>
-              <span className="insp-heavy-name">Flowchart</span>
+              <span className="insp-heavy-name">Логика</span>
               <span className="insp-heavy-status">{node.flowchart ? "открыть →" : "не задано"}</span>
             </button>
           )}

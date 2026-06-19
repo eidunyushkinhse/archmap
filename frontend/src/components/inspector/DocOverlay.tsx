@@ -23,7 +23,7 @@ export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchi
   const [api, setApi] = useState(openapi);
   const [flowTab, setFlowTab] = useState<"edit" | "preview">(isArchitect ? "edit" : "preview");
 
-  const title = `${nodeName} · ${mode === "flowchart" ? "Flowchart" : "OpenAPI"}`;
+  const title = `${nodeName} · ${mode === "flowchart" ? "Логика" : "OpenAPI"}`;
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 620, maxHeight: "90vh", overflowY: "auto" }}>

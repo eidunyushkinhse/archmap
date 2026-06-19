@@ -208,6 +208,8 @@
 .insp-value .insp-field {
   width: auto;
   flex: 1;
+  /* зазор справа: поле и его фокус-кольцо не упираются в бегунок скролла панели */
+  margin-right: 6px;
 }
 .insp-dot {
   width: 7px;

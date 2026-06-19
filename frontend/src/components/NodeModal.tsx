@@ -131,7 +131,7 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
 
       {shape !== "person" && (
         <>
-          <label style={labelStyle}>Flowchart (Mermaid)</label>
+          <label style={labelStyle}>Логика (Mermaid)</label>
           <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
             <button onClick={() => setFlowTab("edit")} style={flowTab === "edit" ? activeTab : tabBtn}>Редактор</button>
             <button onClick={() => setFlowTab("preview")} style={flowTab === "preview" ? activeTab : tabBtn}>Превью</button>
