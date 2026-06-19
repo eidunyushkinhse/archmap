@@ -78,7 +78,6 @@ export interface QuickConnectHandlers {
 export interface BlockData extends Record<string, unknown> {
   appNode: AppNode;
   onDrillDown: (node: AppNode) => void;
-  onEdit: (node: AppNode) => void;
   isArchitect: boolean;
   colors: NodeColors;
   // в контекст-режиме у фокусного блока нет кнопок «Войти»/правки (схема — только просмотр)

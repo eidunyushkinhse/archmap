@@ -34,7 +34,6 @@ import type {
 import type { EdgeSide } from "./graph/edgePath";
 import { edgeText } from "./graph/text";
 import { getNodeColors, STATUS_META } from "./graph/colors";
-import { SchemaLegend } from "./SchemaViewFilter";
 import { viewShows, type SchemaView } from "./schemaView";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
@@ -842,7 +841,6 @@ function LevelGraphInner({
         data: {
           appNode: n,
           onDrillDown: cb.onDrillDown,
-          onEdit: cb.onEditNode,
           isArchitect,
           colors: getNodeColors(n.is_external, depth, n.status),
           hideActions: isContext,
@@ -1008,27 +1006,34 @@ function LevelGraphInner({
     isArchitect, isContext, onDropNode, dragShape,
   });
 
+  // Одиночный клик по связи — только штатное выделение React Flow (мету больше не
+  // открывает). Сохраняем обработчик, чтобы гасить клик-эхо после жеста реконнекта.
   const handleEdgeClick = useCallback(
-    (_event: MouseEvent, rfEdge: RFEdge) => {
-      // клик-эхо сразу после жеста реконнекта — не открываем поповер информации о связи
-      if (consumeReconnectClick()) return;
-      const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
-      openEdgeMembers(memberIds);
-    },
-    [openEdgeMembers, consumeReconnectClick]
+    () => { consumeReconnectClick(); },
+    [consumeReconnectClick]
   );
 
-  // Счётчики узлов уровня по статусу (для легенды) + есть ли вообще не-existing узлы.
-  // Фильтр вида и легенду показываем только когда на уровне есть что фильтровать —
-  // на чистой as-is-схеме не засоряем холст.
-  const statusCounts = useMemo(() => {
-    const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
-    if (!layout) return c;
-    for (const n of layout.nodes) c[n.status]++;
-    for (const ent of layout.entities) c[ent.kind === "leaf" ? ent.ghost.status : "existing"]++;
-    return c;
-  }, [layout]);
-  const showViewChrome = !isContext && statusCounts.planned + statusCounts.deprecated > 0;
+  // Двойной клик — единственный триггер меты (правая панель). По узлу: только локальный
+  // блок (как и снятая кнопка «Подробнее»; гость/контейнер не правим, контекст read-only).
+  const handleNodeDoubleClick = useCallback(
+    (_e: MouseEvent, rfNode: RFNode) => {
+      if (isContext || rfNode.type !== "block") return;
+      const appNode = (rfNode.data as BlockData | undefined)?.appNode;
+      if (appNode) cbRef.current.onEditNode(appNode);
+    },
+    [isContext]
+  );
+  // По связи: тот же путь, что у плашки (openEdgeMembers → одна связь сразу в панель,
+  // несколько — выбор участника, см. TreePage). Гасим клик-эхо реконнекта и на double.
+  const handleEdgeDoubleClick = useCallback(
+    (_e: MouseEvent, rfEdge: RFEdge) => {
+      if (isContext) return;
+      if (consumeReconnectClick()) return;
+      const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
+      cbRef.current.openEdgeMembers(memberIds);
+    },
+    [isContext, consumeReconnectClick]
+  );
 
   // Контекст-схема без фокус-узла не бывает — защитно ничего не рисуем. Обычный
   // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
@@ -1084,13 +1089,8 @@ function LevelGraphInner({
           </div>
         </div>
       )}
-      {/* Легенда статусов (снизу слева, правее контролов зума). Переключатель «Вид схемы»
-          живёт в правой панели TreePage. Показываем только когда есть не-existing узлы. */}
-      {showViewChrome && (
-        <div style={{ position: "absolute", bottom: 14, left: 56, zIndex: 5 }}>
-          <SchemaLegend view={schemaView} counts={statusCounts} />
-        </div>
-      )}
+      {/* Легенда статусов и переключатель «Вид схемы» живут в правой панели схемы
+          (TreePage → ObjectInspector); оверлея на холсте больше нет. */}
       {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
           прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
           анимация уезда; position:fixed не обрезается overflow:hidden канваса. */}
@@ -1132,6 +1132,8 @@ function LevelGraphInner({
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onEdgeClick={handleEdgeClick}
+        onNodeDoubleClick={handleNodeDoubleClick}
+        onEdgeDoubleClick={handleEdgeDoubleClick}
         onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStopP}

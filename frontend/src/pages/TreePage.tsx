@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, LevelPos, LevelWaypoints, Node, NodeShape, NodeUpdate, SchemaAlerts as Alerts } from "../types";
+import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, LevelPos, LevelWaypoints, Node, NodeShape, NodeStatus, NodeUpdate, SchemaAlerts as Alerts } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import { guardPersist } from "../components/graph/interaction/persistGuard";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts from "../components/SchemaAlerts";
-import EdgeDetailModal from "../components/EdgeDetailModal";
 import EdgeChoiceModal from "../components/EdgeChoiceModal";
 import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
@@ -17,7 +16,7 @@ import NodeContextModal from "../components/NodeContextModal";
 import LevelGraph from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
-import { SchemaViewFilter } from "../components/SchemaViewFilter";
+import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import ExportModal from "../components/ExportModal";
 import ProcessViewerModal from "../components/ProcessViewerModal";
@@ -94,7 +93,9 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     sourceHandle: string | null;
     targetHandle: string | null;
   } | null>(null);
-  const [edgeDetailModal, setEdgeDetailModal] = useState<LevelEdge | null>(null);
+  // Объект, чья мета открыта в правой панели (двойной клик по узлу/связи). null — панель
+  // показывает пустое состояние. Мету правят inline прямо в панели (см. ObjectInspector).
+  const [selectedObject, setSelectedObject] = useState<Selected>(null);
   // выбор связи из «мастер-стрелки» (несколько слитых связей одного направления)
   const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
   // узел, для которого открыта контекстная схема (клик по дереву слева)
@@ -234,6 +235,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   async function navigateToLevel(level: string | null): Promise<void> {
     if (level === currentParentId) return;
     setContextNode(null);
+    setSelectedObject(null);
     if (level === null) {
       setBreadcrumb([]);
       await load(null);
@@ -272,17 +274,20 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   }
 
   function drillDown(node: Node) {
+    setSelectedObject(null); // мета прежнего уровня неактуальна
     setBreadcrumb((prev) => [...prev, node]);
     load(node.id);
   }
 
   function goUp() {
+    setSelectedObject(null);
     const prev = breadcrumb.slice(0, -1);
     setBreadcrumb(prev);
     load(prev.length > 0 ? prev[prev.length - 1].id : null);
   }
 
   function navigateTo(index: number) {
+    setSelectedObject(null);
     const next = breadcrumb.slice(0, index + 1);
     setBreadcrumb(next);
     load(next[next.length - 1].id);
@@ -293,6 +298,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   function drillToPath(path: AncestorRef[]) {
     if (path.length === 0) return;
     setContextNode(null); // если была открыта контекст-модалка — закрываем
+    setSelectedObject(null);
     setBreadcrumb(path);
     load(path[path.length - 1].id);
   }
@@ -313,15 +319,19 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     };
   }
 
-  function handleNodeSaved(saved: Node, isCreate: boolean) {
-    // before — оригинал из открытой модалки (для правки полей нужен «как было»).
-    const before = nodeModal.node;
+  // before — узел «как было» до правки полей. У создания приходит из модалки (там before
+  // не нужен); у inline-правки в панели его передаёт NodeInspector (модалки уже нет).
+  function handleNodeSaved(saved: Node, isCreate: boolean, before?: Node) {
     setNodes((prev) =>
       prev.some((n) => n.id === saved.id)
         ? prev.map((n) => (n.id === saved.id ? saved : n))
         : [...prev, saved]
     );
     setNodeModal({ open: false, node: null });
+    // Панель меты показывает актуальные данные правленого узла (если он сейчас выбран).
+    setSelectedObject((sel) =>
+      sel?.kind === "node" && sel.node.id === saved.id ? { kind: "node", node: saved } : sel
+    );
     // Этот обработчик не перезагружает уровень (правит локальный стейт) —
     // алерты обновляем явно: добавленный/изменённый узел мог стать «подвисшим».
     void loadAlerts();
@@ -372,6 +382,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     // Перезагружаем уровень: вместе с узлом удалились его связи (в т.ч. сквозные),
     // поэтому проецированные рёбра и гости без связей должны пересчитаться.
     setNodeModal({ open: false, node: null });
+    setSelectedObject(null); // удалённый узел больше нельзя показывать в панели
     load(currentParentId);
     setTreeReload((t) => t + 1); // удалённый узел должен уйти и из бокового дерева
 
@@ -504,7 +515,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   }
 
   function handleEdgeDeleted(id: string, snapshot?: DeletionSnapshot) {
-    setEdgeDetailModal(null);
+    setSelectedObject(null);
     load(currentParentId);
     // Откат удаления связи (Undo): restore воссоздаёт связь с исходным id, redo —
     // повторное удаление. Симметрично удалению узла (та же цена — рефетч уровня).
@@ -627,6 +638,21 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     nodes.some((n) => n.status !== "existing") ||
     ghostNodes.some((g) => g.status !== "existing");
 
+  // Счётчики узлов уровня по статусу — для легенды в правой панели (как у прежнего
+  // оверлея на холсте). Считаем по сырым узлам/гостям уровня.
+  const statusCounts = useMemo<Record<NodeStatus, number>>(() => {
+    const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
+    for (const n of nodes) c[n.status]++;
+    for (const g of ghostNodes) c[g.status]++;
+    return c;
+  }, [nodes, ghostNodes]);
+
+  // Открыть мету связи в панели (двойной клик / выбор участника мастер-стрелки).
+  const inspectEdge = (edge: LevelEdge) => {
+    setSelectedObject({ kind: "edge", edge });
+    setRightCollapsed(false);
+  };
+
   return (
     <div style={page}>
       {/* Шапка + панель управления */}
@@ -741,14 +767,15 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               isArchitect={isArchitect}
               onDrillDown={drillDown}
               onEnterNode={drillToPath}
-              onEditNode={(node) => setNodeModal({ open: true, node })}
-              onEdgesChoice={(group) =>
-                setEdgeChoice(
-                  group
-                    .map((g) => findLevelEdge(g.id))
-                    .filter((e): e is LevelEdge => e != null),
-                )
-              }
+              onEditNode={(node) => { setSelectedObject({ kind: "node", node }); setRightCollapsed(false); }}
+              onEdgesChoice={(group) => {
+                const les = group
+                  .map((g) => findLevelEdge(g.id))
+                  .filter((e): e is LevelEdge => e != null);
+                // одна связь — сразу в панель; несколько — выбор участника (модалка-пикер)
+                if (les.length === 1) inspectEdge(les[0]);
+                else if (les.length > 1) setEdgeChoice(les);
+              }}
               onEdgeHandlesChanged={updateEdgeHandles}
               onEdgeWaypointsChanged={updateEdgeWaypoints}
               onLevelEdgeWaypointsChanged={updateLevelEdgeWaypoints}
@@ -770,13 +797,24 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           )}
         </div>
 
-        {/* Правая панель схемы — сворачиваемая, по аналогии с левым деревом. Пока в ней
-            только переключатель «Вид схемы» (показываем, когда есть что фильтровать);
-            со временем сюда переедет мета узлов/связей. */}
-        {hasStatusInfo && (
-          <aside style={{ ...rightPanel, width: rightCollapsed ? RIGHT_COLLAPSED_W : RIGHT_W }}>
-            {rightCollapsed ? (
-              <div style={rightRail}>
+        {/* Правая панель схемы — сворачиваемая, по аналогии с левым деревом. Держит мету
+            выбранного объекта (узла/связи) и переключатель «Вид схемы» (когда есть что
+            фильтровать). Присутствует всегда — даже на чистой as-is-схеме (ради меты). */}
+        <aside style={{ ...rightPanel, width: rightCollapsed ? RIGHT_COLLAPSED_W : RIGHT_W }}>
+          {rightCollapsed ? (
+            <div style={rightRail}>
+              {/* свойства — разворачивает панель к выбранному объекту */}
+              <button
+                className="nt-railbtn"
+                title="Свойства объекта"
+                onClick={() => setRightCollapsed(false)}
+              >
+                <svg width={17} height={17} viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" />
+                </svg>
+              </button>
+              {hasStatusInfo && (
                 <button
                   className="nt-railbtn"
                   title="Вид схемы"
@@ -788,33 +826,42 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
                     <path d="M3 5h18l-7 8v6l-4-2v-4z" />
                   </svg>
                 </button>
-              </div>
-            ) : (
-              <div style={rightContent}>
-                <SchemaViewFilter view={schemaView} onChange={setSchemaView} />
-              </div>
-            )}
-            <button
-              className="nt-collapse"
-              onClick={() => setRightCollapsed((c) => !c)}
-              title={rightCollapsed ? "Развернуть панель" : "Свернуть панель"}
-            >
-              <CollapseIcon dir={rightCollapsed ? "left" : "right"} />
-              {!rightCollapsed && <span>Свернуть панель</span>}
-            </button>
-          </aside>
-        )}
+              )}
+            </div>
+          ) : (
+            <div style={rightContent}>
+              <ObjectInspector
+                hasStatusInfo={hasStatusInfo}
+                view={schemaView}
+                onViewChange={setSchemaView}
+                counts={statusCounts}
+                selected={selectedObject}
+                isArchitect={isArchitect}
+                onNodeSaved={handleNodeSaved}
+                onNodeDeleted={handleNodeDeleted}
+                onEdgeSaved={handleEdgeSaved}
+                onEdgeDeleted={handleEdgeDeleted}
+              />
+            </div>
+          )}
+          <button
+            className="nt-collapse"
+            onClick={() => setRightCollapsed((c) => !c)}
+            title={rightCollapsed ? "Развернуть панель" : "Свернуть панель"}
+          >
+            <CollapseIcon dir={rightCollapsed ? "left" : "right"} />
+            {!rightCollapsed && <span>Свернуть панель</span>}
+          </button>
+        </aside>
       </div>
 
       {nodeModal.open && (
         <NodeModal
-          node={nodeModal.node}
           parentId={currentParentId}
           shape={nodeModal.shape}
           initialPos={nodeModal.pos ?? null}
           onClose={() => setNodeModal({ open: false, node: null })}
           onSaved={handleNodeSaved}
-          onDeleted={handleNodeDeleted}
         />
       )}
       {/* Подтверждение удаления узла, инициированное с канваса (Backspace/Delete) —
@@ -885,25 +932,12 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           onCreated={(created) => { setOutPicker(null); load(currentParentId); pushEdgeCreate(created); }}
         />
       )}
-      {edgeDetailModal && (
-        <EdgeDetailModal
-          edge={edgeDetailModal}
-          sourceId={edgeDetailModal.original_source_id}
-          targetId={edgeDetailModal.original_target_id}
-          sourceLabel={edgeDetailModal.original_source_name}
-          targetLabel={edgeDetailModal.original_target_name}
-          isArchitect={isArchitect}
-          onClose={() => setEdgeDetailModal(null)}
-          onDeleted={handleEdgeDeleted}
-          onSaved={handleEdgeSaved}
-        />
-      )}
       {edgeChoice && edgeChoice.length > 0 && (
         <EdgeChoiceModal
           edges={edgeChoice}
           sourceLabel={edgeEndLabel(edgeChoice.map((e) => e.original_source_name), edgeChoice[0].source_id)}
           targetLabel={edgeEndLabel(edgeChoice.map((e) => e.original_target_name), edgeChoice[0].target_id)}
-          onPick={(edge) => { setEdgeChoice(null); setEdgeDetailModal(edge); }}
+          onPick={(edge) => { setEdgeChoice(null); inspectEdge(edge); }}
           // Архитектору — дозаписать новую связь в том же направлении (концы как у
           // стрелки на схеме, хэндлы дефолтные). Открываем тот же поповер, что и жест.
           onAdd={

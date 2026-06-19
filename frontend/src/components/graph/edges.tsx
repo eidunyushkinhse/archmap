@@ -377,18 +377,19 @@ function WrappedLabelEdge({
   const clickCls = clickable ? "nodrag nopan" : undefined;
 
   // Плашку можно тащить вдоль стрелки, если задан onLabelTCommit (редактируемое
-  // level-ребро) и есть геометрия пути. Драг и клик-детализация живут на одной плашке:
-  // короткий клик без сдвига открывает детали, сдвиг — двигает (labelMoved глушит click).
+  // level-ребро) и есть геометрия пути. Мету открывает ДВОЙНОЙ клик (единый триггер по
+  // всей схеме); одиночный — только выделение, а после драга плашки глотаем клик-эхо.
   const labelDraggable = d?.onLabelTCommit != null && labelPts != null;
   const onLabelClick = (e: ReactMouseEvent) => {
-    if (labelMoved.current) { labelMoved.current = false; e.stopPropagation(); return; }
-    if (clickable) openDetails(e);
+    if (labelMoved.current) { labelMoved.current = false; e.stopPropagation(); }
   };
+  const onLabelDouble = (e: ReactMouseEvent) => { if (clickable) openDetails(e); };
   const dragProps = labelDraggable
     ? { onPointerDown: onLabelDown, onPointerMove: onLabelMove, onPointerUp: onLabelUp }
     : {};
   const boxCls = labelDraggable ? "nodrag nopan" : clickCls;
-  const boxClick = labelDraggable ? onLabelClick : clickable ? openDetails : undefined;
+  const boxClick = labelDraggable || clickable ? onLabelClick : undefined;
+  const boxDouble = clickable ? onLabelDouble : undefined;
   // курсор move + pointerEvents:"all" в режиме драга; иначе прежний clickStyle
   const boxInteract: CSSProperties = labelDraggable
     ? { cursor: "move", pointerEvents: "all" }
@@ -437,7 +438,7 @@ function WrappedLabelEdge({
       {items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
-          <div className={boxCls} onClick={boxClick} {...dragProps}
+          <div className={boxCls} onClick={boxClick} onDoubleClick={boxDouble} {...dragProps}
             style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...boxInteract, ...dimStyle }}>
             {items.map((it, i) => (
               <div key={i} style={{ display: "flex", gap: 4 }}>
@@ -450,7 +451,7 @@ function WrappedLabelEdge({
         <EdgeLabelRenderer>
           {/* при заданном capW (контекст) подпись переносится по словам и ограничена по
               ширине, чтобы влезть в зазор между фокусом и колонкой и не лезть на узлы */}
-          <div className={boxCls} onClick={boxClick} {...dragProps}
+          <div className={boxCls} onClick={boxClick} onDoubleClick={boxDouble} {...dragProps}
             style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...boxInteract, ...dimStyle }}>
             {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
           </div>
@@ -459,7 +460,7 @@ function WrappedLabelEdge({
         // Стрелка без описания: грипы изломов перехватывают клик по линии, поэтому даём
         // компактный плейсхолдер-плашку как триггер детализации (и точку входа в правку).
         <EdgeLabelRenderer>
-          <div className={boxCls} title="Открыть связь" onClick={boxClick} {...dragProps}
+          <div className={boxCls} title="Открыть связь (двойной клик)" onClick={boxClick} onDoubleClick={boxDouble} {...dragProps}
             style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", fontSize: 13, lineHeight: "16px", cursor: "pointer", pointerEvents: "all", ...boxInteract, ...dimStyle }}>
             •••
           </div>

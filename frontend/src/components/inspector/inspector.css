@@ -1,0 +1,428 @@
+/* Правая панель схемы — мета объекта/связи (Вариант A · «Тихий бар»). Один визуальный
+   язык для наблюдателя (read-only текст) и архитектора (inline-поля). Палитра — slate +
+   синий #2563eb; статусные цвета приходят из graph/colors (не дублируем). */
+
+/* ── Переключатель «Вид схемы» (тихий бар) ── */
+.insp-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 7px;
+}
+.insp-seg {
+  display: flex;
+  gap: 2px;
+  background: #eceef1;
+  border-radius: 9px;
+  padding: 3px;
+}
+.insp-seg-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 4px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  cursor: pointer;
+  color: #475569;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+.insp-seg-btn:hover {
+  color: #1e293b;
+}
+.insp-seg-btn.is-active {
+  background: #fff;
+  color: #2563eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+.insp-seg-main {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.insp-seg-sub {
+  font-size: 9px;
+  color: #94a3b8;
+  line-height: 1.2;
+}
+.insp-seg-btn.is-active .insp-seg-sub {
+  color: #7591b4;
+}
+.insp-rule {
+  height: 1px;
+  background: #eef0f2;
+  margin: 12px 0;
+}
+
+/* ── Тело инспектора ── */
+.insp {
+  display: flex;
+  flex-direction: column;
+}
+.insp-empty {
+  padding: 26px 4px;
+  text-align: center;
+}
+.insp-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+.insp-empty-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+
+/* Шапка-идентификатор объекта */
+.insp-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.insp-headglyph {
+  flex: none;
+  color: #64748b;
+  margin-top: 2px;
+}
+.insp-headmain {
+  min-width: 0;
+  flex: 1;
+}
+.insp-name {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #1e293b;
+  word-break: break-word;
+}
+.insp-typeline {
+  font-size: 11.5px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.insp-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #475569;
+  margin: 0 0 12px;
+  word-break: break-word;
+}
+
+.insp-block-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin: 16px 0 8px;
+}
+
+/* Поля ввода (архитектор) */
+.insp-field {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.insp-field:hover {
+  border-color: #c4cdd8;
+}
+.insp-field:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
+}
+.insp-field--name {
+  font-size: 15px;
+  font-weight: 700;
+}
+.insp-fieldarea {
+  resize: vertical;
+  min-height: 54px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+/* Список меты «терм → значение» */
+.insp-meta {
+  margin: 0;
+  border-top: 1px solid #eef0f2;
+}
+.insp-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+.insp-row--top {
+  align-items: flex-start;
+}
+.insp-term {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 104px;
+  flex: none;
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.insp-row--top .insp-term {
+  padding-top: 6px;
+}
+.insp-term-ico {
+  display: flex;
+  color: #94a3b8;
+}
+.insp-value {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  color: #1e293b;
+}
+.insp-value--block {
+  display: block;
+}
+.insp-value--empty {
+  color: #9ca3af;
+  font-style: italic;
+}
+.insp-value .insp-field {
+  width: auto;
+  flex: 1;
+}
+.insp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  flex: none;
+}
+.insp-endname {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Дропдаун (статус) */
+.insp-selwrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.insp-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.insp-select-label {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.insp-chev {
+  color: #94a3b8;
+  display: flex;
+  flex: none;
+}
+.insp-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  padding: 4px;
+  list-style: none;
+  margin: 0;
+}
+.insp-menu li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13.5px;
+  color: #334155;
+}
+.insp-menu li:hover {
+  background: #f1f5f9;
+}
+.insp-menu-check {
+  margin-left: auto;
+  color: #2563eb;
+  display: flex;
+}
+.insp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+}
+
+/* Toggle «Внешний» */
+.insp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13.5px;
+  color: #1e293b;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.insp-switch {
+  width: 34px;
+  height: 20px;
+  border-radius: 11px;
+  background: #cbd5e1;
+  position: relative;
+  transition: background 0.14s;
+  flex: none;
+}
+.insp-switch.is-on {
+  background: #2563eb;
+}
+.insp-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.14s;
+}
+.insp-switch.is-on::after {
+  transform: translateX(14px);
+}
+
+/* Тяжёлые поля — кнопки-строки */
+.insp-heavy {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #fff;
+  cursor: pointer;
+  margin-top: 8px;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.insp-heavy:hover {
+  border-color: #c4cdd8;
+  background: #fbfcfd;
+}
+.insp-heavy-ico {
+  display: flex;
+  color: #64748b;
+  flex: none;
+}
+.insp-heavy-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+}
+.insp-heavy-status {
+  font-size: 11.5px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+/* Удаление */
+.insp-del {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px;
+  margin-top: 14px;
+  border: 1px solid #fca5a5;
+  border-radius: 9px;
+  background: #fff;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.insp-del:hover {
+  background: #fef2f2;
+}
+
+/* Легенда статусов в панели */
+.insp-legend {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.insp-legend-head {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+.insp-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.insp-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid;
+  flex: none;
+}
+.insp-legend-label {
+  font-size: 12px;
+  color: #374151;
+  flex: 1;
+}
+.insp-legend-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  min-width: 14px;
+  text-align: right;
+}

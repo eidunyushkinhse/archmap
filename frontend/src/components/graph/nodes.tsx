@@ -14,7 +14,7 @@ import type { BlockRFNode, GhostRFNode, ContainerRFNode, QuickConnectHandlers } 
 import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
-import { DrillInIcon, MoreIcon } from "./icons";
+import { DrillInIcon } from "./icons";
 
 // Бейдж статуса в левом-верхнем углу узла (правые углы заняты кнопками действий).
 // У existing бейджа нет — кодируем только проектируемое/выводимое. Цвет фона —
@@ -259,26 +259,20 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
           В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
       {intoZone && <IntoCue />}
-      {!data.hideActions && (
+      {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
+          кнопки «Подробнее» больше нет — остаётся только «Войти» у сервисов. */}
+      {!data.hideActions && drillable && (
         <div style={nodeActions}>
-          {drillable && (
-            <button
-              className="nodrag"
-              onClick={(e) => { e.stopPropagation(); data.onDrillDown(data.appNode); }}
-              style={btnStyle}
-              title="Войти"
-            ><DrillInIcon /></button>
-          )}
           <button
             className="nodrag"
-            onClick={(e) => { e.stopPropagation(); data.onEdit(data.appNode); }}
+            onClick={(e) => { e.stopPropagation(); data.onDrillDown(data.appNode); }}
             style={btnStyle}
-            title="Подробнее"
-          ><MoreIcon /></button>
+            title="Войти"
+          ><DrillInIcon /></button>
         </div>
       )}
 
-      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, !data.hideActions) }}>
+      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, !data.hideActions && drillable) }}>
         <NodeName name={data.appNode.name} />
         <div style={{ display: "flex", justifyContent: "flex-start" }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
