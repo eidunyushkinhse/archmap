@@ -102,6 +102,20 @@ def test_export_omits_internal_node_without_external_flag(db):
     assert "external" not in node
 
 
+def test_export_includes_non_default_status_only(db):
+    # planned/deprecated попадают в семантику; дефолтный existing — шум, не печатаем.
+    _node(db, "Существующий", shape="service")  # status по умолчанию existing
+    _node(db, "Проектируемый", shape="service", status="planned")
+    _node(db, "Выводимый", shape="service", status="deprecated")
+    db.commit()
+
+    nodes = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)["nodes"]
+    by_name = {n["name"]: n for n in nodes}
+    assert "status" not in by_name["Существующий"]
+    assert by_name["Проектируемый"]["status"] == "planned"
+    assert by_name["Выводимый"]["status"] == "deprecated"
+
+
 def test_duplicate_name_uses_qualified_path_in_edges(db):
     # Два узла с одинаковым именем "БД" под разными родителями: в edges конец
     # дизамбигуируется путём «Предок / Имя», в дереве имя остаётся голым.
