@@ -78,6 +78,9 @@ def test_create_from_template_seeds_schema(db):
     user = ensure_architect(db)
     p = create_project(ProjectCreate(name="C4", start="template:c4"), db=db, user=user)
     assert p.object_count > 0 and p.edge_count > 0
+    # У шаблонных узлов задана раскладка → превью карточки показывает реальные
+    # координаты (а не гадает по центроидам/окружности).
+    assert p.preview.nodes and all(n.x is not None and n.y is not None for n in p.preview.nodes)
 
 
 def test_create_unknown_template_404(db):
