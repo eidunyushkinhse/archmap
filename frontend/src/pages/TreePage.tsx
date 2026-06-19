@@ -17,6 +17,8 @@ import NodeContextModal from "../components/NodeContextModal";
 import LevelGraph from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
+import { SchemaViewFilter } from "../components/SchemaViewFilter";
+import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import ExportModal from "../components/ExportModal";
 import ProcessViewerModal from "../components/ProcessViewerModal";
 import ProcessEditorModal from "../components/ProcessEditorModal";
@@ -103,6 +105,11 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // форма шаблона, который сейчас тянут из палитры (null — драга нет). Прокидываем
   // в LevelGraph, чтобы он рисовал превью-рамку будущего узла под курсором.
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
+  // Вид схемы (as-is/переход/to-be) — клиентский визуальный фильтр статусов. Поднят
+  // сюда: переключатель живёт в правой панели, а LevelGraph применяет его (приглушение
+  // + легенда). Переживает перезагрузку (localStorage), не серверное и не раскладка.
+  const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
+  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
   // Глобальные алерты незавершённости схемы (только для архитектора)
   const [alerts, setAlerts] = useState<Alerts>({
     disconnected_nodes: [],
@@ -611,6 +618,11 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   };
 
   const hasNodes = nodes.length + ghostNodes.length > 0;
+  // Есть ли на уровне не-existing узлы — тогда показываем правую панель «Вид схемы»
+  // (на чистой as-is-схеме фильтровать нечего; то же условие, что у легенды в LevelGraph).
+  const hasStatusInfo =
+    nodes.some((n) => n.status !== "existing") ||
+    ghostNodes.some((g) => g.status !== "existing");
 
   return (
     <div style={page}>
@@ -750,9 +762,18 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onUndo={dispatchUndo}
               onRedo={dispatchRedo}
               onPersistError={resyncOnPersistError}
+              schemaView={schemaView}
             />
           )}
         </div>
+
+        {/* Правая панель схемы. Пока в ней только переключатель «Вид схемы» (показываем,
+            когда есть что фильтровать); со временем сюда переедет мета узлов/связей. */}
+        {hasStatusInfo && (
+          <aside style={rightPanel}>
+            <SchemaViewFilter view={schemaView} onChange={setSchemaView} />
+          </aside>
+        )}
       </div>
 
       {nodeModal.open && (
@@ -951,6 +972,16 @@ const graphArea: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   position: "relative", // якорь для абсолютного индикатора алертов
+};
+// Правая панель схемы (вид схемы; позже — мета узлов/связей). Зеркало левого дерева:
+// фиксированной ширины колонка с разделителем-бордером, прокрутка по вертикали.
+const rightPanel: CSSProperties = {
+  flex: "none",
+  width: 288,
+  borderLeft: "1px solid #e2e8f0",
+  background: "#fff",
+  padding: "16px 16px 20px",
+  overflowY: "auto",
 };
 const crumbLink: CSSProperties = {
   display: "inline-flex",

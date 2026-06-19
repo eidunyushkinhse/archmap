@@ -36,3 +36,13 @@ export const VIEW_BY_ID: Record<SchemaView, (typeof SCHEMA_VIEWS)[number]> =
 export function viewShows(view: SchemaView, st: NodeStatus): boolean {
   return VIEW_BY_ID[view].show.has(st);
 }
+
+// Ключ localStorage для выбранного вида. Глобальный, не по проектам: вид — привычка
+// пользователя, не свойство конкретной схемы.
+export const SCHEMA_VIEW_KEY = "archmap-schema-view";
+
+// Прочитать сохранённый вид (дефолт «переход»/all).
+export function readSchemaView(): SchemaView {
+  const saved = localStorage.getItem(SCHEMA_VIEW_KEY);
+  return saved === "asis" || saved === "tobe" || saved === "all" ? saved : "all";
+}

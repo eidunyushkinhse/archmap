@@ -34,7 +34,7 @@ import type {
 import type { EdgeSide } from "./graph/edgePath";
 import { edgeText } from "./graph/text";
 import { getNodeColors, STATUS_META } from "./graph/colors";
-import { SchemaViewFilter, SchemaLegend } from "./SchemaViewFilter";
+import { SchemaLegend } from "./SchemaViewFilter";
 import { viewShows, type SchemaView } from "./schemaView";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
@@ -73,10 +73,6 @@ const EMPTY_LEVEL_HANDLES: Record<string, string[]> = {};
 // Тот же приём для пер-уровневых путей гостевых стрелок: стабильная ссылка дефолта,
 // чтобы не дёргать сборку рёбер лишний раз.
 const EMPTY_LEVEL_WAYPOINTS: Record<string, LevelWaypoints> = {};
-
-// Ключ localStorage для выбранного «Вида схемы» (as-is/переход/to-be). Глобальный,
-// не по проектам: вид — привычка пользователя, не свойство конкретной схемы.
-const SCHEMA_VIEW_KEY = "archmap-schema-view";
 
 // Стиль приглушения узла, скрытого фильтром «Вид схемы» (мгновенно, без transition —
 // см. ТЗ: fade на opacity в наших прогонах вёл себя нестабильно).
@@ -210,6 +206,10 @@ interface LevelGraphProps {
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
+  // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
+  // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
+  // (дефолт «переход» — ничего не гасит).
+  schemaView?: SchemaView;
 }
 
 function LevelGraphInner({
@@ -245,6 +245,7 @@ function LevelGraphInner({
   onRedo,
   onPersistError,
   mode = "level",
+  schemaView = "all",
 }: LevelGraphProps) {
   const isContext = mode === "context";
   const { screenToFlowPosition } = useReactFlow();
@@ -262,14 +263,6 @@ function LevelGraphInner({
   const expandContainer = useCallback((id: string) => {
     setExpanded((prev) => new Set(prev).add(id));
   }, []);
-
-  // Вид схемы (as-is/переход/to-be) — клиентский визуальный фильтр статусов, переживает
-  // перезагрузку (localStorage). Не серверное и не раскладка. В контексте не применяется.
-  const [schemaView, setSchemaView] = useState<SchemaView>(() => {
-    const saved = localStorage.getItem(SCHEMA_VIEW_KEY);
-    return saved === "asis" || saved === "tobe" || saved === "all" ? saved : "all";
-  });
-  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
   const collapseContainer = useCallback((id: string) => {
     setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
   }, []);
@@ -1091,17 +1084,12 @@ function LevelGraphInner({
           </div>
         </div>
       )}
-      {/* Фильтр «Вид схемы» (сверху по центру) и легенда статусов (снизу слева, правее
-          контролов зума). Показываем только когда на уровне есть не-existing узлы. */}
+      {/* Легенда статусов (снизу слева, правее контролов зума). Переключатель «Вид схемы»
+          живёт в правой панели TreePage. Показываем только когда есть не-existing узлы. */}
       {showViewChrome && (
-        <>
-          <div style={{ position: "absolute", top: 14, left: "50%", transform: "translateX(-50%)", zIndex: 5 }}>
-            <SchemaViewFilter view={schemaView} onChange={setSchemaView} />
-          </div>
-          <div style={{ position: "absolute", bottom: 14, left: 56, zIndex: 5 }}>
-            <SchemaLegend view={schemaView} counts={statusCounts} />
-          </div>
-        </>
+        <div style={{ position: "absolute", bottom: 14, left: 56, zIndex: 5 }}>
+          <SchemaLegend view={schemaView} counts={statusCounts} />
+        </div>
       )}
       {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
           прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
