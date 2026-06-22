@@ -298,7 +298,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
       setSelfCaption("");
       reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось добавить самосообщение");
+      setError(e instanceof Error ? e.message : "Не удалось добавить рефлексивное сообщение");
     }
   }
   async function removeMessage(mid: string) {
@@ -542,10 +542,10 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
               <div style={overlayCenter}>
                 <div style={confirmCard}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                    Внутренняя операция · {nameByNode[selfMsg] ?? selfMsg}
+                    Рефлексивное сообщение · {nameByNode[selfMsg] ?? selfMsg}
                   </div>
                   <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                    Действие участника над самим собой (без связи в C4) — самозамкнутая стрелка.
+                    Действие участника над самим собой (без связи в C4) — внутренняя операция.
                   </div>
                   <input
                     value={selfCaption}

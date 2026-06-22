@@ -8,7 +8,7 @@ import { IcoArrowR, IcoAsync, IcoReturn, IcoSelf } from "./icons";
 
 export interface LegShape {
   Icon: ComponentType<{ s?: number }>;
-  word: string; // «вызов» | «ответ» | «событие»
+  word: string; // «вызов» | «ответ» | «событие» | «рефлексивное»
   dash: string; // "none" | "6 4"
   cap: "fill" | "open"; // закрашенный треугольник | открытая «галка»
 }
@@ -16,6 +16,6 @@ export interface LegShape {
 export function legMeta(kind: MessageKind): LegShape {
   if (kind === "return") return { Icon: IcoReturn, word: "ответ", dash: "6 4", cap: "open" };
   if (kind === "async") return { Icon: IcoAsync, word: "событие", dash: "none", cap: "open" };
-  if (kind === "self") return { Icon: IcoSelf, word: "операция", dash: "none", cap: "fill" };
+  if (kind === "self") return { Icon: IcoSelf, word: "рефлексивное", dash: "none", cap: "fill" };
   return { Icon: IcoArrowR, word: "вызов", dash: "none", cap: "fill" };
 }

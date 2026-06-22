@@ -7,7 +7,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { FragmentKind, NodeStatus } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { viewShows, type SchemaView } from "../schemaView";
-import { C4Glyph, IcoBrokenLink, IcoClose, IcoPlus } from "./icons";
+import { C4Glyph, IcoBrokenLink, IcoClose, IcoPlus, IcoSelf } from "./icons";
 import { legMeta } from "./legMeta";
 import { strongestStatus } from "./sequence/layout";
 import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
@@ -16,6 +16,8 @@ import { BPT, BROKEN, SQ, STATUS_LEG, withAlpha } from "./tokens";
 const DEFAULT_LH = 18; // высота однострочной подписи до замера
 const LABEL_GAP = 10; // зазор между низом подписи и стрелкой
 const LABEL_PAD = 26; // запас в шаге строки сверх высоты подписи (одна строка → шаг ROW_GAP)
+const SELF_OFF = 46; // вертикальный сдвиг хэндла «себе» под кружком-источником
+const SELF_HIT = 22; // радиус попадания курсора по хэндлу «себе»
 const STATUSES: NodeStatus[] = ["existing", "planned", "deprecated"];
 
 interface Props {
@@ -29,7 +31,8 @@ interface Props {
   // Пользователь протянул стрелку из кружка одного участника к другому: создаём
   // сообщение между ними (id = node_id). Источник = откуда тянули, цель = куда отпустили.
   onConnect?: (fromId: string, toId: string) => void;
-  // Протягивание из кружка участника обратно НА СЕБЯ — самосообщение (внутр. операция).
+  // Дроп на отдельный хэндл «себе» (появляется под источником при старте драга) —
+  // рефлексивное сообщение (внутренняя операция участника).
   onSelfConnect?: (id: string) => void;
   onMessageClick?: (id: string) => void;
   // Удаление участника со схемы (крестик по ховеру на шапке). id = node_id.
@@ -63,9 +66,9 @@ export default function SequenceDiagram({
   const rootRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ from: string; px: number; py: number } | null>(null);
   const [hover, setHover] = useState<string | null>(null);
-  // Сдвигался ли курсор за порог во время драга — чтобы клик без движения по кружку
-  // не считался самосообщением (источник становится self-целью только после движения).
-  const movedRef = useRef(false);
+  // Курсор над хэндлом «себе» (под источником) — приоритетная цель: дроп даст
+  // рефлексивное сообщение. Источник из колонок-целей исключён, поэтому пути не спорят.
+  const [selfHover, setSelfHover] = useState(false);
   // Диапазон строк, выделяемый протягиванием в режиме selectMode (a — якорь, b — текущий).
   const [selRange, setSelRange] = useState<{ a: number; b: number } | null>(null);
 
@@ -179,37 +182,45 @@ export default function SequenceDiagram({
     if (!onConnect) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    movedRef.current = false;
     setDrag({ from: id, px: PX(k), py: ghostY });
   }
-  // Движение во время драга: тянем резиновую стрелку и подсвечиваем ближайший участник
-  // (в пределах половины колонки). Источник годится как self-цель только после движения.
+  // Движение во время драга: тянем резиновую стрелку. Хэндл «себе» (под источником) —
+  // приоритетная цель при попадании курсора; иначе подсвечиваем ближайший ДРУГОЙ участник
+  // (источник из колонок-целей исключён — у него своя цель «себе»).
   function onRootMove(e: ReactPointerEvent<HTMLDivElement>) {
     if (!drag || !rootRef.current) return;
     const r = rootRef.current.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
-    if (Math.hypot(x - PX(idx[drag.from]), y - ghostY) > 10) movedRef.current = true;
+    // хэндл «себе»: ниже кружка-источника, в пределах радиуса попадания
+    const overSelf =
+      !!onSelfConnect && Math.hypot(x - PX(idx[drag.from]), y - (ghostY + SELF_OFF)) <= SELF_HIT;
+    if (overSelf) {
+      setSelfHover(true);
+      setHover(null);
+      setDrag((d) => (d ? { ...d, px: x, py: y } : d));
+      return;
+    }
+    setSelfHover(false);
     let best: string | null = null;
     let bestD = Infinity;
     participants.forEach((p, k) => {
+      if (p.id === drag.from) return; // источник — не цель колонок (для себя есть хэндл «себе»)
       const d = Math.abs(x - PX(k));
       if (d < bestD) { bestD = d; best = p.id; }
     });
-    // Источник как цель = self, но только если уже двигались (иначе клик-без-движения).
-    if (best === drag.from && (!movedRef.current || !onSelfConnect)) best = null;
     setHover(bestD <= SQ.COL_W / 2 ? best : null);
     setDrag((d) => (d ? { ...d, px: x, py: y } : d));
   }
-  // Отпускание: над собой — самосообщение, над другим участником — связь источник→цель.
+  // Отпускание: на хэндле «себе» — рефлексивное сообщение, над другим участником — связь.
   function onRootUp() {
-    if (drag && hover) {
-      if (hover === drag.from) onSelfConnect?.(drag.from);
-      else onConnect?.(drag.from, hover);
+    if (drag) {
+      if (selfHover) onSelfConnect?.(drag.from);
+      else if (hover) onConnect?.(drag.from, hover);
     }
     setDrag(null);
     setHover(null);
-    movedRef.current = false;
+    setSelfHover(false);
   }
 
   return (
@@ -677,6 +688,39 @@ export default function SequenceDiagram({
               </button>
             );
           })}
+          {/* Хэндл «себе» — выезжает под кружок-источник на время драга; дроп на него
+              создаёт рефлексивное сообщение (внутреннюю операцию участника). */}
+          {drag && onSelfConnect && (
+            <>
+              <div
+                style={{
+                  position: "absolute",
+                  left: PX(idx[drag.from]) - 1,
+                  top: ghostY + 16,
+                  width: 2,
+                  height: SELF_OFF - 32,
+                  borderLeft: "2px dashed " + BPT.accent,
+                  opacity: 0.5,
+                  pointerEvents: "none",
+                  zIndex: 5,
+                }}
+              />
+              <button
+                tabIndex={-1}
+                title="Рефлексивное сообщение (себе)"
+                style={{
+                  ...circleBase,
+                  left: PX(idx[drag.from]),
+                  top: ghostY + SELF_OFF,
+                  pointerEvents: "none",
+                  transform: selfHover ? "translate(-50%,-50%) scale(1.12)" : "translate(-50%,-50%)",
+                  ...(selfHover ? { background: BPT.accent, color: "#fff", borderColor: BPT.accent } : null),
+                }}
+              >
+                <IcoSelf s={16} />
+              </button>
+            </>
+          )}
         </>
       )}
 
