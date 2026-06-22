@@ -5,8 +5,8 @@ import type { FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMes
 import Modal from "../ui/Modal";
 import { RedoIcon, UndoIcon } from "../ui/icons";
 import MessageComposer from "./MessageComposer";
-import NodeSearchPicker from "./NodeSearchPicker";
 import ParticipantDeleteConfirm from "./processes/ParticipantDeleteConfirm";
+import ParticipantPicker from "./processes/ParticipantPicker";
 import { C4Glyph, IcoClose, IcoPlus } from "./processes/icons";
 import LegLegend from "./processes/LegLegend";
 import ProcessWindow from "./processes/ProcessWindow";
@@ -136,20 +136,28 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
       });
   }, [detail, delPart, nameByNode]);
 
-  async function addParticipant(nodeId: string) {
+  // Добавить участника с явным order (forward выполняется здесь, без reload — пачку
+  // добавляем подряд из addParticipants, перечитываем один раз в конце).
+  async function addParticipant(nodeId: string, order: number) {
+    let pid = (await processesApi.addParticipant(id, { node_id: nodeId, order })).id;
+    hist.push({
+      label: "Добавление участника",
+      undo: () => processesApi.removeParticipant(id, pid),
+      redo: async () => {
+        const r = await processesApi.addParticipant(id, { node_id: nodeId, order });
+        pid = r.id;
+      },
+    });
+  }
+  // Пачка из дерева-пикера: добавляем по очереди с растущим order, reload один раз.
+  async function addParticipants(nodeIds: string[]) {
     if (!detail) return;
-    const order = detail.participants.length;
+    let order = detail.participants.length;
     try {
-      const np = await processesApi.addParticipant(id, { node_id: nodeId, order });
-      let pid = np.id;
-      hist.push({
-        label: "Добавление участника",
-        undo: () => processesApi.removeParticipant(id, pid),
-        redo: async () => {
-          const r = await processesApi.addParticipant(id, { node_id: nodeId, order });
-          pid = r.id;
-        },
-      });
+      for (const nid of nodeIds) {
+        await addParticipant(nid, order);
+        order++;
+      }
       reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось добавить участника");
@@ -655,18 +663,16 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
             <>
               <div style={overlayDim} onClick={() => setPartPanel(false)} />
               <div style={overlayCenter}>
-                <div style={{ ...confirmCard, width: 340, textAlign: "left" }}>
+                <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Участники</div>
                     <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => setPartPanel(false)}>
                       <IcoClose s={14} />
                     </button>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10, maxHeight: 160, overflow: "auto" }}>
-                    {detail.participants.length === 0 ? (
-                      <div style={{ fontSize: 12, color: BPT.mut }}>Пока никого</div>
-                    ) : (
-                      [...detail.participants]
+                  {detail.participants.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10, maxHeight: 140, overflow: "auto" }}>
+                      {[...detail.participants]
                         .sort((a, b) => a.order - b.order)
                         .map((p) => (
                           <div key={p.id} style={partRow}>
@@ -678,16 +684,15 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                               <IcoClose s={13} />
                             </button>
                           </div>
-                        ))
-                    )}
-                  </div>
+                        ))}
+                    </div>
+                  )}
                   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: BPT.mut, marginBottom: 6 }}>
-                    Добавить узел
+                    Добавить из дерева схемы
                   </div>
-                  <NodeSearchPicker
-                    key={detail.participants.length}
-                    value=""
-                    onChange={(nodeId) => { if (nodeId) void addParticipant(nodeId); }}
+                  <ParticipantPicker
+                    added={new Set(detail.participants.map((p) => p.node_id))}
+                    onAdd={(ids) => void addParticipants(ids)}
                   />
                 </div>
               </div>
