@@ -1,6 +1,6 @@
 // Маппинг контрактного ProcessDetail → презентационную модель SequenceDiagram.
-// Раскладочные индексы строк (r) выводятся из order; фрагмент берём первый (движок
-// рендерит один, как дизайн-референс), order фрагмента проецируем на индексы строк.
+// Раскладочные индексы строк (r) выводятся из order; order каждого фрагмента проецируем
+// на индексы строк (движок рендерит все фрагменты, в т.ч. вложенные).
 import type { ProcessDetail, ProcessFragment, ProcessMessage, ProcessParticipant } from "../../../types";
 import type { SeqFragment, SeqMessage, SeqParticipant } from "./layout";
 
@@ -26,25 +26,27 @@ export function toSeqMessages(messages: ProcessMessage[]): SeqMessage[] {
     }));
 }
 
-export function toSeqFragment(fragments: ProcessFragment[], messages: ProcessMessage[]): SeqFragment | null {
-  if (fragments.length === 0) return null;
-  const f: ProcessFragment = fragments[0];
+export function toSeqFragments(fragments: ProcessFragment[], messages: ProcessMessage[]): SeqFragment[] {
   // order сообщения → индекс строки: число сообщений с меньшим order.
   const orders = messages.map((m) => m.order);
   const rowOf = (order: number) => orders.filter((o) => o < order).length;
-  return {
-    kind: f.kind,
-    fromRow: rowOf(f.from_order),
-    toRow: rowOf(f.to_order),
-    guard: f.guard,
-    elseRow: f.else_order != null ? rowOf(f.else_order) : null,
-    elseGuard: f.else_guard,
-  };
+  // Сорт: внешние (более широкий диапазон) раньше — стабильный порядок для вложенности.
+  return [...fragments]
+    .sort((a, b) => a.from_order - b.from_order || b.to_order - a.to_order)
+    .map((f) => ({
+      id: f.id,
+      kind: f.kind,
+      fromRow: rowOf(f.from_order),
+      toRow: rowOf(f.to_order),
+      guard: f.guard,
+      elseRow: f.else_order != null ? rowOf(f.else_order) : null,
+      elseGuard: f.else_guard,
+    }));
 }
 
 export function detailToSeq(detail: ProcessDetail) {
   const participants = toSeqParticipants(detail.participants);
   const messages = toSeqMessages(detail.messages);
-  const fragment = toSeqFragment(detail.fragments, detail.messages);
-  return { participants, messages, fragment };
+  const fragments = toSeqFragments(detail.fragments, detail.messages);
+  return { participants, messages, fragments };
 }

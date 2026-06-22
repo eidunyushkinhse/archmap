@@ -106,7 +106,7 @@ export default function ProcessViewerModal({ id, isArchitect, onClose, onEdit }:
                 participants={seq.participants}
                 messages={seq.messages}
                 activations={activations}
-                fragment={seq.fragment}
+                fragments={seq.fragments}
                 view={view}
               />
             </div>

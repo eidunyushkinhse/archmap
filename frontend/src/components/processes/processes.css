@@ -422,6 +422,14 @@
   border-color: #cbd5e1;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
 }
+.bp-palitem.is-active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+.bp-palitem:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .bp-palglyph {
   display: inline-flex;
   align-items: center;

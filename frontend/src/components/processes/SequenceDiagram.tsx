@@ -4,7 +4,7 @@
 // (линия + наконечник). Чистый презентационный компонент: раскладка выводится из пропсов.
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import type { NodeStatus } from "../../types";
+import type { FragmentKind, NodeStatus } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { viewShows, type SchemaView } from "../schemaView";
 import { C4Glyph, IcoBrokenLink, IcoClose, IcoPlus } from "./icons";
@@ -22,7 +22,7 @@ interface Props {
   participants: SeqParticipant[];
   messages: SeqMessage[];
   activations?: SeqActivation[];
-  fragment?: SeqFragment | null;
+  fragments?: SeqFragment[];
   ghost?: boolean;
   // Вид схемы: участники/сообщения вне вида приглушаются (opacity), но не удаляются.
   view?: SchemaView;
@@ -33,24 +33,35 @@ interface Props {
   // Удаление участника со схемы (крестик по ховеру на шапке). id = node_id.
   // Передаётся только в режиме редактирования — в read-only окне крестика нет.
   onDeleteParticipant?: (nodeId: string) => void;
+  // Режим выбора диапазона под новый фрагмент: курсором протягиваем по строкам
+  // сообщений, на отпускании отдаём [fromRow, toRow]. null — обычный режим.
+  selectMode?: FragmentKind | null;
+  onSelectRange?: (fromRow: number, toRow: number) => void;
+  // Клик по шапке фрагмента (kind+условие) — запрос на удаление фрагмента.
+  onFragmentClick?: (id: string) => void;
 }
 
 export default function SequenceDiagram({
   participants,
   messages,
   activations = [],
-  fragment,
+  fragments = [],
   ghost,
   view = "all",
   onConnect,
   onMessageClick,
   onDeleteParticipant,
+  selectMode = null,
+  onSelectRange,
+  onFragmentClick,
 }: Props) {
   // Состояние drag-to-connect: откуда тянем и текущая точка курсора (в координатах
   // контейнера); hover — ближайший участник-цель под курсором.
   const rootRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ from: string; px: number; py: number } | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  // Диапазон строк, выделяемый протягиванием в режиме selectMode (a — якорь, b — текущий).
+  const [selRange, setSelRange] = useState<{ a: number; b: number } | null>(null);
 
   // Подписи сообщений переносятся по словам, поэтому их высота заранее неизвестна.
   // Замеряем реальную высоту каждой подписи (ResizeObserver — переживает и смену
@@ -105,34 +116,56 @@ export default function SequenceDiagram({
     const lh = r < R ? rowLabelH[r] : DEFAULT_LH;
     rowOff[r] = rowOff[r - 1] + Math.max(SQ.ROW_GAP, lh + LABEL_PAD);
   }
-  const rowY = (r: number) =>
-    lifeTop +
-    rowOff[r] +
-    (fragment && r >= fragment.fromRow ? SQ.FRAG_HEAD : 0) +
-    (fragment && fragment.elseRow != null && r >= fragment.elseRow ? SQ.ELSE_GAP : 0);
+  // Каждый фрагмент, начавшийся на/до строки r, добавляет высоту своей шапки (а ветка
+  // else — свой зазор). Так несколько/вложенные фрагменты раздвигают строки корректно.
+  const fragHeadOff = (r: number) => {
+    let off = 0;
+    for (const f of fragments) {
+      if (r >= f.fromRow) off += SQ.FRAG_HEAD;
+      if (f.elseRow != null && r >= f.elseRow) off += SQ.ELSE_GAP;
+    }
+    return off;
+  };
+  const rowY = (r: number) => lifeTop + rowOff[r] + fragHeadOff(r);
+  // Ближайшая строка к вертикальной координате y (для выбора диапазона протягиванием).
+  const rowFromY = (y: number) => {
+    let best = 0;
+    let bestD = Infinity;
+    for (let r = 0; r < R; r++) {
+      const d = Math.abs(y - rowY(r));
+      if (d < bestD) { bestD = d; best = r; }
+    }
+    return best;
+  };
 
   const ghostY = ghost ? rowY(R) - 6 : 0;
   const W = SQ.MARGIN * 2 + Math.max(0, n - 1) * SQ.COL_W;
   const contentBottom = R > 0 ? rowY(R - 1) : lifeTop + SQ.ROW0;
   const H = ghost ? ghostY + 44 : contentBottom + 54;
 
-  // Границы alt-рамки
-  let frag: { left: number; right: number; top: number; bottom: number; elseY: number | null } | null = null;
-  if (fragment) {
-    const inner = messages.filter((m) => m.r >= fragment.fromRow && m.r <= fragment.toRow);
-    if (inner.length) {
+  // Прямоугольники фрагментов (с горизонтальным вложением по depth).
+  const NEST_INSET = 10;
+  const fragBoxes = fragments
+    .map((f) => {
+      const inner = messages.filter((m) => m.r >= f.fromRow && m.r <= f.toRow);
+      if (!inner.length) return null;
       const ks = inner.flatMap((m) => [idx[m.from], idx[m.to]]);
-      const left = PX(Math.min(...ks)) - 38;
-      const right = PX(Math.max(...ks)) + 38;
-      frag = {
-        left,
-        right,
-        top: rowY(fragment.fromRow) - 26,
-        bottom: rowY(fragment.toRow) + 18,
-        elseY: fragment.elseRow != null ? rowY(fragment.elseRow) - 16 : null,
+      // depth = сколько ДРУГИХ фрагментов строго охватывают диапазон этого (вложенность).
+      const span = f.toRow - f.fromRow;
+      const depth = fragments.filter(
+        (g) => g !== f && g.fromRow <= f.fromRow && g.toRow >= f.toRow && g.toRow - g.fromRow > span,
+      ).length;
+      const inset = depth * NEST_INSET;
+      return {
+        f,
+        left: PX(Math.min(...ks)) - 38 + inset,
+        right: PX(Math.max(...ks)) + 38 - inset,
+        top: rowY(f.fromRow) - 26,
+        bottom: rowY(f.toRow) + 18,
+        elseY: f.elseRow != null ? rowY(f.elseRow) - 16 : null,
       };
-    }
-  }
+    })
+    .filter((b): b is NonNullable<typeof b> => b !== null);
 
   // Начало драга из кружка участника k: захватываем указатель (чтобы движения шли
   // даже за пределами кружка) и фиксируем источник.
@@ -173,72 +206,89 @@ export default function SequenceDiagram({
       onPointerUp={ghost ? onRootUp : undefined}
       style={{ position: "relative", width: W, height: H, fontFamily: "system-ui, sans-serif" }}
     >
-      {/* alt-фрагмент (под сообщениями) */}
-      {frag && fragment && (
-        <>
-          <div
-            style={{
-              position: "absolute",
-              left: frag.left,
-              top: frag.top,
-              width: frag.right - frag.left,
-              height: frag.bottom - frag.top,
-              border: "1.5px solid " + BPT.amberLine,
-              borderRadius: 8,
-              background: "rgba(255,251,235,.45)",
-              zIndex: 1,
-            }}
-          />
-          <div style={{ position: "absolute", left: frag.left, top: frag.top, display: "flex", alignItems: "center", gap: 8, zIndex: 3 }}>
-            <span
-              style={{
-                background: BPT.amberBg,
-                border: "1.5px solid " + BPT.amberLine,
-                borderRight: "none",
-                color: BPT.amber,
-                fontSize: 10.5,
-                fontWeight: 800,
-                letterSpacing: ".04em",
-                padding: "2px 12px 2px 8px",
-                borderRadius: "8px 0 10px 0",
-                clipPath: "polygon(0 0, 100% 0, 78% 100%, 0 100%)",
-              }}
-            >
-              {fragment.kind}
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 600, color: BPT.amber }}>{fragment.guard}</span>
-          </div>
-          {frag.elseY != null && (
+      {/* Фрагменты (под сообщениями): рамка + кликабельная шапка (kind+условие) + ветка else */}
+      {fragBoxes.map((box) => {
+        const f = box.f;
+        return (
+          <div key={f.id}>
             <div
               style={{
                 position: "absolute",
-                left: frag.left,
-                top: frag.elseY,
-                width: frag.right - frag.left,
-                borderTop: "1.5px dashed " + BPT.amberLine,
-                zIndex: 2,
+                left: box.left,
+                top: box.top,
+                width: box.right - box.left,
+                height: box.bottom - box.top,
+                border: "1.5px solid " + BPT.amberLine,
+                borderRadius: 8,
+                background: "rgba(255,251,235,.45)",
+                zIndex: 1,
+              }}
+            />
+            <div
+              onClick={onFragmentClick ? () => onFragmentClick(f.id) : undefined}
+              title={onFragmentClick ? "Удалить фрагмент" : undefined}
+              style={{
+                position: "absolute",
+                left: box.left,
+                top: box.top,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                zIndex: 3,
+                cursor: onFragmentClick ? "pointer" : "default",
+                pointerEvents: onFragmentClick ? "auto" : "none",
               }}
             >
               <span
                 style={{
-                  position: "absolute",
-                  left: 10,
-                  top: -10,
                   background: BPT.amberBg,
-                  border: "1px solid " + BPT.amberLine,
+                  border: "1.5px solid " + BPT.amberLine,
+                  borderRight: "none",
                   color: BPT.amber,
                   fontSize: 10.5,
-                  fontWeight: 700,
-                  padding: "1px 8px",
-                  borderRadius: 5,
+                  fontWeight: 800,
+                  letterSpacing: ".04em",
+                  padding: "2px 12px 2px 8px",
+                  borderRadius: "8px 0 10px 0",
+                  clipPath: "polygon(0 0, 100% 0, 78% 100%, 0 100%)",
                 }}
               >
-                {fragment.elseGuard}
+                {f.kind}
               </span>
+              {f.guard && <span style={{ fontSize: 11, fontWeight: 600, color: BPT.amber }}>{f.guard}</span>}
             </div>
-          )}
-        </>
-      )}
+            {box.elseY != null && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: box.left,
+                  top: box.elseY,
+                  width: box.right - box.left,
+                  borderTop: "1.5px dashed " + BPT.amberLine,
+                  zIndex: 2,
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 10,
+                    top: -10,
+                    background: BPT.amberBg,
+                    border: "1px solid " + BPT.amberLine,
+                    color: BPT.amber,
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    padding: "1px 8px",
+                    borderRadius: 5,
+                  }}
+                >
+                  {f.elseGuard}
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* SVG: линии жизни, активации, стрелки */}
       <svg style={{ position: "absolute", inset: 0, width: W, height: H, pointerEvents: "none", overflow: "visible", zIndex: 2 }}>
@@ -594,6 +644,46 @@ export default function SequenceDiagram({
             );
           })}
         </>
+      )}
+
+      {/* Слой выбора диапазона под новый фрагмент: перекрывает весь холст, гасит обычные
+          взаимодействия и переводит протягивание курсора в выделение строк сообщений. */}
+      {selectMode && (
+        <div
+          style={{ position: "absolute", inset: 0, zIndex: 8, cursor: "crosshair" }}
+          onPointerDown={(e) => {
+            const rect = rootRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            const r = rowFromY(e.clientY - rect.top);
+            setSelRange({ a: r, b: r });
+          }}
+          onPointerMove={(e) => {
+            if (!selRange) return;
+            const rect = rootRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            setSelRange({ a: selRange.a, b: rowFromY(e.clientY - rect.top) });
+          }}
+          onPointerUp={() => {
+            if (selRange) onSelectRange?.(Math.min(selRange.a, selRange.b), Math.max(selRange.a, selRange.b));
+            setSelRange(null);
+          }}
+        >
+          {selRange && (
+            <div
+              style={{
+                position: "absolute",
+                left: SQ.MARGIN - 56,
+                top: rowY(Math.min(selRange.a, selRange.b)) - 16,
+                width: W - (SQ.MARGIN - 56) * 2,
+                height: rowY(Math.max(selRange.a, selRange.b)) - rowY(Math.min(selRange.a, selRange.b)) + 32,
+                background: "rgba(37,99,235,.10)",
+                border: "1.5px dashed #2563eb",
+                borderRadius: 8,
+              }}
+            />
+          )}
+        </div>
       )}
     </div>
   );

@@ -49,8 +49,13 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
   const [composer, setComposer] = useState<{ from: string; to: string } | null>(null);
   const [partPanel, setPartPanel] = useState(false);
-  const [fragKind, setFragKind] = useState<FragmentKind | null>(null);
+  // Режим выбора диапазона под фрагмент: выбран тип, ждём протягивания по сообщениям.
+  const [fragSelect, setFragSelect] = useState<FragmentKind | null>(null);
+  // Диапазон выбран (индексы строк), ждём ввода условия перед созданием.
+  const [pendingFrag, setPendingFrag] = useState<{ kind: FragmentKind; fromRow: number; toRow: number } | null>(null);
   const [fragGuard, setFragGuard] = useState("");
+  // Фрагмент, удаление которого подтверждаем (id). null — модалки нет.
+  const [delFrag, setDelFrag] = useState<string | null>(null);
   const [delMsg, setDelMsg] = useState<string | null>(null);
   // Участник, чьё удаление подтверждаем (есть проведённые связи). null — модалки нет.
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
@@ -283,37 +288,63 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
       setError(e instanceof Error ? e.message : "Не удалось удалить сообщение");
     }
   }
-  async function addFragment() {
-    if (!detail || !fragKind || detail.messages.length === 0) return;
-    const orders = detail.messages.map((m) => m.order);
-    // Прежние фрагменты (для отката): один фрагмент на процесс — старые снимаем.
-    const prev = detail.fragments.map((f) => ({
-      kind: f.kind, from_order: f.from_order, to_order: f.to_order, guard: f.guard, else_guard: f.else_guard, else_order: f.else_order,
-    }));
+  // Создать фрагмент на ВЫБРАННОМ диапазоне строк (не на всей схеме). Индексы строк
+  // переводим в order сообщений (бэк хранит фрагмент в order-координатах). Старые
+  // фрагменты НЕ трогаем — их может быть несколько (в т.ч. вложенных).
+  async function createFragment(kind: FragmentKind, fromRow: number, toRow: number, guard: string) {
+    if (!detail) return;
+    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    if (fromRow < 0 || toRow >= sorted.length || fromRow > toRow) return;
     const payload = {
-      kind: fragKind, from_order: Math.min(...orders), to_order: Math.max(...orders), guard: fragGuard.trim() || null, else_guard: null, else_order: null,
+      kind,
+      from_order: sorted[fromRow].order,
+      to_order: sorted[toRow].order,
+      guard: guard.trim() || null,
+      else_guard: null,
+      else_order: null,
     };
     try {
-      for (const f of detail.fragments) await processesApi.removeFragment(id, f.id);
-      await processesApi.addFragment(id, payload);
+      const created = await processesApi.addFragment(id, payload);
+      let fid = created.id;
       hist.push({
-        label: "Фрагмент",
-        undo: async () => {
-          const fresh = await processesApi.get(id);
-          for (const f of fresh.fragments) await processesApi.removeFragment(id, f.id);
-          for (const p of prev) await processesApi.addFragment(id, p);
-        },
+        label: "Добавление фрагмента",
+        undo: () => processesApi.removeFragment(id, fid),
         redo: async () => {
-          const fresh = await processesApi.get(id);
-          for (const f of fresh.fragments) await processesApi.removeFragment(id, f.id);
-          await processesApi.addFragment(id, payload);
+          const r = await processesApi.addFragment(id, payload);
+          fid = r.id;
         },
       });
-      setFragKind(null);
+      setPendingFrag(null);
       setFragGuard("");
       reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось добавить фрагмент");
+    }
+  }
+  async function removeFragment(fid: string) {
+    const f = detail?.fragments.find((x) => x.id === fid);
+    try {
+      await processesApi.removeFragment(id, fid);
+      setDelFrag(null);
+      if (f) {
+        const payload = {
+          kind: f.kind, from_order: f.from_order, to_order: f.to_order, guard: f.guard, else_guard: f.else_guard, else_order: f.else_order,
+        };
+        let restoredId: string | null = null;
+        hist.push({
+          label: "Удаление фрагмента",
+          undo: async () => {
+            const r = await processesApi.addFragment(id, payload);
+            restoredId = r.id;
+          },
+          redo: async () => {
+            if (restoredId) await processesApi.removeFragment(id, restoredId);
+          },
+        });
+      }
+      reload();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Не удалось удалить фрагмент");
     }
   }
 
@@ -368,9 +399,9 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
             {FRAGMENTS.map((k) => (
               <button
                 key={k}
-                className="bp-palitem"
-                title={`Фрагмент ${k}`}
-                onClick={() => { setFragKind(k); setFragGuard(""); }}
+                className={"bp-palitem" + (fragSelect === k ? " is-active" : "")}
+                title={`Фрагмент ${k} — выделить диапазон сообщений`}
+                onClick={() => setFragSelect((cur) => (cur === k ? null : k))}
                 disabled={!detail || detail.messages.length === 0}
               >
                 <span className="bp-fragtag">{k}</span>
@@ -404,9 +435,17 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                 participants={seq.participants}
                 messages={seq.messages}
                 activations={activations}
-                fragment={seq.fragment}
+                fragments={seq.fragments}
                 view={view}
                 ghost
+                selectMode={fragSelect}
+                onSelectRange={(from, to) => {
+                  setFragSelect((kind) => {
+                    if (kind) { setPendingFrag({ kind, fromRow: from, toRow: to }); setFragGuard(""); }
+                    return null;
+                  });
+                }}
+                onFragmentClick={(fid) => setDelFrag(fid)}
                 onConnect={(from, to) => setComposer({ from, to })}
                 onMessageClick={(mid) => setDelMsg(mid)}
                 onDeleteParticipant={(nodeId) => {
@@ -414,6 +453,19 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                   if (p) requestRemoveParticipant(p);
                 }}
               />
+            </div>
+          )}
+
+          {/* Подсказка режима выбора диапазона под фрагмент */}
+          {fragSelect && (
+            <div style={fragHintBar}>
+              <span>
+                Протяните по сообщениям, чтобы выделить диапазон для фрагмента{" "}
+                <b style={{ color: BPT.amber }}>«{fragSelect}»</b>
+              </span>
+              <button className="bp-btn-ghost" style={{ height: 26, padding: "0 10px" }} onClick={() => setFragSelect(null)}>
+                Отмена
+              </button>
             </div>
           )}
 
@@ -470,28 +522,57 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
             </>
           )}
 
-          {/* Фрагмент: ввод условия */}
-          {fragKind && detail && (
+          {/* Фрагмент: ввод условия для ВЫБРАННОГО диапазона */}
+          {pendingFrag && detail && (
             <>
-              <div style={overlayDim} onClick={() => setFragKind(null)} />
+              <div style={overlayDim} onClick={() => setPendingFrag(null)} />
               <div style={overlayCenter}>
                 <div style={confirmCard}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                    Фрагмент «{fragKind}» — на все сообщения
+                    Фрагмент «{pendingFrag.kind}»
                   </div>
                   <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                    Условие (показывается у рамки). Заменит существующий фрагмент, если есть.
+                    {pendingFrag.fromRow === pendingFrag.toRow
+                      ? `Сообщение ${pendingFrag.fromRow + 1}`
+                      : `Сообщения ${pendingFrag.fromRow + 1}–${pendingFrag.toRow + 1}`}
+                    {" "}· условие (показывается у рамки)
                   </div>
                   <input
                     value={fragGuard}
                     onChange={(e) => setFragGuard(e.target.value)}
-                    placeholder="напр. [ оплата прошла ]"
+                    placeholder="напр. оплата прошла"
                     style={fragInput}
                     autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void createFragment(pendingFrag.kind, pendingFrag.fromRow, pendingFrag.toRow, fragGuard);
+                    }}
                   />
                   <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                    <button className="bp-btn-ghost" onClick={() => setFragKind(null)}>Отмена</button>
-                    <button className="bp-btn-primary" onClick={() => void addFragment()}>Добавить</button>
+                    <button className="bp-btn-ghost" onClick={() => setPendingFrag(null)}>Отмена</button>
+                    <button
+                      className="bp-btn-primary"
+                      onClick={() => void createFragment(pendingFrag.kind, pendingFrag.fromRow, pendingFrag.toRow, fragGuard)}
+                    >
+                      Добавить
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Подтверждение удаления фрагмента (клик по его шапке) */}
+          {delFrag && (
+            <>
+              <div style={overlayDim} onClick={() => setDelFrag(null)} />
+              <div style={overlayCenter}>
+                <div style={confirmCard}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head }}>Удалить фрагмент?</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                    <button className="bp-btn-ghost" onClick={() => setDelFrag(null)}>Отмена</button>
+                    <button className="bp-btn-primary" style={{ background: "#dc2626", borderColor: "#dc2626" }} onClick={() => void removeFragment(delFrag)}>
+                      Удалить
+                    </button>
                   </div>
                 </div>
               </div>
@@ -547,6 +628,24 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   );
 }
 
+const fragHintBar: CSSProperties = {
+  position: "absolute",
+  top: 10,
+  left: "50%",
+  transform: "translateX(-50%)",
+  zIndex: 7,
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  padding: "7px 8px 7px 14px",
+  background: "#fffbeb",
+  border: "1px solid #fcd9a8",
+  borderRadius: 10,
+  boxShadow: "0 6px 20px rgba(15,23,42,.12)",
+  fontSize: 12.5,
+  color: "#92591a",
+  whiteSpace: "nowrap",
+};
 const overlayDim: CSSProperties = { position: "absolute", inset: 0, background: "rgba(15,23,42,.06)", zIndex: 5 };
 const overlayCenter: CSSProperties = {
   position: "absolute",
