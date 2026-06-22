@@ -148,6 +148,7 @@ def restore_from_snapshot(
                 pos_y=ns.pos_y,
                 is_external=ns.is_external,
                 shape=ns.shape,
+                status=ns.status,
             )
         )
     db.flush()  # узлы существуют до рёбер/ghost-строк

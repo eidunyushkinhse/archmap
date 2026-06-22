@@ -45,6 +45,10 @@ def test_snapshot_restore_round_trip(db):
     a1a = _node(db, "A1a", a1)
     x = _node(db, "X")
     y = _node(db, "Y")
+    # Не-дефолтные статусы должны пережить round-trip (регресс: при откате удаления
+    # узел «Выводится»/«Планируется» возвращался как «Существует»).
+    a.status = "deprecated"
+    a1a.status = "planned"
     e_inner = _edge(db, a1, a1a, label="внутр", waypoints=[{"x": 1.0, "y": 2.0}])
     e_out = _edge(db, a1a, x)
     e_in = _edge(db, x, a1, source_handle="x--right--0", label_t=0.3)
@@ -83,6 +87,10 @@ def test_snapshot_restore_round_trip(db):
     assert set(nodes) == {a_id, a1_id, a1a_id, x_id, y_id}
     assert nodes[a1_id].parent_id == a_id
     assert nodes[a1a_id].parent_id == a1_id
+    # Статусы сохранились (а не сбросились в дефолтный existing)
+    assert nodes[a_id].status == "deprecated"
+    assert nodes[a1a_id].status == "planned"
+    assert nodes[a1_id].status == "existing"
 
     # Рёбра вернулись с id и сохранёнными полями раскладки
     edges = {e.id: e for e in db.query(Edge).all()}

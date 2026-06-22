@@ -12,7 +12,7 @@ import uuid
 from pydantic import BaseModel
 
 from app.schemas.edge import Point
-from app.schemas.node import NodeShape
+from app.schemas.node import NodeShape, NodeStatus
 
 
 class NodeSnapshot(BaseModel):
@@ -28,6 +28,7 @@ class NodeSnapshot(BaseModel):
     pos_y: float | None = None
     is_external: bool = False
     shape: NodeShape = "service"
+    status: NodeStatus = "existing"
 
     model_config = {"from_attributes": True}
 

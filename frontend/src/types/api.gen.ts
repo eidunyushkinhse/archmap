@@ -1632,6 +1632,12 @@ export interface components {
              * @enum {string}
              */
             shape: "service" | "database" | "broker" | "person";
+            /**
+             * Status
+             * @default existing
+             * @enum {string}
+             */
+            status: "existing" | "planned" | "deprecated";
         };
         /** NodeUpdate */
         NodeUpdate: {
