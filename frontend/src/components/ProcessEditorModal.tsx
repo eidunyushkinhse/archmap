@@ -722,13 +722,16 @@ const fragHintBar: CSSProperties = {
   color: "#92591a",
   whiteSpace: "nowrap",
 };
-const overlayDim: CSSProperties = { position: "absolute", inset: 0, background: "rgba(15,23,42,.06)", zIndex: 5 };
+// Подтверждения/композитор рисуются поверх ВИДИМОЙ области, а не контента схемы:
+// fixed (а не absolute внутри прокручиваемого .bp-canvas), иначе карточка висит у
+// верха схемы и при прокрутке вниз уезжает из вида — приходилось листать обратно.
+const overlayDim: CSSProperties = { position: "fixed", inset: 0, background: "rgba(15,23,42,.06)", zIndex: 50 };
 const overlayCenter: CSSProperties = {
-  position: "absolute",
-  top: 80,
+  position: "fixed",
+  top: "50%",
   left: "50%",
-  transform: "translateX(-50%)",
-  zIndex: 6,
+  transform: "translate(-50%,-50%)",
+  zIndex: 51,
 };
 const confirmCard: CSSProperties = {
   width: 300,
