@@ -7,13 +7,13 @@ import { useHistory } from "../components/graph/interaction/useHistory";
 import { guardPersist } from "../components/graph/interaction/persistGuard";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
-import SchemaAlerts from "../components/SchemaAlerts";
+import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import EdgeChoiceModal from "../components/EdgeChoiceModal";
 import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import NodeContextModal from "../components/NodeContextModal";
-import LevelGraph from "../components/LevelGraph";
+import LevelGraph, { type LocateRequest } from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
@@ -59,6 +59,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // его полный путь известен только как ancestors (AncestorRef), без целого Node.
   const [breadcrumb, setBreadcrumb] = useState<AncestorRef[]>([]);
   const [loading, setLoading] = useState(false);
+  // Запрос «показать на схеме» из индикатора незавершённости — прокидывается в LevelGraph.
+  // token (монотонный) меняется на каждый клик, чтобы повторный клик снова сфокусировал.
+  const [locate, setLocate] = useState<LocateRequest | null>(null);
+  const locateSeq = useRef(0);
 
   // node — редактируемый узел (null = создание). При создании перетаскиванием
   // шаблона на схему сюда кладутся выбранная форма (shape) и точка дропа (pos).
@@ -251,6 +255,53 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     }
     setBreadcrumb(path);
     await load(level);
+  }
+
+  // «Показать на схеме» из индикатора незавершённости. Алерты глобальные (могут лежать
+  // на другом уровне), поэтому сперва вычисляем «домашний» уровень цели по дереву и
+  // приводим к нему холст (navigateToLevel), затем кладём запрос фокуса в LevelGraph.
+  async function handleLocate(target: LocateTarget) {
+    const all = await nodesApi.getAll();
+    const byId = new Map(all.map((n) => [n.id, n]));
+    // Цепочка контейнеров узла снизу вверх: [родитель, дед, ..., null(корень)].
+    const parentChain = (id: string): (string | null)[] => {
+      const out: (string | null)[] = [];
+      let n = byId.get(id);
+      while (n && n.parent_id) {
+        out.push(n.parent_id);
+        n = byId.get(n.parent_id);
+      }
+      out.push(null);
+      return out;
+    };
+    // Самый глубокий общий предок набора узлов = уровень, на котором рисуется их связь
+    // (для одного узла — его родитель; для связи — общий предок концов).
+    const commonLevel = (ids: string[]): string | null => {
+      const chains = ids.map(parentChain);
+      for (const cand of chains[0]) {
+        if (chains.every((ch) => ch.includes(cand))) return cand;
+      }
+      return null;
+    };
+
+    let level: string | null;
+    let req: LocateRequest;
+    if (target.kind === "node") {
+      level = commonLevel([target.id]);
+      req = { kind: "node", ids: [target.id], token: ++locateSeq.current };
+    } else if (target.kind === "edge") {
+      // источник/цель связи берём из самих алертов (в onLocate приходит только edge_id)
+      const al = alerts.intermediate_edges.find((e) => e.edge_id === target.id);
+      if (!al) return;
+      level = commonLevel([al.source_id, al.target_id]);
+      req = { kind: "edge", ids: [target.id], token: ++locateSeq.current };
+    } else {
+      level = commonLevel(target.ids);
+      req = { kind: "group", ids: target.ids, token: ++locateSeq.current };
+    }
+
+    if (level !== currentParentId) await navigateToLevel(level);
+    setLocate(req);
   }
 
   // Дисптчеры Undo/Redo: если правка сделана на другом уровне — сперва редиректим туда,
@@ -740,7 +791,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         {/* Область графа — заполняет оставшееся пространство */}
         <div style={graphArea}>
           {/* Индикатор незавершённости схемы (только архитектор) */}
-          {isArchitect && <SchemaAlerts alerts={alerts} />}
+          {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleLocate} />}
           {/* Подсказка про пустой уровень — тостом в правом верхнем углу. Холст
               (даже пустой) рендерим всегда, чтобы сразу была видна канва и в неё
               можно было дропнуть первый узел. Тост уезжает уже при открытии окна
@@ -793,6 +844,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onRedo={dispatchRedo}
               onPersistError={resyncOnPersistError}
               schemaView={schemaView}
+              locate={locate}
             />
           )}
         </div>

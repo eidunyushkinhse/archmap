@@ -23,7 +23,7 @@ import "./schemaAlerts.css";
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
-type LocateTarget =
+export type LocateTarget =
   | { kind: "node"; id: string }
   | { kind: "edge"; id: string }
   | { kind: "group"; ids: string[] };

@@ -385,3 +385,22 @@
   border-bottom-style: solid;
   border-bottom-color: #2563eb;
 }
+
+/* «Показать на схеме» из индикатора незавершённости (SchemaAlerts → onLocate).
+   Класс lg-locate-flash вешается на DOM-узел/ребро xyflow на ~2.2с (LevelGraph effect).
+   drop-shadow повторяет alpha-форму узла/линии, поэтому свечение очерчивает сам объект,
+   а не его bounding box. z-index приподнимает подсвеченный узел над соседями. */
+@keyframes lg-locate-pulse {
+  0% { filter: drop-shadow(0 0 0 rgba(245, 158, 11, 0)); }
+  25% { filter: drop-shadow(0 0 11px rgba(245, 158, 11, 0.95)); }
+  50% { filter: drop-shadow(0 0 0 rgba(245, 158, 11, 0)); }
+  75% { filter: drop-shadow(0 0 11px rgba(245, 158, 11, 0.95)); }
+  100% { filter: drop-shadow(0 0 0 rgba(245, 158, 11, 0)); }
+}
+.react-flow__node.lg-locate-flash {
+  animation: lg-locate-pulse 2.1s ease-in-out;
+  z-index: 50 !important;
+}
+.react-flow__edge.lg-locate-flash {
+  animation: lg-locate-pulse 2.1s ease-in-out;
+}

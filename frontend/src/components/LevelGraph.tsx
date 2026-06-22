@@ -209,7 +209,21 @@ interface LevelGraphProps {
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
   schemaView?: SchemaView;
+  // Запрос «показать на схеме» из индикатора незавершённости (SchemaAlerts → TreePage).
+  // TreePage сперва приводит holст к нужному уровню (navigateToLevel), затем кладёт сюда
+  // запрос. Холст центрируется на цели и коротко её подсвечивает. token меняется на
+  // КАЖДЫЙ клик — повторный клик по тому же объекту снова сфокусирует. Раскладка async,
+  // поэтому фокус срабатывает отложенно — как только цель появится в rfNodes/rfEdges.
+  locate?: LocateRequest | null;
 }
+
+// Запрос фокуса на объекте/связи/группе. ids: для node — [nodeId]; для edge — [edgeId];
+// для group — id всех узлов кластера. token — монотонный счётчик из TreePage.
+export type LocateRequest = {
+  kind: "node" | "edge" | "group";
+  ids: string[];
+  token: number;
+};
 
 function LevelGraphInner({
   nodes,
@@ -245,9 +259,10 @@ function LevelGraphInner({
   onPersistError,
   mode = "level",
   schemaView = "all",
+  locate,
 }: LevelGraphProps) {
   const isContext = mode === "context";
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, setCenter, fitBounds, getInternalNode } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
 
@@ -1034,6 +1049,71 @@ function LevelGraphInner({
     },
     [isContext, consumeReconnectClick]
   );
+
+  // «Показать на схеме» (locate): центрируем холст на цели и коротко её подсвечиваем.
+  // Раскладка асинхронна, а при кросс-уровневом переходе холст ещё и ремаунтится —
+  // поэтому эффект зависит от rfNodes/rfEdges и срабатывает ОТЛОЖЕННО: ждёт, пока цель
+  // появится на холсте, после чего по token фиксирует обработку (повторно не дёргает).
+  const locateHandledRef = useRef(0);
+  useEffect(() => {
+    if (!locate || locate.token === locateHandledRef.current) return;
+
+    // Абсолютный прямоугольник узла по id (позиция графа + измеренный размер).
+    const rectOf = (id: string): { x: number; y: number; w: number; h: number } | null => {
+      const n = rfNodes.find((x) => x.id === id);
+      if (!n) return null;
+      const internal = getInternalNode(id);
+      const pos = internal?.internals.positionAbsolute ?? n.position;
+      const w = internal?.measured?.width ?? (typeof n.width === "number" ? n.width : NODE_W);
+      const h = internal?.measured?.height ?? (typeof n.height === "number" ? n.height : NODE_H);
+      return { x: pos.x, y: pos.y, w, h };
+    };
+
+    // Собираем прямоугольники цели. Для связи — оба её конца (через rfEdge).
+    const rects: { x: number; y: number; w: number; h: number }[] = [];
+    if (locate.kind === "edge") {
+      const e = rfEdges.find((x) => x.id === locate.ids[0]);
+      if (!e) return; // ребро ещё не собрано — ждём следующего прогона
+      for (const id of [e.source, e.target]) {
+        const r = rectOf(id);
+        if (r) rects.push(r);
+      }
+    } else {
+      for (const id of locate.ids) {
+        const r = rectOf(id);
+        if (r) rects.push(r);
+      }
+    }
+    if (rects.length === 0) return; // ни одной цели ещё нет на холсте — ждём раскладку
+
+    locateHandledRef.current = locate.token;
+
+    const minX = Math.min(...rects.map((r) => r.x));
+    const minY = Math.min(...rects.map((r) => r.y));
+    const maxX = Math.max(...rects.map((r) => r.x + r.w));
+    const maxY = Math.max(...rects.map((r) => r.y + r.h));
+    if (rects.length === 1) {
+      // одиночный узел — центрируем чуть крупнее обычного fitView (привлечь внимание)
+      setCenter(minX + (maxX - minX) / 2, minY + (maxY - minY) / 2, { zoom: 1.2, duration: 600 });
+    } else {
+      // связь/группа — вписываем bbox целей с запасом
+      fitBounds({ x: minX, y: minY, width: maxX - minX, height: maxY - minY }, { padding: 0.4, duration: 600 });
+    }
+
+    // Подсветка — прямо на DOM-элементах xyflow (узлы и рёбра несут data-id), чтобы не
+    // ввязывать пересборку rfNodes из async-раскладки. Класс снимаем по таймеру.
+    const sel = locate.kind === "edge"
+      ? `.react-flow__edge[data-id="${CSS.escape(locate.ids[0])}"]`
+      : locate.ids.map((id) => `.react-flow__node[data-id="${CSS.escape(id)}"]`).join(",");
+    const raf = requestAnimationFrame(() => {
+      const els = sel ? Array.from(document.querySelectorAll(sel)) : [];
+      for (const el of els) el.classList.add("lg-locate-flash");
+      window.setTimeout(() => {
+        for (const el of els) el.classList.remove("lg-locate-flash");
+      }, 2200);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [locate, rfNodes, rfEdges, getInternalNode, setCenter, fitBounds]);
 
   // Контекст-схема без фокус-узла не бывает — защитно ничего не рисуем. Обычный
   // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
