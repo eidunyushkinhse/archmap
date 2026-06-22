@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { processesApi } from "../api/processes";
-import type { FragmentKind, NodeStatus, ProcessDetail, ProcessParticipant } from "../types";
+import type { FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../types";
 import Modal from "../ui/Modal";
+import { RedoIcon, UndoIcon } from "../ui/icons";
 import MessageComposer from "./MessageComposer";
 import NodeSearchPicker from "./NodeSearchPicker";
 import ParticipantDeleteConfirm from "./processes/ParticipantDeleteConfirm";
@@ -14,6 +15,7 @@ import SequenceDiagram from "./processes/SequenceDiagram";
 import { deriveActivations } from "./processes/sequence/layout";
 import { detailToSeq } from "./processes/sequence/fromDetail";
 import { BPT } from "./processes/tokens";
+import { useProcessHistory } from "./processes/useProcessHistory";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "./schemaView";
 import "./processes/processes.css";
 
@@ -29,6 +31,17 @@ interface Props {
 }
 
 const FRAGMENTS: FragmentKind[] = ["alt", "opt", "loop", "par"];
+
+// Снимок сообщения для восстановления при undo (концы — node_id, разрешаются в
+// participant_id на момент восстановления; edge_id null у повисших — не восстановимы).
+interface MessageSnapshot {
+  edge_id: string | null;
+  leg: ProcessMessage["leg"];
+  from_id: string;
+  to_id: string;
+  caption: string | null;
+  order: number;
+}
 
 export default function ProcessEditorModal({ id, onClose }: Props) {
   const [detail, setDetail] = useState<ProcessDetail | null>(null);
@@ -55,6 +68,30 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   }, [id]);
 
   useEffect(reload, [reload]);
+
+  // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
+  const hist = useProcessHistory(reload);
+  // node_id → participant_id из СВЕЖЕГО состояния процесса (для restore-замыканий, где
+  // участники могли пересоздаться с новыми id). Берём с сервера, а не из stale-detail.
+  const freshPartByNode = useCallback(async () => {
+    const fresh = await processesApi.get(id);
+    const m: Record<string, string> = {};
+    for (const p of fresh.participants) m[p.node_id] = p.id;
+    return m;
+  }, [id]);
+  // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) — как на C4. Не перехватываем при вводе в поля.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); hist.undo(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); hist.redo(); }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [hist]);
 
   const seq = useMemo(() => (detail ? detailToSeq(detail) : null), [detail]);
   const activations = useMemo(() => (seq ? deriveActivations(seq.messages) : []), [seq]);
@@ -93,11 +130,54 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
 
   async function addParticipant(nodeId: string) {
     if (!detail) return;
+    const order = detail.participants.length;
     try {
-      await processesApi.addParticipant(id, { node_id: nodeId, order: detail.participants.length });
+      const np = await processesApi.addParticipant(id, { node_id: nodeId, order });
+      let pid = np.id;
+      hist.push({
+        label: "Добавление участника",
+        undo: () => processesApi.removeParticipant(id, pid),
+        redo: async () => {
+          const r = await processesApi.addParticipant(id, { node_id: nodeId, order });
+          pid = r.id;
+        },
+      });
       reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось добавить участника");
+    }
+  }
+  // Снимок сообщений, проходящих через узел: бэк сносит их каскадом при удалении
+  // участника, поэтому для undo восстанавливаем и участника, и его сообщения.
+  function captureMessages(nodeId: string): MessageSnapshot[] {
+    return messagesThrough(nodeId).map((m) => ({
+      edge_id: m.edge_id,
+      leg: m.leg,
+      from_id: m.from_id,
+      to_id: m.to_id,
+      caption: m.caption,
+      order: m.order,
+    }));
+  }
+  // Восстановить сообщения по снимку: концы (node_id) разрешаем в актуальные
+  // participant_id. Повисшие без edge_id (связь реально удалена из схемы) восстановить
+  // нельзя — пропускаем.
+  async function restoreMessages(snaps: MessageSnapshot[]) {
+    if (snaps.length === 0) return;
+    const partByNode = await freshPartByNode();
+    for (const m of snaps) {
+      if (!m.edge_id) continue;
+      const fromP = partByNode[m.from_id];
+      const toP = partByNode[m.to_id];
+      if (!fromP || !toP) continue;
+      await processesApi.addMessage(id, {
+        edge_id: m.edge_id,
+        leg: m.leg,
+        from_participant_id: fromP,
+        to_participant_id: toP,
+        caption: m.caption,
+        order: m.order,
+      });
     }
   }
   // Сообщения процесса, проходящие через узел (по любому концу) — то, что исчезнет
@@ -105,19 +185,38 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   function messagesThrough(nodeId: string) {
     return detail ? detail.messages.filter((m) => m.from_id === nodeId || m.to_id === nodeId) : [];
   }
+  // Удаление участника + регистрация команды отката (восстанавливает участника и его
+  // каскадно снесённые сообщения). Forward выполняется здесь; reload — на стороне вызова.
+  async function doRemoveParticipant(p: ProcessParticipant) {
+    const { node_id, order } = p;
+    const snaps = captureMessages(node_id);
+    await processesApi.removeParticipant(id, p.id);
+    hist.push({
+      label: "Удаление участника",
+      undo: async () => {
+        await processesApi.addParticipant(id, { node_id, order });
+        await restoreMessages(snaps);
+      },
+      redo: async () => {
+        const partByNode = await freshPartByNode();
+        const pid = partByNode[node_id];
+        if (pid) await processesApi.removeParticipant(id, pid);
+      },
+    });
+  }
   // Запрос на удаление участника: если связей на схеме нет — удаляем сразу (как в C4
   // NodeDeleteConfirm — подтверждать нечего); иначе показываем подтверждение со списком.
   function requestRemoveParticipant(p: ProcessParticipant) {
     if (messagesThrough(p.node_id).length === 0) {
-      void removeParticipant(p.id);
+      void removeParticipant(p);
       return;
     }
     setDelPartErr(null);
     setDelPart(p);
   }
-  async function removeParticipant(pid: string) {
+  async function removeParticipant(p: ProcessParticipant) {
     try {
-      await processesApi.removeParticipant(id, pid);
+      await doRemoveParticipant(p);
       reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось удалить участника");
@@ -128,7 +227,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
     setDelPartBusy(true);
     setDelPartErr(null);
     try {
-      await processesApi.removeParticipant(id, delPart.id);
+      await doRemoveParticipant(delPart);
       setDelPart(null);
       reload();
     } catch (e: unknown) {
@@ -137,10 +236,48 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
       setDelPartBusy(false);
     }
   }
+  // Создано сообщение (из MessageComposer): регистрируем откат (undo — удалить по id,
+  // redo — пересоздать из payload, обновив id) и перечитываем.
+  function handleMessageAdded(created: ProcessMessage, payload: MessageCreate) {
+    let mid = created.id;
+    hist.push({
+      label: "Добавление сообщения",
+      undo: () => processesApi.removeMessage(id, mid),
+      redo: async () => {
+        const r = await processesApi.addMessage(id, payload);
+        mid = r.id;
+      },
+    });
+    reload();
+  }
   async function removeMessage(mid: string) {
+    const m = detail?.messages.find((x) => x.id === mid);
     try {
       await processesApi.removeMessage(id, mid);
       setDelMsg(null);
+      if (m) {
+        const snap: MessageSnapshot = {
+          edge_id: m.edge_id, leg: m.leg, from_id: m.from_id, to_id: m.to_id, caption: m.caption, order: m.order,
+        };
+        let restoredId: string | null = null;
+        hist.push({
+          label: "Удаление сообщения",
+          undo: async () => {
+            if (!snap.edge_id) return; // повисшее — восстановить нельзя
+            const partByNode = await freshPartByNode();
+            const fromP = partByNode[snap.from_id];
+            const toP = partByNode[snap.to_id];
+            if (!fromP || !toP) return;
+            const created = await processesApi.addMessage(id, {
+              edge_id: snap.edge_id, leg: snap.leg, from_participant_id: fromP, to_participant_id: toP, caption: snap.caption, order: snap.order,
+            });
+            restoredId = created.id;
+          },
+          redo: async () => {
+            if (restoredId) await processesApi.removeMessage(id, restoredId);
+          },
+        });
+      }
       reload();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось удалить сообщение");
@@ -149,16 +286,28 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   async function addFragment() {
     if (!detail || !fragKind || detail.messages.length === 0) return;
     const orders = detail.messages.map((m) => m.order);
+    // Прежние фрагменты (для отката): один фрагмент на процесс — старые снимаем.
+    const prev = detail.fragments.map((f) => ({
+      kind: f.kind, from_order: f.from_order, to_order: f.to_order, guard: f.guard, else_guard: f.else_guard, else_order: f.else_order,
+    }));
+    const payload = {
+      kind: fragKind, from_order: Math.min(...orders), to_order: Math.max(...orders), guard: fragGuard.trim() || null, else_guard: null, else_order: null,
+    };
     try {
-      // Один фрагмент на процесс (движок рендерит один): старый снимаем.
       for (const f of detail.fragments) await processesApi.removeFragment(id, f.id);
-      await processesApi.addFragment(id, {
-        kind: fragKind,
-        from_order: Math.min(...orders),
-        to_order: Math.max(...orders),
-        guard: fragGuard.trim() || null,
-        else_guard: null,
-        else_order: null,
+      await processesApi.addFragment(id, payload);
+      hist.push({
+        label: "Фрагмент",
+        undo: async () => {
+          const fresh = await processesApi.get(id);
+          for (const f of fresh.fragments) await processesApi.removeFragment(id, f.id);
+          for (const p of prev) await processesApi.addFragment(id, p);
+        },
+        redo: async () => {
+          const fresh = await processesApi.get(id);
+          for (const f of fresh.fragments) await processesApi.removeFragment(id, f.id);
+          await processesApi.addFragment(id, payload);
+        },
       });
       setFragKind(null);
       setFragGuard("");
@@ -177,6 +326,27 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
         height="min(800px, 88vh)"
         actions={
           <>
+            {/* Undo/Redo — как на C4-канвасе (компенсирующие вызовы API) */}
+            <div style={{ display: "inline-flex", gap: 4, marginRight: 2 }}>
+              <button
+                className="bp-iconbtn"
+                onClick={hist.undo}
+                disabled={!hist.canUndo || hist.busy}
+                title="Отменить · Ctrl+Z"
+                aria-label="Отменить"
+              >
+                <UndoIcon size={16} />
+              </button>
+              <button
+                className="bp-iconbtn"
+                onClick={hist.redo}
+                disabled={!hist.canRedo || hist.busy}
+                title="Вернуть · Ctrl+Shift+Z"
+                aria-label="Вернуть"
+              >
+                <RedoIcon size={16} />
+              </button>
+            </div>
             {hasStatus && <SchemaViewSeg view={view} onChange={setView} />}
             <span style={{ fontSize: 12, color: "#0e9f6e", display: "inline-flex", alignItems: "center", gap: 5, marginRight: 2 }}>
               <span style={{ width: 7, height: 7, borderRadius: 4, background: "#0e9f6e" }} />
@@ -259,7 +429,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                   toNode={composer.to}
                   defaultOrder={nextOrder}
                   onClose={() => setComposer(null)}
-                  onAdded={reload}
+                  onAdded={handleMessageAdded}
                 />
               </div>
             </>

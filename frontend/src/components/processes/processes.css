@@ -73,6 +73,13 @@
   border-color: #bfdbfe;
   color: #2563eb;
 }
+.bp-iconbtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #475569;
+}
 .bp-linklike {
   display: inline-flex;
   align-items: center;

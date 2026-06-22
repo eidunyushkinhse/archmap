@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { edgesApi } from "../api/nodes";
 import { processesApi } from "../api/processes";
-import type { Channel, ProcessParticipant } from "../types";
+import type { Channel, MessageCreate, ProcessMessage, ProcessParticipant } from "../types";
 import { C4Glyph, IcoArrowR, IcoClose, IcoLink, IcoWarn } from "./processes/icons";
 import { legMeta } from "./processes/legMeta";
 import { BPT } from "./processes/tokens";
@@ -23,7 +23,9 @@ interface Props {
   toNode: string; // node_id цели (куда отпустили)
   defaultOrder: number; // order для нового сообщения (в конец)
   onClose: () => void;
-  onAdded: () => void; // перечитать детали процесса
+  // Сообщение создано: отдаём созданную сущность и payload — редактор регистрирует
+  // команду отката (undo удалит по id, redo пересоздаст из payload) и перечитывает процесс.
+  onAdded: (created: ProcessMessage, payload: MessageCreate) => void;
 }
 
 export default function MessageComposer({
@@ -128,15 +130,16 @@ export default function MessageComposer({
     setBusy(true);
     setError(null);
     try {
-      await processesApi.addMessage(processId, {
+      const payload: MessageCreate = {
         edge_id: channel.edge_id,
         leg: leg.leg,
         from_participant_id: fromP.id,
         to_participant_id: toP.id,
         caption: null,
         order: defaultOrder,
-      });
-      onAdded();
+      };
+      const created = await processesApi.addMessage(processId, payload);
+      onAdded(created, payload);
       onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось добавить сообщение");
