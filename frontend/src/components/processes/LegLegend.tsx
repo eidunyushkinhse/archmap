@@ -23,6 +23,7 @@ export default function LegLegend() {
       {row("forward")}
       {row("return")}
       {row("async")}
+      {row("self")}
       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: BROKEN.ink, fontSize: 11.5 }}>
         <span style={{ display: "inline-flex" }}>
           <IcoBrokenLink s={13} />

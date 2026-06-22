@@ -1351,7 +1351,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "forward" | "return" | "async";
+            kind: "forward" | "return" | "async" | "self";
             /**
              * From Id
              * Format: uuid
@@ -1377,11 +1377,8 @@ export interface components {
         };
         /** MessageCreate */
         MessageCreate: {
-            /**
-             * Edge Id
-             * Format: uuid
-             */
-            edge_id: string;
+            /** Edge Id */
+            edge_id?: string | null;
             /**
              * Leg
              * @enum {string}
@@ -1422,7 +1419,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "forward" | "return" | "async";
+            kind: "forward" | "return" | "async" | "self";
             /** Caption */
             caption: string | null;
             /** Technology */

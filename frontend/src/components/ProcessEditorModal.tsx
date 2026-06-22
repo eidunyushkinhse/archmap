@@ -48,6 +48,9 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
   const [composer, setComposer] = useState<{ from: string; to: string } | null>(null);
+  // Самосообщение (внутренняя операция): node_id участника, на котором его создаём.
+  const [selfMsg, setSelfMsg] = useState<string | null>(null);
+  const [selfCaption, setSelfCaption] = useState("");
   const [partPanel, setPartPanel] = useState(false);
   // Режим выбора диапазона под фрагмент: выбран тип, ждём протягивания по сообщениям.
   const [fragSelect, setFragSelect] = useState<FragmentKind | null>(null);
@@ -165,13 +168,14 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
     }));
   }
   // Восстановить сообщения по снимку: концы (node_id) разрешаем в актуальные
-  // participant_id. Повисшие без edge_id (связь реально удалена из схемы) восстановить
-  // нельзя — пропускаем.
+  // participant_id. Самосообщения (from==to, без edge_id) восстанавливаем; повисшие
+  // без edge_id и без self (связь реально удалена из схемы) восстановить нельзя.
   async function restoreMessages(snaps: MessageSnapshot[]) {
     if (snaps.length === 0) return;
     const partByNode = await freshPartByNode();
     for (const m of snaps) {
-      if (!m.edge_id) continue;
+      const isSelf = m.from_id === m.to_id;
+      if (!m.edge_id && !isSelf) continue;
       const fromP = partByNode[m.from_id];
       const toP = partByNode[m.to_id];
       if (!fromP || !toP) continue;
@@ -255,6 +259,40 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
     });
     reload();
   }
+  // Создать самосообщение на участнике (внутренняя операция — без связи C4).
+  async function createSelfMessage(nodeId: string, caption: string) {
+    if (!detail) return;
+    const part = detail.participants.find((p) => p.node_id === nodeId);
+    if (!part) return;
+    const payload: MessageCreate = {
+      leg: "forward",
+      from_participant_id: part.id,
+      to_participant_id: part.id,
+      caption: caption.trim() || null,
+      order: nextOrder,
+    };
+    try {
+      const created = await processesApi.addMessage(id, payload);
+      let mid = created.id;
+      hist.push({
+        label: "Самосообщение",
+        undo: () => processesApi.removeMessage(id, mid),
+        redo: async () => {
+          // participant_id мог смениться (участника пересоздавали) — берём по node_id.
+          const partByNode = await freshPartByNode();
+          const pid = partByNode[nodeId];
+          if (!pid) return;
+          const r = await processesApi.addMessage(id, { ...payload, from_participant_id: pid, to_participant_id: pid });
+          mid = r.id;
+        },
+      });
+      setSelfMsg(null);
+      setSelfCaption("");
+      reload();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Не удалось добавить самосообщение");
+    }
+  }
   async function removeMessage(mid: string) {
     const m = detail?.messages.find((x) => x.id === mid);
     try {
@@ -268,7 +306,8 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
         hist.push({
           label: "Удаление сообщения",
           undo: async () => {
-            if (!snap.edge_id) return; // повисшее — восстановить нельзя
+            const isSelf = snap.from_id === snap.to_id;
+            if (!snap.edge_id && !isSelf) return; // повисшее (не self) — восстановить нельзя
             const partByNode = await freshPartByNode();
             const fromP = partByNode[snap.from_id];
             const toP = partByNode[snap.to_id];
@@ -447,6 +486,7 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                 }}
                 onFragmentClick={(fid) => setDelFrag(fid)}
                 onConnect={(from, to) => setComposer({ from, to })}
+                onSelfConnect={(nodeId) => { setSelfMsg(nodeId); setSelfCaption(""); }}
                 onMessageClick={(mid) => setDelMsg(mid)}
                 onDeleteParticipant={(nodeId) => {
                   const p = detail.participants.find((pp) => pp.node_id === nodeId);
@@ -483,6 +523,37 @@ export default function ProcessEditorModal({ id, onClose }: Props) {
                   onClose={() => setComposer(null)}
                   onAdded={handleMessageAdded}
                 />
+              </div>
+            </>
+          )}
+
+          {/* Самосообщение: ввод подписи внутренней операции */}
+          {selfMsg && detail && (
+            <>
+              <div style={overlayDim} onClick={() => setSelfMsg(null)} />
+              <div style={overlayCenter}>
+                <div style={confirmCard}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
+                    Внутренняя операция · {nameByNode[selfMsg] ?? selfMsg}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
+                    Действие участника над самим собой (без связи в C4) — самозамкнутая стрелка.
+                  </div>
+                  <input
+                    value={selfCaption}
+                    onChange={(e) => setSelfCaption(e.target.value)}
+                    placeholder="напр. валидация заказа"
+                    style={fragInput}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") void createSelfMessage(selfMsg, selfCaption); }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                    <button className="bp-btn-ghost" onClick={() => setSelfMsg(null)}>Отмена</button>
+                    <button className="bp-btn-primary" onClick={() => void createSelfMessage(selfMsg, selfCaption)}>
+                      Добавить
+                    </button>
+                  </div>
+                </div>
               </div>
             </>
           )}

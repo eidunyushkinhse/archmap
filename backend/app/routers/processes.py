@@ -90,18 +90,29 @@ def _participant_out(p: ProcessParticipant, node: Node) -> ParticipantOut:
 def _message_out(
     msg: ProcessMessage, edge: Edge | None, part_by_id: dict[uuid.UUID, ProcessParticipant]
 ) -> MessageOut:
-    caption = msg.caption if msg.caption is not None else _default_caption(msg.leg, edge)
+    # Самосообщение (внутренняя операция участника): концы совпадают, связи C4 нет.
+    # kind="self", подпись — свободный текст (дефолта из плеча нет), valid всегда true
+    # (это не повисшая связь — её тут и не было).
+    is_self = msg.from_participant_id == msg.to_participant_id
+    if is_self:
+        kind = "self"
+        caption = msg.caption
+        valid = True
+    else:
+        kind = _message_kind(msg.leg, edge)
+        caption = msg.caption if msg.caption is not None else _default_caption(msg.leg, edge)
+        valid = msg.edge_id is not None
     return MessageOut(
         id=msg.id,
         order=msg.order,
         edge_id=msg.edge_id,
         leg=msg.leg,  # type: ignore[arg-type]
-        kind=_message_kind(msg.leg, edge),  # type: ignore[arg-type]
+        kind=kind,  # type: ignore[arg-type]
         caption=caption,
         technology=edge.technology if edge is not None else None,
         from_id=part_by_id[msg.from_participant_id].node_id,
         to_id=part_by_id[msg.to_participant_id].node_id,
-        valid=msg.edge_id is not None,
+        valid=valid,
     )
 
 
@@ -352,6 +363,32 @@ def create_message(
     user: User = Depends(require_architect),
 ) -> MessageOut:
     proc = _get_process(db, process_id, project)
+    # Самосообщение: внутренняя операция участника — НЕ плечо канала C4, поэтому
+    # «запертый слой» к нему не применяется (концы совпадают, связи нет). Это
+    # сознательное исключение из правила «сообщение = плечо существующего канала».
+    if payload.from_participant_id == payload.to_participant_id:
+        if payload.edge_id is not None:
+            raise HTTPException(status_code=422, detail="Самосообщение не привязывается к связи")
+        frm = db.get(ProcessParticipant, payload.from_participant_id)
+        if frm is None or frm.process_id != proc.id:
+            raise HTTPException(status_code=422, detail="Участник не из этого процесса")
+        msg = ProcessMessage(
+            process_id=proc.id,
+            order=payload.order,
+            edge_id=None,
+            leg=payload.leg,
+            from_participant_id=frm.id,
+            to_participant_id=frm.id,
+            caption=payload.caption,
+        )
+        db.add(msg)
+        touch_project(db, project, user.id)
+        db.commit()
+        db.refresh(msg)
+        part_by_id = {p.id: p for p in proc.participants}
+        return _message_out(msg, None, part_by_id)
+    if payload.edge_id is None:
+        raise HTTPException(status_code=422, detail="Не указана связь")
     edge = scoped_edge(db, payload.edge_id, project)
     if edge is None:
         raise HTTPException(status_code=404, detail="Связь не найдена")

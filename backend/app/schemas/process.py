@@ -13,7 +13,9 @@ from pydantic import BaseModel
 from app.schemas.node import NodeStatus
 
 Leg = Literal["forward", "return"]
-Kind = Literal["forward", "return", "async"]
+# "self" — самосообщение (внутренняя операция участника): не плечо канала C4, концы
+# совпадают (from==to), edge_id отсутствует. Производный kind, как и остальные.
+Kind = Literal["forward", "return", "async", "self"]
 FragmentKind = Literal["alt", "opt", "loop", "par"]
 Shape = Literal["service", "database", "broker", "person"]
 
@@ -98,7 +100,8 @@ class ReorderPayload(BaseModel):
 
 # ── Сообщения ─────────────────────────────────────────────────────────────────
 class MessageCreate(BaseModel):
-    edge_id: uuid.UUID
+    # edge_id опционален: у самосообщения (from==to, внутренняя операция) связи C4 нет.
+    edge_id: uuid.UUID | None = None
     leg: Leg
     from_participant_id: uuid.UUID
     to_participant_id: uuid.UUID

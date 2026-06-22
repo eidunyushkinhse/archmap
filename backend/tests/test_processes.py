@@ -276,3 +276,45 @@ def test_delete_message_smoke(db):
     )
     delete_message(proc.id, msg.id, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert get_process(proc.id, db=db, project=ensure_project(db)).messages == []
+
+
+# ── Самосообщение (внутренняя операция участника): from==to, без связи C4 ──────
+def test_self_message_created_without_edge(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+
+    msg = create_message(
+        proc.id,
+        MessageCreate(leg="forward", from_participant_id=parts[a.id],
+                      to_participant_id=parts[a.id], caption="валидация", order=0),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+    assert msg.kind == "self"
+    assert msg.valid is True  # это не повисшая связь — её тут и не было
+    assert msg.edge_id is None
+    assert msg.from_id == a.id and msg.to_id == a.id
+    assert msg.caption == "валидация"
+
+
+def test_self_message_rejects_explicit_edge(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b)
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a])
+
+    # from==to, но передан edge_id — противоречие (самосообщение связи не несёт) → 422
+    with pytest.raises(HTTPException) as exc:
+        create_message(
+            proc.id,
+            MessageCreate(edge_id=edge.id, leg="forward",
+                          from_participant_id=parts[a.id], to_participant_id=parts[a.id], order=0),
+            db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
+        )
+    assert exc.value.status_code == 422

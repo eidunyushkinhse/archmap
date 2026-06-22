@@ -69,7 +69,8 @@ export const processesApi = {
       newPartByNode[p.node_id] = np.id;
     }
     for (const m of src.messages) {
-      if (!m.edge_id) continue; // повисшее сообщение — переносить нечего
+      const isSelf = m.from_id === m.to_id;
+      if (!m.edge_id && !isSelf) continue; // повисшее (не self) — переносить нечего
       await processesApi.addMessage(copy.id, {
         edge_id: m.edge_id,
         leg: m.leg,

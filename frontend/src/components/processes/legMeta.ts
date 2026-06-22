@@ -4,7 +4,7 @@
 // открытая «галка». Три типа различимы без цвета.
 import type { ComponentType } from "react";
 import type { MessageKind } from "../../types";
-import { IcoArrowR, IcoAsync, IcoReturn } from "./icons";
+import { IcoArrowR, IcoAsync, IcoReturn, IcoSelf } from "./icons";
 
 export interface LegShape {
   Icon: ComponentType<{ s?: number }>;
@@ -16,5 +16,6 @@ export interface LegShape {
 export function legMeta(kind: MessageKind): LegShape {
   if (kind === "return") return { Icon: IcoReturn, word: "ответ", dash: "6 4", cap: "open" };
   if (kind === "async") return { Icon: IcoAsync, word: "событие", dash: "none", cap: "open" };
+  if (kind === "self") return { Icon: IcoSelf, word: "операция", dash: "none", cap: "fill" };
   return { Icon: IcoArrowR, word: "вызов", dash: "none", cap: "fill" };
 }

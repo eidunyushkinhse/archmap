@@ -111,6 +111,15 @@ export function IcoAsync({ s = 14 }: { s?: number }) {
     </svg>
   );
 }
+// Самопетля — глиф внутренней операции участника (сообщение на самого себя).
+export function IcoSelf({ s = 14 }: { s?: number }) {
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase} strokeWidth={1.8}>
+      <path d="M7 8 H15 a3 3 0 0 1 3 3 a3 3 0 0 1-3 3 H7" />
+      <path d="M10 11 L7 14 L10 17" />
+    </svg>
+  );
+}
 export function IcoLink({ s = 14 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" {...svgBase}>

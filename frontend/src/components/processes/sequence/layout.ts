@@ -63,7 +63,8 @@ export function deriveActivations(messages: SeqMessage[]): SeqActivation[] {
   const acts: SeqActivation[] = [];
   const maxRow = messages.reduce((m, x) => Math.max(m, x.r), 0);
   for (const m of [...messages].sort((a, b) => a.r - b.r)) {
-    if (m.kind === "async") {
+    if (m.kind === "async" || m.kind === "self") {
+      // async — событие без ответа; self — внутренняя операция: обе дают полосу в одну строку.
       acts.push({ lane: m.to, from: m.r, to: m.r });
       continue;
     }

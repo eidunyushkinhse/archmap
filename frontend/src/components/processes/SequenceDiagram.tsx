@@ -29,6 +29,8 @@ interface Props {
   // Пользователь протянул стрелку из кружка одного участника к другому: создаём
   // сообщение между ними (id = node_id). Источник = откуда тянули, цель = куда отпустили.
   onConnect?: (fromId: string, toId: string) => void;
+  // Протягивание из кружка участника обратно НА СЕБЯ — самосообщение (внутр. операция).
+  onSelfConnect?: (id: string) => void;
   onMessageClick?: (id: string) => void;
   // Удаление участника со схемы (крестик по ховеру на шапке). id = node_id.
   // Передаётся только в режиме редактирования — в read-only окне крестика нет.
@@ -49,6 +51,7 @@ export default function SequenceDiagram({
   ghost,
   view = "all",
   onConnect,
+  onSelfConnect,
   onMessageClick,
   onDeleteParticipant,
   selectMode = null,
@@ -60,6 +63,9 @@ export default function SequenceDiagram({
   const rootRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ from: string; px: number; py: number } | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  // Сдвигался ли курсор за порог во время драга — чтобы клик без движения по кружку
+  // не считался самосообщением (источник становится self-целью только после движения).
+  const movedRef = useRef(false);
   // Диапазон строк, выделяемый протягиванием в режиме selectMode (a — якорь, b — текущий).
   const [selRange, setSelRange] = useState<{ a: number; b: number } | null>(null);
 
@@ -173,30 +179,37 @@ export default function SequenceDiagram({
     if (!onConnect) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    movedRef.current = false;
     setDrag({ from: id, px: PX(k), py: ghostY });
   }
-  // Движение во время драга: тянем резиновую стрелку и подсвечиваем ближайший
-  // участник-цель (в пределах половины колонки, не сам источник).
+  // Движение во время драга: тянем резиновую стрелку и подсвечиваем ближайший участник
+  // (в пределах половины колонки). Источник годится как self-цель только после движения.
   function onRootMove(e: ReactPointerEvent<HTMLDivElement>) {
     if (!drag || !rootRef.current) return;
     const r = rootRef.current.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
+    if (Math.hypot(x - PX(idx[drag.from]), y - ghostY) > 10) movedRef.current = true;
     let best: string | null = null;
     let bestD = Infinity;
     participants.forEach((p, k) => {
-      if (p.id === drag.from) return;
       const d = Math.abs(x - PX(k));
       if (d < bestD) { bestD = d; best = p.id; }
     });
+    // Источник как цель = self, но только если уже двигались (иначе клик-без-движения).
+    if (best === drag.from && (!movedRef.current || !onSelfConnect)) best = null;
     setHover(bestD <= SQ.COL_W / 2 ? best : null);
     setDrag((d) => (d ? { ...d, px: x, py: y } : d));
   }
-  // Отпускание: если над валидной целью — создаём связь источник→цель.
+  // Отпускание: над собой — самосообщение, над другим участником — связь источник→цель.
   function onRootUp() {
-    if (drag && hover && hover !== drag.from) onConnect?.(drag.from, hover);
+    if (drag && hover) {
+      if (hover === drag.from) onSelfConnect?.(drag.from);
+      else onConnect?.(drag.from, hover);
+    }
     setDrag(null);
     setHover(null);
+    movedRef.current = false;
   }
 
   return (
@@ -345,15 +358,34 @@ export default function SequenceDiagram({
         {messages.map((m) => {
           const k1 = idx[m.from];
           const k2 = idx[m.to];
-          const dir = k2 > k1 ? 1 : -1;
-          const x1 = PX(k1) + dir * (SQ.ACT_W / 2);
-          const x2 = PX(k2) - dir * (SQ.ACT_W / 2);
           const y = rowY(m.r);
           const shape = legMeta(m.kind);
           const st = strongestStatus(statusOf(m.from), statusOf(m.to));
           const color = m.valid ? STATUS_LEG[st] : BROKEN.ln;
           const dash = m.valid ? shape.dash : "2 5";
           const marker = m.valid ? `url(#sqcap-${shape.cap}-${st})` : "url(#sqcap-open-broken)";
+          // Самосообщение (from==to): петля сбоку линии жизни вместо стрелки нулевой длины.
+          if (m.from === m.to) {
+            const x = PX(k1) + SQ.ACT_W / 2;
+            const loopW = 30;
+            const loopH = 15;
+            const d = `M ${x} ${y - loopH / 2} h ${loopW} v ${loopH} h ${-loopW}`;
+            return (
+              <path
+                key={m.id}
+                d={d}
+                fill="none"
+                stroke={color}
+                strokeWidth="1.7"
+                strokeDasharray={dash === "none" ? undefined : dash}
+                markerEnd={marker}
+                opacity={dimMsg(m) ? 0.12 : 1}
+              />
+            );
+          }
+          const dir = k2 > k1 ? 1 : -1;
+          const x1 = PX(k1) + dir * (SQ.ACT_W / 2);
+          const x2 = PX(k2) - dir * (SQ.ACT_W / 2);
           return (
             <line
               key={m.id}
@@ -377,8 +409,10 @@ export default function SequenceDiagram({
         const k2 = idx[m.to];
         const xa = PX(k1);
         const xb = PX(k2);
-        const left = Math.min(xa, xb);
-        const w = Math.abs(xb - xa);
+        // Самосообщение: подпись справа от петли (стрелка нулевой ширины не годится).
+        const isSelf = m.from === m.to;
+        const left = isSelf ? PX(k1) + SQ.ACT_W / 2 + 34 : Math.min(xa, xb);
+        const w = isSelf ? 168 : Math.abs(xb - xa);
         const shape = legMeta(m.kind);
         const st = strongestStatus(statusOf(m.from), statusOf(m.to));
         const sc = getNodeColors(false, 0, st);
