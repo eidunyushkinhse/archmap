@@ -435,6 +435,59 @@ describe("placeGhostsOnRings — композиция якоря: сдвиг к�
   });
 });
 
+describe("placeGhostsOnRings — АВТО-группа раскрытой рамки следует за сдвигом коробки (HelixMon)", () => {
+  // Раскрытая рамка P с детьми g1/g2/g3, которых НИ РАЗУ не раскладывали (у детей нет
+  // levelPositions → авто-группа, садятся на кольцо). Пользователь перетащил саму свёрнутую
+  // коробку → её абсолют лежит в levelPositions["P"]. Блок детей должен СДВИНУТЬСЯ вслед за
+  // коробкой, сохранив внутреннюю расстановку, и сесть НА коробку — без выноса наружу
+  // (регресс отката a9b3460, где детей утаскивало правее родителя).
+  const setup = (boxPos?: { pos_x: number; pos_y: number }) => {
+    const positions = new Map<string, { x: number; y: number }>([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 260 }], ["Lc", { x: 0, y: 520 }],
+      ["g1", { x: 5, y: 5 }], ["g2", { x: 5, y: 5 }], ["g3", { x: 5, y: 5 }],
+    ]);
+    const res = placeGhostsOnRings({
+      nodes: [node("La"), node("Lb"), node("Lc")],
+      entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")]), leaf("g3", [a("P")])],
+      ancestorIds: ["A"],
+      levelPositions: boxPos ? { P: { ...boxPos, anchor_rel: false } } : {},
+      expanded: new Set(["P"]),
+      layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb"), edge("e3", "g3", "Lc")],
+      positions,
+    });
+    const kids = ["g1", "g2", "g3"].map((id) => positions.get(id)!);
+    return { res, positions, kids };
+  };
+
+  it("блок детей жёстко следует за сдвигом коробки (Δдетей == Δкоробки)", () => {
+    const p1 = setup({ pos_x: 500, pos_y: 100 });
+    const p2 = setup({ pos_x: 800, pos_y: 340 }); // коробка уехала на +300, +240
+    for (const id of ["g1", "g2", "g3"]) {
+      const d = p2.positions.get(id)!, s = p1.positions.get(id)!;
+      expect(d.x - s.x).toBeCloseTo(300);
+      expect(d.y - s.y).toBeCloseTo(240);
+    }
+  });
+
+  it("внутренняя расстановка детей сохраняется при сдвиге коробки", () => {
+    const auto = setup().kids;                         // коробку не двигали — кольцо
+    const moved = setup({ pos_x: 500, pos_y: 100 }).kids;
+    expect(moved[1].x - moved[0].x).toBeCloseTo(auto[1].x - auto[0].x);
+    expect(moved[1].y - moved[0].y).toBeCloseTo(auto[1].y - auto[0].y);
+    expect(moved[2].y - moved[1].y).toBeCloseTo(auto[2].y - auto[1].y);
+  });
+
+  it("блок садится НА коробку, без выноса наружу (регресс a9b3460)", () => {
+    const { kids } = setup({ pos_x: 500, pos_y: 100 });
+    // рёбра ghost→local горизонтальны → сторона left; грань блока к кольцу = правая (maxX).
+    // она совпадает с правой гранью коробки (boxX+NODE_W), блок НЕ улетает на радиус кольца.
+    const blockRight = Math.max(...kids.map((k) => k.x)) + NODE_W;
+    expect(blockRight).toBeCloseTo(500 + NODE_W);
+    // блок целиком ЛЕВЕЕ правой грани коробки — то есть НЕ вынесен правее родителя
+    expect(Math.max(...kids.map((k) => k.x))).toBeLessThanOrEqual(500 + NODE_W);
+  });
+});
+
 describe("placeGhostsOnRings — вырожденные входы", () => {
   it("нет локальных узлов → null", () => {
     expect(placeGhostsOnRings({

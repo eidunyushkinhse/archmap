@@ -193,6 +193,9 @@ export function placeGhostsOnRings(params: {
   }
 
   const groups = [...groupMap.values()].filter((g) => g.auto);
+  // сторона кольца, на которую каскад посадил авто-группу (нужно для пост-сдвига блока
+  // детей вслед за ручным сдвигом свёрнутой коробки — см. ниже, после каскада)
+  const autoGroupSides = new Map<string, EdgeSide>();
 
   // bbox связанных локальных узлов гостя (для пробных маршрутов выбора стороны)
   const localRects: { id: string; rect: NodeRect }[] = [];
@@ -435,6 +438,7 @@ export function placeGhostsOnRings(params: {
           if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
           placedOutside.add(id);
         }
+        autoGroupSides.set(it.g.key, it.side);
       });
     };
     settle(buckets.left, "y");
@@ -444,6 +448,55 @@ export function placeGhostsOnRings(params: {
   }
 
   if (placedOutside.size === 0) return null;
+
+  // --- АВТО-ГРУППА РАСКРЫТОЙ РАМКИ СЛЕДУЕТ ЗА РУЧНЫМ СДВИГОМ КОРОБКИ (кейс HelixMon).
+  // Дети авто-группы (их ни разу не раскладывали) сели на кольцо стандартной логикой выше.
+  // Если пользователь перетащил САМУ свёрнутую коробку, её абсолют лежит в levelPositions
+  // [g.key] (коробка — не entity при раскрытии, но позиция сохранилась). Сдвигаем весь блок
+  // детей на смещение коробки ОТ ЕЁ СОБСТВЕННОГО кольцевого слота. Слот свёрнутой коробки —
+  // там же, где стоял бы одиночный гость: середина грани блока, ОБРАЩЁННОЙ К КОЛЬЦУ (та же
+  // сторона, тот же якорь). Поэтому реф — НЕ groupAnchor локалов (он ВНУТРИ кольца и давал
+  // вынос детей наружу, прошлый откат a9b3460), а грань блока. Δ = (коробка) − (грань блока):
+  // при коробке в дефолтном слоте Δ=0 (нет скачка), иначе Δ = ровно ручное смещение коробки.
+  // Сдвиг чисто производный — НИЧЕГО не персистим и не мигрируем (коробка остаётся абсолютом,
+  // как её и сохранил драг свёрнутого гостя); это снимает порчу данных из прошлой попытки.
+  for (const [key, side] of autoGroupSides) {
+    const boxLp = levelPositions[key];
+    if (!boxLp) continue;                                     // коробку не двигали — кольцо как есть
+    const g = groupMap.get(key);
+    if (!g) continue;
+    const kids = g.ids.filter((id) => placedOutside.has(id));
+    const bb = groupBbox(kids);
+    if (!bb) continue;
+    // абсолют коробки (верх-лево). Свёрнутый драг всегда абсолют; anchor_rel (редкий случай)
+    // трактуем как офсет от живого якоря локалов, чтобы получить абсолют.
+    let boxX = boxLp.pos_x, boxY = boxLp.pos_y;
+    if (boxLp.anchor_rel) {
+      const aBox = groupAnchor(g.ids, localIds, layoutEdges, pos);
+      if (!aBox) continue;
+      boxX = aBox.x + boxLp.pos_x; boxY = aBox.y + boxLp.pos_y;
+    }
+    // грань блока, обращённая к кольцу (противоположна стороне выноса), сопоставляется с
+    // одноимённой гранью коробки (NODE_W×NODE_H); поперёк — центр коробки к центру блока
+    const midX = (bb.minX + bb.maxX) / 2, midY = (bb.minY + bb.maxY) / 2;
+    let dx: number, dy: number;
+    if (side === "left" || side === "right") {
+      const blockFaceX = side === "left" ? bb.maxX : bb.minX;
+      const boxFaceX = side === "left" ? boxX + NODE_W : boxX;
+      dx = boxFaceX - blockFaceX;
+      dy = boxY + NODE_H / 2 - midY;
+    } else {
+      const blockFaceY = side === "top" ? bb.maxY : bb.minY;
+      const boxFaceY = side === "top" ? boxY + NODE_H : boxY;
+      dy = boxFaceY - blockFaceY;
+      dx = boxX + NODE_W / 2 - midX;
+    }
+    if (dx === 0 && dy === 0) continue;
+    for (const id of kids) {
+      const p = positions.get(id);
+      if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
+    }
+  }
 
   // bbox содержимого уровня = локальные узлы + гости с ручной позицией (НЕ на кольце) —
   // база для дефолтных обводов (detours.ts), которые сами расширят его за вынесенных
