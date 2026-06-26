@@ -435,6 +435,61 @@ describe("placeGhostsOnRings — композиция якоря: сдвиг к�
   });
 });
 
+describe("placeGhostsOnRings — АВТО-группа раскрытой рамки следует за сдвигом коробки", () => {
+  // Дети g1/g2/g3 БЕЗ собственных офсетов (авто-группа: их ни разу не раскладывали → садятся
+  // на кольцо полкой D1). Пользователь ДО раскрытия перетащил саму коробку P → её сдвиг лежит
+  // в levelPositions["P"]. Фикс: весь блок детей ТРАНСЛИРУЕТСЯ на этот офсет, внутренняя полка
+  // (порядок, колонка) не пересчитывается. Локалы La(0,0)/Lb(0,260)/Lc(0,520).
+  const verticals = () => ({
+    nodes: [node("La"), node("Lb"), node("Lc")],
+    entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")]), leaf("g3", [a("P")])],
+    ancestorIds: ["A"],
+    layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb"), edge("e3", "g3", "Lc")],
+    expanded: new Set(["P"]),
+  });
+  const seed = (): Map<string, { x: number; y: number }> => new Map([
+    ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 260 }], ["Lc", { x: 0, y: 520 }],
+    ["g1", { x: 5, y: 5 }], ["g2", { x: 5, y: 5 }], ["g3", { x: 5, y: 5 }],
+  ]);
+  const runWith = (levelPositions: Record<string, { pos_x: number; pos_y: number; anchor_rel: boolean }>) => {
+    const positions = seed();
+    const res = placeGhostsOnRings({ ...verticals(), levelPositions, positions });
+    return { res, kids: ["g1", "g2", "g3"].map((id) => positions.get(id)!) };
+  };
+
+  it("офсет коробки (anchor_rel) сдвигает весь блок, полка не меняется", () => {
+    const a0 = runWith({});                                            // без сдвига — дети на кольце
+    const a1 = runWith({ P: { pos_x: 70, pos_y: 40, anchor_rel: true } });
+    expect(a0.res).not.toBeNull();
+    expect(a1.res).not.toBeNull();
+    // каждый ребёнок сдвинут РОВНО на офсет коробки (блок едет жёстко, расстановка та же)
+    a1.kids.forEach((k, i) => {
+      expect(k.x - a0.kids[i].x).toBeCloseTo(70);
+      expect(k.y - a0.kids[i].y).toBeCloseTo(40);
+    });
+    expect(a1.res!.migrations.length).toBe(0); // anchor_rel → без миграции
+  });
+
+  it("без офсета коробки дети остаются на кольце (поведение по умолчанию)", () => {
+    const a0 = runWith({});
+    expect(a0.res!.placedOutside.has("g1")).toBe(true);
+    const xs = new Set(a0.kids.map((k) => Math.round(k.x)));
+    expect(xs.size).toBe(1); // одна колонка — фикс ничего не сдвинул
+  });
+
+  it("легаси-абсолют коробки: блок сдвинут на (абсолют − живой якорь), коробка мигрирует в офсет", () => {
+    const a0 = runWith({});
+    const a1 = runWith({ P: { pos_x: 600, pos_y: 700, anchor_rel: false } });
+    const mig = a1.res!.migrations.find((m) => m.id === "P");
+    expect(mig).toBeTruthy();
+    // дельта блока == записанный офсет миграции (абсолют − groupAnchor локалов)
+    a1.kids.forEach((k, i) => {
+      expect(k.x - a0.kids[i].x).toBeCloseTo(mig!.pos_x);
+      expect(k.y - a0.kids[i].y).toBeCloseTo(mig!.pos_y);
+    });
+  });
+});
+
 describe("placeGhostsOnRings — вырожденные входы", () => {
   it("нет локальных узлов → null", () => {
     expect(placeGhostsOnRings({

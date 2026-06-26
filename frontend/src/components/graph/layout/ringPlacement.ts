@@ -445,6 +445,35 @@ export function placeGhostsOnRings(params: {
 
   if (placedOutside.size === 0) return null;
 
+  // --- АВТО-ГРУППА РАСКРЫТОЙ РАМКИ СЛЕДУЕТ ЗА СДВИГОМ КОРОБКИ. Дети авто-группы (их ни
+  // разу не раскладывали вручную) сели на кольцо стандартной логикой выше; здесь — чистая
+  // ТРАНСЛЯЦИЯ всего блока на офсет, на который пользователь перетащил саму свёрнутую рамку
+  // (levelPositions[g.key]). Внутренняя раскладка (стороны, порядок, перелив колонок) не
+  // меняется — блок едет за родителем, как и для владеемой группы (там это даёт композитный
+  // якорь baseAnchor+офсет; здесь — пост-сдвиг кольцевой раскладки). Без офсета коробки —
+  // прежнее поведение (дети на кольце). Легаси-абсолют коробки лениво мигрируем в офсет.
+  for (const g of groupMap.values()) {
+    if (!g.auto || !expanded.has(g.key)) continue;
+    const boxLp = levelPositions[g.key];
+    if (!boxLp) continue;                                   // коробку не двигали — кольцо как есть
+    let tx: number, ty: number;
+    if (boxLp.anchor_rel) {
+      tx = boxLp.pos_x; ty = boxLp.pos_y;                   // офсет уже дельта от якоря
+    } else {
+      // легаси-абсолют коробки → дельта от живого якоря локалов + миграция абсолют→офсет
+      const a = groupAnchor(g.ids, localIds, layoutEdges, pos);
+      if (!a) continue;
+      tx = boxLp.pos_x - a.x; ty = boxLp.pos_y - a.y;
+      migrations.push({ id: g.key, pos_x: tx, pos_y: ty });
+    }
+    if (tx === 0 && ty === 0) continue;
+    for (const id of g.ids) {
+      if (!placedOutside.has(id)) continue;                 // двигаем только вынесенных на кольцо
+      const p = positions.get(id);
+      if (p) positions.set(id, { x: p.x + tx, y: p.y + ty });
+    }
+  }
+
   // bbox содержимого уровня = локальные узлы + гости с ручной позицией (НЕ на кольце) —
   // база для дефолтных обводов (detours.ts), которые сами расширят его за вынесенных
   let fMinX = Infinity, fMinY = Infinity, fMaxX = -Infinity, fMaxY = -Infinity;
