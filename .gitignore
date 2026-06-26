@@ -41,6 +41,10 @@ pnpm-debug.log*
 *.sqlite3
 *.db
 
+# ===== ТЗ от Claude Design (локально, в репозиторий не тащим) =====
+design_briefs/
+*:Zone.Identifier
+
 # ===== ОС и редакторы =====
 .DS_Store
 Thumbs.db
