@@ -1,21 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ExportResponse } from "../types";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
 
 interface Props {
   // Заголовок модалки («Экспорт схемы» / «Экспорт поддерева …»).
   title: string;
-  // Ключ области экспорта (scope) — "all" или id узла. Дубль как dep эффекта.
+  // Ключ области экспорта (scope) — "all" / id узла / id процесса. Дубль как dep эффекта.
   loadKey: string;
-  // Загрузчик документа (exportApi.all / exportApi.subtree). Вызывается на маунт.
-  load: () => Promise<ExportResponse>;
+  // Загрузчик документа (YAML-схема или Mermaid-процесс). Вызывается на маунт.
+  // Структурный минимум — { content }: ExportResponse подходит, как и Mermaid-обёртка.
+  load: () => Promise<{ content: string }>;
   onClose: () => void;
 }
 
 /**
- * Модалка экспорта схемы (или поддерева) в текст (YAML) для скармливания LLM.
+ * Модалка экспорта в текст для скармливания LLM: C4-схема (или поддерево) в YAML
+ * либо бизнес-процесс в Mermaid sequenceDiagram — определяется загрузчиком load.
  * Сама грузит документ (по той же схеме, что NodeContextModal: эффект только
  * фетчит, loading/error/content — производные от привязанного к loadKey стейта),
  * показывает его в <pre> и даёт кнопку «Скопировать».

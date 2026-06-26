@@ -20,6 +20,8 @@ import ObjectInspector, { type Selected } from "../components/inspector/ObjectIn
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import ExportModal from "../components/ExportModal";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
+import { processesApi } from "../api/processes";
+import { detailToMermaid } from "../components/processes/sequence/toMermaid";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import { LogoMark, UpIcon, ExportIcon, ChevronIcon, CollapseIcon } from "../ui/icons";
@@ -123,6 +125,9 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // Персистится так же, как вид схемы — через localStorage (общая привычка пользователя).
   const [mode, setMode] = useState<WorkMode>(() => (localStorage.getItem(MODE_KEY) === "proc" ? "proc" : "schema"));
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
+  // Выбранный процесс в режиме «Процессы» (id + имя) — поднят из ProcessWorkspace,
+  // чтобы кнопка экспорта в шапке знала, какой процесс выгружать в Mermaid.
+  const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
   // Свёрнута ли правая панель схемы (как у левого дерева — локально, без персиста).
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Глобальные алерты незавершённости схемы (только для архитектора)
@@ -141,7 +146,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   const [exportScope, setExportScope] = useState<{
     key: string;
     title: string;
-    nodeId: string | null;
+    load: () => Promise<{ content: string }>;
   } | null>(null);
 
   // История Undo/Redo всего вида уровня: команды перемещений/изломов кладёт LevelGraph,
@@ -157,16 +162,25 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
   const currentParentId = currentParent?.id ?? null;
 
-  // Открыть экспорт по текущей области: на корне — вся схема, внутри узла — его поддерево.
+  // Открыть экспорт. В режиме «Процессы» — выбранный процесс в Mermaid sequenceDiagram;
+  // в режиме «Схема» — C4 в YAML: на корне вся схема, внутри узла его поддерево.
   const openExport = () => {
-    if (currentParent) {
+    if (mode === "proc") {
+      if (!procSelection) return; // нет выбранного процесса — экспортировать нечего
+      const { id, name } = procSelection;
+      setExportScope({
+        key: `proc:${id}`,
+        title: `Экспорт процесса «${name}» (Mermaid)`,
+        load: () => processesApi.get(id).then((d) => ({ content: detailToMermaid(d) })),
+      });
+    } else if (currentParent) {
       setExportScope({
         key: currentParent.id,
         title: `Экспорт поддерева «${currentParent.name}»`,
-        nodeId: currentParent.id,
+        load: () => exportApi.subtree(currentParent.id),
       });
     } else {
-      setExportScope({ key: "all", title: "Экспорт схемы", nodeId: null });
+      setExportScope({ key: "all", title: "Экспорт схемы", load: () => exportApi.all() });
     }
   };
 
@@ -774,8 +788,13 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
             className="icon-btn"
             onClick={openExport}
             style={iconBtn}
-            title="Скопировать схему (или текущее поддерево) в YAML для LLM"
-            aria-label="Экспорт в YAML"
+            disabled={mode === "proc" && !procSelection}
+            title={
+              mode === "proc"
+                ? "Скопировать выбранный процесс в Mermaid sequenceDiagram для LLM"
+                : "Скопировать схему (или текущее поддерево) в YAML для LLM"
+            }
+            aria-label={mode === "proc" ? "Экспорт процесса в Mermaid" : "Экспорт в YAML"}
           >
             <ExportIcon />
           </button>
@@ -787,7 +806,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           C4-граф + панель свойств. Процессы живут самостоятельным режимом, а не модалкой. */}
       <div style={bodyRow}>
         {mode === "proc" ? (
-          <ProcessWorkspace isArchitect={isArchitect} />
+          <ProcessWorkspace isArchitect={isArchitect} onSelectedChange={setProcSelection} />
         ) : (
         <>
         <NodeTreePanel
@@ -1032,9 +1051,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         <ExportModal
           title={exportScope.title}
           loadKey={exportScope.key}
-          load={() =>
-            exportScope.nodeId ? exportApi.subtree(exportScope.nodeId) : exportApi.all()
-          }
+          load={exportScope.load}
           onClose={() => setExportScope(null)}
         />
       )}

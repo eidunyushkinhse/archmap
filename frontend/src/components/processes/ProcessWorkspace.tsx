@@ -14,6 +14,9 @@ import "./processes.css";
 
 interface Props {
   isArchitect: boolean;
+  // Уведомление родителя (TreePage) о выбранном процессе — чтобы кнопка экспорта
+  // в шапке знала, какой процесс выгружать в Mermaid. null = ничего не выбрано.
+  onSelectedChange?: (sel: { id: string; name: string } | null) => void;
 }
 
 const LS_KEY = "bp_workspace_v1";
@@ -29,7 +32,7 @@ function readPrefs(): Prefs {
   }
 }
 
-export default function ProcessWorkspace({ isArchitect }: Props) {
+export default function ProcessWorkspace({ isArchitect, onSelectedChange }: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Явно выбранный процесс. null → берём первый из списка (derived ниже), без эффекта.
@@ -55,6 +58,17 @@ export default function ProcessWorkspace({ isArchitect }: Props) {
   const selectedId = (picked && items?.some((p) => p.id === picked) ? picked : items?.[0]?.id) ?? null;
   // Правка только архитектору; зрителю холст read-only.
   const editing = isArchitect && editingPref;
+
+  // Сообщаем родителю выбранный процесс (id + имя) — для кнопки экспорта в шапке.
+  // Колбэк держим в ref (пересоздаётся родителем на рендер), эффект зависит только
+  // от самого выбора, а не от идентичности колбэка.
+  const selectedItem = items?.find((p) => p.id === selectedId) ?? null;
+  const selName = selectedItem?.name ?? null;
+  const notifyRef = useRef(onSelectedChange);
+  useEffect(() => { notifyRef.current = onSelectedChange; });
+  useEffect(() => {
+    notifyRef.current?.(selectedId ? { id: selectedId, name: selName ?? "" } : null);
+  }, [selectedId, selName]);
 
   // Защита от гонок: held токен последней операции, чтобы не перетереть выбор.
   const opSeq = useRef(0);
