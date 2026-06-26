@@ -19,13 +19,16 @@ import NodeTreePanel from "../components/NodeTreePanel";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import ExportModal from "../components/ExportModal";
-import ProcessViewerModal from "../components/ProcessViewerModal";
-import ProcessEditorModal from "../components/ProcessEditorModal";
+import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import { LogoMark, UpIcon, ExportIcon, ChevronIcon, CollapseIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css"; // классы .nt-collapse / .nt-railbtn для правой панели
+
+// Рабочая область: C4-схема или бизнес-процессы. Персистится в localStorage.
+type WorkMode = "schema" | "proc";
+const MODE_KEY = "archmap_mode";
 
 interface Props {
   // id текущего проекта (схема скоупится им; смена проекта ремаунтит TreePage по key)
@@ -116,6 +119,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // + легенда). Переживает перезагрузку (localStorage), не серверное и не раскладка.
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+  // Режим рабочей области: «Схема» (C4-холст + дерево) или «Процессы» (рейл + sequence).
+  // Персистится так же, как вид схемы — через localStorage (общая привычка пользователя).
+  const [mode, setMode] = useState<WorkMode>(() => (localStorage.getItem(MODE_KEY) === "proc" ? "proc" : "schema"));
+  useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
   // Свёрнута ли правая панель схемы (как у левого дерева — локально, без персиста).
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Глобальные алерты незавершённости схемы (только для архитектора)
@@ -128,11 +135,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // сигнал перезагрузки бокового дерева: бампаем после создания/удаления узла,
   // чтобы новый узел сразу попал в дерево без перезагрузки страницы
   const [treeReload, setTreeReload] = useState(0);
-
-  // Открытое окно бизнес-процесса (просмотр/редактор) и токен обновления списка в
-  // панели (бумпим при закрытии окна — счётчик сообщений мог измениться).
-  const [processModal, setProcessModal] = useState<{ id: string; mode: "view" | "edit" } | null>(null);
-  const [processReload, setProcessReload] = useState(0);
 
   // экспорт схемы в YAML для LLM. Область снимаем на момент открытия (nodeId=null —
   // вся схема, иначе поддерево узла), чтобы навигация её не сбила.
@@ -724,8 +726,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
             onAllProjects={onAllProjects}
             onSwitchProject={onSwitchProject}
           />
+          {/* Хлебные крошки нужны только навигации по схеме — в режиме «Процессы» скрыты */}
+          {mode === "schema" && (
+          <>
           <span style={{ width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" }} />
-          {/* Хлебные крошки — без подчёркиваний, разделители-шевроны */}
           <button
             className="crumb"
             style={crumbLink}
@@ -756,9 +760,13 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               <UpIcon />
             </button>
           )}
+          </>
+          )}
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {/* Переключатель рабочей области: Схема / Процессы (персистится) */}
+          <ModeSwitch mode={mode} onChange={setMode} />
           {/* Создание узла — перетаскиванием шаблона из боковой панели (секция
               «Добавить объект»), связи — протягиванием стрелки от хэндла узла.
               Отдельных кнопок создания в шапке больше нет. */}
@@ -775,17 +783,19 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         </div>
       </div>
 
-      {/* Тело: боковая панель слева + область графа справа */}
+      {/* Тело: режим «Процессы» — рейл + sequence-холст; режим «Схема» — дерево +
+          C4-граф + панель свойств. Процессы живут самостоятельным режимом, а не модалкой. */}
       <div style={bodyRow}>
+        {mode === "proc" ? (
+          <ProcessWorkspace isArchitect={isArchitect} />
+        ) : (
+        <>
         <NodeTreePanel
           onDrillTo={drillToPath}
           onNodeContext={setContextNode}
           isArchitect={isArchitect}
           onTemplateDrag={setDragShape}
           reloadToken={treeReload}
-          onOpenProcess={(id) => setProcessModal({ id, mode: "view" })}
-          onEditProcess={(id) => setProcessModal({ id, mode: "edit" })}
-          processRefreshToken={processReload}
         />
 
         {/* Область графа — заполняет оставшееся пространство */}
@@ -905,6 +915,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
             {!rightCollapsed && <span>Свернуть панель</span>}
           </button>
         </aside>
+        </>
+        )}
       </div>
 
       {nodeModal.open && (
@@ -1027,22 +1039,43 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         />
       )}
 
-      {/* Окно бизнес-процесса. Закрытие бумпит processReload → панель перечитывает
-          список (счётчик сообщений мог измениться в редакторе). */}
-      {processModal?.mode === "view" && (
-        <ProcessViewerModal
-          id={processModal.id}
-          isArchitect={isArchitect}
-          onClose={() => { setProcessModal(null); setProcessReload((n) => n + 1); }}
-          onEdit={(id) => setProcessModal({ id, mode: "edit" })}
-        />
-      )}
-      {processModal?.mode === "edit" && (
-        <ProcessEditorModal
-          id={processModal.id}
-          onClose={() => { setProcessModal(null); setProcessReload((n) => n + 1); }}
-        />
-      )}
+    </div>
+  );
+}
+
+// Сегмент-переключатель режима «Схема / Процессы» (как в прототипе варианта B):
+// активная вкладка — белый чип с тенью и акцентным цветом.
+function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode) => void }) {
+  const tab = (active: boolean): CSSProperties => ({
+    height: 30,
+    padding: "0 14px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    fontSize: 13,
+    fontWeight: 600,
+    borderRadius: 7,
+    cursor: "pointer",
+    border: "none",
+    fontFamily: "inherit",
+    color: active ? "#2563eb" : "#64748b",
+    background: active ? "#fff" : "transparent",
+    boxShadow: active ? "0 1px 2px rgba(15,23,42,.10)" : "none",
+  });
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
+      <button style={tab(mode === "schema")} onClick={() => onChange("schema")} title="C4-схема">
+        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="3" width="6" height="4.5" rx="1" /><rect x="3" y="16.5" width="6" height="4.5" rx="1" /><rect x="15" y="16.5" width="6" height="4.5" rx="1" /><path d="M12 7.5 V11 M6 16.5 V13 H18 V16.5" />
+        </svg>
+        Схема
+      </button>
+      <button style={tab(mode === "proc")} onClick={() => onChange("proc")} title="Бизнес-процессы">
+        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" /><path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
+        </svg>
+        Процессы
+      </button>
     </div>
   );
 }

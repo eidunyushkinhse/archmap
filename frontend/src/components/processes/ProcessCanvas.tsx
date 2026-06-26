@@ -84,15 +84,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   // Первичная загрузка. Смену процесса воркспейс делает через key-remount (свежее
   // состояние оверлеев/истории), поэтому id за время жизни компонента не меняется —
-  // здесь только начальный fetch без onChanged (изменений ещё нет). Без синхронного
-  // setState в эффекте: setDetail только в .then.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- грузим один раз при маунте; id стабилен (key-remount)
+  // [id] здесь эквивалентно «только маунт». Без синхронного setState в эффекте:
+  // setDetail только в .then; начальный fetch без onChanged (изменений ещё нет).
   useEffect(() => {
     processesApi
       .get(id)
       .then(setDetail)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
-  }, []);
+  }, [id]);
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);

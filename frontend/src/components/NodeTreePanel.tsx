@@ -4,8 +4,7 @@ import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
 import { canHaveChildren, compareByRank, withoutPersons } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
-import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon, FlowIcon } from "../ui/icons";
-import BusinessProcessSection from "./BusinessProcessSection";
+import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 
 /**
@@ -50,11 +49,6 @@ interface Props {
   // сигнал внешней перезагрузки дерева (инкремент после создания/удаления узла в
   // TreePage): дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
   reloadToken?: number;
-  // открыть просмотр/редактор бизнес-процесса (окна живут в TreePage)
-  onOpenProcess?: (id: string) => void;
-  onEditProcess?: (id: string) => void;
-  // токен обновления списка процессов (TreePage бумпит при закрытии окна с правками)
-  processRefreshToken?: number;
 }
 
 // Прозрачная 1×1 картинка вместо стандартного drag-image: прячем «снимок» плитки —
@@ -182,7 +176,7 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag, reloadToken, onOpenProcess, onEditProcess, processRefreshToken }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag, reloadToken }: Props) {
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
@@ -426,13 +420,6 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
               <PlusIcon />
             </button>
           )}
-          <button
-            className="nt-railbtn"
-            title="Бизнес-процессы"
-            onClick={() => { setCollapsed(false); setOpenSections((p) => new Set(p).add("bpm")); }}
-          >
-            <FlowIcon />
-          </button>
         </div>
       ) : (
       <div style={content}>
@@ -480,20 +467,6 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
             </div>
           </Section>
         )}
-
-        {/* Секция 3: бизнес-процессы */}
-        <Section
-          title="Бизнес-процессы"
-          open={openSections.has("bpm")}
-          onToggle={() => toggleSection("bpm")}
-        >
-          <BusinessProcessSection
-            isArchitect={isArchitect}
-            onOpen={(id) => onOpenProcess?.(id)}
-            onEdit={(id) => onEditProcess?.(id)}
-            refreshToken={processRefreshToken ?? 0}
-          />
-        </Section>
       </div>
       )}
 
