@@ -548,10 +548,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   }
 
   // То же для ГОСТЕВОЙ стрелки — путь живёт в пер-уровневом слое (level_edge_waypoints),
-  // а не в колонке ребра. Зеркалируем теми же значениями, что вернул бы рефетч; anchor_rel
-  // помечает изломы владеемой группы (офсет от якоря, ТЗ D8) — по умолчанию абсолют.
-  function updateLevelEdgeWaypoints(edgeId: string, waypoints: EdgePoint[], anchorRel = false) {
-    setLevelEdgeWaypoints((prev) => ({ ...prev, [edgeId]: { waypoints, anchor_rel: anchorRel } }));
+  // а не в колонке ребра. Зеркалируем теми же значениями, что вернул бы рефетч; anchorNodeId
+  // помечает излом, владеемый узлом по идентичности (офсет от него, Ф3) — по умолчанию абсолют.
+  function updateLevelEdgeWaypoints(edgeId: string, waypoints: EdgePoint[], anchorNodeId: string | null = null) {
+    setLevelEdgeWaypoints((prev) => ({ ...prev, [edgeId]: { waypoints, anchor_node_id: anchorNodeId } }));
   }
 
   // Плашку подписи перетащили — доля label_t сохранена в колонку ребра (commitLabelT).

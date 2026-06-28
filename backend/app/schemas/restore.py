@@ -70,7 +70,7 @@ class EdgeWaypointSnapshot(BaseModel):
     container_id: uuid.UUID
     edge_id: uuid.UUID
     waypoints: list[Point]
-    anchor_rel: bool = False
+    anchor_node_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

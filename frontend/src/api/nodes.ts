@@ -65,11 +65,11 @@ export const nodesApi = {
     containerId: string,
     edgeId: string,
     waypoints: EdgePoint[],
-    // anchor_rel=true → точки это офсеты от живого якоря группы (изломы владеемой
-    // группы, ТЗ D8); по умолчанию абсолют уровня
-    anchorRel = false,
+    // anchorNodeId не null → точки это ОФСЕТ от позиции узла anchorNodeId (излом владеемой
+    // группы, Ф3, едет с узлом и гаснет при его сворачивании); null — абсолют уровня
+    anchorNodeId: string | null = null,
   ): Promise<void> =>
-    api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints, anchor_rel: anchorRel }),
+    api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints, anchor_node_id: anchorNodeId }),
   // «Переразложить уровень»: стирает весь ручной layout уровня (позиции локалов и
   // гостей, хэндлы гостевых концов, изломы стрелок) → возврат к авто-раскладке.
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.

@@ -197,7 +197,7 @@ def restore_from_snapshot(
                 container_id=ew.container_id,
                 edge_id=ew.edge_id,
                 waypoints=[p.model_dump() for p in ew.waypoints],
-                anchor_rel=ew.anchor_rel,
+                anchor_node_id=ew.anchor_node_id,
             )
         )
 

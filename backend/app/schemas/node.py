@@ -121,9 +121,9 @@ class EdgeWaypointsUpdate(BaseModel):
     # Кастомный путь (изломы) гостевой стрелки на уровне. Пустой список — сброс
     # в авто-маршрут (строка пер-уровневого слоя удаляется).
     waypoints: list[Point]
-    # true — точки это офсеты от живого якоря группы (изломы владеемой группы, ТЗ D8);
-    # по умолчанию абсолют уровня (как все ручные изломы вне раскрытых рамок)
-    anchor_rel: bool = False
+    # Идентичность якоря излома (Ф3). Не null — точки это ОФСЕТ от позиции узла
+    # anchor_node_id (гостевой конец-потомок раскрытой рамки); null — абсолют уровня.
+    anchor_node_id: uuid.UUID | None = None
 
 
 class GraphEdgeResponse(BaseModel):
@@ -158,10 +158,10 @@ class PosXY(BaseModel):
 
 
 class LevelWaypoints(BaseModel):
-    # Изломы гостевой стрелки на уровне + признак привязки к якорю (зеркало PosXY для
-    # пути). anchor_rel=true → точки waypoints это офсеты от anchorG (ТЗ D8).
+    # Изломы гостевой стрелки на уровне + идентичность якоря (Ф3). anchor_node_id не null →
+    # точки waypoints это офсеты от позиции узла anchor_node_id; null → абсолют уровня.
     waypoints: list[Point]
-    anchor_rel: bool = False
+    anchor_node_id: uuid.UUID | None = None
 
 
 class GraphResponse(BaseModel):

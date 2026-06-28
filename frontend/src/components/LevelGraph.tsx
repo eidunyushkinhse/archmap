@@ -147,7 +147,7 @@ interface LevelGraphProps {
   // синхронизирует стейт уровня теми же waypoints, чтобы пересчёт раскладки их не откатил.
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // то же для ГОСТЕВОЙ стрелки — путь сохранён в пер-уровневый слой (level_edge_waypoints).
-  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[], anchorRel?: boolean) => void;
+  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[], anchorNodeId?: string | null) => void;
   // плашку подписи перетащили вдоль стрелки и доля сохранена в колонку ребра (label_t) —
   // родитель зеркалит в стейт уровня теми же значениями, что вернул бы рефетч.
   onEdgeLabelTChanged?: (edgeId: string, t: number | null) => void;
@@ -568,15 +568,15 @@ function LevelGraphInner({
     [isArchitect, containerId, onNodeMoved, onPersistError],
   );
 
-  // Персист ленивой миграции легаси-абсолютных изломов гостевых стрелок владеемых групп
-  // в офсеты от якоря (ТЗ D8) — зеркало migrateGhostPositions для пути. На экране излом не
-  // двигается; дальше он едет за рамкой (реконструкция anchorG + офсет). Раз на стрелку.
+  // Персист приобретения якоря изломом: абсолютный путь к потомку раскрытой рамки → офсет от
+  // узла-якоря с явным anchor_node_id (Ф3) — зеркало migrateGhostPositions для пути. На экране
+  // излом не двигается; дальше он едет с узлом по идентичности и гаснет при его сворачивании.
   const migrateLevelWaypoints = useCallback(
-    (migrations: { edge_id: string; waypoints: EdgePoint[] }[]) => {
+    (migrations: { edge_id: string; anchor_node_id: string; waypoints: EdgePoint[] }[]) => {
       if (!isArchitect || !containerId) return;
       for (const m of migrations) {
-        guardPersist(nodesApi.saveEdgeWaypoints(containerId, m.edge_id, m.waypoints, true), onPersistError);
-        onLevelEdgeWaypointsChanged?.(m.edge_id, m.waypoints, true);
+        guardPersist(nodesApi.saveEdgeWaypoints(containerId, m.edge_id, m.waypoints, m.anchor_node_id), onPersistError);
+        onLevelEdgeWaypointsChanged?.(m.edge_id, m.waypoints, m.anchor_node_id);
       }
     },
     [isArchitect, containerId, onLevelEdgeWaypointsChanged, onPersistError],

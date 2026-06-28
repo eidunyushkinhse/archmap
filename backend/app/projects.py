@@ -174,6 +174,6 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 container_id=nmap[ew.container_id],
                 edge_id=emap[ew.edge_id],
                 waypoints=ew.waypoints,
-                anchor_rel=ew.anchor_rel,
+                anchor_node_id=nmap[ew.anchor_node_id] if ew.anchor_node_id else None,
             )
         )

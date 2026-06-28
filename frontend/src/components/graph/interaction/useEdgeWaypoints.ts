@@ -14,9 +14,9 @@ interface Params {
   // локальная стрелка сохранена в колонку — зеркало в стейт уровня (как вернул бы рефетч)
   onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
   // гостевая стрелка сохранена в пер-уровневый слой — зеркало в стейт уровня.
-  // anchorRel помечает изломы владеемой группы (офсет от якоря, ТЗ D8); ручной коммит
-  // всегда абсолютный (false) — в офсет их лениво мигрирует раскладка.
-  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[], anchorRel?: boolean) => void;
+  // anchorNodeId помечает излом, владеемый узлом по идентичности (офсет от него, Ф3); ручной
+  // коммит всегда абсолютный (null) — якорь приобретает раскладка при первом показе.
+  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[], anchorNodeId?: string | null) => void;
   // фоновый персист пути упал — вернуть зеркало к истине (ресинк уровня из БД)
   onPersistError?: (e: unknown) => void;
 }

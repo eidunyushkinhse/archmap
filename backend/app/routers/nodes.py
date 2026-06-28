@@ -197,7 +197,7 @@ def _build_graph(
             if r.edge_id in ghost_edge_ids and r.waypoints:
                 level_edge_waypoints[str(r.edge_id)] = LevelWaypoints(
                     waypoints=[Point(x=p["x"], y=p["y"]) for p in r.waypoints],
-                    anchor_rel=r.anchor_rel,
+                    anchor_node_id=r.anchor_node_id,
                 )
 
     # Число прямых детей у каждого родителя — одним проходом по всем узлам, без запроса
@@ -824,7 +824,7 @@ def save_edge_waypoints(
             db,
             EdgeWaypoint,
             keys={"container_id": container_id, "edge_id": edge_id},
-            values={"waypoints": data, "anchor_rel": payload.anchor_rel},
+            values={"waypoints": data, "anchor_node_id": payload.anchor_node_id},
         )
     db.commit()
 
