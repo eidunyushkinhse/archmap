@@ -70,6 +70,11 @@ export const nodesApi = {
     anchorRel = false,
   ): Promise<void> =>
     api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints, anchor_rel: anchorRel }),
+  // «Переразложить уровень»: стирает весь ручной layout уровня (позиции локалов и
+  // гостей, хэндлы гостевых концов, изломы стрелок) → возврат к авто-раскладке.
+  // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.
+  relayoutLevel: (containerId: string | null): Promise<void> =>
+    api.post(containerId ? `/nodes/${containerId}/relayout` : `/nodes/relayout`, {}),
 };
 
 export const exportApi = {

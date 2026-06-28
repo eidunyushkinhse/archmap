@@ -827,3 +827,61 @@ def save_edge_waypoints(
             values={"waypoints": data, "anchor_rel": payload.anchor_rel},
         )
     db.commit()
+
+
+def _clear_level_layout(
+    db: Session, container_id: uuid.UUID | None, project: Project
+) -> None:
+    """Сбрасывает ВЕСЬ ручной layout уровня в авто (own-on-first-render, Ф2):
+    позиции локальных узлов уровня → null (dagre разложит заново), а также гостевые
+    позиции, хэндлы гостевых концов и изломы стрелок этого уровня. После сброса уровень
+    выглядит как при первом открытии (dagre + кольца + авто-маршруты).
+
+    Для корня (container_id=None) гостей/хэндлов/изломов не бывает (их таблицы скоупятся
+    not-null container_id) — чистим только позиции корневых узлов (parent_id IS NULL).
+    """
+    # Позиции локальных узлов уровня (прямые дети контейнера) → авто.
+    parent_filter = (
+        Node.parent_id.is_(None) if container_id is None else Node.parent_id == container_id
+    )
+    db.query(Node).filter(parent_filter, Node.project_id == project.id).update(
+        {Node.pos_x: None, Node.pos_y: None}, synchronize_session=False
+    )
+    if container_id is not None:
+        # Гостевой пер-уровневый слой скоупится container_id — сносим строки целиком.
+        db.query(GhostPosition).filter(
+            GhostPosition.container_id == container_id
+        ).delete(synchronize_session=False)
+        db.query(GhostEdgeHandle).filter(
+            GhostEdgeHandle.container_id == container_id
+        ).delete(synchronize_session=False)
+        db.query(EdgeWaypoint).filter(
+            EdgeWaypoint.container_id == container_id
+        ).delete(synchronize_session=False)
+    db.commit()
+
+
+@router.post("/relayout", status_code=status.HTTP_204_NO_CONTENT)
+def relayout_root_level(
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> None:
+    """«Переразложить» корневой уровень: позиции корневых узлов → авто (dagre)."""
+    _clear_level_layout(db, None, project)
+
+
+@router.post(
+    "/{container_id}/relayout",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def relayout_level(
+    container_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> None:
+    """«Переразложить уровень»: весь ручной layout уровня container_id → авто."""
+    if not scoped_node(db, container_id, project):
+        raise HTTPException(status_code=404, detail="Уровень не найден")
+    _clear_level_layout(db, container_id, project)

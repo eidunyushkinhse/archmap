@@ -23,6 +23,11 @@ export const UpIcon = ({ size = 16 }: IcoProps) => (
 export const ExportIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M12 3 V14" /><path d="M8 10 L12 14 L16 10" /><path d="M4 17 V20 H20 V17" /></svg>);
+// «Переразложить уровень» — круговые стрелки (сброс к авто-раскладке).
+export const RelayoutIcon = ({ size = 17 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
+    <path d="M20 11 a8 8 0 0 0-14-4 M4 5 V8 H7" />
+    <path d="M4 13 a8 8 0 0 0 14 4 M20 19 V16 H17" /></svg>);
 export const ChevronIcon = ({ size = 13 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M9 6 L15 12 L9 18" /></svg>);

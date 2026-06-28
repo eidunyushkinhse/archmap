@@ -13,6 +13,7 @@ import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import NodeContextModal from "../components/NodeContextModal";
+import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph, { type LocateRequest } from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
@@ -24,7 +25,7 @@ import { processesApi } from "../api/processes";
 import { detailToMermaid } from "../components/processes/sequence/toMermaid";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
-import { LogoMark, UpIcon, ExportIcon, ChevronIcon, CollapseIcon } from "../ui/icons";
+import { LogoMark, UpIcon, ExportIcon, RelayoutIcon, ChevronIcon, CollapseIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css"; // классы .nt-collapse / .nt-railbtn для правой панели
 
@@ -113,6 +114,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   // Несколько выбранных узлов под удаление (мультиудаление с канваса). null — нет.
   const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
+  // Открыто подтверждение «Переразложить уровень» (сброс ручного layout → авто).
+  const [relayoutOpen, setRelayoutOpen] = useState(false);
   // форма шаблона, который сейчас тянут из палитры (null — драга нет). Прокидываем
   // в LevelGraph, чтобы он рисовал превью-рамку будущего узла под курсором.
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
@@ -781,6 +784,20 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {/* Переключатель рабочей области: Схема / Процессы (персистится) */}
           <ModeSwitch mode={mode} onChange={setMode} />
+          {/* Переразложить уровень — сброс ручного layout к авто-раскладке. Только
+              архитектор, только режим схемы и когда на уровне есть что раскладывать. */}
+          {mode === "schema" && isArchitect && (
+            <button
+              className="icon-btn"
+              onClick={() => setRelayoutOpen(true)}
+              style={iconBtn}
+              disabled={!hasNodes}
+              title="Переразложить уровень — вернуть авто-раскладку"
+              aria-label="Переразложить уровень"
+            >
+              <RelayoutIcon />
+            </button>
+          )}
           {/* Создание узла — перетаскиванием шаблона из боковой панели (секция
               «Добавить объект»), связи — протягиванием стрелки от хэндла узла.
               Отдельных кнопок создания в шапке больше нет. */}
@@ -962,6 +979,21 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           nodes={pendingMultiDelete}
           onCancel={() => setPendingMultiDelete(null)}
           onDeleted={(ids, snapshots) => { setPendingMultiDelete(null); handleNodesDeleted(ids, snapshots); }}
+        />
+      )}
+      {/* Подтверждение «Переразложить уровень»: по ОК сносим ручной layout уровня на
+          бэке, перезагружаем уровень и чистим историю (старые Undo-перемещения этого
+          уровня после пере-сева указывали бы на исчезнувшие позиции). */}
+      {relayoutOpen && (
+        <RelayoutConfirm
+          containerId={currentParentId}
+          levelName={currentParent?.name}
+          onCancel={() => setRelayoutOpen(false)}
+          onDone={() => {
+            setRelayoutOpen(false);
+            load(currentParentId);
+            history.clear();
+          }}
         />
       )}
       {edgeQuick && (
