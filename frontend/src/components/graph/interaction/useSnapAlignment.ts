@@ -1,5 +1,5 @@
 // Магнитное выравнивание узлов по центру при драге + персист позиции по отпусканию.
-import { useCallback, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
 import { nodesApi } from "../../../api/nodes";
@@ -9,9 +9,8 @@ import { snapNode, nodeSize } from "./snap";
 import type { SpacingGuide } from "./distribute";
 import { computeFrames, type FrameRect } from "../layout/frames";
 import { clampOutOfNativeFrames } from "../layout/keepGhostsOut";
-import { groupAnchor } from "../layout/ringPlacement";
 import type { GhostData, ContainerData } from "../types";
-import type { AncestorRef, Edge as AppEdge, LevelPos } from "../../../types";
+import type { AncestorRef } from "../../../types";
 import type { Guides } from "./useAlignmentGuides";
 
 interface Params {
@@ -34,18 +33,6 @@ interface Params {
     kind: "block" | "ghost" | "container",
     pos: { pos_x: number; pos_y: number; anchor_rel?: boolean },
   ) => void;
-  // раскрытые гостевые контейнеры: первый ручной драг ребёнка раскрытой рамки пинит
-  // офсеты ВСЕХ детей группы от живого якоря (ТЗ D4) — группа становится владеемой.
-  expanded: Set<string>;
-  // спроецированные рёбра уровня (концы → отображаемые сущности). Нужны groupAnchor,
-  // чтобы пин (здесь) считал живой якорь ТОЙ ЖЕ функцией, что восстановление в
-  // ringPlacement, — иначе восстановление сместило бы раскладку. Ref, т.к. рёбра
-  // пересчитываются каждый layout, а персист стабильным колбэком не должен от них зависеть.
-  projectedEdgesRef: RefObject<AppEdge[]>;
-  // позиции уровня — нужны пину, чтобы офсеты детей считались от КОМПОЗИТНОГО якоря
-  // (живой якорь + ручной сдвиг рамки-родителя levelPositions[key]). Иначе пин ПОСЛЕ
-  // сдвига коробки давал бы двойной учёт офсета при восстановлении в ringPlacement.
-  levelPositions: Record<string, LevelPos>;
   // запись действия в историю Undo/Redo (перемещение группы = одна команда)
   push?: History["push"];
   // фоновый персист позиции упал — вернуть зеркало к истине (ресинк уровня из БД)
@@ -54,7 +41,7 @@ interface Params {
 
 export function useSnapAlignment({
   rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-  ancestorIds, ancestorNames, onNodeMoved, expanded, projectedEdgesRef, levelPositions, push, onPersistError,
+  ancestorIds, ancestorNames, onNodeMoved, push, onPersistError,
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
   // Заполняется noteDragStart на onNodeDragStart/onSelectionDragStart (до сдвига).
@@ -99,22 +86,6 @@ export function useSnapAlignment({
       type Move = { id: string; kind: "block" | "ghost" | "container"; old: Pos; next: Pos };
       const moves: Move[] = [];
 
-      // Ключ группы гостя = внешняя (min-depth) гостевая рамка, что его содержит (та же
-      // логика, что groupKey в ringPlacement). Ребёнок РАСКРЫТОЙ рамки (expanded.has(key))
-      // при первом ручном драге переводит всю группу в модель офсетов от живого якоря
-      // (ТЗ D4). Пин откладываем: копим итоговые позиции перетянутых членов и ключи групп,
-      // пиним каждую группу разом после прохода (один драг ребёнка фиксирует ВСЕХ детей).
-      const guestFrames = frames.filter((f) => !f.native);
-      const groupKeyOf = (id: string): string => {
-        let bestId = id, bestDepth = Infinity;
-        for (const gf of guestFrames) {
-          if (gf.memberIds.has(id) && gf.depth < bestDepth) { bestDepth = gf.depth; bestId = gf.id; }
-        }
-        return bestId;
-      };
-      const draggedFinal = new Map<string, { x: number; y: number }>();
-      const pinnedKeys = new Set<string>();
-
       for (const n of group) {
         const { w: dw, h: dh } = nodeSize(n);
         let px = n.position.x;
@@ -145,76 +116,14 @@ export function useSnapAlignment({
           if (clamped.x !== px || clamped.y !== py) {
             onNodesChange([{ id: n.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
           }
-          const key = groupKeyOf(n.id);
-          if (expanded.has(key)) {
-            // ребёнок раскрытой гостевой рамки — пин всей группы ниже (один раз на ключ)
-            draggedFinal.set(n.id, { x: clamped.x, y: clamped.y });
-            pinnedKeys.add(key);
-          } else {
-            // обычный гость / свёрнутый предок — абсолютная позиция уровня (прежнее поведение)
-            const gpos = { pos_x: clamped.x, pos_y: clamped.y };
-            guardPersist(nodesApi.saveGhostPosition(containerId, n.id, gpos), onPersistError);
-            onNodeMoved?.(n.id, n.type, gpos);
-            if (start && (start.x !== gpos.pos_x || start.y !== gpos.pos_y)) {
-              moves.push({ id: n.id, kind: n.type, old: { pos_x: start.x, pos_y: start.y }, next: gpos });
-            }
-          }
-        }
-      }
-
-      // ПИН ВЛАДЕЕМЫХ ГРУПП (ТЗ D4): первый драг ребёнка раскрытой рамки фиксирует офсеты
-      // ВСЕХ её детей от живого якоря (anchor_rel=true). Якорь — groupAnchor по локалам и
-      // спроецированным рёбрам (ТА ЖЕ функция, что восстановление в ringPlacement: иначе
-      // раскладку сместит). Офсет ребёнка = его левый-верхний угол − якорь; перетянутый
-      // член берёт итоговую (snap+clamp) позицию, прочие — текущую (визуально не двигаются).
-      if (pinnedKeys.size > 0 && containerId) {
-        const localIds = rfNodes.filter((n) => n.type === "block").map((n) => n.id);
-        const edges = projectedEdgesRef.current ?? [];
-        const posById = new Map(rfNodes.map((n) => [n.id, n.position]));
-        const kindOf = (id: string): "ghost" | "container" =>
-          rfNodes.find((n) => n.id === id)?.type === "container" ? "container" : "ghost";
-        for (const key of pinnedKeys) {
-          // члены группы = все гости/контейнеры с тем же ключом (как в ringPlacement)
-          const members = rfNodes
-            .filter((n) => (n.type === "ghost" || n.type === "container") && groupKeyOf(n.id) === key)
-            .map((n) => n.id);
-          const baseAnchor = groupAnchor(members, localIds, edges, (id) => posById.get(id));
-          // Композитный якорь = живой якорь + ручной сдвиг рамки-родителя (levelPositions[key]).
-          // ТА ЖЕ композиция, что в ringPlacement: офсет ребёнка = его угол − композитный якорь,
-          // иначе пин ПОСЛЕ сдвига коробки дал бы двойной учёт офсета при восстановлении.
-          const boxLp = levelPositions[key];
-          const anchorG =
-            baseAnchor && boxLp
-              ? boxLp.anchor_rel
-                ? { x: baseAnchor.x + boxLp.pos_x, y: baseAnchor.y + boxLp.pos_y }
-                : { x: boxLp.pos_x, y: boxLp.pos_y }
-              : baseAnchor;
-          if (!anchorG) {
-            // без якоря (нет локалов с позицией) — фолбэк: абсолютный сейв перетянутых членов
-            for (const id of members) {
-              const fp = draggedFinal.get(id);
-              if (!fp) continue;
-              const gpos = { pos_x: fp.x, pos_y: fp.y };
-              guardPersist(nodesApi.saveGhostPosition(containerId, id, gpos), onPersistError);
-              onNodeMoved?.(id, kindOf(id), gpos);
-            }
-            continue;
-          }
-          for (const id of members) {
-            const cur = draggedFinal.get(id) ?? posById.get(id);
-            if (!cur) continue;
-            const kind = kindOf(id);
-            const next: Pos = { pos_x: cur.x - anchorG.x, pos_y: cur.y - anchorG.y, anchor_rel: true };
-            guardPersist(nodesApi.saveGhostPosition(containerId, id, next), onPersistError);
-            onNodeMoved?.(id, kind, next);
-            // для Undo: прежний визуальный офсет — перетянутый член от startPos драга,
-            // прочие члены = next (они не двигались → undo для них no-op)
-            const startP = startPos.current.get(id);
-            const base = draggedFinal.has(id) && startP ? startP : cur;
-            const old: Pos = { pos_x: base.x - anchorG.x, pos_y: base.y - anchorG.y, anchor_rel: true };
-            if (old.pos_x !== next.pos_x || old.pos_y !== next.pos_y) {
-              moves.push({ id, kind, old, next });
-            }
+          // Гость владеется АБСОЛЮТНОЙ позицией уровня (Option A, own-on-first-render): драг
+          // всегда сохраняет absolute, без пина группы / офсетов от живого якоря. Дети раскрытой
+          // рамки тоже — у каждого своя позиция (засеяна own-on-first-render в LevelGraph).
+          const gpos = { pos_x: clamped.x, pos_y: clamped.y };
+          guardPersist(nodesApi.saveGhostPosition(containerId, n.id, gpos), onPersistError);
+          onNodeMoved?.(n.id, n.type, gpos);
+          if (start && (start.x !== gpos.pos_x || start.y !== gpos.pos_y)) {
+            moves.push({ id: n.id, kind: n.type, old: { pos_x: start.x, pos_y: start.y }, next: gpos });
           }
         }
       }
@@ -242,7 +151,7 @@ export function useSnapAlignment({
         });
       }
     },
-    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes, expanded, projectedEdgesRef, levelPositions, push, onPersistError],
+    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes, push, onPersistError],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт

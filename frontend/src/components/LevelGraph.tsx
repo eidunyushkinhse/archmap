@@ -324,14 +324,11 @@ function LevelGraphInner({
     return () => window.removeEventListener("keydown", onKey);
   }, [isArchitect, isContext, runUndo, runRedo]);
 
-  // Спроецированные рёбра текущей раскладки (концы → отображаемые сущности). Кладём в
-  // ref в конце async-раскладки; пин шага 4 читает их для живого якоря группы (groupAnchor).
-  const projectedEdgesRef = useRef<AppEdge[]>([]);
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-    ancestorIds, ancestorNames, onNodeMoved, expanded, projectedEdgesRef, levelPositions, push: history.push, onPersistError,
+    ancestorIds, ancestorNames, onNodeMoved, push: history.push, onPersistError,
   });
 
   // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
@@ -812,10 +809,6 @@ function LevelGraphInner({
         localIds: new Set(nodes.map((n) => n.id)),
         detourIds: new Set(edgeDetours.keys()),
       };
-      // Снимок спроецированных рёбер для пина владеемой группы (шаг 4): тот же набор,
-      // по которому посчитан layout, — пин и восстановление считают якорь синхронно.
-      projectedEdgesRef.current = layoutEdges;
-
       if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, levelWaypoints: effectiveLevelWaypoints, groupArr, spacers });
     })();
     return () => { cancelled = true; };
