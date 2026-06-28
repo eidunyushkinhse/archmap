@@ -730,20 +730,20 @@ function LevelGraphInner({
       if (enf) edgeHandles = enf.edgeHandles;
       else if (og) edgeHandles = og.edgeHandles;
 
-      // Реконструкция изломов владеемых групп (ТЗ D8): путь хранится офсетом от якоря,
-      // абсолют = офсет + (позиция_ребёнка − его_офсет). Тот же базис, что у позиции, →
-      // излом едет ровно с ребёнком (и за якорем, и при выталкивании). Позиции здесь уже
-      // финальные (после колец + enforce). Легаси-абсолют лениво мигрируем в офсет.
-      // id сущностей, чей предок — раскрытая рамка (их геометрию задаёт раскладка, не
-      // ручной абсолют): нужно фиксу A в reconstructOwnedWaypoints — сбросить устаревший
-      // абсолютный излом, нарисованный когда рамка была свёрнута.
+      // Реконструкция изломов гостевых стрелок к детям раскрытых рамок (ТЗ D8, рев. B):
+      // путь привязан к СОБСТВЕННОЙ позиции гостевого конца — абсолют = офсет + позиция
+      // конца. Позиции здесь уже финальные (после колец + enforce + сдвига коробки), поэтому
+      // излом едет ровно с ребёнком, независимо от владения узлом. Легаси/свежий абсолют к
+      // потомку раскрытой рамки лениво мигрируем в офсет.
+      // id сущностей, чей предок — раскрытая рамка (их геометрию задаёт раскладка): к ним и
+      // привязывается излом.
       const expandedChildIds = new Set<string>();
       for (const ent of entities) {
         const anc = ent.kind === "leaf" ? (ent.ghost.ancestors ?? []) : ent.ancestors;
         if (anc.some((a) => expanded.has(a.id))) expandedChildIds.add(ent.id);
       }
       const { effective: ownedWp, migrations: wpMigrations } = reconstructOwnedWaypoints({
-        levelEdgeWaypoints, edges: remappedEdges, levelPositions, pos: (id) => positions.get(id), expandedChildIds,
+        levelEdgeWaypoints, edges: remappedEdges, pos: (id) => positions.get(id), expandedChildIds,
       });
       Object.assign(effectiveLevelWaypoints, ownedWp);
       if (wpMigrations.length > 0 && !cancelled) cbRef.current.migrateLevelWaypoints(wpMigrations);
