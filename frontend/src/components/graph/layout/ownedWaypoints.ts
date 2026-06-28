@@ -26,15 +26,18 @@ export interface OwnedWaypointsResult {
 /**
  * `levelEdgeWaypoints` — сырые изломы (с флагом anchor_rel); `edges` — рёбра В ПРОЕКЦИИ
  * (концы = отображаемые сущности), по ним ищем гостевой конец; `levelPositions` — позиции
- * уровня (anchor_rel помечает владеемого ребёнка); `pos` — финальная позиция сущности.
+ * уровня (anchor_rel помечает владеемого ребёнка); `pos` — финальная позиция сущности;
+ * `expandedChildIds` — id отображаемых сущностей, являющихся потомками РАСКРЫТОЙ рамки
+ * (их дефолтная геометрия задаётся раскладкой, не ручным абсолютом).
  */
 export function reconstructOwnedWaypoints(params: {
   levelEdgeWaypoints: Record<string, LevelWaypoints>;
   edges: AppEdge[];
   levelPositions: Record<string, LevelPos>;
   pos: (id: string) => XY | undefined;
+  expandedChildIds: Set<string>;
 }): OwnedWaypointsResult {
-  const { levelEdgeWaypoints, edges, levelPositions, pos } = params;
+  const { levelEdgeWaypoints, edges, levelPositions, pos, expandedChildIds } = params;
   const edgeById = new Map(edges.map((e) => [e.id, e]));
   // якорь владеемого ребёнка = его позиция − офсет позиции (тот же базис, что у позиции)
   const ownedAnchor = (entId: string): XY | null => {
@@ -58,8 +61,15 @@ export function reconstructOwnedWaypoints(params: {
       // легаси-абсолют владеемого ребёнка → офсет (на экране оставляем абсолют как есть)
       effective[edgeId] = w.waypoints;
       migrations.push({ edge_id: edgeId, waypoints: w.waypoints.map((pt) => ({ x: pt.x - anchor.x, y: pt.y - anchor.y })) });
+    } else if (e && (expandedChildIds.has(e.source_id) || expandedChildIds.has(e.target_id))) {
+      // Фикс A: абсолютный излом, чей гостевой конец — АВТО-потомок раскрытой рамки (не
+      // владеемый: anchor=null). Этот абсолют рисовался в СВЁРНУТОЙ проекции (конец вёл к
+      // коробке); после раскрытия ребёнок переехал раскладкой → старый путь рисуется коряво
+      // с лишними пересечениями. Зеркалим поведение офсетных путей «нет якоря в кадре» —
+      // отдаём авто-маршрут (пустой путь). Ручной излом по-прежнему можно вернуть пином (B).
+      effective[edgeId] = [];
     } else {
-      // обычная гостевая стрелка (не владеемая группа) — путь как пришёл
+      // обычная гостевая стрелка (не владеемая группа, конец не в раскрытой рамке) — как пришёл
       effective[edgeId] = w.waypoints;
     }
   }

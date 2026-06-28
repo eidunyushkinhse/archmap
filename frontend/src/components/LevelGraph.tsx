@@ -734,8 +734,16 @@ function LevelGraphInner({
       // абсолют = офсет + (позиция_ребёнка − его_офсет). Тот же базис, что у позиции, →
       // излом едет ровно с ребёнком (и за якорем, и при выталкивании). Позиции здесь уже
       // финальные (после колец + enforce). Легаси-абсолют лениво мигрируем в офсет.
+      // id сущностей, чей предок — раскрытая рамка (их геометрию задаёт раскладка, не
+      // ручной абсолют): нужно фиксу A в reconstructOwnedWaypoints — сбросить устаревший
+      // абсолютный излом, нарисованный когда рамка была свёрнута.
+      const expandedChildIds = new Set<string>();
+      for (const ent of entities) {
+        const anc = ent.kind === "leaf" ? (ent.ghost.ancestors ?? []) : ent.ancestors;
+        if (anc.some((a) => expanded.has(a.id))) expandedChildIds.add(ent.id);
+      }
       const { effective: ownedWp, migrations: wpMigrations } = reconstructOwnedWaypoints({
-        levelEdgeWaypoints, edges: remappedEdges, levelPositions, pos: (id) => positions.get(id),
+        levelEdgeWaypoints, edges: remappedEdges, levelPositions, pos: (id) => positions.get(id), expandedChildIds,
       });
       Object.assign(effectiveLevelWaypoints, ownedWp);
       if (wpMigrations.length > 0 && !cancelled) cbRef.current.migrateLevelWaypoints(wpMigrations);
