@@ -35,9 +35,6 @@ export interface RingPlacementResult {
   frame: { minX: number; minY: number; maxX: number; maxY: number };
   /** хэндлы рёбер, пересчитанные по финальным позициям */
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
-  /** ленивая миграция легаси-абсолютов детей раскрытых рамок в офсеты от якоря (ТЗ D3):
-   *  id → ОФСЕТ, который надо персистнуть с anchor_rel=true. Позиция на экране не меняется. */
-  migrations: { id: string; pos_x: number; pos_y: number }[];
 }
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
@@ -134,68 +131,44 @@ export function placeGhostsOnRings(params: {
 
   const placedOutside = new Set<string>();
 
-  // --- ВЛАДЕЕМЫЕ ГОСТЕВЫЕ ГРУППЫ (ТЗ D2/D4): дети раскрытой гостевой рамки с сохранённой
-  // позицией раскладываются ОФСЕТАМИ от КОМПОЗИТНОГО якоря — абсолют = anchor + офсет,
-  // пересчёт каждый layout. Композитный якорь = живой якорь локалов (groupAnchor, едет за
-  // локалами D2) + ручной сдвиг самой коробки-родителя (levelPositions[g.key], едет вслед за
-  // тем, как пользователь перетащил свёрнутую рамку). Легаси-абсолюты (детей и коробки)
-  // лениво мигрируем в офсет, НЕ двигая узел на экране. Группа подчиняется модели, только
-  // если её рамка-ключ РАСКРЫТА; иначе это обычный свёрнутый гость (прежнее поведение).
-  const migrations: { id: string; pos_x: number; pos_y: number }[] = [];
+  // --- ЛЕГАСИ-КОНВЕРСИЯ (Option A, own-on-first-render). Прежняя модель хранила позиции
+  // детей раскрытой рамки и свёрнутой коробки ОФСЕТОМ от живого якоря (anchor_rel=true) и
+  // пересчитывала абсолют каждый layout (рамка ехала за локалами). Теперь у каждого узла своя
+  // АБСОЛЮТНАЯ позиция. Один раз приводим легаси-офсет к абсолюту ПО ТОЙ ЖЕ формуле, что его
+  // раньше отрисовывала (anchorG + сдвиг коробки + офсет) — на экране узел не дёргается.
+  // Персист абсолюта (anchor_rel=false) делает засев в LevelGraph (collectGhostSeeds): он
+  // читает эти позиции. После персиста строка становится absolute, конверсия её пропускает,
+  // живой якорь на узел больше не влияет. Владеемых детей раскрытой рамки (как офсетных, так и
+  // уже абсолютных) добавляем в placedOutside — они вне content-рамки уровня (как раньше).
   for (const g of groupMap.values()) {
     if (!expanded.has(g.key)) continue;                       // не дети раскрытой рамки
-    if (g.ids.every((id) => !levelPositions[id])) continue;   // авто-группа → каскад/полка ниже
+    const ownedIds = g.ids.filter((id) => levelPositions[id]); // владеемые дети (есть строка)
+    if (ownedIds.length === 0) continue;                      // авто-группа → каскад/полка ниже
     const baseAnchor = groupAnchor(g.ids, localIds, layoutEdges, pos);
-    if (!baseAnchor) continue;
-    // Композиция якоря (ТЗ): рамка едет И за локалами (живой якорь, D2), И вслед за тем,
-    // как пользователь перетащил САМУ коробку-родителя. Свёрнутую коробку двигают как
-    // одиночного гостя → её позиция лежит в levelPositions[g.key] (id внешней гостевой
-    // рамки, он же ключ группы). Композитный якорь = baseAnchor + офсет коробки. Легаси-
-    // абсолют коробки лениво мигрируем в офсет (как у детей), на экране не двигая.
+    // композитный якорь конверсии = живой якорь локалов + сдвиг коробки-родителя (как в старой
+    // модели), только чтобы абсолют совпал с прежней отрисовкой; дальше он не пересчитывается
     const boxLp = levelPositions[g.key];
     let anchor = baseAnchor;
-    if (boxLp) {
-      if (boxLp.anchor_rel) {
-        anchor = { x: baseAnchor.x + boxLp.pos_x, y: baseAnchor.y + boxLp.pos_y };
-      } else {
-        anchor = { x: boxLp.pos_x, y: boxLp.pos_y };          // абсолют коробки = композитный якорь
-        migrations.push({ id: g.key, pos_x: boxLp.pos_x - baseAnchor.x, pos_y: boxLp.pos_y - baseAnchor.y });
-      }
-    }
-    for (const id of g.ids) {
-      const lp = levelPositions[id];
-      if (!lp) continue;                                      // новый ребёнок без офсета — §9, не трогаем
-      if (lp.anchor_rel) {
-        positions.set(id, { x: anchor.x + lp.pos_x, y: anchor.y + lp.pos_y });
-      } else {
-        // миграция абсолют→офсет: позиция (savedPos) уже абсолют, оставляем её на экране
-        const cur = positions.get(id) ?? { x: lp.pos_x, y: lp.pos_y };
-        migrations.push({ id, pos_x: cur.x - anchor.x, pos_y: cur.y - anchor.y });
-      }
+    if (baseAnchor && boxLp?.anchor_rel) anchor = { x: baseAnchor.x + boxLp.pos_x, y: baseAnchor.y + boxLp.pos_y };
+    else if (boxLp) anchor = { x: boxLp.pos_x, y: boxLp.pos_y };
+    for (const id of ownedIds) {
+      const lp = levelPositions[id]!;
+      // anchor_rel → абсолют = якорь + офсет; absolute оставляем как savedPos (dagre уже поставил)
+      if (lp.anchor_rel && anchor) positions.set(id, { x: anchor.x + lp.pos_x, y: anchor.y + lp.pos_y });
       placedOutside.add(id);
     }
   }
-
-  // --- СВЁРНУТАЯ КОРОБКА С ОФСЕТНЫМ ПОЛОЖЕНИЕМ. После сворачивания рамки её перетащенная
-  // позиция хранится офсетом от якоря (anchor_rel — результат композиции/миграции выше).
-  // Коробка теперь отображается как одиночный гость, и её собственную позицию надо
-  // восстановить как groupAnchor([коробка]) + офсет — иначе seeding (LevelGraph) прочитал
-  // бы офсет как абсолют, и коробка улетела бы к началу координат (баг сворачивания).
-  // Ключ — id САМОЙ сущности (там лежит levelPositions), а не g.key: коробка может быть
-  // вложена в другую гостевую рамку, тогда её groupKey ≠ её id. Детей раскрытых рамок
-  // (уже расставлены офсетами выше) пропускаем по placedOutside. Абсолютные ручные позиции
-  // не трогаем — прежнее поведение свёрнутого гостя.
+  // свёрнутая коробка с легаси-офсетом → абсолют (groupAnchor([коробка]) + офсет). Ключ — id
+  // САМОЙ сущности (там лежит levelPositions), а не g.key: коробка может быть вложена в другую
+  // гостевую рамку. Детей раскрытых рамок (уже обработаны выше) пропускаем по placedOutside.
   for (const e of entities) {
     const lp = levelPositions[e.id];
     if (!lp || !lp.anchor_rel || placedOutside.has(e.id)) continue;
     const a = groupAnchor([e.id], localIds, layoutEdges, pos);
-    if (a) positions.set(e.id, { x: a.x + lp.pos_x, y: a.y + lp.pos_y });
+    positions.set(e.id, a ? { x: a.x + lp.pos_x, y: a.y + lp.pos_y } : { x: lp.pos_x, y: lp.pos_y });
   }
 
   const groups = [...groupMap.values()].filter((g) => g.auto);
-  // сторона кольца, на которую каскад посадил авто-группу (нужно для пост-сдвига блока
-  // детей вслед за ручным сдвигом свёрнутой коробки — см. ниже, после каскада)
-  const autoGroupSides = new Map<string, EdgeSide>();
 
   // bbox связанных локальных узлов гостя (для пробных маршрутов выбора стороны)
   const localRects: { id: string; rect: NodeRect }[] = [];
@@ -438,7 +411,6 @@ export function placeGhostsOnRings(params: {
           if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
           placedOutside.add(id);
         }
-        autoGroupSides.set(it.g.key, it.side);
       });
     };
     settle(buckets.left, "y");
@@ -448,55 +420,6 @@ export function placeGhostsOnRings(params: {
   }
 
   if (placedOutside.size === 0) return null;
-
-  // --- АВТО-ГРУППА РАСКРЫТОЙ РАМКИ СЛЕДУЕТ ЗА РУЧНЫМ СДВИГОМ КОРОБКИ (кейс HelixMon).
-  // Дети авто-группы (их ни разу не раскладывали) сели на кольцо стандартной логикой выше.
-  // Если пользователь перетащил САМУ свёрнутую коробку, её абсолют лежит в levelPositions
-  // [g.key] (коробка — не entity при раскрытии, но позиция сохранилась). Сдвигаем весь блок
-  // детей на смещение коробки ОТ ЕЁ СОБСТВЕННОГО кольцевого слота. Слот свёрнутой коробки —
-  // там же, где стоял бы одиночный гость: середина грани блока, ОБРАЩЁННОЙ К КОЛЬЦУ (та же
-  // сторона, тот же якорь). Поэтому реф — НЕ groupAnchor локалов (он ВНУТРИ кольца и давал
-  // вынос детей наружу, прошлый откат a9b3460), а грань блока. Δ = (коробка) − (грань блока):
-  // при коробке в дефолтном слоте Δ=0 (нет скачка), иначе Δ = ровно ручное смещение коробки.
-  // Сдвиг чисто производный — НИЧЕГО не персистим и не мигрируем (коробка остаётся абсолютом,
-  // как её и сохранил драг свёрнутого гостя); это снимает порчу данных из прошлой попытки.
-  for (const [key, side] of autoGroupSides) {
-    const boxLp = levelPositions[key];
-    if (!boxLp) continue;                                     // коробку не двигали — кольцо как есть
-    const g = groupMap.get(key);
-    if (!g) continue;
-    const kids = g.ids.filter((id) => placedOutside.has(id));
-    const bb = groupBbox(kids);
-    if (!bb) continue;
-    // абсолют коробки (верх-лево). Свёрнутый драг всегда абсолют; anchor_rel (редкий случай)
-    // трактуем как офсет от живого якоря локалов, чтобы получить абсолют.
-    let boxX = boxLp.pos_x, boxY = boxLp.pos_y;
-    if (boxLp.anchor_rel) {
-      const aBox = groupAnchor(g.ids, localIds, layoutEdges, pos);
-      if (!aBox) continue;
-      boxX = aBox.x + boxLp.pos_x; boxY = aBox.y + boxLp.pos_y;
-    }
-    // грань блока, обращённая к кольцу (противоположна стороне выноса), сопоставляется с
-    // одноимённой гранью коробки (NODE_W×NODE_H); поперёк — центр коробки к центру блока
-    const midX = (bb.minX + bb.maxX) / 2, midY = (bb.minY + bb.maxY) / 2;
-    let dx: number, dy: number;
-    if (side === "left" || side === "right") {
-      const blockFaceX = side === "left" ? bb.maxX : bb.minX;
-      const boxFaceX = side === "left" ? boxX + NODE_W : boxX;
-      dx = boxFaceX - blockFaceX;
-      dy = boxY + NODE_H / 2 - midY;
-    } else {
-      const blockFaceY = side === "top" ? bb.maxY : bb.minY;
-      const boxFaceY = side === "top" ? boxY + NODE_H : boxY;
-      dy = boxFaceY - blockFaceY;
-      dx = boxX + NODE_W / 2 - midX;
-    }
-    if (dx === 0 && dy === 0) continue;
-    for (const id of kids) {
-      const p = positions.get(id);
-      if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
-    }
-  }
 
   // bbox содержимого уровня = локальные узлы + гости с ручной позицией (НЕ на кольце) —
   // база для дефолтных обводов (detours.ts), которые сами расширят его за вынесенных
@@ -513,5 +436,26 @@ export function placeGhostsOnRings(params: {
     : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
   const displayed = [...localIds.map((id) => ({ id })), ...entities.map((e) => ({ id: e.id }))];
-  return { placedOutside, frame, edgeHandles: assignEdgeHandles(displayed, layoutEdges, positions), migrations };
+  return { placedOutside, frame, edgeHandles: assignEdgeHandles(displayed, layoutEdges, positions) };
+}
+
+/**
+ * Засев владения (own-on-first-render, Option A): сущности БЕЗ абсолютной позиции получают
+ * свою текущую (после колец / enforce / легаси-конверсии) как ПОСТОЯННУЮ — её надо персистнуть
+ * с anchor_rel=false. Покрывает и авто-гостей (сели на кольцо), и легаси-офсеты (их позиция
+ * уже сконвертирована в абсолют в placeGhostsOnRings). Сущности с absolute-строкой пропускаем.
+ */
+export function collectGhostSeeds(
+  entities: { id: string }[],
+  levelPositions: Record<string, LevelPos>,
+  pos: (id: string) => XY | undefined,
+): { id: string; pos_x: number; pos_y: number }[] {
+  const seeds: { id: string; pos_x: number; pos_y: number }[] = [];
+  for (const e of entities) {
+    const lp = levelPositions[e.id];
+    if (lp && !lp.anchor_rel) continue; // уже владеется абсолютом
+    const p = pos(e.id);
+    if (p) seeds.push({ id: e.id, pos_x: p.x, pos_y: p.y });
+  }
+  return seeds;
 }

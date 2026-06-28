@@ -37,7 +37,7 @@ import { getNodeColors, STATUS_META } from "./graph/colors";
 import { viewShows, type SchemaView } from "./schemaView";
 import { projectGhosts } from "./graph/layout/projectGhosts";
 import { layoutLevel, layoutContext } from "./graph/layout/engine";
-import { placeGhostsOnRings } from "./graph/layout/ringPlacement";
+import { placeGhostsOnRings, collectGhostSeeds } from "./graph/layout/ringPlacement";
 import { reconstructOwnedWaypoints } from "./graph/layout/ownedWaypoints";
 import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { computeDetours } from "./graph/layout/detours";
@@ -553,17 +553,19 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  // Персист ленивой миграции легаси-абсолютов детей раскрытых рамок в офсеты (ТЗ D3).
-  // Зовётся из async-раскладки через cbRef (latest-ref), чтобы не тащить containerId/
-  // isArchitect/колбэки в зависимости эффекта раскладки. Только архитектор и основной канвас.
+  // Персист засева владения (Option A, own-on-first-render): гость без абсолютной позиции
+  // получает её навсегда (anchor_rel=false). Зовётся из async-раскладки через cbRef (latest-ref),
+  // чтобы не тащить containerId/isArchitect/колбэки в зависимости эффекта раскладки. Зеркало
+  // (onNodeMoved) кладёт абсолют в levelPositions → следующий рендер видит absolute и засев
+  // его пропускает. Только архитектор и основной канвас.
   const migrateGhostPositions = useCallback(
-    (migrations: { id: string; pos_x: number; pos_y: number }[], ents: { id: string; kind: "leaf" | "container" }[]) => {
+    (seeds: { id: string; pos_x: number; pos_y: number }[], ents: { id: string; kind: "leaf" | "container" }[]) => {
       if (!isArchitect || !containerId) return;
-      for (const m of migrations) {
+      for (const m of seeds) {
         const kind = ents.find((e) => e.id === m.id)?.kind === "container" ? "container" : "ghost";
-        const off = { pos_x: m.pos_x, pos_y: m.pos_y, anchor_rel: true };
-        guardPersist(nodesApi.saveGhostPosition(containerId, m.id, off), onPersistError);
-        onNodeMoved?.(m.id, kind, off);
+        const abs = { pos_x: m.pos_x, pos_y: m.pos_y, anchor_rel: false };
+        guardPersist(nodesApi.saveGhostPosition(containerId, m.id, abs), onPersistError);
+        onNodeMoved?.(m.id, kind, abs);
       }
     },
     [isArchitect, containerId, onNodeMoved, onPersistError],
@@ -714,13 +716,6 @@ function LevelGraphInner({
       const og = placeGhostsOnRings({
         nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges, positions, expanded,
       });
-      // Ленивая миграция легаси-абсолютов детей раскрытых рамок в офсеты от якоря (ТЗ D3):
-      // персистим офсет с anchor_rel=true и зеркалим — на экране узел не двигается, но дальше
-      // рамка едет за якорем. Один раз на ребёнка (флаг переключается → миграции больше нет).
-      // Только архитектор и основной канвас: контекст read-only, эндпоинт требует архитектора.
-      if (og && og.migrations.length > 0 && !cancelled) {
-        cbRef.current.migrateGhostPositions(og.migrations, entities);
-      }
       // Страховочная сетка keep-out: кольца держат инвариант по построению, но ручные позиции
       // и рост рамки за ручным гостем ringPlacement не трогает — их добирает enforce. На
       // авто-гостях после ringPlacement он обязан быть no-op. Запускается всегда.
@@ -729,6 +724,16 @@ function LevelGraphInner({
       });
       if (enf) edgeHandles = enf.edgeHandles;
       else if (og) edgeHandles = og.edgeHandles;
+
+      // ЗАСЕВ ВЛАДЕНИЯ (Option A, own-on-first-render): каждый гость без абсолютной позиции
+      // получает её навсегда (anchor_rel=false) — на финальных позициях (после колец + enforce +
+      // легаси-конверсии). Покрывает и авто-гостей (кольцо), и легаси-офсеты (сконвертированы в
+      // абсолют в ringPlacement). Только архитектор и основной канвас. Зеркало двигает узел в
+      // levelPositions → следующий рендер видит absolute, и засев его пропускает (сходится).
+      if (!cancelled) {
+        const seeds = collectGhostSeeds(entities, levelPositions, (id) => positions.get(id));
+        if (seeds.length > 0) cbRef.current.migrateGhostPositions(seeds, entities);
+      }
 
       // Реконструкция изломов гостевых стрелок к детям раскрытых рамок (ТЗ D8, рев. B):
       // путь привязан к СОБСТВЕННОЙ позиции гостевого конца — абсолют = офсет + позиция

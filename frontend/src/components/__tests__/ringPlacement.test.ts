@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { placeGhostsOnRings, groupAnchor } from "../graph/layout/ringPlacement";
+import { placeGhostsOnRings, collectGhostSeeds } from "../graph/layout/ringPlacement";
 import { enforceFramesKeepOut } from "../graph/layout/keepGhostsOut";
 import { NODE_W, NODE_H } from "../graph/constants";
 import type { DisplayExternal } from "../graph/types";
@@ -247,13 +247,15 @@ describe("placeGhostsOnRings — ручные позиции", () => {
   });
 });
 
-describe("placeGhostsOnRings — живой якорь и офсеты владеемой группы (D2/D3)", () => {
-  // Раскрытая гостевая рамка P (expanded) с детьми g1/g2, у каждого СОХРАНЁННЫЙ офсет
-  // (anchor_rel=true). Абсолют = anchorG + офсет, где anchorG — центроид связанных локалов.
-  const owned = (localX: number) => {
+describe("placeGhostsOnRings — Option A: легаси-офсеты конвертируются в абсолют", () => {
+  // Прежняя модель хранила позиции детей раскрытой рамки ОФСЕТОМ от живого якоря
+  // (anchor_rel=true) и пересчитывала абсолют каждый layout. Теперь у узла своя АБСОЛЮТНАЯ
+  // позиция: anchor_rel один раз приводится к абсолюту = anchorG (+ сдвиг коробки) + офсет,
+  // БЕЗ ленивой миграции в офсет (её больше нет). На экране узел остаётся там же.
+  it("ребёнок раскрытой рамки: anchor_rel → позиция anchorG + офсет, вне content-рамки", () => {
     const positions = new Map([
-      ["La", { x: localX, y: 0 }], ["Lb", { x: localX, y: 200 }],
-      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }], // savedPos не важен — owned-проход перезапишет
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
+      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }],
     ]);
     const res = placeGhostsOnRings({
       nodes: [node("La"), node("Lb")],
@@ -267,158 +269,58 @@ describe("placeGhostsOnRings — живой якорь и офсеты влад�
       layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb")],
       positions,
     });
-    return { positions, res };
-  };
-
-  it("восстановление = anchorG + офсет", () => {
-    const { positions, res } = owned(0);
     expect(res).not.toBeNull();
     // anchorG = центроид центров La(95,50) и Lb(95,250) = (95,150); g1 = anchorG + (50,-30)
-    const g1 = positions.get("g1")!;
-    expect(g1.x).toBeCloseTo(NODE_W / 2 + 50);
-    expect(g1.y).toBeCloseTo(150 - 30);
+    expect(positions.get("g1")!.x).toBeCloseTo(NODE_W / 2 + 50);
+    expect(positions.get("g1")!.y).toBeCloseTo(120);
     expect(res!.placedOutside.has("g1")).toBe(true);
   });
 
-  it("сдвиг локалов двигает рамку за якорем, относительная расстановка стабильна", () => {
-    const a0 = owned(0).positions;
-    const a1 = owned(300).positions;
-    const g1a = a0.get("g1")!, g2a = a0.get("g2")!;
-    const g1b = a1.get("g1")!, g2b = a1.get("g2")!;
-    // локалы уехали на +300 по x → anchorG тоже → оба ребёнка сдвинулись на +300
-    expect(g1b.x - g1a.x).toBeCloseTo(300);
-    expect(g2b.x - g2a.x).toBeCloseTo(300);
-    expect(g1b.y).toBeCloseTo(g1a.y);
-    // взаимное расположение детей не изменилось
-    expect(g2b.x - g1b.x).toBeCloseTo(g2a.x - g1a.x);
-    expect(g2b.y - g1b.y).toBeCloseTo(g2a.y - g1a.y);
+  it("absolute-позиция ребёнка НЕ зависит от сдвига локалов (живой якорь убран)", () => {
+    const run = (localX: number) => {
+      const positions = new Map([
+        ["La", { x: localX, y: 0 }], ["Lb", { x: localX, y: 200 }],
+        ["g1", { x: 400, y: 120 }], // savedPos = абсолют
+      ]);
+      placeGhostsOnRings({
+        nodes: [node("La"), node("Lb")],
+        entities: [leaf("g1", [a("P")])],
+        ancestorIds: ["A"],
+        levelPositions: { g1: { pos_x: 400, pos_y: 120, anchor_rel: false } },
+        expanded: new Set(["P"]),
+        layoutEdges: [edge("e1", "g1", "La")],
+        positions,
+      });
+      return positions.get("g1")!;
+    };
+    // локалы уехали на +300, но absolute-ребёнок стоит на месте (НЕ едет за якорем)
+    expect(run(300)).toEqual(run(0));
+    expect(run(0)).toEqual({ x: 400, y: 120 });
   });
 
-  it("легаси-абсолют ребёнка раскрытой рамки мигрирует в офсет, не двигаясь", () => {
+  it("композиция конверсии: ребёнок anchor_rel + коробка anchor_rel → anchorG + boxOff + офсет", () => {
     const positions = new Map([
       ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
-      ["g1", { x: NODE_W / 2 + 50, y: NODE_H / 2 + 70 }], // savedPos = абсолют
+      ["g1", { x: 0, y: 0 }],
     ]);
-    const res = placeGhostsOnRings({
+    placeGhostsOnRings({
       nodes: [node("La"), node("Lb")],
       entities: [leaf("g1", [a("P")])],
       ancestorIds: ["A"],
-      levelPositions: { g1: { pos_x: NODE_W / 2 + 50, pos_y: NODE_H / 2 + 70, anchor_rel: false } },
+      levelPositions: {
+        g1: { pos_x: 50, pos_y: -30, anchor_rel: true },
+        P: { pos_x: 40, pos_y: 100, anchor_rel: true },
+      },
       expanded: new Set(["P"]),
       layoutEdges: [edge("e1", "g1", "La")],
       positions,
     });
-    expect(res).not.toBeNull();
-    // g1 связан только с La → anchorG = центр La (95,50); на экране узел НЕ двинулся
-    expect(positions.get("g1")).toEqual({ x: NODE_W / 2 + 50, y: NODE_H / 2 + 70 });
-    // миграция вернула офсет = абсолют − anchorG = (50, 70)
-    const mig = res!.migrations.find((m) => m.id === "g1")!;
-    expect(mig.pos_x).toBeCloseTo(50);
-    expect(mig.pos_y).toBeCloseTo(70);
-  });
-});
-
-describe("placeGhostsOnRings — пин владеемой группы (D4)", () => {
-  // Round-trip: первый драг ОДНОГО ребёнка пинит офсеты ВСЕХ детей от живого якоря (как
-  // useSnapAlignment), а placeGhostsOnRings восстанавливает их один-в-один. Якорь считает
-  // groupAnchor — ОДНА функция в пине и восстановлении, поэтому anchorG + (pos − anchorG) === pos.
-  it("офсеты пина восстанавливаются в исходные позиции (drag одного ребёнка пинит обоих)", () => {
-    const locals = new Map([["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }]]);
-    const edges = [edge("e1", "g1", "La"), edge("e2", "g2", "Lb")];
-    // позиции членов на момент драга: g1 пользователь утащил, g2 остался на авто-полке
-    const memberPos = new Map([["g1", { x: 300, y: 40 }], ["g2", { x: 120, y: 150 }]]);
-    const posOf = (id: string) => locals.get(id) ?? memberPos.get(id);
-    const anchorG = groupAnchor(["g1", "g2"], ["La", "Lb"], edges, posOf);
-    expect(anchorG).not.toBeNull();
-    // пин: офсет каждого члена = его позиция − якорь (anchor_rel=true)
-    const off = (id: string) => ({
-      pos_x: memberPos.get(id)!.x - anchorG!.x,
-      pos_y: memberPos.get(id)!.y - anchorG!.y,
-      anchor_rel: true,
-    });
-    const positions = new Map([...locals, ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }]]);
-    const res = placeGhostsOnRings({
-      nodes: [node("La"), node("Lb")],
-      entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")])],
-      ancestorIds: ["A"],
-      levelPositions: { g1: off("g1"), g2: off("g2") },
-      expanded: new Set(["P"]),
-      layoutEdges: edges,
-      positions,
-    });
-    expect(res).not.toBeNull();
-    // восстановление вернуло обоих ровно туда, где они были на момент пина
-    expect(positions.get("g1")!.x).toBeCloseTo(300);
-    expect(positions.get("g1")!.y).toBeCloseTo(40);
-    expect(positions.get("g2")!.x).toBeCloseTo(120);
-    expect(positions.get("g2")!.y).toBeCloseTo(150);
-    // офсеты уже anchor_rel → ленивой миграции нет
-    expect(res!.migrations.length).toBe(0);
-  });
-});
-
-describe("placeGhostsOnRings — композиция якоря: сдвиг коробки-родителя", () => {
-  // Раскрытая рамка P (expanded) с детьми g1/g2 (офсеты anchor_rel). Пользователь ДО этого
-  // перетащил саму свёрнутую коробку → её сдвиг лежит в levelPositions["P"]. Композитный
-  // якорь = живой якорь локалов + сдвиг коробки, поэтому весь блок детей едет вслед за
-  // коробкой, сохраняя внутреннюю расстановку. anchorG = (NODE_W/2, 150) при La(0,0)/Lb(0,200).
-  const base = () => ({
-    nodes: [node("La"), node("Lb")],
-    entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")])],
-    ancestorIds: ["A"],
-    layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb")],
-    expanded: new Set(["P"]),
-  });
-  const childOffsets = {
-    g1: { pos_x: 50, pos_y: -30, anchor_rel: true },
-    g2: { pos_x: 50, pos_y: 80, anchor_rel: true },
-  };
-
-  it("офсет коробки (anchor_rel) сдвигает весь блок детей, расстановка стабильна", () => {
-    const positions = new Map([
-      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
-      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }],
-    ]);
-    const res = placeGhostsOnRings({
-      ...base(),
-      levelPositions: { ...childOffsets, P: { pos_x: 40, pos_y: 100, anchor_rel: true } },
-      positions,
-    });
-    expect(res).not.toBeNull();
-    // anchor = anchorG(NODE_W/2,150) + boxOff(40,100); g1 = anchor + (50,-30)
-    const g1 = positions.get("g1")!, g2 = positions.get("g2")!;
-    expect(g1.x).toBeCloseTo(NODE_W / 2 + 40 + 50);
-    expect(g1.y).toBeCloseTo(150 + 100 - 30);
-    // взаимное расположение детей не изменилось (блок едет целиком)
-    expect(g2.x).toBeCloseTo(g1.x);
-    expect(g2.y - g1.y).toBeCloseTo(110);
-    // коробка и дети уже anchor_rel → ленивой миграции нет
-    expect(res!.migrations.length).toBe(0);
+    // g1 связан только с La → anchorG = центр La (NODE_W/2, 50); +boxOff(40,100) +офсет(50,-30)
+    expect(positions.get("g1")!.x).toBeCloseTo(NODE_W / 2 + 40 + 50);
+    expect(positions.get("g1")!.y).toBeCloseTo(50 + 100 - 30);
   });
 
-  it("легаси-абсолют коробки = композитный якорь + мигрирует в офсет", () => {
-    const positions = new Map([
-      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
-      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }],
-    ]);
-    const res = placeGhostsOnRings({
-      ...base(),
-      levelPositions: { ...childOffsets, P: { pos_x: 300, pos_y: 400, anchor_rel: false } },
-      positions,
-    });
-    expect(res).not.toBeNull();
-    // абсолют коробки (300,400) и есть композитный якорь; g1 = якорь + (50,-30)
-    expect(positions.get("g1")!.x).toBeCloseTo(350);
-    expect(positions.get("g1")!.y).toBeCloseTo(370);
-    // миграция коробки: офсет = абсолют − anchorG = (300−NODE_W/2, 400−150)
-    const mig = res!.migrations.find((m) => m.id === "P")!;
-    expect(mig.pos_x).toBeCloseTo(300 - NODE_W / 2);
-    expect(mig.pos_y).toBeCloseTo(250);
-  });
-
-  it("СВЁРНУТАЯ коробка с офсетом восстанавливается как groupAnchor + офсет (не улетает)", () => {
-    // Сворачивание: коробка G отображается одиночным гостем, её позиция — офсет от якоря
-    // (anchor_rel). seeding кладёт офсет как абсолют (баг) — owned-restore должен поправить.
+  it("свёрнутая коробка с легаси-офсетом → абсолют groupAnchor + офсет (не улетает)", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 40, y: 100 }]]); // seed = офсет-как-абсолют
     placeGhostsOnRings({
       nodes: [node("L")],
@@ -435,56 +337,23 @@ describe("placeGhostsOnRings — композиция якоря: сдвиг к�
   });
 });
 
-describe("placeGhostsOnRings — АВТО-группа раскрытой рамки следует за сдвигом коробки (HelixMon)", () => {
-  // Раскрытая рамка P с детьми g1/g2/g3, которых НИ РАЗУ не раскладывали (у детей нет
-  // levelPositions → авто-группа, садятся на кольцо). Пользователь перетащил саму свёрнутую
-  // коробку → её абсолют лежит в levelPositions["P"]. Блок детей должен СДВИНУТЬСЯ вслед за
-  // коробкой, сохранив внутреннюю расстановку, и сесть НА коробку — без выноса наружу
-  // (регресс отката a9b3460, где детей утаскивало правее родителя).
-  const setup = (boxPos?: { pos_x: number; pos_y: number }) => {
-    const positions = new Map<string, { x: number; y: number }>([
-      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 260 }], ["Lc", { x: 0, y: 520 }],
-      ["g1", { x: 5, y: 5 }], ["g2", { x: 5, y: 5 }], ["g3", { x: 5, y: 5 }],
+describe("collectGhostSeeds — засев владения (own-on-first-render)", () => {
+  it("сущности без строки и с anchor_rel засеваются абсолютом; absolute и без позиции — нет", () => {
+    const pos = (id: string): { x: number; y: number } | undefined =>
+      ({ a: { x: 10, y: 20 }, b: { x: 30, y: 40 }, c: { x: 50, y: 60 } } as Record<string, { x: number; y: number }>)[id];
+    const seeds = collectGhostSeeds(
+      [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }],
+      {
+        b: { pos_x: 0, pos_y: 0, anchor_rel: true },   // легаси-офсет (позиция уже сконвертирована)
+        c: { pos_x: 50, pos_y: 60, anchor_rel: false }, // уже владеется абсолютом → пропуск
+      },
+      pos,
+    );
+    // a (нет строки) и b (anchor_rel) засеяны текущей позицией; c (absolute) и d (нет позиции) — нет
+    expect(seeds).toEqual([
+      { id: "a", pos_x: 10, pos_y: 20 },
+      { id: "b", pos_x: 30, pos_y: 40 },
     ]);
-    const res = placeGhostsOnRings({
-      nodes: [node("La"), node("Lb"), node("Lc")],
-      entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")]), leaf("g3", [a("P")])],
-      ancestorIds: ["A"],
-      levelPositions: boxPos ? { P: { ...boxPos, anchor_rel: false } } : {},
-      expanded: new Set(["P"]),
-      layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb"), edge("e3", "g3", "Lc")],
-      positions,
-    });
-    const kids = ["g1", "g2", "g3"].map((id) => positions.get(id)!);
-    return { res, positions, kids };
-  };
-
-  it("блок детей жёстко следует за сдвигом коробки (Δдетей == Δкоробки)", () => {
-    const p1 = setup({ pos_x: 500, pos_y: 100 });
-    const p2 = setup({ pos_x: 800, pos_y: 340 }); // коробка уехала на +300, +240
-    for (const id of ["g1", "g2", "g3"]) {
-      const d = p2.positions.get(id)!, s = p1.positions.get(id)!;
-      expect(d.x - s.x).toBeCloseTo(300);
-      expect(d.y - s.y).toBeCloseTo(240);
-    }
-  });
-
-  it("внутренняя расстановка детей сохраняется при сдвиге коробки", () => {
-    const auto = setup().kids;                         // коробку не двигали — кольцо
-    const moved = setup({ pos_x: 500, pos_y: 100 }).kids;
-    expect(moved[1].x - moved[0].x).toBeCloseTo(auto[1].x - auto[0].x);
-    expect(moved[1].y - moved[0].y).toBeCloseTo(auto[1].y - auto[0].y);
-    expect(moved[2].y - moved[1].y).toBeCloseTo(auto[2].y - auto[1].y);
-  });
-
-  it("блок садится НА коробку, без выноса наружу (регресс a9b3460)", () => {
-    const { kids } = setup({ pos_x: 500, pos_y: 100 });
-    // рёбра ghost→local горизонтальны → сторона left; грань блока к кольцу = правая (maxX).
-    // она совпадает с правой гранью коробки (boxX+NODE_W), блок НЕ улетает на радиус кольца.
-    const blockRight = Math.max(...kids.map((k) => k.x)) + NODE_W;
-    expect(blockRight).toBeCloseTo(500 + NODE_W);
-    // блок целиком ЛЕВЕЕ правой грани коробки — то есть НЕ вынесен правее родителя
-    expect(Math.max(...kids.map((k) => k.x))).toBeLessThanOrEqual(500 + NODE_W);
   });
 });
 
