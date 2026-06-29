@@ -789,7 +789,11 @@ function LevelGraphInner({
       Object.assign(effectiveLevelWaypoints, ownedWp);
       if (wpMigrations.length > 0 && !cancelled) cbRef.current.migrateLevelWaypoints(wpMigrations);
 
-      if (og) {
+      // A9-спайк: гостевые рёбра ведёт глобальный роутер (buildAutoRoutes ниже), а не
+      // corridor-обвод. Пока под флагом — легко сравнить/откатить. Когда обвод выключен,
+      // computeDetours не заполняет edgeDetours → гостевые рёбра попадают в routableIds.
+      const ROUTE_GUESTS_GLOBALLY = true;
+      if (og && !ROUTE_GUESTS_GLOBALLY) {
         const localIds = new Set(nodes.map((n) => n.id));
         const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
         const { handles, detours } = computeDetours({
