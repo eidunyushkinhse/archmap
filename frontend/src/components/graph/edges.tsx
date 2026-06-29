@@ -342,12 +342,18 @@ function WrappedLabelEdge({
     }
   }
 
-  // Плашка сдвинута вдоль стрелки (драг или сохранённая доля) — кладём её в точку по
-  // доле пути. Иначе остаётся по центру (вычислено выше в ветках). Контекст-полки
-  // labelPts не дают → подпись там всегда по центру полки.
-  const liveLabelT = dragLabelT ?? d?.labelT ?? null;
-  if (labelPts && liveLabelT != null) {
-    const p = pointAtFraction(labelPts, liveLabelT);
+  // Позиция плашки. Приоритет: активный драг плашки (dragLabelT) → авто-размещение (R2+R4,
+  // labelPlacement — посчитано на раскладке без наложений) → сохранённая доля label_t →
+  // центр (вычислен выше в ветках). Контекст-полки labelPts не дают → подпись по центру полки.
+  if (dragLabelT != null && labelPts) {
+    const p = pointAtFraction(labelPts, dragLabelT);
+    labelX = p.x;
+    labelY = p.y;
+  } else if (d?.labelPlacement) {
+    labelX = d.labelPlacement.center.x;
+    labelY = d.labelPlacement.center.y;
+  } else if (labelPts && d?.labelT != null) {
+    const p = pointAtFraction(labelPts, d.labelT);
     labelX = p.x;
     labelY = p.y;
   }
@@ -425,6 +431,16 @@ function WrappedLabelEdge({
   return (
     <>
       <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      {/* Поводок-выноска (R2-fallback): плашку нельзя поставить на линию без наложения —
+          она вынесена сбоку (labelPlacement.center), а пунктирный поводок связывает её с
+          точкой на стрелке (anchor). Во время активного драга плашки не рисуем (геометрия
+          поводка из снимка раскладки устарела бы). */}
+      {d?.labelPlacement?.mode === "leader" && dragLabelT == null && (
+        <path
+          d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.center.x},${d.labelPlacement.center.y}`}
+          style={{ stroke: "#9ca3af", strokeWidth: 1, strokeDasharray: "3 3", fill: "none", pointerEvents: "none" }}
+        />
+      )}
       {/* Грипы перетаскивания сегментов: прозрачная «толстая» линия-хитбокс + видимая
           точка по центру (проявляется при ховере ребра). stopPropagation на клике гасит
           открытие поповера связи после жеста. */}

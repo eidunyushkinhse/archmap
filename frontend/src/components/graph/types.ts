@@ -46,6 +46,10 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   // нет своих waypoints (ручные правки в приоритете) и нет гостевого обвода (detour). Концы
   // edges.tsx переснимает с живых хэндлов, интерьерные изломы — из этого снимка.
   autoRoute?: EdgePoint[];
+  // авто-размещение плашки подписи (эпик стрелок, R2+R4): center — куда ставить плашку,
+  // anchor — точка на линии (в режиме leader от неё рисуется поводок к вынесенной плашке;
+  // в режиме online anchor совпадает с center). Считается по авто-маршруту на раскладке.
+  labelPlacement?: { mode: "online" | "leader"; center: EdgePoint; anchor: EdgePoint };
   // кастомные точки-сгибы пути (ручные «обходы» узлов на основной схеме)
   waypoints?: EdgePoint[];
   // можно ли редактировать путь жестом (архитектор, level, одиночная стрелка, оба конца локальны)

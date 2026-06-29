@@ -35,6 +35,8 @@ export interface Placement {
   id: string;
   mode: "online" | "leader";
   center: EdgePoint; // центр плашки
+  anchor: EdgePoint; // точка на линии, к которой плашка относится (для поводка-выноски);
+                     // для online совпадает с center (поводок не рисуется)
   box: Size;
 }
 
@@ -93,7 +95,7 @@ export function placeLabels(labels: LabelInput[], nodes: NodeRect[] = []): Place
     const online: Cand[] = onlineArcs.map((a) => ({ center: toPt(a), leader: false }));
     const anchor = toPt(preferredArc);
     const cands: Cand[] = [...online, ...leaderCands(anchor, l.box)];
-    return { id: l.id, box: l.box, cands, onlineCount: online.length };
+    return { id: l.id, box: l.box, cands, onlineCount: online.length, anchor };
   });
 
   // самые стеснённые (мало online-кандидатов) — первыми; тай-брейк по id для детерминизма
@@ -121,7 +123,12 @@ export function placeLabels(labels: LabelInput[], nodes: NodeRect[] = []): Place
     }
     const c = L.cands[best];
     placedRects.push(rectFromCenter(c.center.x, c.center.y, L.box.w, L.box.h));
-    chosen.set(L.id, { id: L.id, mode: c.leader ? "leader" : "online", center: c.center, box: L.box });
+    // online: плашка на линии, якорь = её центр (поводок не нужен). leader: плашка вынесена
+    // сбоку, якорь = желаемая точка на линии (от неё рисуем поводок в edges.tsx).
+    chosen.set(L.id, {
+      id: L.id, mode: c.leader ? "leader" : "online",
+      center: c.center, anchor: c.leader ? L.anchor : c.center, box: L.box,
+    });
   }
 
   return labels.map((l) => chosen.get(l.id)!);
