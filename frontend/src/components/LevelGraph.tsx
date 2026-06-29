@@ -551,8 +551,8 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  // Персист засева владения (Option A, own-on-first-render): гость без абсолютной позиции
-  // получает её навсегда (anchor_rel=false). Зовётся из async-раскладки через cbRef (latest-ref),
+  // Персист засева владения (own-on-first-render): гость без сохранённой позиции
+  // получает её навсегда. Зовётся из async-раскладки через cbRef (latest-ref),
   // чтобы не тащить containerId/isArchitect/колбэки в зависимости эффекта раскладки. Зеркало
   // (onNodeMoved) кладёт абсолют в levelPositions → следующий рендер видит absolute и засев
   // его пропускает. Только архитектор и основной канвас.
@@ -561,7 +561,7 @@ function LevelGraphInner({
       if (!isArchitect || !containerId) return;
       for (const m of seeds) {
         const kind = ents.find((e) => e.id === m.id)?.kind === "container" ? "container" : "ghost";
-        const abs = { pos_x: m.pos_x, pos_y: m.pos_y, anchor_rel: false };
+        const abs = { pos_x: m.pos_x, pos_y: m.pos_y };
         guardPersist(nodesApi.saveGhostPosition(containerId, m.id, abs), onPersistError);
         onNodeMoved?.(m.id, kind, abs);
       }
@@ -740,12 +740,11 @@ function LevelGraphInner({
       else if (sg) edgeHandles = sg.edgeHandles;
       else if (og) edgeHandles = og.edgeHandles;
 
-      // ЗАСЕВ ВЛАДЕНИЯ (Option A, own-on-first-render): каждый гость без абсолютной позиции
-      // получает её навсегда (anchor_rel=false) — на финальных позициях (после колец + enforce +
-      // разведения + легаси-конверсии). Покрывает и авто-гостей (кольцо), и легаси-офсеты
-      // (сконвертированы в абсолют в ringPlacement), и новичков от вложенного раскрытия (их
-      // разведённую позицию). Только архитектор и основной канвас. Зеркало двигает узел в
-      // levelPositions → следующий рендер видит absolute, и засев его пропускает (сходится).
+      // ЗАСЕВ ВЛАДЕНИЯ (own-on-first-render): каждый гость без сохранённой позиции получает
+      // её навсегда — на финальных позициях (после колец + enforce + разведения). Покрывает
+      // и авто-гостей (кольцо), и новичков от вложенного раскрытия (их разведённую позицию).
+      // Только архитектор и основной канвас. Зеркало двигает узел в
+      // levelPositions → следующий рендер видит сохранённую позицию, и засев его пропускает.
       if (!cancelled) {
         const seeds = collectGhostSeeds(entities, levelPositions, (id) => positions.get(id));
         if (seeds.length > 0) cbRef.current.migrateGhostPositions(seeds, entities);

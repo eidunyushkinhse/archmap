@@ -1233,11 +1233,6 @@ export interface components {
             pos_x: number;
             /** Pos Y */
             pos_y: number;
-            /**
-             * Anchor Rel
-             * @default false
-             */
-            anchor_rel: boolean;
         };
         /** GhostPositionUpdate */
         GhostPositionUpdate: {
@@ -1245,11 +1240,6 @@ export interface components {
             pos_x: number;
             /** Pos Y */
             pos_y: number;
-            /**
-             * Anchor Rel
-             * @default false
-             */
-            anchor_rel: boolean;
         };
         /** GraphEdgeResponse */
         GraphEdgeResponse: {
@@ -1751,11 +1741,6 @@ export interface components {
             pos_x: number;
             /** Pos Y */
             pos_y: number;
-            /**
-             * Anchor Rel
-             * @default false
-             */
-            anchor_rel: boolean;
         };
         /** ProcessCreate */
         ProcessCreate: {

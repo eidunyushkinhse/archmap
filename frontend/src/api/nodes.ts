@@ -46,9 +46,8 @@ export const nodesApi = {
   saveGhostPosition: (
     containerId: string,
     nodeId: string,
-    // anchor_rel=true → pos_x/pos_y это офсет от живого якоря группы (ТЗ D2/D4); по
-    // умолчанию (опущен) бэкенд трактует как абсолют уровня
-    pos: { pos_x: number; pos_y: number; anchor_rel?: boolean },
+    // абсолютные координаты гостя на уровне (own-on-first-render)
+    pos: { pos_x: number; pos_y: number },
   ): Promise<void> =>
     api.put(`/nodes/${containerId}/ghost-positions/${nodeId}`, pos),
   // Сохранить хэндл гостевого конца ребра на уровне containerId, привязанный к id

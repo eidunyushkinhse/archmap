@@ -160,9 +160,7 @@ def _build_graph(
         # намеренно: при возврате проекции (правка топологии/раскрытие) координаты воскресают.
         for r in rows:
             if r.node_id in valid_keys:
-                level_positions[str(r.node_id)] = PosXY(
-                    pos_x=r.pos_x, pos_y=r.pos_y, anchor_rel=r.anchor_rel
-                )
+                level_positions[str(r.node_id)] = PosXY(pos_x=r.pos_x, pos_y=r.pos_y)
                 if r.node_id in ghost_ids:
                     saved_pos[r.node_id] = r
 
@@ -740,7 +738,7 @@ def save_ghost_position(
         db,
         GhostPosition,
         keys={"container_id": container_id, "node_id": node_id},
-        values={"pos_x": payload.pos_x, "pos_y": payload.pos_y, "anchor_rel": payload.anchor_rel},
+        values={"pos_x": payload.pos_x, "pos_y": payload.pos_y},
     )
     db.commit()
 

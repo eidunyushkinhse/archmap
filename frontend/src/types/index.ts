@@ -43,14 +43,12 @@ export type NodeUpdate = Schemas["NodeUpdate"];
 // Точка-сгиб кастомного пути стрелки в координатах графа уровня.
 export type EdgePoint = Schemas["Point"];
 
-// Сохранённая позиция гостя на уровне (level_positions). anchor_rel=true → pos_x/pos_y
-// это ОФСЕТ от живого якоря группы (раскладка детей раскрытой гостевой рамки, ТЗ D2/D3),
-// иначе обычный абсолют уровня. См. ringPlacement.
+// Сохранённая АБСОЛЮТНАЯ позиция гостя на уровне (level_positions, own-on-first-render).
 export type LevelPos = Schemas["PosXY"];
 
-// Изломы гостевой стрелки на уровне (level_edge_waypoints). anchor_rel=true → точки
-// waypoints это ОФСЕТЫ от живого якоря группы (изломы владеемой группы едут за рамкой,
-// ТЗ D8), иначе абсолют уровня. Зеркало LevelPos для пути. См. ringPlacement/LevelGraph.
+// Изломы гостевой стрелки на уровне (level_edge_waypoints). anchor_node_id не null → точки
+// это ОФСЕТ от позиции узла-якоря (Ф3, гостевой конец-потомок раскрытой рамки), иначе
+// абсолют уровня. См. ownedWaypoints/LevelGraph.
 export type LevelWaypoints = Schemas["LevelWaypoints"];
 
 export type Edge = Schemas["EdgeResponse"];

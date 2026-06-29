@@ -108,7 +108,7 @@ describe("placeGhostsOnRings — внутренняя полка детей го
   const vertLocals = () => ({
     nodes: [node("La"), node("Lb"), node("Lc")],
     entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")]), leaf("g3", [a("P")])],
-    ancestorIds: ["A"], levelPositions: {} as Record<string, { pos_x: number; pos_y: number; anchor_rel: boolean }>,
+    ancestorIds: ["A"], levelPositions: {} as Record<string, { pos_x: number; pos_y: number }>,
     expanded: new Set(["P"]),
     layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb"), edge("e3", "g3", "Lc")],
   });
@@ -229,7 +229,7 @@ describe("placeGhostsOnRings — ручные позиции", () => {
     const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5, y: 5 }]]);
     const res = placeGhostsOnRings({
       nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: ["A"],
-      levelPositions: { G: { pos_x: 999, pos_y: 999, anchor_rel: false } }, expanded: new Set(),
+      levelPositions: { G: { pos_x: 999, pos_y: 999 } }, expanded: new Set(),
       layoutEdges: [edge("e", "G", "L")], positions,
     });
     expect(res).toBeNull();
@@ -247,33 +247,34 @@ describe("placeGhostsOnRings — ручные позиции", () => {
   });
 });
 
-describe("placeGhostsOnRings — Option A: легаси-офсеты конвертируются в абсолют", () => {
-  // Прежняя модель хранила позиции детей раскрытой рамки ОФСЕТОМ от живого якоря
-  // (anchor_rel=true) и пересчитывала абсолют каждый layout. Теперь у узла своя АБСОЛЮТНАЯ
-  // позиция: anchor_rel один раз приводится к абсолюту = anchorG (+ сдвиг коробки) + офсет,
-  // БЕЗ ленивой миграции в офсет (её больше нет). На экране узел остаётся там же.
-  it("ребёнок раскрытой рамки: anchor_rel → позиция anchorG + офсет, вне content-рамки", () => {
+describe("placeGhostsOnRings — own-on-first-render: владеемые дети раскрытой рамки", () => {
+  // Живой якорь снят (Ф1): у каждого гостя своя АБСОЛЮТНАЯ позиция. Владеемого ребёнка
+  // раскрытой рамки (есть строка в levelPositions) placeGhostsOnRings НЕ двигает — его
+  // абсолют выставил savedPos-override в layoutLevel; здесь он лишь помечается placedOutside.
+  it("владеемый ребёнок раскрытой рамки → placedOutside, позиция не трогается", () => {
     const positions = new Map([
       ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
-      ["g1", { x: 0, y: 0 }], ["g2", { x: 0, y: 0 }],
+      ["g1", { x: 400, y: 120 }], ["g2", { x: 420, y: 260 }], // savedPos = абсолют
     ]);
     const res = placeGhostsOnRings({
       nodes: [node("La"), node("Lb")],
       entities: [leaf("g1", [a("P")]), leaf("g2", [a("P")])],
       ancestorIds: ["A"],
       levelPositions: {
-        g1: { pos_x: 50, pos_y: -30, anchor_rel: true },
-        g2: { pos_x: 50, pos_y: 80, anchor_rel: true },
+        g1: { pos_x: 400, pos_y: 120 },
+        g2: { pos_x: 420, pos_y: 260 },
       },
       expanded: new Set(["P"]),
       layoutEdges: [edge("e1", "g1", "La"), edge("e2", "g2", "Lb")],
       positions,
     });
     expect(res).not.toBeNull();
-    // anchorG = центроид центров La(95,50) и Lb(95,250) = (95,150); g1 = anchorG + (50,-30)
-    expect(positions.get("g1")!.x).toBeCloseTo(NODE_W / 2 + 50);
-    expect(positions.get("g1")!.y).toBeCloseTo(120);
+    // позиции владеемых детей не изменились (никакой конверсии офсетов больше нет)
+    expect(positions.get("g1")).toEqual({ x: 400, y: 120 });
+    expect(positions.get("g2")).toEqual({ x: 420, y: 260 });
+    // и вынесены из content-рамки уровня (стоят в гостевой рамке, не в содержимом уровня)
     expect(res!.placedOutside.has("g1")).toBe(true);
+    expect(res!.placedOutside.has("g2")).toBe(true);
   });
 
   it("absolute-позиция ребёнка НЕ зависит от сдвига локалов (живой якорь убран)", () => {
@@ -286,7 +287,7 @@ describe("placeGhostsOnRings — Option A: легаси-офсеты конве�
         nodes: [node("La"), node("Lb")],
         entities: [leaf("g1", [a("P")])],
         ancestorIds: ["A"],
-        levelPositions: { g1: { pos_x: 400, pos_y: 120, anchor_rel: false } },
+        levelPositions: { g1: { pos_x: 400, pos_y: 120 } },
         expanded: new Set(["P"]),
         layoutEdges: [edge("e1", "g1", "La")],
         positions,
@@ -297,63 +298,22 @@ describe("placeGhostsOnRings — Option A: легаси-офсеты конве�
     expect(run(300)).toEqual(run(0));
     expect(run(0)).toEqual({ x: 400, y: 120 });
   });
-
-  it("композиция конверсии: ребёнок anchor_rel + коробка anchor_rel → anchorG + boxOff + офсет", () => {
-    const positions = new Map([
-      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 200 }],
-      ["g1", { x: 0, y: 0 }],
-    ]);
-    placeGhostsOnRings({
-      nodes: [node("La"), node("Lb")],
-      entities: [leaf("g1", [a("P")])],
-      ancestorIds: ["A"],
-      levelPositions: {
-        g1: { pos_x: 50, pos_y: -30, anchor_rel: true },
-        P: { pos_x: 40, pos_y: 100, anchor_rel: true },
-      },
-      expanded: new Set(["P"]),
-      layoutEdges: [edge("e1", "g1", "La")],
-      positions,
-    });
-    // g1 связан только с La → anchorG = центр La (NODE_W/2, 50); +boxOff(40,100) +офсет(50,-30)
-    expect(positions.get("g1")!.x).toBeCloseTo(NODE_W / 2 + 40 + 50);
-    expect(positions.get("g1")!.y).toBeCloseTo(50 + 100 - 30);
-  });
-
-  it("свёрнутая коробка с легаси-офсетом → абсолют groupAnchor + офсет (не улетает)", () => {
-    const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 40, y: 100 }]]); // seed = офсет-как-абсолют
-    placeGhostsOnRings({
-      nodes: [node("L")],
-      entities: [leaf("G", [a("P")])],
-      ancestorIds: ["A"],
-      levelPositions: { G: { pos_x: 40, pos_y: 100, anchor_rel: true } },
-      expanded: new Set(), // СВЁРНУТО
-      layoutEdges: [edge("e", "G", "L")],
-      positions,
-    });
-    // groupAnchor = центр L (NODE_W/2, 50); коробка = якорь + офсет, а не сырой (40,100)
-    expect(positions.get("G")!.x).toBeCloseTo(NODE_W / 2 + 40);
-    expect(positions.get("G")!.y).toBeCloseTo(150);
-  });
 });
 
 describe("collectGhostSeeds — засев владения (own-on-first-render)", () => {
-  it("сущности без строки и с anchor_rel засеваются абсолютом; absolute и без позиции — нет", () => {
+  it("сущности без сохранённой строки засеваются текущей позицией; со строкой — пропуск", () => {
     const pos = (id: string): { x: number; y: number } | undefined =>
       ({ a: { x: 10, y: 20 }, b: { x: 30, y: 40 }, c: { x: 50, y: 60 } } as Record<string, { x: number; y: number }>)[id];
     const seeds = collectGhostSeeds(
       [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }],
       {
-        b: { pos_x: 0, pos_y: 0, anchor_rel: true },   // легаси-офсет (позиция уже сконвертирована)
-        c: { pos_x: 50, pos_y: 60, anchor_rel: false }, // уже владеется абсолютом → пропуск
+        b: { pos_x: 0, pos_y: 0 },   // уже владеется (есть строка) → пропуск
+        c: { pos_x: 50, pos_y: 60 }, // уже владеется → пропуск
       },
       pos,
     );
-    // a (нет строки) и b (anchor_rel) засеяны текущей позицией; c (absolute) и d (нет позиции) — нет
-    expect(seeds).toEqual([
-      { id: "a", pos_x: 10, pos_y: 20 },
-      { id: "b", pos_x: 30, pos_y: 40 },
-    ]);
+    // a (нет строки) засеяна текущей позицией; b/c (есть строка) и d (нет позиции вовсе) — нет
+    expect(seeds).toEqual([{ id: "a", pos_x: 10, pos_y: 20 }]);
   });
 });
 

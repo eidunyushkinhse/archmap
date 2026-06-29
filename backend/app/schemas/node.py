@@ -103,11 +103,9 @@ class GhostNodeResponse(BaseModel):
 
 
 class GhostPositionUpdate(BaseModel):
+    # Абсолютные координаты гостя на уровне (own-on-first-render)
     pos_x: float
     pos_y: float
-    # true — pos_x/pos_y это офсет от живого якоря группы (раскладка детей раскрытой
-    # гостевой рамки, ТЗ D2/D4); по умолчанию абсолют (как все прочие гостевые позиции)
-    anchor_rel: bool = False
 
 
 class GhostEdgeHandleUpdate(BaseModel):
@@ -153,8 +151,6 @@ class GraphEdgeResponse(BaseModel):
 class PosXY(BaseModel):
     pos_x: float
     pos_y: float
-    # true — pos_x/pos_y это офсет от живого якоря группы (см. GhostPositionUpdate)
-    anchor_rel: bool = False
 
 
 class LevelWaypoints(BaseModel):
@@ -178,8 +174,8 @@ class GraphResponse(BaseModel):
     # предок-контейнер). Фронт выбирает тот, чей префикс совпадает с id отображаемой
     # на данный момент сущности; остальные концы — из колонок ребра / autoHandles.
     level_edge_handles: dict[str, list[str]] = {}
-    # Кастомные пути (изломы) ГОСТЕВЫХ стрелок на этом уровне: edge_id → путь + признак
-    # привязки к якорю (anchor_rel). Локальные стрелки путь хранят в колонке самого ребра.
+    # Кастомные пути (изломы) ГОСТЕВЫХ стрелок на этом уровне: edge_id → путь + идентичность
+    # якоря излома (anchor_node_id, Ф3). Локальные стрелки путь хранят в колонке самого ребра.
     level_edge_waypoints: dict[str, LevelWaypoints] = {}
 
 

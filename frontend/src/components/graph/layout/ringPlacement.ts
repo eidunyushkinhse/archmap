@@ -41,37 +41,6 @@ type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 type XY = { x: number; y: number };
 
 /**
- * Живой якорь группы (anchorG, ТЗ D2): центроид ЦЕНТРОВ связанных локальных узлов
- * группы. Относительно него хранятся офсеты детей раскрытой гостевой рамки, поэтому
- * ОДНА и та же функция считает якорь при пине (шаг 4) и при восстановлении (здесь) —
- * иначе восстановление сместило бы раскладку. Нет связанных локалов → центроид ВСЕХ
- * локалов (стабильный фолбэк, ТЗ §9 «без якоря»); нет локалов вовсе → null.
- */
-export function groupAnchor(
-  memberIds: Iterable<string>,
-  localIds: string[],
-  edges: AppEdge[],
-  pos: (id: string) => XY | undefined,
-): XY | null {
-  const members = new Set(memberIds);
-  const localSet = new Set(localIds);
-  const connected = new Set<string>();
-  for (const e of edges) {
-    if (members.has(e.source_id) && localSet.has(e.target_id)) connected.add(e.target_id);
-    else if (members.has(e.target_id) && localSet.has(e.source_id)) connected.add(e.source_id);
-  }
-  const avg = (ids: Iterable<string>): XY | null => {
-    let sx = 0, sy = 0, c = 0;
-    for (const id of ids) {
-      const p = pos(id);
-      if (p) { sx += p.x + NODE_W / 2; sy += p.y + NODE_H / 2; c++; }
-    }
-    return c ? { x: sx / c, y: sy / c } : null;
-  };
-  return avg(connected) ?? avg(localIds);
-}
-
-/**
  * Расставляет авто-гостей (без ручной позиции) на кольца их запретных рамок. `positions`
  * МУТИРУЕТСЯ. Возвращает null, если ставить некого/нет родных рамок/нет валидного bbox.
  */
@@ -131,41 +100,15 @@ export function placeGhostsOnRings(params: {
 
   const placedOutside = new Set<string>();
 
-  // --- ЛЕГАСИ-КОНВЕРСИЯ (Option A, own-on-first-render). Прежняя модель хранила позиции
-  // детей раскрытой рамки и свёрнутой коробки ОФСЕТОМ от живого якоря (anchor_rel=true) и
-  // пересчитывала абсолют каждый layout (рамка ехала за локалами). Теперь у каждого узла своя
-  // АБСОЛЮТНАЯ позиция. Один раз приводим легаси-офсет к абсолюту ПО ТОЙ ЖЕ формуле, что его
-  // раньше отрисовывала (anchorG + сдвиг коробки + офсет) — на экране узел не дёргается.
-  // Персист абсолюта (anchor_rel=false) делает засев в LevelGraph (collectGhostSeeds): он
-  // читает эти позиции. После персиста строка становится absolute, конверсия её пропускает,
-  // живой якорь на узел больше не влияет. Владеемых детей раскрытой рамки (как офсетных, так и
-  // уже абсолютных) добавляем в placedOutside — они вне content-рамки уровня (как раньше).
+  // Владеемые дети раскрытой гостевой рамки (own-on-first-render): их абсолютную позицию уже
+  // выставил savedPos-override в layoutLevel. Здесь лишь помечаем их placedOutside — они стоят
+  // ВНЕ content-рамки уровня (как и авто-гости на кольце), чтобы рамка уровня и detours не
+  // считали их содержимым уровня. Авто-детей (без сохранённой позиции) пометит ring-проход ниже.
   for (const g of groupMap.values()) {
-    if (!expanded.has(g.key)) continue;                       // не дети раскрытой рамки
-    const ownedIds = g.ids.filter((id) => levelPositions[id]); // владеемые дети (есть строка)
-    if (ownedIds.length === 0) continue;                      // авто-группа → каскад/полка ниже
-    const baseAnchor = groupAnchor(g.ids, localIds, layoutEdges, pos);
-    // композитный якорь конверсии = живой якорь локалов + сдвиг коробки-родителя (как в старой
-    // модели), только чтобы абсолют совпал с прежней отрисовкой; дальше он не пересчитывается
-    const boxLp = levelPositions[g.key];
-    let anchor = baseAnchor;
-    if (baseAnchor && boxLp?.anchor_rel) anchor = { x: baseAnchor.x + boxLp.pos_x, y: baseAnchor.y + boxLp.pos_y };
-    else if (boxLp) anchor = { x: boxLp.pos_x, y: boxLp.pos_y };
-    for (const id of ownedIds) {
-      const lp = levelPositions[id]!;
-      // anchor_rel → абсолют = якорь + офсет; absolute оставляем как savedPos (dagre уже поставил)
-      if (lp.anchor_rel && anchor) positions.set(id, { x: anchor.x + lp.pos_x, y: anchor.y + lp.pos_y });
-      placedOutside.add(id);
+    if (!expanded.has(g.key)) continue;                  // не дети раскрытой рамки
+    for (const id of g.ids) {
+      if (levelPositions[id]) placedOutside.add(id);      // владеемый ребёнок → вне content-рамки
     }
-  }
-  // свёрнутая коробка с легаси-офсетом → абсолют (groupAnchor([коробка]) + офсет). Ключ — id
-  // САМОЙ сущности (там лежит levelPositions), а не g.key: коробка может быть вложена в другую
-  // гостевую рамку. Детей раскрытых рамок (уже обработаны выше) пропускаем по placedOutside.
-  for (const e of entities) {
-    const lp = levelPositions[e.id];
-    if (!lp || !lp.anchor_rel || placedOutside.has(e.id)) continue;
-    const a = groupAnchor([e.id], localIds, layoutEdges, pos);
-    positions.set(e.id, a ? { x: a.x + lp.pos_x, y: a.y + lp.pos_y } : { x: lp.pos_x, y: lp.pos_y });
   }
 
   const groups = [...groupMap.values()].filter((g) => g.auto);
@@ -440,10 +383,9 @@ export function placeGhostsOnRings(params: {
 }
 
 /**
- * Засев владения (own-on-first-render, Option A): сущности БЕЗ абсолютной позиции получают
- * свою текущую (после колец / enforce / легаси-конверсии) как ПОСТОЯННУЮ — её надо персистнуть
- * с anchor_rel=false. Покрывает и авто-гостей (сели на кольцо), и легаси-офсеты (их позиция
- * уже сконвертирована в абсолют в placeGhostsOnRings). Сущности с absolute-строкой пропускаем.
+ * Засев владения (own-on-first-render): сущности БЕЗ сохранённой позиции получают свою текущую
+ * (после колец / enforce / разведения) как ПОСТОЯННУЮ — её надо персистнуть. Покрывает авто-гостей
+ * (сели на кольцо) и новичков от вложенного раскрытия. Сущности с сохранённой строкой пропускаем.
  */
 export function collectGhostSeeds(
   entities: { id: string }[],
@@ -452,8 +394,7 @@ export function collectGhostSeeds(
 ): { id: string; pos_x: number; pos_y: number }[] {
   const seeds: { id: string; pos_x: number; pos_y: number }[] = [];
   for (const e of entities) {
-    const lp = levelPositions[e.id];
-    if (lp && !lp.anchor_rel) continue; // уже владеется абсолютом
+    if (levelPositions[e.id]) continue; // уже владеется (есть сохранённая позиция)
     const p = pos(e.id);
     if (p) seeds.push({ id: e.id, pos_x: p.x, pos_y: p.y });
   }

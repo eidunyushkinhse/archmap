@@ -150,7 +150,6 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 node_id=nmap[gp.node_id],
                 pos_x=gp.pos_x,
                 pos_y=gp.pos_y,
-                anchor_rel=gp.anchor_rel,
             )
         )
     for gh in db.query(GhostEdgeHandle).filter(GhostEdgeHandle.container_id.in_(node_keys)):

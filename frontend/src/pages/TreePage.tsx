@@ -568,18 +568,17 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   function handleNodeMoved(
     id: string,
     kind: "block" | "ghost" | "container",
-    pos: { pos_x: number; pos_y: number; anchor_rel?: boolean },
+    pos: { pos_x: number; pos_y: number },
   ) {
     if (kind === "block") {
       setNodes((prev) =>
         prev.map((n) => (n.id === id ? { ...n, pos_x: pos.pos_x, pos_y: pos.pos_y } : n)),
       );
     } else {
-      // anchor_rel зеркалим из сохранённого значения (драг обычной позиции — абсолют;
-      // пин владеемой группы пишет офсет с anchor_rel=true, см. шаг 4)
+      // гость/контейнер — абсолютная позиция уровня (own-on-first-render)
       setLevelPositions((prev) => ({
         ...prev,
-        [id]: { pos_x: pos.pos_x, pos_y: pos.pos_y, anchor_rel: pos.anchor_rel ?? false },
+        [id]: { pos_x: pos.pos_x, pos_y: pos.pos_y },
       }));
     }
   }

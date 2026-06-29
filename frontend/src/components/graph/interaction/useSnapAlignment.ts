@@ -31,7 +31,7 @@ interface Params {
   onNodeMoved?: (
     id: string,
     kind: "block" | "ghost" | "container",
-    pos: { pos_x: number; pos_y: number; anchor_rel?: boolean },
+    pos: { pos_x: number; pos_y: number },
   ) => void;
   // запись действия в историю Undo/Redo (перемещение группы = одна команда)
   push?: History["push"];
@@ -82,7 +82,7 @@ export function useSnapAlignment({
       const frames =
         group.some((n) => n.type === "ghost" || n.type === "container") ? levelFrames() : [];
       // Перемещения, реально изменившие позицию (для записи в историю Undo/Redo).
-      type Pos = { pos_x: number; pos_y: number; anchor_rel?: boolean };
+      type Pos = { pos_x: number; pos_y: number };
       type Move = { id: string; kind: "block" | "ghost" | "container"; old: Pos; next: Pos };
       const moves: Move[] = [];
 
@@ -129,8 +129,8 @@ export function useSnapAlignment({
       }
 
       // Записываем перемещение в историю одной командой (вся перетянутая группа). undo/redo
-      // переигрывают тот же персист+зеркало с нужной позицией (anchor_rel несётся в Pos —
-      // офсетный пин восстанавливается тем же флагом). Позиции уже валидны → повторный clamp не нужен.
+      // переигрывают тот же персист+зеркало с нужной АБСОЛЮТНОЙ позицией. Позиции уже
+      // валидны → повторный clamp не нужен.
       if (push && moves.length > 0) {
         const apply = (which: "old" | "next") => {
           for (const m of moves) {
