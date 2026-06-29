@@ -714,6 +714,22 @@ function LevelGraphInner({
       const og = placeGhostsOnRings({
         nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges, positions, expanded,
       });
+
+      // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
+      // (его группа НЕ авто → кольцо его пропускает) садится поверх владеемых соседей.
+      // separateGuests разводит их VPSC-проходом по дереву containment: раскрытая рамка
+      // пиннится на месте старого узла (expand-in-place), соседи уступают, локалы неподвижны.
+      // No-op, если новичков от вложенного раскрытия нет.
+      // ВАЖНО — ДО enforce: пока новичок сидит на ELK-позиции в чужой СК, он раздувает свою
+      // рамку, и enforce лишне выталкивает соседей под раздутую рамку. На следующем рендере
+      // (после персиста) раскладка считается из чистых позиций → раскладка отличается =
+      // видимое дёрганье на доли секунды. Сначала ставим новичка на место и разводим — тогда
+      // enforce всегда видит финальные позиции, и оба рендера совпадают.
+      const sg = separateGuests({
+        nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges,
+        positions, emergedFrom, placedOutside: og?.placedOutside ?? new Set<string>(),
+      });
+
       // Страховочная сетка keep-out: кольца держат инвариант по построению, но ручные позиции
       // и рост рамки за ручным гостем ringPlacement не трогает — их добирает enforce. На
       // авто-гостях после ringPlacement он обязан быть no-op. Запускается всегда.
@@ -721,18 +737,8 @@ function LevelGraphInner({
         nodes, entities, ancestorIds: stableAncestorIds, layoutEdges, positions,
       });
       if (enf) edgeHandles = enf.edgeHandles;
+      else if (sg) edgeHandles = sg.edgeHandles;
       else if (og) edgeHandles = og.edgeHandles;
-
-      // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
-      // (его группа НЕ авто → кольцо его пропускает, keep-out не трогает) садится поверх
-      // владеемых соседей. separateGuests разводит их VPSC-проходом по дереву containment:
-      // раскрытая рамка пиннится на месте старого узла (expand-in-place), соседи уступают,
-      // локалы неподвижны. No-op, если новичков от вложенного раскрытия нет.
-      const sg = separateGuests({
-        nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges,
-        positions, emergedFrom, placedOutside: og?.placedOutside ?? new Set<string>(),
-      });
-      if (sg) edgeHandles = sg.edgeHandles;
 
       // ЗАСЕВ ВЛАДЕНИЯ (Option A, own-on-first-render): каждый гость без абсолютной позиции
       // получает её навсегда (anchor_rel=false) — на финальных позициях (после колец + enforce +
