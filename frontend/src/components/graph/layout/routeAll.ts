@@ -50,13 +50,6 @@ function bendCount(pts: EdgePoint[]): number {
   return n;
 }
 
-// Сколько пересечений с уже проложенными даёт весь маршрут (сумма по ходам).
-function routeCrossings(pts: EdgePoint[], segs: Segment[]): number {
-  let n = 0;
-  for (let i = 0; i < pts.length - 1; i++) n += crossingCount(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, segs);
-  return n;
-}
-
 // Сколько уже проложенных сегментов пересёк бы ход (x1,y1)→(x2,y2) «крестиком» —
 // перпендикулярно и строго внутри чужого сегмента. Ход всегда осевой (по грид-сетке).
 //
@@ -125,17 +118,24 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
         ? (x1: number, y1: number, x2: number, y2: number): number =>
             crossCost * crossingCount(x1, y1, x2, y2, placedSegs)
         : undefined;
-    // Перебор вариантов сторон: берём с минимальной полной ценой (длина + изломы*bendPenalty
-    // + пересечения*crossCost). Тай-брейк — порядок вариантов (детерминизм).
-    let best: EdgePoint[] | null = null;
-    let bestCost = Infinity;
-    for (const t of termsOf(e)) {
-      const route = routeOrthogonal(t.start, t.end, e.obstacles, { ...baseOpts, moveCost });
-      const cost =
-        pathLength(route) + bendPenalty * bendCount(route) + crossCost * routeCrossings(route, placedSegs);
-      if (cost < bestCost - EPS) { bestCost = cost; best = route; }
+    // Выбор стороны (A8) РАЗВЯЗАН от чужих стрелок (стабильность, A7.4): сторону берём по
+    // ЧИСТОЙ геометрии ребра (длина + изломы вокруг узлов-препятствий), БЕЗ штрафа за
+    // пересечения с уже проложенными. Так выбранная сторона = хэндл, отдаваемый наружу, —
+    // чистая функция концов и узлов этого ребра: правка/добавление другого ребра её не
+    // меняет, и стрелка не перескакивает на другой хэндл. Пересечения (R3) влияют только на
+    // ФОРМУ финального маршрута выбранной стороны (ниже), не на точку стыковки.
+    const variants = termsOf(e);
+    let chosen = variants[0];
+    if (variants.length > 1) {
+      let bestCost = Infinity;
+      for (const t of variants) {
+        const probe = routeOrthogonal(t.start, t.end, e.obstacles, baseOpts); // без moveCost
+        const cost = pathLength(probe) + bendPenalty * bendCount(probe);
+        if (cost < bestCost - EPS) { bestCost = cost; chosen = t; }
+      }
     }
-    const route = best ?? routeOrthogonal(e.start, e.end, e.obstacles, { ...baseOpts, moveCost });
+    // Финальный маршрут выбранной стороны — С учётом пересечений (R3 формирует изломы).
+    const route = routeOrthogonal(chosen.start, chosen.end, e.obstacles, { ...baseOpts, moveCost });
     placed.set(e.id, route);
     for (const s of segments(route)) placedSegs.push(s);
   }
