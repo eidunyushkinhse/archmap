@@ -31,10 +31,14 @@ export interface SepConstraint {
 
 interface Block {
   vars: Var[];
-  /** Σ w·(d − offset) — числитель оптимальной позиции блока */
+  /** Σ w·(d − offset) по переменным с КОНЕЧНЫМ весом — числитель оптимума */
   wposn: number;
-  /** Σ w — знаменатель */
+  /** Σ w по конечным весам — знаменатель */
   weight: number;
+  /** Σ (d − offset) по «прибитым» переменным (вес = Infinity) — их среднее задаёт опору */
+  fwposn: number;
+  /** число прибитых переменных в блоке */
+  fcount: number;
 }
 
 interface Var {
@@ -45,8 +49,11 @@ interface Var {
   block: Block;
 }
 
-// оптимальная опорная позиция блока минимизирует Σ w(posn + offset − d)² → posn = Σw(d−offset)/Σw
-const blockPosn = (b: Block): number => b.wposn / b.weight;
+// Опора блока минимизирует Σ w(posn + offset − d)². При наличии прибитых переменных
+// (вес = Infinity) опору задают ТОЛЬКО они (их среднее) — конечные веса не влияют; иначе
+// posn = Σw(d−offset)/Σw. Прибитая переменная не двигается (локал/пин из R4).
+const blockPosn = (b: Block): number =>
+  b.fcount > 0 ? b.fwposn / b.fcount : b.wposn / b.weight;
 const varPosn = (v: Var): number => blockPosn(v.block) + v.offset;
 
 /**
@@ -64,9 +71,12 @@ function mergeBlocks(L: Var, R: Var, gap: number): void {
     v.block = bL;
     bL.vars.push(v);
   }
-  // вклад bR в числитель после сдвига offset на d: Σw(d_v − offset_v − d) = bR.wposn − d·Σw
+  // вклад bR после сдвига offset на d: Σ(d_v − offset_v − d) = (исходная сумма) − d·count.
+  // Конечные веса и прибитые накапливаем раздельно (см. blockPosn).
   bL.wposn += bR.wposn - d * bR.weight;
   bL.weight += bR.weight;
+  bL.fwposn += bR.fwposn - d * bR.fcount;
+  bL.fcount += bR.fcount;
 }
 
 /**
@@ -82,7 +92,11 @@ export function solveSeparation(
 ): number[] {
   const vars: Var[] = desired.map((d, i) => {
     const w = weight[i];
-    const block: Block = { vars: [], wposn: w * d, weight: w };
+    const fixed = w === Infinity;
+    const block: Block = {
+      vars: [], weight: fixed ? 0 : w, wposn: fixed ? 0 : w * d,
+      fwposn: fixed ? d : 0, fcount: fixed ? 1 : 0,
+    };
     const v: Var = { desired: d, weight: w, offset: 0, block };
     block.vars.push(v);
     return v;
