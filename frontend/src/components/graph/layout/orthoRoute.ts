@@ -15,6 +15,14 @@ import { cleanup, pathCrossesRects, type NodeRect } from "../edgePath";
 export interface RouteOptions {
   margin?: number;       // клиренс грид-линий от тел узлов, px (зазор обхода)
   bendPenalty?: number;  // штраф за поворот в px-эквиваленте (предпочесть меньше изломов)
+  // Доп. стоимость хода по грид-сегменту (x1,y1)→(x2,y2), px-эквивалент. Только ПОЛОЖИТЕЛЬНАЯ
+  // (иначе эвристика перестанет быть допустимой). Используется глобальным роутером routeAll
+  // для штрафа за пересечение уже проложенных стрелок (R3). По умолчанию — без доплаты.
+  moveCost?: (x1: number, y1: number, x2: number, y2: number) => number;
+  // Дополнительные координаты грид-линий (помимо концов и границ препятствий). Глобальный
+  // роутср даёт сюда концы ВСЕХ рёбер набора — чтобы было куда свернуть в объезд чужой стрелки.
+  extraXs?: number[];
+  extraYs?: number[];
 }
 
 const DEFAULT_MARGIN = 12;
@@ -88,10 +96,11 @@ export function routeOrthogonal(
 ): EdgePoint[] {
   const margin = opts?.margin ?? DEFAULT_MARGIN;
   const bendPenalty = opts?.bendPenalty ?? DEFAULT_BEND_PENALTY;
+  const moveCost = opts?.moveCost;
 
-  // Грид-линии: раздвинутые на клиренс границы препятствий + координаты концов.
-  const xsRaw = [start.x, end.x];
-  const ysRaw = [start.y, end.y];
+  // Грид-линии: раздвинутые на клиренс границы препятствий + координаты концов + подсказки.
+  const xsRaw = [start.x, end.x, ...(opts?.extraXs ?? [])];
+  const ysRaw = [start.y, end.y, ...(opts?.extraYs ?? [])];
   for (const r of obstacles) {
     xsRaw.push(r.x - margin, r.x + r.w + margin);
     ysRaw.push(r.y - margin, r.y + r.h + margin);
@@ -150,7 +159,8 @@ export function routeOrthogonal(
       const segLen = Math.abs(xs[ni] - xs[i]) + Math.abs(ys[nj] - ys[j]);
       if (segLen <= EPS) continue; // вырожденный (слипшиеся линии)
       const turn = dir !== NONE && dir !== md ? bendPenalty : 0;
-      const ng = g + segLen + turn;
+      const extra = moveCost ? moveCost(xs[i], ys[j], xs[ni], ys[nj]) : 0;
+      const ng = g + segLen + turn + extra;
       const nkey = encode(ni, nj, md);
       if (ng < (gScore.get(nkey) ?? Infinity)) {
         gScore.set(nkey, ng);
