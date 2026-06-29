@@ -287,6 +287,22 @@ function WrappedLabelEdge({
       labelY = mid.y;
       labelPts = pts;
       if (d?.editable) gripPts = pts;
+    } else if (d?.autoRoute && d.autoRoute.length >= 2) {
+      // Авто-маршрут (эпик стрелок A7.1, R1+R3): ортоломаная посчитана на раскладке
+      // глобальным роутером (минимум пересечений с другими стрелками + жёсткий обход узлов).
+      // Концы переснимаем с ЖИВЫХ хэндлов (s/t) — линия держится узла при его сдвиге;
+      // интерьерные изломы берём из снимка. Стаб наружу гарантирует выход вдоль нормали
+      // (как у прочих веток), cleanup схлопнёт вырожденное. Грипы (если editable) — на линии.
+      const raw = d.autoRoute.map((p) => ({ x: p.x, y: p.y }));
+      raw[0] = s;
+      raw[raw.length - 1] = t;
+      const pts = ensureOutwardStubs(cleanup(raw), sideOf(sourcePosition), sideOf(targetPosition));
+      edgePath = orthoPath(pts);
+      const mid = pathMidpoint(pts);
+      labelX = mid.x;
+      labelY = mid.y;
+      labelPts = pts;
+      if (d?.editable) gripPts = pts;
     } else if (d?.editable) {
       // Редактируемое ребро без waypoints рисуем СВОЕЙ ортогональной ломаной по
       // сторонам хэндлов — теми же точками, что идут под грипы. Так грипы всегда лежат
