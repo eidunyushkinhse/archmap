@@ -1,77 +1,133 @@
-// Посадка глобального роутера (эпик стрелок, фаза A7.1 — R1+R3) в раскладку уровня.
+// Посадка глобального роутера (эпик стрелок, фазы A7.1 + A8) в раскладку уровня.
 //
-// Зачем модуль: routeAll (A3a) — чистый роутер набора рёбер, но он оперирует абстрактными
-// терминалами (точка-старт, точка-конец, препятствия). Здесь мост от доменной модели
-// (группы рёбер + позиции узлов + хэндлы) к этим терминалам и обратно к карте маршрутов.
+// Зачем модуль: routeAll — чистый роутер набора рёбер с выбором сторон (A8), но он оперирует
+// абстрактными терминалами. Здесь мост от доменной модели (группы рёбер + позиции + хэндлы) к
+// терминалам и обратно к картам маршрутов и выбранных хэндлов.
 //
-// Что роутим: все ОТОБРАЖАЕМЫЕ группы уровня, КРОМЕ исключённых вызывающим (ручные правки —
-// waypoints/хэндлы; гостевые обводы computeDetours; контекст-схема со своей моделью). Концы
-// берём из центра выбранной стороны узла: сторона — из сохранённого/расчётного хэндла, иначе
-// доминантная ось (как autoHandles). Препятствия ребра — тела ВСЕХ прочих узлов (свои концы
-// исключаем: инвариант routeOrthogonal). Маршруты — производные (не персистятся): каждая
-// раскладка считает заново. Чистая функция. См. ARROWS_ANALYSIS §8 (D1, D4, D7).
+// A8 (выбор сторон): для ребра без зафиксированного пользователем хэндла перебираем варианты
+// стороны источника/цели (обращённые друг к другу) и отдаём в routeAll — он выберет вариант с
+// минимумом изломов и пересечений (вместо слепой доминантной оси). Выбранную сторону отдаём
+// наружу как хэндл (центр стороны), чтобы RF состыковал стрелку именно там. Зафиксированный
+// пользователем хэндл уважаем: единственный вариант — его точная точка стыковки.
+//
+// Маршрут стабилизируем стабом наружу (ensureOutwardStubs) ПРЯМО ЗДЕСЬ — тогда геометрия,
+// по которой размещаются плашки (R2), совпадает с рисуемой в edges.tsx (она лишь переснимает
+// концы с живых хэндлов и повторяет идемпотентный стаб). См. ARROWS_ROUTING_ANALYSIS.md §8.
 import type { EdgePoint } from "../../../types";
-import type { EdgeSide, NodeRect } from "../edgePath";
-import { NODE_W, NODE_H } from "../constants";
+import { ensureOutwardStubs, type EdgeSide, type NodeRect } from "../edgePath";
+import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 
+const EPS = 0.5;
+const SIDE_OFFSETS = [0.25, 0.5, 0.75]; // позиции хэндлов вдоль стороны (как SIDE_HANDLES)
+
 // Сторона из id хэндла `${nodeId}--${side}--${idx}` (см. hid). Невалидный/пустой → null.
-function sideFromHandle(handle: string | undefined): EdgeSide | null {
+function parseHandle(handle: string | undefined): { side: EdgeSide; idx: number } | null {
   if (!handle) return null;
-  const side = handle.split("--")[1];
-  return side === "top" || side === "right" || side === "bottom" || side === "left" ? side : null;
+  const parts = handle.split("--");
+  const side = parts[1];
+  if (side !== "top" && side !== "right" && side !== "bottom" && side !== "left") return null;
+  const idx = Number(parts[2]);
+  return { side, idx: Number.isFinite(idx) ? idx : 1 };
 }
 
-// Центр выбранной стороны узла в координатах графа (точка стыковки стрелки).
-function sideCenter(p: { x: number; y: number }, side: EdgeSide): EdgePoint {
+// Точка стыковки на стороне узла с учётом позиции хэндла (idx → offset). idx=1 → центр.
+function handlePoint(p: { x: number; y: number }, side: EdgeSide, idx: number): EdgePoint {
+  const off = SIDE_OFFSETS[idx] ?? 0.5;
   switch (side) {
-    case "left":   return { x: p.x,              y: p.y + NODE_H / 2 };
-    case "right":  return { x: p.x + NODE_W,     y: p.y + NODE_H / 2 };
-    case "top":    return { x: p.x + NODE_W / 2, y: p.y };
-    default:       return { x: p.x + NODE_W / 2, y: p.y + NODE_H };
+    case "left":   return { x: p.x,              y: p.y + NODE_H * off };
+    case "right":  return { x: p.x + NODE_W,     y: p.y + NODE_H * off };
+    case "top":    return { x: p.x + NODE_W * off, y: p.y };
+    default:       return { x: p.x + NODE_W * off, y: p.y + NODE_H };
   }
 }
 
-// Доминантная ось как fallback, когда у группы нет заданного хэндла (как autoHandles).
-function autoSides(
+// Центр стороны (idx=1) — то, что отдаём наружу как выбранный хэндл и используем в кандидатах.
+const sideCenter = (p: { x: number; y: number }, side: EdgeSide): EdgePoint => handlePoint(p, side, 1);
+
+// Кандидаты сторон для свободного ребра: по две обращённые друг к другу стороны источника и
+// цели (по знаку смещения центров) → до 4 комбинаций. Среди них и доминантная ось (как было).
+function freeCombos(
   sp: { x: number; y: number }, tp: { x: number; y: number },
-): [EdgeSide, EdgeSide] {
+): Array<{ s: EdgeSide; t: EdgeSide }> {
   const dx = tp.x - sp.x, dy = tp.y - sp.y;
-  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? ["right", "left"] : ["left", "right"];
-  return dy >= 0 ? ["bottom", "top"] : ["top", "bottom"];
+  const srcSides: EdgeSide[] = [dx >= 0 ? "right" : "left", dy >= 0 ? "bottom" : "top"];
+  const tgtSides: EdgeSide[] = [dx >= 0 ? "left" : "right", dy >= 0 ? "top" : "bottom"];
+  const combos: Array<{ s: EdgeSide; t: EdgeSide }> = [];
+  for (const s of srcSides) for (const t of tgtSides) {
+    if (!combos.some((c) => c.s === s && c.t === t)) combos.push({ s, t });
+  }
+  return combos;
+}
+
+const near = (a: EdgePoint, b: EdgePoint): boolean => Math.abs(a.x - b.x) <= EPS && Math.abs(a.y - b.y) <= EPS;
+
+export interface AutoRoutesResult {
+  routes: Map<string, EdgePoint[]>;                                   // groupId → ломаная (со стабами)
+  handles: Map<string, { sourceHandle: string; targetHandle: string }>; // выбранные A8 хэндлы (свободные рёбра)
 }
 
 export function buildAutoRoutes(params: {
   groups: EdgeGroup[];
-  routableIds: Set<string>;   // id групп, которые роутим (не customized/detour/context)
+  routableIds: Set<string>;   // id групп, которые роутим (не waypoint-customized/detour/context)
+  lockedIds: Set<string>;     // из них: пользователь зафиксировал хэндл → сторону НЕ выбираем
   positions: ReadonlyMap<string, { x: number; y: number }>;
   edgeHandles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
   displayIds: string[];       // все отображаемые id (локальные узлы + сущности)
-}): Map<string, EdgePoint[]> {
-  const { groups, routableIds, positions, edgeHandles, displayIds } = params;
+}): AutoRoutesResult {
+  const { groups, routableIds, lockedIds, positions, edgeHandles, displayIds } = params;
   // тела всех отображаемых узлов — препятствия (свои концы ребро исключит само)
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
     const p = positions.get(id);
     if (p) rects.set(id, { x: p.x, y: p.y, w: NODE_W, h: NODE_H });
   }
+
+  // Готовим терминалы и запоминаем комбинации сторон по каждому ребру (для обратного
+  // сопоставления выбранного маршрута со стороной → хэндлом).
+  const combosById = new Map<string, Array<{ s: EdgeSide; t: EdgeSide; start: EdgePoint; end: EdgePoint }>>();
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
     const sp = positions.get(g.source), tp = positions.get(g.target);
     if (!sp || !tp) continue;
-    const h = edgeHandles.get(g.id);
-    let sSide = sideFromHandle(h?.sourceHandle);
-    let tSide = sideFromHandle(h?.targetHandle);
-    if (!sSide || !tSide) {
-      const [a, b] = autoSides(sp, tp);
-      sSide = sSide ?? a;
-      tSide = tSide ?? b;
+    let combos: Array<{ s: EdgeSide; t: EdgeSide; start: EdgePoint; end: EdgePoint }>;
+    if (lockedIds.has(g.id)) {
+      // зафиксированный хэндл — единственный вариант, точная точка стыковки
+      const h = edgeHandles.get(g.id);
+      const ps = parseHandle(h?.sourceHandle), pt = parseHandle(h?.targetHandle);
+      const sSide = ps?.side ?? (tp.x >= sp.x ? "right" : "left");
+      const tSide = pt?.side ?? (tp.x >= sp.x ? "left" : "right");
+      combos = [{ s: sSide, t: tSide, start: handlePoint(sp, sSide, ps?.idx ?? 1), end: handlePoint(tp, tSide, pt?.idx ?? 1) }];
+    } else {
+      combos = freeCombos(sp, tp).map((c) => ({ ...c, start: sideCenter(sp, c.s), end: sideCenter(tp, c.t) }));
     }
+    combosById.set(g.id, combos);
     const obstacles: NodeRect[] = [];
     for (const [id, r] of rects) if (id !== g.source && id !== g.target) obstacles.push(r);
-    terminals.push({ id: g.id, start: sideCenter(sp, sSide), end: sideCenter(tp, tSide), obstacles });
+    terminals.push({
+      id: g.id, start: combos[0].start, end: combos[0].end,
+      altTerminals: combos.map((c) => ({ start: c.start, end: c.end })), obstacles,
+    });
   }
-  return routeAll(terminals);
+
+  const raw = routeAll(terminals);
+  const routes = new Map<string, EdgePoint[]>();
+  const handles = new Map<string, { sourceHandle: string; targetHandle: string }>();
+  for (const g of groups) {
+    const route = raw.get(g.id);
+    if (!route || route.length < 2) continue;
+    const combos = combosById.get(g.id)!;
+    // какая комбинация выбрана: по совпадению концов маршрута с её точками стыковки
+    const chosen =
+      combos.find((c) => near(route[0], c.start) && near(route[route.length - 1], c.end)) ?? combos[0];
+    const stubbed = ensureOutwardStubs(route, chosen.s, chosen.t);
+    routes.set(g.id, stubbed);
+    // выбранную сторону отдаём как хэндл только для свободных рёбер (у locked хэндл уже стоит)
+    if (!lockedIds.has(g.id)) {
+      handles.set(g.id, { sourceHandle: hid(g.source, chosen.s, 1), targetHandle: hid(g.target, chosen.t, 1) });
+    }
+  }
+  return { routes, handles };
 }

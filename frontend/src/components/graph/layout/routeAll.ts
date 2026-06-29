@@ -23,12 +23,38 @@ export interface EdgeTerminal {
   start: EdgePoint;
   end: EdgePoint;
   obstacles: NodeRect[];
+  // A8 (выбор сторон): альтернативные пары концов — кандидаты сторон источника/цели. Роутер
+  // выберет вариант с минимумом (длина + изломы + пересечения). Если не задано — start/end.
+  // start/end дублируют первый вариант (нужны для порядка прокладки и обратной совместимости).
+  altTerminals?: Array<{ start: EdgePoint; end: EdgePoint }>;
 }
 
 export interface RouteAllOptions {
   margin?: number;
   bendPenalty?: number;
   crossCost?: number; // штраф за каждое пересечение с уже проложенной стрелкой
+}
+
+// Манхэттенова длина ломаной (сумма осевых сегментов).
+function pathLength(pts: EdgePoint[]): number {
+  let n = 0;
+  for (let i = 0; i < pts.length - 1; i++) n += Math.abs(pts[i + 1].x - pts[i].x) + Math.abs(pts[i + 1].y - pts[i].y);
+  return n;
+}
+
+// Число изломов (смен ориентации) очищенной ломаной.
+function bendCount(pts: EdgePoint[]): number {
+  const segs = segments(pts);
+  let n = 0;
+  for (let i = 1; i < segs.length; i++) if (segs[i].orient !== segs[i - 1].orient) n++;
+  return n;
+}
+
+// Сколько пересечений с уже проложенными даёт весь маршрут (сумма по ходам).
+function routeCrossings(pts: EdgePoint[], segs: Segment[]): number {
+  let n = 0;
+  for (let i = 0; i < pts.length - 1; i++) n += crossingCount(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, segs);
+  return n;
 }
 
 // Сколько уже проложенных сегментов пересёк бы ход (x1,y1)→(x2,y2) «крестиком» —
@@ -71,16 +97,22 @@ function routingOrder(edges: EdgeTerminal[]): EdgeTerminal[] {
   return [...edges].sort((a, b) => span(b) - span(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-// Прокладывает все рёбра, минимизируя взаимные пересечения. Возвращает id → ломаная.
+// Прокладывает все рёбра, минимизируя взаимные пересечения. Если у ребра заданы altTerminals
+// (кандидаты сторон, A8) — для каждого варианта прокладывает маршрут и выбирает с минимумом
+// (длина + изломы + пересечения с уже проложенными). Возвращает id → ломаная.
 export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<string, EdgePoint[]> {
   const crossCost = opts?.crossCost ?? DEFAULT_CROSS_COST;
-  // Общая координатная решётка набора: концы всех рёбер — чтобы любому ребру было куда
-  // свернуть в объезд чужой стрелки (иначе сетка ребра ограничена его собственными концами).
+  const bendPenalty = opts?.bendPenalty ?? 40;
+  // Общая координатная решётка набора: концы ВСЕХ вариантов всех рёбер — чтобы любому ребру
+  // было куда свернуть в объезд чужой стрелки (иначе сетка ребра ограничена своими концами).
   const extraXs: number[] = [];
   const extraYs: number[] = [];
+  const termsOf = (e: EdgeTerminal) => e.altTerminals ?? [{ start: e.start, end: e.end }];
   for (const e of edges) {
-    extraXs.push(e.start.x, e.end.x);
-    extraYs.push(e.start.y, e.end.y);
+    for (const t of termsOf(e)) {
+      extraXs.push(t.start.x, t.end.x);
+      extraYs.push(t.start.y, t.end.y);
+    }
   }
   const baseOpts: RouteOptions = {
     margin: opts?.margin, bendPenalty: opts?.bendPenalty, extraXs, extraYs,
@@ -93,7 +125,17 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
         ? (x1: number, y1: number, x2: number, y2: number): number =>
             crossCost * crossingCount(x1, y1, x2, y2, placedSegs)
         : undefined;
-    const route = routeOrthogonal(e.start, e.end, e.obstacles, { ...baseOpts, moveCost });
+    // Перебор вариантов сторон: берём с минимальной полной ценой (длина + изломы*bendPenalty
+    // + пересечения*crossCost). Тай-брейк — порядок вариантов (детерминизм).
+    let best: EdgePoint[] | null = null;
+    let bestCost = Infinity;
+    for (const t of termsOf(e)) {
+      const route = routeOrthogonal(t.start, t.end, e.obstacles, { ...baseOpts, moveCost });
+      const cost =
+        pathLength(route) + bendPenalty * bendCount(route) + crossCost * routeCrossings(route, placedSegs);
+      if (cost < bestCost - EPS) { bestCost = cost; best = route; }
+    }
+    const route = best ?? routeOrthogonal(e.start, e.end, e.obstacles, { ...baseOpts, moveCost });
     placed.set(e.id, route);
     for (const s of segments(route)) placedSegs.push(s);
   }

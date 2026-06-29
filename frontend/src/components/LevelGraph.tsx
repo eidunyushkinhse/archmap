@@ -810,19 +810,26 @@ function LevelGraphInner({
     if (!isContext) {
       const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
       const routableIds = new Set<string>();
+      const lockedIds = new Set<string>(); // routable, но сторону зафиксировал пользователь
       for (const g of groupArr) {
         if (edgeDetours.has(g.id)) continue; // гостевой обвод рисует своя ветка edges.tsx
         if (!positions.get(g.source) || !positions.get(g.target)) continue;
-        const customized = g.members.some(
-          (m) =>
-            (effectiveLevelWaypoints[m.id]?.length ?? 0) > 0 ||
-            (m.waypoints?.length ?? 0) > 0 ||
-            (levelEdgeHandles[m.id]?.length ?? 0) > 0,
+        // Ручной ПУТЬ (waypoints) → ребро целиком ручное, не авто-маршрутизируем (приоритет).
+        const hasWaypoints = g.members.some(
+          (m) => (effectiveLevelWaypoints[m.id]?.length ?? 0) > 0 || (m.waypoints?.length ?? 0) > 0,
         );
-        if (customized) continue; // ручные правки в приоритете — авто-маршрут не навязываем
+        if (hasWaypoints) continue;
         routableIds.add(g.id);
+        // Ручной ХЭНДЛ без ручного пути → сторону уважаем (lockedIds), но путь к ней роутер
+        // всё равно строит. Так смена хэндла одного ребра не выкидывает его из набора и не
+        // пере-раскладывает остальные авто-маршруты (стабильность, A7.4).
+        if (g.members.some((m) => (levelEdgeHandles[m.id]?.length ?? 0) > 0)) lockedIds.add(g.id);
       }
-      autoRoutes = buildAutoRoutes({ groups: groupArr, routableIds, positions, edgeHandles, displayIds });
+      const ar = buildAutoRoutes({ groups: groupArr, routableIds, lockedIds, positions, edgeHandles, displayIds });
+      autoRoutes = ar.routes;
+      // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там). Только свободные
+      // рёбра (у locked хэндл уже стоит, buildAutoRoutes их в ar.handles не кладёт).
+      for (const [id, hh] of ar.handles) edgeHandles.set(id, hh);
 
       // Плашки подписей (эпик стрелок A7.2, R2+R4): по авто-маршрутам размещаем плашки без
       // взаимных наложений и не под узлами (R2), запрещая их на совпавших плечах (R4); где

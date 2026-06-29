@@ -38,6 +38,21 @@ describe("routeAll — минимизация пересечений (R3)", () =
   });
 });
 
+describe("routeAll — выбор стороны (A8)", () => {
+  it("из вариантов терминалов берёт тот, что даёт меньше изломов", () => {
+    const e: EdgeTerminal = {
+      id: "X", start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, obstacles: [],
+      altTerminals: [
+        { start: { x: 0, y: 0 }, end: { x: 100, y: 0 } },  // прямой ход, 0 изломов
+        { start: { x: 0, y: 0 }, end: { x: 100, y: 50 } }, // потребует излом
+      ],
+    };
+    const routes = routeAll([e], { crossCost: 0 });
+    const r = routes.get("X")!;
+    expect(r[r.length - 1]).toEqual({ x: 100, y: 0 }); // выбран прямой вариант
+  });
+});
+
 describe("routeAll — обход узлов жёсткий", () => {
   it("штраф за пересечение не загоняет маршрут в чужой узел", () => {
     const blocker: NodeRect = { x: 80, y: -50, w: 100, h: 100 }; // x∈[80,180], y∈[-50,50]

@@ -23,33 +23,37 @@ describe("buildAutoRoutes — отбор и терминалы", () => {
 
   it("роутит только группы из routableIds", () => {
     const none = buildAutoRoutes({
-      groups, routableIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
     });
-    expect(none.size).toBe(0);
+    expect(none.routes.size).toBe(0);
     const one = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
     });
-    expect(one.has("g1")).toBe(true);
+    expect(one.routes.has("g1")).toBe(true);
   });
 
-  it("концы маршрута лежат на сторонах узлов (правый край A → левый край B)", () => {
-    const routes = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+  it("свободное ребро (A8): концы на обращённых сторонах (правый край A → левый край B)", () => {
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
     });
-    const r = routes.get("g1")!;
-    // доминантная ось горизонтальна → start = правый центр A, end = левый центр B
+    const r = out.routes.get("g1")!;
+    // дешевле всего прямой ход: правый центр A → левый центр B
     expect(r[0]).toEqual({ x: NODE_W, y: NODE_H / 2 });
     expect(r[r.length - 1]).toEqual({ x: 400, y: NODE_H / 2 });
+    // выбранная сторона отдана как хэндл
+    expect(out.handles.get("g1")).toEqual({ sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) });
   });
 
-  it("сторона берётся из заданного хэндла, если он есть", () => {
+  it("зафиксированный хэндл (lockedIds): сторона из него, в ar.handles не подменяется", () => {
     const handles = new Map([["g1", { sourceHandle: hid("A", "bottom", 1), targetHandle: hid("B", "top", 1) }]]);
-    const routes = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), positions, edgeHandles: handles, displayIds: ["A", "B"],
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g1"]), lockedIds: new Set(["g1"]),
+      positions, edgeHandles: handles, displayIds: ["A", "B"],
     });
-    const r = routes.get("g1")!;
+    const r = out.routes.get("g1")!;
     expect(r[0]).toEqual({ x: NODE_W / 2, y: NODE_H }); // низ-центр A
     expect(r[r.length - 1]).toEqual({ x: 400 + NODE_W / 2, y: 0 }); // верх-центр B
+    expect(out.handles.has("g1")).toBe(false); // locked — хэндл не трогаем
   });
 });
 
@@ -62,11 +66,11 @@ describe("buildAutoRoutes — обход узла-препятствия", () =>
       ["C", { x: 180, y: -NODE_H / 2 }],
     ]);
     const groups = [group("g1", "A", "B")];
-    const routes = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), positions, edgeHandles: new Map(),
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(),
       displayIds: ["A", "B", "C"],
     });
-    const r = routes.get("g1")!;
+    const r = out.routes.get("g1")!;
     expect(pathCrossesRects(r, [rectOf(positions.get("C")!)])).toBe(false);
   });
 });
