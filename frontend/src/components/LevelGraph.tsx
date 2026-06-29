@@ -40,6 +40,7 @@ import { layoutLevel, layoutContext } from "./graph/layout/engine";
 import { placeGhostsOnRings, collectGhostSeeds } from "./graph/layout/ringPlacement";
 import { reconstructOwnedWaypoints } from "./graph/layout/ownedWaypoints";
 import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
+import { separateGuests } from "./graph/layout/separateGuests";
 import { computeDetours } from "./graph/layout/detours";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
@@ -607,7 +608,7 @@ function LevelGraphInner({
     let cancelled = false;
     void (async () => {
     // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
-    const { entities, ghostToEffective } = projectGhosts(ghostNodes, stableAncestorIds, expanded);
+    const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, stableAncestorIds, expanded);
     const remap = (id: string) => ghostToEffective.get(id) ?? id;
     // Рёбра с концами, переадресованными на отображаемые сущности. Хэндл гостевого
     // конца подменяем сохранённым per-level значением для ТЕКУЩЕЙ проекции (узла,
@@ -722,14 +723,38 @@ function LevelGraphInner({
       if (enf) edgeHandles = enf.edgeHandles;
       else if (og) edgeHandles = og.edgeHandles;
 
+      // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
+      // (его группа НЕ авто → кольцо его пропускает, keep-out не трогает) садится поверх
+      // владеемых соседей. separateGuests разводит их VPSC-проходом по дереву containment:
+      // раскрытая рамка пиннится на месте старого узла (expand-in-place), соседи уступают,
+      // локалы неподвижны. No-op, если новичков от вложенного раскрытия нет.
+      const sg = separateGuests({
+        nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges,
+        positions, emergedFrom, placedOutside: og?.placedOutside ?? new Set<string>(),
+      });
+      if (sg) edgeHandles = sg.edgeHandles;
+
       // ЗАСЕВ ВЛАДЕНИЯ (Option A, own-on-first-render): каждый гость без абсолютной позиции
       // получает её навсегда (anchor_rel=false) — на финальных позициях (после колец + enforce +
-      // легаси-конверсии). Покрывает и авто-гостей (кольцо), и легаси-офсеты (сконвертированы в
-      // абсолют в ringPlacement). Только архитектор и основной канвас. Зеркало двигает узел в
+      // разведения + легаси-конверсии). Покрывает и авто-гостей (кольцо), и легаси-офсеты
+      // (сконвертированы в абсолют в ringPlacement), и новичков от вложенного раскрытия (их
+      // разведённую позицию). Только архитектор и основной канвас. Зеркало двигает узел в
       // levelPositions → следующий рендер видит absolute, и засев его пропускает (сходится).
       if (!cancelled) {
         const seeds = collectGhostSeeds(entities, levelPositions, (id) => positions.get(id));
         if (seeds.length > 0) cbRef.current.migrateGhostPositions(seeds, entities);
+
+        // Ф4.4: персист СДВИНУТЫХ ВЛАДЕЕМЫХ соседей. У них уже есть absolute-строка, поэтому
+        // collectGhostSeeds их пропускает — без персиста их новая позиция откатилась бы на
+        // следующем рендере (savedPos из БД), а новичок остался бы на разведённой → наложение
+        // вернулось бы. Persist делает разведение устойчивым: следующий рендер видит соседей на
+        // новых местах, новичок уже владеется → separateGuests становится no-op.
+        if (sg) {
+          const pushed = [...sg.moved]
+            .filter((id) => levelPositions[id])
+            .map((id) => { const p = positions.get(id)!; return { id, pos_x: p.x, pos_y: p.y }; });
+          if (pushed.length > 0) cbRef.current.migrateGhostPositions(pushed, entities);
+        }
       }
 
       // Реконструкция изломов гостевых стрелок к детям раскрытых рамок (ТЗ D8, рев. B):
