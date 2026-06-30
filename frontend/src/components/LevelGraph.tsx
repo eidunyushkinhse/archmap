@@ -44,6 +44,9 @@ import { separateGuests } from "./graph/layout/separateGuests";
 import { computeDetours } from "./graph/layout/detours";
 import { buildAutoRoutes } from "./graph/layout/autoRoutes";
 import { buildLabelPlacements, type LabelPlacement } from "./graph/layout/labelLayout";
+import { separateForLabels, type LabelEdge } from "./graph/layout/separateForLabels";
+import { labelBoxSize } from "./graph/layout/labelBox";
+import type { Rect } from "./graph/layout/overlapConstraints";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
@@ -225,6 +228,19 @@ interface LevelGraphProps {
   // КАЖДЫЙ клик — повторный клик по тому же объекту снова сфокусирует. Раскладка async,
   // поэтому фокус срабатывает отложенно — как только цель появится в rfNodes/rfEdges.
   locate?: LocateRequest | null;
+}
+
+// Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
+// строк = число членов; одиночное ребро — «label · technology» в одну строку). Единый
+// источник для оценки габаритов (labelBox) в раздвижке A10 и в размещении плашек.
+function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | null {
+  if (g.members.length > 1) {
+    const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
+    return { text: edgeText(longest), lines: g.members.length };
+  }
+  const m = g.members[0];
+  const t = [m.label, m.technology].filter(Boolean).join(" · ");
+  return t ? { text: t, lines: 1 } : null;
 }
 
 // Запрос фокуса на объекте/связи/группе. ids: для node — [nodeId]; для edge — [edgeId];
@@ -805,6 +821,76 @@ function LevelGraphInner({
       }
     }
 
+    // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2). Связь между
+    // СОСЕДНИМИ узлами бывает короче своей плашки — инлайн она не лезет и отскакивает
+    // мимо стрелки/под узел (BUG B из A9.0). Раздвигаем концы такого ребра по доминантной
+    // оси, чтобы плечо стало длиннее текста. КРИТ (own-on-first-render): двигаем ТОЛЬКО
+    // свежие ELK-локалы (нет в levelPositions, никем не присвоены, этим эффектом не
+    // персистятся) — владеемые позиции (локал из levelPositions, ЛЮБОЙ гость: его место
+    // персистит засев выше, сдвиг разъехался бы с сохранённым → дёрганье) прибиты намертво.
+    // На финальных позициях (кольца+enforce+разведение), ДО routeAll/плашек — раздвинули,
+    // и маршрут с плашкой лягут инлайн. Оба конца прибиты → ребро не трогаем (останется
+    // leader). Мутируем positions на месте — downstream-роутер видит новые места.
+    if (!isContext) {
+      const SEP_MARGIN = 8; // клиренс вдоль плеча с каждой стороны плашки
+      const SEP_PAD = 12;   // зазор при каскадной зачистке наложений (как separateGuests)
+      const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+      const localIds = new Set(nodes.map((n) => n.id));
+      const idxOf = new Map<string, number>();
+      const rects: Rect[] = [];
+      const weights: number[] = [];
+      for (const id of displayIds) {
+        const p = positions.get(id);
+        if (!p) continue;
+        idxOf.set(id, rects.length);
+        rects.push({ minX: p.x, minY: p.y, maxX: p.x + NODE_W, maxY: p.y + NODE_H });
+        const movable = localIds.has(id) && !levelPositions[id];
+        weights.push(movable ? 1 : Infinity);
+      }
+      const labelEdges: LabelEdge[] = [];
+      for (const g of groupArr) {
+        if (edgeDetours.has(g.id)) continue; // гостевой обвод — своя ветка edges.tsx
+        const si = idxOf.get(g.source);
+        const ti = idxOf.get(g.target);
+        if (si == null || ti == null) continue;
+        // оба конца прибиты — раздвинуть нечем без нарушения ownership, оставляем leader
+        if (weights[si] === Infinity && weights[ti] === Infinity) continue;
+        // ручной путь (waypoints) → ребро не авто-маршрутизируем (тот же слой, что роутер ниже)
+        const bothLocal = localIds.has(g.source) && localIds.has(g.target);
+        const hasWaypoints = g.members.some((m) =>
+          bothLocal
+            ? (m.waypoints?.length ?? 0) > 0
+            : (effectiveLevelWaypoints[m.id]?.length ?? 0) > 0,
+        );
+        if (hasWaypoints) continue;
+        const meta = edgeLabelMeta(g);
+        if (!meta) continue;
+        const box = labelBoxSize(meta.text, { lines: meta.lines });
+        // голодное ли ребро: инлайн-зазор по доминантной оси короче плашки + 2·margin?
+        const s = rects[si];
+        const t = rects[ti];
+        const dx = Math.abs((s.minX + s.maxX - t.minX - t.maxX) / 2);
+        const dy = Math.abs((s.minY + s.maxY - t.minY - t.maxY) / 2);
+        const axisX = dx >= dy;
+        const gap = axisX
+          ? dx - (s.maxX - s.minX + t.maxX - t.minX) / 2
+          : dy - (s.maxY - s.minY + t.maxY - t.minY) / 2;
+        const need = (axisX ? box.w : box.h) + 2 * SEP_MARGIN;
+        if (gap >= need) continue; // места хватает — не раздвигаем
+        labelEdges.push({ source: si, target: ti, box });
+      }
+      if (labelEdges.length > 0) {
+        const widened = separateForLabels(rects, weights, labelEdges, { pad: SEP_PAD, margin: SEP_MARGIN });
+        // пишем новые позиции только подвижным узлам (прибитые VPSC не двигает — но не
+        // трогаем их координаты вовсе, чтобы исключить дрейф владеемых позиций).
+        for (const [id, i] of idxOf) {
+          if (weights[i] === Infinity) continue;
+          const p = positions.get(id)!;
+          positions.set(id, { ...p, x: widened[i].minX, y: widened[i].minY });
+        }
+      }
+    }
+
     // Авто-маршруты (эпик стрелок A7.1, R1+R3): глобальный роутер на раскладке для рёбер
     // level/main-схемы, которые пользователь НЕ правил вручную (waypoints/хэндлы) и для
     // которых не построен гостевой обвод (его считает computeDetours — отдельная ветка
@@ -855,15 +941,7 @@ function LevelGraphInner({
       labelPlacements = buildLabelPlacements({
         routes: autoRoutes,
         groups: groupArr,
-        labelMeta: (g) => {
-          if (g.members.length > 1) {
-            const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
-            return { text: edgeText(longest), lines: g.members.length };
-          }
-          const m = g.members[0];
-          const t = [m.label, m.technology].filter(Boolean).join(" · ");
-          return t ? { text: t, lines: 1 } : null;
-        },
+        labelMeta: edgeLabelMeta,
         preferredT: (g) => g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
         nodeRects,
       });
