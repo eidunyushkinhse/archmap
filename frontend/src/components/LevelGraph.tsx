@@ -44,6 +44,7 @@ import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { separateGuests } from "./graph/layout/separateGuests";
 import { computeDetours } from "./graph/layout/detours";
 import { buildAutoRoutes } from "./graph/layout/autoRoutes";
+import { nudgeOverlaps } from "./graph/layout/nudgeOverlaps";
 import { buildLabelPlacements, type LabelPlacement } from "./graph/layout/labelLayout";
 import { separateForLabels, type LabelEdge } from "./graph/layout/separateForLabels";
 import { labelDetour } from "./graph/layout/labelDetours";
@@ -1045,6 +1046,25 @@ function LevelGraphInner({
           preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
           nodeRects,
         });
+      }
+
+      // РАСТАЛКИВАНИЕ НАЛОЖЕННЫХ ПЛЕЧ ИЗ РАЗНЫХ ХЭНДЛОВ (A13): рельсы (A11) и детур (A12.4)
+      // развели встречные пары, но плечо одного ребра ещё может лечь на «хайвэй» другого (разные
+      // хэндлы/узлы) — на развилке неясно, какая стрелка куда. Сдвигаем короткое плечо вбок,
+      // сохраняя стыковку концов с хэндлами. Чистый пост-проход на финальных маршрутах; при
+      // сдвиге — ещё один пере-проход плашек (геометрия плеч изменилась, coincidentLegs другой).
+      if (autoRoutes) {
+        const nu = nudgeOverlaps(autoRoutes, edgeHandles);
+        if (nu.nudged.size > 0) {
+          autoRoutes = nu.routes;
+          labelPlacements = buildLabelPlacements({
+            routes: autoRoutes,
+            groups: groupArr,
+            labelMeta: edgeLabelMeta,
+            preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
+            nodeRects,
+          });
+        }
       }
     }
 
