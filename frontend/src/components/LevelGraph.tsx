@@ -971,18 +971,33 @@ function LevelGraphInner({
         const p = positions.get(id);
         return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null;
       };
+      // кандидаты на детур — leader-рёбра (плашка не влезла), только свободные авто-рёбра
+      const detourCands: Array<{ g: typeof groupArr[number]; box: ReturnType<typeof labelBoxSize> }> = [];
       for (const g of groupArr) {
-        if (labelPlacements.get(g.id)?.mode !== "leader") continue; // только не вместившиеся
-        if (!routableIds.has(g.id) || lockedIds.has(g.id)) continue; // только свободные авто-рёбра
+        if (labelPlacements.get(g.id)?.mode !== "leader") continue;
+        if (!routableIds.has(g.id) || lockedIds.has(g.id)) continue;
         const meta = edgeLabelMeta(g);
         if (!meta) continue;
+        detourCands.push({ g, box: labelBoxSize(meta.text, { lines: meta.lines }) });
+      }
+      // КООРДИНАЦИЯ СТЕКА: несколько leader-рёбер (напр. встречная пара) уходят в детур в одну
+      // сторону (часто вниз, если сверху другие узлы) — их плашки наложились бы (на дампе A12 так и
+      // вышло: 1-строчная на y=389 перекрыла место 5-строчной → та осталась leader). Копим уже
+      // размещённые плашки-детуры как доп.препятствия и идём от НИЗКИХ боксов к ВЫСОКИМ: высокая
+      // ляжет на lane НИЖЕ чужой, без наложения (кэп длины ограничит стек → совсем глубокий бокс
+      // останется leader). Плашка-препятствие двигает lane глубже и не даёт маршруту её пересечь.
+      const placedLabelRects: { x: number; y: number; w: number; h: number }[] = [];
+      detourCands.sort((a, b) => a.box.h - b.box.h);
+      for (const { g, box } of detourCands) {
         const source = rectOf(g.source), target = rectOf(g.target);
         if (!source || !target) continue;
-        const box = labelBoxSize(meta.text, { lines: meta.lines });
-        const obstacles = displayIds
-          .filter((id) => id !== g.source && id !== g.target)
-          .map(rectOf)
-          .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
+        const obstacles = [
+          ...displayIds
+            .filter((id) => id !== g.source && id !== g.target)
+            .map(rectOf)
+            .filter((r): r is { x: number; y: number; w: number; h: number } => r != null),
+          ...placedLabelRects,
+        ];
         const det = labelDetour({
           source, target, obstacles, box, margin: 8, maxExtraLen: 2 * NODE_H + box.h + 16,
         });
@@ -990,6 +1005,8 @@ function LevelGraphInner({
         autoRoutes.set(g.id, det.route);
         edgeHandles.set(g.id, { sourceHandle: hid(g.source, det.sSide, 1), targetHandle: hid(g.target, det.tSide, 1) });
         detourPreferred.set(g.id, det.preferredT);
+        // оценочный прямоугольник лёгшей плашки — препятствие для последующих (более высоких)
+        placedLabelRects.push({ x: det.center.x - box.w / 2, y: det.center.y - box.h / 2, w: box.w, h: box.h });
       }
       if (detourPreferred.size > 0) {
         labelPlacements = buildLabelPlacements({
