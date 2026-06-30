@@ -25,6 +25,7 @@ import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H,
   CTX_LABEL_W,
+  hid,
 } from "./graph/constants";
 import type {
   WrappedEdgeData,
@@ -45,6 +46,7 @@ import { computeDetours } from "./graph/layout/detours";
 import { buildAutoRoutes } from "./graph/layout/autoRoutes";
 import { buildLabelPlacements, type LabelPlacement } from "./graph/layout/labelLayout";
 import { separateForLabels, type LabelEdge } from "./graph/layout/separateForLabels";
+import { labelDetour } from "./graph/layout/labelDetours";
 import { labelBoxSize } from "./graph/layout/labelBox";
 import type { Rect } from "./graph/layout/overlapConstraints";
 import { NodeShapeSvg } from "./graph/shapes";
@@ -847,9 +849,20 @@ function LevelGraphInner({
         const movable = localIds.has(id) && !levelPositions[id];
         weights.push(movable ? 1 : Infinity);
       }
+      // Сколько рёбер на каждой НЕУПОРЯДОЧЕННОЙ паре узлов — встречную/много-рёберную пару
+      // раздвигать бессмысленно: их плечи совпадают (R4), инлайн на прямом коридоре всё равно
+      // запрещён → за это отвечают рельсы (A11) и детур (A12), а не раздвижка. Иначе A10 зря
+      // выселял бы узел (см. дамп A10.2: ObsCore уезжал, плашка всё равно leader).
+      const pairCount = new Map<string, number>();
+      for (const g of groupArr) {
+        const k = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
+        pairCount.set(k, (pairCount.get(k) ?? 0) + 1);
+      }
       const labelEdges: LabelEdge[] = [];
       for (const g of groupArr) {
         if (edgeDetours.has(g.id)) continue; // гостевой обвод — своя ветка edges.tsx
+        const pk = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
+        if ((pairCount.get(pk) ?? 0) > 1) continue; // встречная/много-рёберная пара → не раздвигаем
         const si = idxOf.get(g.source);
         const ti = idxOf.get(g.target);
         if (si == null || ti == null) continue;
@@ -945,6 +958,48 @@ function LevelGraphInner({
         preferredT: (g) => g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
         nodeRects,
       });
+
+      // Альт-маршрут грузного ребра (эпик стрелок A12, ПОСЛЕДНЕЕ средство): если плашка ушла в
+      // leader (инлайн не влез даже после рельсов/раздвижки), уводим ЭТО ребро по минимальному
+      // детуру в чистую полосу рядом с рядом узлов, где плашка ложится инлайн. Двигаем только
+      // маршрут (own-on-first-render цел). Детур детерминирован (lane из габаритов этого ребра),
+      // не учитывает чужие пересечения (как A7.4-residual). После детуров — ОДИН пере-проход
+      // плашек на обновлённых маршрутах (пересчитает coincidentLegs и вернёт напарника по
+      // рельсе к центру). Только авто-рёбра, не locked/обвод; кэп длины → иначе остаётся leader.
+      const detourPreferred = new Map<string, number>();
+      const rectOf = (id: string): { x: number; y: number; w: number; h: number } | null => {
+        const p = positions.get(id);
+        return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null;
+      };
+      for (const g of groupArr) {
+        if (labelPlacements.get(g.id)?.mode !== "leader") continue; // только не вместившиеся
+        if (!routableIds.has(g.id) || lockedIds.has(g.id)) continue; // только свободные авто-рёбра
+        const meta = edgeLabelMeta(g);
+        if (!meta) continue;
+        const source = rectOf(g.source), target = rectOf(g.target);
+        if (!source || !target) continue;
+        const box = labelBoxSize(meta.text, { lines: meta.lines });
+        const obstacles = displayIds
+          .filter((id) => id !== g.source && id !== g.target)
+          .map(rectOf)
+          .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
+        const det = labelDetour({
+          source, target, obstacles, box, margin: 8, maxExtraLen: 2 * NODE_H + box.h + 16,
+        });
+        if (!det) continue;
+        autoRoutes.set(g.id, det.route);
+        edgeHandles.set(g.id, { sourceHandle: hid(g.source, det.sSide, 1), targetHandle: hid(g.target, det.tSide, 1) });
+        detourPreferred.set(g.id, det.preferredT);
+      }
+      if (detourPreferred.size > 0) {
+        labelPlacements = buildLabelPlacements({
+          routes: autoRoutes,
+          groups: groupArr,
+          labelMeta: edgeLabelMeta,
+          preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
+          nodeRects,
+        });
+      }
     }
 
     // Распорки: обходы не родных стрелок выходят за bbox узлов → крайними точками
