@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { placeLabels, type LabelInput, type Placement } from "../graph/layout/placeLabels";
-import { rectFromCenter, countLabelOverlaps, countLabelsUnderNodes } from "../graph/layout/arrowMetrics";
-import type { NodeRect } from "../graph/edgePath";
+import { rectFromCenter, rectsOverlap, countLabelOverlaps, countLabelsUnderNodes } from "../graph/layout/arrowMetrics";
+import type { NodeRect, Segment } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
+
+// сегмент-плечо стрелки для edgeSegs (препятствие выноске)
+const seg = (x1: number, y1: number, x2: number, y2: number): Segment => ({
+  index: 0, x1, y1, x2, y2, orient: Math.abs(y1 - y2) <= Math.abs(x1 - x2) ? "h" : "v",
+});
 
 // Размещение плашек (A6, R2): online без взаимных наложений, иначе leader. Проверяем
 // инварианты через метрики A0 (countLabelOverlaps / countLabelsUnderNodes), не точные коорд.
@@ -90,6 +95,54 @@ describe("placeLabels — выноска (leader)", () => {
     const [p] = placeLabels(labels);
     expect(p.mode).toBe("leader");
     expect(p.anchor.x).toBeCloseTo(100, 0); // середина, как раньше
+  });
+});
+
+describe("placeLabels — качество выноски (A15)", () => {
+  it("плашка-выноска не садится на ЧУЖОЕ плечо стрелки", () => {
+    // A: горизонтальное ребро, плашке на линии места нет (candidates []) → выноска у якоря (100,0).
+    // B: вертикальное плечо ровно через x=100 (вся высота) — выноска A не должна на него лечь.
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
+    ];
+    const edgeSegs = new Map<string, Segment[]>([
+      ["A", [seg(0, 0, 200, 0)]],
+      ["B", [seg(100, -200, 100, 200)]], // плечо соседа поперёк якоря
+    ]);
+    const [p] = placeLabels(labels, [], edgeSegs);
+    expect(p.mode).toBe("leader");
+    const boxRect = rectFromCenter(p.center.x, p.center.y, p.box.w, p.box.h);
+    const bLeg: NodeRect = { x: 96, y: -200, w: 8, h: 400 }; // плечо B с запасом
+    expect(rectsOverlap(boxRect, bLeg)).toBe(false); // плашка ушла с плеча соседа
+  });
+
+  it("якорь — в центре самого ДЛИННОГО уникального плеча (не ближайшего к середине)", () => {
+    // shared [60,100]; уникальные [0,60] (60px) и [100,200] (100px). Якорь → центр длинного = 150.
+    const labels: LabelInput[] = [
+      {
+        id: "A", path: poly([0, 0], [200, 0]),
+        candidates: [], shared: [{ s: 60, e: 100 }], box: box(60, 16),
+      },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.mode).toBe("leader");
+    expect(p.anchor.x).toBeCloseTo(150, 0);
+  });
+
+  it("конец поводка обрезан до края плашки (не прячется под ней)", () => {
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.mode).toBe("leader");
+    // leaderEnd лежит на отрезке anchor→center, но НЕ в центре (иначе пунктир под плашкой)
+    const dAnchorEnd = Math.hypot(p.leaderEnd.x - p.anchor.x, p.leaderEnd.y - p.anchor.y);
+    const dAnchorCenter = Math.hypot(p.center.x - p.anchor.x, p.center.y - p.anchor.y);
+    expect(dAnchorEnd).toBeLessThan(dAnchorCenter);          // конец ближе к якорю, чем центр
+    expect(dAnchorEnd).toBeGreaterThan(0);                   // поводок не нулевой
+    // и leaderEnd на границе бокса: |center - leaderEnd| ≈ пол-высоты (вынос по нормали к линии)
+    const dEndCenter = Math.hypot(p.center.x - p.leaderEnd.x, p.center.y - p.leaderEnd.y);
+    expect(dEndCenter).toBeCloseTo(p.box.h / 2, 0);
   });
 });
 

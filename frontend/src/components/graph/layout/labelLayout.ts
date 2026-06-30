@@ -7,7 +7,7 @@
 // плечах родственных стрелок (R4). Выход — позиция центра + якорь на линии (для поводка-
 // выноски, A7.3) + режим. Чистая функция. См. ARROWS_ROUTING_ANALYSIS.md §8 (D5, D6).
 import type { EdgePoint } from "../../../types";
-import type { NodeRect } from "../edgePath";
+import { segments, type NodeRect, type Segment } from "../edgePath";
 import type { EdgeGroup } from "../types";
 import { coincidentLegs } from "./coincidentLegs";
 import { labelBoxSize } from "./labelBox";
@@ -16,8 +16,9 @@ import { placeLabels, type LabelInput } from "./placeLabels";
 
 export interface LabelPlacement {
   mode: "online" | "leader";
-  center: EdgePoint; // центр плашки
-  anchor: EdgePoint; // точка на линии (для поводка-выноски; для online == center)
+  center: EdgePoint;    // центр плашки
+  anchor: EdgePoint;    // точка на линии (для поводка-выноски; для online == center)
+  leaderEnd: EdgePoint; // конец поводка у края плашки (anchor→leaderEnd; для online == center)
 }
 
 // Описание подписи группы для оценки габаритов: текст (для ширины) и число строк (высота).
@@ -50,8 +51,14 @@ export function buildLabelPlacements(params: {
     // узлами, а для ЯКОРЯ выноски (точка на линии) узлы не помеха — важно лишь не слитое плечо.
     inputs.push({ id: g.id, path, candidates: cands, box, preferredT: preferredT(g), shared: sharedIv });
   }
-  const placements = placeLabels(inputs, nodeRects);
+  // Плечи ВСЕХ маршрутов (даже безымянных) — препятствия для плашки-выноски и помеха поводку
+  // (A15): плашка не должна ложиться на чужое плечо, а поводок — лишний раз пересекать стрелки.
+  const edgeSegs = new Map<string, Segment[]>();
+  for (const [id, path] of routes) edgeSegs.set(id, segments(path));
+  const placements = placeLabels(inputs, nodeRects, edgeSegs);
   const out = new Map<string, LabelPlacement>();
-  for (const p of placements) out.set(p.id, { mode: p.mode, center: p.center, anchor: p.anchor });
+  for (const p of placements) {
+    out.set(p.id, { mode: p.mode, center: p.center, anchor: p.anchor, leaderEnd: p.leaderEnd });
+  }
   return out;
 }
