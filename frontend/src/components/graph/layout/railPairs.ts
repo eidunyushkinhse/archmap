@@ -13,6 +13,14 @@
 //
 // Чистая функция; вход не мутируется. Только точная встречная ПАРА (ровно 2 ребра, A→B и B→A);
 // одиночные/однонаправленные/петли не трогаем.
+//
+// СТАБИЛЬНОСТЬ (A12.5, класс «двигаю одно — смещается другое»): пару ищем по pairableIds —
+// рёбрам уровня, которые ВООБЩЕ участвуют в раскладке (авто + ручные-waypoints), а НЕ только по
+// авто-набору. Иначе ручная правка одного ребра пары (пользователь потащил изломы → ребро
+// выпадает из авто-набора) рушила пару, и встречное ребро теряло рельсу и перескакивало на центр.
+// Теперь назначение рельсы встречного ребра зависит лишь от ФАКТА существования пары, а не от
+// режима маршрутизации соседа. Ручному ребру рельса тоже назначается, но её никто не читает
+// (buildAutoRoutes смотрит rails только для routable-рёбер) — это безвредная симметрия.
 
 import type { EdgeSide } from "../edgePath";
 import { NODE_W, NODE_H } from "../constants";
@@ -52,8 +60,9 @@ function facingSides(
 }
 
 /**
- * Находит встречные пары среди роутируемых групп и назначает им рельсы.
- * `groups` — все группы (читаются source/target/id), `routableIds` — какие роутятся,
+ * Находит встречные пары среди участвующих в раскладке групп и назначает им рельсы.
+ * `groups` — все группы (читаются source/target/id), `pairableIds` — рёбра уровня, участвующие
+ * в раскладке (авто + ручные-waypoints) — по ним ищем пару (см. СТАБИЛЬНОСТЬ выше),
  * `positions` — позиции узлов (левый-верх). Возвращает Map: groupId → RailAssignment ТОЛЬКО
  * для рёбер встречных пар; остальные отсутствуют (вызывающий оставляет им обычное поведение).
  * Слот назначается детерминированно: ребро с меньшим id → RAIL_LO, встречное → RAIL_HI (на
@@ -61,13 +70,13 @@ function facingSides(
  */
 export function railAssignments(
   groups: ReadonlyArray<GroupRef>,
-  routableIds: ReadonlySet<string>,
+  pairableIds: ReadonlySet<string>,
   positions: ReadonlyMap<string, { x: number; y: number }>,
 ): Map<string, RailAssignment> {
-  // группируем роутируемые рёбра по НЕУПОРЯДОЧЕННОЙ паре узлов
+  // группируем участвующие в раскладке рёбра по НЕУПОРЯДОЧЕННОЙ паре узлов
   const byPair = new Map<string, GroupRef[]>();
   for (const g of groups) {
-    if (!routableIds.has(g.id)) continue;
+    if (!pairableIds.has(g.id)) continue;
     if (g.source === g.target) continue; // петля — не пара
     if (!positions.get(g.source) || !positions.get(g.target)) continue;
     const key = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;

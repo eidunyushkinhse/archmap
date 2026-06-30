@@ -76,12 +76,13 @@ export interface AutoRoutesResult {
 export function buildAutoRoutes(params: {
   groups: EdgeGroup[];
   routableIds: Set<string>;   // id групп, которые роутим (не waypoint-customized/detour/context)
+  pairableIds: Set<string>;   // рёбра уровня в раскладке (авто + ручные) — для поиска рельс-пар
   lockedIds: Set<string>;     // из них: пользователь зафиксировал хэндл → сторону НЕ выбираем
   positions: ReadonlyMap<string, { x: number; y: number }>;
   edgeHandles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
   displayIds: string[];       // все отображаемые id (локальные узлы + сущности)
 }): AutoRoutesResult {
-  const { groups, routableIds, lockedIds, positions, edgeHandles, displayIds } = params;
+  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds } = params;
   // тела всех отображаемых узлов — препятствия (свои концы ребро исключит само)
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -92,7 +93,7 @@ export function buildAutoRoutes(params: {
   // Рельсы встречных пар (A11): два ребра между одной парой узлов в противоположных
   // направлениях разводим на крайние слоты хэндлов обращённых сторон, чтобы их плечи не
   // совпадали (иначе R4 загоняет обе плашки в leader). Чистое назначение сторон+слотов.
-  const rails = railAssignments(groups, routableIds, positions);
+  const rails = railAssignments(groups, pairableIds, positions);
 
   // Готовим терминалы и запоминаем комбинации сторон по каждому ребру (для обратного
   // сопоставления выбранного маршрута со стороной → хэндлом).

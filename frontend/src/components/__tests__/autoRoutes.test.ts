@@ -23,18 +23,18 @@ describe("buildAutoRoutes — отбор и терминалы", () => {
 
   it("роутит только группы из routableIds", () => {
     const none = buildAutoRoutes({
-      groups, routableIds: new Set(), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(), pairableIds: new Set(), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
     });
     expect(none.routes.size).toBe(0);
     const one = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
     });
     expect(one.routes.has("g1")).toBe(true);
   });
 
   it("свободное ребро (A8): концы на обращённых сторонах (правый край A → левый край B)", () => {
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
     });
     const r = out.routes.get("g1")!;
     // дешевле всего прямой ход: правый центр A → левый центр B
@@ -47,7 +47,7 @@ describe("buildAutoRoutes — отбор и терминалы", () => {
   it("зафиксированный хэндл (lockedIds): сторона из него, в ar.handles не подменяется", () => {
     const handles = new Map([["g1", { sourceHandle: hid("A", "bottom", 1), targetHandle: hid("B", "top", 1) }]]);
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), lockedIds: new Set(["g1"]),
+      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(["g1"]),
       positions, edgeHandles: handles, displayIds: ["A", "B"],
     });
     const r = out.routes.get("g1")!;
@@ -67,7 +67,7 @@ describe("buildAutoRoutes — обход узла-препятствия", () =>
     ]);
     const groups = [group("g1", "A", "B")];
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(),
+      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(),
       displayIds: ["A", "B", "C"],
     });
     const r = out.routes.get("g1")!;

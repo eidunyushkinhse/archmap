@@ -55,14 +55,27 @@ describe("railAssignments (рельсы встречных пар, A11)", () => 
     expect(out.size).toBe(0);
   });
 
-  it("встречная пара, но одно ребро НЕ роутируемо → не рельсим", () => {
+  it("встречная пара, но партнёр ВНЕ раскладки (detour/guest) → не рельсим", () => {
     const groups: G[] = [
       { id: "g1", source: "A", target: "B" },
       { id: "g2", source: "B", target: "A" },
     ];
-    // g2 не в routableIds (например, detour) → пара неполна
+    // g2 не в pairableIds (например, гостевой обвод) → пара в раскладке неполна
     const out = railAssignments(groups, new Set(["g1"]), pos([["A", 0, 0], ["B", 400, 0]]));
     expect(out.size).toBe(0);
+  });
+
+  it("стабильность A12.5: партнёр РУЧНОЙ (в pairableIds), но рельса соседа сохраняется", () => {
+    // g2 потащили за изломы → он ручной (выпал из routableIds), НО остаётся в раскладке
+    // (pairableIds). Пара по топологии цела → авто-ребро g1 НЕ теряет рельсу и не перескакивает.
+    const groups: G[] = [
+      { id: "g1", source: "A", target: "B" },
+      { id: "g2", source: "B", target: "A" },
+    ];
+    const positions = pos([["A", 164, 270], ["B", 588, 270]]);
+    const out = railAssignments(groups, new Set(["g1", "g2"]), positions); // оба в раскладке
+    // g1 получает свою рельсу независимо от того, что g2 рисуется вручную
+    expect(out.get("g1")).toEqual({ sSide: "right", sIdx: 0, tSide: "left", tIdx: 0 });
   });
 
   it("петля (source===target) игнорируется", () => {

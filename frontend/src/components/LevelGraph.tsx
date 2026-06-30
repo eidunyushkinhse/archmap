@@ -914,10 +914,16 @@ function LevelGraphInner({
       const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
       const localIds = new Set(nodes.map((n) => n.id));
       const routableIds = new Set<string>();
+      // pairableIds — рёбра уровня, участвующие в раскладке (авто + ручные-waypoints). По ним
+      // ищем встречные рельс-пары (A12.5): рельса соседа не должна зависеть от того, ручное это
+      // ребро или авто — иначе правка изломов одного рушит маршрут встречного («двигаю одно —
+      // смещается другое»). См. railAssignments.
+      const pairableIds = new Set<string>();
       const lockedIds = new Set<string>(); // routable, но сторону зафиксировал пользователь
       for (const g of groupArr) {
         if (edgeDetours.has(g.id)) continue; // гостевой обвод рисует своя ветка edges.tsx
         if (!positions.get(g.source) || !positions.get(g.target)) continue;
+        pairableIds.add(g.id); // участвует в раскладке уровня (до фильтра ручного пути)
         // Ручной ПУТЬ (waypoints) → ребро целиком ручное, не авто-маршрутизируем (приоритет).
         // Источник waypoints РОВНО тот же, что рисует edges.tsx (wpOf, см. сборку рёбер):
         // локальное ребро (оба конца на уровне) хранит путь в ГЛОБАЛЬНом m.waypoints,
@@ -938,7 +944,7 @@ function LevelGraphInner({
         // пере-раскладывает остальные авто-маршруты (стабильность, A7.4).
         if (g.members.some((m) => (levelEdgeHandles[m.id]?.length ?? 0) > 0)) lockedIds.add(g.id);
       }
-      const ar = buildAutoRoutes({ groups: groupArr, routableIds, lockedIds, positions, edgeHandles, displayIds });
+      const ar = buildAutoRoutes({ groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds });
       autoRoutes = ar.routes;
       // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там). Только свободные
       // рёбра (у locked хэндл уже стоит, buildAutoRoutes их в ar.handles не кладёт).
