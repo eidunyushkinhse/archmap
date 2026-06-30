@@ -18,6 +18,11 @@ import { ensureOutwardStubs, type EdgeSide, type NodeRect } from "../edgePath";
 import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
+import { railAssignments } from "./railPairs";
+
+// Комбинация сторон+слотов хэндлов для ребра: сторона источника/цели и индекс слота (idx 1 —
+// центр; рельсы встречной пары — крайние idx 0/2) + готовые точки стыковки.
+type SideCombo = { s: EdgeSide; t: EdgeSide; sIdx: number; tIdx: number; start: EdgePoint; end: EdgePoint };
 
 const EPS = 0.5;
 const SIDE_OFFSETS = [0.25, 0.5, 0.75]; // позиции хэндлов вдоль стороны (как SIDE_HANDLES)
@@ -84,24 +89,38 @@ export function buildAutoRoutes(params: {
     if (p) rects.set(id, { x: p.x, y: p.y, w: NODE_W, h: NODE_H });
   }
 
+  // Рельсы встречных пар (A11): два ребра между одной парой узлов в противоположных
+  // направлениях разводим на крайние слоты хэндлов обращённых сторон, чтобы их плечи не
+  // совпадали (иначе R4 загоняет обе плашки в leader). Чистое назначение сторон+слотов.
+  const rails = railAssignments(groups, routableIds, positions);
+
   // Готовим терминалы и запоминаем комбинации сторон по каждому ребру (для обратного
   // сопоставления выбранного маршрута со стороной → хэндлом).
-  const combosById = new Map<string, Array<{ s: EdgeSide; t: EdgeSide; start: EdgePoint; end: EdgePoint }>>();
+  const combosById = new Map<string, SideCombo[]>();
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
     const sp = positions.get(g.source), tp = positions.get(g.target);
     if (!sp || !tp) continue;
-    let combos: Array<{ s: EdgeSide; t: EdgeSide; start: EdgePoint; end: EdgePoint }>;
+    const rail = rails.get(g.id);
+    let combos: SideCombo[];
     if (lockedIds.has(g.id)) {
       // зафиксированный хэндл — единственный вариант, точная точка стыковки
       const h = edgeHandles.get(g.id);
       const ps = parseHandle(h?.sourceHandle), pt = parseHandle(h?.targetHandle);
       const sSide = ps?.side ?? (tp.x >= sp.x ? "right" : "left");
       const tSide = pt?.side ?? (tp.x >= sp.x ? "left" : "right");
-      combos = [{ s: sSide, t: tSide, start: handlePoint(sp, sSide, ps?.idx ?? 1), end: handlePoint(tp, tSide, pt?.idx ?? 1) }];
+      const sIdx = ps?.idx ?? 1, tIdx = pt?.idx ?? 1;
+      combos = [{ s: sSide, t: tSide, sIdx, tIdx, start: handlePoint(sp, sSide, sIdx), end: handlePoint(tp, tSide, tIdx) }];
+    } else if (rail) {
+      // встречная пара — единственный вариант: обращённые стороны на своём слоте-рельсе (A8
+      // не выбираем, сторона задана геометрией пары; idx разводит плечи на параллельные рельсы)
+      combos = [{
+        s: rail.sSide, t: rail.tSide, sIdx: rail.sIdx, tIdx: rail.tIdx,
+        start: handlePoint(sp, rail.sSide, rail.sIdx), end: handlePoint(tp, rail.tSide, rail.tIdx),
+      }];
     } else {
-      combos = freeCombos(sp, tp).map((c) => ({ ...c, start: sideCenter(sp, c.s), end: sideCenter(tp, c.t) }));
+      combos = freeCombos(sp, tp).map((c) => ({ ...c, sIdx: 1, tIdx: 1, start: sideCenter(sp, c.s), end: sideCenter(tp, c.t) }));
     }
     combosById.set(g.id, combos);
     const obstacles: NodeRect[] = [];
@@ -124,9 +143,10 @@ export function buildAutoRoutes(params: {
       combos.find((c) => near(route[0], c.start) && near(route[route.length - 1], c.end)) ?? combos[0];
     const stubbed = ensureOutwardStubs(route, chosen.s, chosen.t);
     routes.set(g.id, stubbed);
-    // выбранную сторону отдаём как хэндл только для свободных рёбер (у locked хэндл уже стоит)
+    // выбранную сторону+слот отдаём как хэндл только для свободных рёбер (у locked хэндл уже
+    // стоит). idx важен для рельсов встречной пары (A11): RF состыкует стрелку на крайнем слоте.
     if (!lockedIds.has(g.id)) {
-      handles.set(g.id, { sourceHandle: hid(g.source, chosen.s, 1), targetHandle: hid(g.target, chosen.t, 1) });
+      handles.set(g.id, { sourceHandle: hid(g.source, chosen.s, chosen.sIdx), targetHandle: hid(g.target, chosen.t, chosen.tIdx) });
     }
   }
   return { routes, handles };
