@@ -988,6 +988,27 @@ function LevelGraphInner({
       // останется leader). Плашка-препятствие двигает lane глубже и не даёт маршруту её пересечь.
       const placedLabelRects: { x: number; y: number; w: number; h: number }[] = [];
       detourCands.sort((a, b) => a.box.h - b.box.h);
+      // РАЗВОДКА ХЭНДЛОВ ВСТРЕЧНОЙ ПАРЫ НА ДЕТУРЕ (A12.4): если оба ребра двунаправленной пары
+      // ушли в детур в одну сторону, по умолчанию они вышли бы из ОДНОГО хэндла (центр, idx=1) и
+      // наложились бы плечами. Раскладка — вложенные «П»: грузное ребро (плашка выше, идёт ГЛУБЖЕ)
+      // ведём по ВНЕШНИМ слотам стороны → его «П» шире и охватывает плашку напарника, не пересекая
+      // её; напарник остаётся в центре (idx=1, прежнее место). Внешний слот — по геометрии узла:
+      // на горизонтальном плече левый узел→слот 0, правый→слот 2 (на вертикальном верхний→0,
+      // нижний→2). Так разводятся и хэндлы, и плечи, и нет наложения плашек.
+      const detourSlot = new Map<string, { sIdx: number; tIdx: number }>();
+      for (const { g, box } of detourCands) {
+        const partner = detourCands.find((c) => c.g.source === g.target && c.g.target === g.source);
+        if (!partner) continue;
+        // глубже ляжет более грузное ребро (выше плашка; при равенстве — больший id)
+        const deeper = box.h > partner.box.h || (box.h === partner.box.h && g.id > partner.g.id);
+        if (!deeper) continue; // напарник остаётся в центре (слот 1/1 по умолчанию)
+        const sp = positions.get(g.source), tp = positions.get(g.target);
+        if (!sp || !tp) continue;
+        const horiz = Math.abs(tp.x - sp.x) >= Math.abs(tp.y - sp.y);
+        const sIdx = horiz ? (sp.x <= tp.x ? 0 : 2) : (sp.y <= tp.y ? 0 : 2);
+        const tIdx = horiz ? (tp.x < sp.x ? 0 : 2) : (tp.y < sp.y ? 0 : 2);
+        detourSlot.set(g.id, { sIdx, tIdx });
+      }
       for (const { g, box } of detourCands) {
         const source = rectOf(g.source), target = rectOf(g.target);
         if (!source || !target) continue;
@@ -998,12 +1019,14 @@ function LevelGraphInner({
             .filter((r): r is { x: number; y: number; w: number; h: number } => r != null),
           ...placedLabelRects,
         ];
+        const slot = detourSlot.get(g.id) ?? { sIdx: 1, tIdx: 1 };
         const det = labelDetour({
           source, target, obstacles, box, margin: 8, maxExtraLen: 2 * NODE_H + box.h + 16,
+          sIdx: slot.sIdx, tIdx: slot.tIdx,
         });
         if (!det) continue;
         autoRoutes.set(g.id, det.route);
-        edgeHandles.set(g.id, { sourceHandle: hid(g.source, det.sSide, 1), targetHandle: hid(g.target, det.tSide, 1) });
+        edgeHandles.set(g.id, { sourceHandle: hid(g.source, det.sSide, slot.sIdx), targetHandle: hid(g.target, det.tSide, slot.tIdx) });
         detourPreferred.set(g.id, det.preferredT);
         // оценочный прямоугольник лёгшей плашки — препятствие для последующих (более высоких)
         placedLabelRects.push({ x: det.center.x - box.w / 2, y: det.center.y - box.h / 2, w: box.w, h: box.h });

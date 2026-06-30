@@ -34,13 +34,18 @@ export interface LabelDetour {
 const cx = (r: NodeRect): number => r.x + r.w / 2;
 const cy = (r: NodeRect): number => r.y + r.h / 2;
 
-// центр стороны узла (idx=1).
-function sideCenter(r: NodeRect, side: EdgeSide): EdgePoint {
+const SIDE_OFFSETS = [0.25, 0.5, 0.75]; // позиции слотов хэндлов вдоль стороны (как SIDE_HANDLES)
+
+// точка слота хэндла на стороне узла: idx 0/1/2 → доля 0.25/0.5/0.75 вдоль стороны
+// (idx=1 — центр, дефолт). Совпадает с handlePoint в autoRoutes → геометрия маршрута
+// сходится с тем, куда RF посадит концы стрелки.
+function sideSlot(r: NodeRect, side: EdgeSide, idx: number): EdgePoint {
+  const off = SIDE_OFFSETS[idx] ?? 0.5;
   switch (side) {
-    case "top":    return { x: cx(r), y: r.y };
-    case "bottom": return { x: cx(r), y: r.y + r.h };
-    case "left":   return { x: r.x, y: cy(r) };
-    default:       return { x: r.x + r.w, y: cy(r) };
+    case "top":    return { x: r.x + r.w * off, y: r.y };
+    case "bottom": return { x: r.x + r.w * off, y: r.y + r.h };
+    case "left":   return { x: r.x, y: r.y + r.h * off };
+    default:       return { x: r.x + r.w, y: r.y + r.h * off };
   }
 }
 
@@ -72,12 +77,14 @@ function finishCandidate(
 }
 
 // Один кандидат-детур в заданном перпендикулярном направлении (сторона выхода = sSide=tSide).
+// sIdx/tIdx — слоты хэндлов на этой стороне (idx=1 центр по умолчанию; крайние 0/2 разводят
+// встречную пару на детуре, чтобы её плечи не делили один хэндл).
 function buildCandidate(
   source: NodeRect, target: NodeRect, allNodes: NodeRect[], obstacles: NodeRect[],
-  box: Size, margin: number, side: EdgeSide,
+  box: Size, margin: number, side: EdgeSide, sIdx: number, tIdx: number,
 ): LabelDetour | null {
-  const sPt = sideCenter(source, side);
-  const tPt = sideCenter(target, side);
+  const sPt = sideSlot(source, side, sIdx);
+  const tPt = sideSlot(target, side, tIdx);
   let route: EdgePoint[];
   let alongExtent: number;
   if (side === "bottom" || side === "top") {
@@ -132,8 +139,12 @@ export function labelDetour(params: {
   box: Size;
   margin: number;
   maxExtraLen: number;
+  sIdx?: number; // слот хэндла на источнике (дефолт 1 — центр; 0/2 для встречной пары)
+  tIdx?: number; // слот хэндла на цели
 }): LabelDetour | null {
   const { source, target, obstacles, box, margin, maxExtraLen } = params;
+  const sIdx = params.sIdx ?? 1;
+  const tIdx = params.tIdx ?? 1;
   const dx = cx(target) - cx(source);
   const dy = cy(target) - cy(source);
   const horizontal = Math.abs(dx) >= Math.abs(dy); // плечо горизонтальное → детур по вертикали
@@ -144,7 +155,7 @@ export function labelDetour(params: {
   let best: LabelDetour | null = null;
   let bestExtra = Infinity;
   for (const side of sides) {
-    const cand = buildCandidate(source, target, allNodes, obstacles, box, margin, side);
+    const cand = buildCandidate(source, target, allNodes, obstacles, box, margin, side, sIdx, tIdx);
     if (!cand) continue;
     const extra = pathLength(cand.route) - directLen;
     if (extra > maxExtraLen + EPS) continue;

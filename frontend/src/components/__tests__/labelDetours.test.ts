@@ -72,6 +72,24 @@ describe("labelDetour (альт-маршрут грузного ребра, A12)
     expect(d).toBeNull();
   });
 
+  it("слоты хэндлов разводят встречную пару: idx 0 и idx 2 дают разные плечи (A12.4)", () => {
+    const source = rect(164, 270);
+    const target = rect(588, 270);
+    // младшее ребро пары — слот 0 на обоих концах
+    const lo = labelDetour({ source, target, obstacles: [], box: box(150, 40), sIdx: 0, tIdx: 0, ...OPTS });
+    // старшее — слот 2
+    const hi = labelDetour({ source, target, obstacles: [], box: box(150, 40), sIdx: 2, tIdx: 2, ...OPTS });
+    expect(lo).not.toBeNull();
+    expect(hi).not.toBeNull();
+    // плечо (вертикальный спуск) выходит из разных x: слот 0 = x+0.25*W, слот 2 = x+0.75*W
+    expect(lo!.route[0].x).toBeCloseTo(164 + 190 * 0.25, 0);
+    expect(hi!.route[0].x).toBeCloseTo(164 + 190 * 0.75, 0);
+    expect(lo!.route[0].x).not.toBeCloseTo(hi!.route[0].x, 0);
+    // дефолт без слотов = центр (idx=1)
+    const mid = labelDetour({ source, target, obstacles: [], box: box(150, 40), ...OPTS });
+    expect(mid!.route[0].x).toBeCloseTo(164 + 190 * 0.5, 0);
+  });
+
   it("чистая функция: вход не мутируется", () => {
     const source = rect(164, 270);
     const target = rect(588, 270);
