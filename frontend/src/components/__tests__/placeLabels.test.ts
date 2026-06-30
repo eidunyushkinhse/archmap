@@ -65,6 +65,32 @@ describe("placeLabels — выноска (leader)", () => {
     const ps = placeLabels(labels, [node]);
     expect(countLabelsUnderNodes(rects(ps), [node])).toBe(0);
   });
+
+  it("якорь выноски НЕ садится на слитое плечо, уезжает в уникальную зону (A14)", () => {
+    // Путь: ствол [0,150] слит с соседом (shared), уникальный хвост [150,200]. Желаемая доля —
+    // середина (arc 100), она НА слитом стволе. Якорь обязан уехать в [150,200].
+    const labels: LabelInput[] = [
+      {
+        id: "A", path: poly([0, 0], [200, 0]),
+        candidates: [{ s: 150, e: 200 }], // плашке доступен только хвост
+        shared: [{ s: 0, e: 150 }],        // ствол слит — якорю туда нельзя
+        box: box(60, 16),
+      },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.mode).toBe("leader");          // на хвост 50px плашка 60px не влезет → выноска
+    expect(p.anchor.x).toBeGreaterThan(150); // якорь в уникальном хвосте, не на стволе
+    expect(p.anchor.x).toBeLessThanOrEqual(200);
+  });
+
+  it("без shared якорь остаётся у желаемой доли (обратная совместимость)", () => {
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.mode).toBe("leader");
+    expect(p.anchor.x).toBeCloseTo(100, 0); // середина, как раньше
+  });
 });
 
 describe("placeLabels — детерминизм", () => {

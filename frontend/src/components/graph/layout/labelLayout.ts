@@ -44,8 +44,11 @@ export function buildLabelPlacements(params: {
     const meta = labelMeta(g);
     if (!meta) continue;
     const box = labelBoxSize(meta.text, { lines: meta.lines });
-    const cands = labelCandidates(path, shared.get(g.id) ?? [], nodeRects, box);
-    inputs.push({ id: g.id, path, candidates: cands, box, preferredT: preferredT(g) });
+    const sharedIv = shared.get(g.id) ?? [];
+    const cands = labelCandidates(path, sharedIv, nodeRects, box);
+    // shared отдаём в placeLabels отдельно: candidates исключают и слитые плечи, И зоны под
+    // узлами, а для ЯКОРЯ выноски (точка на линии) узлы не помеха — важно лишь не слитое плечо.
+    inputs.push({ id: g.id, path, candidates: cands, box, preferredT: preferredT(g), shared: sharedIv });
   }
   const placements = placeLabels(inputs, nodeRects);
   const out = new Map<string, LabelPlacement>();

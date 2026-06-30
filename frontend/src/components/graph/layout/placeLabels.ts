@@ -15,20 +15,41 @@
 import type { EdgePoint } from "../../../types";
 import { pointAtFraction, type NodeRect } from "../edgePath";
 import { rectFromCenter, rectsOverlap } from "./arrowMetrics";
-import { edgeArcLength, type Interval } from "./coincidentLegs";
+import { edgeArcLength, subtractIntervals, type Interval } from "./coincidentLegs";
 import { erodeIntervals } from "./labelIntervals";
 import type { Size } from "./labelBox";
 
 const EPS = 0.5;
 // Перпендикулярные направления и магнитуды отступа выноски (px) — пробуем ближние первыми.
 const LEADER_DIRS: ReadonlyArray<readonly [number, number]> = [[0, -1], [0, 1], [1, 0], [-1, 0]];
+// Отступ якоря выноски от границы слитого плеча (px) — чтобы поводок цеплялся не впритык к слиянию.
+const ANCHOR_MARGIN = 6;
 
 export interface LabelInput {
   id: string;
   path: EdgePoint[];
-  candidates: Interval[]; // допустимые arc-интервалы (из labelCandidates / A5)
+  candidates: Interval[]; // допустимые arc-интервалы для ПЛАШКИ (из labelCandidates / A5): без
+                          // слитых плеч (R4) и без зон под узлами (R2)
   box: Size;
   preferredT?: number;    // желаемая доля arc-length 0..1 (ручной label_t); по умолч. 0.5
+  shared?: Interval[];    // слитые с другими рёбрами плечи (R4) — куда ЯКОРЬ выноски ставить
+                          // нельзя (иначе поводок указывает в коллинеарность, стрелку не отличить)
+}
+
+// arc-позиция в уникальных (не слитых) участках ребра, ближайшая к target. Сначала пробуем слегка
+// сжатые интервалы (якорь не впритык к границе слияния); если все короче запаса — несжатые. null —
+// если уникальных участков нет вовсе (всё ребро слитое; редкость — тогда якорь ставим как просили).
+function pickAnchorArc(unique: Interval[], target: number): number | null {
+  const nearest = (ivs: Interval[]): number | null => {
+    let best: number | null = null, bestD = Infinity;
+    for (const iv of ivs) {
+      const c = Math.max(iv.s, Math.min(target, iv.e));
+      const d = Math.abs(c - target);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return best;
+  };
+  return nearest(erodeIntervals(unique, ANCHOR_MARGIN)) ?? nearest(unique);
 }
 
 export interface Placement {
@@ -93,7 +114,13 @@ export function placeLabels(labels: LabelInput[], nodes: NodeRect[] = []): Place
     const onlineArcs = sampleArcs(eroded, preferredArc, Math.max(l.box.w, 24));
     const toPt = (a: number): EdgePoint => pointAtFraction(l.path, total > 0 ? a / total : 0);
     const online: Cand[] = onlineArcs.map((a) => ({ center: toPt(a), leader: false }));
-    const anchor = toPt(preferredArc);
+    // Якорь выноски — строго в УНИКАЛЬНОЙ зоне ребра (весь путь минус слитые плечи R4), ближайшей
+    // к желаемой точке. Узлы тут НЕ вычитаем: якорь — это точка на линии, а плашку от неё отводит
+    // перпендикулярный отступ (leaderCands), поэтому близость к узлу якорю не мешает. Так поводок
+    // всегда цепляется за тот участок стрелки, который принадлежит только ей, и стрелку видно.
+    const unique = subtractIntervals({ s: 0, e: total }, l.shared ?? []);
+    const anchorArc = pickAnchorArc(unique, preferredArc) ?? preferredArc;
+    const anchor = toPt(anchorArc);
     const cands: Cand[] = [...online, ...leaderCands(anchor, l.box)];
     return { id: l.id, box: l.box, cands, onlineCount: online.length, anchor };
   });
