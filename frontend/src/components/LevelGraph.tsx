@@ -813,14 +813,24 @@ function LevelGraphInner({
     let labelPlacements: Map<string, LabelPlacement> | undefined;
     if (!isContext) {
       const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+      const localIds = new Set(nodes.map((n) => n.id));
       const routableIds = new Set<string>();
       const lockedIds = new Set<string>(); // routable, но сторону зафиксировал пользователь
       for (const g of groupArr) {
         if (edgeDetours.has(g.id)) continue; // гостевой обвод рисует своя ветка edges.tsx
         if (!positions.get(g.source) || !positions.get(g.target)) continue;
         // Ручной ПУТЬ (waypoints) → ребро целиком ручное, не авто-маршрутизируем (приоритет).
-        const hasWaypoints = g.members.some(
-          (m) => (effectiveLevelWaypoints[m.id]?.length ?? 0) > 0 || (m.waypoints?.length ?? 0) > 0,
+        // Источник waypoints РОВНО тот же, что рисует edges.tsx (wpOf, см. сборку рёбер):
+        // локальное ребро (оба конца на уровне) хранит путь в ГЛОБАЛЬНом m.waypoints,
+        // гостевое/сквозное — в ПЕР-УРОВНЕВОМ слое. Раньше здесь ИЛИ-ились оба, из-за чего
+        // гостевое ребро с глобальным путём (он рисуется лишь в main-схеме, не в этом уровне)
+        // ошибочно исключалось из роутинга и ложилось прямой под узлами. Сверяемся с тем же
+        // слоем, что и рендер.
+        const bothLocal = localIds.has(g.source) && localIds.has(g.target);
+        const hasWaypoints = g.members.some((m) =>
+          bothLocal
+            ? (m.waypoints?.length ?? 0) > 0
+            : (effectiveLevelWaypoints[m.id]?.length ?? 0) > 0,
         );
         if (hasWaypoints) continue;
         routableIds.add(g.id);
