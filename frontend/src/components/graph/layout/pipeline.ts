@@ -19,6 +19,7 @@ import type {
   EdgePoint,
   LevelPos,
   ViewLayout,
+  AncestorRef,
 } from "../../../types";
 import { bundleKey } from "../../../types";
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
@@ -100,7 +101,12 @@ export interface PipelineInput {
   // по ключу пучка "b:<src>><tgt>". В контекст-режиме — пустая (эфемерная звезда).
   viewLayout: ViewLayout;
   ancestorIds: string[];
+  // раскрытые инлайн контейнеры: и гостевые, и ЛОКАЛЬНЫЕ (R5) — id уникальны
   expanded: Set<string>;
+  // догруженные дети раскрытых ЛОКАЛЬНЫХ контейнеров (R5, Д3: показываются ВСЕ
+  // дети): id контейнера → его прямые дети. Пока детей нет в карте — контейнер
+  // рисуется свёрнутым (ленивая догрузка, LevelGraph качает по требованию).
+  localChildren: Record<string, AppNode[]>;
   isContext: boolean;
 }
 
@@ -128,7 +134,8 @@ export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | n
 /** Полный расчёт раскладки вида. Async из-за ELK; всё остальное синхронно и чисто. */
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
-    nodes, endpoints, edges, containerId, viewLayout, ancestorIds, expanded, isContext,
+    nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
+    expanded, localChildren, isContext,
   } = input;
   const intents: PersistIntent[] = [];
 
@@ -141,9 +148,35 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     }
   }
 
+  // РАСКРЫТИЕ ЛОКАЛЬНЫХ КОНТЕЙНЕРОВ (R5, Д3): раскрытый локал заменяется ВСЕМИ его
+  // догруженными детьми, рекурсивно (вложенные раскрытия). Дети ещё не догружены →
+  // узел остаётся свёрнутым. `nodes` дальше по конвейеру — ОТОБРАЖАЕМЫЕ локалы
+  // (обычные + вышедшие из раскрытий); все прежние роли («локальный конец подъёма»,
+  // ELK-узел, член родных рамок, block-рендер) переходят к ним естественно.
+  // localFrames — цепочки контейнеров над вышедшими детьми (ниже уровня): по ним
+  // computeFrames строит рамку раскрытого локала той же механикой, что и гостевые.
+  const nodes: AppNode[] = [];
+  const localFrames: { id: string; ancestors: AncestorRef[] }[] = [];
+  // предки уровня как AncestorRef-лайт: для расчёта lca в computeFrames важны
+  // только id (имена рамок уровня рисует ancestorNames — не отсюда)
+  const bcRefs: AncestorRef[] = ancestorIds.map((id) => ({ id, name: id, is_external: false }));
+  const expandLocal = (n: AppNode, path: AncestorRef[]) => {
+    const kids = expanded.has(n.id) ? localChildren[n.id] : undefined;
+    if (!isContext && kids && kids.length > 0) {
+      const deeper = [...path, { id: n.id, name: n.name, is_external: n.is_external }];
+      for (const k of kids) expandLocal(k, deeper);
+      return;
+    }
+    nodes.push(n);
+    if (path.length > 0) localFrames.push({ id: n.id, ancestors: [...bcRefs, ...path] });
+  };
+  for (const n of rawNodes) expandLocal(n, []);
+
   // ПРОЕКЦИЯ, половина 1 (R2): подъём концов сырых рёбер к ближайшему локальному
   // предку уровня; концы вне поддерева остаются гостями. Контекст пре-спроецирован
   // сервером (Д5) — там lift не нужен, реестр целиком трактуется как гости-соседи.
+  // localIds — отображаемые локалы: конец внутри РАСКРЫТОГО контейнера поднимается
+  // не к нему, а к его видимому потомку (симметрия со сворачиванием гостей).
   const { edges: liftedEdges, ghosts } = isContext
     ? { edges, ghosts: endpoints }
     : liftEdgesToLevel({ edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId });
@@ -240,6 +273,35 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // вынесена в ringPlacement под юнит-тесты. МУТИРУЕТ positions
   // (ставит гостей на кольца); их стрелки дальше ведёт глобальный роутер.
   if (!isContext) {
+    // Первый показ детей РАСКРЫТОГО ЛОКАЛА (R5, expand-in-place): свежие дети без
+    // владеемой позиции раскладываются сеткой от сохранённой позиции контейнера —
+    // ELK клал бы их в общий layered-поток, вырывая из места раскрытия. Если
+    // контейнер позицией не владел (чисто авто-уровень) — остаются как легли.
+    // Владеемые дети (повторное раскрытие) уже сели savedPos-ом. Засев ниже
+    // зафиксирует сетку навсегда.
+    {
+      const freshByContainer = new Map<string, string[]>();
+      for (const lf of localFrames) {
+        if (ownedPositions[lf.id]) continue;
+        const parent = lf.ancestors[lf.ancestors.length - 1]?.id;
+        if (!parent) continue;
+        (freshByContainer.get(parent) ?? freshByContainer.set(parent, []).get(parent)!).push(lf.id);
+      }
+      const GRID_GAP_X = 40;
+      const GRID_GAP_Y = 40;
+      for (const [cid, ids] of freshByContainer) {
+        const base = ownedPositions[cid];
+        if (!base) continue;
+        const cols = Math.max(1, Math.ceil(Math.sqrt(ids.length)));
+        ids.forEach((id, i) => {
+          positions.set(id, {
+            x: base.pos_x + (i % cols) * (NODE_W + GRID_GAP_X),
+            y: base.pos_y + Math.floor(i / cols) * (NODE_H + GRID_GAP_Y),
+          });
+        });
+      }
+    }
+
     const og = placeGhostsOnRings({
       nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded,
     });
@@ -271,11 +333,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
 
     // ЗАСЕВ ВЛАДЕНИЯ (own-on-first-render): каждый гость без сохранённой позиции получает
     // её навсегда — на финальных позициях (после колец + enforce + разведения). Покрывает
-    // и авто-гостей (кольцо), и новичков от вложенного раскрытия (их разведённую позицию).
+    // и авто-гостей (кольцо), и новичков от вложенного раскрытия (их разведённую позицию),
+    // и детей раскрытых ЛОКАЛОВ (R5: сетку первого показа — иначе прыгали бы на ELK).
     // Здесь — только ИНТЕНТ; применяет вызывающий (архитектор, основной канвас, прогон не
     // устарел). Зеркало кладёт позицию в viewLayout → следующий прогон видит сохранённую,
     // и засев её пропускает.
-    const seeds = collectGhostSeeds(entities, ownedPositions, (id) => positions.get(id));
+    const seeds = collectGhostSeeds(
+      [...entities, ...localFrames],
+      ownedPositions,
+      (id) => positions.get(id),
+    );
     if (seeds.length > 0) {
       intents.push({
         kind: "seed-positions",
@@ -569,17 +636,22 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     );
   }
 
-  // РАСКРЫТЫЕ гостевые рамки на финальных позициях (R4): их rect'ы становятся
-  // compound-узлами RF в сборке. Родные рамки (native) не берём — они остаются
-  // живым оверлеем LevelBoundary (bbox-follow за драгом).
+  // РАСКРЫТЫЕ рамки на финальных позициях (R4/R5): их rect'ы становятся
+  // compound-узлами RF в сборке. Гостевые рамки строятся по предкам гостей,
+  // рамки раскрытых ЛОКАЛОВ — по цепочкам localFrames (та же механика: контейнер
+  // ниже lca → не-native рамка вокруг членов). Родные рамки (native) не берём —
+  // они остаются живым оверлеем LevelBoundary (bbox-follow за драгом).
   const guestFrames: FrameRect[] = [];
-  if (!isContext && ancestorIds.length > 0) {
+  if (!isContext) {
     const frames = computeFrames({
       localIds: nodes.map((n) => n.id),
-      externals: entities.map((e) => ({
-        id: e.id,
-        ancestors: e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors,
-      })),
+      externals: [
+        ...entities.map((e) => ({
+          id: e.id,
+          ancestors: e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors,
+        })),
+        ...localFrames,
+      ],
       pos: (id) => positions.get(id),
       ancestorIds,
       ancestorNames: ancestorIds, // имена нативных не нужны — их отфильтровываем

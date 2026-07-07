@@ -48,7 +48,9 @@ export function computeFrames(params: {
   ancestorNames: string[];
 }): FrameRect[] {
   const { localIds, externals, pos, ancestorIds, ancestorNames } = params;
-  if (ancestorIds.length === 0 || localIds.length === 0) return [];
+  // На корне (breadcrumb пуст) нативных рамок нет, но гостевые строятся: рамки
+  // раскрытых ЛОКАЛЬНЫХ контейнеров (R5) живут и на корневом уровне.
+  if (localIds.length === 0) return [];
 
   const bcIndex = new Map(ancestorIds.map((id, i) => [id, i]));
   const frames = new Map<string, FrameDef>();

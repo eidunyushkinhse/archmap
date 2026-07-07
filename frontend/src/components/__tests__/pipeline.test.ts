@@ -46,6 +46,7 @@ function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
     viewLayout: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } },
     ancestorIds: ["P"],
     expanded: new Set(),
+    localChildren: {},
     isContext: false,
     ...overrides,
   };
@@ -139,6 +140,45 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.autoRoutes?.get(master.id)).toBeUndefined();
   });
 
+  it("R5: раскрытый ЛОКАЛ заменяется детьми, рамка в guestFrames, концы поднимаются к детям", async () => {
+    // B раскрыт: вместо него — дети B1/B2; ребро A→(внук под B1... сам B1) идёт к B1;
+    // ребро от G к B поднимается... G→A остаётся; внутреннее B1→B2 видно.
+    const b1 = { ...appNode("B1"), parent_id: "B" } as AppNode;
+    const b2 = { ...appNode("B2"), parent_id: "B" } as AppNode;
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAB1", "A", "B1", "к ребёнку"), edge("eB1B2", "B1", "B2", "внутри")],
+      endpoints: [
+        // реестр не-локальных концов: B1/B2 глубокие внутри поддерева уровня
+        { ...ghost("B1", [a("P"), a("B")]), is_external: false },
+        { ...ghost("B2", [a("P"), a("B")]), is_external: false },
+      ],
+      expanded: new Set(["B"]),
+      localChildren: { B: [b1, b2] },
+    }));
+    // B замещён детьми
+    expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "B1", "B2"]);
+    // рамка раскрытого локала B — compound с обоими детьми
+    const bf = out.layout.guestFrames.find((f) => f.id === "B");
+    expect(bf).toBeTruthy();
+    expect([...bf!.memberIds].sort()).toEqual(["B1", "B2"]);
+    // рёбра: A→B1 (конец-ребёнок локален) и внутреннее B1→B2 видны
+    expect(out.layout.groupArr.map((g) => g.id).sort()).toEqual(["eAB1", "eB1B2"]);
+    // дети засеяны интентом (own-on-first-render сетки первого показа)
+    const seeds = out.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
+    expect(seeds.map((s) => s.id).sort()).toEqual(expect.arrayContaining(["B1", "B2"]));
+  });
+
+  it("R5: дети раскрытого локала не догружены → контейнер остаётся свёрнутым узлом", async () => {
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAB", "A", "B", "зов")],
+      endpoints: [],
+      expanded: new Set(["B"]),
+      localChildren: {}, // фетч ещё в полёте
+    }));
+    expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "B"]);
+    expect(out.layout.guestFrames).toEqual([]);
+  });
+
   it("контекст-режим: раскладка есть, интентов нет (эфемерная звезда)", async () => {
     const out = await computeViewLayout({
       nodes: [appNode("F")],
@@ -148,6 +188,7 @@ describe("computeViewLayout — композиция конвейера уров
       viewLayout: {}, // контекст-схема раскладку не хранит
       ancestorIds: ["P"],
       expanded: new Set(),
+      localChildren: {},
       isContext: true,
     });
     expect(out.intents).toEqual([]);

@@ -19,7 +19,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
-import { viewsApi } from "../api/nodes";
+import { nodesApi, viewsApi } from "../api/nodes";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, AncestorRef, ViewLayout, ViewLayoutPayload } from "../types";
 import { canHaveChildren, bundleKey } from "../types";
 import {
@@ -206,20 +206,104 @@ function LevelGraphInner({
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
 
-  // Развёрнутые соседние контейнеры (свёрнуты по умолчанию). Эфемерно: сбрасываем
-  // при переходе на другой уровень.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс expand-состояния на смену уровня — осознанный reset-on-prop-change
-    setExpanded(new Set());
-  }, [containerId]);
+  // ЕДИНАЯ запись раскладки вида (R3): merge-патч поверх зеркала viewLayout →
+  // батч-PUT view_layout + зеркало родителю (onLayoutChanged). Сервер заменяет
+  // payload строки ЦЕЛИКОМ, поэтому частичный патч мержится здесь; null-патч —
+  // удалить строку (сброс в авто); null-ПОЛЕ в патче попадает в merged, сервер
+  // выкидывает его как None (exclude_none) — сброс отдельного поля.
+  const commitLayout = useCallback(
+    (patch: Record<string, Partial<ViewLayoutPayload> | null>) => {
+      if (!isArchitect || isContext) return;
+      const items: Record<string, ViewLayoutPayload | null> = {};
+      for (const [k, p] of Object.entries(patch)) {
+        items[k] = p === null ? null : { ...(viewLayout[k] ?? {}), ...p };
+      }
+      guardPersist(viewsApi.saveLayout(containerId, items), onPersistError);
+      onLayoutChanged?.(items);
+    },
+    [isArchitect, isContext, containerId, viewLayout, onPersistError, onLayoutChanged],
+  );
 
-  const expandContainer = useCallback((id: string) => {
-    setExpanded((prev) => new Set(prev).add(id));
-  }, []);
-  const collapseContainer = useCallback((id: string) => {
-    setExpanded((prev) => { const next = new Set(prev); next.delete(id); return next; });
-  }, []);
+  // Раскрытые инлайн контейнеры (гостевые и ЛОКАЛЬНЫЕ, R5). Раскрытие — часть
+  // состояния ВИДА и персистится (payload.expanded в view_layout, архитектор);
+  // поверх сохранённого живут ЭФЕМЕРНЫЕ правки текущей сессии (overrides): у
+  // viewer'а персиста нет, а у архитектора override совпадает с зеркалом коммита.
+  // Такое производное решает и гонку инициализации: viewLayout приходит async,
+  // а expanded не нужно «переливать» в стейт — он вычисляется.
+  const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(new Map());
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс эфемерных правок на смену уровня — осознанный reset-on-prop-change
+    setExpandOverrides(new Map());
+  }, [containerId]);
+  const expanded = useMemo(() => {
+    const s = new Set<string>();
+    for (const [id, p] of Object.entries(viewLayout)) if (p.expanded) s.add(id);
+    for (const [id, v] of expandOverrides) {
+      if (v) s.add(id);
+      else s.delete(id);
+    }
+    return s;
+  }, [viewLayout, expandOverrides]);
+
+  // Догруженные дети раскрытых ЛОКАЛЬНЫХ контейнеров (R5): id → прямые дети.
+  // Кэш живёт до смены уровня; сворачивание кэш не чистит (повторное раскрытие
+  // мгновенно). Конвейер держит контейнер свёрнутым, пока детей нет в карте.
+  const [localChildren, setLocalChildren] = useState<Record<string, AppNode[]>>({});
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс кэша детей на смену уровня — осознанный reset-on-prop-change
+    setLocalChildren({});
+  }, [containerId]);
+  const commitExpanded = useCallback(
+    (id: string, value: boolean) => {
+      setExpandOverrides((prev) => new Map(prev).set(id, value));
+      // персист (архитектор, не контекст — гейтит commitLayout): true — раскрыт,
+      // null-поле — сброс (exclude_none выкинет его из payload строки)
+      commitLayout({ [id]: { expanded: value ? true : null } });
+    },
+    [commitLayout],
+  );
+  // Раскрытие ГОСТЕВОГО контейнера: детей даёт проекция (реестр endpoints).
+  const expandContainer = useCallback(
+    (id: string) => { commitExpanded(id, true); },
+    [commitExpanded],
+  );
+  // Раскрытие ЛОКАЛЬНОГО контейнера (R5): лениво догружаем его прямых детей —
+  // по Д3 показываются ВСЕ дети, а /graph уровня их не отдаёт.
+  const expandLocalContainer = useCallback(
+    (id: string) => {
+      commitExpanded(id, true);
+      setLocalChildren((prev) => {
+        if (prev[id]) return prev;
+        void nodesApi.list(id).then((kids) => {
+          setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: kids }));
+        });
+        return prev;
+      });
+    },
+    [commitExpanded],
+  );
+  const collapseContainer = useCallback(
+    (id: string) => { commitExpanded(id, false); },
+    [commitExpanded],
+  );
+  // Догрузка детей для ПЕРСИСТНЫХ раскрытий (R5): после перезахода expanded
+  // приходит из view_layout, а кэш детей пуст — конвейер держал бы контейнер
+  // свёрнутым вечно. Дозагружаем локалов уровня (и, по мере появления их детей
+  // в кэше, — раскрытых потомков цепочкой). Гостевых в known нет — им детей
+  // даёт проекция. Повторный сет во время полёта гасится guard'ом cur[id].
+  useEffect(() => {
+    if (isContext) return;
+    const known = new Set([
+      ...nodes.map((n) => n.id),
+      ...Object.values(localChildren).flat().map((n) => n.id),
+    ]);
+    for (const id of expanded) {
+      if (!known.has(id) || localChildren[id]) continue;
+      void nodesApi.list(id).then((kids) => {
+        setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: kids }));
+      });
+    }
+  }, [expanded, nodes, localChildren, isContext]);
 
   // Состояние центральных направляющих магнитного выравнивания (общее для snap-драга
   // и drop-шаблона).
@@ -263,24 +347,6 @@ function LevelGraphInner({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isArchitect, isContext, runUndo, runRedo]);
-
-  // ЕДИНАЯ запись раскладки вида (R3): merge-патч поверх зеркала viewLayout →
-  // батч-PUT view_layout + зеркало родителю (onLayoutChanged). Сервер заменяет
-  // payload строки ЦЕЛИКОМ, поэтому частичный патч мержится здесь; null-патч —
-  // удалить строку (сброс в авто); null-ПОЛЕ в патче попадает в merged, сервер
-  // выкидывает его как None (exclude_none) — сброс отдельного поля.
-  const commitLayout = useCallback(
-    (patch: Record<string, Partial<ViewLayoutPayload> | null>) => {
-      if (!isArchitect || isContext) return;
-      const items: Record<string, ViewLayoutPayload | null> = {};
-      for (const [k, p] of Object.entries(patch)) {
-        items[k] = p === null ? null : { ...(viewLayout[k] ?? {}), ...p };
-      }
-      guardPersist(viewsApi.saveLayout(containerId, items), onPersistError);
-      onLayoutChanged?.(items);
-    },
-    [isArchitect, isContext, containerId, viewLayout, onPersistError, onLayoutChanged],
-  );
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
@@ -525,13 +591,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
@@ -549,7 +615,7 @@ function LevelGraphInner({
     void (async () => {
       const { layout: next, liveInputs, intents } = await computeViewLayout({
         nodes, endpoints, edges, containerId, viewLayout,
-        ancestorIds: stableAncestorIds, expanded, isContext,
+        ancestorIds: stableAncestorIds, expanded, localChildren, isContext,
       });
       if (cancelled) return; // устаревший прогон: ни снапшота, ни персиста интентов
       liveHandleInputs.current = liveInputs;
@@ -576,7 +642,7 @@ function LevelGraphInner({
     // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
-  }, [nodes, endpoints, containerId, viewLayout, edges, isContext, expanded, stableAncestorIds]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, isContext, expanded, localChildren, stableAncestorIds]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -657,21 +723,34 @@ function LevelGraphInner({
           } satisfies FrameData,
         };
       }),
-      ...layoutNodes.map((n) => ({
-        id: n.id,
-        type: "block" as const,
-        position: positions.get(n.id) ?? { x: 0, y: 0 },
-        ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
-        data: {
-          appNode: n,
-          onDrillDown: cb.onDrillDown,
-          isArchitect,
-          colors: getNodeColors(n.is_external, depth, n.status),
-          hideActions: isContext,
-          connectable: isArchitect && !isContext,
-          quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
-        } satisfies BlockData,
-      })),
+      ...layoutNodes.map((n) => {
+        const abs = positions.get(n.id) ?? { x: 0, y: 0 };
+        // блок внутри раскрытого ЛОКАЛА (R5) — ребёнок compound-рамки
+        const pf = frameOfEntity(n.id);
+        const compound = pf
+          ? { parentId: pf.id, position: { x: abs.x - pf.rect.x, y: abs.y - pf.rect.y } }
+          : { position: abs };
+        return {
+          id: n.id,
+          type: "block" as const,
+          ...compound,
+          ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
+          data: {
+            appNode: n,
+            onDrillDown: cb.onDrillDown,
+            isArchitect,
+            colors: getNodeColors(n.is_external, depth, n.status),
+            hideActions: isContext,
+            connectable: isArchitect && !isContext,
+            quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
+            // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
+            // В контексте read-only схема — без раскрытий.
+            onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
+              ? cb.expandLocalContainer
+              : undefined,
+          } satisfies BlockData,
+        };
+      }),
       ...entities.map((ent) => {
         const abs = positions.get(ent.id) ?? { x: 0, y: 0 };
         // сущность внутри раскрытой рамки — ребёнок compound-узла (координаты рамки)

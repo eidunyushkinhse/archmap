@@ -287,7 +287,8 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
       {intoZone && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
-          кнопки «Подробнее» больше нет — остаётся только «Войти» у сервисов. */}
+          кнопки «Подробнее» больше нет — «Войти» у сервисов и лупа «Раскрыть
+          содержимое» (R5, инлайн-раскрытие локального контейнера) у сервисов с детьми. */}
       {!data.hideActions && drillable && (
         <div style={nodeActions}>
           <button
@@ -296,6 +297,14 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
             style={btnStyle}
             title="Войти"
           ><DrillInIcon /></button>
+          {data.onExpand && (
+            <button
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); data.onExpand?.(data.appNode.id); }}
+              style={btnStyle}
+              title="Раскрыть содержимое"
+            >🔍</button>
+          )}
         </div>
       )}
 

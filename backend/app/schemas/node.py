@@ -99,13 +99,16 @@ class GhostNodeResponse(BaseModel):
 class ViewLayoutPayload(BaseModel):
     """Геометрия одного объекта раскладки на виде (R3, единое хранилище view_layout).
 
-    Для узла/отображаемой сущности — x/y (позиция, own-on-first-render).
+    Для узла/отображаемой сущности — x/y (позиция, own-on-first-render) и
+    expanded (R5: контейнер раскрыт инлайн в рамку с детьми; часть состояния
+    ВИДА — view = (root, expanded set), переживает перезаход).
     Для ПУЧКА рёбер (item_id "b:<src>><tgt>") — хэндлы концов, изломы waypoints
     (+ anchor: не null → точки это ОФСЕТ от позиции узла-якоря, Ф3) и доля плашки
     label_t (теперь пер-вид). Все поля опциональны — хранится только заданное.
     """
     x: float | None = None
     y: float | None = None
+    expanded: bool | None = None
     source_handle: str | None = None
     target_handle: str | None = None
     waypoints: list[Point] | None = None

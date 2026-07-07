@@ -93,6 +93,9 @@ export interface BlockData extends Record<string, unknown> {
   connectable?: boolean;
   // «быстрая связь» по стрелке-кнопке у хэндла (только когда connectable)
   quickConnect?: QuickConnectHandlers;
+  // раскрыть содержимое ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с
+  // детьми — узел заменяется рамкой со всеми детьми. undefined — кнопки нет.
+  onExpand?: (id: string) => void;
 }
 
 export interface GhostData extends Record<string, unknown> {

@@ -13,7 +13,13 @@
 // Запуск (dev-стек должен быть поднят: ./dev.sh):
 //   node scripts/dump-levels.mjs --out scripts/.polygon/baseline.json
 //   node scripts/dump-levels.mjs --check scripts/.polygon/baseline.json
-// Опции: --project <имя> (по умолчанию первый активный), --max-depth N (по умолчанию 2).
+// Опции: --project <имя> (по умолчанию первый активный), --max-depth N (по умолчанию 2),
+//   --role viewer|architect (по умолчанию viewer).
+// РОЛИ (R5): раскрытия контейнеров ПЕРСИСТЯТСЯ (payload.expanded) — обычные
+// дампы/чеки гоняем VIEWER-ом (его раскрытия эфемерны, БД не трогается; в
+// expanded-состояние входят и раскрытые ЛОКАЛЬНЫЕ контейнеры). Прогрев свежей БД
+// (--role architect, own-on-first-render засев гостей) кликает ТОЛЬКО гостевые
+// лупы, чтобы не записать раскрытия в БД.
 //
 // Окружение (выстрадано, см. память headless-route-dump):
 //   chromium: ~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome
@@ -43,6 +49,7 @@ const outFile = argOf("--out");
 const checkFile = argOf("--check");
 const projectName = argOf("--project");
 const maxDepth = Number(argOf("--max-depth") ?? 2);
+const role = argOf("--role") ?? "viewer";
 if (!outFile && !checkFile) {
   console.error("Нужен --out <file> или --check <baseline>");
   process.exit(2);
@@ -54,7 +61,7 @@ function makeToken() {
   execFileSync("backend/venv/bin/python", ["-c", `
 import sys; sys.path.insert(0, 'backend')
 from app.auth import create_access_token
-open(${JSON.stringify(tokFile)}, 'w').write(create_access_token({'sub': 'admin', 'role': 'architect'}))
+open(${JSON.stringify(tokFile)}, 'w').write(create_access_token({'sub': 'admin', 'role': ${JSON.stringify(role)}}))
 `]);
   const tok = readFileSync(tokFile, "utf8").trim();
   rmSync(tokFile);
@@ -141,11 +148,16 @@ async function settleSignature(page) {
   throw new Error("Сигнатура не стабилизировалась за 14с");
 }
 
-// Раскрыть по очереди все гостевые контейнеры уровня (лупа «Раскрыть содержимое»).
-// Раскрытие может обнажить новые контейнеры — крутим до исчерпания (кэп 10 итераций).
+// Раскрыть по очереди все контейнеры уровня (лупа «Раскрыть содержимое»): гостевые
+// и — с R5 — локальные. Раскрытие может обнажить новые контейнеры — крутим до
+// исчерпания (кэп 30 итераций). В architect-режиме (прогрев) кликаем ТОЛЬКО
+// гостевые лупы: раскрытия локалов архитектором персистятся и замусорили бы БД.
 async function expandAllGuests(page) {
-  for (let i = 0; i < 10; i++) {
-    const btn = page.locator('button[title="Раскрыть содержимое"]').first();
+  const sel = role === "architect"
+    ? '.react-flow__node-container button[title="Раскрыть содержимое"]'
+    : 'button[title="Раскрыть содержимое"]';
+  for (let i = 0; i < 30; i++) {
+    const btn = page.locator(sel).first();
     if ((await btn.count()) === 0) return i > 0;
     await btn.click({ force: true });
     await settleSignature(page);
