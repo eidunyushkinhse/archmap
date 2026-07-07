@@ -152,12 +152,12 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     load: () => Promise<{ content: string }>;
   } | null>(null);
 
-  // История Undo/Redo всего вида уровня: команды перемещений/изломов кладёт LevelGraph,
-  // команду удаления — handleNodeDeleted (удаление инициируется здесь). История
-  // per-level-view: чистим при смене уровня. Чистка живёт ЗДЕСЬ, а не в LevelGraph,
-  // потому что после удаления load() на миг подменяет LevelGraph спиннером — его
-  // эффект-на-mount затёр бы только что положенную команду удаления. TreePage на load
-  // не ремаунтится, поэтому эффект на currentParentId срабатывает лишь на реальной навигации.
+  // История Undo/Redo: команды перемещений/изломов кладёт LevelGraph, структурные
+  // (создание/правка/удаление узлов и связей) — обработчики здесь. История СКВОЗНАЯ
+  // по уровням (при навигации НЕ чистится): каждая команда несёт level, и дисптчеры
+  // dispatchUndo/dispatchRedo перед откатом редиректят пользователя на уровень правки.
+  // Полная чистка — только при «Переразложить уровень» (история кросс-уровневая, а
+  // сброс раскладки необратим).
   const history = useHistory();
 
   const isArchitect = getUserRole() === "architect";
@@ -460,8 +460,9 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     // повторное удаление по тому же id. В отличие от перемещений (мгновенное зеркало
     // в стейт), структурное восстановление требует серверной проекции гостей/рёбер,
     // поэтому undo/redo перечитывают уровень — та же цена, что и у самого удаления.
-    // Уровень фиксируем на момент удаления: история чистится при навигации, так что
-    // на момент undo пользователь на том же уровне.
+    // level обязателен: история СКВОЗНАЯ по уровням, и без него кросс-уровневый
+    // Undo не средиректил бы на уровень удаления, а refetch загрузил бы данные
+    // чужого уровня в текущий холст (расходясь с breadcrumb).
     if (!snapshot) return;
     const levelAtDelete = currentParentId;
     const refetch = () => {
@@ -470,6 +471,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     };
     history.push({
       label: "Удаление объекта",
+      level: levelAtDelete,
       undo: () => {
         guardPersist(nodesApi.restore(snapshot).then(refetch), resyncOnPersistError);
       },
@@ -493,6 +495,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     };
     history.push({
       label: `Удаление объектов (${ids.length})`,
+      level: levelAtDelete,
       undo: () => {
         guardPersist(
           Promise.all(snapshots.map((s) => nodesApi.restore(s))).then(refetch),
