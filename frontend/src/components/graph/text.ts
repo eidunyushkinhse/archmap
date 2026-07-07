@@ -20,11 +20,6 @@ export function wrapLabel(text: string, maxLen = 20): string[] {
   return lines;
 }
 
-/** Максимальная длина одной строки после переноса (для minlen в dagre) */
-export function maxLineLength(text: string): number {
-  return Math.max(...wrapLabel(text).map((l) => l.length), 0);
-}
-
 /** Текст связи: «метка · технология» (для буллетов мастер-стрелки) */
 export function edgeText(e: { label: string | null; technology: string | null }): string {
   return [e.label, e.technology].filter(Boolean).join(" · ") || "связь";
