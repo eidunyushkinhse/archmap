@@ -34,6 +34,7 @@ import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
 import { reconstructOwnedWaypoints, type BundleWaypoints } from "./ownedWaypoints";
 import { computeFrames, type FrameRect } from "./frames";
 import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
+import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeOverlaps } from "./nudgeOverlaps";
@@ -335,9 +336,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // ИНВАРИАНТ РАСКРЫТЫХ РАМОК (R5-фикс): узел, НЕ относящийся к раскрытой рамке
     // (локальной или гостевой), не лежит внутри неё — симметрия старого запрета
     // для родных рамок. Рамка при раскрытии пиннится, чужие уступают (MTV).
-    // Выталкивание гостя может нарушить родной keep-out → чередуем с повторным
-    // enforce до чистоты. displayedIds здесь включают и детей раскрытых рамок
-    // (они члены своих рамок — группа двигается целиком).
+    // ИНВАРИАНТ УЗЛОВ: никакие два отображаемых узла не накладываются —
+    // separateOverlappingNodes (взвешенное VPSC-разведение) в том же цикле.
+    // Выталкивания могут нарушить родной keep-out → чередуем с повторным enforce
+    // до чистоты. displayedIds включают и детей раскрытых рамок (они члены своих
+    // рамок — из рамок двигаются группой, между собой разводятся поштучно).
+    // Сдвиги ВЛАДЕЕМЫХ узлов копим — их персист (интентом ниже) делает развод
+    // устойчивым, иначе каждый прогон разводил бы заново от наложенных строк.
+    const movedOwnedByInvariants = new Set<string>();
     {
       const externalsRefs = [
         ...entities.map((e) => ({
@@ -347,6 +353,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         ...localFrames,
       ];
       const allDisplayed = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+      let anythingMoved = false;
       for (let round = 0; round < 4; round++) {
         const expFrames = computeFrames({
           localIds: nodes.map((n) => n.id),
@@ -360,13 +367,25 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           frames: expFrames,
           positions,
         });
-        if (movedOut.size === 0) break;
+        const movedSep = separateOverlappingNodes({
+          ids: allDisplayed,
+          positions,
+          ownedPositions,
+        });
+        for (const id of movedOut) if (ownedPositions[id]) movedOwnedByInvariants.add(id);
+        for (const id of movedSep) if (ownedPositions[id]) movedOwnedByInvariants.add(id);
+        // ничего не двинулось — оба инварианта чисты, выходим; иначе ещё раунд:
+        // развод внутри рамки растягивает её bbox, и чужих выталкивает уже
+        // СЛЕДУЮЩИЙ пересчёт expFrames
+        if (movedOut.size === 0 && movedSep.size === 0) break;
+        anythingMoved = true;
+        // сдвиги могли нарушить родной keep-out — восстановить его немедленно
         const reEnf = enforceFramesKeepOut({ nodes, entities, ancestorIds, layoutEdges, positions });
-        if (reEnf) { edgeHandles = reEnf.edgeHandles; continue; }
-        // родные рамки чисты — пересчитать хэндлы по финальным позициям и выйти
+        if (reEnf) edgeHandles = reEnf.edgeHandles;
+      }
+      if (anythingMoved) {
         const displayed = [...nodes.map((n) => ({ id: n.id })), ...entities.map((e) => ({ id: e.id }))];
         edgeHandles = assignEdgeHandles(displayed, layoutEdges, positions);
-        break;
       }
     }
 
@@ -389,18 +408,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       });
     }
 
-    // Ф4.4: персист СДВИНУТЫХ ВЛАДЕЕМЫХ соседей. У них уже есть строка позиции, поэтому
-    // collectGhostSeeds их пропускает — без персиста их новая позиция откатилась бы на
-    // следующем рендере (savedPos из БД), а новичок остался бы на разведённой → наложение
-    // вернулось бы. Persist делает разведение устойчивым: следующий рендер видит соседей на
-    // новых местах, новичок уже владеется → separateGuests становится no-op.
-    if (sg) {
-      const pushed = [...sg.moved]
-        .filter((id) => ownedPositions[id])
-        .map((id) => {
-          const p = positions.get(id)!;
-          return { id, x: p.x, y: p.y };
-        });
+    // Ф4.4: персист СДВИНУТЫХ ВЛАДЕЕМЫХ. У них уже есть строка позиции, поэтому
+    // collectGhostSeeds их пропускает — без персиста новая позиция откатилась бы на
+    // следующем рендере (savedPos из БД) и развод повторялся бы заново каждый прогон.
+    // Копятся сдвиги из разведения гостей (sg) И из цикла инвариантов (keep-out
+    // раскрытых рамок + разведение наложенных узлов).
+    {
+      const pushedIds = new Set<string>(movedOwnedByInvariants);
+      if (sg) for (const id of sg.moved) if (ownedPositions[id]) pushedIds.add(id);
+      const pushed = [...pushedIds].map((id) => {
+        const p = positions.get(id)!;
+        return { id, x: p.x, y: p.y };
+      });
       if (pushed.length > 0) intents.push({ kind: "seed-positions", seeds: pushed });
     }
 

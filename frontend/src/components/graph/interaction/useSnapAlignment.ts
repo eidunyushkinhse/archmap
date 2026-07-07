@@ -7,6 +7,8 @@ import { snapNode, nodeSize } from "./snap";
 import type { SpacingGuide } from "./distribute";
 import { computeFrames, type FrameRect } from "../layout/frames";
 import { clampOutOfNativeFrames, pushOut } from "../layout/keepGhostsOut";
+import { clampOutOfNodeRects } from "../layout/separateNodes";
+import type { Rect } from "../layout/overlapConstraints";
 import { KEEPOUT_GAP } from "../constants";
 import { absPositionOf } from "../absPos";
 import type { GhostData, ContainerData } from "../types";
@@ -70,6 +72,32 @@ export function useSnapAlignment({
         if (push) out = { x: out.x + push.dx, y: out.y + push.dy };
       }
       return out;
+    },
+    [rfNodes],
+  );
+
+  // Живой запрет НАЛОЖЕНИЯ узлов: субъект скользит вдоль чужих узлов, как вдоль
+  // рамок. Соседи собираются в АБСОЛЮТНЫХ координатах (дети compound-рамок в
+  // rfNodes относительны); exclude — группа текущего жеста (потомки рамки при её
+  // драге и т.п.), рамки и распорки соседями не считаются (у рамок свой кламп).
+  const clampOutOfNodes = useCallback(
+    (
+      subjectId: string,
+      pos: { x: number; y: number },
+      w: number,
+      h: number,
+      exclude?: Set<string>,
+    ): { x: number; y: number } => {
+      const byId = new Map(rfNodes.map((n) => [n.id, n]));
+      const others: Rect[] = [];
+      for (const o of rfNodes) {
+        if (o.id === subjectId || exclude?.has(o.id)) continue;
+        if (o.type !== "block" && o.type !== "ghost" && o.type !== "container") continue;
+        const op = absPositionOf(o, byId);
+        const { w: ow, h: oh } = nodeSize(o);
+        others.push({ minX: op.x, minY: op.y, maxX: op.x + ow, maxY: op.y + oh });
+      }
+      return clampOutOfNodeRects(pos, w, h, others);
     },
     [rfNodes],
   );
@@ -157,8 +185,12 @@ export function useSnapAlignment({
         // группово-жёсткий кламп остаётся за enforce; жёсткая группа умрёт в R4.2.
         if (n.parentId) {
           const { w: cw, h: ch } = nodeSize(n);
-          const abs = clampOutOfCompound(
-            n.id, clampOutOfNativeFrames(n.id, absPositionOf(n, byId), frames), cw, ch,
+          const abs = clampOutOfNodes(
+            n.id,
+            clampOutOfCompound(
+              n.id, clampOutOfNativeFrames(n.id, absPositionOf(n, byId), frames), cw, ch,
+            ),
+            cw, ch,
           );
           patch[n.id] = abs;
           const start = startPos.current.get(n.id);
@@ -186,9 +218,13 @@ export function useSnapAlignment({
           px = clamped.x;
           py = clamped.y;
         }
-        // R5: чужие раскрытые рамки запретны для узла любого типа (повтор живого клампа)
+        // R5: чужие раскрытые рамки и чужие узлы запретны (повтор живых клампов);
+        // при мультидраге узловой кламп не применяем (порвал бы жёсткую группу —
+        // конвейер разведёт и персистнет после отпускания)
         {
-          const cc = clampOutOfCompound(n.id, { x: px, y: py }, dw, dh);
+          const groupIds = new Set(group.map((m) => m.id));
+          let cc = clampOutOfCompound(n.id, { x: px, y: py }, dw, dh);
+          if (single) cc = clampOutOfNodes(n.id, cc, dw, dh, groupIds);
           if (cc.x !== px || cc.y !== py) {
             onNodesChange([{ id: n.id, type: "position", position: cc }]);
             px = cc.x; py = cc.y;
@@ -216,7 +252,7 @@ export function useSnapAlignment({
         });
       }
     },
-    [isArchitect, isContext, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, rfNodes, push],
+    [isArchitect, isContext, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, clampOutOfNodes, rfNodes, push],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт
@@ -261,9 +297,20 @@ export function useSnapAlignment({
       const snapped = changes.map((change) => {
         if (change.type !== "position" || !change.position) return change;
         const dragged = rfNodes.find((n) => n.id === change.id);
-        // Ребёнок compound-рамки (R4): координаты драга — в системе рамки, снап к
-        // абсолютным соседям и кламп неприменимы; RF ведёт узел как есть.
-        if (dragged?.parentId) return change;
+        // Ребёнок compound-рамки (R4): координаты драга — в системе рамки, снап и
+        // рамочные клампы в ней неприменимы. Наложение же на СИБЛИНГОВ (узлы той
+        // же рамки) клампится прямо в rel — у них та же система координат.
+        if (dragged?.parentId) {
+          const sibs: Rect[] = [];
+          for (const o of rfNodes) {
+            if (o.id === change.id || o.parentId !== dragged.parentId) continue;
+            if (o.type !== "block" && o.type !== "ghost" && o.type !== "container") continue;
+            const { w: ow, h: oh } = nodeSize(o);
+            sibs.push({ minX: o.position.x, minY: o.position.y, maxX: o.position.x + ow, maxY: o.position.y + oh });
+          }
+          const { w: cw, h: ch } = nodeSize(dragged);
+          return { ...change, position: clampOutOfNodeRects(change.position, cw, ch, sibs) };
+        }
         // Драг РАМКИ (R4.2): без магнита, но с живым клампом по её ПОЛНОМУ rect.
         // Запретную родную рамку определяет ЧЛЕНСТВО ДЕТЕЙ (как в enforce): гость
         // с общим предком законно живёт внутри родных рамок до глубины членства —
@@ -274,8 +321,18 @@ export function useSnapAlignment({
             (x) => x.parentId === dragged.id && (x.type === "ghost" || x.type === "container"),
           );
           const { w, h } = nodeSize(dragged);
-          const c = clampOutOfNativeFrames(rep?.id ?? change.id, change.position, frames, w, h);
-          return { ...change, position: clampOutOfCompound(change.id, c, w, h) };
+          const byId = new Map(rfNodes.map((n) => [n.id, n]));
+          const descendants = new Set<string>();
+          for (const o of rfNodes) {
+            let pid = o.parentId;
+            while (pid) {
+              if (pid === dragged.id) { descendants.add(o.id); break; }
+              pid = byId.get(pid)?.parentId;
+            }
+          }
+          const c1 = clampOutOfNativeFrames(rep?.id ?? change.id, change.position, frames, w, h);
+          const c2 = clampOutOfCompound(change.id, c1, w, h);
+          return { ...change, position: clampOutOfNodes(change.id, c2, w, h, descendants) };
         }
         const { w: dw, h: dh } = nodeSize(dragged);
         let x = change.position.x, y = change.position.y;
@@ -306,6 +363,8 @@ export function useSnapAlignment({
         }
         // R5: узел любого типа (и локал!) не въезжает в чужую раскрытую рамку
         ({ x, y } = clampOutOfCompound(change.id, { x, y }, dw, dh));
+        // и не накладывается на другие узлы (скольжение вдоль)
+        ({ x, y } = clampOutOfNodes(change.id, { x, y }, dw, dh));
         // Направляющие — только при активном драге и только по оси, которую clamp не двигал
         // (иначе линия показывала бы притяжку там, где узел уже оттолкнут рамкой).
         if (change.dragging) {
@@ -329,7 +388,7 @@ export function useSnapAlignment({
       });
       onNodesChange(snapped);
     },
-    [rfNodes, onNodesChange, setGuides, levelFrames, clampOutOfCompound],
+    [rfNodes, onNodesChange, setGuides, levelFrames, clampOutOfCompound, clampOutOfNodes],
   );
 
   return { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart };

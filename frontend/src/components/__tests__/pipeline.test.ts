@@ -195,6 +195,28 @@ describe("computeViewLayout — композиция конвейера уров
     }
   });
 
+  it("инвариант наложений: два владеемых узла, сохранённых друг на друге, разведены и персистятся", async () => {
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAB", "A", "B", "зов")],
+      endpoints: [],
+      viewLayout: { A: { x: 0, y: 0 }, B: { x: 30, y: 10 } }, // наложены в БД
+    }));
+    const pa = out.layout.positions.get("A")!;
+    const pb = out.layout.positions.get("B")!;
+    const overlap = pa.x < pb.x + 180 && pa.x + 180 > pb.x && pa.y < pb.y + 70 && pa.y + 70 > pb.y;
+    expect(overlap).toBe(false);
+    // сдвинутые владеемые персистятся интентом — следующий прогон no-op
+    const seeded = out.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
+    expect(seeded.length).toBeGreaterThan(0);
+    const seededLayout = Object.fromEntries(seeded.map((s) => [s.id, { x: s.x, y: s.y }]));
+    const second = await computeViewLayout(levelInput({
+      edges: [edge("eAB", "A", "B", "зов")],
+      endpoints: [],
+      viewLayout: { A: { x: 0, y: 0 }, B: { x: 30, y: 10 }, ...seededLayout },
+    }));
+    expect(second.intents).toEqual([]);
+  });
+
   it("R5: дети раскрытого локала не догружены → контейнер остаётся свёрнутым узлом", async () => {
     const out = await computeViewLayout(levelInput({
       edges: [edge("eAB", "A", "B", "зов")],
