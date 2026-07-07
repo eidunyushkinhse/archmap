@@ -52,6 +52,10 @@ export function LevelBoundary({
         return (
           <div
             key={f.id}
+            // класс — стабильный хук для полигона (scripts/dump-levels.mjs): рамки
+            // входят в структурную сигнатуру уровня
+            className="lg-frame"
+            data-frame-id={f.id}
             style={{
               position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
               border: "1px dashed #9ca3af", borderRadius: 12, background: "transparent",
