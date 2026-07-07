@@ -30,6 +30,7 @@ import { projectGhosts } from "./projectGhosts";
 import { layoutLevel, layoutContext } from "./engine";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
 import { reconstructOwnedWaypoints, type BundleWaypoints } from "./ownedWaypoints";
+import { computeFrames, type FrameRect } from "./frames";
 import { enforceFramesKeepOut } from "./keepGhostsOut";
 import { separateGuests } from "./separateGuests";
 import { buildAutoRoutes } from "./autoRoutes";
@@ -62,6 +63,11 @@ export type LayoutResult = {
   // изломы ПУЧКОВ, реконструированные в абсолют (владеемые якорем — anchor + офсет,
   // Ф3/D8; прочие — как пришли). Ключ — ключ пучка. Сборка читает путь отсюда.
   bundleWaypoints: Record<string, EdgePoint[]>;
+  // РАСКРЫТЫЕ гостевые рамки на финальных позициях (R4): реальные rect'ы для
+  // compound-узлов RF (id рамки = id раскрытого контейнера; дети — memberIds).
+  // Отсортированы по depth (внешние первыми) — порядок вложенности parentId.
+  // Родные (breadcrumb) рамки сюда не входят — их рисует оверлей LevelBoundary.
+  guestFrames: FrameRect[];
   groupArr: EdgeGroup[];
   spacers: RFNode[];
 };
@@ -563,10 +569,28 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     );
   }
 
+  // РАСКРЫТЫЕ гостевые рамки на финальных позициях (R4): их rect'ы становятся
+  // compound-узлами RF в сборке. Родные рамки (native) не берём — они остаются
+  // живым оверлеем LevelBoundary (bbox-follow за драгом).
+  const guestFrames: FrameRect[] = [];
+  if (!isContext && ancestorIds.length > 0) {
+    const frames = computeFrames({
+      localIds: nodes.map((n) => n.id),
+      externals: entities.map((e) => ({
+        id: e.id,
+        ancestors: e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors,
+      })),
+      pos: (id) => positions.get(id),
+      ancestorIds,
+      ancestorNames: ancestorIds, // имена нативных не нужны — их отфильтровываем
+    });
+    guestFrames.push(...frames.filter((f) => !f.native));
+  }
+
   return {
     layout: {
       nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
-      autoRoutes, labelPlacements, bundleWaypoints: effectiveWaypoints, groupArr, spacers,
+      autoRoutes, labelPlacements, bundleWaypoints: effectiveWaypoints, guestFrames, groupArr, spacers,
     },
     liveInputs: {
       layoutEdges,

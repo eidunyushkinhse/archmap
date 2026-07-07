@@ -4,26 +4,23 @@
 // источник правды, общий с энфорсом запрета проникновения гостей (keepGhostsOut.ts).
 import type { Node as RFNode } from "@xyflow/react";
 import { computeFrames } from "./layout/frames";
+import { absPositionOf } from "./absPos";
 import type { GhostData, ContainerData } from "./types";
 import type { SpacingGuide } from "./interaction/distribute";
 import type { AncestorRef } from "../../types";
 
 /**
- * Рамки уровней (C4-boundary). Для каждого контейнера рисуется пунктирный
- * прямоугольник вокруг bbox всех его отображаемых узлов-потомков. Контейнеры:
- *  - предки из breadcrumb (ancestorIds/Names, корень → непосредственный родитель);
- *  - промежуточные контейнеры гостей между общим предком и гостем — «условно-
- *    гостевые» рамки (показывают иерархию: гость лежит в своём контейнере).
- * Так гость (напр. Zabbix Web) попадает внутрь рамки общего предка (HelixMon),
- * внутри подрамки своего родителя (ProdMon). Гость без общего предка-рамки
- * (общий предок только корень) остаётся снаружи.
- * Рендерится через ViewportPortal — в координатах графа, пан/зум вместе с узлами.
+ * НАТИВНЫЕ рамки уровней (C4-boundary): по одной на каждого предка из breadcrumb,
+ * пунктирный прямоугольник вокруг bbox всех отображаемых членов. Живой bbox-follow:
+ * пересчитывается на каждый рендер rfNodes, поэтому рамка растёт за перетаскиваемым
+ * узлом. Рендерится через ViewportPortal — в координатах графа, пан/зум с узлами.
+ * РАСКРЫТЫЕ гостевые рамки здесь больше не рисуются (R4): они — настоящие
+ * compound-узлы RF (type "frame", см. nodes.tsx), их rect задаёт раскладка.
  */
 export function LevelBoundary({
-  rfNodes, ancestorIds, ancestorNames, expanded, onCollapse,
+  rfNodes, ancestorIds, ancestorNames,
 }: {
   rfNodes: RFNode[]; ancestorIds: string[]; ancestorNames: string[];
-  expanded: Set<string>; onCollapse: (id: string) => void;
 }) {
   if (ancestorIds.length === 0) return null;
   const blocks = rfNodes.filter((n) => n.type === "block");
@@ -36,19 +33,19 @@ export function LevelBoundary({
       ? (n.data as GhostData).appNode.ancestors ?? []
       : ((n.data as ContainerData).ancestors ?? []);
 
-  const posById = new Map(rfNodes.map((n) => [n.id, n.position]));
+  // Позиции — АБСОЛЮТНЫЕ: дети compound-рамок несут относительные координаты (R4).
+  const byId = new Map(rfNodes.map((n) => [n.id, n]));
   const rects = computeFrames({
     localIds: blocks.map((b) => b.id),
     externals: externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
-    pos: (id) => posById.get(id),
+    pos: (id) => { const n = byId.get(id); return n ? absPositionOf(n, byId) : undefined; },
     ancestorIds, ancestorNames,
-  });
+  }).filter((f) => f.native);
 
   return (
     <>
       {rects.map((f) => {
         const r = f.rect;
-        const collapsible = expanded.has(f.id); // развёрнутый контейнер — можно свернуть
         return (
           <div
             key={f.id}
@@ -63,18 +60,13 @@ export function LevelBoundary({
             }}
           >
             <div
-              className={collapsible ? "nodrag nopan" : undefined}
-              onClick={collapsible ? () => onCollapse(f.id) : undefined}
-              title={collapsible ? "Свернуть" : undefined}
               style={{
                 position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
                 color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
-                border: "1px solid #e5e7eb", whiteSpace: "nowrap",
-                pointerEvents: collapsible ? "auto" : "none",
-                cursor: collapsible ? "pointer" : "default",
+                border: "1px solid #e5e7eb", whiteSpace: "nowrap", pointerEvents: "none",
               }}
             >
-              {collapsible ? `🔍 ${f.name} ✕` : f.name}
+              {f.name}
             </div>
           </div>
         );

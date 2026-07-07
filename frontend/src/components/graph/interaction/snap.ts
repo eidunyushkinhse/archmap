@@ -2,6 +2,7 @@
 // (snapCenter) + равные зазоры между соседями в линии (distribution, snapNode).
 import type { Node as RFNode } from "@xyflow/react";
 import { SNAP_THRESHOLD, NODE_W, NODE_H } from "../constants";
+import { absPositionOf } from "../absPos";
 import { distributeAxis, type LineBox, type SpacingGuide } from "./distribute";
 
 // Фактический размер узла: берём измеренный React Flow, иначе заданный явно,
@@ -12,6 +13,10 @@ export function nodeSize(n: RFNode | undefined): { w: number; h: number } {
     h: n?.measured?.height ?? n?.height ?? NODE_H,
   };
 }
+
+// Узлы-соседи для магнита: рамки и распорки не участвуют (рамка — не «сосед», её
+// центр как магнит бессмыслен). Дети compound-рамок участвуют АБСОЛЮТНЫМИ центрами.
+const isSnapPeer = (n: RFNode): boolean => n.type !== "frame" && n.type !== "spacer";
 
 // Магнитное выравнивание по ЦЕНТРУ: для центра (cx, cy) ищем ближайшего по X и по Y
 // соседа из rfNodes и, если он ближе SNAP_THRESHOLD, «прилипаем» центром к нему.
@@ -24,11 +29,13 @@ export function snapCenter(
   let snapCx = cx, snapCy = cy;
   let bestDx = SNAP_THRESHOLD, bestDy = SNAP_THRESHOLD;
   let hitX = false, hitY = false;
+  const byId = new Map(rfNodes.map((n) => [n.id, n]));
   for (const other of rfNodes) {
-    if (excludeId && other.id === excludeId) continue;
+    if ((excludeId && other.id === excludeId) || !isSnapPeer(other)) continue;
     const { w: ow, h: oh } = nodeSize(other);
-    const ocx = other.position.x + ow / 2;
-    const ocy = other.position.y + oh / 2;
+    const op = absPositionOf(other, byId);
+    const ocx = op.x + ow / 2;
+    const ocy = op.y + oh / 2;
     const dx = Math.abs(ocx - cx);
     if (dx <= bestDx) { bestDx = dx; snapCx = ocx; hitX = true; }
     const dy = Math.abs(ocy - cy);
@@ -55,12 +62,14 @@ export function snapNode(
 ): SnapResult {
   const { snapCx, snapCy, hitX, hitY } = snapCenter(cx, cy, rfNodes, excludeId);
 
-  // Боксы соседей (без самого узла) в координатах графа
+  // Боксы соседей (без самого узла) в АБСОЛЮТНЫХ координатах графа
+  const byId = new Map(rfNodes.map((n) => [n.id, n]));
   const boxes: { cx: number; cy: number; w: number; h: number }[] = [];
   for (const n of rfNodes) {
-    if (excludeId && n.id === excludeId) continue;
+    if ((excludeId && n.id === excludeId) || !isSnapPeer(n)) continue;
     const { w: ow, h: oh } = nodeSize(n);
-    boxes.push({ cx: n.position.x + ow / 2, cy: n.position.y + oh / 2, w: ow, h: oh });
+    const p = absPositionOf(n, byId);
+    boxes.push({ cx: p.x + ow / 2, cy: p.y + oh / 2, w: ow, h: oh });
   }
 
   let outCx = snapCx, outCy = snapCy;

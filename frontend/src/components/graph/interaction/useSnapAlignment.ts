@@ -7,6 +7,7 @@ import { snapNode, nodeSize } from "./snap";
 import type { SpacingGuide } from "./distribute";
 import { computeFrames, type FrameRect } from "../layout/frames";
 import { clampOutOfNativeFrames } from "../layout/keepGhostsOut";
+import { absPositionOf } from "../absPos";
 import type { GhostData, ContainerData } from "../types";
 import type { AncestorRef } from "../../../types";
 import type { Guides } from "./useAlignmentGuides";
@@ -34,13 +35,17 @@ export function useSnapAlignment({
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
   // Заполняется noteDragStart на onNodeDragStart/onSelectionDragStart (до сдвига).
+  // Храним АБСОЛЮТ вида: дети compound-рамок (R4) несут относительные координаты,
+  // а undo/redo переигрывают commitLayout — он ждёт абсолюта.
   const startPos = useRef<Map<string, { x: number; y: number }>>(new Map());
   const noteDragStart = useCallback((group: RFNode[]) => {
-    startPos.current = new Map(group.map((n) => [n.id, { x: n.position.x, y: n.position.y }]));
-  }, []);
+    const byId = new Map(rfNodes.map((n) => [n.id, n]));
+    startPos.current = new Map(group.map((n) => [n.id, absPositionOf(n, byId)]));
+  }, [rfNodes]);
   // Нативные рамки уровня по текущим узлам — общий вход запрета проникновения гостей
   // (живой clamp при драге и clamp при отпускании). Запретная рамка гостя не включает
-  // его членом, поэтому от его собственной позиции не зависит.
+  // его членом, поэтому от его собственной позиции не зависит. Позиции — абсолютные
+  // (дети compound-рамок в rfNodes относительны, R4).
   const levelFrames = useCallback((): FrameRect[] => {
     const blocks = rfNodes.filter((n) => n.type === "block");
     const externals = rfNodes.filter((n) => n.type === "ghost" || n.type === "container");
@@ -48,11 +53,11 @@ export function useSnapAlignment({
       n.type === "ghost"
         ? (n.data as GhostData).appNode.ancestors ?? []
         : ((n.data as ContainerData).ancestors ?? []);
-    const posById = new Map(rfNodes.map((n) => [n.id, n.position]));
+    const byId = new Map(rfNodes.map((n) => [n.id, n]));
     return computeFrames({
       localIds: blocks.map((b) => b.id),
       externals: externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
-      pos: (id) => posById.get(id),
+      pos: (id) => { const n = byId.get(id); return n ? absPositionOf(n, byId) : undefined; },
       ancestorIds, ancestorNames,
     });
   }, [rfNodes, ancestorIds, ancestorNames]);
@@ -76,8 +81,24 @@ export function useSnapAlignment({
       const moves: Move[] = [];
       const patch: Record<string, { x: number; y: number }> = {};
 
+      const byId = new Map(rfNodes.map((n) => [n.id, n]));
       for (const n of group) {
         if (n.type !== "block" && n.type !== "ghost" && n.type !== "container") continue;
+        // Ребёнок compound-рамки (R4): позиция драга ОТНОСИТЕЛЬНА рамке — живой снап
+        // в этой системе неприменим (соседи в абсолюте). Персистим АБСОЛЮТ (конвейер
+        // владеет позициями вида в абсолюте), прогнав через тот же keep-out-кламп:
+        // иначе сохранённое «желание» расходилось бы с рендером (enforce прибивал бы
+        // узел к границе чужой родной рамки на каждом прогоне раскладки). Точный
+        // группово-жёсткий кламп остаётся за enforce; жёсткая группа умрёт в R4.2.
+        if (n.parentId) {
+          const abs = clampOutOfNativeFrames(n.id, absPositionOf(n, byId), frames);
+          patch[n.id] = abs;
+          const start = startPos.current.get(n.id);
+          if (start && (start.x !== abs.x || start.y !== abs.y)) {
+            moves.push({ id: n.id, old: { x: start.x, y: start.y }, next: abs });
+          }
+          continue;
+        }
         const { w: dw, h: dh } = nodeSize(n);
         let px = n.position.x;
         let py = n.position.y;
@@ -167,6 +188,9 @@ export function useSnapAlignment({
       const snapped = changes.map((change) => {
         if (change.type !== "position" || !change.position) return change;
         const dragged = rfNodes.find((n) => n.id === change.id);
+        // Ребёнок compound-рамки (R4): координаты драга — в системе рамки, снап к
+        // абсолютным соседям и кламп неприменимы; RF ведёт узел как есть.
+        if (dragged?.parentId) return change;
         const { w: dw, h: dh } = nodeSize(dragged);
         let x = change.position.x, y = change.position.y;
         const isExternal = dragged && (dragged.type === "ghost" || dragged.type === "container");

@@ -89,6 +89,9 @@ async function readSignature(page) {
         const type = [...n.classList].find((c) => c.startsWith("react-flow__node-"))?.slice("react-flow__node-".length) ?? "";
         return { id: n.getAttribute("data-id"), type, x: p.x, y: p.y };
       })
+      // Рамки-узлы (R4, compound) в раздел nodes не входят — они в разделе frames,
+      // сопоставимом со старым (оверлейным) представлением рамок.
+      .filter((n) => n.type !== "frame")
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
     const roundD = (d) => (d || "").replace(/-?\d+(?:\.\d+)?/g, (s) => String(r1(+s)));
     const edges = [...document.querySelectorAll(".react-flow__edge")]
@@ -104,11 +107,21 @@ async function readSignature(page) {
       })
       .sort((a, b) => a.text.localeCompare(b.text) || a.x - b.x || a.y - b.y);
     const frames = [...document.querySelectorAll(".lg-frame")]
-      .map((el) => ({
-        id: el.getAttribute("data-frame-id"),
-        x: r1(parseFloat(el.style.left)), y: r1(parseFloat(el.style.top)),
-        w: r1(parseFloat(el.style.width)), h: r1(parseFloat(el.style.height)),
-      }))
+      .map((el) => {
+        const id = el.getAttribute("data-frame-id");
+        // R4: раскрытая гостевая рамка — RF-узел (координаты в transform обёртки,
+        // размер на её style). Нативные рамки — прежний оверлей (style.left/top).
+        const wrap = el.closest(".react-flow__node");
+        if (wrap) {
+          const p = lastPxTranslate(wrap.style.transform) ?? { x: 0, y: 0 };
+          return { id, x: p.x, y: p.y, w: r1(parseFloat(wrap.style.width)), h: r1(parseFloat(wrap.style.height)) };
+        }
+        return {
+          id,
+          x: r1(parseFloat(el.style.left)), y: r1(parseFloat(el.style.top)),
+          w: r1(parseFloat(el.style.width)), h: r1(parseFloat(el.style.height)),
+        };
+      })
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
     return { nodes, edges, labels, frames };
   });

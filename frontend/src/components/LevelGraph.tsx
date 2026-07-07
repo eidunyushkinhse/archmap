@@ -28,7 +28,7 @@ import {
 } from "./graph/constants";
 import type {
   WrappedEdgeData,
-  BlockData, GhostData, ContainerData,
+  BlockData, GhostData, ContainerData, FrameData,
   QuickConnectHandlers,
 } from "./graph/types";
 import type { EdgeSide } from "./graph/edgePath";
@@ -42,6 +42,7 @@ import { edgeTypes } from "./graph/edges";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
+import { absPositionOf } from "./graph/absPos";
 import ReconnectBlockedToast from "./graph/ReconnectBlockedToast";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
@@ -436,16 +437,18 @@ function LevelGraphInner({
   // activate (клик) → создаём связь через ту же модалку, что и ручное протягивание.
   const [qc, setQc] = useState<{ sourceId: string; sourceHandle: string; side: EdgeSide; frac: number } | null>(null);
   // Кандидат-цель для текущего qc — из геометрии узлов уровня (фикс. размер NODE_W×NODE_H).
+  // Позиции — абсолютные: дети compound-рамок несут относительные координаты (R4).
   const qcCandidate = useMemo(() => {
     if (!qc) return null;
-    const src = rfNodes.find((n) => n.id === qc.sourceId);
+    const byId = new Map(rfNodes.map((n) => [n.id, n]));
+    const src = byId.get(qc.sourceId);
     if (!src) return null;
     const cands: QcNode[] = rfNodes
-      .filter((n) => n.type !== "spacer" && n.id !== qc.sourceId)
-      .map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
+      .filter((n) => n.type !== "spacer" && n.type !== "frame" && n.id !== qc.sourceId)
+      .map((n) => ({ id: n.id, ...absPositionOf(n, byId) }));
     return findQuickConnectTarget(
       qc.sourceId, qc.side, qc.frac,
-      { id: src.id, x: src.position.x, y: src.position.y }, cands,
+      { id: src.id, ...absPositionOf(src, byId) }, cands,
     );
   }, [qc, rfNodes]);
   // latest-refs для стабильного activate: handlers кладём в data узлов, и они НЕ должны
@@ -498,13 +501,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
@@ -561,8 +564,28 @@ function LevelGraphInner({
     // nodes берём ИЗ layout (снимок, по которому он посчитан), а не из пропа — чтобы
     // позиции и данные узлов были согласованы и эффект не срабатывал со старым layout
     // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
-    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, bundleWaypoints, groupArr, spacers } = layout;
+    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, bundleWaypoints, guestFrames, groupArr, spacers } = layout;
     const cb = cbRef.current;
+    // R4: раскрытые гостевые рамки — compound-узлы RF. Родитель сущности — САМАЯ
+    // ГЛУБОКАЯ рамка, содержащая её членом; родитель рамки — самая глубокая внешняя
+    // рамка, накрывающая всех её членов. Дети получают position ОТНОСИТЕЛЬНО родителя.
+    const frameOfEntity = (id: string) => {
+      let best: (typeof guestFrames)[number] | undefined;
+      for (const f of guestFrames) {
+        if (f.memberIds.has(id) && (!best || f.depth > best.depth)) best = f;
+      }
+      return best;
+    };
+    const frameOfFrame = (f: (typeof guestFrames)[number]) => {
+      let best: (typeof guestFrames)[number] | undefined;
+      for (const g of guestFrames) {
+        if (g === f || g.depth >= f.depth) continue;
+        let covers = true;
+        for (const id of f.memberIds) if (!g.memberIds.has(id)) { covers = false; break; }
+        if (covers && (!best || g.depth > best.depth)) best = g;
+      }
+      return best;
+    };
     // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
     // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
     // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
@@ -583,6 +606,29 @@ function LevelGraphInner({
     // узел НЕ удаляем — гасим opacity, сохраняя пространственную память раскладки.
     const dimNode = (st: NodeStatus): boolean => !isContext && !viewShows(schemaView, st);
     setRfNodes([
+      // Рамки — первыми (RF требует родителя в массиве раньше детей; guestFrames
+      // отсортированы по depth, поэтому и вложенные рамки идут после объемлющих).
+      // Реальный rect из раскладки; тело прозрачно для мыши (см. FrameNode).
+      ...guestFrames.map((f) => {
+        const pf = frameOfFrame(f);
+        return {
+          id: f.id,
+          type: "frame" as const,
+          position: pf
+            ? { x: f.rect.x - pf.rect.x, y: f.rect.y - pf.rect.y }
+            : { x: f.rect.x, y: f.rect.y },
+          ...(pf ? { parentId: pf.id } : null),
+          width: f.rect.w,
+          height: f.rect.h,
+          draggable: false,
+          selectable: false,
+          zIndex: -1, // под узлами (и под их рёбрами внутри рамки)
+          data: {
+            name: f.name,
+            onCollapse: () => cb.collapseContainer(f.id),
+          } satisfies FrameData,
+        };
+      }),
       ...layoutNodes.map((n) => ({
         id: n.id,
         type: "block" as const,
@@ -599,12 +645,20 @@ function LevelGraphInner({
         } satisfies BlockData,
       })),
       ...entities.map((ent) => {
-        const position = positions.get(ent.id) ?? { x: 0, y: 0 };
+        const abs = positions.get(ent.id) ?? { x: 0, y: 0 };
+        // сущность внутри раскрытой рамки — ребёнок compound-узла (координаты рамки)
+        const pf = frameOfEntity(ent.id);
+        const compound = pf
+          ? {
+              parentId: pf.id,
+              position: { x: abs.x - pf.rect.x, y: abs.y - pf.rect.y },
+            }
+          : { position: abs };
         if (ent.kind === "leaf") {
           return {
             id: ent.id,
             type: "ghost" as const,
-            position,
+            ...compound,
             ...(dimNode(ent.ghost.status) ? { style: DIM_STYLE } : null),
             data: {
               appNode: ent.ghost,
@@ -622,7 +676,7 @@ function LevelGraphInner({
         return {
           id: ent.id,
           type: "container" as const,
-          position,
+          ...compound,
           data: {
             id: ent.id,
             name: ent.name,
@@ -1022,8 +1076,6 @@ function LevelGraphInner({
               rfNodes={rfNodes}
               ancestorIds={ancestorIds}
               ancestorNames={ancestorNames}
-              expanded={expanded}
-              onCollapse={collapseContainer}
             />
           </ViewportPortal>
         )}

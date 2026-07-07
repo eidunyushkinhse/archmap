@@ -122,9 +122,20 @@ export interface ContainerData extends Record<string, unknown> {
   quickConnect?: QuickConnectHandlers;
 }
 
+// РАСКРЫТАЯ гостевая рамка как настоящий RF-узел (R4, compound): реальный rect
+// (позиция+размер из раскладки), дети сидят внутри через parentId с координатами
+// в системе рамки. Родные (breadcrumb) рамки остаются оверлеем LevelBoundary —
+// им нужен живой bbox-follow, а не фиксированный rect.
+export interface FrameData extends Record<string, unknown> {
+  name: string;
+  // свернуть контейнер (клик по подписи «🔍 name ✕») — undefined в read-only
+  onCollapse?: () => void;
+}
+
 export type BlockRFNode = RFNode<BlockData, "block">;
 export type GhostRFNode = RFNode<GhostData, "ghost">;
 export type ContainerRFNode = RFNode<ContainerData, "container">;
+export type FrameRFNode = RFNode<FrameData, "frame">;
 
 // --- Проекция гостей с учётом свёрнутых контейнеров ---
 

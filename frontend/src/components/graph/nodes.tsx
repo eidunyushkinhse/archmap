@@ -10,7 +10,7 @@ import {
   nodeContainer, SELECTED_GLOW,
   tagChip, nodeActions, nodeBtn,
 } from "./shapes";
-import type { BlockRFNode, GhostRFNode, ContainerRFNode, QuickConnectHandlers } from "./types";
+import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, QuickConnectHandlers } from "./types";
 import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
@@ -394,6 +394,41 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
   );
 }
 
+// РАСКРЫТАЯ гостевая рамка — настоящий RF-узел (R4, compound). Реальный rect: позицию
+// и размер задаёт раскладка (width/height на самом узле), дети сидят внутри через
+// parentId в координатах рамки. Визуально — прежний lg-frame (пунктир + подпись
+// слева-внизу); класс и data-frame-id сохранены как стабильный хук полигона.
+// Тело рамки прозрачно для мыши (pointerEvents:none) — клики/драг проходят к канве
+// и рёбрам под ней; интерактивна только подпись-кнопка «Свернуть».
+function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
+  return (
+    <div
+      className="lg-frame"
+      data-frame-id={id}
+      style={{
+        width: "100%", height: "100%",
+        border: "1px dashed #9ca3af", borderRadius: 12, background: "transparent",
+        boxSizing: "border-box", pointerEvents: "none",
+      }}
+    >
+      <div
+        className={data.onCollapse ? "nodrag nopan" : undefined}
+        onClick={data.onCollapse}
+        title={data.onCollapse ? "Свернуть" : undefined}
+        style={{
+          position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
+          color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
+          border: "1px solid #e5e7eb", whiteSpace: "nowrap",
+          pointerEvents: data.onCollapse ? "auto" : "none",
+          cursor: data.onCollapse ? "pointer" : "default",
+        }}
+      >
+        {data.onCollapse ? `🔍 ${data.name} ✕` : data.name}
+      </div>
+    </div>
+  );
+}
+
 // Невидимый узел-распорка (контекст-схема): ставится в крайние точки контента, включая
 // обходы не родных стрелок, чтобы fitView (фитит только узлы) вмещал весь рисунок.
 function SpacerNode() {
@@ -404,5 +439,6 @@ export const nodeTypes: NodeTypes = {
   block: BlockNode as ComponentType<NodeProps>,
   ghost: GhostBlockNode as ComponentType<NodeProps>,
   container: ContainerNode as ComponentType<NodeProps>,
+  frame: FrameNode as ComponentType<NodeProps>,
   spacer: SpacerNode as ComponentType<NodeProps>,
 };
