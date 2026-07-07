@@ -880,6 +880,52 @@ export interface components {
             legs: components["schemas"]["LegOut"][];
         };
         /**
+         * ContextEdgeResponse
+         * @description Ребро контекст-схемы: концы СПРОЕЦИРОВАНЫ сервером (внутренний конец →
+         *     фокус), original_* — реальные узлы для деталей связи. Контекст сознательно
+         *     остаётся серверной проекцией (Д5 аудита: не трогаем до R6); waypoints/label_t
+         *     не отдаются — раскладка звезды эфемерна и живёт в своей системе координат.
+         */
+        ContextEdgeResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string | null;
+            /** Technology */
+            technology: string | null;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /**
+             * Target Id
+             * Format: uuid
+             */
+            target_id: string;
+            /**
+             * Original Source Id
+             * Format: uuid
+             */
+            original_source_id: string;
+            /**
+             * Original Target Id
+             * Format: uuid
+             */
+            original_target_id: string;
+            /** Original Source Name */
+            original_source_name: string;
+            /** Original Target Name */
+            original_target_name: string;
+            /** Source Handle */
+            source_handle: string | null;
+            /** Target Handle */
+            target_handle: string | null;
+        };
+        /**
          * DeletionSnapshot
          * @description Полный снимок того, что снёс БД-каскад при удалении узла: поддерево узлов,
          *     инцидентные рёбра и ghost-метаданные. Достаточно для точного восстановления.
@@ -1205,10 +1251,6 @@ export interface components {
              * @default []
              */
             ancestors: components["schemas"]["AncestorRef"][];
-            /** Pos X */
-            pos_x?: number | null;
-            /** Pos Y */
-            pos_y?: number | null;
             /**
              * Is Ghost
              * @default true
@@ -1241,7 +1283,16 @@ export interface components {
             /** Pos Y */
             pos_y: number;
         };
-        /** GraphEdgeResponse */
+        /**
+         * GraphEdgeResponse
+         * @description Ребро графа уровня — СЫРОЕ (R2 вид-центричного движка, C4_ENGINE_AUDIT.md).
+         *
+         *     source_id/target_id — РЕАЛЬНЫЕ концы (узел может лежать глубоко в поддереве
+         *     ребёнка или вовсе вне уровня). Проекцию концов на видимые сущности («подъём к
+         *     ближайшему видимому представителю») делает фронтенд (graph/projection.ts):
+         *     она зависит от expand/collapse-состояния, известного только ему. Сервер лишь
+         *     отбирает рёбра, затрагивающие поддерево уровня.
+         */
         GraphEdgeResponse: {
             /**
              * Id
@@ -1262,20 +1313,6 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
-            /**
-             * Original Source Id
-             * Format: uuid
-             */
-            original_source_id: string;
-            /**
-             * Original Target Id
-             * Format: uuid
-             */
-            original_target_id: string;
-            /** Original Source Name */
-            original_source_name: string;
-            /** Original Target Name */
-            original_target_name: string;
             /** Source Handle */
             source_handle: string | null;
             /** Target Handle */
@@ -1291,8 +1328,8 @@ export interface components {
             nodes: components["schemas"]["NodeResponse"][];
             /** Edges */
             edges: components["schemas"]["GraphEdgeResponse"][];
-            /** Ghost Nodes */
-            ghost_nodes: components["schemas"]["GhostNodeResponse"][];
+            /** Endpoints */
+            endpoints: components["schemas"]["GhostNodeResponse"][];
             /**
              * Level Positions
              * @default {}
@@ -1489,7 +1526,7 @@ export interface components {
              * Edges
              * @default []
              */
-            edges: components["schemas"]["GraphEdgeResponse"][];
+            edges: components["schemas"]["ContextEdgeResponse"][];
         };
         /** NodeCreate */
         NodeCreate: {

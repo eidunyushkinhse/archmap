@@ -1,8 +1,9 @@
-"""Характеризационные тесты проекции графа уровня.
+"""Характеризационные тесты СЫРОГО графа уровня (R2 вид-центричного движка).
 
-Фиксируют ТЕКУЩЕЕ поведение _build_graph / find_effective (проекция сквозных
-рёбер, набор ghost_ids, GC valid_keys) и _collect_subtree_ids, чтобы предстоящий
-рефактор бэкенда (REFACTOR_PLAN.md, F6 + Фазы) не изменил его незаметно.
+_build_graph больше НЕ проецирует концы рёбер: отдаёт рёбра, затрагивающие
+поддерево уровня, с реальными концами + реестр не-локальных концов (endpoints)
+с цепочками предков. Проекция (подъём к ближайшему видимому представителю) —
+на фронтенде (graph/projection.ts, projection.test.ts).
 """
 
 import uuid
@@ -57,10 +58,11 @@ def test_collect_subtree_ids_leaf(db):
     assert collect_subtree_ids_db(db, a.id) == {a.id}
 
 
-# =================== _build_graph: проекция сквозных рёбер ===================
+# =================== _build_graph: сырые рёбра + реестр концов ===================
 
-def test_deep_edge_projects_up_to_roots_at_root_level(db):
-    # A→A1, B→B1, ребро между глубокими листами A1→B1.
+def test_deep_edge_is_sent_raw_with_endpoint_registry(db):
+    # A→A1, B→B1, ребро между глубокими листами A1→B1. Корневой уровень: ребро
+    # отдаётся с РЕАЛЬНЫМИ концами, оба конца — в реестре endpoints с предками.
     a = _node(db, "A")
     b = _node(db, "B")
     a1 = _node(db, "A1", a)
@@ -68,7 +70,6 @@ def test_deep_edge_projects_up_to_roots_at_root_level(db):
     e = _edge(db, a1, b1)
     db.commit()
 
-    # Корневой уровень: container_id=None, локальные узлы = корни.
     graph = _build_graph(
         local_nodes=[a, b],
         container_id=None,
@@ -77,20 +78,19 @@ def test_deep_edge_projects_up_to_roots_at_root_level(db):
         db=db,
     )
     assert len(graph.edges) == 1
-    assert graph.edges[0].source_id == a.id
-    assert graph.edges[0].target_id == b.id
-    # проекция меняет ЭФФЕКТИВНЫЕ концы (a/b), но реальные концы и их имена —
-    # настоящие глубокие листы A1/B1: их показывает модалка деталей связи.
-    assert graph.edges[0].original_source_id == a1.id
-    assert graph.edges[0].original_target_id == b1.id
-    assert graph.edges[0].original_source_name == "A1"
-    assert graph.edges[0].original_target_name == "B1"
-    # на корне внешних узлов нет — гостей не образуется
-    assert graph.ghost_nodes == []
+    assert graph.edges[0].source_id == a1.id
+    assert graph.edges[0].target_id == b1.id
+    # оба глубоких конца — в реестре, с цепочками предков для фронтовой проекции
+    by_id = {ep.id: ep for ep in graph.endpoints}
+    assert set(by_id) == {a1.id, b1.id}
+    assert [x.id for x in by_id[a1.id].ancestors] == [a.id]
+    assert [x.id for x in by_id[b1.id].ancestors] == [b.id]
 
 
-def test_self_projection_edge_is_suppressed(db):
-    # Оба конца ребра проецируются на один и тот же локальный узел A → ребро скрыто.
+def test_inner_edge_of_child_is_sent_raw(db):
+    # Оба конца внутри одного ребёнка A: ребро ОТДАЁТСЯ сырым (подавление «оба
+    # конца поднялись в один локал» — забота фронтовой проекции; сырые внутренние
+    # рёбра нужны будущему раскрытию локальных контейнеров, R5).
     a = _node(db, "A")
     a1 = _node(db, "A1", a)
     a2 = _node(db, "A2", a)
@@ -104,12 +104,15 @@ def test_self_projection_edge_is_suppressed(db):
         all_edges=[e],
         db=db,
     )
-    assert graph.edges == []
+    assert len(graph.edges) == 1
+    assert graph.edges[0].source_id == a1.id
+    assert graph.edges[0].target_id == a2.id
+    assert {ep.id for ep in graph.endpoints} == {a1.id, a2.id}
 
 
-def test_sublevel_external_end_becomes_ghost(db):
-    # Уровень внутри A. Ребро A1→B1: ближний конец локальный (A1), дальний (B1) —
-    # вне поддерева A → гость, показываемый самим листом B1 с предком B.
+def test_sublevel_external_end_in_registry(db):
+    # Уровень внутри A. Ребро A1→B1: ближний конец локальный (A1, в реестр не
+    # попадает), дальний (B1) — вне поддерева A → в реестре с предком B.
     a = _node(db, "A")
     b = _node(db, "B")
     a1 = _node(db, "A1", a)
@@ -127,15 +130,13 @@ def test_sublevel_external_end_becomes_ghost(db):
     assert len(graph.edges) == 1
     assert graph.edges[0].source_id == a1.id
     assert graph.edges[0].target_id == b1.id
-    ghost_ids = {g.id for g in graph.ghost_nodes}
-    assert ghost_ids == {b1.id}
-    # предок гостя — B (корень → непосредственный родитель)
-    ghost = graph.ghost_nodes[0]
-    assert [a.id for a in ghost.ancestors] == [b.id]
+    assert {ep.id for ep in graph.endpoints} == {b1.id}
+    # предок конца — B (корень → непосредственный родитель)
+    assert [x.id for x in graph.endpoints[0].ancestors] == [b.id]
 
 
 def test_fully_external_edge_is_skipped(db):
-    # Ребро B1→B2: оба конца вне уровня A → ребра на уровне нет, гостей нет.
+    # Ребро B1→B2: не затрагивает поддерево A ни одним концом → не отдаётся.
     a = _node(db, "A")
     b = _node(db, "B")
     a1 = _node(db, "A1", a)
@@ -152,14 +153,14 @@ def test_fully_external_edge_is_skipped(db):
         db=db,
     )
     assert graph.edges == []
-    assert graph.ghost_nodes == []
+    assert graph.endpoints == []
 
 
-# =================== _build_graph: valid_keys фильтрует ответ, чтение не пишет (F6а) ===================
+# =================== _build_graph: пер-уровневый слой без фильтра, чтение не пишет (F6а) ===================
 
-def test_read_returns_valid_position_and_does_not_mutate_db(db):
-    # Уровень A, гость B1 (ребро A1→B1). valid_keys = {B1, B} (сам лист + предок-контейнер
-    # ниже общей с уровнем рамки). Позиция для B валидна, для постороннего узла — нет.
+def test_read_returns_all_rows_and_does_not_mutate_db(db):
+    # Пер-уровневый слой отдаётся БЕЗ valid_keys-фильтра: какая проекция показана —
+    # решает фронт, лишние ключи безвредны (ищутся по id отображаемой сущности).
     a = _node(db, "A")
     b = _node(db, "B")
     a1 = _node(db, "A1", a)
@@ -168,7 +169,6 @@ def test_read_returns_valid_position_and_does_not_mutate_db(db):
     e = _edge(db, a1, b1)
     db.commit()
 
-    # B — допустимая проекция (свёрнутый контейнер), Other — нет.
     db.add(GhostPosition(container_id=a.id, node_id=b.id, pos_x=10, pos_y=20))
     db.add(GhostPosition(container_id=a.id, node_id=other.id, pos_x=99, pos_y=99))
     db.commit()
@@ -180,11 +180,8 @@ def test_read_returns_valid_position_and_does_not_mutate_db(db):
         all_edges=[e],
         db=db,
     )
-    # валидная позиция отдана фронту по ключу id отображаемой сущности (B)
-    assert str(b.id) in graph.level_positions
     assert graph.level_positions[str(b.id)].pos_x == 10
-    # невалидная (Other) в ответ НЕ попала
-    assert str(other.id) not in graph.level_positions
-    # но чтение НЕ мутировало БД (F6а): обе строки на месте, в т.ч. семантически устаревшая
+    assert graph.level_positions[str(other.id)].pos_x == 99
+    # чтение НЕ мутировало БД (F6а): обе строки на месте
     remaining = {r.node_id for r in db.query(GhostPosition).all()}
     assert remaining == {b.id, other.id}

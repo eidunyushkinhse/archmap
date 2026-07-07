@@ -15,7 +15,13 @@
         R1 СДЕЛАН: конвейер раскладки целиком в чистом graph/layout/pipeline.ts
         (computeViewLayout), побочные записи БД — интентами наружу; LevelGraph
         1594→1129 строк; композиция под тестами (pipeline.test.ts, 5); полигон
-        зелёный. Дальше: R2 (единая проекция на фронте).
+        зелёный. R2 СДЕЛАН: проекция концов НА ФРОНТЕ (graph/projection.ts,
+        liftEdgesToLevel — бывший find_effective; кейсы под тестами projection.
+        test.ts); /graph отдаёт СЫРЬЁ (рёбра с реальными концами + реестр
+        endpoints с цепочками предков, пер-уровневый слой без valid_keys);
+        ghost_nodes → endpoints, контекст на своей ContextEdgeResponse (Д5);
+        original_* синтезируется в TreePage.load. Полигон зелёный. Дальше: R3
+        (единое хранилище view_layout).
 
 Следующие (приоритет)
 - [x] Frontend: быстрая связь по клику на стрелку-подсказку хэндла. Кроме ручного

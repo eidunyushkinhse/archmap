@@ -5,6 +5,7 @@ import { getUserRole } from "../api/auth";
 import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, LevelPos, LevelWaypoints, Node, NodeShape, NodeStatus, NodeUpdate, SchemaAlerts as Alerts } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import { guardPersist } from "../components/graph/interaction/persistGuard";
+import { liftEdgesToLevel } from "../components/graph/projection";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
@@ -44,7 +45,10 @@ interface Props {
 
 export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchProject }: Props) {
   const [nodes, setNodes] = useState<Node[]>([]);
-  const [ghostNodes, setGhostNodes] = useState<GhostNode[]>([]);
+  // Реестр не-локальных концов рёбер уровня (R2): гости И глубокие концы внутри
+  // поддерева, с цепочками предков. Проекцию на видимые сущности делает конвейер
+  // LevelGraph; здесь реестр нужен ещё и для имён концов и производных гостей.
+  const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
   // сохранённые координаты гостей на уровне (ключ — id отображаемой сущности:
   // лист-гость или предок-контейнер, в который гость свёрнут)
   const [levelPositions, setLevelPositions] = useState<
@@ -192,11 +196,17 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     try {
       const graph = await nodesApi.getGraph(parentId);
       setNodes(graph.nodes);
-      setGhostNodes(graph.ghost_nodes);
+      setEndpoints(graph.endpoints);
       // ?? {} — на случай старого бэкенда без поля: без позиций, но не белый экран
       setLevelPositions(graph.level_positions ?? {});
       setLevelEdgeHandles(graph.level_edge_handles ?? {});
       setLevelEdgeWaypoints(graph.level_edge_waypoints ?? {});
+      // Имена для original_* — из локалов и реестра концов (R2: source_id/target_id
+      // ребра и ЕСТЬ реальные концы, original_* синтезируются для модалок деталей).
+      const nameById = new Map<string, string>([
+        ...graph.nodes.map((n) => [n.id, n.name] as const),
+        ...graph.endpoints.map((ep) => [ep.id, ep.name] as const),
+      ]);
       setEdges(
         graph.edges.map((ge) => ({
           id: ge.id,
@@ -204,11 +214,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           technology: ge.technology,
           source_id: ge.source_id,
           target_id: ge.target_id,
-          // реальные концы ребра — нужны модалке деталей (см. LevelEdge)
-          original_source_id: ge.original_source_id,
-          original_target_id: ge.original_target_id,
-          original_source_name: ge.original_source_name,
-          original_target_name: ge.original_target_name,
+          original_source_id: ge.source_id,
+          original_target_id: ge.target_id,
+          original_source_name: nameById.get(ge.source_id) ?? "",
+          original_target_name: nameById.get(ge.target_id) ?? "",
           source_handle: ge.source_handle,
           target_handle: ge.target_handle,
           waypoints: ge.waypoints,
@@ -692,8 +701,23 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
 
   const findNodeLabel = (id: string): string =>
     nodes.find((n) => n.id === id)?.name ??
-    ghostNodes.find((g) => g.id === id)?.name ??
+    endpoints.find((ep) => ep.id === id)?.name ??
     id;
+
+  // Производные ГОСТИ уровня (identity вне поддерева): та же первая половина
+  // проекции, что в конвейере LevelGraph. Нужны легенде статусов и пикеру
+  // «объект вне уровня» — реестр endpoints шире (содержит и глубокие концы
+  // внутри поддерева, которые на холст не попадают).
+  const levelGhosts = useMemo(
+    () =>
+      liftEdgesToLevel({
+        edges,
+        endpoints,
+        localIds: new Set(nodes.map((n) => n.id)),
+        containerId: currentParentId,
+      }).ghosts,
+    [edges, endpoints, nodes, currentParentId],
+  );
 
   // Имя конца связи для заголовка «Выберите связь». Берём ФАКТИЧЕСКИЙ конец ребра
   // (может быть дочерним узлом при сквозной связи), а не спроецированный на уровень
@@ -705,21 +729,22 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     return uniq.size === 1 ? originalNames[0] : findNodeLabel(projectedId);
   };
 
-  const hasNodes = nodes.length + ghostNodes.length > 0;
+  const hasNodes = nodes.length + levelGhosts.length > 0;
   // Есть ли на уровне не-existing узлы — тогда показываем правую панель «Вид схемы»
   // (на чистой as-is-схеме фильтровать нечего; то же условие, что у легенды в LevelGraph).
   const hasStatusInfo =
     nodes.some((n) => n.status !== "existing") ||
-    ghostNodes.some((g) => g.status !== "existing");
+    levelGhosts.some((g) => g.status !== "existing");
 
   // Счётчики узлов уровня по статусу — для легенды в правой панели (как у прежнего
-  // оверлея на холсте). Считаем по сырым узлам/гостям уровня.
+  // оверлея на холсте). Считаем по локалам и ГОСТЯМ уровня (не по всему реестру
+  // endpoints — глубокие концы внутри поддерева на холсте не видны).
   const statusCounts = useMemo<Record<NodeStatus, number>>(() => {
     const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
     for (const n of nodes) c[n.status]++;
-    for (const g of ghostNodes) c[g.status]++;
+    for (const g of levelGhosts) c[g.status]++;
     return c;
-  }, [nodes, ghostNodes]);
+  }, [nodes, levelGhosts]);
 
   // Открыть мету связи в панели (двойной клик / выбор участника мастер-стрелки).
   const inspectEdge = (edge: LevelEdge) => {
@@ -856,7 +881,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           ) : (
             <LevelGraph
               nodes={nodes}
-              ghostNodes={ghostNodes}
+              endpoints={endpoints}
               levelPositions={levelPositions}
               levelEdgeHandles={levelEdgeHandles}
               levelEdgeWaypoints={levelEdgeWaypoints}
@@ -1044,7 +1069,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
             new Set<string>([
               outPicker.sourceId,
               ...nodes.map((n) => n.id),
-              ...ghostNodes.map((g) => g.id),
+              ...levelGhosts.map((g) => g.id),
             ])
           }
           onClose={() => setOutPicker(null)}

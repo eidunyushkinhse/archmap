@@ -19,6 +19,7 @@ from app.models.user import User
 from app.schemas.edge import Point
 from app.schemas.node import (
     AlertsResponse,
+    ContextEdgeResponse,
     DisconnectedNodeAlert,
     EdgeWaypointsUpdate,
     GhostEdgeHandleUpdate,
@@ -65,163 +66,101 @@ def _build_graph(
     all_edges: list[Edge],
     db: Session,
 ) -> GraphResponse:
-    """Строит граф уровня: проецирует сквозные рёбра, собирает гостевые узлы."""
-    local_ids: set[uuid.UUID] = {n.id for n in local_nodes}
+    """Собирает СЫРОЙ граф уровня (R2 вид-центричного движка).
 
-    def find_effective(start_id: uuid.UUID) -> tuple[uuid.UUID | None, bool]:
-        """
-        Возвращает (effective_id, is_ghost):
-        - effective_id — ближайший предок из local_ids или сам узел, если он внешний.
-        - is_ghost=True означает, что узел внешний для данного уровня.
-        """
-        current_id: uuid.UUID | None = start_id
-        while current_id is not None:
-            if current_id in local_ids:
-                return current_id, False
-            if current_id == container_id:
-                return None, False
-            node = all_nodes.get(current_id)
-            if node is None:
-                return None, False
-            current_id = node.parent_id
-        return start_id, True
+    Отдаёт: детей контейнера, рёбра, затрагивающие его поддерево (с РЕАЛЬНЫМИ
+    концами), реестр не-локальных концов с цепочками предков и пер-уровневый слой
+    раскладки. Проекцию концов на видимые сущности («подъём к ближайшему видимому
+    представителю») делает фронтенд (graph/projection.ts) — она зависит от
+    expand/collapse-состояния, известного только ему.
+    """
+    local_ids: set[uuid.UUID] = {n.id for n in local_nodes}
+    subtree = (
+        tree.subtree_ids(all_nodes, container_id)
+        if container_id is not None
+        else set(all_nodes)
+    )
 
     result_edges: list[GraphEdgeResponse] = []
-    ghost_ids: set[uuid.UUID] = set()
-    # Какие концы каждого отображаемого ребра спроецированы на гостя (edge_id →
-    # (src_ghost, tgt_ghost)) — по этому ниже накатываем сохранённые per-level хэндлы.
-    edge_ghost_ends: dict[uuid.UUID, tuple[bool, bool]] = {}
-
+    endpoint_ids: set[uuid.UUID] = set()
     for edge in all_edges:
-        eff_src, src_ghost = find_effective(edge.source_id)
-        eff_tgt, tgt_ghost = find_effective(edge.target_id)
-
-        if eff_src is None or eff_tgt is None:
+        # ребро относится к уровню, если затрагивает его поддерево хотя бы одним концом
+        if edge.source_id not in subtree and edge.target_id not in subtree:
             continue
-        if eff_src not in local_ids and eff_tgt not in local_ids:
-            continue
-        if eff_src == eff_tgt:
-            continue
-
         result_edges.append(
             GraphEdgeResponse(
                 id=edge.id,
                 label=edge.label,
                 technology=edge.technology,
-                source_id=eff_src,
-                target_id=eff_tgt,
-                original_source_id=edge.source_id,
-                original_target_id=edge.target_id,
-                original_source_name=all_nodes[edge.source_id].name,
-                original_target_name=all_nodes[edge.target_id].name,
+                source_id=edge.source_id,
+                target_id=edge.target_id,
                 source_handle=edge.source_handle,
                 target_handle=edge.target_handle,
                 waypoints=edge.waypoints,
                 label_t=edge.label_t,
             )
         )
-        edge_ghost_ends[edge.id] = (src_ghost, tgt_ghost)
-        if src_ghost:
-            ghost_ids.add(eff_src)
-        if tgt_ghost:
-            ghost_ids.add(eff_tgt)
+        for nid in (edge.source_id, edge.target_id):
+            if nid not in local_ids:
+                endpoint_ids.add(nid)
 
-    # Сохранённые координаты гостей на этом уровне.
-    # Гости бывают только на не-корневых уровнях (container_id не None).
-    #
-    # Гость может рисоваться не сам по себе, а свёрнутым в предка-контейнер
-    # (напр. сосед Account Synchronizer показывается как контейнер User Management).
-    # Контейнером служит любой предок гостя НИЖЕ общей с уровнем рамки, а какой
-    # именно — зависит от expand/collapse-состояния, известного только фронту.
-    # Поэтому валидным ключом позиции считаем сам id гостя ИЛИ id любого такого
-    # предка-кандидата. Общую рамку отсекаем по цепочке предков самого уровня.
+    # Пер-уровневый слой раскладки: ВСЕ строки контейнера как есть. Прежний фильтр
+    # valid_keys (перебор допустимых проекций) не нужен: какая проекция показана —
+    # решает фронт, а строки «не показанных сейчас» проекций безвредны по построению
+    # (позиции ищутся по id отображаемой сущности, хэндлы — по префиксу). Инвариант
+    # F6а сохраняется: ЧТЕНИЕ НЕ ПИШЕТ В БД, семантически устаревшие строки живут
+    # (при возврате проекции координаты воскресают), реальных сирот снёс БД-каскад.
     level_positions: dict[str, PosXY] = {}
     level_edge_handles: dict[str, list[str]] = {}
     level_edge_waypoints: dict[str, LevelWaypoints] = {}
-    saved_pos: dict[uuid.UUID, GhostPosition] = {}
     if container_id is not None:
-        breadcrumb_ids = {a.id for a in tree.ancestors(all_nodes, container_id)} | {container_id}
-        valid_keys: set[uuid.UUID] = set(ghost_ids)
-        for gid in ghost_ids:
-            for a in tree.ancestors(all_nodes, gid):
-                if a.id not in breadcrumb_ids:
-                    valid_keys.add(a.id)
-
-        rows = (
+        for r in (
             db.query(GhostPosition)
             .filter(GhostPosition.container_id == container_id)
             .all()
-        )
-        # ЧТЕНИЕ НЕ ПИШЕТ В БД (F6а): строки с node_id вне valid_keys просто не отдаём
-        # фронту. Удалять их на чтении нельзя (GET мутировал бы БД — ломает кэш/реплики
-        # и сносил бы сохранённую раскладку). Реальные сироты (удалён узел/контейнер)
-        # уже снесены БД-каскадом (ondelete=CASCADE). «Семантически устаревшие» строки
-        # (узел жив, но сейчас не проецируется на этот уровень) безвредны и сохраняются
-        # намеренно: при возврате проекции (правка топологии/раскрытие) координаты воскресают.
-        for r in rows:
-            if r.node_id in valid_keys:
-                level_positions[str(r.node_id)] = PosXY(pos_x=r.pos_x, pos_y=r.pos_y)
-                if r.node_id in ghost_ids:
-                    saved_pos[r.node_id] = r
+        ):
+            level_positions[str(r.node_id)] = PosXY(pos_x=r.pos_x, pos_y=r.pos_y)
 
-        # Per-level хэндлы гостевых концов рёбер. Привязка стрелки к точке гостя
-        # переживает reload (фронт больше не назначает её автоматически). Строка
-        # валидна, если ребро проецируется гостевым концом на этот уровень И node_id —
-        # допустимая проекция (тот же valid_keys, что у координат: сам гость ИЛИ
-        # предок-контейнер ниже общей с уровнем рамки). Колонка ребра хранит хэндл
-        # «домашнего» (локального) конца — её не трогаем. Как и у координат выше —
-        # чтение НЕ пишет в БД: невалидные строки не отдаём, но и не удаляем (F6а).
-        ghost_edge_ids = {eid for eid, (s, t) in edge_ghost_ends.items() if s or t}
-        handle_rows = (
+        for r in (
             db.query(GhostEdgeHandle)
             .filter(GhostEdgeHandle.container_id == container_id)
             .all()
-        )
-        for r in handle_rows:
-            if r.edge_id in ghost_edge_ids and r.node_id in valid_keys:
-                level_edge_handles.setdefault(str(r.edge_id), []).append(r.handle)
+        ):
+            level_edge_handles.setdefault(str(r.edge_id), []).append(r.handle)
 
-        # Per-level пути (изломы) гостевых стрелок. Геометрия гостевой стрелки уникальна
-        # для уровня (своя раскладка узлов + спроецированный гостевой конец), поэтому
-        # путь хранится по (container_id, edge_id), а не в колонке ребра. Валидна строка,
-        # если ребро проецируется гостевым концом на этот уровень (тот же ghost_edge_ids).
-        # Чтение НЕ пишет в БД — невалидные строки просто не отдаём (как координаты/хэндлы).
-        wp_rows = (
+        for r in (
             db.query(EdgeWaypoint)
             .filter(EdgeWaypoint.container_id == container_id)
             .all()
-        )
-        for r in wp_rows:
-            if r.edge_id in ghost_edge_ids and r.waypoints:
+        ):
+            if r.waypoints:
                 level_edge_waypoints[str(r.edge_id)] = LevelWaypoints(
                     waypoints=[Point(x=p["x"], y=p["y"]) for p in r.waypoints],
                     anchor_node_id=r.anchor_node_id,
                 )
 
-    # Число прямых детей у каждого родителя — одним проходом по всем узлам, без запроса
-    # на гостя. Отмечает «промежуточных» гостей (есть слой компонентов) и питает бейдж
-    # «есть дети (N)» на схеме уровня.
+    # Число прямых детей у каждого родителя — одним проходом по всем узлам.
+    # Питает бейдж «есть дети (N)» и кнопку «Войти» и у концов-реестра, и у локалов.
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
-    ghost_nodes = [
+    # Реестр не-локальных концов рёбер (сортировка по id — детерминизм ответа).
+    endpoints = [
         GhostNodeResponse(
-            id=all_nodes[gid].id,
-            name=all_nodes[gid].name,
-            role=all_nodes[gid].role,
-            technology=all_nodes[gid].technology,
-            is_external=all_nodes[gid].is_external,
-            shape=all_nodes[gid].shape,
-            status=all_nodes[gid].status,
-            node_depth=tree.node_depth(all_nodes, gid),
-            has_children=child_counts.get(gid, 0) > 0,
-            child_count=child_counts.get(gid, 0),
-            ancestors=tree.ancestors(all_nodes, gid),
-            pos_x=saved_pos[gid].pos_x if gid in saved_pos else None,
-            pos_y=saved_pos[gid].pos_y if gid in saved_pos else None,
+            id=all_nodes[nid].id,
+            name=all_nodes[nid].name,
+            role=all_nodes[nid].role,
+            technology=all_nodes[nid].technology,
+            is_external=all_nodes[nid].is_external,
+            shape=all_nodes[nid].shape,
+            status=all_nodes[nid].status,
+            node_depth=tree.node_depth(all_nodes, nid),
+            has_children=child_counts.get(nid, 0) > 0,
+            child_count=child_counts.get(nid, 0),
+            ancestors=tree.ancestors(all_nodes, nid),
         )
-        for gid in ghost_ids
-        if gid in all_nodes
+        for nid in sorted(endpoint_ids, key=str)
+        if nid in all_nodes
     ]
-    # child_count/has_children локальных узлов — из того же Counter, что и у гостей
+    # child_count/has_children локальных узлов — из того же Counter
     # (карта всех узлов уже в памяти; отдельный SQL _mark_has_children здесь лишний).
     for n in local_nodes:
         n.child_count = child_counts.get(n.id, 0)
@@ -229,7 +168,7 @@ def _build_graph(
     return GraphResponse(
         nodes=local_nodes,
         edges=result_edges,
-        ghost_nodes=ghost_nodes,
+        endpoints=endpoints,
         level_positions=level_positions,
         level_edge_handles=level_edge_handles,
         level_edge_waypoints=level_edge_waypoints,
@@ -359,7 +298,7 @@ def get_root_graph(
         .all()
     )
     if not local_nodes:
-        return GraphResponse(nodes=[], edges=[], ghost_nodes=[])
+        return GraphResponse(nodes=[], edges=[], endpoints=[])
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return _build_graph(local_nodes, None, all_nodes, all_edges, db)
@@ -633,7 +572,7 @@ def get_node_graph(
 
     local_nodes = db.query(Node).filter(Node.parent_id == node_id).all()
     if not local_nodes:
-        return GraphResponse(nodes=[], edges=[], ghost_nodes=[])
+        return GraphResponse(nodes=[], edges=[], endpoints=[])
 
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
@@ -662,7 +601,7 @@ def get_node_context(
     # Поддерево фокуса = он сам + все потомки (карта всех узлов уже на руках).
     subtree = tree.subtree_ids(all_nodes, focus.id)
 
-    result_edges: list[GraphEdgeResponse] = []
+    result_edges: list[ContextEdgeResponse] = []
     neighbor_ids: set[uuid.UUID] = set()
     for e in all_edges:
         s_in = e.source_id in subtree
@@ -679,11 +618,11 @@ def get_node_context(
         if neigh not in all_nodes:
             continue
         neighbor_ids.add(neigh)
-        # NB: waypoints/label_t сознательно НЕ отдаются — раскладка контекст-схемы
-        # эфемерна и живёт в СВОЕЙ системе координат (звезда вокруг фокуса); путь,
-        # сохранённый в координатах графа уровня, здесь не имеет смысла.
+        # Контекст остаётся серверной проекцией (Д5 аудита): концы уже свёрнуты на
+        # фокус/соседа. waypoints/label_t сознательно НЕ отдаются — раскладка звезды
+        # эфемерна и живёт в своей системе координат.
         result_edges.append(
-            GraphEdgeResponse(
+            ContextEdgeResponse(
                 id=e.id,
                 label=e.label,
                 technology=e.technology,
@@ -709,10 +648,8 @@ def get_node_context(
             status=all_nodes[nid].status,
             node_depth=tree.node_depth(all_nodes, nid),
             ancestors=tree.ancestors(all_nodes, nid),
-            pos_x=None,
-            pos_y=None,
         )
-        for nid in neighbor_ids
+        for nid in sorted(neighbor_ids, key=str)
     ]
     # has_children фокуса — по карте всех узлов, без отдельного SQL.
     focus.child_count = sum(1 for n in all_nodes.values() if n.parent_id == focus.id)

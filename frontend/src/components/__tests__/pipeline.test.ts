@@ -34,13 +34,15 @@ function edge(id: string, source_id: string, target_id: string, label: string | 
   } as AppEdge;
 }
 
-// Базовая сцена уровня: два владеемых локала, гость-лист (без предков) и гость,
-// свёрнутый в контейнер D (предок вне breadcrumb) — оба требуют засева.
+// Базовая сцена уровня (сырьё R2): два владеемых локала — дети контейнера P;
+// рёбра с РЕАЛЬНЫМИ концами; в реестре endpoints — внешний корневой лист G и
+// H под чужим корнем D (свернётся в контейнер D). Оба гостя требуют засева.
 function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
   return {
     nodes: [appNode("A", { x: 0, y: 0 }), appNode("B", { x: 400, y: 0 })],
-    ghostNodes: [ghost("G", []), ghost("H", [a("D")])],
+    endpoints: [ghost("G", []), ghost("H", [a("D")])],
     edges: [edge("eAB", "A", "B", "зов"), edge("eGA", "G", "A"), edge("eHB", "H", "B")],
+    containerId: "P",
     levelPositions: {},
     levelEdgeHandles: {},
     levelEdgeWaypoints: {},
@@ -107,7 +109,7 @@ describe("computeViewLayout — композиция конвейера уров
   it("две связи одного направления сливаются в мастер-группу merge:", async () => {
     const inp = levelInput({
       edges: [edge("e1", "A", "B", "раз"), edge("e2", "A", "B", "два")],
-      ghostNodes: [],
+      endpoints: [],
     });
     const out = await computeViewLayout(inp);
     expect(out.layout.groupArr).toHaveLength(1);
@@ -118,8 +120,9 @@ describe("computeViewLayout — композиция конвейера уров
   it("контекст-режим: раскладка есть, интентов нет (эфемерная звезда)", async () => {
     const out = await computeViewLayout({
       nodes: [appNode("F", { x: 999, y: 999 })], // savedPos в контексте игнорируется
-      ghostNodes: [ghost("N", [])],
-      edges: [edge("eNF", "N", "F")],
+      endpoints: [ghost("N", [])],
+      edges: [edge("eNF", "N", "F")], // контекст: концы уже спроецированы сервером
+      containerId: "P",
       levelPositions: {},
       levelEdgeHandles: {},
       levelEdgeWaypoints: {},

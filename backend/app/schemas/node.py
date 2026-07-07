@@ -91,12 +91,9 @@ class GhostNodeResponse(BaseModel):
     has_children: bool = False
     # число прямых детей — для бейджа «есть дети (N)» на узле-госте схемы уровня.
     child_count: int = 0
-    # цепочка предков гостя (корень → непосредственный родитель) —
-    # для вложенных рамок-контейнеров на схеме уровня
+    # цепочка предков (корень → непосредственный родитель) — по ней фронт
+    # проецирует конец на видимого представителя и строит вложенные рамки
     ancestors: list[AncestorRef] = []
-    # сохранённые координаты гостя на текущем уровне (null — ещё не двигали)
-    pos_x: float | None = None
-    pos_y: float | None = None
     is_ghost: Literal[True] = True
 
     model_config = {"from_attributes": True}
@@ -125,27 +122,45 @@ class EdgeWaypointsUpdate(BaseModel):
 
 
 class GraphEdgeResponse(BaseModel):
+    """Ребро графа уровня — СЫРОЕ (R2 вид-центричного движка, C4_ENGINE_AUDIT.md).
+
+    source_id/target_id — РЕАЛЬНЫЕ концы (узел может лежать глубоко в поддереве
+    ребёнка или вовсе вне уровня). Проекцию концов на видимые сущности («подъём к
+    ближайшему видимому представителю») делает фронтенд (graph/projection.ts):
+    она зависит от expand/collapse-состояния, известного только ему. Сервер лишь
+    отбирает рёбра, затрагивающие поддерево уровня.
+    """
     id: uuid.UUID
     label: str | None
     technology: str | None
-    # эффективные концы ребра на данном уровне (после проекции)
     source_id: uuid.UUID
     target_id: uuid.UUID
-    # исходные концы ребра (реальные узлы, могут быть с другого уровня)
-    original_source_id: uuid.UUID
-    original_target_id: uuid.UUID
-    # имена реальных концов — фронт показывает их в модалке деталей связи
-    # (проекция на уровень может скрыть настоящий узел внутри контейнера)
-    original_source_name: str
-    original_target_name: str
-    # сохранённые хэндлы точек стыковки
+    # сохранённые хэндлы точек стыковки «домашних» (локальных) концов
     source_handle: str | None
     target_handle: str | None
-    # кастомные точки-сгибы пути (ручные «обходы»); дефолт — чтобы context-builder
-    # (он waypoints не передаёт) собирал ответ без этого поля
+    # кастомные точки-сгибы пути (ручные «обходы» локальной стрелки)
     waypoints: list[Point] | None = None
-    # позиция плашки вдоль стрелки (доля пути 0..1); null/дефолт — по центру
+    # позиция плашки вдоль стрелки (доля пути 0..1); null — по центру
     label_t: float | None = None
+
+
+class ContextEdgeResponse(BaseModel):
+    """Ребро контекст-схемы: концы СПРОЕЦИРОВАНЫ сервером (внутренний конец →
+    фокус), original_* — реальные узлы для деталей связи. Контекст сознательно
+    остаётся серверной проекцией (Д5 аудита: не трогаем до R6); waypoints/label_t
+    не отдаются — раскладка звезды эфемерна и живёт в своей системе координат.
+    """
+    id: uuid.UUID
+    label: str | None
+    technology: str | None
+    source_id: uuid.UUID
+    target_id: uuid.UUID
+    original_source_id: uuid.UUID
+    original_target_id: uuid.UUID
+    original_source_name: str
+    original_target_name: str
+    source_handle: str | None
+    target_handle: str | None
 
 
 class PosXY(BaseModel):
@@ -163,7 +178,11 @@ class LevelWaypoints(BaseModel):
 class GraphResponse(BaseModel):
     nodes: list[NodeResponse]
     edges: list[GraphEdgeResponse]
-    ghost_nodes: list[GhostNodeResponse]
+    # Реестр КОНЦОВ рёбер, не являющихся локальными узлами уровня: и внешние
+    # (гости), и глубокие внутри поддерева (концы сквозных связей в детях).
+    # Несут цепочку предков — по ней фронтовая проекция поднимает конец к
+    # ближайшему видимому представителю и строит рамки/раскрытие.
+    endpoints: list[GhostNodeResponse]
     # Сохранённые координаты гостей на этом уровне, ключ — id ОТОБРАЖАЕМОЙ сущности
     # (id самого гостя-листа ИЛИ id предка-контейнера, в который гость свёрнут).
     # Фронт expand/collapse-состояние знает только он, поэтому сюда кладём позиции
@@ -189,7 +208,7 @@ class NodeContextResponse(BaseModel):
     focus: NodeResponse
     focus_ancestors: list[AncestorRef] = []
     neighbors: list[GhostNodeResponse] = []
-    edges: list[GraphEdgeResponse] = []
+    edges: list[ContextEdgeResponse] = []
 
 
 class NodeEdgeInfo(BaseModel):

@@ -23,6 +23,7 @@ import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
 import type { LiveHandleInputs } from "../interaction/useLiveDragHandles";
 import { NODE_W, NODE_H, hid } from "../constants";
 import { edgeText } from "../text";
+import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
 import { layoutLevel, layoutContext } from "./engine";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
@@ -81,8 +82,13 @@ export type PersistIntent =
 
 export interface PipelineInput {
   nodes: AppNode[];
-  ghostNodes: GhostNode[];
+  // реестр не-локальных концов рёбер (R2): и гости, и глубокие концы внутри
+  // поддерева — все с цепочками предков. В контекст-режиме — соседи фокуса.
+  endpoints: GhostNode[];
+  // рёбра уровня СЫРЫЕ (реальные концы; проекция здесь) — в контекст-режиме
+  // концы уже спроецированы сервером на фокус/соседей.
   edges: AppEdge[];
+  containerId: string | null;
   levelPositions: Record<string, LevelPos>;
   levelEdgeHandles: Record<string, string[]>;
   levelEdgeWaypoints: Record<string, LevelWaypoints>;
@@ -115,19 +121,26 @@ export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | n
 /** Полный расчёт раскладки вида. Async из-за ELK; всё остальное синхронно и чисто. */
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
-    nodes, ghostNodes, edges, levelPositions, levelEdgeHandles, levelEdgeWaypoints,
+    nodes, endpoints, edges, containerId, levelPositions, levelEdgeHandles, levelEdgeWaypoints,
     ancestorIds, expanded, isContext,
   } = input;
   const intents: PersistIntent[] = [];
 
-  // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
-  const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, ancestorIds, expanded);
+  // ПРОЕКЦИЯ, половина 1 (R2): подъём концов сырых рёбер к ближайшему локальному
+  // предку уровня; концы вне поддерева остаются гостями. Контекст пре-спроецирован
+  // сервером (Д5) — там lift не нужен, реестр целиком трактуется как гости-соседи.
+  const { edges: liftedEdges, ghosts } = isContext
+    ? { edges, ghosts: endpoints }
+    : liftEdgesToLevel({ edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId });
+
+  // ПРОЕКЦИЯ, половина 2: сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
+  const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghosts, ancestorIds, expanded);
   const remap = (id: string) => ghostToEffective.get(id) ?? id;
   // Рёбра с концами, переадресованными на отображаемые сущности. Хэндл гостевого
   // конца подменяем сохранённым per-level значением для ТЕКУЩЕЙ проекции (узла,
   // который сейчас показан): из списка берём тот, чей префикс совпал с показанным
   // концом. Хэндл локального конца остаётся из колонки ребра.
-  const remappedEdges = edges.map((e) => {
+  const remappedEdges = liftedEdges.map((e) => {
     const source_id = remap(e.source_id);
     const target_id = remap(e.target_id);
     let source_handle = e.source_handle;

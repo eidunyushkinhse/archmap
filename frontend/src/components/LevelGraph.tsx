@@ -74,7 +74,10 @@ const DIM_STYLE = { opacity: 0.12, pointerEvents: "none" as const };
 
 interface LevelGraphProps {
   nodes: AppNode[];
-  ghostNodes: GhostNode[];
+  // реестр не-локальных концов рёбер уровня (R2): гости И глубокие концы внутри
+  // поддерева, с цепочками предков. Проекцию на видимые сущности делает конвейер.
+  // В контекст-режиме сюда передаются соседи фокуса (пре-спроецированные сервером).
+  endpoints: GhostNode[];
   // сохранённые координаты гостей на уровне, ключ — id отображаемой сущности
   // (лист-гость ИЛИ предок-контейнер, в который гость свёрнут)
   levelPositions: Record<string, LevelPos>;
@@ -199,7 +202,7 @@ export type LocateRequest = {
 
 function LevelGraphInner({
   nodes,
-  ghostNodes,
+  endpoints,
   levelPositions,
   levelEdgeHandles = EMPTY_LEVEL_HANDLES,
   levelEdgeWaypoints = EMPTY_LEVEL_WAYPOINTS,
@@ -576,7 +579,7 @@ function LevelGraphInner({
     let cancelled = false;
     void (async () => {
       const { layout: next, liveInputs, intents } = await computeViewLayout({
-        nodes, ghostNodes, edges, levelPositions, levelEdgeHandles, levelEdgeWaypoints,
+        nodes, endpoints, edges, containerId, levelPositions, levelEdgeHandles, levelEdgeWaypoints,
         ancestorIds: stableAncestorIds, expanded, isContext,
       });
       if (cancelled) return; // устаревший прогон: ни снапшота, ни персиста интентов
@@ -593,7 +596,7 @@ function LevelGraphInner({
     // (layout). Иначе при реконнекте гостя смена хэндла (async-раскладка) и сброс изломов
     // (sync-стейт) рассинхронятся: сборщик сработал бы со старым layout → ребро прыгнуло бы
     // на исходный хэндл. Прогон через раскладку гарантирует свежий layout у сборщика.
-  }, [nodes, ghostNodes, levelPositions, levelEdgeHandles, levelEdgeWaypoints, edges, isContext, expanded, stableAncestorIds]);
+  }, [nodes, endpoints, containerId, levelPositions, levelEdgeHandles, levelEdgeWaypoints, edges, isContext, expanded, stableAncestorIds]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -905,7 +908,7 @@ function LevelGraphInner({
   // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
   // дропнуть первый узел, а зум остаётся «отдалённым» (defaultViewport ниже),
   // без скачка к гигантскому fitView на единственном узле.
-  const hasGraphContent = nodes.length + ghostNodes.length > 0;
+  const hasGraphContent = nodes.length + endpoints.length > 0;
   if (isContext && !hasGraphContent) return null;
 
   return (

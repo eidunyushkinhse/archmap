@@ -56,23 +56,27 @@ export type EdgeUpdate = Schemas["EdgeUpdate"];
 export type EdgeCreate = Schemas["EdgeCreate"];
 
 export type AncestorRef = Schemas["AncestorRef"];
+// Инфо о конце ребра, не являющемся локальным узлом уровня (реестр endpoints
+// графа): и внешние концы (гости), и глубокие внутри поддерева. Имя типа
+// историческое — контекст-эндпоинт отдаёт той же схемой своих «соседей».
 export type GhostNode = Schemas["GhostNodeResponse"];
+// СЫРОЕ ребро графа уровня (R2): source_id/target_id — реальные концы; проекцию
+// на видимые сущности делает graph/projection.ts на фронте.
 export type GraphEdge = Schemas["GraphEdgeResponse"];
+// Ребро контекст-схемы: концы спроецированы сервером + original_* (реальные).
+export type ContextEdge = Schemas["ContextEdgeResponse"];
 
-// Ребро в стейте уровня/контекста: контрактное EdgeResponse (его source_id/target_id —
-// ЭФФЕКТИВНЫЕ, спроецированные на уровень концы, нужные раскладке) плюс РЕАЛЬНЫЕ концы
-// ребра (original_*), которые граф-эндпоинт отдаёт отдельно. Реальные концы и их имена
-// нужны модалке деталей связи, чтобы показывать/править настоящие узлы, а не их проекцию
-// (на верхнем уровне дочерний узел B сворачивается в контейнер C — раскладке нужен C,
-// а модалке — B).
-export type LevelEdge = Edge &
-  Pick<
-    GraphEdge,
-    | "original_source_id"
-    | "original_target_id"
-    | "original_source_name"
-    | "original_target_name"
-  >;
+// Ребро в стейте уровня/контекста: EdgeResponse-подобное (source_id/target_id —
+// РЕАЛЬНЫЕ концы, R2) плюс синтезируемые original_* — те же реальные концы с
+// именами для деталей связи. Поля original_* остаются в типе ради модалок
+// (EdgeInspector/EdgeDetailModal); на уровне их заполняет TreePage.load из
+// реестра endpoints, в контексте — сервер (ContextEdgeResponse).
+export type LevelEdge = Edge & {
+  original_source_id: string;
+  original_target_id: string;
+  original_source_name: string;
+  original_target_name: string;
+};
 export type GraphResponse = Schemas["GraphResponse"];
 export type NodeContext = Schemas["NodeContextResponse"];
 export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];

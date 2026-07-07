@@ -25,8 +25,6 @@ function ghost(id: string, ancestors: AncestorRef[], over: Partial<GhostNode> = 
     child_count: 0,
     ancestors,
     status: "existing",
-    pos_x: null,
-    pos_y: null,
     is_ghost: true,
     ...over,
   };
