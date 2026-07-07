@@ -398,9 +398,12 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
 // и размер задаёт раскладка (width/height на самом узле), дети сидят внутри через
 // parentId в координатах рамки. Визуально — прежний lg-frame (пунктир + подпись
 // слева-внизу); класс и data-frame-id сохранены как стабильный хук полигона.
-// Тело рамки прозрачно для мыши (pointerEvents:none) — клики/драг проходят к канве
-// и рёбрам под ней; интерактивна только подпись-кнопка «Свернуть».
+// ИНТЕРЬЕР рамки прозрачен для мыши (pointerEvents:none) — клики/драг проходят к
+// канве, узлам и рёбрам под ней. Драг-ручки рамки (R4.2, если draggable): 8px-полосы
+// по периметру + подпись; за них RF тащит рамку целиком — дети едут нативно (rel).
+// Клик по подписи без движения остаётся «Свернуть» (порог драга RF).
 function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
+  const grip: CSSProperties = { position: "absolute", pointerEvents: "auto", cursor: "move" };
   return (
     <div
       className="lg-frame"
@@ -411,19 +414,41 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
         boxSizing: "border-box", pointerEvents: "none",
       }}
     >
+      {data.draggable && (
+        <>
+          <div style={{ ...grip, left: 0, top: 0, right: 0, height: 8 }} />
+          <div style={{ ...grip, left: 0, bottom: 0, right: 0, height: 8 }} />
+          <div style={{ ...grip, left: 0, top: 8, bottom: 8, width: 8 }} />
+          <div style={{ ...grip, right: 0, top: 8, bottom: 8, width: 8 }} />
+        </>
+      )}
+      {/* Плашка подписи — ГЛАВНАЯ драг-ручка рамки (крупная и всегда видима, в
+          отличие от 8px-полос периметра, которые может перекрыть содержимое поверх
+          обёртки с z:-1). «Свернуть» — отдельная ✕-кнопка с nodrag, чтобы клик по
+          ней не конфликтовал с драгом плашки. */}
       <div
-        className={data.onCollapse ? "nodrag nopan" : undefined}
-        onClick={data.onCollapse}
-        title={data.onCollapse ? "Свернуть" : undefined}
+        className="nopan"
         style={{
           position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
           color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
           border: "1px solid #e5e7eb", whiteSpace: "nowrap",
-          pointerEvents: data.onCollapse ? "auto" : "none",
-          cursor: data.onCollapse ? "pointer" : "default",
+          display: "inline-flex", alignItems: "center", gap: 6,
+          pointerEvents: "auto",
+          cursor: data.draggable ? "move" : "default",
         }}
       >
-        {data.onCollapse ? `🔍 ${data.name} ✕` : data.name}
+        <span>🔍 {data.name}</span>
+        {data.onCollapse && (
+          <button
+            className="nodrag"
+            onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
+            title="Свернуть"
+            style={{
+              border: "none", background: "transparent", cursor: "pointer",
+              padding: 0, fontSize: 12, lineHeight: 1, color: "#64748b", fontWeight: 700,
+            }}
+          >✕</button>
+        )}
       </div>
     </div>
   );

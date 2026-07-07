@@ -73,9 +73,12 @@ export function useSnapAlignment({
       if (isContext) return; // контекст read-only — перетаскивания не сохраняем
       if (!isArchitect) return;
       const single = group.length === 1;
-      // нативные рамки считаем один раз на группу — нужны только при наличии гостей
+      // нативные рамки считаем один раз на группу — нужны только при наличии
+      // гостей/контейнеров/раскрытых рамок (локалам кламп не нужен)
       const frames =
-        group.some((n) => n.type === "ghost" || n.type === "container") ? levelFrames() : [];
+        group.some((n) => n.type === "ghost" || n.type === "container" || n.type === "frame")
+          ? levelFrames()
+          : [];
       // Перемещения, реально изменившие позицию (для записи в историю Undo/Redo).
       type Move = { id: string; old: { x: number; y: number }; next: { x: number; y: number } };
       const moves: Move[] = [];
@@ -83,6 +86,36 @@ export function useSnapAlignment({
 
       const byId = new Map(rfNodes.map((n) => [n.id, n]));
       for (const n of group) {
+        // Драг РАМКИ (R4.2): RF везёт потомков нативно (их rel не менялись весь
+        // жест) — персистим новые АБСОЛЮТЫ всех узлов-потомков. Саму рамку не
+        // персистим: её позиция производна от детей (bbox следующего прогона
+        // раскладки сойдётся с новым положением). Кламп от чужих родных рамок
+        // уже применил живой clamp в handleNodesChange (по полному rect рамки).
+        // Позицию рамки берём из АРГУМЕНТА RF (свежая на момент отпускания).
+        if (n.type === "frame") {
+          const freshById = new Map(byId);
+          const live = byId.get(n.id);
+          if (live) freshById.set(n.id, { ...live, position: n.position });
+          const isDescendant = (x: RFNode): boolean => {
+            let p = x.parentId ? freshById.get(x.parentId) : undefined;
+            while (p) {
+              if (p.id === n.id) return true;
+              p = p.parentId ? freshById.get(p.parentId) : undefined;
+            }
+            return false;
+          };
+          for (const child of rfNodes) {
+            if (child.type !== "ghost" && child.type !== "container") continue;
+            if (!isDescendant(child)) continue;
+            const abs = absPositionOf(child, freshById);
+            patch[child.id] = abs;
+            const start = startPos.current.get(child.id);
+            if (start && (start.x !== abs.x || start.y !== abs.y)) {
+              moves.push({ id: child.id, old: { x: start.x, y: start.y }, next: abs });
+            }
+          }
+          continue;
+        }
         if (n.type !== "block" && n.type !== "ghost" && n.type !== "container") continue;
         // Ребёнок compound-рамки (R4): позиция драга ОТНОСИТЕЛЬНА рамке — живой снап
         // в этой системе неприменим (соседи в абсолюте). Персистим АБСОЛЮТ (конвейер
@@ -191,6 +224,19 @@ export function useSnapAlignment({
         // Ребёнок compound-рамки (R4): координаты драга — в системе рамки, снап к
         // абсолютным соседям и кламп неприменимы; RF ведёт узел как есть.
         if (dragged?.parentId) return change;
+        // Драг РАМКИ (R4.2): без магнита, но с живым клампом по её ПОЛНОМУ rect.
+        // Запретную родную рамку определяет ЧЛЕНСТВО ДЕТЕЙ (как в enforce): гость
+        // с общим предком законно живёт внутри родных рамок до глубины членства —
+        // кламп по самой рамке (не члену) ошибочно выталкивал бы её из всех.
+        if (dragged?.type === "frame") {
+          frames ??= levelFrames();
+          const rep = rfNodes.find(
+            (x) => x.parentId === dragged.id && (x.type === "ghost" || x.type === "container"),
+          );
+          const { w, h } = nodeSize(dragged);
+          const c = clampOutOfNativeFrames(rep?.id ?? change.id, change.position, frames, w, h);
+          return { ...change, position: c };
+        }
         const { w: dw, h: dh } = nodeSize(dragged);
         let x = change.position.x, y = change.position.y;
         const isExternal = dragged && (dragged.type === "ghost" || dragged.type === "container");

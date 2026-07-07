@@ -304,15 +304,39 @@ function LevelGraphInner({
   // Те же точки жеста кормят groupEdgeDrag: старт фиксирует базу, drag переносит изломы,
   // стоп персистит их.
   const [dragging, setDragging] = useState(false);
+  // Драг РАМКИ (R4.2): RF в аргументах жеста отдаёт только саму рамку, а потомки
+  // едут пассивно (их rel не меняются). Расширяем группу жеста потомками рамок,
+  // чтобы groupEdgeDrag жёстко перенёс изломы рёбер МЕЖДУ потомками, а
+  // noteDragStart снял их стартовые абсолюты для Undo.
+  const expandFrameDescendants = useCallback(
+    (grp: RFNode[]): RFNode[] => {
+      if (!grp.some((n) => n.type === "frame")) return grp;
+      const ids = new Set(grp.map((n) => n.id));
+      const out = [...grp];
+      let added = true;
+      while (added) {
+        added = false;
+        for (const n of rfNodes) {
+          if (n.parentId && ids.has(n.parentId) && !ids.has(n.id)) {
+            ids.add(n.id);
+            out.push(n);
+            added = true;
+          }
+        }
+      }
+      return out;
+    },
+    [rfNodes],
+  );
   const handleNodeDragStart = useCallback(
     (_e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(true);
-      const grp = ns.length > 0 ? ns : [n];
+      const grp = expandFrameDescendants(ns.length > 0 ? ns : [n]);
       groupEdgeDrag.begin(grp);
       liveDragHandles.begin(rfNodes); // база позиций всех узлов на старте жеста
       noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
     },
-    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart],
+    [expandFrameDescendants, groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
@@ -611,6 +635,9 @@ function LevelGraphInner({
       // Реальный rect из раскладки; тело прозрачно для мыши (см. FrameNode).
       ...guestFrames.map((f) => {
         const pf = frameOfFrame(f);
+        // Тащить можно только TOP-рамку (вложенная едет с родителем; её собственный
+        // драг шёл бы в rel-системе родителя — клампы там неприменимы, R4.2).
+        const draggable = isArchitect && !isContext && !pf;
         return {
           id: f.id,
           type: "frame" as const,
@@ -620,12 +647,13 @@ function LevelGraphInner({
           ...(pf ? { parentId: pf.id } : null),
           width: f.rect.w,
           height: f.rect.h,
-          draggable: false,
+          draggable,
           selectable: false,
           zIndex: -1, // под узлами (и под их рёбрами внутри рамки)
           data: {
             name: f.name,
             onCollapse: () => cb.collapseContainer(f.id),
+            draggable,
           } satisfies FrameData,
         };
       }),

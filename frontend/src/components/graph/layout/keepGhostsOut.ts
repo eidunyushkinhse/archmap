@@ -156,21 +156,26 @@ export function enforceFramesKeepOut(params: {
 }
 
 /**
- * Clamp позиции ОДИНОЧНОГО гостя при ручном драге: если предложенная позиция вводит узел
- * в чужую родную рамку — сдвигает его минимально наружу. `nativeFrames` — нативные рамки
+ * Clamp позиции ОДИНОЧНОЙ сущности при ручном драге: если предложенная позиция вводит
+ * её в чужую родную рамку — сдвигает минимально наружу. `nativeFrames` — нативные рамки
  * уровня (computeFrames по текущим узлам); запретная рамка гостя не включает его членом,
- * поэтому от его собственной позиции не зависит. Возвращает скорректированную позицию.
+ * поэтому от его собственной позиции не зависит. `w`/`h` — размер сущности: узлы —
+ * дефолт NODE_W×NODE_H, раскрытая рамка-узел (R4.2) — её реальный rect; у не-члена
+ * нативных рамок (гостевая рамка) запретной становится самая внешняя родная.
+ * Возвращает скорректированную позицию.
  */
 export function clampOutOfNativeFrames(
   entityId: string,
   proposed: { x: number; y: number },
   frames: FrameRect[],
+  w: number = NODE_W,
+  h: number = NODE_H,
 ): { x: number; y: number } {
   const native = nativeByDepth(frames);
   const fd = memberDepth(native, entityId) + 1;
   const forbidden = native[fd];
   if (!forbidden) return proposed;
-  const r: Rect = { minX: proposed.x, minY: proposed.y, maxX: proposed.x + NODE_W, maxY: proposed.y + NODE_H };
+  const r: Rect = { minX: proposed.x, minY: proposed.y, maxX: proposed.x + w, maxY: proposed.y + h };
   const push = pushOut(r, rectOf(forbidden), KEEPOUT_GAP);
   return push ? { x: proposed.x + push.dx, y: proposed.y + push.dy } : proposed;
 }

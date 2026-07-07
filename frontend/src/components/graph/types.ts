@@ -130,6 +130,9 @@ export interface FrameData extends Record<string, unknown> {
   name: string;
   // свернуть контейнер (клик по подписи «🔍 name ✕») — undefined в read-only
   onCollapse?: () => void;
+  // рамку можно таскать (архитектор, не контекст) — рисуются драг-ручки по
+  // периметру; RF везёт детей нативно, персист потомков — useSnapAlignment
+  draggable?: boolean;
 }
 
 export type BlockRFNode = RFNode<BlockData, "block">;
