@@ -168,6 +168,33 @@ describe("computeViewLayout — композиция конвейера уров
     expect(seeds.map((s) => s.id).sort()).toEqual(expect.arrayContaining(["B1", "B2"]));
   });
 
+  it("R5-инвариант: чужой узел не остаётся внутри рамки раскрытого локала", async () => {
+    // A владеет позицией ровно там, где раскроется B (сетка детей от позиции B=400,0) —
+    // конвейер обязан вытолкнуть A за rect рамки.
+    const b1 = { ...appNode("B1"), parent_id: "B" } as AppNode;
+    const b2 = { ...appNode("B2"), parent_id: "B" } as AppNode;
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAB1", "A", "B1", "к ребёнку")],
+      endpoints: [{ ...ghost("B1", [a("P"), a("B")]), is_external: false }],
+      viewLayout: { A: { x: 420, y: 20 }, B: { x: 400, y: 0 } },
+      expanded: new Set(["B"]),
+      localChildren: { B: [b1, b2] },
+    }));
+    const bf = out.layout.guestFrames.find((f) => f.id === "B")!;
+    const pa = out.layout.positions.get("A")!;
+    const overlapsFrame =
+      pa.x < bf.rect.x + bf.rect.w && pa.x + 180 > bf.rect.x &&
+      pa.y < bf.rect.y + bf.rect.h && pa.y + 70 > bf.rect.y;
+    expect(overlapsFrame).toBe(false);
+    // члены рамки на местах сетки (рамка пиннится, уступает чужак)
+    for (const id of ["B1", "B2"]) {
+      const p = out.layout.positions.get(id)!;
+      expect(
+        p.x >= bf.content.minX - 1 && p.y >= bf.content.minY - 1,
+      ).toBe(true);
+    }
+  });
+
   it("R5: дети раскрытого локала не догружены → контейнер остаётся свёрнутым узлом", async () => {
     const out = await computeViewLayout(levelInput({
       edges: [edge("eAB", "A", "B", "зов")],

@@ -33,9 +33,10 @@ const overlaps = (a: Rect, b: Rect): boolean =>
  * ровно к её границе (без добавочного зазора). Так буфер — это сама граница: при
  * подносе узел упирается в него плавно, без скачка на gap (старый порог срабатывал
  * лишь при касании реального края → рывок). Возвращает {dx, dy} (одна ось ненулевая)
- * либо null, если `r` вне раздутой рамки.
+ * либо null, если `r` вне раздутой рамки. Экспортируется: тот же MTV использует
+ * живой кламп от раскрытых compound-рамок (useSnapAlignment).
  */
-function pushOut(r: Rect, f: Rect, gap: number): { dx: number; dy: number } | null {
+export function pushOut(r: Rect, f: Rect, gap: number): { dx: number; dy: number } | null {
   const fx: Rect = { minX: f.minX - gap, minY: f.minY - gap, maxX: f.maxX + gap, maxY: f.maxY + gap };
   if (!overlaps(r, fx)) return null;
   const left = fx.minX - r.maxX;   // < 0 — увести влево
@@ -153,6 +154,91 @@ export function enforceFramesKeepOut(params: {
   if (moved.size === 0) return null;
   const displayed = [...localIds.map((id) => ({ id })), ...externals.map((e) => ({ id: e.id }))];
   return { moved, edgeHandles: assignEdgeHandles(displayed, layoutEdges, positions) };
+}
+
+/**
+ * Выталкивание НЕ-ЧЛЕНОВ из РАСКРЫТЫХ compound-рамок (инвариант R5: узел, не
+ * относящийся к рамке, не лежит внутри неё — симметрия старого запрета для
+ * родных рамок). Субъекты — ВСЕ отображаемые узлы (локалы и сущности); узлы
+ * внутри собственной рамки двигаются с ней жёсткой группой (по top-рамке),
+ * члены запретной рамки и её вложенные рамки не трогаются. Рамка при
+ * раскрытии пиннится на месте — уступают чужие. `positions` МУТИРУЕТСЯ;
+ * рамки пересчитывать между итерациями не нужно (rect рамки зависит только
+ * от её членов, а члены не двигаются). Возвращает id сдвинутых узлов.
+ */
+export function keepOutOfExpandedFrames(params: {
+  displayedIds: string[];
+  /** раскрытые (не-native) рамки на текущих позициях; rect'ы МУТИРУЮТСЯ
+      (едут вместе со своей группой при выталкивании рамки из рамки) */
+  frames: FrameRect[];
+  positions: Map<string, { x: number; y: number }>;
+}): Set<string> {
+  const { displayedIds, frames, positions } = params;
+  const moved = new Set<string>();
+  if (frames.length === 0) return moved;
+
+  // top-рамки: без объемлющей (все члены вложенной входят в объемлющую) —
+  // достаточно их как запреток и субъектов (rect вложенной внутри rect top)
+  const isTop = (f: FrameRect): boolean =>
+    !frames.some((g) => g !== f && g.depth < f.depth && [...f.memberIds].every((id) => g.memberIds.has(id)));
+  const topFrames = frames.filter(isTop);
+
+  // группа узла — его top-рамка (двигается рамкой целиком) либо он сам
+  const frameOf = (id: string) => topFrames.find((f) => f.memberIds.has(id)) ?? null;
+
+  const shiftGroup = (g: FrameRect | null, memberIds: string[], dx: number, dy: number) => {
+    for (const mid of memberIds) {
+      const p = positions.get(mid);
+      if (!p) continue;
+      positions.set(mid, { x: p.x + dx, y: p.y + dy });
+      moved.add(mid);
+    }
+    if (g) {
+      // rect и вложенных рамок группы едут с членами — они остаются источником
+      // правды для последующих проверок этой же стадии
+      for (const f of frames) {
+        if (![...f.memberIds].every((mid) => g.memberIds.has(mid))) continue;
+        f.rect.x += dx; f.rect.y += dy;
+        f.content.minX += dx; f.content.maxX += dx;
+        f.content.minY += dy; f.content.maxY += dy;
+      }
+    }
+  };
+
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let changed = false;
+    const seen = new Set<string>();
+    for (const id of displayedIds) {
+      const g = frameOf(id);
+      const key = g ? `f:${g.id}` : id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const memberIds = g ? [...g.memberIds] : [id];
+      const p0 = positions.get(id);
+      if (!g && !p0) continue;
+      const subject: Rect = g
+        ? rectOf(g)
+        : { minX: p0!.x, minY: p0!.y, maxX: p0!.x + NODE_W, maxY: p0!.y + NODE_H };
+      const subjectArea = (subject.maxX - subject.minX) * (subject.maxY - subject.minY);
+
+      for (const f of topFrames) {
+        if (g === f) continue;
+        // субъект-член запретной рамки не выталкивается (узел/вложенная в своей)
+        if (memberIds.every((mid) => f.memberIds.has(mid))) continue;
+        // при конфликте двух рамок уступает МЕНЬШАЯ (меньше визуального разрушения;
+        // без этого выталкивалась бы первая по порядку обхода — хоть и большая)
+        if (g && subjectArea > f.rect.w * f.rect.h) continue;
+        const push = pushOut(subject, rectOf(f), KEEPOUT_GAP);
+        if (!push) continue;
+        shiftGroup(g, memberIds, push.dx, push.dy);
+        subject.minX += push.dx; subject.maxX += push.dx;
+        subject.minY += push.dy; subject.maxY += push.dy;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return moved;
 }
 
 /**

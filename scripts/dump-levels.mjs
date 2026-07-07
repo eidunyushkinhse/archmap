@@ -159,6 +159,11 @@ async function expandAllGuests(page) {
   for (let i = 0; i < 30; i++) {
     const btn = page.locator(sel).first();
     if ((await btn.count()) === 0) return i > 0;
+    // раскрытия раздвигают раскладку — очередная лупа может уйти за вьюпорт, а
+    // click по элементу вне окна падает даже с force. Вписываем холст (кнопка
+    // fitView в Controls); на сигнатуру не влияет — она в graph-координатах.
+    await page.locator(".react-flow__controls-fitview").click({ force: true });
+    await page.waitForTimeout(150);
     await btn.click({ force: true });
     await settleSignature(page);
   }

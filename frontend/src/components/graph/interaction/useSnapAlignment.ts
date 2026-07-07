@@ -6,7 +6,8 @@ import type { History } from "./useHistory";
 import { snapNode, nodeSize } from "./snap";
 import type { SpacingGuide } from "./distribute";
 import { computeFrames, type FrameRect } from "../layout/frames";
-import { clampOutOfNativeFrames } from "../layout/keepGhostsOut";
+import { clampOutOfNativeFrames, pushOut } from "../layout/keepGhostsOut";
+import { KEEPOUT_GAP } from "../constants";
 import { absPositionOf } from "../absPos";
 import type { GhostData, ContainerData } from "../types";
 import type { AncestorRef } from "../../../types";
@@ -42,6 +43,37 @@ export function useSnapAlignment({
     const byId = new Map(rfNodes.map((n) => [n.id, n]));
     startPos.current = new Map(group.map((n) => [n.id, absPositionOf(n, byId)]));
   }, [rfNodes]);
+  // Живой запрет въезда в чужую РАСКРЫТУЮ рамку (R5-инвариант: узел, не
+  // относящийся к рамке, не лежит внутри неё). Раскрытые рамки — frame-узлы
+  // канвы (их rect известен); субъект — узел ЛЮБОГО типа или целая рамка.
+  // Свои рамки (предки субъекта) и вложенные в субъект — пропускаются.
+  const clampOutOfCompound = useCallback(
+    (subjectId: string, pos: { x: number; y: number }, w: number, h: number): { x: number; y: number } => {
+      const byId = new Map(rfNodes.map((n) => [n.id, n]));
+      const isOwn = (frameId: string): boolean => {
+        let p = byId.get(subjectId)?.parentId;
+        while (p) { if (p === frameId) return true; p = byId.get(p)?.parentId; }
+        let q = byId.get(frameId)?.parentId;
+        while (q) { if (q === subjectId) return true; q = byId.get(q)?.parentId; }
+        return false;
+      };
+      let out = pos;
+      for (const f of rfNodes) {
+        if (f.type !== "frame" || f.id === subjectId || isOwn(f.id)) continue;
+        const fp = absPositionOf(f, byId);
+        const { w: fw, h: fh } = nodeSize(f);
+        const push = pushOut(
+          { minX: out.x, minY: out.y, maxX: out.x + w, maxY: out.y + h },
+          { minX: fp.x, minY: fp.y, maxX: fp.x + fw, maxY: fp.y + fh },
+          KEEPOUT_GAP,
+        );
+        if (push) out = { x: out.x + push.dx, y: out.y + push.dy };
+      }
+      return out;
+    },
+    [rfNodes],
+  );
+
   // Нативные рамки уровня по текущим узлам — общий вход запрета проникновения гостей
   // (живой clamp при драге и clamp при отпускании). Запретная рамка гостя не включает
   // его членом, поэтому от его собственной позиции не зависит. Позиции — абсолютные
@@ -124,7 +156,10 @@ export function useSnapAlignment({
         // узел к границе чужой родной рамки на каждом прогоне раскладки). Точный
         // группово-жёсткий кламп остаётся за enforce; жёсткая группа умрёт в R4.2.
         if (n.parentId) {
-          const abs = clampOutOfNativeFrames(n.id, absPositionOf(n, byId), frames);
+          const { w: cw, h: ch } = nodeSize(n);
+          const abs = clampOutOfCompound(
+            n.id, clampOutOfNativeFrames(n.id, absPositionOf(n, byId), frames), cw, ch,
+          );
           patch[n.id] = abs;
           const start = startPos.current.get(n.id);
           if (start && (start.x !== abs.x || start.y !== abs.y)) {
@@ -148,11 +183,16 @@ export function useSnapAlignment({
           // Строгий запрет проникновения в чужую родную рамку держит живой clamp в
           // handleNodesChange; здесь повторяем его для СОХРАНЯЕМОЙ позиции.
           const clamped = clampOutOfNativeFrames(n.id, { x: px, y: py }, frames);
-          if (clamped.x !== px || clamped.y !== py) {
-            onNodesChange([{ id: n.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
-          }
           px = clamped.x;
           py = clamped.y;
+        }
+        // R5: чужие раскрытые рамки запретны для узла любого типа (повтор живого клампа)
+        {
+          const cc = clampOutOfCompound(n.id, { x: px, y: py }, dw, dh);
+          if (cc.x !== px || cc.y !== py) {
+            onNodesChange([{ id: n.id, type: "position", position: cc }]);
+            px = cc.x; py = cc.y;
+          }
         }
         patch[n.id] = { x: px, y: py };
         const start = startPos.current.get(n.id);
@@ -176,7 +216,7 @@ export function useSnapAlignment({
         });
       }
     },
-    [isArchitect, isContext, commitLayout, onNodesChange, levelFrames, rfNodes, push],
+    [isArchitect, isContext, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, rfNodes, push],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт
@@ -235,7 +275,7 @@ export function useSnapAlignment({
           );
           const { w, h } = nodeSize(dragged);
           const c = clampOutOfNativeFrames(rep?.id ?? change.id, change.position, frames, w, h);
-          return { ...change, position: c };
+          return { ...change, position: clampOutOfCompound(change.id, c, w, h) };
         }
         const { w: dw, h: dh } = nodeSize(dragged);
         let x = change.position.x, y = change.position.y;
@@ -247,6 +287,7 @@ export function useSnapAlignment({
             const c = clampOutOfNativeFrames(change.id, { x, y }, frames);
             x = c.x; y = c.y;
           }
+          ({ x, y } = clampOutOfCompound(change.id, { x, y }, dw, dh));
           return { ...change, position: { x, y } };
         }
         // Центр узла в текущей (перетаскиваемой) позиции
@@ -263,6 +304,8 @@ export function useSnapAlignment({
           const c = clampOutOfNativeFrames(change.id, { x, y }, frames);
           x = c.x; y = c.y;
         }
+        // R5: узел любого типа (и локал!) не въезжает в чужую раскрытую рамку
+        ({ x, y } = clampOutOfCompound(change.id, { x, y }, dw, dh));
         // Направляющие — только при активном драге и только по оси, которую clamp не двигал
         // (иначе линия показывала бы притяжку там, где узел уже оттолкнут рамкой).
         if (change.dragging) {
@@ -286,7 +329,7 @@ export function useSnapAlignment({
       });
       onNodesChange(snapped);
     },
-    [rfNodes, onNodesChange, setGuides, levelFrames],
+    [rfNodes, onNodesChange, setGuides, levelFrames, clampOutOfCompound],
   );
 
   return { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart };

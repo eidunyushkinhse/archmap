@@ -29,10 +29,11 @@ import { edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
 import { layoutLevel, layoutContext } from "./engine";
+import { assignEdgeHandles } from "./level";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
 import { reconstructOwnedWaypoints, type BundleWaypoints } from "./ownedWaypoints";
 import { computeFrames, type FrameRect } from "./frames";
-import { enforceFramesKeepOut } from "./keepGhostsOut";
+import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateGuests } from "./separateGuests";
 import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeOverlaps } from "./nudgeOverlaps";
@@ -330,6 +331,44 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     if (enf) edgeHandles = enf.edgeHandles;
     else if (sg) edgeHandles = sg.edgeHandles;
     else if (og) edgeHandles = og.edgeHandles;
+
+    // ИНВАРИАНТ РАСКРЫТЫХ РАМОК (R5-фикс): узел, НЕ относящийся к раскрытой рамке
+    // (локальной или гостевой), не лежит внутри неё — симметрия старого запрета
+    // для родных рамок. Рамка при раскрытии пиннится, чужие уступают (MTV).
+    // Выталкивание гостя может нарушить родной keep-out → чередуем с повторным
+    // enforce до чистоты. displayedIds здесь включают и детей раскрытых рамок
+    // (они члены своих рамок — группа двигается целиком).
+    {
+      const externalsRefs = [
+        ...entities.map((e) => ({
+          id: e.id,
+          ancestors: e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors,
+        })),
+        ...localFrames,
+      ];
+      const allDisplayed = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+      for (let round = 0; round < 4; round++) {
+        const expFrames = computeFrames({
+          localIds: nodes.map((n) => n.id),
+          externals: externalsRefs,
+          pos: (id) => positions.get(id),
+          ancestorIds,
+          ancestorNames: ancestorIds,
+        }).filter((f) => !f.native);
+        const movedOut = keepOutOfExpandedFrames({
+          displayedIds: allDisplayed,
+          frames: expFrames,
+          positions,
+        });
+        if (movedOut.size === 0) break;
+        const reEnf = enforceFramesKeepOut({ nodes, entities, ancestorIds, layoutEdges, positions });
+        if (reEnf) { edgeHandles = reEnf.edgeHandles; continue; }
+        // родные рамки чисты — пересчитать хэндлы по финальным позициям и выйти
+        const displayed = [...nodes.map((n) => ({ id: n.id })), ...entities.map((e) => ({ id: e.id }))];
+        edgeHandles = assignEdgeHandles(displayed, layoutEdges, positions);
+        break;
+      }
+    }
 
     // ЗАСЕВ ВЛАДЕНИЯ (own-on-first-render): каждый гость без сохранённой позиции получает
     // её навсегда — на финальных позициях (после колец + enforce + разведения). Покрывает
