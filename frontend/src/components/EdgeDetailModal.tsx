@@ -115,10 +115,10 @@ export default function EdgeDetailModal({
     setSaving(true);
     setError(null);
     try {
-      // redoPayload — ровно то, что отправляем сейчас (повтор правки воспроизводит и
-      // авто-сброс хэндлов при смене концов на бэке). undoPayload возвращает прежние
-      // значения, ЯВНО передавая исходные хэндлы (иначе при возврате концов бэк их
-      // обнулит). Концы берём реальные (initial*), не спроецированные.
+      // redoPayload — ровно то, что отправляем сейчас; undoPayload возвращает прежние
+      // значения. Концы берём реальные (initial*), не спроецированные. Хэндлов в
+      // контракте связи больше нет (R3): геометрия живёт на пучке в view_layout и
+      // правку полей связи не сопровождает.
       const redoPayload: EdgeUpdate = {
         label: labelText || null,
         technology: technology || null,
@@ -130,8 +130,6 @@ export default function EdgeDetailModal({
         technology: edge.technology ?? null,
         source_id: initialSourceId,
         target_id: initialTargetId,
-        source_handle: edge.source_handle ?? null,
-        target_handle: edge.target_handle ?? null,
       };
       const updated = await edgesApi.update(edge.id, redoPayload);
       onSaved(updated, undoPayload, redoPayload);

@@ -4,7 +4,7 @@ import { autoHandles, assignEdgeHandles } from "../graph/layout/level";
 import { layoutLevel } from "../graph/layout/engine";
 import { computeContextLayout } from "../graph/layout/context";
 import { NODE_H } from "../graph/constants";
-import type { Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
+import type { LayoutEdge, GhostNode, AncestorRef } from "../../types";
 
 // Характеризационные тесты: фиксируют ТЕКУЩЕЕ поведение чистых функций
 // раскладки/проекции из LevelGraph.tsx, чтобы предстоящий рефактор (декомпозиция,
@@ -30,7 +30,7 @@ function ghost(id: string, ancestors: AncestorRef[], over: Partial<GhostNode> = 
   };
 }
 
-function edge(id: string, source_id: string, target_id: string, over: Partial<AppEdge> = {}): AppEdge {
+function edge(id: string, source_id: string, target_id: string, over: Partial<LayoutEdge> = {}): LayoutEdge {
   return {
     id,
     label: null,
@@ -124,7 +124,7 @@ describe("assignEdgeHandles", () => {
     });
   });
 
-  it("валидные сохранённые хэндлы (префикс совпадает) сохраняются как есть", () => {
+  it("хэндлы пучка берутся как есть (R3: валидны для проекции по построению)", () => {
     const edgeHandles = assignEdgeHandles(
       [{ id: "a" }, { id: "b" }],
       [edge("e1", "a", "b", { source_handle: "a--top--0", target_handle: "b--bottom--2" })],
@@ -133,19 +133,6 @@ describe("assignEdgeHandles", () => {
     expect(edgeHandles.get("e1")).toEqual({
       sourceHandle: "a--top--0",
       targetHandle: "b--bottom--2",
-    });
-  });
-
-  it("невалидный конец → auto, валидный конец сохраняется (концы независимы)", () => {
-    const edgeHandles = assignEdgeHandles(
-      [{ id: "a" }, { id: "b" }],
-      // source_handle ссылается на другой узел — невалиден; target_handle валиден
-      [edge("e1", "a", "b", { source_handle: "x--top--0", target_handle: "b--bottom--2" })],
-      ab,
-    );
-    expect(edgeHandles.get("e1")).toEqual({
-      sourceHandle: "a--right--1", // невалидный source → autoHandles
-      targetHandle: "b--bottom--2", // валидный target → сохранён
     });
   });
 

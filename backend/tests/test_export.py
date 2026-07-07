@@ -77,8 +77,6 @@ def test_export_omits_layout_and_documents(db):
         db,
         "Узел",
         shape="service",
-        pos_x=100.0,
-        pos_y=200.0,
         flowchart="graph TD; A-->B",
         openapi_spec="openapi: 3.0.0",
         is_external=True,

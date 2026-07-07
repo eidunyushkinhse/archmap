@@ -11,8 +11,8 @@ import uuid
 from conftest import ensure_project
 
 from app.models.edge import Edge
-from app.models.ghost_position import GhostPosition
 from app.models.node import Node
+from app.models.view_layout import ViewLayoutItem
 from app.routers.nodes import _build_graph
 from app.tree import collect_subtree_ids_db
 
@@ -156,11 +156,11 @@ def test_fully_external_edge_is_skipped(db):
     assert graph.endpoints == []
 
 
-# =================== _build_graph: пер-уровневый слой без фильтра, чтение не пишет (F6а) ===================
+# =================== _build_graph: раскладка вида без фильтра, чтение не пишет (F6а) ===================
 
 def test_read_returns_all_rows_and_does_not_mutate_db(db):
-    # Пер-уровневый слой отдаётся БЕЗ valid_keys-фильтра: какая проекция показана —
-    # решает фронт, лишние ключи безвредны (ищутся по id отображаемой сущности).
+    # Раскладка вида отдаётся БЕЗ фильтра по «валидным проекциям»: какая проекция
+    # показана — решает фронт, лишние ключи безвредны (ищутся по id сущности).
     a = _node(db, "A")
     b = _node(db, "B")
     a1 = _node(db, "A1", a)
@@ -169,8 +169,9 @@ def test_read_returns_all_rows_and_does_not_mutate_db(db):
     e = _edge(db, a1, b1)
     db.commit()
 
-    db.add(GhostPosition(container_id=a.id, node_id=b.id, pos_x=10, pos_y=20))
-    db.add(GhostPosition(container_id=a.id, node_id=other.id, pos_x=99, pos_y=99))
+    project_id = ensure_project(db).id
+    db.add(ViewLayoutItem(project_id=project_id, view_id=a.id, item_id=str(b.id), payload={"x": 10, "y": 20}))
+    db.add(ViewLayoutItem(project_id=project_id, view_id=a.id, item_id=str(other.id), payload={"x": 99, "y": 99}))
     db.commit()
 
     graph = _build_graph(
@@ -180,8 +181,8 @@ def test_read_returns_all_rows_and_does_not_mutate_db(db):
         all_edges=[e],
         db=db,
     )
-    assert graph.level_positions[str(b.id)].pos_x == 10
-    assert graph.level_positions[str(other.id)].pos_x == 99
+    assert graph.layout[str(b.id)].x == 10
+    assert graph.layout[str(other.id)].x == 99
     # чтение НЕ мутировало БД (F6а): обе строки на месте
-    remaining = {r.node_id for r in db.query(GhostPosition).all()}
-    assert remaining == {b.id, other.id}
+    remaining = {r.item_id for r in db.query(ViewLayoutItem).all()}
+    assert remaining == {str(b.id), str(other.id)}

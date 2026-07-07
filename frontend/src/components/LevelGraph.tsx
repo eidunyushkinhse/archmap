@@ -19,9 +19,9 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
-import { edgesApi, nodesApi } from "../api/nodes";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, EdgePoint, AncestorRef, LevelPos, LevelWaypoints } from "../types";
-import { canHaveChildren } from "../types";
+import { viewsApi } from "../api/nodes";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, AncestorRef, ViewLayout, ViewLayoutPayload } from "../types";
+import { canHaveChildren, bundleKey } from "../types";
 import {
   NODE_W, NODE_H,
   CTX_LABEL_W,
@@ -60,13 +60,10 @@ import { guardPersist } from "./graph/interaction/persistGuard";
 
 // --- Основной компонент ---
 
-// Стабильный пустой дефолт для levelEdgeHandles: дефолт-параметр `= {}` создавал бы
+// Стабильный пустой дефолт для viewLayout: дефолт-параметр `= {}` создавал бы
 // НОВЫЙ объект на каждый рендер, а он — зависимость async-эффекта раскладки → лишний
 // перезапуск ELK и мигание. Один модульный объект держит ссылку стабильной.
-const EMPTY_LEVEL_HANDLES: Record<string, string[]> = {};
-// Тот же приём для пер-уровневых путей гостевых стрелок: стабильная ссылка дефолта,
-// чтобы не дёргать сборку рёбер лишний раз.
-const EMPTY_LEVEL_WAYPOINTS: Record<string, LevelWaypoints> = {};
+const EMPTY_VIEW_LAYOUT: ViewLayout = {};
 
 // Стиль приглушения узла, скрытого фильтром «Вид схемы» (мгновенно, без transition —
 // см. ТЗ: fade на opacity в наших прогонах вёл себя нестабильно).
@@ -78,16 +75,10 @@ interface LevelGraphProps {
   // поддерева, с цепочками предков. Проекцию на видимые сущности делает конвейер.
   // В контекст-режиме сюда передаются соседи фокуса (пре-спроецированные сервером).
   endpoints: GhostNode[];
-  // сохранённые координаты гостей на уровне, ключ — id отображаемой сущности
-  // (лист-гость ИЛИ предок-контейнер, в который гость свёрнут)
-  levelPositions: Record<string, LevelPos>;
-  // сохранённые хэндлы гостевых концов рёбер: edge_id → список значений хэндлов
-  // (по одному на проекцию). Применяются к концу, чей текущий показанный узел
-  // совпадает с префиксом хэндла; остальные — из колонок ребра / autoHandles.
-  // Необязателен: контекст-схема (mode="context") хэндлы не сохраняет — там {}.
-  levelEdgeHandles?: Record<string, string[]>;
-  // сохранённые пути гостевых стрелок на уровне: edge_id → точки-сгибы
-  levelEdgeWaypoints?: Record<string, LevelWaypoints>;
+  // раскладка вида как есть (R3, единое хранилище view_layout): item_id → payload.
+  // Позиции — по id сущности (локалы/гости/контейнеры единообразно), геометрия
+  // рёбер — по ключу пучка "b:<src>><tgt>". Контекст-схема раскладку не хранит — {}.
+  viewLayout?: ViewLayout;
   edges: AppEdge[];
   depth: number;
   /** id узла-контейнера текущего уровня (null — корень) */
@@ -108,32 +99,11 @@ interface LevelGraphProps {
   // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
   // связь в том же направлении, а не городить отдельную стрелку.
   onEdgesChoice: (edges: AppEdge[]) => void;
-  // reconnect сохранил новые хэндлы конца стрелки — родитель синхронизирует стейт
-  // уровня, чтобы пересчёт раскладки не откатывал их к autoHandles. column — хэндл
-  // локального конца (колонка ребра), ghost — гостевого конца (по проекции node_id).
-  onEdgeHandlesChanged?: (
-    edgeId: string,
-    changes: {
-      column?: { source_handle?: string; target_handle?: string };
-      ghost?: { node_id: string; handle: string };
-    },
-  ) => void;
-  // путь ЛОКАЛЬНОЙ стрелки изменён жестом и сохранён в колонку ребра — родитель
-  // синхронизирует стейт уровня теми же waypoints, чтобы пересчёт раскладки их не откатил.
-  onEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[]) => void;
-  // то же для ГОСТЕВОЙ стрелки — путь сохранён в пер-уровневый слой (level_edge_waypoints).
-  onLevelEdgeWaypointsChanged?: (edgeId: string, waypoints: EdgePoint[], anchorNodeId?: string | null) => void;
-  // плашку подписи перетащили вдоль стрелки и доля сохранена в колонку ребра (label_t) —
-  // родитель зеркалит в стейт уровня теми же значениями, что вернул бы рефетч.
-  onEdgeLabelTChanged?: (edgeId: string, t: number | null) => void;
-  // узел перетащили и его позиция сохранена в БД — родитель синхронизирует стейт
-  // уровня теми же значениями, чтобы пересчёт раскладки БЕЗ рефетча (напр. локальный
-  // setEdges при реконнекте хэндла) не откатил узел на прежнюю сохранённую позицию.
-  onNodeMoved?: (
-    id: string,
-    kind: "block" | "ghost" | "container",
-    pos: { pos_x: number; pos_y: number },
-  ) => void;
+  // Раскладка вида изменена и сохранена (батч view_layout: позиции узлов и/или
+  // геометрия пучков; null — строка удалена) — родитель зеркалит те же значения в
+  // свой стейт, чтобы пересчёт раскладки без рефетча их не откатил. ЕДИНСТВЕННЫЙ
+  // канал зеркалирования раскладки (R3; заменил пять прежних колбэков).
+  onLayoutChanged?: (items: Record<string, ViewLayoutPayload | null>) => void;
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
   // форма, pos — координаты в системе графа (левый-верхний угол узла)
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
@@ -203,9 +173,7 @@ export type LocateRequest = {
 function LevelGraphInner({
   nodes,
   endpoints,
-  levelPositions,
-  levelEdgeHandles = EMPTY_LEVEL_HANDLES,
-  levelEdgeWaypoints = EMPTY_LEVEL_WAYPOINTS,
+  viewLayout = EMPTY_VIEW_LAYOUT,
   edges,
   depth,
   containerId,
@@ -216,11 +184,7 @@ function LevelGraphInner({
   onEnterNode,
   onEditNode,
   onEdgesChoice,
-  onEdgeHandlesChanged,
-  onEdgeWaypointsChanged,
-  onLevelEdgeWaypointsChanged,
-  onEdgeLabelTChanged,
-  onNodeMoved,
+  onLayoutChanged,
   onDropNode,
   onCreateEdge,
   onConnectInto,
@@ -299,11 +263,28 @@ function LevelGraphInner({
     return () => window.removeEventListener("keydown", onKey);
   }, [isArchitect, isContext, runUndo, runRedo]);
 
+  // ЕДИНАЯ запись раскладки вида (R3): merge-патч поверх зеркала viewLayout →
+  // батч-PUT view_layout + зеркало родителю (onLayoutChanged). Сервер заменяет
+  // payload строки ЦЕЛИКОМ, поэтому частичный патч мержится здесь; null-патч —
+  // удалить строку (сброс в авто); null-ПОЛЕ в патче попадает в merged, сервер
+  // выкидывает его как None (exclude_none) — сброс отдельного поля.
+  const commitLayout = useCallback(
+    (patch: Record<string, Partial<ViewLayoutPayload> | null>) => {
+      if (!isArchitect || isContext) return;
+      const items: Record<string, ViewLayoutPayload | null> = {};
+      for (const [k, p] of Object.entries(patch)) {
+        items[k] = p === null ? null : { ...(viewLayout[k] ?? {}), ...p };
+      }
+      guardPersist(viewsApi.saveLayout(containerId, items), onPersistError);
+      onLayoutChanged?.(items);
+    },
+    [isArchitect, isContext, containerId, viewLayout, onPersistError, onLayoutChanged],
+  );
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-    ancestorIds, ancestorNames, onNodeMoved, push: history.push, onPersistError,
+    rfNodes, onNodesChange, setGuides, isArchitect, isContext,
+    ancestorIds, ancestorNames, commitLayout, push: history.push,
   });
 
   // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
@@ -387,37 +368,29 @@ function LevelGraphInner({
   });
 
 
-  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: локальная —
-  // в колонку ребра, гостевая — в пер-уровневый слой. Объявлен до реконнекта: тот при
-  // смене хэндла сбрасывает waypoints (пустой массив) — старый путь считался относительно
-  // прежних концов и после смены хэндла кривой; дефолтный авто-маршрут корректнее.
-  const { commitWaypoints } = useEdgeWaypoints({
-    isArchitect, containerId, onEdgeWaypointsChanged, onLevelEdgeWaypointsChanged, onPersistError,
-  });
+  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: патч
+  // payload ПУЧКА в view_layout (единый слой R3 — развилка «колонка ребра vs
+  // пер-уровневый слой» умерла). Пустой массив = сброс в авто, якорь снимается.
+  const { commitWaypoints } = useEdgeWaypoints({ isArchitect, commitLayout });
 
   // Персист позиции плашки (доля label_t) по отпусканию её драга. Доля геометрия-
-  // независима → хранится в колонке ребра (одна на ребро, не пер-уровень). У мастер-
-  // стрелки путь общий — «размазываем» долю по всем её членам. Зеркалим в стейт уровня.
+  // независима; живёт в payload пучка — общая для членов мастер-стрелки по построению.
   const commitLabelT = useCallback(
-    (edgeIds: string[], t: number | null) => {
-      if (!isArchitect) return;
-      for (const edgeId of edgeIds) {
-        guardPersist(edgesApi.update(edgeId, { label_t: t }), onPersistError);
-        onEdgeLabelTChanged?.(edgeId, t);
-      }
+    (bundleId: string, t: number | null) => {
+      commitLayout({ [bundleId]: { label_t: t } });
     },
-    [isArchitect, onEdgeLabelTChanged, onPersistError],
+    [commitLayout],
   );
 
-  // Реконнект концов рёбер (смена хэндла на том же узле + персист). commitWaypoints —
-  // на смену хэндла дропаем изломы в дефолт, он же восстанавливает старый путь в Undo.
+  // Реконнект концов рёбер (смена хэндла на том же узле + персист). Смену хэндла и
+  // сброс изломов (старый путь считался от прежних концов — после смены хэндла он
+  // кривой) хук пишет ОДНИМ патчем пучка через commitLayout; Undo — обратным патчем.
   const {
     handleReconnectStart, handleReconnect, handleReconnectEnd,
     isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked, reconnectChildDrill,
     consumeReconnectClick,
   } = useReconnectHandles({
-    setRfEdges, nodes, isArchitect, containerId, onEdgeHandlesChanged,
-    commitWaypoints, push: history.push, onPersistError,
+    setRfEdges, isArchitect, commitLayout, push: history.push,
   });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
@@ -525,44 +498,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  // Персист засева владения (own-on-first-render): гость без сохранённой позиции
-  // получает её навсегда. Применяет интент seed-ghost-positions конвейера через cbRef
-  // (latest-ref), чтобы не тащить containerId/isArchitect/колбэки в зависимости эффекта
-  // раскладки. Зеркало (onNodeMoved) кладёт абсолют в levelPositions → следующий рендер
-  // видит absolute и засев его пропускает. Только архитектор и основной канвас.
-  const migrateGhostPositions = useCallback(
-    (seeds: { id: string; entityKind: "ghost" | "container"; pos_x: number; pos_y: number }[]) => {
-      if (!isArchitect || !containerId) return;
-      for (const m of seeds) {
-        const abs = { pos_x: m.pos_x, pos_y: m.pos_y };
-        guardPersist(nodesApi.saveGhostPosition(containerId, m.id, abs), onPersistError);
-        onNodeMoved?.(m.id, m.entityKind, abs);
-      }
-    },
-    [isArchitect, containerId, onNodeMoved, onPersistError],
-  );
-
-  // Персист приобретения якоря изломом: абсолютный путь к потомку раскрытой рамки → офсет от
-  // узла-якоря с явным anchor_node_id (Ф3) — зеркало migrateGhostPositions для пути. На экране
-  // излом не двигается; дальше он едет с узлом по идентичности и гаснет при его сворачивании.
-  const migrateLevelWaypoints = useCallback(
-    (migrations: { edge_id: string; anchor_node_id: string; waypoints: EdgePoint[] }[]) => {
-      if (!isArchitect || !containerId) return;
-      for (const m of migrations) {
-        guardPersist(nodesApi.saveEdgeWaypoints(containerId, m.edge_id, m.waypoints, m.anchor_node_id), onPersistError);
-        onLevelEdgeWaypointsChanged?.(m.edge_id, m.waypoints, m.anchor_node_id);
-      }
-    },
-    [isArchitect, containerId, onLevelEdgeWaypointsChanged, onPersistError],
-  );
-
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, migrateGhostPositions, migrateLevelWaypoints, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
@@ -579,24 +521,35 @@ function LevelGraphInner({
     let cancelled = false;
     void (async () => {
       const { layout: next, liveInputs, intents } = await computeViewLayout({
-        nodes, endpoints, edges, containerId, levelPositions, levelEdgeHandles, levelEdgeWaypoints,
+        nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, isContext,
       });
       if (cancelled) return; // устаревший прогон: ни снапшота, ни персиста интентов
       liveHandleInputs.current = liveInputs;
+      // Побочные записи раскладки (интенты) — через единый commitLayout: засев владения
+      // own-on-first-render и приобретение якоря изломом (абсолют → офсет, на экране без
+      // сдвига). Зеркало onLayoutChanged кладёт их в viewLayout → следующий прогон видит
+      // сохранённое и интент не повторяет. cbRef — чтобы не тащить commitLayout в deps.
       for (const intent of intents) {
-        if (intent.kind === "seed-ghost-positions") cbRef.current.migrateGhostPositions(intent.seeds);
-        else cbRef.current.migrateLevelWaypoints(intent.migrations);
+        if (intent.kind === "seed-positions") {
+          cbRef.current.commitLayout(
+            Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
+          );
+        } else {
+          cbRef.current.commitLayout(
+            Object.fromEntries(intent.migrations.map((m) => [m.itemId, { waypoints: m.waypoints, anchor: m.anchor }])),
+          );
+        }
       }
       setLayout(next);
     })();
     return () => { cancelled = true; };
-    // levelEdgeWaypoints не влияет на позиции/хэндлы, НО включён в зависимости намеренно:
-    // гостевые изломы читает эффект-сборщик ниже, и он должен работать с ОДНИМ снапшотом
-    // (layout). Иначе при реконнекте гостя смена хэндла (async-раскладка) и сброс изломов
-    // (sync-стейт) рассинхронятся: сборщик сработал бы со старым layout → ребро прыгнуло бы
-    // на исходный хэндл. Прогон через раскладку гарантирует свежий layout у сборщика.
-  }, [nodes, endpoints, containerId, levelPositions, levelEdgeHandles, levelEdgeWaypoints, edges, isContext, expanded, stableAncestorIds]);
+    // Геометрия рёбер внутри viewLayout не вся влияет на позиции, НО зависимость — весь
+    // объект намеренно: изломы/хэндлы пучков читает эффект-сборщик ниже, и он должен
+    // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
+    // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
+    // старым layout → ребро прыгнуло бы на исходный хэндл.
+  }, [nodes, endpoints, containerId, viewLayout, edges, isContext, expanded, stableAncestorIds]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -608,11 +561,8 @@ function LevelGraphInner({
     // nodes берём ИЗ layout (снимок, по которому он посчитан), а не из пропа — чтобы
     // позиции и данные узлов были согласованы и эффект не срабатывал со старым layout
     // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
-    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, levelWaypoints, groupArr, spacers } = layout;
+    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, bundleWaypoints, groupArr, spacers } = layout;
     const cb = cbRef.current;
-    // локальные узлы уровня — у редактируемой жестом стрелки оба конца должны быть
-    // локальны (waypoints в координатах этого уровня; гость/контейнер — чужая система)
-    const localIds = new Set(layoutNodes.map((n) => n.id));
     // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
     // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
     // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
@@ -701,51 +651,47 @@ function LevelGraphInner({
         const data: WrappedEdgeData = isMaster
           ? { items: g.members.map((m) => edgeText(m)), memberIds: g.members.map((m) => m.id) }
           : { label: singleText, memberIds: [single.id] };
-        // Кастомный путь (изломы): архитектор, не контекст. Мастер-стрелка тоже
-        // редактируется — путь общий для всех её членов (одна линия), поэтому читаем
-        // у первого члена с геометрией, а коммит «размазываем» по всем memberIds.
-        // Локальная (оба конца на уровне) — путь в колонке ребра; гостевая/сквозная —
-        // в пер-уровневом слое (geometry уникальна для уровня). bothLocal разводит и
-        // источник waypoints, и слой коммита. Гость возможен только при containerId != null.
-        const bothLocal = localIds.has(g.source) && localIds.has(g.target);
-        const editable = isArchitect && !isContext && (bothLocal || containerId != null);
+        // Кастомный путь (изломы): архитектор, не контекст. Геометрия живёт на ключе
+        // ПУЧКА (R3) — одна на пару отображаемых концов: мастер-стрелка редактируется
+        // как одиночная, у гостевой/сквозной проекции путь свой по построению (прежняя
+        // развилка bothLocal «колонка ребра vs пер-уровневый слой» умерла).
+        const bk = bundleKey(g.source, g.target);
+        const editable = isArchitect && !isContext;
         if (editable) {
-          const memberIds = g.members.map((m) => m.id);
-          // гостевой путь — из РЕКОНСТРУИРОВАННОГО снимка (владеемой группы = anchorG +
-          // офсет, ТЗ D8), а не из сырого пропа: иначе изломы не ехали бы за рамкой
-          const wpOf = (m: AppEdge) => (bothLocal ? m.waypoints : levelWaypoints[m.id]);
-          const rep = g.members.find((m) => { const w = wpOf(m); return w != null && w.length > 0; });
+          // путь — из РЕКОНСТРУИРОВАННОГО снимка (владеемый якорем = anchor + офсет,
+          // Ф3/D8), а не из сырого зеркала: иначе изломы не ехали бы за рамкой
+          const wp = bundleWaypoints[bk];
           data.editable = true;
-          data.waypoints = (rep ? wpOf(rep) : undefined) ?? undefined;
+          data.waypoints = wp && wp.length > 0 ? wp : undefined;
           // «Старые» геометрия/доля на момент сборки = последнее закоммиченное значение
           // (драг-превью живёт в локальном стейте edges.tsx и сюда не доходит). Это и есть
           // состояние для инверсии. undefined-путь инвертируется пустым массивом (сброс в авто).
           const oldWp = data.waypoints;
-          const oldT = g.members.find((m) => m.label_t != null)?.label_t ?? null;
-          data.onWaypointsCommit = (wp) => {
-            cb.commitWaypoints(memberIds, wp, !bothLocal);
+          const oldT = single.label_t ?? null;
+          data.onWaypointsCommit = (nwp) => {
+            cb.commitWaypoints(bk, nwp);
             cb.pushHistory({
               label: "Изменение пути связи",
-              undo: () => cb.commitWaypoints(memberIds, oldWp ?? [], !bothLocal),
-              redo: () => cb.commitWaypoints(memberIds, wp, !bothLocal),
+              undo: () => cb.commitWaypoints(bk, oldWp ?? []),
+              redo: () => cb.commitWaypoints(bk, nwp),
             });
           };
-          // Перетаскивание плашки доступно только архитектору (editable) — коммит доли
-          // «размазываем» по всем членам мастер-стрелки (путь у них общий).
+          // Перетаскивание плашки доступно только архитектору (editable); доля — в
+          // payload пучка (общая для членов мастер-стрелки по построению).
           data.onLabelTCommit = (t) => {
-            cb.commitLabelT(memberIds, t);
+            cb.commitLabelT(bk, t);
             cb.pushHistory({
               label: "Перемещение подписи",
-              undo: () => cb.commitLabelT(memberIds, oldT),
-              redo: () => cb.commitLabelT(memberIds, t),
+              undo: () => cb.commitLabelT(bk, oldT),
+              redo: () => cb.commitLabelT(bk, t),
             });
           };
         }
-        // Позиция плашки (доля label_t) — общая для членов; читаем у первого с
-        // сохранённой долей. Ставим и viewer'у (отображение сдвига), не только редактору.
+        // Позиция плашки (доля label_t) — из payload пучка; члены обогащены конвейером
+        // одинаково, читаем у первого. Ставим и viewer'у (отображение сдвига).
         // null → центр. Контекст-полки долю игнорируют (своя геометрия плашки).
         if (!isContext) {
-          const lt = g.members.find((m) => m.label_t != null)?.label_t;
+          const lt = single.label_t;
           if (lt != null) data.labelT = lt;
         }
         // Триггер детализации связи на плашке с описанием (клик по линии на основной схеме
@@ -798,11 +744,11 @@ function LevelGraphInner({
         };
       })
     );
-    // Гостевой путь сборка читает из layout.levelWaypoints (реконструированный снимок D8),
-    // а НЕ из сырого пропа levelEdgeWaypoints: последний входит в зависимости раскладки выше
-    // → его правка даёт новый layout (со свежим levelWaypoints), и сборка идёт со СВЕЖИМ
-    // снапшотом. Прямой триггер сборки по сырому пропу откатывал бы хэндл гостя при реконнекте.
-  }, [layout, isArchitect, depth, isContext, containerId, schemaView, setRfNodes, setRfEdges]);
+    // Путь пучка сборка читает из layout.bundleWaypoints (реконструированный снимок D8),
+    // а НЕ из сырого пропа viewLayout: последний входит в зависимости раскладки выше →
+    // его правка даёт новый layout (со свежим bundleWaypoints), и сборка идёт со СВЕЖИМ
+    // снапшотом. Прямой триггер сборки по сырому пропу откатывал бы хэндл при реконнекте.
+  }, [layout, isArchitect, depth, isContext, schemaView, setRfNodes, setRfEdges]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({

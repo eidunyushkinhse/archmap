@@ -11,13 +11,16 @@ class Point(BaseModel):
     y: float
 
 
+# NB (R3): геометрия стрелок (хэндлы, изломы, доля плашки) больше НЕ живёт на
+# связи — она пер-вид и хранится в view_layout ключом пучка "b:<src>><tgt>"
+# (PUT /views/{id}/layout). Связь несёт только семантику.
+
+
 class EdgeCreate(BaseModel):
     label: str | None = None
     technology: str | None = None
     source_id: uuid.UUID
     target_id: uuid.UUID
-    source_handle: str | None = None
-    target_handle: str | None = None
     # Синхронность канала (бизнес-процессы): null=дефолт (синхронный), true/false=явный выбор
     is_synchronous: bool | None = None
 
@@ -28,12 +31,6 @@ class EdgeUpdate(BaseModel):
     # Смена концов связи (в т.ч. на узел другого уровня → связь становится сквозной)
     source_id: uuid.UUID | None = None
     target_id: uuid.UUID | None = None
-    source_handle: str | None = None
-    target_handle: str | None = None
-    # Кастомные точки-сгибы пути (ручные «обходы»); пустой список — сброс в авто-маршрут
-    waypoints: list[Point] | None = None
-    # Позиция плашки вдоль стрелки (доля пути 0..1); null — сброс в центр
-    label_t: float | None = None
     # Синхронность канала (бизнес-процессы): null=дефолт (синхронный), true/false=явный выбор
     is_synchronous: bool | None = None
 
@@ -44,10 +41,6 @@ class EdgeResponse(BaseModel):
     technology: str | None
     source_id: uuid.UUID
     target_id: uuid.UUID
-    source_handle: str | None
-    target_handle: str | None
-    waypoints: list[Point] | None = None
-    label_t: float | None = None
     # Синхронность канала: null=дефолт (синхронный), true/false=явный выбор архитектора
     is_synchronous: bool | None = None
     created_at: datetime

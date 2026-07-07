@@ -5,13 +5,11 @@ import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 
 interface Props {
-  // концы связи уже определены жестом: стрелку протянули от source к target (хэндл)
+  // Концы связи уже определены жестом: стрелку протянули от source к target (хэндл).
+  // Хэндлы из жеста связь больше не несёт (R3): геометрия живёт на пучке display-пары
+  // в view_layout — их сохраняет TreePage (persistGestureHandles) после onCreated.
   sourceId: string;
   targetId: string;
-  // хэндлы из жеста: при дропе на хэндл известны оба, на тело листа — только исходный
-  // (целевой null → дефолтная привязка). Сохраняем, чтобы связь не легла на дефолтные.
-  sourceHandle: string | null;
-  targetHandle: string | null;
   sourceLabel: string;
   targetLabel: string;
   onClose: () => void;
@@ -26,7 +24,7 @@ interface Props {
  * связь появлялась сразу пустой — заполнить можно было только через редактирование).
  */
 export default function EdgeQuickCreate({
-  sourceId, targetId, sourceHandle, targetHandle, sourceLabel, targetLabel, onClose, onCreated,
+  sourceId, targetId, sourceLabel, targetLabel, onClose, onCreated,
 }: Props) {
   const [label, setLabel] = useState("");
   const [technology, setTechnology] = useState("");
@@ -40,8 +38,6 @@ export default function EdgeQuickCreate({
       const data: EdgeCreate = {
         source_id: sourceId,
         target_id: targetId,
-        source_handle: sourceHandle,
-        target_handle: targetHandle,
         label: label || null,
         technology: technology || null,
       };

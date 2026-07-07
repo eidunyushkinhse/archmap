@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, Edge, EdgeCreate, EdgePoint, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts } from "../types";
+import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts, ViewLayoutPayload } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -42,38 +42,23 @@ export const nodesApi = {
   // Восстановить удалённое поддерево из снимка (Undo удаления) — с исходными id.
   restore: (snapshot: DeletionSnapshot): Promise<void> =>
     api.post<void>(`/nodes/restore`, snapshot),
-  // Сохранить координаты гостевого узла на уровне containerId
-  saveGhostPosition: (
-    containerId: string,
-    nodeId: string,
-    // абсолютные координаты гостя на уровне (own-on-first-render)
-    pos: { pos_x: number; pos_y: number },
-  ): Promise<void> =>
-    api.put(`/nodes/${containerId}/ghost-positions/${nodeId}`, pos),
-  // Сохранить хэндл гостевого конца ребра на уровне containerId, привязанный к id
-  // отображаемой сущности (лист-гость ИЛИ предок-контейнер), к которой пристыкован.
-  saveGhostEdgeHandle: (
-    containerId: string,
-    edgeId: string,
-    handle: { node_id: string; handle: string },
-  ): Promise<void> =>
-    api.put(`/nodes/${containerId}/ghost-edge-handles/${edgeId}`, handle),
-  // Сохранить кастомный путь (изломы) ГОСТЕВОЙ стрелки на уровне containerId.
-  // Пустой массив — сброс в авто-маршрут (строка пер-уровневого слоя удаляется).
-  saveEdgeWaypoints: (
-    containerId: string,
-    edgeId: string,
-    waypoints: EdgePoint[],
-    // anchorNodeId не null → точки это ОФСЕТ от позиции узла anchorNodeId (излом владеемой
-    // группы, Ф3, едет с узлом и гаснет при его сворачивании); null — абсолют уровня
-    anchorNodeId: string | null = null,
-  ): Promise<void> =>
-    api.put(`/nodes/${containerId}/edge-waypoints/${edgeId}`, { waypoints, anchor_node_id: anchorNodeId }),
   // «Переразложить уровень»: стирает весь ручной layout уровня (позиции локалов и
   // гостей, хэндлы гостевых концов, изломы стрелок) → возврат к авто-раскладке.
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.
   relayoutLevel: (containerId: string | null): Promise<void> =>
     api.post(containerId ? `/nodes/${containerId}/relayout` : `/nodes/relayout`, {}),
+};
+
+export const viewsApi = {
+  // Батч-запись раскладки вида (R3, единое хранилище view_layout): item_id →
+  // payload; null — удалить строку (сброс объекта в авто-геометрию).
+  // viewId=null — корневой вид. ВАЖНО: payload заменяет строку ЦЕЛИКОМ —
+  // частичные правки пучка мержит вызывающий (commitLayout в LevelGraph).
+  saveLayout: (
+    viewId: string | null,
+    items: Record<string, ViewLayoutPayload | null>,
+  ): Promise<void> =>
+    api.put(`/views/${viewId ?? "root"}/layout`, { items }),
 };
 
 export const exportApi = {
@@ -89,8 +74,9 @@ export const edgesApi = {
   update: (id: string, data: EdgeUpdate): Promise<Edge> =>
     api.patch<Edge>(`/edges/${id}`, data),
   delete: (id: string): Promise<void> => api.delete(`/edges/${id}`),
-  // Снимок связи + её ghost-метаданных (хэндлы/изломы по edge_id) для отката
-  // создания/удаления связи через POST /nodes/restore с сохранением исходного id (Undo).
+  // Снимок связи для отката создания/удаления через POST /nodes/restore с
+  // сохранением исходного id (Undo). Геометрия пучка удаление связи переживает
+  // (R3) и в снимке не нужна.
   deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
     api.get<DeletionSnapshot>(`/edges/${id}/deletion-snapshot`),
 };

@@ -9,12 +9,11 @@ import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 interface Props {
   title: string;
   subtitle: string;
-  // узел, от которого протянули стрелку (ближний конец связи)
+  // Узел, от которого протянули стрелку (ближний конец связи). Хэндл жеста связь
+  // больше не несёт (R3): геометрию пучка display-пары сохраняет TreePage после
+  // onCreated (направление выводит из created.source_id).
   sourceId: string;
   sourceLabel: string;
-  // хэндл узла-источника, из которого тянули — закрепляем за концом sourceId;
-  // дальний конец (выбранный узел) — дефолтная привязка
-  sourceHandle: string | null;
   // плоский список узлов-кандидатов; дерево собирается из него по parent_id
   loadNodes: () => Promise<Node[]>;
   // ключ скоупа (для перезагрузки при смене источника данных)
@@ -42,7 +41,7 @@ interface Props {
  * кнопка на линии разворачивает, не меняя элементы местами.
  */
 export default function CrossLevelEdgePicker({
-  title, subtitle, sourceId, sourceLabel, sourceHandle,
+  title, subtitle, sourceId, sourceLabel,
   loadNodes, scopeKey, rootParentId, excludeIds, slotPlaceholder, onClose, onCreated,
 }: Props) {
   const [allNodes, setAllNodes] = useState<Node[] | null>(null);
@@ -232,10 +231,6 @@ export default function CrossLevelEdgePicker({
       const data: EdgeCreate = {
         source_id: direction === "out" ? sourceId : picked.id,
         target_id: direction === "out" ? picked.id : sourceId,
-        // исходный хэндл закрепляем за концом sourceId (куда он смотрит — зависит от
-        // направления), дальний конец — дефолтная привязка
-        source_handle: direction === "out" ? sourceHandle : null,
-        target_handle: direction === "out" ? null : sourceHandle,
         label: label || null,
         technology: technology || null,
       };

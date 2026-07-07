@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { getElk, layoutLevel } from "../graph/layout/engine";
-import type { Edge as AppEdge } from "../../types";
+import type { LayoutEdge } from "../../types";
 
 // Спайк Фазы 4 (шаг 4.0): убеждаемся, что ELK поднимается в main-thread под jsdom
 // (через elk.bundled.js, без Web Worker) и async-адаптер сохраняет контракт старого
 // синхронного движка. См. REFACTOR_PHASE4.md.
 
-function edge(id: string, source_id: string, target_id: string): AppEdge {
+function edge(id: string, source_id: string, target_id: string): LayoutEdge {
   return {
     id, label: null, technology: null, source_id, target_id,
     source_handle: null, target_handle: null, created_at: "2026-06-08T00:00:00Z",

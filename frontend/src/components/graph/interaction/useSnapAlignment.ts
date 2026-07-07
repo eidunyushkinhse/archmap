@@ -2,8 +2,6 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
-import { nodesApi } from "../../../api/nodes";
-import { guardPersist } from "./persistGuard";
 import type { History } from "./useHistory";
 import { snapNode, nodeSize } from "./snap";
 import type { SpacingGuide } from "./distribute";
@@ -19,29 +17,20 @@ interface Params {
   setGuides: Dispatch<SetStateAction<Guides>>;
   isArchitect: boolean;
   isContext: boolean;
-  containerId: string | null;
   // breadcrumb-предки уровня — нужны для запрета задвинуть гостя в чужую родную рамку
   ancestorIds: string[];
   ancestorNames: string[];
-  // узел перетащили и позиция сохранена — родитель синхронизирует стейт уровня теми
-  // же значениями, что вернул бы рефетч. Без этого пересчёт раскладки БЕЗ рефетча
-  // (напр. локальный setEdges при реконнекте хэндла) откатывал бы узел на старую
-  // сохранённую позицию. kind: block → координаты в самом узле (nodes[].pos_x/y);
-  // ghost/container → координаты уровня (levelPositions[id]).
-  onNodeMoved?: (
-    id: string,
-    kind: "block" | "ghost" | "container",
-    pos: { pos_x: number; pos_y: number },
-  ) => void;
+  // Единая запись раскладки вида (R3): позиции ЛЮБЫХ перетянутых сущностей —
+  // локалов, гостей и свёрнутых контейнеров — уходят одним батчем view_layout
+  // (персист + зеркало делает LevelGraph.commitLayout).
+  commitLayout: (items: Record<string, { x: number; y: number }>) => void;
   // запись действия в историю Undo/Redo (перемещение группы = одна команда)
   push?: History["push"];
-  // фоновый персист позиции упал — вернуть зеркало к истине (ресинк уровня из БД)
-  onPersistError?: (e: unknown) => void;
 }
 
 export function useSnapAlignment({
-  rfNodes, onNodesChange, setGuides, isArchitect, isContext, containerId,
-  ancestorIds, ancestorNames, onNodeMoved, push, onPersistError,
+  rfNodes, onNodesChange, setGuides, isArchitect, isContext,
+  ancestorIds, ancestorNames, commitLayout, push,
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
   // Заполняется noteDragStart на onNodeDragStart/onSelectionDragStart (до сдвига).
@@ -73,6 +62,7 @@ export function useSnapAlignment({
   // соседи откатывались на старые сохранённые координаты. Поэтому сохраняем каждый.
   // Снап применяем только к одиночному узлу: групповой снап считал бы притяжку
   // каждого к своим соседям и исказил бы взаимные интервалы перемещаемой группы.
+  // R3: локалы, гости и контейнеры пишутся ЕДИНООБРАЗНО — батчем view_layout.
   const persistGroup = useCallback(
     (group: RFNode[]) => {
       if (isContext) return; // контекст read-only — перетаскивания не сохраняем
@@ -82,11 +72,12 @@ export function useSnapAlignment({
       const frames =
         group.some((n) => n.type === "ghost" || n.type === "container") ? levelFrames() : [];
       // Перемещения, реально изменившие позицию (для записи в историю Undo/Redo).
-      type Pos = { pos_x: number; pos_y: number };
-      type Move = { id: string; kind: "block" | "ghost" | "container"; old: Pos; next: Pos };
+      type Move = { id: string; old: { x: number; y: number }; next: { x: number; y: number } };
       const moves: Move[] = [];
+      const patch: Record<string, { x: number; y: number }> = {};
 
       for (const n of group) {
+        if (n.type !== "block" && n.type !== "ghost" && n.type !== "container") continue;
         const { w: dw, h: dh } = nodeSize(n);
         let px = n.position.x;
         let py = n.position.y;
@@ -99,50 +90,30 @@ export function useSnapAlignment({
           px = snapCx - dw / 2;
           py = snapCy - dh / 2;
         }
-        const start = startPos.current.get(n.id);
-        if (n.type === "block") {
-          // Локальный узел — координаты в самом узле
-          const pos = { pos_x: px, pos_y: py };
-          guardPersist(nodesApi.update(n.id, pos), onPersistError);
-          onNodeMoved?.(n.id, "block", pos);
-          if (start && (start.x !== pos.pos_x || start.y !== pos.pos_y)) {
-            moves.push({ id: n.id, kind: "block", old: { pos_x: start.x, pos_y: start.y }, next: pos });
-          }
-        } else if ((n.type === "ghost" || n.type === "container") && containerId) {
-          // Гость (лист) или свёрнутый предок-контейнер — координаты привязаны к уровню.
+        if (n.type === "ghost" || n.type === "container") {
           // Строгий запрет проникновения в чужую родную рамку держит живой clamp в
           // handleNodesChange; здесь повторяем его для СОХРАНЯЕМОЙ позиции.
           const clamped = clampOutOfNativeFrames(n.id, { x: px, y: py }, frames);
           if (clamped.x !== px || clamped.y !== py) {
             onNodesChange([{ id: n.id, type: "position", position: { x: clamped.x, y: clamped.y } }]);
           }
-          // Гость владеется АБСОЛЮТНОЙ позицией уровня (Option A, own-on-first-render): драг
-          // всегда сохраняет absolute, без пина группы / офсетов от живого якоря. Дети раскрытой
-          // рамки тоже — у каждого своя позиция (засеяна own-on-first-render в LevelGraph).
-          const gpos = { pos_x: clamped.x, pos_y: clamped.y };
-          guardPersist(nodesApi.saveGhostPosition(containerId, n.id, gpos), onPersistError);
-          onNodeMoved?.(n.id, n.type, gpos);
-          if (start && (start.x !== gpos.pos_x || start.y !== gpos.pos_y)) {
-            moves.push({ id: n.id, kind: n.type, old: { pos_x: start.x, pos_y: start.y }, next: gpos });
-          }
+          px = clamped.x;
+          py = clamped.y;
+        }
+        patch[n.id] = { x: px, y: py };
+        const start = startPos.current.get(n.id);
+        if (start && (start.x !== px || start.y !== py)) {
+          moves.push({ id: n.id, old: { x: start.x, y: start.y }, next: { x: px, y: py } });
         }
       }
+      if (Object.keys(patch).length > 0) commitLayout(patch);
 
       // Записываем перемещение в историю одной командой (вся перетянутая группа). undo/redo
       // переигрывают тот же персист+зеркало с нужной АБСОЛЮТНОЙ позицией. Позиции уже
       // валидны → повторный clamp не нужен.
       if (push && moves.length > 0) {
         const apply = (which: "old" | "next") => {
-          for (const m of moves) {
-            const p = m[which];
-            if (m.kind === "block") {
-              guardPersist(nodesApi.update(m.id, { pos_x: p.pos_x, pos_y: p.pos_y }), onPersistError);
-              onNodeMoved?.(m.id, "block", { pos_x: p.pos_x, pos_y: p.pos_y });
-            } else if (containerId) {
-              guardPersist(nodesApi.saveGhostPosition(containerId, m.id, p), onPersistError);
-              onNodeMoved?.(m.id, m.kind, p);
-            }
-          }
+          commitLayout(Object.fromEntries(moves.map((m) => [m.id, m[which]])));
         };
         push({
           label: moves.length > 1 ? "Перемещение группы" : "Перемещение",
@@ -151,7 +122,7 @@ export function useSnapAlignment({
         });
       }
     },
-    [isArchitect, containerId, isContext, onNodeMoved, onNodesChange, levelFrames, rfNodes, push, onPersistError],
+    [isArchitect, isContext, commitLayout, onNodesChange, levelFrames, rfNodes, push],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт

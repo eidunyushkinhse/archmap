@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
-import type { Node, NodeContext, LevelEdge, LevelPos } from "../types";
+import type { Node, NodeContext, LevelEdge } from "../types";
 import LevelGraph from "./LevelGraph";
 import EdgeDetailModal from "./EdgeDetailModal";
 import EdgeChoiceModal from "./EdgeChoiceModal";
@@ -11,10 +11,6 @@ interface Props {
   node: Node;
   onClose: () => void;
 }
-
-// Стабильная пустая ссылка: контекст-схема координаты не сохраняет, но проп —
-// зависимость раскладки, поэтому держим один объект, а не новый `{}` на рендер.
-const EMPTY_LEVEL_POSITIONS: Record<string, LevelPos> = {};
 
 /**
  * Модалка «контекстная схема узла». Открывается кликом по узлу в дереве и
@@ -74,8 +70,6 @@ export default function NodeContextModal({ node, onClose }: Props) {
         original_target_id: ge.original_target_id,
         original_source_name: ge.original_source_name,
         original_target_name: ge.original_target_name,
-        source_handle: ge.source_handle,
-        target_handle: ge.target_handle,
         created_at: "",
       })),
     [ctx],
@@ -119,7 +113,6 @@ export default function NodeContextModal({ node, onClose }: Props) {
           <LevelGraph
             nodes={focusNodes}
             endpoints={ctx.neighbors}
-            levelPositions={EMPTY_LEVEL_POSITIONS}
             edges={edges}
             depth={ctx.focus_ancestors.length}
             containerId={ctx.focus.parent_id}

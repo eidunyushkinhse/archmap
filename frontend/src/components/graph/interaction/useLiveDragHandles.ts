@@ -14,14 +14,14 @@
 import { useCallback, useRef } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { Dispatch, SetStateAction } from "react";
-import type { Edge as AppEdge } from "../../../types";
+import type { LayoutEdge } from "../../../types";
 import { assignEdgeHandles } from "../layout/level";
 
 // Снимок входов раскладки, нужных для пересчёта хэндлов. LevelGraph кладёт его в ref
 // в конце async-раскладки — те же layoutEdges/узлы, по которым считался текущий layout.
 export interface LiveHandleInputs {
   // мастер-рёбра уровня (по одному на направление пары) — ключи совпадают с rfEdge.id
-  layoutEdges: AppEdge[];
+  layoutEdges: LayoutEdge[];
   // все отображаемые узлы (локальные + гости/контейнеры) — вход assignEdgeHandles
   nodeIds: Array<{ id: string }>;
   // id локальных узлов уровня (block): пересчитываем только рёбра, оба конца которых тут

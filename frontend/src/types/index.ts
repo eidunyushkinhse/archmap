@@ -43,17 +43,33 @@ export type NodeUpdate = Schemas["NodeUpdate"];
 // Точка-сгиб кастомного пути стрелки в координатах графа уровня.
 export type EdgePoint = Schemas["Point"];
 
-// Сохранённая АБСОЛЮТНАЯ позиция гостя на уровне (level_positions, own-on-first-render).
-export type LevelPos = Schemas["PosXY"];
-
-// Изломы гостевой стрелки на уровне (level_edge_waypoints). anchor_node_id не null → точки
-// это ОФСЕТ от позиции узла-якоря (Ф3, гостевой конец-потомок раскрытой рамки), иначе
-// абсолют уровня. См. ownedWaypoints/LevelGraph.
-export type LevelWaypoints = Schemas["LevelWaypoints"];
+// Геометрия одного объекта раскладки на виде (R3, единое хранилище view_layout).
+// Для узла/сущности — x/y; для пучка рёбер (ключ "b:<src>><tgt>") — хэндлы концов,
+// изломы (+ anchor: не null → точки это ОФСЕТ от позиции узла-якоря, Ф3) и label_t.
+export type ViewLayoutPayload = Schemas["ViewLayoutPayload"];
+// Раскладка вида целиком: item_id → payload (как отдаёт GraphResponse.layout).
+export type ViewLayout = Record<string, ViewLayoutPayload>;
+// Владеемая позиция сущности на виде (внутренний формат модулей раскладки:
+// кольца/разведение/keep-out). Производится конвейером из ViewLayout.
+export type LevelPos = { pos_x: number; pos_y: number };
+// Ключ пучка рёбер между парой ОТОБРАЖАЕМЫХ сущностей. Кодирует проекцию (у каждой
+// пары своя геометрия) и мастер-семантику (члены пучка делят одну строку).
+export const bundleKey = (sourceId: string, targetId: string): string =>
+  `b:${sourceId}>${targetId}`;
 
 export type Edge = Schemas["EdgeResponse"];
 export type EdgeUpdate = Schemas["EdgeUpdate"];
 export type EdgeCreate = Schemas["EdgeCreate"];
+
+// Ребро, обогащённое геометрией ПУЧКА для конвейера раскладки (R3): хэндлы, изломы
+// и label_t читаются из view_layout по ключу пучка и раздаются членам (мастер-
+// семантика по построению). Вне конвейера/раскладки геометрии на рёбрах нет.
+export type LayoutEdge = Edge & {
+  source_handle: string | null;
+  target_handle: string | null;
+  waypoints?: EdgePoint[] | null;
+  label_t?: number | null;
+};
 
 export type AncestorRef = Schemas["AncestorRef"];
 // Инфо о конце ребра, не являющемся локальным узлом уровня (реестр endpoints
@@ -92,7 +108,7 @@ export type Token = Schemas["Token"];
 // через Undo: берётся ПЕРЕД delete, восстанавливается через POST /nodes/restore.
 // openapi-typescript разводит Input/Output (у полей снимка есть дефолты) — берём
 // Output (то, что отдаёт GET, со всеми полями); он присваиваем во входной body restore.
-export type DeletionSnapshot = Schemas["DeletionSnapshot-Output"];
+export type DeletionSnapshot = Schemas["DeletionSnapshot"];
 
 // Экспорт схемы (или поддерева) в текст для скармливания LLM.
 export type ExportResponse = Schemas["ExportResponse"];

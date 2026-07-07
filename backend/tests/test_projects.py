@@ -51,10 +51,14 @@ def test_preview_projects_edges_to_root_ancestors(db):
     user = ensure_architect(db)
     p = create_project(ProjectCreate(name="Превью"), db=db, user=user)
     # Два корня: R1 (с ребёнком-листом) и R2.
-    r1 = Node(id=uuid.uuid4(), name="R1", project_id=p.id, pos_x=10, pos_y=20)
-    r2 = Node(id=uuid.uuid4(), name="R2", project_id=p.id, pos_x=200, pos_y=20)
+    r1 = Node(id=uuid.uuid4(), name="R1", project_id=p.id)
+    r2 = Node(id=uuid.uuid4(), name="R2", project_id=p.id)
     db.add_all([r1, r2])
     db.flush()
+    # Сохранённые координаты корней — строками view_layout корневого вида (R3).
+    from app.models.view_layout import ViewLayoutItem
+    db.add(ViewLayoutItem(project_id=p.id, view_id=None, item_id=str(r1.id), payload={"x": 10, "y": 20}))
+    db.add(ViewLayoutItem(project_id=p.id, view_id=None, item_id=str(r2.id), payload={"x": 200, "y": 20}))
     child = Node(id=uuid.uuid4(), name="C", project_id=p.id, parent_id=r1.id)
     db.add(child)
     db.flush()

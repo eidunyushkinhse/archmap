@@ -2,7 +2,7 @@
 // Позиции считает ELK (`layoutLevel` в engine.ts); здесь — только чистая логика
 // хэндлов под тестами. Не зависит от context.ts / nodes / edges.
 import { hid } from "../constants";
-import type { Edge as AppEdge } from "../../../types";
+import type { LayoutEdge } from "../../../types";
 
 /** Авто-назначение хэндлов ребру по относительным позициям узлов */
 export function autoHandles(
@@ -36,18 +36,22 @@ export function autoHandles(
 
 /**
  * Назначение хэндлов рёбрам по уже посчитанным позициям узлов. Не зависит от того,
- * ЧЕМ посчитаны позиции (dagre/ELK) — только от их значений: сохранённый хэндл берётся,
- * если валиден для текущей проекции, иначе autoHandles по взаимному положению.
+ * ЧЕМ посчитаны позиции (dagre/ELK) — только от их значений: сохранённый хэндл берётся
+ * как есть, при его отсутствии — autoHandles по взаимному положению. Хэндлы приходят
+ * из payload ПУЧКА текущей проекции (R3): ключ пучка — пара отображаемых концов,
+ * поэтому сохранённый хэндл валиден для неё по построению (прежний prefix-резолв
+ * `${nodeId}--` умер вместе с общей колонкой на все проекции). Концы независимы:
+ * у сквозной связи задним может быть только один хэндл — второй в авто.
  * Вынесено из computeLayout, чтобы ELK-движок (layoutLevel) переиспользовал ту же логику.
  */
 export function assignEdgeHandles(
   allNodes: Array<{ id: string }>,
-  edges: AppEdge[],
+  edges: LayoutEdge[],
   positions: Map<string, { x: number; y: number }>,
 ): Map<string, { sourceHandle: string; targetHandle: string }> {
   const idSet = new Set(allNodes.map((n) => n.id));
 
-  const pairGroups = new Map<string, AppEdge[]>();
+  const pairGroups = new Map<string, LayoutEdge[]>();
   for (const e of edges) {
     const key = [e.source_id, e.target_id].sort().join("|");
     if (!pairGroups.has(key)) pairGroups.set(key, []);
@@ -61,23 +65,11 @@ export function assignEdgeHandles(
   const edgeHandles = new Map<string, { sourceHandle: string; targetHandle: string }>();
   for (const e of edges) {
     if (!idSet.has(e.source_id) || !idSet.has(e.target_id)) continue;
-
-    // Сохранённые хэндлы валидны только если указывают на текущие проекционные узлы.
-    // Один и тот же edge на разных уровнях проецируется на разные узлы (A→B1 на уровне 0
-    // отображается как A→B, а на уровне 1 — как A→B1). Хэндл, сохранённый на уровне 0
-    // для узла B, не существует на уровне 1, где target — B1.
-    const srcHandleValid = e.source_handle?.startsWith(e.source_id + "--") ?? false;
-    const tgtHandleValid = e.target_handle?.startsWith(e.target_id + "--") ?? false;
-
-    // Концы независимы: валидный сохранённый хэндл берём, невалидный/пустой —
-    // считаем autoHandles. Раньше требовалась валидность ОБОИХ (иначе оба в auto),
-    // из-за чего сквозная связь (дальний конец задан дефолтом → target_handle=null)
-    // теряла и сохранённый source_handle узла-источника.
     const { idx, total } = pairInfo.get(e.id) ?? { idx: 0, total: 1 };
     const auto = autoHandles(e.source_id, e.target_id, positions, idx, total);
     edgeHandles.set(e.id, {
-      sourceHandle: srcHandleValid ? e.source_handle! : auto.sourceHandle,
-      targetHandle: tgtHandleValid ? e.target_handle! : auto.targetHandle,
+      sourceHandle: e.source_handle ?? auto.sourceHandle,
+      targetHandle: e.target_handle ?? auto.targetHandle,
     });
   }
 

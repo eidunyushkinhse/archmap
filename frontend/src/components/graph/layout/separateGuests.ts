@@ -27,7 +27,7 @@ import { assignEdgeHandles } from "./level";
 import type { Rect } from "./overlapConstraints";
 import type { KeepOutResult } from "./keepGhostsOut";
 import type { DisplayExternal } from "../types";
-import type { Edge as AppEdge, AncestorRef, LevelPos } from "../../../types";
+import type { LayoutEdge, AncestorRef, LevelPos } from "../../../types";
 
 type XY = { x: number; y: number };
 
@@ -131,7 +131,7 @@ export function separateGuests(params: {
   entities: DisplayExternal[];
   ancestorIds: string[];
   levelPositions: Record<string, LevelPos>;
-  layoutEdges: AppEdge[];
+  layoutEdges: LayoutEdge[];
   positions: Map<string, XY>;
   /** id сущности → раскрытый контейнер-предок прямо над ней (projectGhosts.emergedFrom) */
   emergedFrom: Map<string, string>;

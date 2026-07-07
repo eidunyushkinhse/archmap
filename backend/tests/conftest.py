@@ -15,9 +15,6 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.models.business_process import BusinessProcess  # noqa: F401
 from app.models.edge import Edge  # noqa: F401
-from app.models.edge_waypoint import EdgeWaypoint  # noqa: F401
-from app.models.ghost_edge_handle import GhostEdgeHandle  # noqa: F401
-from app.models.ghost_position import GhostPosition  # noqa: F401
 
 # Импортируем все модели, чтобы они зарегистрировались в Base.metadata до create_all.
 from app.models.node import Node  # noqa: F401
@@ -26,6 +23,7 @@ from app.models.process_message import ProcessMessage  # noqa: F401
 from app.models.process_participant import ProcessParticipant  # noqa: F401
 from app.models.project import Project
 from app.models.user import User  # noqa: F401
+from app.models.view_layout import ViewLayoutItem  # noqa: F401
 
 
 @pytest.fixture()

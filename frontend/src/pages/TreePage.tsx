@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi, edgesApi, exportApi } from "../api/nodes";
+import { nodesApi, edgesApi, exportApi, viewsApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { AncestorRef, DeletionSnapshot, Edge, EdgePoint, EdgeUpdate, GhostNode, LevelEdge, LevelPos, LevelWaypoints, Node, NodeShape, NodeStatus, NodeUpdate, SchemaAlerts as Alerts } from "../types";
+import type { AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge, Node, NodeShape, NodeStatus, NodeUpdate, SchemaAlerts as Alerts, ViewLayout, ViewLayoutPayload } from "../types";
+import { bundleKey } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import { guardPersist } from "../components/graph/interaction/persistGuard";
 import { liftEdgesToLevel } from "../components/graph/projection";
@@ -49,20 +50,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // поддерева, с цепочками предков. Проекцию на видимые сущности делает конвейер
   // LevelGraph; здесь реестр нужен ещё и для имён концов и производных гостей.
   const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
-  // сохранённые координаты гостей на уровне (ключ — id отображаемой сущности:
-  // лист-гость или предок-контейнер, в который гость свёрнут)
-  const [levelPositions, setLevelPositions] = useState<
-    Record<string, LevelPos>
-  >({});
-  // Сохранённые хэндлы гостевых концов рёбер на уровне: edge_id → список значений
-  // (по одному на проекцию гостевого конца — лист-гость и/или предок-контейнер).
-  const [levelEdgeHandles, setLevelEdgeHandles] = useState<
-    Record<string, string[]>
-  >({});
-  // Сохранённые пути (изломы) гостевых стрелок на уровне: edge_id → точки-сгибы.
-  const [levelEdgeWaypoints, setLevelEdgeWaypoints] = useState<
-    Record<string, LevelWaypoints>
-  >({});
+  // Раскладка текущего вида (R3, единое хранилище view_layout): item_id → payload.
+  // Позиции сущностей (локалы/гости/контейнеры) — по их id, геометрия пучков рёбер —
+  // по ключу "b:<src>><tgt>". Зеркало БД: правки приходят из onLayoutChanged.
+  const [viewLayout, setViewLayout] = useState<ViewLayout>({});
   const [edges, setEdges] = useState<LevelEdge[]>([]);
   // Хлебный путь хранит только id+name каждого уровня (этого достаточно для рендера
   // и навигации вверх). Лёгкий тип нужен, чтобы заходить и к госту из другой ветки:
@@ -197,10 +188,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
       const graph = await nodesApi.getGraph(parentId);
       setNodes(graph.nodes);
       setEndpoints(graph.endpoints);
-      // ?? {} — на случай старого бэкенда без поля: без позиций, но не белый экран
-      setLevelPositions(graph.level_positions ?? {});
-      setLevelEdgeHandles(graph.level_edge_handles ?? {});
-      setLevelEdgeWaypoints(graph.level_edge_waypoints ?? {});
+      // раскладка вида как есть (R3): геометрию по ней раздаёт конвейер LevelGraph
+      setViewLayout(graph.layout ?? {});
       // Имена для original_* — из локалов и реестра концов (R2: source_id/target_id
       // ребра и ЕСТЬ реальные концы, original_* синтезируются для модалок деталей).
       const nameById = new Map<string, string>([
@@ -218,10 +207,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           original_target_id: ge.target_id,
           original_source_name: nameById.get(ge.source_id) ?? "",
           original_target_name: nameById.get(ge.target_id) ?? "",
-          source_handle: ge.source_handle,
-          target_handle: ge.target_handle,
-          waypoints: ge.waypoints,
-          label_t: ge.label_t,
           created_at: "",
         }))
       );
@@ -522,79 +507,19 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     });
   }
 
-  // Reconnect в LevelGraph сохранил новые хэндлы (в БД и в локальные rfEdges).
-  // Синхронизируем стейт уровня теми же значениями, что вернул бы рефетч графа —
-  // иначе пересчёт раскладки (сворачивание/разворачивание контейнеров без рефетча)
-  // откатил бы привязку к autoHandles. Хэндл локального конца — в колонку ребра,
-  // хэндл гостевого конца — в level_edge_handles (по проекции node_id).
-  function updateEdgeHandles(
-    edgeId: string,
-    changes: {
-      column?: { source_handle?: string; target_handle?: string };
-      ghost?: { node_id: string; handle: string };
-    },
-  ) {
-    if (changes.column) {
-      const col = changes.column;
-      setEdges((prev) =>
-        prev.map((e) => (e.id === edgeId ? { ...e, ...col } : e)),
-      );
-    }
-    if (changes.ghost) {
-      const { node_id, handle } = changes.ghost;
-      setLevelEdgeHandles((prev) => {
-        // одна проекция (node_id) = один хэндл: выкидываем прежний для этого узла
-        const rest = (prev[edgeId] ?? []).filter(
-          (h) => !h.startsWith(node_id + "--"),
-        );
-        return { ...prev, [edgeId]: [...rest, handle] };
-      });
-    }
-  }
-
-  // Путь стрелки изменён жестом (изломы) и сохранён в БД (useEdgeWaypoints) — зеркалируем
-  // waypoints в стейт уровня теми же значениями, что вернул бы рефетч. Иначе пересчёт
-  // раскладки без рефетча (напр. сворачивание контейнера) откатил бы излом к авто-маршруту.
-  function updateEdgeWaypoints(edgeId: string, waypoints: EdgePoint[]) {
-    setEdges((prev) =>
-      prev.map((e) => (e.id === edgeId ? { ...e, waypoints } : e)),
-    );
-  }
-
-  // То же для ГОСТЕВОЙ стрелки — путь живёт в пер-уровневом слое (level_edge_waypoints),
-  // а не в колонке ребра. Зеркалируем теми же значениями, что вернул бы рефетч; anchorNodeId
-  // помечает излом, владеемый узлом по идентичности (офсет от него, Ф3) — по умолчанию абсолют.
-  function updateLevelEdgeWaypoints(edgeId: string, waypoints: EdgePoint[], anchorNodeId: string | null = null) {
-    setLevelEdgeWaypoints((prev) => ({ ...prev, [edgeId]: { waypoints, anchor_node_id: anchorNodeId } }));
-  }
-
-  // Плашку подписи перетащили — доля label_t сохранена в колонку ребра (commitLabelT).
-  // Зеркалим в стейт уровня теми же значениями, что вернул бы рефетч (доля одна на ребро).
-  function updateEdgeLabelT(edgeId: string, t: number | null) {
-    setEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, label_t: t } : e)));
-  }
-
-  // Узел перетащили — позиция уже сохранена в БД (useSnapAlignment), здесь
-  // зеркалируем её в стейт уровня теми же значениями, что вернул бы рефетч. Иначе
-  // пересчёт раскладки БЕЗ рефетча (локальный setEdges при реконнекте хэндла)
-  // откатил бы узел на прежнюю сохранённую позицию. Локальный узел (block) хранит
-  // координаты в самом узле, гость/контейнер — в levelPositions по id сущности.
-  function handleNodeMoved(
-    id: string,
-    kind: "block" | "ghost" | "container",
-    pos: { pos_x: number; pos_y: number },
-  ) {
-    if (kind === "block") {
-      setNodes((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, pos_x: pos.pos_x, pos_y: pos.pos_y } : n)),
-      );
-    } else {
-      // гость/контейнер — абсолютная позиция уровня (own-on-first-render)
-      setLevelPositions((prev) => ({
-        ...prev,
-        [id]: { pos_x: pos.pos_x, pos_y: pos.pos_y },
-      }));
-    }
+  // Раскладка вида изменена и сохранена (LevelGraph.commitLayout: позиции узлов и/или
+  // геометрия пучков) — зеркалим ТЕ ЖЕ значения в стейт, иначе пересчёт раскладки без
+  // рефетча откатил бы правку к сохранённому. ЕДИНСТВЕННЫЙ канал зеркалирования (R3;
+  // заменил пять прежних колбэков по слоям). null — строка удалена (сброс в авто).
+  function handleLayoutChanged(items: Record<string, ViewLayoutPayload | null>) {
+    setViewLayout((prev) => {
+      const next = { ...prev };
+      for (const [k, p] of Object.entries(items)) {
+        if (p === null) delete next[k];
+        else next[k] = p;
+      }
+      return next;
+    });
   }
 
   function handleEdgeDeleted(id: string, snapshot?: DeletionSnapshot) {
@@ -666,8 +591,33 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     });
   }
 
-  function handleQuickCreated(created: Edge) {
+  // Хэндлы из ЖЕСТА создания связи: EdgeCreate их больше не несёт (R3 — геометрия
+  // живёт на пучке display-пары в view_layout). Пара известна прямо из жеста (оба
+  // конца на холсте), поэтому строку пучка пишем сами ДО рефетча — load() уже увидит
+  // её в graph.layout. Мерж поверх зеркала: у пары могла быть геометрия (дозапись
+  // члена в существующий пучок не должна снести изломы/долю). Ошибку глотаем: хэндл
+  // жеста некритичен, а уровень сейчас перечитается и покажет истину.
+  function persistGestureHandles(
+    sourceId: string, targetId: string,
+    sourceHandle: string | null, targetHandle: string | null,
+  ): Promise<void> {
+    if (!isArchitect || (!sourceHandle && !targetHandle)) return Promise.resolve();
+    const bk = bundleKey(sourceId, targetId);
+    return viewsApi
+      .saveLayout(currentParentId, {
+        [bk]: {
+          ...(viewLayout[bk] ?? {}),
+          ...(sourceHandle ? { source_handle: sourceHandle } : {}),
+          ...(targetHandle ? { target_handle: targetHandle } : {}),
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  async function handleQuickCreated(created: Edge) {
+    const q = edgeQuick;
     setEdgeQuick(null);
+    if (q) await persistGestureHandles(q.sourceId, q.targetId, q.sourceHandle, q.targetHandle);
     load(currentParentId);
     pushEdgeCreate(created);
   }
@@ -681,8 +631,21 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     setIntoPicker({ sourceId, containerId, containerName, sourceHandle });
   }
 
-  function handleIntoCreated(created: Edge) {
+  async function handleIntoCreated(created: Edge) {
+    const p = intoPicker;
     setIntoPicker(null);
+    if (p) {
+      // display-конец на текущем холсте — сам контейнер (внутрь него провалили связь).
+      // Направление могли развернуть в пикере: выводим из created (при "in" реальный
+      // источник — выбранный потомок, а хэндл жеста — у конца-цели).
+      const out = created.source_id === p.sourceId;
+      await persistGestureHandles(
+        out ? p.sourceId : p.containerId,
+        out ? p.containerId : p.sourceId,
+        out ? p.sourceHandle : null,
+        out ? null : p.sourceHandle,
+      );
+    }
     load(currentParentId);
     pushEdgeCreate(created);
   }
@@ -882,9 +845,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
             <LevelGraph
               nodes={nodes}
               endpoints={endpoints}
-              levelPositions={levelPositions}
-              levelEdgeHandles={levelEdgeHandles}
-              levelEdgeWaypoints={levelEdgeWaypoints}
+              viewLayout={viewLayout}
               edges={edges}
               depth={breadcrumb.length}
               containerId={currentParentId}
@@ -902,11 +863,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
                 if (les.length === 1) inspectEdge(les[0]);
                 else if (les.length > 1) setEdgeChoice(les);
               }}
-              onEdgeHandlesChanged={updateEdgeHandles}
-              onEdgeWaypointsChanged={updateEdgeWaypoints}
-              onLevelEdgeWaypointsChanged={updateLevelEdgeWaypoints}
-              onEdgeLabelTChanged={updateEdgeLabelT}
-              onNodeMoved={handleNodeMoved}
+              onLayoutChanged={handleLayoutChanged}
               onDropNode={handleDropNode}
               onCreateEdge={handleCreateEdge}
               onConnectInto={handleConnectInto}
@@ -1029,8 +986,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         <EdgeQuickCreate
           sourceId={edgeQuick.sourceId}
           targetId={edgeQuick.targetId}
-          sourceHandle={edgeQuick.sourceHandle}
-          targetHandle={edgeQuick.targetHandle}
           sourceLabel={findNodeLabel(edgeQuick.sourceId)}
           targetLabel={findNodeLabel(edgeQuick.targetId)}
           onClose={() => setEdgeQuick(null)}
@@ -1043,7 +998,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           subtitle="Выберите объект-потомок — дальний конец межуровневой связи."
           sourceId={intoPicker.sourceId}
           sourceLabel={findNodeLabel(intoPicker.sourceId)}
-          sourceHandle={intoPicker.sourceHandle}
           loadNodes={() => nodesApi.getDescendants(intoPicker.containerId)}
           scopeKey={intoPicker.containerId}
           rootParentId={intoPicker.containerId}
@@ -1058,7 +1012,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           subtitle="Выберите объект из любой части схемы — связь станет сквозной."
           sourceId={outPicker.sourceId}
           sourceLabel={findNodeLabel(outPicker.sourceId)}
-          sourceHandle={outPicker.sourceHandle}
           loadNodes={() => nodesApi.getAll()}
           scopeKey="all"
           rootParentId={null}
@@ -1073,6 +1026,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
             ])
           }
           onClose={() => setOutPicker(null)}
+          // Хэндл источника из жеста НЕ сохраняем (осознанная жертва R3): ключ пучка
+          // требует display-пару, а display дальнего конца (гость/контейнер, в который
+          // он свернётся) известен только после рефетча. Стрелка встанет на авто-хэндл;
+          // при желании конец переносится реконнектом.
           onCreated={(created) => { setOutPicker(null); load(currentParentId); pushEdgeCreate(created); }}
         />
       )}

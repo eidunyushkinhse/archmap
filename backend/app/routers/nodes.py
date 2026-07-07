@@ -2,40 +2,33 @@ import uuid
 from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app import restore, tree
 from app.auth import get_current_user, require_architect
-from app.database import get_db, upsert
-from app.deps import get_current_project, scoped_edge, scoped_node, touch_project
+from app.database import get_db
+from app.deps import get_current_project, scoped_node, touch_project
 from app.models.edge import Edge
-from app.models.edge_waypoint import EdgeWaypoint
-from app.models.ghost_edge_handle import GhostEdgeHandle
-from app.models.ghost_position import GhostPosition
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
-from app.schemas.edge import Point
+from app.models.view_layout import ViewLayoutItem
 from app.schemas.node import (
     AlertsResponse,
     ContextEdgeResponse,
     DisconnectedNodeAlert,
-    EdgeWaypointsUpdate,
-    GhostEdgeHandleUpdate,
     GhostNodeResponse,
-    GhostPositionUpdate,
     GraphEdgeResponse,
     GraphResponse,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
-    LevelWaypoints,
     NodeContextResponse,
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
     NodeUpdate,
-    PosXY,
+    ViewLayoutPayload,
 )
 from app.schemas.restore import DeletionSnapshot
 
@@ -94,50 +87,30 @@ def _build_graph(
                 technology=edge.technology,
                 source_id=edge.source_id,
                 target_id=edge.target_id,
-                source_handle=edge.source_handle,
-                target_handle=edge.target_handle,
-                waypoints=edge.waypoints,
-                label_t=edge.label_t,
             )
         )
         for nid in (edge.source_id, edge.target_id):
             if nid not in local_ids:
                 endpoint_ids.add(nid)
 
-    # Пер-уровневый слой раскладки: ВСЕ строки контейнера как есть. Прежний фильтр
-    # valid_keys (перебор допустимых проекций) не нужен: какая проекция показана —
-    # решает фронт, а строки «не показанных сейчас» проекций безвредны по построению
-    # (позиции ищутся по id отображаемой сущности, хэндлы — по префиксу). Инвариант
-    # F6а сохраняется: ЧТЕНИЕ НЕ ПИШЕТ В БД, семантически устаревшие строки живут
-    # (при возврате проекции координаты воскресают), реальных сирот снёс БД-каскад.
-    level_positions: dict[str, PosXY] = {}
-    level_edge_handles: dict[str, list[str]] = {}
-    level_edge_waypoints: dict[str, LevelWaypoints] = {}
-    if container_id is not None:
-        for r in (
-            db.query(GhostPosition)
-            .filter(GhostPosition.container_id == container_id)
-            .all()
-        ):
-            level_positions[str(r.node_id)] = PosXY(pos_x=r.pos_x, pos_y=r.pos_y)
-
-        for r in (
-            db.query(GhostEdgeHandle)
-            .filter(GhostEdgeHandle.container_id == container_id)
-            .all()
-        ):
-            level_edge_handles.setdefault(str(r.edge_id), []).append(r.handle)
-
-        for r in (
-            db.query(EdgeWaypoint)
-            .filter(EdgeWaypoint.container_id == container_id)
-            .all()
-        ):
-            if r.waypoints:
-                level_edge_waypoints[str(r.edge_id)] = LevelWaypoints(
-                    waypoints=[Point(x=p["x"], y=p["y"]) for p in r.waypoints],
-                    anchor_node_id=r.anchor_node_id,
-                )
+    # Раскладка вида как есть: ВСЕ строки view_layout этого вида (у корня view IS
+    # NULL — позиции корневых узлов теперь тоже здесь). Строки «не показанных
+    # сейчас» проекций безвредны (какая проекция видна — решает фронт) и живут
+    # намеренно: при возврате проекции геометрия воскресает. Инвариант F6а —
+    # ЧТЕНИЕ НЕ ПИШЕТ В БД; реальных сирот чистят каскад view_id и delete_node.
+    layout: dict[str, ViewLayoutPayload] = {}
+    project_id = local_nodes[0].project_id
+    view_filter = (
+        ViewLayoutItem.view_id.is_(None)
+        if container_id is None
+        else ViewLayoutItem.view_id == container_id
+    )
+    for r in (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id == project_id, view_filter)
+        .all()
+    ):
+        layout[r.item_id] = ViewLayoutPayload(**r.payload)
 
     # Число прямых детей у каждого родителя — одним проходом по всем узлам.
     # Питает бейдж «есть дети (N)» и кнопку «Войти» и у концов-реестра, и у локалов.
@@ -169,9 +142,7 @@ def _build_graph(
         nodes=local_nodes,
         edges=result_edges,
         endpoints=endpoints,
-        level_positions=level_positions,
-        level_edge_handles=level_edge_handles,
-        level_edge_waypoints=level_edge_waypoints,
+        layout=layout,
     )
 
 
@@ -203,8 +174,20 @@ def create_node(
         if not parent:
             raise HTTPException(status_code=404, detail="Родительский узел не найден")
     # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
-    node = Node(**payload.model_dump(), project_id=project.id)
+    node = Node(**payload.model_dump(exclude={"pos_x", "pos_y"}), project_id=project.id)
     db.add(node)
+    db.flush()
+    # Координаты дропа шаблона — строкой раскладки в вид РОДИТЕЛЯ (R3: единое
+    # хранилище; в колонках узла позиций больше нет). Без координат — авто (ELK).
+    if payload.pos_x is not None and payload.pos_y is not None:
+        db.add(
+            ViewLayoutItem(
+                project_id=project.id,
+                view_id=payload.parent_id,
+                item_id=str(node.id),
+                payload={"x": payload.pos_x, "y": payload.pos_y},
+            )
+        )
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(node)
@@ -466,11 +449,19 @@ def delete_node(
     node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
-    # Удаляем узел со всем поддеревом (потомки любой глубины), их рёбрами (исходящими,
-    # входящими — в т.ч. снаружи) и ghost-метаданными. Всё это делает БД-каскад
-    # (ondelete="CASCADE" на parent_id, source_id/target_id, ghost-FK), а passive_deletes
-    # на связях Node не даёт ORM лезть в эти строки в Python (раньше из-за этого падал
-    # IntegrityError, отсюда и был bulk-костыль). Достаточно одного db.delete.
+    # Удаляем узел со всем поддеревом (потомки любой глубины) и их рёбрами — это
+    # делает БД-каскад (ondelete="CASCADE" на parent_id, source_id/target_id), а
+    # passive_deletes на связях Node не даёт ORM лезть в эти строки в Python.
+    #
+    # Раскладка: строки view_layout СВОИХ видов поддерева умирают каскадом view_id,
+    # но строки, ссылающиеся на поддерево из ДРУГИХ видов (гостевые позиции, ключи
+    # пучков "b:<src>><tgt>"), FK не накрыты (item_id — строка) — чистим явно по
+    # вхождению uuid в ключ.
+    subtree = tree.collect_subtree_ids_db(db, node_id)
+    db.query(ViewLayoutItem).filter(
+        ViewLayoutItem.project_id == project.id,
+        or_(*[ViewLayoutItem.item_id.like(f"%{sid}%") for sid in subtree]),
+    ).delete(synchronize_session=False)
     touch_project(db, project, user.id)
     db.delete(node)
     db.commit()
@@ -662,146 +653,24 @@ def get_node_context(
     )
 
 
-@router.put(
-    "/{container_id}/ghost-positions/{node_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def save_ghost_position(
-    container_id: uuid.UUID,
-    node_id: uuid.UUID,
-    payload: GhostPositionUpdate,
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
-) -> None:
-    """Сохраняет (upsert) координаты гостевого узла node_id на уровне container_id."""
-    if not scoped_node(db, container_id, project):
-        raise HTTPException(status_code=404, detail="Уровень не найден")
-    if not scoped_node(db, node_id, project):
-        raise HTTPException(status_code=404, detail="Узел не найден")
-
-    upsert(
-        db,
-        GhostPosition,
-        keys={"container_id": container_id, "node_id": node_id},
-        values={"pos_x": payload.pos_x, "pos_y": payload.pos_y},
-    )
-    db.commit()
-
-
-@router.put(
-    "/{container_id}/ghost-edge-handles/{edge_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def save_ghost_edge_handle(
-    container_id: uuid.UUID,
-    edge_id: uuid.UUID,
-    payload: GhostEdgeHandleUpdate,
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
-) -> None:
-    """Сохраняет (upsert) хэндл гостевого конца ребра edge_id на уровне container_id,
-    привязанный к id отображаемой сущности node_id (лист-гость ИЛИ предок-контейнер).
-
-    У каждой проекции гостевого конца своя строка — поэтому привязка к свёрнутому
-    контейнеру и к развёрнутому листу хранятся раздельно и не затирают друг друга.
-    """
-    if not scoped_node(db, container_id, project):
-        raise HTTPException(status_code=404, detail="Уровень не найден")
-    if not scoped_edge(db, edge_id, project):
-        raise HTTPException(status_code=404, detail="Связь не найдена")
-    if not scoped_node(db, payload.node_id, project):
-        raise HTTPException(status_code=404, detail="Узел не найден")
-
-    upsert(
-        db,
-        GhostEdgeHandle,
-        keys={
-            "container_id": container_id,
-            "edge_id": edge_id,
-            "node_id": payload.node_id,
-        },
-        values={"handle": payload.handle},
-    )
-    db.commit()
-
-
-@router.put(
-    "/{container_id}/edge-waypoints/{edge_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def save_edge_waypoints(
-    container_id: uuid.UUID,
-    edge_id: uuid.UUID,
-    payload: EdgeWaypointsUpdate,
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
-) -> None:
-    """Сохраняет (upsert) кастомный путь ГОСТЕВОЙ стрелки edge_id на уровне container_id.
-
-    Пустой список waypoints — сброс в авто-маршрут: строку пер-уровневого слоя удаляем
-    (нет строки = авто). Путь локальной стрелки сюда не пишется — он в колонке ребра.
-    """
-    if not scoped_node(db, container_id, project):
-        raise HTTPException(status_code=404, detail="Уровень не найден")
-    if not scoped_edge(db, edge_id, project):
-        raise HTTPException(status_code=404, detail="Связь не найдена")
-
-    data = [{"x": p.x, "y": p.y} for p in payload.waypoints]
-    if not data:
-        # Сброс в авто-маршрут — это удаление строки (нет строки = авто), не апсерт:
-        # находим существующую строку и убираем её.
-        row = (
-            db.query(EdgeWaypoint)
-            .filter(
-                EdgeWaypoint.container_id == container_id,
-                EdgeWaypoint.edge_id == edge_id,
-            )
-            .one_or_none()
-        )
-        if row is not None:
-            db.delete(row)
-    else:
-        upsert(
-            db,
-            EdgeWaypoint,
-            keys={"container_id": container_id, "edge_id": edge_id},
-            values={"waypoints": data, "anchor_node_id": payload.anchor_node_id},
-        )
-    db.commit()
 
 
 def _clear_level_layout(
     db: Session, container_id: uuid.UUID | None, project: Project
 ) -> None:
-    """Сбрасывает ВЕСЬ ручной layout уровня в авто (own-on-first-render, Ф2):
-    позиции локальных узлов уровня → null (dagre разложит заново), а также гостевые
-    позиции, хэндлы гостевых концов и изломы стрелок этого уровня. После сброса уровень
-    выглядит как при первом открытии (dagre + кольца + авто-маршруты).
-
-    Для корня (container_id=None) гостей/хэндлов/изломов не бывает (их таблицы скоупятся
-    not-null container_id) — чистим только позиции корневых узлов (parent_id IS NULL).
-    """
-    # Позиции локальных узлов уровня (прямые дети контейнера) → авто.
-    parent_filter = (
-        Node.parent_id.is_(None) if container_id is None else Node.parent_id == container_id
+    """Сбрасывает ВЕСЬ ручной layout вида в авто (own-on-first-render, Ф2):
+    удаляем все строки view_layout этого вида — позиции локалов/гостей/контейнеров
+    и геометрию пучков разом (R3: единое хранилище). После сброса уровень выглядит
+    как при первом открытии (ELK + кольца + авто-маршруты + пере-засев владения).
+    Скоуп строго по виду: соседние уровни и другие виды нетронуты."""
+    view_filter = (
+        ViewLayoutItem.view_id.is_(None)
+        if container_id is None
+        else ViewLayoutItem.view_id == container_id
     )
-    db.query(Node).filter(parent_filter, Node.project_id == project.id).update(
-        {Node.pos_x: None, Node.pos_y: None}, synchronize_session=False
-    )
-    if container_id is not None:
-        # Гостевой пер-уровневый слой скоупится container_id — сносим строки целиком.
-        db.query(GhostPosition).filter(
-            GhostPosition.container_id == container_id
-        ).delete(synchronize_session=False)
-        db.query(GhostEdgeHandle).filter(
-            GhostEdgeHandle.container_id == container_id
-        ).delete(synchronize_session=False)
-        db.query(EdgeWaypoint).filter(
-            EdgeWaypoint.container_id == container_id
-        ).delete(synchronize_session=False)
+    db.query(ViewLayoutItem).filter(
+        ViewLayoutItem.project_id == project.id, view_filter
+    ).delete(synchronize_session=False)
     db.commit()
 
 

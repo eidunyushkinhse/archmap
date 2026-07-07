@@ -17,7 +17,7 @@ import { NODE_W, NODE_H, KEEPOUT_GAP } from "../constants";
 import { computeFrames, type FrameRect } from "./frames";
 import { assignEdgeHandles } from "./level";
 import type { DisplayExternal } from "../types";
-import type { Edge as AppEdge, AncestorRef } from "../../../types";
+import type { LayoutEdge, AncestorRef } from "../../../types";
 
 interface Rect { minX: number; minY: number; maxX: number; maxY: number }
 
@@ -84,7 +84,7 @@ export function enforceFramesKeepOut(params: {
   nodes: { id: string }[];
   entities: DisplayExternal[];
   ancestorIds: string[];
-  layoutEdges: AppEdge[];
+  layoutEdges: LayoutEdge[];
   positions: Map<string, { x: number; y: number }>;
 }): KeepOutResult | null {
   const { nodes, entities, ancestorIds, layoutEdges, positions } = params;

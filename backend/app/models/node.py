@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -31,8 +31,8 @@ class Node(Base):
     )
     flowchart: Mapped[str | None] = mapped_column(Text, nullable=True)
     openapi_spec: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pos_x: Mapped[float | None] = mapped_column(Float, nullable=True)
-    pos_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # ПОЗИЦИЙ здесь больше нет (R3): координаты пер-вид, хранятся в view_layout
+    # (item_id = id узла, вид = родитель).
     is_external: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # вариант отображения: service | database | broker | person (C4-формы)
     shape: Mapped[str] = mapped_column(String(32), default="service", server_default="service")

@@ -1,10 +1,10 @@
-"""Характеризационные тесты удаления узла (F6б).
+"""Характеризационные тесты удаления узла (F6б + R3).
 
 Фиксируют каскад удаления поддерева: сам узел + потомки любой глубины, все их
-рёбра (включая входящие СНАРУЖИ — это и был повод для bulk-костыля), плюс
-ghost-метаданные, ссылающиеся на удаляемые узлы. Чисто внешние рёбра выживают.
-Тест должен оставаться зелёным и на bulk-удалении, и после перехода на db.delete
-с passive_deletes (каскад БД) — это и доказывает эквивалентность рефактора.
+рёбра (включая входящие СНАРУЖИ — это и был повод для bulk-костыля). Раскладка
+(view_layout): строки СВОИХ видов поддерева умирают каскадом view_id, строки,
+ссылающиеся на поддерево из ЧУЖИХ видов (позиции гостей, ключи пучков), чистятся
+явно (item_id — строка без FK). Чисто внешние рёбра и чужая раскладка выживают.
 """
 
 import uuid
@@ -14,9 +14,8 @@ from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.models.edge import Edge
-from app.models.ghost_edge_handle import GhostEdgeHandle
-from app.models.ghost_position import GhostPosition
 from app.models.node import Node
+from app.models.view_layout import ViewLayoutItem
 from app.routers.nodes import delete_node
 
 
@@ -37,7 +36,18 @@ def _edge(db, src, tgt):
     return e
 
 
-def test_delete_node_cascades_subtree_edges_and_ghost_meta(db):
+def _layout(db, view, item_id, payload):
+    row = ViewLayoutItem(
+        project_id=ensure_project(db).id,
+        view_id=view.id if view is not None else None,
+        item_id=item_id,
+        payload=payload,
+    )
+    db.add(row)
+    return row
+
+
+def test_delete_node_cascades_subtree_edges_and_layout(db):
     # Поддерево A → A1 → A1a; снаружи X. Рёбра: внутреннее A1→A1a, исходящее наружу
     # A1a→X, входящее снаружи X→A1 (повод для прежнего костыля), и чисто внешнее X→Y.
     a = _node(db, "A")
@@ -51,12 +61,12 @@ def test_delete_node_cascades_subtree_edges_and_ghost_meta(db):
     e_external = _edge(db, x, y)
     db.commit()
 
-    # ghost-метаданные: ссылаются на удаляемые узлы (должны уйти каскадом) и на
-    # выжившие (должны остаться).
-    db.add(GhostPosition(container_id=x.id, node_id=a1.id, pos_x=1, pos_y=2))   # node_id в поддереве → каскад
-    db.add(GhostPosition(container_id=a.id, node_id=x.id, pos_x=3, pos_y=4))    # container_id в поддереве → каскад
-    db.add(GhostPosition(container_id=x.id, node_id=y.id, pos_x=5, pos_y=6))    # обе ссылки выживают → остаётся
-    db.add(GhostEdgeHandle(container_id=x.id, edge_id=e_in.id, node_id=a1.id, handle="a1--left--1"))  # edge+node в поддереве → каскад
+    # Раскладка: строки, ссылающиеся на удаляемое поддерево (чистка), свой вид
+    # поддерева (каскад view_id) и «чужая» строка, которая должна выжить.
+    _layout(db, x, str(a1.id), {"x": 1, "y": 2})                 # позиция гостя a1 на чужом виде → чистка по item_id
+    _layout(db, a, str(x.id), {"x": 3, "y": 4})                  # вид A в поддереве → каскад view_id
+    _layout(db, x, f"b:{x.id}>{a1.id}", {"source_handle": "h"})  # пучок с концом в поддереве → чистка
+    survivor = _layout(db, x, str(y.id), {"x": 5, "y": 6})       # обе ссылки живы → остаётся
     db.commit()
 
     delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
@@ -65,12 +75,12 @@ def test_delete_node_cascades_subtree_edges_and_ghost_meta(db):
     assert node_ids == {x.id, y.id}  # поддерево A снесено, X и Y живы
 
     edge_ids = {e.id for e in db.query(Edge).all()}
-    assert edge_ids == {e_external.id}  # выжило только чисто внешнее X→Y
+    assert edge_ids == {e_external.id}  # выжило только чисто внешнее X→Y (X→A1 снесено)
+    _ = e_in  # ссылка выше нужна только для создания ребра
 
-    # ghost-строки, ссылавшиеся на удалённые узлы/рёбра, ушли каскадом; «внешняя» жива
-    gp = db.query(GhostPosition).all()
-    assert len(gp) == 1 and gp[0].node_id == y.id and gp[0].container_id == x.id
-    assert db.query(GhostEdgeHandle).count() == 0
+    rows = db.query(ViewLayoutItem).all()
+    assert len(rows) == 1
+    assert rows[0].item_id == survivor.item_id and rows[0].view_id == x.id
 
 
 def test_delete_missing_node_404(db):

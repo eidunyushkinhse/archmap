@@ -31,14 +31,12 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
   const [deleting, setDeleting] = useState(false);
 
   // Состояние ДО последней правки — для обратимой записи в историю (undoPayload).
-  // Хэндлы держим явно: при возврате концов бэк иначе обнулил бы их.
+  // Хэндлов в контракте связи больше нет (R3): геометрия живёт на пучке в view_layout.
   const beforeRef = useRef<EdgeUpdate>({
     label: edge.label ?? null,
     technology: edge.technology ?? null,
     source_id: edge.original_source_id,
     target_id: edge.original_target_id,
-    source_handle: edge.source_handle ?? null,
-    target_handle: edge.target_handle ?? null,
   });
 
   // Узлы-концы (read-only) для глифа формы рядом с «Откуда/Куда». Концы off-level,
@@ -89,8 +87,6 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
         technology: updated.technology ?? null,
         source_id: updated.source_id,
         target_id: updated.target_id,
-        source_handle: updated.source_handle ?? null,
-        target_handle: updated.target_handle ?? null,
       };
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка сохранения");

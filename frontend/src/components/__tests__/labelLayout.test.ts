@@ -4,13 +4,13 @@ import { rectFromCenter, countLabelOverlaps } from "../graph/layout/arrowMetrics
 import { labelBoxSize } from "../graph/layout/labelBox";
 import type { NodeRect } from "../graph/edgePath";
 import type { EdgeGroup } from "../graph/types";
-import type { Edge as AppEdge, EdgePoint } from "../../types";
+import type { LayoutEdge, EdgePoint } from "../../types";
 
 // Мост раскладки плашек (A7.2): по авто-маршрутам строит размещение без наложений (R2),
 // с выноской-leader там, где на линии не встаёт. Проверяем инварианты через метрики A0.
 
-const edge = (id: string, label?: string): AppEdge => ({ id, source_id: "s", target_id: "t", label } as AppEdge);
-const group = (id: string, members: AppEdge[]): EdgeGroup => ({ id, source: "s", target: "t", members });
+const edge = (id: string, label?: string): LayoutEdge => ({ id, source_id: "s", target_id: "t", label } as LayoutEdge);
+const group = (id: string, members: LayoutEdge[]): EdgeGroup => ({ id, source: "s", target: "t", members });
 const poly = (...pairs: [number, number][]): EdgePoint[] => pairs.map(([x, y]) => ({ x, y }));
 const meta = (text: string): LabelMeta => ({ text, lines: 1 });
 

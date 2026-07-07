@@ -3,12 +3,12 @@
 опциональным родителем) и связей между ключами.
 
 Узлам задаём ГОТОВУЮ раскладку (x/y — левый-верхний угол, как отдаёт ELK): эти
-координаты ложатся в pos_x/pos_y и становятся savedPos на холсте (перетирают
-авто-ELK), а главное — попадают в реальную БД, поэтому превью карточки лендинга
-показывает шаблонный проект так же, как он выглядит на холсте (иначе у узлов без
-координат превью гадало бы раскладку). Сетка: узел 190×100, шаг колонок 310
-(NODE_W+120 межрангового зазора ELK), шаг рядов 160 (NODE_H+60), слои слева
-направо.
+координаты ложатся строками view_layout (вид = родитель узла) и становятся
+savedPos на холсте (перетирают авто-ELK), а главное — попадают в реальную БД,
+поэтому превью карточки лендинга показывает шаблонный проект так же, как он
+выглядит на холсте (иначе у узлов без координат превью гадало бы раскладку).
+Сетка: узел 190×100, шаг колонок 310 (NODE_W+120 межрангового зазора ELK),
+шаг рядов 160 (NODE_H+60), слои слева направо.
 """
 
 import uuid
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.view_layout import ViewLayoutItem
 
 
 @dataclass
@@ -126,6 +127,7 @@ def seed_template(db: Session, project_id: uuid.UUID, template_id: str) -> bool:
     for ns in tpl.nodes:
         nid = uuid.uuid4()
         id_by_key[ns.key] = nid
+        parent_id = id_by_key.get(ns.parent) if ns.parent else None
         db.add(
             Node(
                 id=nid,
@@ -134,11 +136,20 @@ def seed_template(db: Session, project_id: uuid.UUID, template_id: str) -> bool:
                 role=ns.role,
                 technology=ns.technology,
                 shape=ns.shape,
-                parent_id=id_by_key.get(ns.parent) if ns.parent else None,
-                pos_x=ns.x,
-                pos_y=ns.y,
+                parent_id=parent_id,
             )
         )
+        # Готовая раскладка шаблона — строками view_layout (R3): вид = родитель
+        # узла (None — корневой вид). Эти же строки видит превью карточки лендинга.
+        if ns.x is not None and ns.y is not None:
+            db.add(
+                ViewLayoutItem(
+                    project_id=project_id,
+                    view_id=parent_id,
+                    item_id=str(nid),
+                    payload={"x": ns.x, "y": ns.y},
+                )
+            )
     db.flush()  # узлы до рёбер (FK)
     for es in tpl.edges:
         db.add(

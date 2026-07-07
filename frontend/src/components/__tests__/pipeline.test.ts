@@ -1,20 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { computeViewLayout, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
+import { bundleKey } from "../../types";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 
-// Характеризация КОМПОЗИЦИИ конвейера раскладки (R1): отдельные стадии покрыты своими
-// тестами, здесь — сквозные инварианты целого: детерминизм, засев владения интентами
-// (а не записью в БД), конвергенция «второй прогон с засеянными позициями — no-op»,
-// слияние мастеров, контекст-режим без интентов.
+// Характеризация КОМПОЗИЦИИ конвейера раскладки (R1/R3): отдельные стадии покрыты
+// своими тестами, здесь — сквозные инварианты целого: детерминизм, засев владения
+// интентами (а не записью в БД), конвергенция «второй прогон с засеянными позициями —
+// no-op», слияние мастеров, геометрия по ключу пучка, контекст-режим без интентов.
 
 const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
 
-function appNode(id: string, pos?: { x: number; y: number }): AppNode {
+function appNode(id: string): AppNode {
   return {
     id, name: id, description: null, role: null, technology: null,
     parent_id: "P", shape: "service", is_external: false, status: "existing",
     flowchart: null, openapi_spec: null,
-    pos_x: pos?.x ?? null, pos_y: pos?.y ?? null,
     created_at: "", updated_at: "", has_children: false, child_count: 0,
   } as AppNode;
 }
@@ -30,22 +30,20 @@ function ghost(id: string, ancestors: AncestorRef[]): GhostNode {
 function edge(id: string, source_id: string, target_id: string, label: string | null = null): AppEdge {
   return {
     id, label, technology: null, source_id, target_id,
-    source_handle: null, target_handle: null, created_at: "2026-07-07T00:00:00Z",
+    created_at: "2026-07-07T00:00:00Z",
   } as AppEdge;
 }
 
-// Базовая сцена уровня (сырьё R2): два владеемых локала — дети контейнера P;
-// рёбра с РЕАЛЬНЫМИ концами; в реестре endpoints — внешний корневой лист G и
-// H под чужим корнем D (свернётся в контейнер D). Оба гостя требуют засева.
+// Базовая сцена уровня (сырьё R2/R3): два локала — дети контейнера P — с владеемыми
+// позициями в viewLayout; рёбра с РЕАЛЬНЫМИ концами; в реестре endpoints — внешний
+// корневой лист G и H под чужим корнем D (свернётся в контейнер D). Гости требуют засева.
 function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
   return {
-    nodes: [appNode("A", { x: 0, y: 0 }), appNode("B", { x: 400, y: 0 })],
+    nodes: [appNode("A"), appNode("B")],
     endpoints: [ghost("G", []), ghost("H", [a("D")])],
     edges: [edge("eAB", "A", "B", "зов"), edge("eGA", "G", "A"), edge("eHB", "H", "B")],
     containerId: "P",
-    levelPositions: {},
-    levelEdgeHandles: {},
-    levelEdgeWaypoints: {},
+    viewLayout: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } },
     ancestorIds: ["P"],
     expanded: new Set(),
     isContext: false,
@@ -61,7 +59,7 @@ function sig(l: LayoutResult): string {
     handles: m(l.edgeHandles),
     routes: m(l.autoRoutes),
     labels: m(l.labelPlacements),
-    wp: l.levelWaypoints,
+    wp: l.bundleWaypoints,
     groups: l.groupArr.map((g) => ({ id: g.id, n: g.members.length })).sort((p, q) => p.id.localeCompare(q.id)),
   });
 }
@@ -72,7 +70,7 @@ describe("computeViewLayout — композиция конвейера уров
     // сущности: гость-лист G и контейнер D (H свёрнут в предка)
     expect(out.layout.entities.map((e) => e.id).sort()).toEqual(["D", "G"]);
     for (const id of ["A", "B", "G", "D"]) expect(out.layout.positions.get(id)).toBeTruthy();
-    // сохранённые позиции локалов уважены (не пересчитаны ELK)
+    // сохранённые позиции локалов (viewLayout) уважены — не пересчитаны ELK
     expect(out.layout.positions.get("A")).toEqual({ x: 0, y: 0 });
     expect(out.layout.positions.get("B")).toEqual({ x: 400, y: 0 });
     // все три группы рёбер получили авто-маршрут (ручных правок нет)
@@ -81,8 +79,8 @@ describe("computeViewLayout — композиция конвейера уров
       expect(out.layout.autoRoutes?.get(g.id)?.length ?? 0).toBeGreaterThanOrEqual(2);
     }
     // засев владения пришёл интентом (никаких вызовов персиста из конвейера)
-    const seeds = out.intents.filter((i) => i.kind === "seed-ghost-positions").flatMap((i) => i.seeds);
-    expect(seeds.map((s) => `${s.id}:${s.entityKind}`).sort()).toEqual(["D:container", "G:ghost"]);
+    const seeds = out.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
+    expect(seeds.map((s) => s.id).sort()).toEqual(["D", "G"]);
     // liveInputs согласованы с раскладкой
     expect(out.liveInputs.localIds).toEqual(new Set(["A", "B"]));
     expect(out.liveInputs.layoutEdges.map((e) => e.id).sort()).toEqual(["eAB", "eGA", "eHB"]);
@@ -92,11 +90,13 @@ describe("computeViewLayout — композиция конвейера уров
     const first = await computeViewLayout(levelInput());
     const seeded = Object.fromEntries(
       first.intents
-        .filter((i) => i.kind === "seed-ghost-positions")
+        .filter((i) => i.kind === "seed-positions")
         .flatMap((i) => i.seeds)
-        .map((s) => [s.id, { pos_x: s.pos_x, pos_y: s.pos_y }]),
+        .map((s) => [s.id, { x: s.x, y: s.y }]),
     );
-    const second = await computeViewLayout(levelInput({ levelPositions: seeded }));
+    const second = await computeViewLayout(
+      levelInput({ viewLayout: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 }, ...seeded } }),
+    );
     expect(second.intents).toEqual([]);
     expect(sig(second.layout)).toBe(sig(first.layout));
   });
@@ -117,15 +117,35 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.groupArr[0].members.map((m) => m.id).sort()).toEqual(["e1", "e2"]);
   });
 
+  it("геометрия пучка (R3): хэндл и изломы читаются по ключу пары и раздаются мастеру", async () => {
+    const bk = bundleKey("A", "B");
+    const inp = levelInput({
+      edges: [edge("e1", "A", "B", "раз"), edge("e2", "A", "B", "два")],
+      endpoints: [],
+      viewLayout: {
+        A: { x: 0, y: 0 }, B: { x: 400, y: 0 },
+        [bk]: { source_handle: "A--top--0", waypoints: [{ x: 200, y: -80 }] },
+      },
+    });
+    const out = await computeViewLayout(inp);
+    const master = out.layout.groupArr[0];
+    expect(master.id).toBe("merge:A->B");
+    // хэндл пучка разрешён на мастер-ребро (второй конец — авто)
+    expect(out.layout.edgeHandles.get(master.id)?.sourceHandle).toBe("A--top--0");
+    // члены мастера обогащены геометрией пучка (одна строка на пару)
+    for (const m of master.members) expect(m.source_handle).toBe("A--top--0");
+    // ручной путь пучка виден сборке по тому же ключу и выключает авто-маршрут
+    expect(out.layout.bundleWaypoints[bk]).toEqual([{ x: 200, y: -80 }]);
+    expect(out.layout.autoRoutes?.get(master.id)).toBeUndefined();
+  });
+
   it("контекст-режим: раскладка есть, интентов нет (эфемерная звезда)", async () => {
     const out = await computeViewLayout({
-      nodes: [appNode("F", { x: 999, y: 999 })], // savedPos в контексте игнорируется
+      nodes: [appNode("F")],
       endpoints: [ghost("N", [])],
       edges: [edge("eNF", "N", "F")], // контекст: концы уже спроецированы сервером
       containerId: "P",
-      levelPositions: {},
-      levelEdgeHandles: {},
-      levelEdgeWaypoints: {},
+      viewLayout: {}, // контекст-схема раскладку не хранит
       ancestorIds: ["P"],
       expanded: new Set(),
       isContext: true,
@@ -133,8 +153,6 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.intents).toEqual([]);
     expect(out.layout.positions.get("F")).toBeTruthy();
     expect(out.layout.positions.get("N")).toBeTruthy();
-    // контекст игнорирует сохранённые координаты — фокус в предписанном центре звезды
-    expect(out.layout.positions.get("F")).not.toEqual({ x: 999, y: 999 });
     // маршруты глобального роутера в контексте не считаются
     expect(out.layout.autoRoutes).toBeUndefined();
   });

@@ -10,13 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
-from app.models.edge_waypoint import EdgeWaypoint
-from app.models.ghost_edge_handle import GhostEdgeHandle
-from app.models.ghost_position import GhostPosition
 from app.models.node import Node
 from app.models.process_fragment import ProcessFragment
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
+from app.models.view_layout import ViewLayoutItem
 
 
 def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> None:
@@ -53,8 +51,6 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 parent_id=nmap.get(n.parent_id) if n.parent_id else None,
                 flowchart=n.flowchart,
                 openapi_spec=n.openapi_spec,
-                pos_x=n.pos_x,
-                pos_y=n.pos_y,
                 is_external=n.is_external,
                 shape=n.shape,
             )
@@ -71,11 +67,7 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 technology=e.technology,
                 source_id=nmap[e.source_id],
                 target_id=nmap[e.target_id],
-                source_handle=e.source_handle,
-                target_handle=e.target_handle,
                 is_synchronous=e.is_synchronous,
-                waypoints=e.waypoints,
-                label_t=e.label_t,
             )
         )
     db.flush()
@@ -135,44 +127,33 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 )
             )
 
-    # Раскладочный слой: ключи — id узлов/рёбер, перемэппиваем теми же картами.
-    # container_id и node_id — узлы; edge_id — связь. Пустой исходник — нечего копировать.
+    # Раскладочный слой (view_layout): ремапим вид и все uuid внутри строкового
+    # ключа (позиции — сам uuid узла; пучки — "b:<src>><tgt>"; хэндлы в payload
+    # несут uuid узла префиксом `<id>--...`; anchor — uuid узла-якоря).
     if not nmap:
         return
-    node_keys = list(nmap.keys())
-    for gp in db.query(GhostPosition).filter(GhostPosition.container_id.in_(node_keys)):
-        if gp.node_id not in nmap:
-            continue
+    str_map = {str(old): str(new) for old, new in nmap.items()}
+
+    def remap_str(s: str) -> str:
+        for old, new in str_map.items():
+            if old in s:
+                s = s.replace(old, new)
+        return s
+
+    for it in db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == src_id):
+        new_view = nmap.get(it.view_id) if it.view_id is not None else None
+        if it.view_id is not None and new_view is None:
+            continue  # вид ссылался на несуществующий узел — мусор, не копируем
+        payload = dict(it.payload)
+        for key in ("source_handle", "target_handle", "anchor"):
+            if isinstance(payload.get(key), str):
+                payload[key] = remap_str(payload[key])
         db.add(
-            GhostPosition(
+            ViewLayoutItem(
                 id=uuid.uuid4(),
-                container_id=nmap[gp.container_id],
-                node_id=nmap[gp.node_id],
-                pos_x=gp.pos_x,
-                pos_y=gp.pos_y,
-            )
-        )
-    for gh in db.query(GhostEdgeHandle).filter(GhostEdgeHandle.container_id.in_(node_keys)):
-        if gh.edge_id not in emap or gh.node_id not in nmap:
-            continue
-        db.add(
-            GhostEdgeHandle(
-                id=uuid.uuid4(),
-                container_id=nmap[gh.container_id],
-                edge_id=emap[gh.edge_id],
-                node_id=nmap[gh.node_id],
-                handle=gh.handle,
-            )
-        )
-    for ew in db.query(EdgeWaypoint).filter(EdgeWaypoint.container_id.in_(node_keys)):
-        if ew.edge_id not in emap:
-            continue
-        db.add(
-            EdgeWaypoint(
-                id=uuid.uuid4(),
-                container_id=nmap[ew.container_id],
-                edge_id=emap[ew.edge_id],
-                waypoints=ew.waypoints,
-                anchor_node_id=nmap[ew.anchor_node_id] if ew.anchor_node_id else None,
+                project_id=dst_id,
+                view_id=new_view,
+                item_id=remap_str(it.item_id),
+                payload=payload,
             )
         )

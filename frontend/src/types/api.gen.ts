@@ -399,73 +399,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/nodes/{container_id}/ghost-positions/{node_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Save Ghost Position
-         * @description Сохраняет (upsert) координаты гостевого узла node_id на уровне container_id.
-         */
-        put: operations["save_ghost_position_api_v1_nodes__container_id__ghost_positions__node_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/nodes/{container_id}/ghost-edge-handles/{edge_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Save Ghost Edge Handle
-         * @description Сохраняет (upsert) хэндл гостевого конца ребра edge_id на уровне container_id,
-         *     привязанный к id отображаемой сущности node_id (лист-гость ИЛИ предок-контейнер).
-         *
-         *     У каждой проекции гостевого конца своя строка — поэтому привязка к свёрнутому
-         *     контейнеру и к развёрнутому листу хранятся раздельно и не затирают друг друга.
-         */
-        put: operations["save_ghost_edge_handle_api_v1_nodes__container_id__ghost_edge_handles__edge_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/nodes/{container_id}/edge-waypoints/{edge_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Save Edge Waypoints
-         * @description Сохраняет (upsert) кастомный путь ГОСТЕВОЙ стрелки edge_id на уровне container_id.
-         *
-         *     Пустой список waypoints — сброс в авто-маршрут: строку пер-уровневого слоя удаляем
-         *     (нет строки = авто). Путь локальной стрелки сюда не пишется — он в колонке ребра.
-         */
-        put: operations["save_edge_waypoints_api_v1_nodes__container_id__edge_waypoints__edge_id__put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/nodes/relayout": {
         parameters: {
             query?: never;
@@ -559,6 +492,23 @@ export interface paths {
          */
         get: operations["edge_deletion_snapshot_api_v1_edges__edge_id__deletion_snapshot_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/views/{view_id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save View Layout */
+        put: operations["save_view_layout_api_v1_views__view_id__layout_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -920,44 +870,22 @@ export interface components {
             original_source_name: string;
             /** Original Target Name */
             original_target_name: string;
-            /** Source Handle */
-            source_handle: string | null;
-            /** Target Handle */
-            target_handle: string | null;
         };
         /**
          * DeletionSnapshot
-         * @description Полный снимок того, что снёс БД-каскад при удалении узла: поддерево узлов,
-         *     инцидентные рёбра и ghost-метаданные. Достаточно для точного восстановления.
+         * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов,
+         *     инцидентные рёбра и строки раскладки. Достаточно для точного восстановления.
          */
-        "DeletionSnapshot-Input": {
+        DeletionSnapshot: {
             /** Nodes */
             nodes: components["schemas"]["NodeSnapshot"][];
             /** Edges */
             edges: components["schemas"]["EdgeSnapshot"][];
-            /** Ghost Positions */
-            ghost_positions: components["schemas"]["GhostPositionSnapshot"][];
-            /** Ghost Edge Handles */
-            ghost_edge_handles: components["schemas"]["GhostEdgeHandleSnapshot"][];
-            /** Edge Waypoints */
-            edge_waypoints: components["schemas"]["EdgeWaypointSnapshot"][];
-        };
-        /**
-         * DeletionSnapshot
-         * @description Полный снимок того, что снёс БД-каскад при удалении узла: поддерево узлов,
-         *     инцидентные рёбра и ghost-метаданные. Достаточно для точного восстановления.
-         */
-        "DeletionSnapshot-Output": {
-            /** Nodes */
-            nodes: components["schemas"]["NodeSnapshot"][];
-            /** Edges */
-            edges: components["schemas"]["EdgeSnapshot"][];
-            /** Ghost Positions */
-            ghost_positions: components["schemas"]["GhostPositionSnapshot"][];
-            /** Ghost Edge Handles */
-            ghost_edge_handles: components["schemas"]["GhostEdgeHandleSnapshot"][];
-            /** Edge Waypoints */
-            edge_waypoints: components["schemas"]["EdgeWaypointSnapshot"][];
+            /**
+             * Layout Items
+             * @default []
+             */
+            layout_items: components["schemas"]["ViewLayoutItemSnapshot"][];
         };
         /**
          * DisconnectedNodeAlert
@@ -988,10 +916,6 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
-            /** Source Handle */
-            source_handle?: string | null;
-            /** Target Handle */
-            target_handle?: string | null;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
         };
@@ -1016,14 +940,6 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
-            /** Source Handle */
-            source_handle: string | null;
-            /** Target Handle */
-            target_handle: string | null;
-            /** Waypoints */
-            waypoints?: components["schemas"]["Point"][] | null;
-            /** Label T */
-            label_t?: number | null;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
             /**
@@ -1053,14 +969,8 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
-            /** Source Handle */
-            source_handle?: string | null;
-            /** Target Handle */
-            target_handle?: string | null;
-            /** Waypoints */
-            waypoints?: components["schemas"]["Point"][] | null;
-            /** Label T */
-            label_t?: number | null;
+            /** Is Synchronous */
+            is_synchronous?: boolean | null;
         };
         /** EdgeUpdate */
         EdgeUpdate: {
@@ -1072,40 +982,8 @@ export interface components {
             source_id?: string | null;
             /** Target Id */
             target_id?: string | null;
-            /** Source Handle */
-            source_handle?: string | null;
-            /** Target Handle */
-            target_handle?: string | null;
-            /** Waypoints */
-            waypoints?: components["schemas"]["Point"][] | null;
-            /** Label T */
-            label_t?: number | null;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
-        };
-        /** EdgeWaypointSnapshot */
-        EdgeWaypointSnapshot: {
-            /**
-             * Container Id
-             * Format: uuid
-             */
-            container_id: string;
-            /**
-             * Edge Id
-             * Format: uuid
-             */
-            edge_id: string;
-            /** Waypoints */
-            waypoints: components["schemas"]["Point"][];
-            /** Anchor Node Id */
-            anchor_node_id?: string | null;
-        };
-        /** EdgeWaypointsUpdate */
-        EdgeWaypointsUpdate: {
-            /** Waypoints */
-            waypoints: components["schemas"]["Point"][];
-            /** Anchor Node Id */
-            anchor_node_id?: string | null;
         };
         /**
          * ExportResponse
@@ -1178,36 +1056,6 @@ export interface components {
             /** Else Order */
             else_order?: number | null;
         };
-        /** GhostEdgeHandleSnapshot */
-        GhostEdgeHandleSnapshot: {
-            /**
-             * Container Id
-             * Format: uuid
-             */
-            container_id: string;
-            /**
-             * Edge Id
-             * Format: uuid
-             */
-            edge_id: string;
-            /**
-             * Node Id
-             * Format: uuid
-             */
-            node_id: string;
-            /** Handle */
-            handle: string;
-        };
-        /** GhostEdgeHandleUpdate */
-        GhostEdgeHandleUpdate: {
-            /**
-             * Node Id
-             * Format: uuid
-             */
-            node_id: string;
-            /** Handle */
-            handle: string;
-        };
         /** GhostNodeResponse */
         GhostNodeResponse: {
             /**
@@ -1259,30 +1107,6 @@ export interface components {
              */
             is_ghost: true;
         };
-        /** GhostPositionSnapshot */
-        GhostPositionSnapshot: {
-            /**
-             * Container Id
-             * Format: uuid
-             */
-            container_id: string;
-            /**
-             * Node Id
-             * Format: uuid
-             */
-            node_id: string;
-            /** Pos X */
-            pos_x: number;
-            /** Pos Y */
-            pos_y: number;
-        };
-        /** GhostPositionUpdate */
-        GhostPositionUpdate: {
-            /** Pos X */
-            pos_x: number;
-            /** Pos Y */
-            pos_y: number;
-        };
         /**
          * GraphEdgeResponse
          * @description Ребро графа уровня — СЫРОЕ (R2 вид-центричного движка, C4_ENGINE_AUDIT.md).
@@ -1313,14 +1137,6 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
-            /** Source Handle */
-            source_handle: string | null;
-            /** Target Handle */
-            target_handle: string | null;
-            /** Waypoints */
-            waypoints?: components["schemas"]["Point"][] | null;
-            /** Label T */
-            label_t?: number | null;
         };
         /** GraphResponse */
         GraphResponse: {
@@ -1331,25 +1147,11 @@ export interface components {
             /** Endpoints */
             endpoints: components["schemas"]["GhostNodeResponse"][];
             /**
-             * Level Positions
+             * Layout
              * @default {}
              */
-            level_positions: {
-                [key: string]: components["schemas"]["PosXY"];
-            };
-            /**
-             * Level Edge Handles
-             * @default {}
-             */
-            level_edge_handles: {
-                [key: string]: string[];
-            };
-            /**
-             * Level Edge Waypoints
-             * @default {}
-             */
-            level_edge_waypoints: {
-                [key: string]: components["schemas"]["LevelWaypoints"];
+            layout: {
+                [key: string]: components["schemas"]["ViewLayoutPayload"];
             };
         };
         /** HTTPValidationError */
@@ -1425,13 +1227,6 @@ export interface components {
             to_id: string;
             /** Default Caption */
             default_caption: string | null;
-        };
-        /** LevelWaypoints */
-        LevelWaypoints: {
-            /** Waypoints */
-            waypoints: components["schemas"]["Point"][];
-            /** Anchor Node Id */
-            anchor_node_id?: string | null;
         };
         /** MessageCreate */
         MessageCreate: {
@@ -1614,10 +1409,6 @@ export interface components {
             flowchart: string | null;
             /** Openapi Spec */
             openapi_spec: string | null;
-            /** Pos X */
-            pos_x: number | null;
-            /** Pos Y */
-            pos_y: number | null;
             /** Is External */
             is_external: boolean;
             /**
@@ -1672,10 +1463,6 @@ export interface components {
             flowchart?: string | null;
             /** Openapi Spec */
             openapi_spec?: string | null;
-            /** Pos X */
-            pos_x?: number | null;
-            /** Pos Y */
-            pos_y?: number | null;
             /**
              * Is External
              * @default false
@@ -1710,10 +1497,6 @@ export interface components {
             flowchart?: string | null;
             /** Openapi Spec */
             openapi_spec?: string | null;
-            /** Pos X */
-            pos_x?: number | null;
-            /** Pos Y */
-            pos_y?: number | null;
             /** Is External */
             is_external?: boolean | null;
             /** Shape */
@@ -1771,13 +1554,6 @@ export interface components {
             x: number;
             /** Y */
             y: number;
-        };
-        /** PosXY */
-        PosXY: {
-            /** Pos X */
-            pos_x: number;
-            /** Pos Y */
-            pos_y: number;
         };
         /** ProcessCreate */
         ProcessCreate: {
@@ -1973,6 +1749,55 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * ViewLayoutBatch
+         * @description Батч-запись раскладки вида: item_id → payload; null — удалить строку
+         *     (сброс объекта в авто-геометрию).
+         */
+        ViewLayoutBatch: {
+            /** Items */
+            items: {
+                [key: string]: components["schemas"]["ViewLayoutPayload"] | null;
+            };
+        };
+        /**
+         * ViewLayoutItemSnapshot
+         * @description Строка раскладки (view_layout), которую снесёт удаление: позиция узла или
+         *     геометрия пучка — на любом виде, где поддерево участвовало.
+         */
+        ViewLayoutItemSnapshot: {
+            /** View Id */
+            view_id?: string | null;
+            /** Item Id */
+            item_id: string;
+            /** Payload */
+            payload: Record<string, never>;
+        };
+        /**
+         * ViewLayoutPayload
+         * @description Геометрия одного объекта раскладки на виде (R3, единое хранилище view_layout).
+         *
+         *     Для узла/отображаемой сущности — x/y (позиция, own-on-first-render).
+         *     Для ПУЧКА рёбер (item_id "b:<src>><tgt>") — хэндлы концов, изломы waypoints
+         *     (+ anchor: не null → точки это ОФСЕТ от позиции узла-якоря, Ф3) и доля плашки
+         *     label_t (теперь пер-вид). Все поля опциональны — хранится только заданное.
+         */
+        ViewLayoutPayload: {
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Source Handle */
+            source_handle?: string | null;
+            /** Target Handle */
+            target_handle?: string | null;
+            /** Waypoints */
+            waypoints?: components["schemas"]["Point"][] | null;
+            /** Anchor */
+            anchor?: string | null;
+            /** Label T */
+            label_t?: number | null;
         };
     };
     responses: never;
@@ -2351,7 +2176,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DeletionSnapshot-Input"];
+                "application/json": components["schemas"]["DeletionSnapshot"];
             };
         };
         responses: {
@@ -2619,7 +2444,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DeletionSnapshot-Output"];
+                    "application/json": components["schemas"]["DeletionSnapshot"];
                 };
             };
             /** @description Validation Error */
@@ -2786,114 +2611,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["NodeContextResponse"];
                 };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_ghost_position_api_v1_nodes__container_id__ghost_positions__node_id__put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Project-Id"?: string | null;
-            };
-            path: {
-                container_id: string;
-                node_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GhostPositionUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_ghost_edge_handle_api_v1_nodes__container_id__ghost_edge_handles__edge_id__put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Project-Id"?: string | null;
-            };
-            path: {
-                container_id: string;
-                edge_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GhostEdgeHandleUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_edge_waypoints_api_v1_nodes__container_id__edge_waypoints__edge_id__put: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Project-Id"?: string | null;
-            };
-            path: {
-                container_id: string;
-                edge_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EdgeWaypointsUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -3152,8 +2869,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DeletionSnapshot-Output"];
+                    "application/json": components["schemas"]["DeletionSnapshot"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_view_layout_api_v1_views__view_id__layout_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewLayoutBatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

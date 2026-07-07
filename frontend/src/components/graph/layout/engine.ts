@@ -11,7 +11,7 @@ import { NODE_W, NODE_H } from "../constants";
 import { assignEdgeHandles } from "./level";
 import { computeContextLayout } from "./context";
 import type { DisplayExternal, EdgeShelf, EdgeLoop } from "../types";
-import type { Edge as AppEdge } from "../../../types";
+import type { Edge as AppEdge, LayoutEdge } from "../../../types";
 
 // Общий ELK-инстанс. Берём bundled-сборку (elk.bundled.js) — она работает в main-thread
 // БЕЗ Web Worker, поэтому одинаково поднимается и в браузере (Vite), и в тестах (jsdom).
@@ -50,7 +50,7 @@ export type ContextLayout = LevelLayout & {
  */
 export async function layoutLevel(
   allNodes: Array<{ id: string; savedPos?: { x: number; y: number } | null }>,
-  edges: AppEdge[],
+  edges: LayoutEdge[],
 ): Promise<LevelLayout> {
   const idSet = new Set(allNodes.map((n) => n.id));
   const elk = await getElk();

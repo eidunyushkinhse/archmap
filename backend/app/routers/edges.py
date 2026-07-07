@@ -70,7 +70,9 @@ def update_edge(
         raise HTTPException(status_code=404, detail="Связь не найдена")
     data = payload.model_dump(exclude_unset=True)
 
-    # Смена концов: проверяем существование узлов (в этом же проекте) и запрещаем петлю
+    # Смена концов: проверяем существование узлов (в этом же проекте) и запрещаем петлю.
+    # Геометрия (хэндлы/изломы/плашка) на связи больше не живёт (R3) — при смене конца
+    # прежняя геометрия пучка сама перестаёт применяться (другой ключ "b:<src>><tgt>").
     new_source = data.get("source_id", edge.source_id)
     new_target = data.get("target_id", edge.target_id)
     for node_id in {new_source, new_target}:
@@ -78,12 +80,6 @@ def update_edge(
             raise HTTPException(status_code=404, detail=f"Узел {node_id} не найден")
     if new_source == new_target:
         raise HTTPException(status_code=400, detail="Связь не может вести из узла в него же")
-    # Если конец сменился, а хэндл явно не задан — сбрасываем его (старый указывал
-    # на другой узел и стал невалидным; раскладка назначит новый автоматически)
-    if "source_id" in data and data["source_id"] != edge.source_id and "source_handle" not in data:
-        edge.source_handle = None
-    if "target_id" in data and data["target_id"] != edge.target_id and "target_handle" not in data:
-        edge.target_handle = None
 
     for field, value in data.items():
         setattr(edge, field, value)

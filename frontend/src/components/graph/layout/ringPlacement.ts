@@ -23,7 +23,7 @@ import { assignEdgeHandles } from "./level";
 import { spread1DSized } from "./pav";
 import { cleanup, orthogonalPointsForHandles, pathCrossesRects, type EdgeSide, type NodeRect } from "../edgePath";
 import type { DisplayExternal } from "../types";
-import type { Edge as AppEdge, AncestorRef, LevelPos } from "../../../types";
+import type { LayoutEdge, AncestorRef, LevelPos } from "../../../types";
 
 const SHELF_GAP = 28; // зазор между соседними гостями вдоль стороны кольца
 const COL_GAP = 24; // зазор между колонками перелива (поперёк полки, D6)
@@ -47,7 +47,7 @@ export function placeGhostsOnRings(params: {
   entities: DisplayExternal[];
   ancestorIds: string[];
   levelPositions: Record<string, LevelPos>;
-  layoutEdges: AppEdge[];
+  layoutEdges: LayoutEdge[];
   positions: Map<string, XY>;
   /** раскрытые контейнеры — их дети подчиняются модели офсетов от якоря (ТЗ D2-D4) */
   expanded: Set<string>;

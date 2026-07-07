@@ -3,13 +3,13 @@ import { buildAutoRoutes } from "../graph/layout/autoRoutes";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 import { NODE_W, NODE_H, hid } from "../graph/constants";
 import type { EdgeGroup } from "../graph/types";
-import type { Edge as AppEdge } from "../../types";
+import type { LayoutEdge } from "../../types";
 
 // Посадка роутера в раскладку (A7.1). Проверяем мост группы→терминалы→маршруты:
 // роутятся только routableIds, концы на сторонах узлов, узлы-препятствия обходятся.
 
-const edge = (id: string, s: string, t: string): AppEdge =>
-  ({ id, source_id: s, target_id: t } as AppEdge);
+const edge = (id: string, s: string, t: string): LayoutEdge =>
+  ({ id, source_id: s, target_id: t } as LayoutEdge);
 const group = (id: string, source: string, target: string): EdgeGroup =>
   ({ id, source, target, members: [edge(id, source, target)] });
 const rectOf = (p: { x: number; y: number }): NodeRect => ({ x: p.x, y: p.y, w: NODE_W, h: NODE_H });

@@ -1,8 +1,9 @@
-"""Тесты снимка удаления и восстановления (Undo удаления узла, итерация 2).
+"""Тесты снимка удаления и восстановления (Undo удаления узла, итерация 2 + R3).
 
-Round-trip: build_deletion_snapshot ДО удаления → delete_node (каскад) → restore
-возвращает поддерево, инцидентные рёбра и ghost-метаданные С ТЕМИ ЖЕ id. Внешние
-сущности снимок не трогает и restore их не дублирует.
+Round-trip: build_deletion_snapshot ДО удаления → delete_node (каскад + чистка
+раскладки) → restore возвращает поддерево, инцидентные рёбра и строки раскладки
+view_layout С ТЕМИ ЖЕ id/ключами. Внешние сущности снимок не трогает и restore
+их не дублирует.
 """
 
 import uuid
@@ -12,10 +13,8 @@ from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.models.edge import Edge
-from app.models.edge_waypoint import EdgeWaypoint
-from app.models.ghost_edge_handle import GhostEdgeHandle
-from app.models.ghost_position import GhostPosition
 from app.models.node import Node
+from app.models.view_layout import ViewLayoutItem
 from app.restore import build_deletion_snapshot, restore_from_snapshot
 from app.routers.nodes import delete_node, restore_nodes
 
@@ -37,9 +36,20 @@ def _edge(db, src, tgt, **kw):
     return e
 
 
+def _layout(db, view_id, item_id, payload):
+    db.add(
+        ViewLayoutItem(
+            project_id=ensure_project(db).id,
+            view_id=view_id,
+            item_id=item_id,
+            payload=payload,
+        )
+    )
+
+
 def test_snapshot_restore_round_trip(db):
     # Поддерево A → A1 → A1a; снаружи X, Y. Рёбра: внутреннее A1→A1a, исходящее A1a→X,
-    # входящее X→A1, чисто внешнее X→Y. Ghost-метаданные на удаляемых и выживших.
+    # входящее X→A1, чисто внешнее X→Y. Строки раскладки на удаляемых и выживших.
     a = _node(db, "A")
     a1 = _node(db, "A1", a)
     a1a = _node(db, "A1a", a1)
@@ -49,17 +59,16 @@ def test_snapshot_restore_round_trip(db):
     # узел «Выводится»/«Планируется» возвращался как «Существует»).
     a.status = "deprecated"
     a1a.status = "planned"
-    e_inner = _edge(db, a1, a1a, label="внутр", waypoints=[{"x": 1.0, "y": 2.0}])
+    e_inner = _edge(db, a1, a1a, label="внутр")
     e_out = _edge(db, a1a, x)
-    e_in = _edge(db, x, a1, source_handle="x--right--0", label_t=0.3)
+    e_in = _edge(db, x, a1, is_synchronous=False)
     e_external = _edge(db, x, y)
     db.commit()
 
-    db.add(GhostPosition(container_id=x.id, node_id=a1.id, pos_x=1, pos_y=2))  # node в поддереве
-    db.add(GhostPosition(container_id=a.id, node_id=x.id, pos_x=3, pos_y=4))  # container в поддереве
-    db.add(GhostPosition(container_id=x.id, node_id=y.id, pos_x=5, pos_y=6))  # обе выживают
-    db.add(GhostEdgeHandle(container_id=x.id, edge_id=e_in.id, node_id=a1.id, handle="a1--left--1"))
-    db.add(EdgeWaypoint(container_id=x.id, edge_id=e_in.id, waypoints=[{"x": 7.0, "y": 8.0}]))
+    _layout(db, x.id, str(a1.id), {"x": 1, "y": 2})                      # гость a1 на чужом виде
+    _layout(db, a.id, str(x.id), {"x": 3, "y": 4})                       # вид A (умрёт каскадом)
+    _layout(db, x.id, f"b:{x.id}>{a1.id}", {"waypoints": [{"x": 7.0, "y": 8.0}], "label_t": 0.3})
+    _layout(db, x.id, str(y.id), {"x": 5, "y": 6})                       # обе ссылки живы → выживает
     db.commit()
 
     # id фиксируем заранее: после delete_node ORM-объекты удалены/просрочены и обращение
@@ -68,17 +77,16 @@ def test_snapshot_restore_round_trip(db):
     e_inner_id, e_out_id, e_in_id, e_ext_id = e_inner.id, e_out.id, e_in.id, e_external.id
 
     snap = build_deletion_snapshot(db, a_id)
-    # Снимок повторяет ровно каскад: 3 узла, 3 ребра (e_external — чисто внешнее — нет),
-    # 2 ghost-позиции, 1 хэндл, 1 излом.
+    # Снимок повторяет ровно то, что исчезнет: 3 узла, 3 ребра (e_external — чисто
+    # внешнее — нет) и 3 строки раскладки (гость, вид A, пучок; строка Y-выживает — нет).
     assert {n.id for n in snap.nodes} == {a_id, a1_id, a1a_id}
     assert {e.id for e in snap.edges} == {e_inner_id, e_out_id, e_in_id}
-    assert len(snap.ghost_positions) == 2
-    assert len(snap.ghost_edge_handles) == 1
-    assert len(snap.edge_waypoints) == 1
+    assert {it.item_id for it in snap.layout_items} == {str(a1_id), str(x_id), f"b:{x_id}>{a1_id}"}
 
     delete_node(a_id, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert {n.id for n in db.query(Node).all()} == {x_id, y_id}
     assert {e.id for e in db.query(Edge).all()} == {e_ext_id}
+    assert db.query(ViewLayoutItem).count() == 1  # выжила только строка Y
 
     restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
 
@@ -92,19 +100,18 @@ def test_snapshot_restore_round_trip(db):
     assert nodes[a1a_id].status == "planned"
     assert nodes[a1_id].status == "existing"
 
-    # Рёбра вернулись с id и сохранёнными полями раскладки
+    # Рёбра вернулись с id и семантикой
     edges = {e.id: e for e in db.query(Edge).all()}
     assert set(edges) == {e_inner_id, e_out_id, e_in_id, e_ext_id}
-    assert edges[e_inner_id].waypoints == [{"x": 1.0, "y": 2.0}]
-    assert edges[e_in_id].source_handle == "x--right--0"
-    assert edges[e_in_id].label_t == 0.3
+    assert edges[e_inner_id].label == "внутр"
+    assert edges[e_in_id].is_synchronous is False
 
-    # ghost-строки восстановлены и не задублированы (внешняя так и одна)
-    assert db.query(GhostPosition).count() == 3
-    gh = db.query(GhostEdgeHandle).one()
-    assert gh.edge_id == e_in_id and gh.node_id == a1_id
-    ew = db.query(EdgeWaypoint).one()
-    assert ew.edge_id == e_in_id and ew.waypoints == [{"x": 7.0, "y": 8.0}]
+    # Раскладка восстановлена и не задублирована (внешняя так и одна)
+    items = {(r.view_id, r.item_id): r for r in db.query(ViewLayoutItem).all()}
+    assert len(items) == 4
+    bundle = items[(x_id, f"b:{x_id}>{a1_id}")]
+    assert bundle.payload["waypoints"] == [{"x": 7.0, "y": 8.0}]
+    assert bundle.payload["label_t"] == 0.3
 
 
 def test_get_snapshot_missing_node_404(db):
@@ -140,9 +147,7 @@ def test_restore_conflict_when_parent_gone(db):
 def test_restore_empty_snapshot_400(db):
     from app.schemas.restore import DeletionSnapshot
 
-    empty = DeletionSnapshot(
-        nodes=[], edges=[], ghost_positions=[], ghost_edge_handles=[], edge_waypoints=[]
-    )
+    empty = DeletionSnapshot(nodes=[], edges=[], layout_items=[])
     with pytest.raises(HTTPException) as ei:
         restore_nodes(empty, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert ei.value.status_code == 400
@@ -152,46 +157,38 @@ def test_restore_empty_snapshot_400(db):
 
 
 def test_edge_snapshot_restore_round_trip(db):
-    # Связь X→Y с хэндлом/изломом-колонкой плюс ghost-метаданные по edge_id.
-    # Узлы снимок НЕ трогает — только само ребро и его ghost-строки.
+    # Связь X→Y. Раскладка живёт на ключе ПУЧКА и удаление связи её НЕ сносит
+    # (R3): снимок несёт только само ребро, геометрия пучка остаётся ждать его.
     from app.restore import build_edge_deletion_snapshot
 
     x = _node(db, "X")
     y = _node(db, "Y")
-    e = _edge(db, x, y, label="зов", source_handle="x--right--0", label_t=0.4,
-              waypoints=[{"x": 1.0, "y": 2.0}])
+    e = _edge(db, x, y, label="зов", is_synchronous=True)
     db.commit()
-    db.add(GhostEdgeHandle(container_id=x.id, edge_id=e.id, node_id=y.id, handle="y--left--1"))
-    db.add(EdgeWaypoint(container_id=x.id, edge_id=e.id, waypoints=[{"x": 3.0, "y": 4.0}]))
+    _layout(db, x.id, f"b:{x.id}>{y.id}", {"source_handle": "x--right--0"})
     db.commit()
     x_id, y_id, e_id = x.id, y.id, e.id
 
     snap = build_edge_deletion_snapshot(db, e_id)
     assert snap.nodes == []
     assert {ed.id for ed in snap.edges} == {e_id}
-    assert len(snap.ghost_edge_handles) == 1
-    assert len(snap.edge_waypoints) == 1
+    assert snap.layout_items == []
 
-    # Удаляем связь (каскад сносит ghost-хэндл и излом по edge_id), узлы остаются.
+    # Удаляем связь: узлы и геометрия пучка остаются.
     db.delete(db.get(Edge, e_id))
     db.commit()
     assert db.query(Edge).count() == 0
-    assert db.query(GhostEdgeHandle).count() == 0
-    assert db.query(EdgeWaypoint).count() == 0
     assert {n.id for n in db.query(Node).all()} == {x_id, y_id}
+    assert db.query(ViewLayoutItem).count() == 1
 
     restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
 
     edges = db.query(Edge).all()
     assert len(edges) == 1
     e2 = edges[0]
-    assert e2.id == e_id and e2.label == "зов"
-    assert e2.source_handle == "x--right--0" and e2.label_t == 0.4
-    assert e2.waypoints == [{"x": 1.0, "y": 2.0}]
-    gh = db.query(GhostEdgeHandle).one()
-    assert gh.edge_id == e_id and gh.handle == "y--left--1"
-    ew = db.query(EdgeWaypoint).one()
-    assert ew.edge_id == e_id and ew.waypoints == [{"x": 3.0, "y": 4.0}]
+    assert e2.id == e_id and e2.label == "зов" and e2.is_synchronous is True
+    # Геометрия пучка дождалась восстановленную связь (и не задублировалась)
+    assert db.query(ViewLayoutItem).count() == 1
 
 
 def test_edge_snapshot_missing_edge_404(db):

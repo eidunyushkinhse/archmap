@@ -20,6 +20,7 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.models.view_layout import ViewLayoutItem
 from app.projects import copy_project_schema
 from app.schemas.project import (
     ProjectCreate,
@@ -70,7 +71,7 @@ def _previews(db: Session, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, Proj
 
     # Все узлы проектов (только нужные для превью/проекции поля).
     node_rows = (
-        db.query(Node.id, Node.project_id, Node.parent_id, Node.is_external, Node.pos_x, Node.pos_y)
+        db.query(Node.id, Node.project_id, Node.parent_id, Node.is_external)
         .filter(Node.project_id.in_(project_ids))
         .all()
     )
@@ -79,6 +80,18 @@ def _previews(db: Session, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, Proj
     for r in node_rows:
         by_project[r.project_id].append(r)
         parent_of[r.id] = r.parent_id
+
+    # Позиции корневых узлов — из view_layout (корневой вид, view IS NULL): батчем
+    # по всем проектам, ключ (project_id, item_id=str(node_id)) → {x, y}.
+    pos_of: dict[tuple[uuid.UUID, str], tuple[float, float]] = {}
+    for it in (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id.in_(project_ids), ViewLayoutItem.view_id.is_(None))
+        .all()
+    ):
+        x, y = it.payload.get("x"), it.payload.get("y")
+        if x is not None and y is not None:
+            pos_of[(it.project_id, it.item_id)] = (x, y)
 
     # Корневой предок узла (подъём по parent_id) с мемоизацией по цепочке.
     root_cache: dict[uuid.UUID, uuid.UUID] = {}
@@ -126,7 +139,12 @@ def _previews(db: Session, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, Proj
         kept_ids = {r.id for r in kept}
         out[pid] = ProjectPreview(
             nodes=[
-                ProjectPreviewNode(id=r.id, is_external=r.is_external, x=r.pos_x, y=r.pos_y)
+                ProjectPreviewNode(
+                    id=r.id,
+                    is_external=r.is_external,
+                    x=pos_of.get((pid, str(r.id)), (None, None))[0],
+                    y=pos_of.get((pid, str(r.id)), (None, None))[1],
+                )
                 for r in kept
             ],
             edges=[

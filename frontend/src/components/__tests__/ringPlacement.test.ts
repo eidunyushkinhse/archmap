@@ -3,7 +3,7 @@ import { placeGhostsOnRings, collectGhostSeeds } from "../graph/layout/ringPlace
 import { enforceFramesKeepOut } from "../graph/layout/keepGhostsOut";
 import { NODE_W, NODE_H } from "../graph/constants";
 import type { DisplayExternal } from "../graph/types";
-import type { Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
+import type { LayoutEdge, GhostNode, AncestorRef } from "../../types";
 
 // Раскладка гостей на кольца запретных рамок (boundary labeling). Чистые данные: позиции
 // заданы явно, ELK не нужен. Ключевой инвариант — после колец enforceFramesKeepOut no-op.
@@ -18,7 +18,7 @@ function ghost(id: string, ancestors: AncestorRef[]): GhostNode {
 function leaf(id: string, ancestors: AncestorRef[]): DisplayExternal {
   return { kind: "leaf", id, ghost: ghost(id, ancestors) };
 }
-function edge(id: string, source_id: string, target_id: string): AppEdge {
+function edge(id: string, source_id: string, target_id: string): LayoutEdge {
   return {
     id, label: null, technology: null, source_id, target_id,
     source_handle: null, target_handle: null, created_at: "2026-06-12T00:00:00Z",

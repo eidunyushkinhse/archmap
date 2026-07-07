@@ -20,8 +20,31 @@
         test.ts); /graph отдаёт СЫРЬЁ (рёбра с реальными концами + реестр
         endpoints с цепочками предков, пер-уровневый слой без valid_keys);
         ghost_nodes → endpoints, контекст на своей ContextEdgeResponse (Д5);
-        original_* синтезируется в TreePage.load. Полигон зелёный. Дальше: R3
-        (единое хранилище view_layout).
+        original_* синтезируется в TreePage.load. Полигон зелёный.
+        R3 СДЕЛАН: ЕДИНОЕ хранилище раскладки view_layout(project_id, view_id,
+        item_id, payload JSONB; uniq NULLS NOT DISTINCT) — вместо nodes.pos_x/y,
+        edges.{handles,waypoints,label_t} и трёх пер-уровневых таблиц (снесены
+        миграцией aa11bb22cc33 БЕЗ переноса данных — санкция, уровни пере-
+        засеялись own-on-first-render). item_id: uuid сущности → {x,y}; ключ
+        ПУЧКА "b:<src>><tgt>" (пара отображаемых концов) → {handles, waypoints,
+        anchor, label_t} — геометрия у каждой проекции своя, члены мастера делят
+        одну строку (fan-out мастер-стрелок и prefix-резолв хэндлов умерли;
+        label_t стал пер-вид). API: GraphResponse.layout + батч-PUT /views/
+        {uuid|"root"}/layout (app-level upsert), relayout/delete чистят строки
+        вида; EdgeCreate/Update и NodeUpdate без геометрии (NodeCreate.pos
+        остался — строка вида родителя). Фронт: ОДНО зеркало viewLayout +
+        ОДИН канал записи commitLayout (merge поверх зеркала, сервер меняет
+        payload целиком) + один onLayoutChanged в TreePage — вместо пяти
+        колбэков; интенты конвейера seed-positions/own-bundle-waypoints тоже
+        через commitLayout. Хэндлы жеста создания связи пишет TreePage строкой
+        пучка (edgeQuick/intoPicker; outPicker хэндл НЕ сохраняет — display
+        дальнего конца неизвестен до рефетча, осознанная жертва). Попутно
+        починен дрейф владеемых локалов в раздвижке A10 (movable смотрел в
+        levelPositions, где локалы не жили). Гейты: pytest 69, ruff 0, tsc 0,
+        eslint 0, vitest 323; полигон: НОВЫЙ эталон baseline-post-R3.json
+        (23 состояния, детерминизм подтверждён; pre-R1 эталон умер вместе с
+        ручной раскладкой — санкционировано). Дальше: R4 (контейнеры-объекты
+        RF parentId/extent).
 
 Следующие (приоритет)
 - [x] Frontend: быстрая связь по клику на стрелку-подсказку хэндла. Кроме ручного
