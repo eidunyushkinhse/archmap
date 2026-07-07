@@ -1,0 +1,578 @@
+// Конвейер раскладки вида (R1 эпика вид-центричного движка, C4_ENGINE_AUDIT.md).
+//
+// ЧИСТАЯ композиция всех стадий раскладки уровня/контекста: проекция гостей → ремап
+// рёбер → слияние мастер-стрелок → позиции (ELK/контекст-звезда) → кольца гостей →
+// разведение → keep-out → реконструкция изломов → раздвижка под плашки (A10) →
+// глобальный роутер (A7/A8/A11) → плашки (A7.2) → детуры плашек (A12) → nudge (A13).
+//
+// Конвейер НЕ пишет в БД и не трогает React: побочные эффекты прежней async-раскладки
+// (засев владения own-on-first-render, миграция якорей изломов) возвращаются наружу
+// СПИСКОМ ИНТЕНТОВ — их применяет вызывающий (LevelGraph), если прогон не устарел.
+// Так композиция стадий тестируется целиком, а класс багов «раскладка пишет в БД из
+// середины рендера» закрыт по построению.
+import type { Node as RFNode } from "@xyflow/react";
+import type {
+  Node as AppNode,
+  GhostNode,
+  Edge as AppEdge,
+  EdgePoint,
+  LevelPos,
+  LevelWaypoints,
+} from "../../../types";
+import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
+import type { LiveHandleInputs } from "../interaction/useLiveDragHandles";
+import { NODE_W, NODE_H, hid } from "../constants";
+import { edgeText } from "../text";
+import { projectGhosts } from "./projectGhosts";
+import { layoutLevel, layoutContext } from "./engine";
+import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
+import { reconstructOwnedWaypoints } from "./ownedWaypoints";
+import { enforceFramesKeepOut } from "./keepGhostsOut";
+import { separateGuests } from "./separateGuests";
+import { buildAutoRoutes } from "./autoRoutes";
+import { nudgeOverlaps } from "./nudgeOverlaps";
+import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
+import { separateForLabels, type LabelEdge } from "./separateForLabels";
+import { labelDetour } from "./labelDetours";
+import { labelBoxSize } from "./labelBox";
+import type { Rect } from "./overlapConstraints";
+
+// Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
+export type LayoutResult = {
+  // снимок локальных узлов, по которому посчитана раскладка. Сборка RF-узлов читает
+  // позиции/данные ИЗ НЕГО, а не из пропа nodes: иначе при смене nodes эффект сборки
+  // успевал отработать со СТАРЫМ layout (позиции ещё прежние) до резолва async-ELK —
+  // узел на кадр прыгал на исходную позицию. Снимок держит позиции и данные согласованными.
+  nodes: AppNode[];
+  entities: DisplayExternal[];
+  positions: Map<string, { x: number; y: number }>;
+  edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
+  edgeShelves?: Map<string, EdgeShelf>;
+  edgeLoops?: Map<string, EdgeLoop>;
+  // авто-маршруты глобального роутера (R1+R3): ортоломаная с минимумом пересечений и
+  // обходом узлов. Считаются на раскладке для не-customized рёбер (level/main),
+  // НЕ персистятся (производные от позиций). Сборка рёбер кладёт их в data.autoRoute.
+  autoRoutes?: Map<string, EdgePoint[]>;
+  // размещение плашек подписей (R2+R4): по группе — центр/якорь/режим (online|leader).
+  // Считается по авто-маршрутам; сборка кладёт в data.labelPlacement.
+  labelPlacements?: Map<string, LabelPlacement>;
+  // изломы гостевых стрелок, РЕКОНСТРУИРОВАННЫЕ в абсолют (владеемой группы — anchorG +
+  // офсет, ТЗ D8; прочие — как пришли). Сборка читает путь отсюда, а не из сырого пропа.
+  levelWaypoints: Record<string, EdgePoint[]>;
+  groupArr: EdgeGroup[];
+  spacers: RFNode[];
+};
+
+// Побочные записи раскладки, вычисленные конвейером как ДАННЫЕ. Применяет вызывающий:
+// - seed-ghost-positions — засев владения own-on-first-render (гость/контейнер без
+//   сохранённой позиции получает текущую навсегда) и персист выдвинутых разведением
+//   владеемых соседей (Ф4.4);
+// - own-level-waypoints — приобретение якоря изломом (абсолютный путь к потомку
+//   раскрытой рамки → офсет от узла-якоря с anchor_node_id, Ф3/D8).
+export type PersistIntent =
+  | {
+      kind: "seed-ghost-positions";
+      seeds: { id: string; entityKind: "ghost" | "container"; pos_x: number; pos_y: number }[];
+    }
+  | {
+      kind: "own-level-waypoints";
+      migrations: { edge_id: string; anchor_node_id: string; waypoints: EdgePoint[] }[];
+    };
+
+export interface PipelineInput {
+  nodes: AppNode[];
+  ghostNodes: GhostNode[];
+  edges: AppEdge[];
+  levelPositions: Record<string, LevelPos>;
+  levelEdgeHandles: Record<string, string[]>;
+  levelEdgeWaypoints: Record<string, LevelWaypoints>;
+  ancestorIds: string[];
+  expanded: Set<string>;
+  isContext: boolean;
+}
+
+export interface PipelineOutput {
+  layout: LayoutResult;
+  // снимок входов для живого пересчёта хэндлов при драге (useLiveDragHandles) —
+  // те же мастер-рёбра и узлы, по которым посчитан layout
+  liveInputs: LiveHandleInputs;
+  intents: PersistIntent[];
+}
+
+// Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
+// строк = число членов; одиночное ребро — «label · technology» в одну строку). Единый
+// источник для оценки габаритов (labelBox) в раздвижке A10 и в размещении плашек.
+export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | null {
+  if (g.members.length > 1) {
+    const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
+    return { text: edgeText(longest), lines: g.members.length };
+  }
+  const m = g.members[0];
+  const t = [m.label, m.technology].filter(Boolean).join(" · ");
+  return t ? { text: t, lines: 1 } : null;
+}
+
+/** Полный расчёт раскладки вида. Async из-за ELK; всё остальное синхронно и чисто. */
+export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
+  const {
+    nodes, ghostNodes, edges, levelPositions, levelEdgeHandles, levelEdgeWaypoints,
+    ancestorIds, expanded, isContext,
+  } = input;
+  const intents: PersistIntent[] = [];
+
+  // Сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
+  const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghostNodes, ancestorIds, expanded);
+  const remap = (id: string) => ghostToEffective.get(id) ?? id;
+  // Рёбра с концами, переадресованными на отображаемые сущности. Хэндл гостевого
+  // конца подменяем сохранённым per-level значением для ТЕКУЩЕЙ проекции (узла,
+  // который сейчас показан): из списка берём тот, чей префикс совпал с показанным
+  // концом. Хэндл локального конца остаётся из колонки ребра.
+  const remappedEdges = edges.map((e) => {
+    const source_id = remap(e.source_id);
+    const target_id = remap(e.target_id);
+    let source_handle = e.source_handle;
+    let target_handle = e.target_handle;
+    for (const h of levelEdgeHandles[e.id] ?? []) {
+      if (h.startsWith(source_id + "--")) source_handle = h;
+      else if (h.startsWith(target_id + "--")) target_handle = h;
+    }
+    return { ...e, source_id, target_id, source_handle, target_handle };
+  });
+
+  // В контекст-режиме раскладка эфемерная и единая — сохранённые координаты
+  // (фокус двигали на своём уровне) тут из ДРУГОЙ системы координат и дали бы
+  // наложение на соседей. Поэтому игнорируем savedPos: чистая авто-раскладка.
+  const allNodeInfos = [
+    ...nodes.map((n) => ({
+      id: n.id,
+      savedPos:
+        !isContext && n.pos_x != null && n.pos_y != null
+          ? { x: n.pos_x, y: n.pos_y }
+          : null,
+    })),
+    // Позиция гостя берётся по id ОТОБРАЖАЕМОЙ сущности (лист-гость ИЛИ
+    // предок-контейнер, в который гость свёрнут) — иначе свёрнутый контейнер
+    // (напр. User Management) каждый раз падал на дефолтную ELK-позицию.
+    ...entities.map((ent) => {
+      const saved = !isContext ? levelPositions[ent.id] : undefined;
+      return {
+        id: ent.id,
+        savedPos: saved ? { x: saved.pos_x, y: saved.pos_y } : null,
+      };
+    }),
+  ];
+
+  const displayedIds = new Set<string>([...nodes.map((n) => n.id), ...entities.map((e) => e.id)]);
+
+  // Слияние связей одного направления между парой отображаемых узлов в мастер-стрелку
+  const groupArr: EdgeGroup[] = [];
+  const groupMap = new Map<string, EdgeGroup>();
+  for (const e of remappedEdges) {
+    if (!displayedIds.has(e.source_id) || !displayedIds.has(e.target_id)) continue;
+    let g = groupMap.get(`${e.source_id}>${e.target_id}`);
+    if (!g) { g = { id: "", source: e.source_id, target: e.target_id, members: [] }; groupMap.set(`${e.source_id}>${e.target_id}`, g); groupArr.push(g); }
+    g.members.push(e);
+  }
+  for (const g of groupArr) {
+    g.id = g.members.length === 1 ? g.members[0].id : `merge:${g.source}->${g.target}`;
+  }
+
+  // Раскладку/хэндлы считаем на мастер-рёбрах (по одному на направление между парой).
+  // Хэндлы у мастера общие для всех членов (одна линия) — берём у первого члена, у
+  // которого они заданы (в remappedEdges хэндлы уже разрешены: колонка для локального
+  // конца, гостевой по префиксу). Так пересчёт не сбрасывает хэндл мастера на авто.
+  const layoutEdges: AppEdge[] = groupArr.map((g) => {
+    if (g.members.length === 1) return g.members[0];
+    const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
+    return {
+      id: g.id, source_id: g.source, target_id: g.target,
+      label: longest.label, technology: longest.technology,
+      source_handle: g.members.find((m) => m.source_handle)?.source_handle ?? null,
+      target_handle: g.members.find((m) => m.target_handle)?.target_handle ?? null,
+      created_at: "",
+    };
+  });
+
+  // Контекст — звезда: своя детерминированная frame-aware раскладка (фокус в центре,
+  // соседи в две колонки, колонки за вылетом рамок фокуса). Обычный уровень — ELK.
+  const ctxLayout =
+    isContext && nodes[0]
+      ? await layoutContext(
+          nodes[0].id,
+          NODE_H,
+          entities,
+          layoutEdges,
+          ancestorIds,
+          expanded,
+        )
+      : null;
+  const baseLayout = ctxLayout ?? (await layoutLevel(allNodeInfos, layoutEdges));
+  const positions = baseLayout.positions;
+  let edgeHandles = baseLayout.edgeHandles;
+  // полки подписей и обходы не родных стрелок считаются только в контекст-раскладке
+  const edgeShelves = ctxLayout?.edgeShelves;
+  const edgeLoops = ctxLayout?.edgeLoops;
+  // изломы гостевых стрелок, реконструированные в абсолют (владеемой группы → anchorG +
+  // офсет, ТЗ D8). Заполняется в блоке выноса гостей; сборка читает путь отсюда.
+  const effectiveLevelWaypoints: Record<string, EdgePoint[]> = {};
+
+  // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) —
+  // вынесена в ringPlacement под юнит-тесты. МУТИРУЕТ positions
+  // (ставит гостей на кольца); их стрелки дальше ведёт глобальный роутер.
+  if (!isContext) {
+    const og = placeGhostsOnRings({
+      nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, expanded,
+    });
+
+    // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
+    // (его группа НЕ авто → кольцо его пропускает) садится поверх владеемых соседей.
+    // separateGuests разводит их VPSC-проходом по дереву containment: раскрытая рамка
+    // пиннится на месте старого узла (expand-in-place), соседи уступают, локалы неподвижны.
+    // No-op, если новичков от вложенного раскрытия нет.
+    // ВАЖНО — ДО enforce: пока новичок сидит на ELK-позиции в чужой СК, он раздувает свою
+    // рамку, и enforce лишне выталкивает соседей под раздутую рамку. На следующем рендере
+    // (после персиста) раскладка считается из чистых позиций → раскладка отличается =
+    // видимое дёрганье на доли секунды. Сначала ставим новичка на место и разводим — тогда
+    // enforce всегда видит финальные позиции, и оба рендера совпадают.
+    const sg = separateGuests({
+      nodes, entities, ancestorIds, levelPositions, layoutEdges,
+      positions, emergedFrom, placedOutside: og?.placedOutside ?? new Set<string>(),
+    });
+
+    // Страховочная сетка keep-out: кольца держат инвариант по построению, но ручные позиции
+    // и рост рамки за ручным гостем ringPlacement не трогает — их добирает enforce. На
+    // авто-гостях после ringPlacement он обязан быть no-op. Запускается всегда.
+    const enf = enforceFramesKeepOut({
+      nodes, entities, ancestorIds, layoutEdges, positions,
+    });
+    if (enf) edgeHandles = enf.edgeHandles;
+    else if (sg) edgeHandles = sg.edgeHandles;
+    else if (og) edgeHandles = og.edgeHandles;
+
+    // Вид сущности для интента засева: как персистить и что зеркалить наружу.
+    const entityKindOf = (id: string): "ghost" | "container" =>
+      entities.find((e) => e.id === id)?.kind === "container" ? "container" : "ghost";
+
+    // ЗАСЕВ ВЛАДЕНИЯ (own-on-first-render): каждый гость без сохранённой позиции получает
+    // её навсегда — на финальных позициях (после колец + enforce + разведения). Покрывает
+    // и авто-гостей (кольцо), и новичков от вложенного раскрытия (их разведённую позицию).
+    // Здесь — только ИНТЕНТ; применяет вызывающий (архитектор, основной канвас, прогон не
+    // устарел). Зеркало двигает узел в levelPositions → следующий прогон видит сохранённую
+    // позицию, и засев его пропускает.
+    const seeds = collectGhostSeeds(entities, levelPositions, (id) => positions.get(id));
+    if (seeds.length > 0) {
+      intents.push({
+        kind: "seed-ghost-positions",
+        seeds: seeds.map((s) => ({ ...s, entityKind: entityKindOf(s.id) })),
+      });
+    }
+
+    // Ф4.4: персист СДВИНУТЫХ ВЛАДЕЕМЫХ соседей. У них уже есть absolute-строка, поэтому
+    // collectGhostSeeds их пропускает — без персиста их новая позиция откатилась бы на
+    // следующем рендере (savedPos из БД), а новичок остался бы на разведённой → наложение
+    // вернулось бы. Persist делает разведение устойчивым: следующий рендер видит соседей на
+    // новых местах, новичок уже владеется → separateGuests становится no-op.
+    if (sg) {
+      const pushed = [...sg.moved]
+        .filter((id) => levelPositions[id])
+        .map((id) => {
+          const p = positions.get(id)!;
+          return { id, entityKind: entityKindOf(id), pos_x: p.x, pos_y: p.y };
+        });
+      if (pushed.length > 0) intents.push({ kind: "seed-ghost-positions", seeds: pushed });
+    }
+
+    // Реконструкция изломов гостевых стрелок к детям раскрытых рамок (ТЗ D8, рев. B):
+    // путь привязан к СОБСТВЕННОЙ позиции гостевого конца — абсолют = офсет + позиция
+    // конца. Позиции здесь уже финальные (после колец + enforce + сдвига коробки), поэтому
+    // излом едет ровно с ребёнком, независимо от владения узлом. Легаси/свежий абсолют к
+    // потомку раскрытой рамки лениво мигрируем в офсет (интентом).
+    // id сущностей, чей предок — раскрытая рамка (их геометрию задаёт раскладка): к ним и
+    // привязывается излом.
+    const expandedChildIds = new Set<string>();
+    for (const ent of entities) {
+      const anc = ent.kind === "leaf" ? (ent.ghost.ancestors ?? []) : ent.ancestors;
+      if (anc.some((a) => expanded.has(a.id))) expandedChildIds.add(ent.id);
+    }
+    const { effective: ownedWp, migrations: wpMigrations } = reconstructOwnedWaypoints({
+      levelEdgeWaypoints, edges: remappedEdges, pos: (id) => positions.get(id), expandedChildIds,
+    });
+    Object.assign(effectiveLevelWaypoints, ownedWp);
+    if (wpMigrations.length > 0) intents.push({ kind: "own-level-waypoints", migrations: wpMigrations });
+  }
+
+  // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2). Связь между
+  // СОСЕДНИМИ узлами бывает короче своей плашки — инлайн она не лезет и отскакивает
+  // мимо стрелки/под узел (BUG B из A9.0). Раздвигаем концы такого ребра по доминантной
+  // оси, чтобы плечо стало длиннее текста. КРИТ (own-on-first-render): двигаем ТОЛЬКО
+  // свежие ELK-локалы (нет в levelPositions, никем не присвоены, конвейером не
+  // персистятся) — владеемые позиции (локал из levelPositions, ЛЮБОЙ гость: его место
+  // персистит засев выше, сдвиг разъехался бы с сохранённым → дёрганье) прибиты намертво.
+  // На финальных позициях (кольца+enforce+разведение), ДО routeAll/плашек — раздвинули,
+  // и маршрут с плашкой лягут инлайн. Оба конца прибиты → ребро не трогаем (останется
+  // leader). Мутируем positions на месте — downstream-роутер видит новые места.
+  if (!isContext) {
+    const SEP_MARGIN = 8; // клиренс вдоль плеча с каждой стороны плашки
+    const SEP_PAD = 12;   // зазор при каскадной зачистке наложений (как separateGuests)
+    const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+    const localIds = new Set(nodes.map((n) => n.id));
+    const idxOf = new Map<string, number>();
+    const rects: Rect[] = [];
+    const weights: number[] = [];
+    for (const id of displayIds) {
+      const p = positions.get(id);
+      if (!p) continue;
+      idxOf.set(id, rects.length);
+      rects.push({ minX: p.x, minY: p.y, maxX: p.x + NODE_W, maxY: p.y + NODE_H });
+      const movable = localIds.has(id) && !levelPositions[id];
+      weights.push(movable ? 1 : Infinity);
+    }
+    // Сколько рёбер на каждой НЕУПОРЯДОЧЕННОЙ паре узлов — встречную/много-рёберную пару
+    // раздвигать бессмысленно: их плечи совпадают (R4), инлайн на прямом коридоре всё равно
+    // запрещён → за это отвечают рельсы (A11) и детур (A12), а не раздвижка. Иначе A10 зря
+    // выселял бы узел (см. дамп A10.2: ObsCore уезжал, плашка всё равно leader).
+    const pairCount = new Map<string, number>();
+    for (const g of groupArr) {
+      const k = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
+      pairCount.set(k, (pairCount.get(k) ?? 0) + 1);
+    }
+    const labelEdges: LabelEdge[] = [];
+    for (const g of groupArr) {
+      const pk = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
+      if ((pairCount.get(pk) ?? 0) > 1) continue; // встречная/много-рёберная пара → не раздвигаем
+      const si = idxOf.get(g.source);
+      const ti = idxOf.get(g.target);
+      if (si == null || ti == null) continue;
+      // оба конца прибиты — раздвинуть нечем без нарушения ownership, оставляем leader
+      if (weights[si] === Infinity && weights[ti] === Infinity) continue;
+      // ручной путь (waypoints) → ребро не авто-маршрутизируем (тот же слой, что роутер ниже)
+      const bothLocal = localIds.has(g.source) && localIds.has(g.target);
+      const hasWaypoints = g.members.some((m) =>
+        bothLocal
+          ? (m.waypoints?.length ?? 0) > 0
+          : (effectiveLevelWaypoints[m.id]?.length ?? 0) > 0,
+      );
+      if (hasWaypoints) continue;
+      const meta = edgeLabelMeta(g);
+      if (!meta) continue;
+      const box = labelBoxSize(meta.text, { lines: meta.lines });
+      // голодное ли ребро: инлайн-зазор по доминантной оси короче плашки + 2·margin?
+      const s = rects[si];
+      const t = rects[ti];
+      const dx = Math.abs((s.minX + s.maxX - t.minX - t.maxX) / 2);
+      const dy = Math.abs((s.minY + s.maxY - t.minY - t.maxY) / 2);
+      const axisX = dx >= dy;
+      const gap = axisX
+        ? dx - (s.maxX - s.minX + t.maxX - t.minX) / 2
+        : dy - (s.maxY - s.minY + t.maxY - t.minY) / 2;
+      const need = (axisX ? box.w : box.h) + 2 * SEP_MARGIN;
+      if (gap >= need) continue; // места хватает — не раздвигаем
+      labelEdges.push({ source: si, target: ti, box });
+    }
+    if (labelEdges.length > 0) {
+      const widened = separateForLabels(rects, weights, labelEdges, { pad: SEP_PAD, margin: SEP_MARGIN });
+      // пишем новые позиции только подвижным узлам (прибитые VPSC не двигает — но не
+      // трогаем их координаты вовсе, чтобы исключить дрейф владеемых позиций).
+      for (const [id, i] of idxOf) {
+        if (weights[i] === Infinity) continue;
+        const p = positions.get(id)!;
+        positions.set(id, { ...p, x: widened[i].minX, y: widened[i].minY });
+      }
+    }
+  }
+
+  // Авто-маршруты (эпик стрелок A7.1, R1+R3): глобальный роутер на раскладке для рёбер
+  // level/main-схемы, которые пользователь НЕ правил вручную (waypoints).
+  // Контекст-схему не трогаем (R2/R4 решены в её собственной модели).
+  let autoRoutes: Map<string, EdgePoint[]> | undefined;
+  let labelPlacements: Map<string, LabelPlacement> | undefined;
+  if (!isContext) {
+    const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+    const localIds = new Set(nodes.map((n) => n.id));
+    const routableIds = new Set<string>();
+    // pairableIds — рёбра уровня, участвующие в раскладке (авто + ручные-waypoints). По ним
+    // ищем встречные рельс-пары (A12.5): рельса соседа не должна зависеть от того, ручное это
+    // ребро или авто — иначе правка изломов одного рушит маршрут встречного («двигаю одно —
+    // смещается другое»). См. railAssignments.
+    const pairableIds = new Set<string>();
+    const lockedIds = new Set<string>(); // routable, но сторону зафиксировал пользователь
+    for (const g of groupArr) {
+      if (!positions.get(g.source) || !positions.get(g.target)) continue;
+      pairableIds.add(g.id); // участвует в раскладке уровня (до фильтра ручного пути)
+      // Ручной ПУТЬ (waypoints) → ребро целиком ручное, не авто-маршрутизируем (приоритет).
+      // Источник waypoints РОВНО тот же, что рисует edges.tsx (wpOf, см. сборку рёбер):
+      // локальное ребро (оба конца на уровне) хранит путь в ГЛОБАЛЬНом m.waypoints,
+      // гостевое/сквозное — в ПЕР-УРОВНЕВОМ слое. Раньше здесь ИЛИ-ились оба, из-за чего
+      // гостевое ребро с глобальным путём (он рисуется лишь в main-схеме, не в этом уровне)
+      // ошибочно исключалось из роутинга и ложилось прямой под узлами. Сверяемся с тем же
+      // слоем, что и рендер.
+      const bothLocal = localIds.has(g.source) && localIds.has(g.target);
+      const hasWaypoints = g.members.some((m) =>
+        bothLocal
+          ? (m.waypoints?.length ?? 0) > 0
+          : (effectiveLevelWaypoints[m.id]?.length ?? 0) > 0,
+      );
+      if (hasWaypoints) continue;
+      routableIds.add(g.id);
+      // Ручной ХЭНДЛ без ручного пути → сторону уважаем (lockedIds), но путь к ней роутер
+      // всё равно строит. Так смена хэндла одного ребра не выкидывает его из набора и не
+      // пере-раскладывает остальные авто-маршруты (стабильность, A7.4).
+      if (g.members.some((m) => (levelEdgeHandles[m.id]?.length ?? 0) > 0)) lockedIds.add(g.id);
+    }
+    const ar = buildAutoRoutes({ groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds });
+    autoRoutes = ar.routes;
+    // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там). Только свободные
+    // рёбра (у locked хэндл уже стоит, buildAutoRoutes их в ar.handles не кладёт).
+    for (const [id, hh] of ar.handles) edgeHandles.set(id, hh);
+
+    // Плашки подписей (эпик стрелок A7.2, R2+R4): по авто-маршрутам размещаем плашки без
+    // взаимных наложений и не под узлами (R2), запрещая их на совпавших плечах (R4); где
+    // на линии чисто не встаёт — выноска-leader (A7.3). Только для авто-маршрутов; рёбра с
+    // ручным путём сохраняют прежнее поведение подписи (центр/label_t).
+    const nodeRects = displayIds
+      .map((id) => { const p = positions.get(id); return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null; })
+      .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
+    labelPlacements = buildLabelPlacements({
+      routes: autoRoutes,
+      groups: groupArr,
+      labelMeta: edgeLabelMeta,
+      preferredT: (g) => g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
+      nodeRects,
+    });
+
+    // Альт-маршрут грузного ребра (эпик стрелок A12, ПОСЛЕДНЕЕ средство): если плашка ушла в
+    // leader (инлайн не влез даже после рельсов/раздвижки), уводим ЭТО ребро по минимальному
+    // детуру в чистую полосу рядом с рядом узлов, где плашка ложится инлайн. Двигаем только
+    // маршрут (own-on-first-render цел). Детур детерминирован (lane из габаритов этого ребра),
+    // не учитывает чужие пересечения (как A7.4-residual). После детуров — ОДИН пере-проход
+    // плашек на обновлённых маршрутах (пересчитает coincidentLegs и вернёт напарника по
+    // рельсе к центру). Только авто-рёбра, не locked; кэп длины → иначе остаётся leader.
+    const detourPreferred = new Map<string, number>();
+    const rectOf = (id: string): { x: number; y: number; w: number; h: number } | null => {
+      const p = positions.get(id);
+      return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null;
+    };
+    // кандидаты на детур — leader-рёбра (плашка не влезла), только свободные авто-рёбра
+    const detourCands: Array<{ g: EdgeGroup; box: ReturnType<typeof labelBoxSize> }> = [];
+    for (const g of groupArr) {
+      if (labelPlacements.get(g.id)?.mode !== "leader") continue;
+      if (!routableIds.has(g.id) || lockedIds.has(g.id)) continue;
+      const meta = edgeLabelMeta(g);
+      if (!meta) continue;
+      detourCands.push({ g, box: labelBoxSize(meta.text, { lines: meta.lines }) });
+    }
+    // КООРДИНАЦИЯ СТЕКА: несколько leader-рёбер (напр. встречная пара) уходят в детур в одну
+    // сторону (часто вниз, если сверху другие узлы) — их плашки наложились бы (на дампе A12 так и
+    // вышло: 1-строчная на y=389 перекрыла место 5-строчной → та осталась leader). Копим уже
+    // размещённые плашки-детуры как доп.препятствия и идём от НИЗКИХ боксов к ВЫСОКИМ: высокая
+    // ляжет на lane НИЖЕ чужой, без наложения (кэп длины ограничит стек → совсем глубокий бокс
+    // останется leader). Плашка-препятствие двигает lane глубже и не даёт маршруту её пересечь.
+    const placedLabelRects: { x: number; y: number; w: number; h: number }[] = [];
+    detourCands.sort((a, b) => a.box.h - b.box.h);
+    // РАЗВОДКА ХЭНДЛОВ ВСТРЕЧНОЙ ПАРЫ НА ДЕТУРЕ (A12.4): если оба ребра двунаправленной пары
+    // ушли в детур в одну сторону, по умолчанию они вышли бы из ОДНОГО хэндла (центр, idx=1) и
+    // наложились бы плечами. Раскладка — вложенные «П»: грузное ребро (плашка выше, идёт ГЛУБЖЕ)
+    // ведём по ВНЕШНИМ слотам стороны → его «П» шире и охватывает плашку напарника, не пересекая
+    // её; напарник остаётся в центре (idx=1, прежнее место). Внешний слот — по геометрии узла:
+    // на горизонтальном плече левый узел→слот 0, правый→слот 2 (на вертикальном верхний→0,
+    // нижний→2). Так разводятся и хэндлы, и плечи, и нет наложения плашек.
+    const detourSlot = new Map<string, { sIdx: number; tIdx: number }>();
+    for (const { g, box } of detourCands) {
+      const partner = detourCands.find((c) => c.g.source === g.target && c.g.target === g.source);
+      if (!partner) continue;
+      // глубже ляжет более грузное ребро (выше плашка; при равенстве — больший id)
+      const deeper = box.h > partner.box.h || (box.h === partner.box.h && g.id > partner.g.id);
+      if (!deeper) continue; // напарник остаётся в центре (слот 1/1 по умолчанию)
+      const sp = positions.get(g.source), tp = positions.get(g.target);
+      if (!sp || !tp) continue;
+      const horiz = Math.abs(tp.x - sp.x) >= Math.abs(tp.y - sp.y);
+      const sIdx = horiz ? (sp.x <= tp.x ? 0 : 2) : (sp.y <= tp.y ? 0 : 2);
+      const tIdx = horiz ? (tp.x < sp.x ? 0 : 2) : (tp.y < sp.y ? 0 : 2);
+      detourSlot.set(g.id, { sIdx, tIdx });
+    }
+    for (const { g, box } of detourCands) {
+      const source = rectOf(g.source), target = rectOf(g.target);
+      if (!source || !target) continue;
+      const obstacles = [
+        ...displayIds
+          .filter((id) => id !== g.source && id !== g.target)
+          .map(rectOf)
+          .filter((r): r is { x: number; y: number; w: number; h: number } => r != null),
+        ...placedLabelRects,
+      ];
+      const slot = detourSlot.get(g.id) ?? { sIdx: 1, tIdx: 1 };
+      const det = labelDetour({
+        source, target, obstacles, box, margin: 8, maxExtraLen: 2 * NODE_H + box.h + 16,
+        sIdx: slot.sIdx, tIdx: slot.tIdx,
+      });
+      if (!det) continue;
+      autoRoutes.set(g.id, det.route);
+      edgeHandles.set(g.id, { sourceHandle: hid(g.source, det.sSide, slot.sIdx), targetHandle: hid(g.target, det.tSide, slot.tIdx) });
+      detourPreferred.set(g.id, det.preferredT);
+      // оценочный прямоугольник лёгшей плашки — препятствие для последующих (более высоких)
+      placedLabelRects.push({ x: det.center.x - box.w / 2, y: det.center.y - box.h / 2, w: box.w, h: box.h });
+    }
+    if (detourPreferred.size > 0) {
+      labelPlacements = buildLabelPlacements({
+        routes: autoRoutes,
+        groups: groupArr,
+        labelMeta: edgeLabelMeta,
+        preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
+        nodeRects,
+      });
+    }
+
+    // РАСТАЛКИВАНИЕ НАЛОЖЕННЫХ ПЛЕЧ ИЗ РАЗНЫХ ХЭНДЛОВ (A13): рельсы (A11) и детур (A12.4)
+    // развели встречные пары, но плечо одного ребра ещё может лечь на «хайвэй» другого (разные
+    // хэндлы/узлы) — на развилке неясно, какая стрелка куда. Сдвигаем короткое плечо вбок,
+    // сохраняя стыковку концов с хэндлами. Чистый пост-проход на финальных маршрутах; при
+    // сдвиге — ещё один пере-проход плашек (геометрия плеч изменилась, coincidentLegs другой).
+    if (autoRoutes) {
+      const nu = nudgeOverlaps(autoRoutes, edgeHandles);
+      if (nu.nudged.size > 0) {
+        autoRoutes = nu.routes;
+        labelPlacements = buildLabelPlacements({
+          routes: autoRoutes,
+          groups: groupArr,
+          labelMeta: edgeLabelMeta,
+          preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
+          nodeRects,
+        });
+      }
+    }
+  }
+
+  // Распорки: обходы не родных стрелок выходят за bbox узлов → крайними точками
+  // контента (loopX/clearY обходов + запас под полку с подписью) расширяем область,
+  // которую увидит fitView. Только контекст и только если есть обходы.
+  const spacers: RFNode[] = [];
+  if (isContext && edgeLoops && edgeLoops.size > 0) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of positions.values()) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
+    }
+    const PAD = 130; // запас под дальнюю полку/подпись не родной стрелки
+    for (const lp of edgeLoops.values()) {
+      minX = Math.min(minX, lp.loopX - PAD); maxX = Math.max(maxX, lp.loopX + PAD);
+      minY = Math.min(minY, lp.clearY - 20); maxY = Math.max(maxY, lp.clearY + 20);
+    }
+    spacers.push(
+      { id: "__spacer_min", type: "spacer", position: { x: minX, y: minY }, data: {}, draggable: false, selectable: false },
+      { id: "__spacer_max", type: "spacer", position: { x: maxX, y: maxY }, data: {}, draggable: false, selectable: false },
+    );
+  }
+
+  return {
+    layout: {
+      nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
+      autoRoutes, labelPlacements, levelWaypoints: effectiveLevelWaypoints, groupArr, spacers,
+    },
+    liveInputs: {
+      layoutEdges,
+      nodeIds: [...nodes.map((n) => ({ id: n.id })), ...entities.map((e) => ({ id: e.id }))],
+      localIds: new Set(nodes.map((n) => n.id)),
+    },
+    intents,
+  };
+}
