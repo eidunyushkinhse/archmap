@@ -6,11 +6,11 @@
 // assignEdgeHandles по живым позициям и применяет результат к rfEdges. Используем тот же
 // движок, что и пост-драговая раскладка, — значит превью совпадает с итогом по построению.
 //
-// Скоуп — рёбра, у которых ОБА конца локальны (block) и нет дефолтного обвода (detour):
-// для них итоговый хэндл = ровно выход assignEdgeHandles (обводы/кольца гостей его не
-// перетирают). Гостевые/сквозные стрелки и обводы во время драга не трогаем — они
-// доедут по отпускании (редкий случай, для них WYSIWYG-разрыв незаметен). Сохранённые
-// вручную хэндлы assignEdgeHandles и так оставляет на месте — драг их не двигает.
+// Скоуп — рёбра, у которых ОБА конца локальны (block): для них итоговый хэндл = ровно
+// выход assignEdgeHandles (кольца гостей его не перетирают). Гостевые/сквозные стрелки
+// во время драга не трогаем — они доедут по отпускании (редкий случай, для них
+// WYSIWYG-разрыв незаметен). Сохранённые вручную хэндлы assignEdgeHandles и так
+// оставляет на месте — драг их не двигает.
 import { useCallback, useRef } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { Dispatch, SetStateAction } from "react";
@@ -26,8 +26,6 @@ export interface LiveHandleInputs {
   nodeIds: Array<{ id: string }>;
   // id локальных узлов уровня (block): пересчитываем только рёбра, оба конца которых тут
   localIds: Set<string>;
-  // id рёбер с дефолтным обводом — их хэндлы перетёр бы computeDetours, в драге пропускаем
-  detourIds: Set<string>;
 }
 
 interface Params {
@@ -66,9 +64,8 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
     const handles = assignEdgeHandles(s.inp.nodeIds, s.inp.layoutEdges, positions);
     setRfEdges((prev) =>
       prev.map((e) => {
-        // только локально-локальные рёбра без обвода и хотя бы одним концом в перетаскиваемых
+        // только локально-локальные рёбра и хотя бы одним концом в перетаскиваемых
         if (!s.inp.localIds.has(e.source) || !s.inp.localIds.has(e.target)) return e;
-        if (s.inp.detourIds.has(e.id)) return e;
         if (!draggedIds.has(e.source) && !draggedIds.has(e.target)) return e;
         const h = handles.get(e.id);
         if (!h || (h.sourceHandle === e.sourceHandle && h.targetHandle === e.targetHandle)) return e;

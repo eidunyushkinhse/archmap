@@ -42,7 +42,6 @@ import { placeGhostsOnRings, collectGhostSeeds } from "./graph/layout/ringPlacem
 import { reconstructOwnedWaypoints } from "./graph/layout/ownedWaypoints";
 import { enforceFramesKeepOut } from "./graph/layout/keepGhostsOut";
 import { separateGuests } from "./graph/layout/separateGuests";
-import { computeDetours } from "./graph/layout/detours";
 import { buildAutoRoutes } from "./graph/layout/autoRoutes";
 import { nudgeOverlaps } from "./graph/layout/nudgeOverlaps";
 import { buildLabelPlacements, type LabelPlacement } from "./graph/layout/labelLayout";
@@ -99,11 +98,8 @@ type LayoutResult = {
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
   edgeShelves?: Map<string, EdgeShelf>;
   edgeLoops?: Map<string, EdgeLoop>;
-  // основная схема: рёбра с дефолтным обводом (вынесенный гость ↔ локальный узел, чей
-  // прямой маршрут пересекал бы чужие узлы) → высота огибания clearY
-  edgeDetours?: Map<string, { clearY: number }>;
   // авто-маршруты глобального роутера (R1+R3): ортоломаная с минимумом пересечений и
-  // обходом узлов. Считаются на раскладке для не-customized/не-detour рёбер (level/main),
+  // обходом узлов. Считаются на раскладке для не-customized рёбер (level/main),
   // НЕ персистятся (производные от позиций). Сборка рёбер кладёт их в data.autoRoute.
   autoRoutes?: Map<string, EdgePoint[]>;
   // размещение плашек подписей (R2+R4): по группе — центр/якорь/режим (online|leader).
@@ -727,17 +723,13 @@ function LevelGraphInner({
     // полки подписей и обходы не родных стрелок считаются только в контекст-раскладке
     const edgeShelves = ctxLayout?.edgeShelves;
     const edgeLoops = ctxLayout?.edgeLoops;
-    // дефолтные обводы гостевых стрелок (см. блок выноса гостей ниже) — основная схема
-    const edgeDetours = new Map<string, { clearY: number }>();
     // изломы гостевых стрелок, реконструированные в абсолют (владеемой группы → anchorG +
     // офсет, ТЗ D8). Заполняется в блоке выноса гостей; сборка читает путь отсюда.
     const effectiveLevelWaypoints: Record<string, EdgePoint[]> = {};
 
-    // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) + дефолтные
-    // обводы их стрелок: оба шага вынесены в graph/layout/* под юнит-тесты. Блоки исторически
-    // вложены (обводы читают placedOutside и bbox рамки из раскладки гостей), поэтому
-    // ringPlacement отдаёт результат явно, а computeDetours получает его на вход.
-    // ringPlacement МУТИРУЕТ positions (ставит гостей на кольца); computeDetours чист.
+    // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) —
+    // вынесена в graph/layout/ringPlacement под юнит-тесты. МУТИРУЕТ positions
+    // (ставит гостей на кольца); их стрелки дальше ведёт глобальный роутер.
     if (!isContext) {
       const og = placeGhostsOnRings({
         nodes, entities, ancestorIds: stableAncestorIds, levelPositions, layoutEdges, positions, expanded,
@@ -807,21 +799,6 @@ function LevelGraphInner({
       });
       Object.assign(effectiveLevelWaypoints, ownedWp);
       if (wpMigrations.length > 0 && !cancelled) cbRef.current.migrateLevelWaypoints(wpMigrations);
-
-      // A9-спайк: гостевые рёбра ведёт глобальный роутер (buildAutoRoutes ниже), а не
-      // corridor-обвод. Пока под флагом — легко сравнить/откатить. Когда обвод выключен,
-      // computeDetours не заполняет edgeDetours → гостевые рёбра попадают в routableIds.
-      const ROUTE_GUESTS_GLOBALLY = true;
-      if (og && !ROUTE_GUESTS_GLOBALLY) {
-        const localIds = new Set(nodes.map((n) => n.id));
-        const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
-        const { handles, detours } = computeDetours({
-          groupArr, placedOutside: og.placedOutside, frame: og.frame,
-          localIds, displayIds, positions, levelEdgeWaypoints: effectiveLevelWaypoints, levelEdgeHandles,
-        });
-        for (const [id, h] of handles) edgeHandles.set(id, h);
-        for (const [id, d] of detours) edgeDetours.set(id, d);
-      }
     }
 
     // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2). Связь между
@@ -861,7 +838,6 @@ function LevelGraphInner({
       }
       const labelEdges: LabelEdge[] = [];
       for (const g of groupArr) {
-        if (edgeDetours.has(g.id)) continue; // гостевой обвод — своя ветка edges.tsx
         const pk = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
         if ((pairCount.get(pk) ?? 0) > 1) continue; // встречная/много-рёберная пара → не раздвигаем
         const si = idxOf.get(g.source);
@@ -906,9 +882,8 @@ function LevelGraphInner({
     }
 
     // Авто-маршруты (эпик стрелок A7.1, R1+R3): глобальный роутер на раскладке для рёбер
-    // level/main-схемы, которые пользователь НЕ правил вручную (waypoints/хэндлы) и для
-    // которых не построен гостевой обвод (его считает computeDetours — отдельная ветка
-    // рендера). Контекст-схему не трогаем (R2/R4 решены в её собственной модели).
+    // level/main-схемы, которые пользователь НЕ правил вручную (waypoints).
+    // Контекст-схему не трогаем (R2/R4 решены в её собственной модели).
     let autoRoutes: Map<string, EdgePoint[]> | undefined;
     let labelPlacements: Map<string, LabelPlacement> | undefined;
     if (!isContext) {
@@ -922,7 +897,6 @@ function LevelGraphInner({
       const pairableIds = new Set<string>();
       const lockedIds = new Set<string>(); // routable, но сторону зафиксировал пользователь
       for (const g of groupArr) {
-        if (edgeDetours.has(g.id)) continue; // гостевой обвод рисует своя ветка edges.tsx
         if (!positions.get(g.source) || !positions.get(g.target)) continue;
         pairableIds.add(g.id); // участвует в раскладке уровня (до фильтра ручного пути)
         // Ручной ПУТЬ (waypoints) → ребро целиком ручное, не авто-маршрутизируем (приоритет).
@@ -1088,34 +1062,14 @@ function LevelGraphInner({
         { id: "__spacer_max", type: "spacer", position: { x: maxX, y: maxY }, data: {}, draggable: false, selectable: false },
       );
     }
-    // То же для дефолтных обводов гостевых стрелок (основная схема): clearY уходит за
-    // bbox узлов сверху/снизу — распорками включаем его в область fitView.
-    if (!isContext && edgeDetours.size > 0) {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const p of positions.values()) {
-        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
-      }
-      for (const d of edgeDetours.values()) {
-        minY = Math.min(minY, d.clearY - 20); maxY = Math.max(maxY, d.clearY + 20);
-      }
-      if (isFinite(minX)) {
-        spacers.push(
-          { id: "__detour_min", type: "spacer", position: { x: minX, y: minY }, data: {}, draggable: false, selectable: false },
-          { id: "__detour_max", type: "spacer", position: { x: maxX, y: maxY }, data: {}, draggable: false, selectable: false },
-        );
-      }
-    }
-
       // Снимок входов для живого пересчёта хэндлов при драге (см. useLiveDragHandles):
       // те же мастер-рёбра и узлы, по которым посчитан текущий layout.
       liveHandleInputs.current = {
         layoutEdges,
         nodeIds: [...nodes.map((n) => ({ id: n.id })), ...entities.map((e) => ({ id: e.id }))],
         localIds: new Set(nodes.map((n) => n.id)),
-        detourIds: new Set(edgeDetours.keys()),
       };
-      if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, autoRoutes, labelPlacements, levelWaypoints: effectiveLevelWaypoints, groupArr, spacers });
+      if (!cancelled) setLayout({ nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, levelWaypoints: effectiveLevelWaypoints, groupArr, spacers });
     })();
     return () => { cancelled = true; };
     // levelEdgeWaypoints не влияет на позиции/хэндлы, НО включён в зависимости намеренно:
@@ -1135,7 +1089,7 @@ function LevelGraphInner({
     // nodes берём ИЗ layout (снимок, по которому он посчитан), а не из пропа — чтобы
     // позиции и данные узлов были согласованы и эффект не срабатывал со старым layout
     // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
-    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, edgeDetours, autoRoutes, labelPlacements, levelWaypoints, groupArr, spacers } = layout;
+    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, levelWaypoints, groupArr, spacers } = layout;
     const cb = cbRef.current;
     // локальные узлы уровня — у редактируемой жестом стрелки оба конца должны быть
     // локальны (waypoints в координатах этого уровня; гость/контейнер — чужая система)
@@ -1278,13 +1232,9 @@ function LevelGraphInner({
         // Триггер детализации связи на плашке с описанием (клик по линии на основной схеме
         // перехватывают грипы изломов). В контексте схема только для просмотра — не вешаем.
         if (!isContext) data.onOpenDetails = () => cb.openEdgeMembers(data.memberIds);
-        // Дефолтный обвод гостевой стрелки (если её прямой маршрут пересекал бы узлы).
-        // Применяется только при отсутствии своих waypoints — это разводит edges.tsx.
         if (!isContext) {
-          const det = edgeDetours?.get(g.id);
-          if (det) data.detour = det;
-          // Авто-маршрут (R1+R3): ставим, если для этой группы он посчитан (не customized,
-          // не detour). edges.tsx рисует его ортоломаной с минимумом пересечений.
+          // Авто-маршрут (R1+R3): ставим, если для этой группы он посчитан (не customized).
+          // edges.tsx рисует его ортоломаной с минимумом пересечений.
           const ar = autoRoutes?.get(g.id);
           if (ar) data.autoRoute = ar;
           // Авто-размещение плашки (R2+R4): центр/якорь/режим. edges.tsx ставит плашку в

@@ -269,24 +269,6 @@ function WrappedLabelEdge({
       labelY = mid.y;
       labelPts = pts;
       if (d?.editable) gripPts = pts;
-    } else if (d?.detour) {
-      // Дефолтный обвод: прямой маршрут гостевой стрелки пересекал бы чужие узлы, поэтому
-      // огибаем рамку поверху/понизу на высоте clearY. Концы переназначены раскладкой на
-      // верх/низ-центр, поэтому стрелка выходит из источника вертикально, идёт по коридору
-      // clearY и вертикально входит в цель. Точки живые (от хэндлов) — обвод следует за
-      // узлом при его перетаскивании. Грипы (если editable) дают подправить обвод вручную.
-      const pts = cleanup([
-        s,
-        { x: sourceX, y: d.detour.clearY },
-        { x: targetX, y: d.detour.clearY },
-        t,
-      ]);
-      edgePath = orthoPath(pts);
-      const mid = pathMidpoint(pts);
-      labelX = mid.x;
-      labelY = mid.y;
-      labelPts = pts;
-      if (d?.editable) gripPts = pts;
     } else if (d?.autoRoute && d.autoRoute.length >= 2) {
       // Авто-маршрут (эпик стрелок A7.1, R1+R3): ортоломаная посчитана на раскладке
       // глобальным роутером (минимум пересечений с другими стрелками + жёсткий обход узлов).

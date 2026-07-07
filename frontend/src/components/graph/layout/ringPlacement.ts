@@ -29,10 +29,8 @@ const SHELF_GAP = 28; // зазор между соседними гостями
 const COL_GAP = 24; // зазор между колонками перелива (поперёк полки, D6)
 
 export interface RingPlacementResult {
-  /** id гостей, поставленных на кольцо (для дефолтных обводов detours.ts) */
+  /** id гостей, поставленных на кольцо (их пропускает разведение separateGuests) */
   placedOutside: Set<string>;
-  /** bbox содержимого уровня (локальные узлы + гости с ручной позицией) — база detours */
-  frame: { minX: number; minY: number; maxX: number; maxY: number };
   /** хэндлы рёбер, пересчитанные по финальным позициям */
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
 }
@@ -364,22 +362,8 @@ export function placeGhostsOnRings(params: {
 
   if (placedOutside.size === 0) return null;
 
-  // bbox содержимого уровня = локальные узлы + гости с ручной позицией (НЕ на кольце) —
-  // база для дефолтных обводов (detours.ts), которые сами расширят его за вынесенных
-  let fMinX = Infinity, fMinY = Infinity, fMaxX = -Infinity, fMaxY = -Infinity;
-  const frameIds = [...localIds, ...entities.filter((e) => !placedOutside.has(e.id)).map((e) => e.id)];
-  for (const id of frameIds) {
-    const p = positions.get(id);
-    if (!p) continue;
-    fMinX = Math.min(fMinX, p.x); fMinY = Math.min(fMinY, p.y);
-    fMaxX = Math.max(fMaxX, p.x + NODE_W); fMaxY = Math.max(fMaxY, p.y + NODE_H);
-  }
-  const frame = isFinite(fMinX)
-    ? { minX: fMinX, minY: fMinY, maxX: fMaxX, maxY: fMaxY }
-    : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-
   const displayed = [...localIds.map((id) => ({ id })), ...entities.map((e) => ({ id: e.id }))];
-  return { placedOutside, frame, edgeHandles: assignEdgeHandles(displayed, layoutEdges, positions) };
+  return { placedOutside, edgeHandles: assignEdgeHandles(displayed, layoutEdges, positions) };
 }
 
 /**

@@ -236,15 +236,6 @@ describe("placeGhostsOnRings — ручные позиции", () => {
     expect(positions.get("G")).toEqual({ x: 5, y: 5 });
   });
 
-  it("frame (для обводов) = bbox локальных узлов, без вынесенных гостей", () => {
-    const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5, y: 5 }]]);
-    const res = placeGhostsOnRings({
-      nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
-      layoutEdges: [edge("e", "G", "L")], positions,
-    });
-    expect(res).not.toBeNull();
-    expect(res!.frame).toEqual({ minX: 0, minY: 0, maxX: NODE_W, maxY: 100 });
-  });
 });
 
 describe("placeGhostsOnRings — own-on-first-render: владеемые дети раскрытой рамки", () => {

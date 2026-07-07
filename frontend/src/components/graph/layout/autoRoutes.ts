@@ -75,7 +75,7 @@ export interface AutoRoutesResult {
 
 export function buildAutoRoutes(params: {
   groups: EdgeGroup[];
-  routableIds: Set<string>;   // id групп, которые роутим (не waypoint-customized/detour/context)
+  routableIds: Set<string>;   // id групп, которые роутим (не waypoint-customized/context)
   pairableIds: Set<string>;   // рёбра уровня в раскладке (авто + ручные) — для поиска рельс-пар
   lockedIds: Set<string>;     // из них: пользователь зафиксировал хэндл → сторону НЕ выбираем
   positions: ReadonlyMap<string, { x: number; y: number }>;
