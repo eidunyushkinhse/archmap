@@ -373,6 +373,14 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     load(path[path.length - 1].id);
   }
 
+  // Рефетч уровня + бокового дерева для undo/redo структурных команд: замыкание
+  // фиксирует уровень правки на момент создания команды (redo/undo могут выполняться
+  // с другого уровня — дисптчер сперва средиректит по cmd.level).
+  const refetchLevel = (level: string | null) => () => {
+    load(level);
+    setTreeReload((t) => t + 1);
+  };
+
   // Семантические (версионируемые) поля узла для отката правки — без раскладки
   // (pos/handle) и parent_id (через модалку не меняется). Совпадает с payload правки
   // в NodeModal, поэтому update(before)/update(after) точно отменяют/повторяют правку.
@@ -414,7 +422,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
       // Создание узла (Undo): структурная операция, как удаление — undo снимает снимок
       // и удаляет (с сохранением id), redo восстанавливает; уровень перечитываем.
       const levelAtCreate = currentParentId;
-      const refetch = () => { load(levelAtCreate); setTreeReload((t) => t + 1); };
+      const refetch = refetchLevel(levelAtCreate);
       let snap: DeletionSnapshot | null = null;
       history.push({
         label: "Создание объекта",
@@ -465,10 +473,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     // чужого уровня в текущий холст (расходясь с breadcrumb).
     if (!snapshot) return;
     const levelAtDelete = currentParentId;
-    const refetch = () => {
-      load(levelAtDelete);
-      setTreeReload((t) => t + 1);
-    };
+    const refetch = refetchLevel(levelAtDelete);
     history.push({
       label: "Удаление объекта",
       level: levelAtDelete,
@@ -489,10 +494,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     setTreeReload((t) => t + 1);
     if (snapshots.length === 0) return;
     const levelAtDelete = currentParentId;
-    const refetch = () => {
-      load(levelAtDelete);
-      setTreeReload((t) => t + 1);
-    };
+    const refetch = refetchLevel(levelAtDelete);
     history.push({
       label: `Удаление объектов (${ids.length})`,
       level: levelAtDelete,
@@ -752,7 +754,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           <button
             className="crumb"
             style={crumbLink}
-            onClick={() => { setBreadcrumb([]); load(null); }}
+            onClick={() => { void navigateToLevel(null); }}
           >
             Контекст
           </button>
