@@ -372,8 +372,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           positions,
           ownedPositions,
         });
-        for (const id of movedOut) if (ownedPositions[id]) movedOwnedByInvariants.add(id);
-        for (const id of movedSep) if (ownedPositions[id]) movedOwnedByInvariants.add(id);
+        // персистим только ЗАМЕТНЫЕ сдвиги владеемых (>1px от строки): микро-
+        // коррекции инвариантов не должны «ползти» в БД и перезапускать раскладку
+        const notablyMovedOwned = (id: string): boolean => {
+          const o = ownedPositions[id];
+          if (!o) return false;
+          const p = positions.get(id);
+          return !!p && (Math.abs(p.x - o.pos_x) > 1 || Math.abs(p.y - o.pos_y) > 1);
+        };
+        for (const id of movedOut) if (notablyMovedOwned(id)) movedOwnedByInvariants.add(id);
+        for (const id of movedSep) if (notablyMovedOwned(id)) movedOwnedByInvariants.add(id);
         // ничего не двинулось — оба инварианта чисты, выходим; иначе ещё раунд:
         // развод внутри рамки растягивает её bbox, и чужих выталкивает уже
         // СЛЕДУЮЩИЙ пересчёт expFrames

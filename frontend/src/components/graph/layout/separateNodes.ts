@@ -24,6 +24,13 @@ export const NODE_SEP_PAD = 12;
 // два наложенных владеемых обязаны развестись (поровну при равных весах)
 const OWNED_WEIGHT = 1000;
 
+// Прищёлк владеемого: VPSC с конечными весами всегда отдаёт тяжёлому КРОШЕЧНУЮ
+// долю сдвига (~delta/1001). Без прищёлка это вечный микро-дрейф: свежий узел
+// каждый прогон заново кладётся ELK-ом на то же место, разъезд повторяется, а
+// микро-сдвиг владеемого персистится — БД «ползёт» и раскладка мигает. Сдвиг
+// меньше порога возвращаем на владеемую позицию (микро-заезд в pad безвреден).
+const OWNED_SNAP_EPS = 1;
+
 /**
  * Конвейерная стадия: развести все фактически налегающие узлы. `positions`
  * МУТИРУЕТСЯ. Возвращает id сдвинутых узлов (сдвиги владеемых вызывающий
@@ -46,8 +53,15 @@ export function separateOverlappingNodes(params: {
   out.forEach((r, i) => {
     const id = present[i];
     const p = positions.get(id)!;
-    if (Math.abs(r.minX - p.x) > 1e-6 || Math.abs(r.minY - p.y) > 1e-6) {
-      positions.set(id, { x: r.minX, y: r.minY });
+    let nx = r.minX;
+    let ny = r.minY;
+    const owned = ownedPositions[id];
+    if (owned && Math.abs(nx - owned.pos_x) < OWNED_SNAP_EPS && Math.abs(ny - owned.pos_y) < OWNED_SNAP_EPS) {
+      nx = owned.pos_x;
+      ny = owned.pos_y;
+    }
+    if (Math.abs(nx - p.x) > 1e-6 || Math.abs(ny - p.y) > 1e-6) {
+      positions.set(id, { x: nx, y: ny });
       moved.add(id);
     }
   });

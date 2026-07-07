@@ -214,10 +214,24 @@ function LevelGraphInner({
   const commitLayout = useCallback(
     (patch: Record<string, Partial<ViewLayoutPayload> | null>) => {
       if (!isArchitect || isContext) return;
+      // Нормализация payload для сравнения с зеркалом: null-поля эквивалентны
+      // отсутствию (сервер выкидывает их exclude_none).
+      const norm = (v: ViewLayoutPayload | null | undefined): string => {
+        if (v == null) return "null";
+        const entries = Object.entries(v).filter(([, x]) => x != null);
+        entries.sort(([a], [b]) => (a < b ? -1 : 1));
+        return JSON.stringify(entries);
+      };
       const items: Record<string, ViewLayoutPayload | null> = {};
       for (const [k, p] of Object.entries(patch)) {
-        items[k] = p === null ? null : { ...(viewLayout[k] ?? {}), ...p };
+        const merged = p === null ? null : { ...(viewLayout[k] ?? {}), ...p };
+        // ДЕДУП: значение не отличается от зеркала → не пишем и не дёргаем
+        // родителя. Это рубильник петель самоподдержки: повторяющийся интент
+        // (тот же сид/миграция каждый прогон) не перезапускает раскладку.
+        if (norm(merged) === norm(viewLayout[k])) continue;
+        items[k] = merged;
       }
+      if (Object.keys(items).length === 0) return;
       guardPersist(viewsApi.saveLayout(containerId, items), onPersistError);
       onLayoutChanged?.(items);
     },
