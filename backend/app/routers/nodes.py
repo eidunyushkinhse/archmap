@@ -221,7 +221,11 @@ def _build_graph(
         for gid in ghost_ids
         if gid in all_nodes
     ]
-    _mark_has_children(db, local_nodes)
+    # child_count/has_children локальных узлов — из того же Counter, что и у гостей
+    # (карта всех узлов уже в памяти; отдельный SQL _mark_has_children здесь лишний).
+    for n in local_nodes:
+        n.child_count = child_counts.get(n.id, 0)
+        n.has_children = n.child_count > 0
     return GraphResponse(
         nodes=local_nodes,
         edges=result_edges,
@@ -675,6 +679,9 @@ def get_node_context(
         if neigh not in all_nodes:
             continue
         neighbor_ids.add(neigh)
+        # NB: waypoints/label_t сознательно НЕ отдаются — раскладка контекст-схемы
+        # эфемерна и живёт в СВОЕЙ системе координат (звезда вокруг фокуса); путь,
+        # сохранённый в координатах графа уровня, здесь не имеет смысла.
         result_edges.append(
             GraphEdgeResponse(
                 id=e.id,
@@ -707,7 +714,9 @@ def get_node_context(
         )
         for nid in neighbor_ids
     ]
-    _mark_has_children(db, [focus])
+    # has_children фокуса — по карте всех узлов, без отдельного SQL.
+    focus.child_count = sum(1 for n in all_nodes.values() if n.parent_id == focus.id)
+    focus.has_children = focus.child_count > 0
     return NodeContextResponse(
         focus=focus,
         focus_ancestors=tree.ancestors(all_nodes, focus.id),
