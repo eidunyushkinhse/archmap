@@ -304,7 +304,9 @@ export function useSnapAlignment({
           const sibs: Rect[] = [];
           for (const o of rfNodes) {
             if (o.id === change.id || o.parentId !== dragged.parentId) continue;
-            if (o.type !== "block" && o.type !== "ghost" && o.type !== "container") continue;
+            // сиблинги-узлы И сиблинги-РАМКИ (вложенные раскрытия, R5): у всех
+            // та же rel-система родителя — ребёнок не заезжает ни на кого
+            if (o.type !== "block" && o.type !== "ghost" && o.type !== "container" && o.type !== "frame") continue;
             const { w: ow, h: oh } = nodeSize(o);
             sibs.push({ minX: o.position.x, minY: o.position.y, maxX: o.position.x + ow, maxY: o.position.y + oh });
           }

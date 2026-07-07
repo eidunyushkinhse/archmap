@@ -60,6 +60,26 @@ describe("keepOutOfExpandedFrames", () => {
     expect(overlaps).toBe(false);
   });
 
+  it("РЕКУРСИЯ: сиблинг внутри объемлющей рамки выталкивается из ВЛОЖЕННОЙ рамки", () => {
+    // Кейс пользователя: на корне раскрыт HelixMon (OUT), внутри раскрыт ObsCore (IN);
+    // сиблинг-узел s (член OUT, не член IN) лежит в rect IN → должен выйти из IN,
+    // оставаясь членом OUT (OUT для него не запретка).
+    const out = frame("OUT", ["s", "k1", "k2"], { x: 0, y: 0, w: 800, h: 500 });
+    const inn = frame("IN", ["k1", "k2"], { x: 60, y: 60, w: 420, h: 240 }, 1);
+    const positions = new Map([
+      ["s", { x: 150, y: 120 }],  // сиблинг ВНУТРИ вложенной рамки
+      ["k1", { x: 85, y: 85 }],
+      ["k2", { x: 280, y: 180 }],
+    ]);
+    const moved = keepOutOfExpandedFrames({
+      displayedIds: ["s", "k1", "k2"], frames: [out, inn], positions,
+    });
+    expect(moved.has("s")).toBe(true);
+    expect(moved.has("k1")).toBe(false);
+    expect(moved.has("k2")).toBe(false);
+    expect(inside(positions.get("s")!, inn.rect)).toBe(false);
+  });
+
   it("вложенная рамка в СВОЕЙ объемлющей не трогается", () => {
     const outer = frame("OUT", ["a", "b"], { x: 0, y: 0, w: 600, h: 400 });
     const inner = frame("IN", ["a"], { x: 50, y: 50, w: 230, h: 150 }, 1); // members ⊆ outer
