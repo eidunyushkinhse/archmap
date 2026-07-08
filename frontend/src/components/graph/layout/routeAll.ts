@@ -31,12 +31,20 @@ export interface EdgeTerminal {
   // единственный порт start/end без стороны (старое поведение).
   startPorts?: PortCandidate[];
   endPorts?: PortCandidate[];
+  // ПЕР-РЁБЕРНЫЙ доп. штраф хода (V2.4): у каждого ребра своя среда — например, границы
+  // ЧУЖИХ рамок штрафуются, а рамки со своим концом бесплатны (переход туда неизбежен).
+  // Приоритетнее общего opts.extraMoveCost.
+  extraMoveCost?: (x1: number, y1: number, x2: number, y2: number) => number;
 }
 
 export interface RouteAllOptions {
   margin?: number;
   bendPenalty?: number;
   crossCost?: number; // штраф за каждое пересечение с уже проложенной стрелкой
+  // Доп. стоимость хода (V2.4): вызывающий кодирует сюда штрафы среды — например,
+  // пересечение ГРАНИЦЫ раскрытой рамки (container-aware обходы). Композируется со
+  // штрафом за пересечения стрелок. Только положительная (допустимость эвристики A*).
+  extraMoveCost?: (x1: number, y1: number, x2: number, y2: number) => number;
 }
 
 // Сколько уже проложенных сегментов пересёк бы ход (x1,y1)→(x2,y2) «крестиком» —
@@ -107,10 +115,13 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
   const placed = new Map<string, EdgePoint[]>();
   const placedSegs: Segment[] = []; // сегменты всех уже проложенных рёбер
   for (const e of routingOrder(edges)) {
+    const extra = e.extraMoveCost ?? opts?.extraMoveCost;
+    const wantCross = crossCost > 0 && placedSegs.length > 0;
     const moveCost =
-      crossCost > 0 && placedSegs.length > 0
+      wantCross || extra
         ? (x1: number, y1: number, x2: number, y2: number): number =>
-            crossCost * crossingCount(x1, y1, x2, y2, placedSegs)
+            (wantCross ? crossCost * crossingCount(x1, y1, x2, y2, placedSegs) : 0) +
+            (extra ? extra(x1, y1, x2, y2) : 0)
         : undefined;
     const [starts, ends] = portsOf(e);
     const r = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost });

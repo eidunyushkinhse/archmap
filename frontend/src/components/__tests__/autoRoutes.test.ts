@@ -74,3 +74,46 @@ describe("buildAutoRoutes — обход узла-препятствия", () =>
     expect(pathCrossesRects(r, [rectOf(positions.get("C")!)])).toBe(false);
   });
 });
+
+describe("buildAutoRoutes — рамки-препятствия с воротами (V2.4)", () => {
+  // рамка 200×300 стоит между A и B; узлов внутри нет — раньше маршрут резал её насквозь
+  const positions = new Map([
+    ["A", { x: 0, y: 100 }],
+    ["B", { x: 700, y: 100 }],
+  ]);
+  const frame = { rect: { x: 250, y: 0, w: 200, h: 300 }, plaque: { x: 260, y: 270, w: 100, h: 22 }, memberIds: new Set<string>() };
+  const groups = [group("g1", "A", "B")];
+
+  it("чужое ребро обходит рамку (2 перехода дороже обхода)", () => {
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(),
+      positions, edgeHandles: new Map(), displayIds: ["A", "B"], frames: [frame],
+    });
+    const r = out.routes.get("g1")!;
+    // ни один сегмент не заходит внутрь рамки
+    const inside = r.some((p) => p.x > 250 && p.x < 450 && p.y > 0 && p.y < 300);
+    expect(inside).toBe(false);
+  });
+
+  it("без рамки тот же маршрут — прямой (санити разницы)", () => {
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(),
+      positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+    });
+    expect(out.routes.get("g1")!.length).toBe(2); // прямая
+  });
+
+  it("ребро внутрь СВОЕЙ рамки идёт без штрафа (не вьётся), но не сквозь плашку", () => {
+    // C — «ребёнок» внутри рамки, у нижнего края возле плашки
+    const pos = new Map([...positions, ["C", { x: 270, y: 180 }]]);
+    const g = [group("g2", "A", "C")];
+    const ownFrame = { ...frame, memberIds: new Set(["C"]) };
+    const out = buildAutoRoutes({
+      groups: g, routableIds: new Set(["g2"]), pairableIds: new Set(["g2"]), lockedIds: new Set(),
+      positions: pos, edgeHandles: new Map(), displayIds: ["A", "C"], frames: [ownFrame],
+    });
+    const r = out.routes.get("g2")!;
+    expect(r.length).toBeLessThanOrEqual(5); // прямой заход, без вихляний от штрафа своей рамки
+    expect(pathCrossesRects(r, [ownFrame.plaque])).toBe(false); // плашка — жёсткое препятствие
+  });
+});

@@ -607,7 +607,37 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       const bh = viewLayout[bundleKey(g.source, g.target)];
       if (bh?.source_handle != null || bh?.target_handle != null) lockedIds.add(g.id);
     }
-    const ar = buildAutoRoutes({ groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes: sizeMap });
+    // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
+    // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один
+    // переход — «ворота» выбирает A*), плашка подписи — жёсткое препятствие. Позиции
+    // здесь финальные — rect тот же, что у compound-рамок сборки.
+    const routerFrames = computeFrames({
+      localIds: nodes.map((n) => n.id),
+      externals: [
+        ...entities.map((e) => ({
+          id: e.id,
+          ancestors: e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors,
+        })),
+        ...localFrames,
+      ],
+      pos: (id) => positions.get(id),
+      ancestorIds,
+      ancestorNames: ancestorIds,
+    })
+      .filter((f) => !f.native)
+      .map((f) => ({
+        rect: f.rect,
+        // плашка подписи: слева-внизу рамки (nodes.tsx FrameNode), ширина — моноширинная
+        // оценка «🔍 имя ✕» с паддингами
+        plaque: {
+          x: f.rect.x + 10,
+          y: f.rect.y + f.rect.h - 30,
+          w: Math.min(f.rect.w - 20, 56 + 6.5 * f.name.length),
+          h: 22,
+        },
+        memberIds: f.memberIds,
+      }));
+    const ar = buildAutoRoutes({ groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes: sizeMap, frames: routerFrames });
     autoRoutes = ar.routes;
     // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там). Только свободные
     // рёбра (у locked хэндл уже стоит, buildAutoRoutes их в ar.handles не кладёт).

@@ -58,6 +58,32 @@ function handlePoint(r: NodeRect, side: EdgeSide, idx: number): EdgePoint {
 
 const near = (a: EdgePoint, b: EdgePoint): boolean => Math.abs(a.x - b.x) <= EPS && Math.abs(a.y - b.y) <= EPS;
 
+// Штраф за пересечение ГРАНИЦЫ раскрытой рамки (V2.4, container-aware): меньше цены
+// пересечения стрелок (200), но 2 перехода (сквозь рамку насквозь) дороже разумного
+// обхода. Чужое ребро обходит рамку, внутреннее не выскакивает наружу, ребро
+// «внутрь» платит ровно один переход в любом маршруте — «ворота» выбирает A*.
+const FRAME_CROSS_COST = 150;
+
+// Сколько раз осевой ход (x1,y1)→(x2,y2) пересекает границу прямоугольника.
+// Горизонтальный ход считает переходы через вертикальные грани (когда y строго внутри
+// y-створа), вертикальный — через горизонтальные. Касание грани концом не считается.
+function borderCrossings(x1: number, y1: number, x2: number, y2: number, r: { x: number; y: number; w: number; h: number }): number {
+  const horiz = Math.abs(y1 - y2) <= EPS;
+  let n = 0;
+  if (horiz) {
+    if (!(y1 > r.y + EPS && y1 < r.y + r.h - EPS)) return 0;
+    const lo = Math.min(x1, x2), hi = Math.max(x1, x2);
+    if (lo < r.x - EPS && hi > r.x + EPS) n++;
+    if (lo < r.x + r.w - EPS && hi > r.x + r.w + EPS) n++;
+  } else {
+    if (!(x1 > r.x + EPS && x1 < r.x + r.w - EPS)) return 0;
+    const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
+    if (lo < r.y - EPS && hi > r.y + EPS) n++;
+    if (lo < r.y + r.h - EPS && hi > r.y + r.h + EPS) n++;
+  }
+  return n;
+}
+
 export interface AutoRoutesResult {
   routes: Map<string, EdgePoint[]>;                                   // groupId → ломаная (со стабами)
   handles: Map<string, { sourceHandle: string; targetHandle: string }>; // выбранные роутером хэндлы (свободные рёбра)
@@ -76,8 +102,17 @@ export function buildAutoRoutes(params: {
   // мимо предполагаемого бокса NODE_W×NODE_H, а визуально по грани/поверх узла (канон:
   // libavoid маршрутизирует от реальных shape bounds). Нет замера — фолбэк NODE_W×NODE_H.
   sizes?: ReadonlyMap<string, { w: number; h: number }>;
+  // РАСКРЫТЫЕ рамки (V2.4, container-aware): rect — граница (переход ЧУЖОЙ рамки
+  // штрафуется; рамка, содержащая конец ребра — memberIds, — бесплатна: переход туда
+  // неизбежен, штраф лишь заставлял бы виться), plaque — плашка подписи (жёсткое
+  // препятствие, сквозь текст не ходим).
+  frames?: Array<{
+    rect: { x: number; y: number; w: number; h: number };
+    plaque: { x: number; y: number; w: number; h: number };
+    memberIds: ReadonlySet<string>;
+  }>;
 }): AutoRoutesResult {
-  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes } = params;
+  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes, frames } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -122,13 +157,28 @@ export function buildAutoRoutes(params: {
       tPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(tr, side, 1) }));
     }
     portsById.set(g.id, { s: sPorts, t: tPorts });
+    // Границы ЧУЖИХ рамок (ни один конец не член) — штраф за переход: чужое ребро
+    // обходит рамку, а не режет насквозь. Свои рамки бесплатны (переход неизбежен),
+    // место перехода — «ворота» — A* выбирает по остальной стоимости.
+    const foreignRects = (frames ?? [])
+      .filter((f) => !f.memberIds.has(g.source) && !f.memberIds.has(g.target))
+      .map((f) => f.rect);
     terminals.push({
       id: g.id,
       // основные концы — для детерминированного порядка прокладки и fallback
       start: sPorts[0].point, end: tPorts[0].point,
       startPorts: sPorts.map((p) => ({ point: p.point, side: p.side })),
       endPorts: tPorts.map((p) => ({ point: p.point, side: p.side })),
-      obstacles: [...rects.values()],
+      // тела узлов + плашки подписей раскрытых рамок — жёсткие препятствия
+      obstacles: [...rects.values(), ...(frames ?? []).map((f) => f.plaque)],
+      extraMoveCost:
+        foreignRects.length > 0
+          ? (x1, y1, x2, y2): number => {
+              let n = 0;
+              for (const r of foreignRects) n += borderCrossings(x1, y1, x2, y2, r);
+              return n * FRAME_CROSS_COST;
+            }
+          : undefined,
     });
   }
 
