@@ -10,7 +10,7 @@
 // Расталкивание случайно-параллельных плеч разных стрелок — отдельная фаза A3b (vpsc); общие
 // плечи родственных стрелок (из общего хэндла) остаются слитыми (R4=4a). См. ANALYSIS §4, §6.
 import type { EdgePoint } from "../../../types";
-import { segments, type NodeRect, type Segment } from "../edgePath";
+import { segments, type EdgeSide, type NodeRect, type Segment } from "../edgePath";
 import { routeOrthogonal, type RouteOptions } from "./orthoRoute";
 
 const EPS = 0.5;
@@ -26,7 +26,9 @@ export interface EdgeTerminal {
   // A8 (выбор сторон): альтернативные пары концов — кандидаты сторон источника/цели. Роутер
   // выберет вариант с минимумом (длина + изломы + пересечения). Если не задано — start/end.
   // start/end дублируют первый вариант (нужны для порядка прокладки и обратной совместимости).
-  altTerminals?: Array<{ start: EdgePoint; end: EdgePoint }>;
+  // sSide/tSide (V2.1) — стороны портов: маршрут выходит/входит вдоль нормали стороны со
+  // стабом ПО ПОСТРОЕНИЮ (направленная видимость, шпильки исключены). Без сторон — как раньше.
+  altTerminals?: Array<{ start: EdgePoint; end: EdgePoint; sSide?: EdgeSide; tSide?: EdgeSide }>;
 }
 
 export interface RouteAllOptions {
@@ -129,13 +131,17 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     if (variants.length > 1) {
       let bestCost = Infinity;
       for (const t of variants) {
-        const probe = routeOrthogonal(t.start, t.end, e.obstacles, baseOpts); // без moveCost
+        const probe = routeOrthogonal(t.start, t.end, e.obstacles, {
+          ...baseOpts, startSide: t.sSide, endSide: t.tSide,
+        }); // без moveCost
         const cost = pathLength(probe) + bendPenalty * bendCount(probe);
         if (cost < bestCost - EPS) { bestCost = cost; chosen = t; }
       }
     }
     // Финальный маршрут выбранной стороны — С учётом пересечений (R3 формирует изломы).
-    const route = routeOrthogonal(chosen.start, chosen.end, e.obstacles, { ...baseOpts, moveCost });
+    const route = routeOrthogonal(chosen.start, chosen.end, e.obstacles, {
+      ...baseOpts, moveCost, startSide: chosen.sSide, endSide: chosen.tSide,
+    });
     placed.set(e.id, route);
     for (const s of segments(route)) placedSegs.push(s);
   }

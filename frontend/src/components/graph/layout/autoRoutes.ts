@@ -10,11 +10,13 @@
 // наружу как хэндл (центр стороны), чтобы RF состыковал стрелку именно там. Зафиксированный
 // пользователем хэндл уважаем: единственный вариант — его точная точка стыковки.
 //
-// Маршрут стабилизируем стабом наружу (ensureOutwardStubs) ПРЯМО ЗДЕСЬ — тогда геометрия,
-// по которой размещаются плашки (R2), совпадает с рисуемой в edges.tsx (она лишь переснимает
-// концы с живых хэндлов и повторяет идемпотентный стаб). См. ARROWS_ROUTING_ANALYSIS.md §8.
+// Стабы наружу входят в маршрут ПО ПОСТРОЕНИЮ (V2.1, направленные порты роутера) — прежний
+// пост-патч ensureOutwardStubs здесь умер: он приклеивал развороты на 180° («шпильки»),
+// когда A*-маршрут выходил из хэндла не по нормали. Геометрия, по которой размещаются
+// плашки (R2), совпадает с рисуемой в edges.tsx (там ensureOutwardStubs остался только как
+// no-op страховка живого драга). См. ARROWS_V2_ANALYSIS.md.
 import type { EdgePoint } from "../../../types";
-import { ensureOutwardStubs, type EdgeSide, type NodeRect } from "../edgePath";
+import { type EdgeSide, type NodeRect } from "../edgePath";
 import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
@@ -124,11 +126,14 @@ export function buildAutoRoutes(params: {
       combos = freeCombos(sp, tp).map((c) => ({ ...c, sIdx: 1, tIdx: 1, start: sideCenter(sp, c.s), end: sideCenter(tp, c.t) }));
     }
     combosById.set(g.id, combos);
-    const obstacles: NodeRect[] = [];
-    for (const [id, r] of rects) if (id !== g.source && id !== g.target) obstacles.push(r);
+    // Тела ВСЕХ узлов — препятствия, ВКЛЮЧАЯ свои концы (V2.1): порты-стабы стоят снаружи
+    // тел, а собственное тело как препятствие запрещает маршруту «выйти сквозь себя» —
+    // раньше это был главный источник шпилек (стаб-патч разворачивал такой маршрут на 180°).
+    const obstacles: NodeRect[] = [...rects.values()];
     terminals.push({
       id: g.id, start: combos[0].start, end: combos[0].end,
-      altTerminals: combos.map((c) => ({ start: c.start, end: c.end })), obstacles,
+      altTerminals: combos.map((c) => ({ start: c.start, end: c.end, sSide: c.s, tSide: c.t })),
+      obstacles,
     });
   }
 
@@ -142,8 +147,7 @@ export function buildAutoRoutes(params: {
     // какая комбинация выбрана: по совпадению концов маршрута с её точками стыковки
     const chosen =
       combos.find((c) => near(route[0], c.start) && near(route[route.length - 1], c.end)) ?? combos[0];
-    const stubbed = ensureOutwardStubs(route, chosen.s, chosen.t);
-    routes.set(g.id, stubbed);
+    routes.set(g.id, route);
     // выбранную сторону+слот отдаём как хэндл только для свободных рёбер (у locked хэндл уже
     // стоит). idx важен для рельсов встречной пары (A11): RF состыкует стрелку на крайнем слоте.
     if (!lockedIds.has(g.id)) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { routeOrthogonal } from "../graph/layout/orthoRoute";
+import { routeOrthogonal, routePorts } from "../graph/layout/orthoRoute";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
 
@@ -58,5 +58,89 @@ describe("routeOrthogonal — запасной вариант", () => {
   it("совпавшие концы → единственная точка", () => {
     const p = routeOrthogonal({ x: 10, y: 10 }, { x: 10, y: 10 }, []);
     expect(p).toEqual([{ x: 10, y: 10 }]);
+  });
+});
+
+// «Шпилька»: два излома подряд с разворотом направления на 180° и коротким средним
+// сегментом — визуальный дефект V1, который V2.1 исключает по построению.
+const hasHairpin = (pts: EdgePoint[], jog = 30): boolean => {
+  const dirs: Array<{ dx: number; dy: number; len: number }> = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+    const len = Math.abs(dx) + Math.abs(dy);
+    if (len < 0.5) continue;
+    dirs.push({ dx: Math.sign(dx), dy: Math.sign(dy), len });
+  }
+  for (let i = 0; i + 2 < dirs.length + 0 && dirs[i + 2]; i++) {
+    const a = dirs[i], b = dirs[i + 1], c = dirs[i + 2];
+    if (a.dx === -c.dx && a.dy === -c.dy && b.len <= jog) return true;
+  }
+  return false;
+};
+
+describe("routeOrthogonal — направленные порты (V2.1)", () => {
+  // источник x∈[0,100] y∈[0,100], цель x∈[400,500] y∈[0,100] — тела СВОИХ узлов в препятствиях
+  const src = rect(0, 0, 100, 100);
+  const tgt = rect(400, 0, 100, 100);
+
+  it("обращённые стороны → прямой маршрут, стабы схлопнуты cleanup-ом", () => {
+    const p = routeOrthogonal({ x: 100, y: 50 }, { x: 400, y: 50 }, [src, tgt], {
+      startSide: "right", endSide: "left",
+    });
+    expect(p).toEqual([{ x: 100, y: 50 }, { x: 400, y: 50 }]);
+  });
+
+  it("хэндл «не с той стороны» → честный обход своего тела, без шпильки", () => {
+    // выход из ЛЕВОЙ грани источника, цель справа: раньше A* шёл сквозь своё тело, а
+    // стаб-патч приклеивал разворот. Теперь маршрут обязан выйти влево и обогнуть узел.
+    const p = routeOrthogonal({ x: 0, y: 50 }, { x: 400, y: 50 }, [src, tgt], {
+      startSide: "left", endSide: "left",
+    });
+    expect(p[0]).toEqual({ x: 0, y: 50 });
+    expect(p[p.length - 1]).toEqual({ x: 400, y: 50 });
+    expect(p[1].x).toBeLessThanOrEqual(-20 + 0.5);        // вышел наружу на полный стаб
+    expect(pathCrossesRects(p, [src, tgt])).toBe(false);  // своё тело не режет
+    expect(hasHairpin(p)).toBe(false);                    // разворотов-шпилек нет
+  });
+
+  it("стаб укорачивается до зазора, когда сосед вплотную (NODE_SEP_PAD)", () => {
+    const neighbor = rect(112, 0, 100, 100); // 12px от правой грани источника
+    const p = routeOrthogonal({ x: 100, y: 50 }, { x: 312, y: 150 }, [src, neighbor], {
+      startSide: "right", endSide: "bottom",
+    });
+    expect(p[0]).toEqual({ x: 100, y: 50 });
+    expect(pathCrossesRects(p, [src, neighbor])).toBe(false); // стаб-точка не внутри соседа
+  });
+});
+
+describe("routePorts — порты-кандидаты (V2.2, ядро)", () => {
+  const src = rect(0, 0, 100, 100);
+  const tgt = rect(400, 0, 100, 100);
+
+  it("из двух стартовых портов выбирает тот, что даёт лучший маршрут", () => {
+    const r = routePorts(
+      [
+        { point: { x: 0, y: 50 }, side: "left" },    // пришлось бы огибать своё тело
+        { point: { x: 100, y: 50 }, side: "right" }, // прямой ход к цели
+      ],
+      [{ point: { x: 400, y: 50 }, side: "left" }],
+      [src, tgt],
+    );
+    expect(r).not.toBeNull();
+    expect(r!.startIdx).toBe(1);
+    expect(r!.pts).toEqual([{ x: 100, y: 50 }, { x: 400, y: 50 }]);
+  });
+
+  it("из двух целевых портов выбирает ближний по маршруту", () => {
+    const r = routePorts(
+      [{ point: { x: 100, y: 50 }, side: "right" }],
+      [
+        { point: { x: 450, y: 100 }, side: "bottom" },
+        { point: { x: 400, y: 50 }, side: "left" },
+      ],
+      [src, tgt],
+    );
+    expect(r).not.toBeNull();
+    expect(r!.endIdx).toBe(1);
   });
 });
