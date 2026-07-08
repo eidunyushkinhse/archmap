@@ -185,22 +185,124 @@ export function buildAutoRoutes(params: {
   const raw = routeAll(terminals);
   const routes = new Map<string, EdgePoint[]>();
   const handles = new Map<string, { sourceHandle: string; targetHandle: string }>();
+  const docks: Dock[] = [];
   for (const g of groups) {
     const route = raw.get(g.id);
     if (!route || route.length < 2) continue;
-    routes.set(g.id, route);
+    routes.set(g.id, route.map((p) => ({ x: p.x, y: p.y })));
     // какие порты выбраны — по совпадению концов маршрута с точками стыковки
     const ports = portsById.get(g.id)!;
     const sPort = ports.s.find((p) => near(route[0], p.point)) ?? ports.s[0];
     const tPort = ports.t.find((p) => near(route[route.length - 1], p.point)) ?? ports.t[0];
-    // выбранную сторону+слот отдаём как хэндл только для свободных рёбер (у locked хэндл
-    // уже стоит). idx важен для рельсов встречной пары (A11): RF стыкует на крайнем слоте.
-    if (!lockedIds.has(g.id)) {
-      handles.set(g.id, {
-        sourceHandle: hid(g.source, sPort.side, sPort.idx),
-        targetHandle: hid(g.target, tPort.side, tPort.idx),
-      });
-    }
+    const free = !lockedIds.has(g.id) && !rails.get(g.id);
+    docks.push({ edgeId: g.id, nodeId: g.source, side: sPort.side, idx: sPort.idx, end: "s", free });
+    docks.push({ edgeId: g.id, nodeId: g.target, side: tPort.side, idx: tPort.idx, end: "t", free });
+  }
+
+  // V2.4c: раздача слотов портов — вход и выход не делят точку стыковки (Т4 уточнено:
+  // общий хэндл легитимен только В ОДНОМ направлении).
+  distributeSlots(docks, routes, rects);
+
+  // выбранную сторону+слот отдаём как хэндл только для свободных рёбер (у locked хэндл
+  // уже стоит). idx важен для рельс (A11) и раздачи слотов: RF стыкует на своём слоте.
+  const dockOf = new Map<string, { s?: Dock; t?: Dock }>();
+  for (const d of docks) {
+    const rec = dockOf.get(d.edgeId) ?? dockOf.set(d.edgeId, {}).get(d.edgeId)!;
+    if (d.end === "s") rec.s = d; else rec.t = d;
+  }
+  for (const g of groups) {
+    const rec = dockOf.get(g.id);
+    if (!rec?.s || !rec.t || lockedIds.has(g.id)) continue;
+    handles.set(g.id, {
+      sourceHandle: hid(g.source, rec.s.side, rec.s.idx),
+      targetHandle: hid(g.target, rec.t.side, rec.t.idx),
+    });
   }
   return { routes, handles };
+}
+
+// Стыковка конца ребра на стороне узла (для раздачи слотов V2.4c).
+interface Dock {
+  edgeId: string;
+  nodeId: string;
+  side: EdgeSide;
+  idx: number;        // слот (0/1/2 = SIDE_OFFSETS)
+  end: "s" | "t";     // s = исходящее (source), t = входящее (target)
+  free: boolean;      // слот можно менять (не locked, не рельса)
+}
+
+// Раздача слотов на стороне узла: рёбра группируются по НАПРАВЛЕНИЮ (in/out) — группы
+// получают разные слоты, веер одного направления продолжает делить слот (легитимный
+// ствол). Фиксированные стыковки (рельсы/ручные) пинят слот своей группы; свободные
+// группы берут слоты в порядке [центр, 0.25, 0.75]. Сдвиг конца — латеральный перенос
+// хэндла и стаб-точки; сосед-сегмент (латеральный) поглощает сдвиг. Отменяется, если
+// перенос переломил бы соседа, упёрся в чужое тело или маршрут прямой (2 точки).
+function distributeSlots(docks: Dock[], routes: Map<string, EdgePoint[]>, rects: Map<string, NodeRect>): void {
+  const byNodeSide = new Map<string, Dock[]>();
+  for (const d of docks) {
+    const k = `${d.nodeId}|${d.side}`;
+    (byNodeSide.get(k) ?? byNodeSide.set(k, []).get(k)!).push(d);
+  }
+  for (const [k, group] of [...byNodeSide.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const dirs = new Set(group.map((d) => d.end));
+    if (dirs.size < 2) continue; // одно направление — общий слот легитимен
+    const nodeId = k.slice(0, k.indexOf("|"));
+    const r = rects.get(nodeId);
+    if (!r) continue;
+    // направление → закреплённый слот (фиксированные стыковки пинят свой)
+    const groupsByDir: Array<{ dir: "s" | "t"; docks: Dock[]; pinned: number | null }> = ["s", "t"]
+      .map((dir) => {
+        const ds = group.filter((d) => d.end === dir);
+        const fixed = ds.find((d) => !d.free);
+        return { dir: dir as "s" | "t", docks: ds, pinned: fixed ? fixed.idx : null };
+      })
+      .filter((g) => g.docks.length > 0)
+      // большая группа первой — ей центр; тай-брейк: исходящие
+      .sort((a, b) => b.docks.length - a.docks.length || (a.dir === "s" ? -1 : 1));
+    const taken = new Set(groupsByDir.filter((g) => g.pinned != null).map((g) => g.pinned!));
+    const pool = [1, 0, 2].filter((s) => !taken.has(s));
+    for (const g of groupsByDir) {
+      const slot = g.pinned ?? pool.shift();
+      if (slot == null) continue;
+      for (const d of g.docks) {
+        if (!d.free || d.idx === slot) continue;
+        if (moveDock(d, slot, routes, rects)) d.idx = slot;
+      }
+    }
+  }
+}
+
+// Латеральный перенос стыковки на новый слот. true — применено.
+function moveDock(d: Dock, slot: number, routes: Map<string, EdgePoint[]>, rects: Map<string, NodeRect>): boolean {
+  const pts = routes.get(d.edgeId);
+  const r = rects.get(d.nodeId);
+  if (!pts || !r || pts.length < 3) return false; // прямой маршрут сдвиг не поглотит
+  const vertical = d.side === "left" || d.side === "right"; // латеральная ось — Y
+  const sideLen = vertical ? r.h : r.w;
+  const delta = ((SIDE_OFFSETS[slot] ?? 0.5) - (SIDE_OFFSETS[d.idx] ?? 0.5)) * sideLen;
+  if (Math.abs(delta) < 0.5) return true;
+  const last = pts.length - 1;
+  const i0 = d.end === "s" ? 0 : last;         // хэндл
+  const i1 = d.end === "s" ? 1 : last - 1;     // стаб-точка
+  const i2 = d.end === "s" ? 2 : last - 2;     // конец латерального соседа
+  const lat = (p: EdgePoint): number => (vertical ? p.y : p.x);
+  const setLat = (p: EdgePoint, v: number): void => { if (vertical) p.y = v; else p.x = v; };
+  // сосед (латеральный сегмент i1→i2) не должен переломиться или выродиться
+  const span = lat(pts[i2]) - lat(pts[i1]);
+  const newSpan = lat(pts[i2]) - (lat(pts[i1]) + delta);
+  if (Math.abs(span) > 0.5 && (Math.sign(newSpan) !== Math.sign(span) || Math.abs(newSpan) < 2)) return false;
+  // сдвинутый стаб не должен лечь на чужое тело
+  const nl = Math.min(lat(pts[i0]) + delta, lat(pts[i1]) + delta);
+  const nh = Math.max(lat(pts[i0]) + delta, lat(pts[i1]) + delta);
+  const al = Math.min(vertical ? pts[i0].x : pts[i0].y, vertical ? pts[i1].x : pts[i1].y);
+  const ah = Math.max(vertical ? pts[i0].x : pts[i0].y, vertical ? pts[i1].x : pts[i1].y);
+  for (const [id, b] of rects) {
+    if (id === d.nodeId) continue;
+    const bl = vertical ? b.y : b.x, bh = vertical ? b.y + b.h : b.x + b.w;
+    const cl = vertical ? b.x : b.y, ch = vertical ? b.x + b.w : b.y + b.h;
+    if (nl < bh - 2 && nh > bl + 2 && al < ch - 2 && ah > cl + 2) return false;
+  }
+  setLat(pts[i0], lat(pts[i0]) + delta);
+  setLat(pts[i1], lat(pts[i1]) + delta);
+  return true;
 }

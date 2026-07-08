@@ -117,3 +117,37 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
     expect(pathCrossesRects(r, [ownFrame.plaque])).toBe(false); // плашка — жёсткое препятствие
   });
 });
+
+describe("buildAutoRoutes — раздача слотов портов (V2.4c)", () => {
+  // три исходящих из H вправо + одно входящее в H справа: вход и выход не делят слот
+  const positions = new Map([
+    ["H", { x: 0, y: 300 }],
+    ["T1", { x: 500, y: 0 }],
+    ["T2", { x: 500, y: 300 }],
+    ["T3", { x: 500, y: 600 }],
+    ["S", { x: 900, y: 300 }],
+  ]);
+  const groups = [
+    group("o1", "H", "T1"), group("o2", "H", "T2"), group("o3", "H", "T3"),
+    group("in", "S", "H"),
+  ];
+  const ids = ["o1", "o2", "o3", "in"];
+
+  it("входящее и исходящие получают разные слоты одной стороны", () => {
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(ids), pairableIds: new Set(ids), lockedIds: new Set(),
+      positions, edgeHandles: new Map(), displayIds: [...positions.keys()],
+    });
+    const hOf = (id: string, end: "sourceHandle" | "targetHandle") => out.handles.get(id)![end];
+    // все четыре стыкуются на правой стороне H
+    const sides = ids.map((id) => (id === "in" ? hOf("in", "targetHandle") : hOf(id, "sourceHandle")));
+    expect(sides.every((h) => h.startsWith("H--right--"))).toBe(true);
+    const outSlots = new Set(["o1", "o2", "o3"].map((id) => hOf(id, "sourceHandle")));
+    expect(outSlots.size).toBe(1); // веер исходящих делит один слот (ствол легитимен)
+    expect(hOf("in", "targetHandle")).not.toBe([...outSlots][0]); // вход — на другом слоте
+    // маршрут входящего реально стыкуется в точке нового слота (эндпоинт сдвинут)
+    const inRoute = out.routes.get("in")!;
+    const dockY = inRoute[inRoute.length - 1].y;
+    expect(Math.abs(dockY - 350)).toBeGreaterThan(10); // не центр стороны (350)
+  });
+});
