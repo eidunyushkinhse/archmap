@@ -727,7 +727,28 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       // оценочный прямоугольник лёгшей плашки — препятствие для последующих (более высоких)
       placedLabelRects.push({ x: det.center.x - box.w / 2, y: det.center.y - box.h / 2, w: box.w, h: box.h });
     }
-    if (detourPreferred.size > 0) {
+    // после детуров плашки НЕ пере-считываем: между детурами и каналом размещения никто
+    // не читает, финальная геометрия ещё изменится — один проход в конце (V2.5)
+    let labelsStale = detourPreferred.size > 0;
+
+    // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи из
+    // РАЗНЫХ хэндлов собираются в «каналы», упорядочиваются по подходам маршрутов и
+    // разводятся равными зазорами вокруг исходной линии (канон GD'09 ordered nudging).
+    // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
+    // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
+    // маршрутах.
+    if (autoRoutes) {
+      const nu = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
+      if (nu.nudged.size > 0) {
+        autoRoutes = nu.routes;
+        labelsStale = true;
+      }
+    }
+
+    // ПЛАШКИ — ОДИН ФИНАЛЬНЫЙ ПРОХОД (V2.5): если детуры/канал меняли геометрию, размещение
+    // пересчитывается один раз по ФИНАЛЬНЫМ маршрутам (раньше — после каждой стадии, до
+    // трёх полных проходов; первый проход выше остаётся — по нему детуры находят leader-ов).
+    if (labelsStale) {
       labelPlacements = buildLabelPlacements({
         routes: autoRoutes,
         groups: groupArr,
@@ -735,26 +756,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
         nodeRects,
       });
-    }
-
-    // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи из
-    // РАЗНЫХ хэндлов собираются в «каналы», упорядочиваются по подходам маршрутов и
-    // разводятся равными зазорами вокруг исходной линии (канон GD'09 ordered nudging).
-    // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
-    // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
-    // маршрутах; при сдвиге — пере-проход плашек (геометрия плеч изменилась).
-    if (autoRoutes) {
-      const nu = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
-      if (nu.nudged.size > 0) {
-        autoRoutes = nu.routes;
-        labelPlacements = buildLabelPlacements({
-          routes: autoRoutes,
-          groups: groupArr,
-          labelMeta: edgeLabelMeta,
-          preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
-          nodeRects,
-        });
-      }
     }
   }
 

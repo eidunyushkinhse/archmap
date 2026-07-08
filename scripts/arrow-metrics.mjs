@@ -94,8 +94,12 @@ function summary(name, rows) {
     `изломов ${sum(rows, (r) => r.bends)}, длина ${sum(rows, (r) => r.len)}`);
 }
 
-const [fa, fb] = process.argv.slice(2);
-if (!fa) { console.error("Нужен файл дампа (и, опционально, второй для сравнения)"); process.exit(2); }
+// --assert (V2.6): дамп обязан держать инварианты качества — 0 шпилек, 0 плеч над
+// узлами; нарушение → exit 1 (гейт для прогонов после правок роутинга).
+const argv = process.argv.slice(2);
+const assertMode = argv.includes("--assert");
+const [fa, fb] = argv.filter((a) => a !== "--assert");
+if (!fa) { console.error("Нужен файл дампа (и, опционально, второй для сравнения); --assert — гейт инвариантов"); process.exit(2); }
 const A = collect(fa);
 summary(fa.split("/").pop(), A);
 if (!fb) {
@@ -111,4 +115,13 @@ if (!fb) {
     if (a.revs !== b.revs || Math.abs(a.bends - b.bends) >= 2)
       console.log(`  ${a.revs}→${b.revs} rev, ${a.bends}→${b.bends} bend | ${k.slice(0, 58)}\n    было:  ${a.shape} ${a.lens}\n    стало: ${b.shape} ${b.lens}`);
   }
+}
+
+if (assertMode) {
+  const hp = sum(A, (r) => r.hairpins), over = sum(A, (r) => r.overNode);
+  if (hp > 0 || over > 0) {
+    console.error(`ИНВАРИАНТЫ НАРУШЕНЫ: шпилек ${hp}, плеч над узлами ${over}`);
+    process.exit(1);
+  }
+  console.log("ИНВАРИАНТЫ КАЧЕСТВА ДЕРЖАТСЯ: 0 шпилек, 0 плеч над узлами");
 }
