@@ -238,8 +238,15 @@ export function keepOutOfExpandedFrames(params: {
     // её гоняло вверх-вниз с нулевой суммой, и наложение рамок переживало все
     // итерации (Configuration Management лежал в ObsCore при полном раскрытии).
     if (forbidden.length > 1) {
-      const rects0 = forbidden.map(rectOf);
-      const solved = separateRects(rects0, forbidden.map((f) => f.rect.w * f.rect.h), KEEPOUT_GAP);
+      // Рамки раздуваются на полузазора: конфликтом считается и недобор KEEPOUT_GAP
+      // между телами (как у прежнего MTV с pushOut по раздутой рамке), а не только
+      // пересечение; после развода раздутые касаются → тела держат ровно зазор.
+      const HALF = KEEPOUT_GAP / 2;
+      const rects0 = forbidden.map((f) => ({
+        minX: f.rect.x - HALF, minY: f.rect.y - HALF,
+        maxX: f.rect.x + f.rect.w + HALF, maxY: f.rect.y + f.rect.h + HALF,
+      }));
+      const solved = separateRects(rects0, forbidden.map((f) => f.rect.w * f.rect.h), 0);
       forbidden.forEach((f, i) => {
         const dx = solved[i].minX - rects0[i].minX;
         const dy = solved[i].minY - rects0[i].minY;
