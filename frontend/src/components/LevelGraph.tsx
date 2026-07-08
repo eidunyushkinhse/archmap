@@ -811,6 +811,16 @@ function LevelGraphInner({
       }
       return best;
     };
+    // Вложенность рамки ОТНОСИТЕЛЬНО УРОВНЯ (1 = верхняя раскрытая, 2 = раскрытая
+    // внутри раскрытой, …) — длина цепочки объемлющих рамок. Именно она, а не
+    // f.depth: depth рамок нумеруется вслед за breadcrumb, и на дриллнутых уровнях
+    // верхняя рамка несёт depth = глубине уровня — прибавка depth+f.depth двоила бы
+    // глубину и дети красились на ступень светлее положенного.
+    const frameNesting = (f0: (typeof guestFrames)[number]): number => {
+      let n = 0;
+      for (let f: (typeof guestFrames)[number] | undefined = f0; f; f = frameOfFrame(f)) n++;
+      return n;
+    };
     // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
     // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
     // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
@@ -873,8 +883,8 @@ function LevelGraphInner({
             onDrillDown: cb.drillWithPath,
             isArchitect,
             // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
-            // вложенность рамки прибавляется к глубине уровня (pf.depth: 0 = внешняя)
-            colors: getNodeColors(n.is_external, depth + (pf ? pf.depth + 1 : 0), n.status),
+            // к глубине уровня прибавляется вложенность рамки относительно уровня
+            colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
             hideActions: isContext,
             connectable: isArchitect && !isContext,
             quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
