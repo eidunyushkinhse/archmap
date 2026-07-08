@@ -171,8 +171,13 @@ async function expandAllGuests(page) {
 }
 
 // Спуститься по пути id узлов от корня (каждый шаг — hover узла + кнопка «Войти»).
+// Перед каждым шагом — fitView: с персистом раскрытий (R5) раскладка корня бывает
+// широкой, узел уходит за вьюпорт, а клик по элементу вне окна МОЛЧА теряется даже с
+// force (та же грабля, что в expandAllGuests) — уровень тихо оставался корнем.
 async function drillPath(page, path) {
   for (const id of path) {
+    await page.locator(".react-flow__controls-fitview").click({ force: true });
+    await page.waitForTimeout(150);
     const node = page.locator(`.react-flow__node[data-id="${id}"]`);
     await node.hover({ force: true });
     await node.locator('button[title="Войти"]').click({ force: true });
