@@ -13,14 +13,17 @@ import { readFileSync } from "node:fs";
 
 const HAIRPIN_JOG = 30;
 
-// path d → точки (M/L как есть; у C-кривой скругления берём конечную точку)
+// path d → точки. M/L как есть; у кривых берём КОНЕЧНУЮ точку: C (кубика, шаг 6),
+// Q (квадратика-скругление roundedPolyline, шаг 4), A (дуга-мостик над пересечением,
+// шаг 7). Без Q/A парс давал ложные «диагонали» и битые формы.
 function parseD(d) {
   if (!d) return [];
-  const pts = []; const re = /([MLC])\s*([-\d.,\s]+)/g; let m;
+  const step = { C: 6, Q: 4, A: 7 };
+  const pts = []; const re = /([MLCQA])\s*([-\d.,\s]+)/g; let m;
   while ((m = re.exec(d))) {
     const n = m[2].trim().split(/[\s,]+/).map(Number);
     if (m[1] === "M" || m[1] === "L") { for (let i = 0; i + 1 < n.length; i += 2) pts.push({ x: n[i], y: n[i + 1] }); }
-    else { for (let i = 4; i + 1 < n.length; i += 6) pts.push({ x: n[i], y: n[i + 1] }); }
+    else { const k = step[m[1]]; for (let i = k - 2; i + 1 < n.length; i += k) pts.push({ x: n[i], y: n[i + 1] }); }
   }
   return pts;
 }
@@ -39,25 +42,44 @@ function segs(pts) {
   return out;
 }
 
+// Пересекает ли осевой отрезок ТЕЛО прямоугольника (строгое проникновение, eps 2px —
+// касание грани/стыковка на хэндле не считается).
+function segCutsRect(p1, p2, r, eps = 2) {
+  const lo = { x: Math.min(p1.x, p2.x), y: Math.min(p1.y, p2.y) };
+  const hi = { x: Math.max(p1.x, p2.x), y: Math.max(p1.y, p2.y) };
+  return lo.x < r.x + r.w - eps && hi.x > r.x + eps && lo.y < r.y + r.h - eps && hi.y > r.y + eps;
+}
+
 function collect(file) {
   const j = JSON.parse(readFileSync(file, "utf8"));
   const rows = new Map();
-  for (const lvl of j.levels) for (const e of (lvl.sig.edges ?? [])) {
-    const ss = segs(parseD(e.d));
-    let revs = 0, hairpins = 0;
-    for (let i = 0; i + 2 < ss.length + 0 && ss[i + 2]; i++) {
-      const a = ss[i], b = ss[i + 1], c = ss[i + 2];
-      if (a.dx === -c.dx && a.dy === -c.dy && (a.dx !== 0 || a.dy !== 0)) {
-        revs++;
-        if (b.len <= HAIRPIN_JOG) hairpins++;
+  for (const lvl of j.levels) {
+    // реальные тела узлов уровня (w/h пишет dump-levels; старые дампы без них — 0 узлов)
+    const bodies = (lvl.sig.nodes ?? []).filter((n) => n.w && n.h);
+    for (const e of (lvl.sig.edges ?? [])) {
+      const pts = parseD(e.d);
+      const ss = segs(pts);
+      let revs = 0, hairpins = 0;
+      for (let i = 0; i + 2 < ss.length + 0 && ss[i + 2]; i++) {
+        const a = ss[i], b = ss[i + 1], c = ss[i + 2];
+        if (a.dx === -c.dx && a.dy === -c.dy && (a.dx !== 0 || a.dy !== 0)) {
+          revs++;
+          if (b.len <= HAIRPIN_JOG) hairpins++;
+        }
       }
+      // «плечо над узлом»: сегменты (кроме концевых стабов — те легально стартуют
+      // на грани своего узла) не должны резать РЕАЛЬНОЕ тело ни одного узла
+      let overNode = 0;
+      for (let i = 1; i + 2 < pts.length; i++) {
+        for (const n of bodies) if (segCutsRect(pts[i], pts[i + 1], n)) { overNode++; break; }
+      }
+      rows.set(`${lvl.path.join(">") || "root"}:${lvl.state}:${e.id}`, {
+        revs, hairpins, overNode, bends: Math.max(0, ss.length - 1),
+        len: Math.round(ss.reduce((s, x) => s + x.len, 0)),
+        shape: ss.map((s) => (s.dx ? (s.dx > 0 ? "R" : "L") : (s.dy > 0 ? "D" : "U"))).join(""),
+        lens: ss.map((s) => Math.round(s.len)).join(","),
+      });
     }
-    rows.set(`${lvl.path.join(">") || "root"}:${lvl.state}:${e.id}`, {
-      revs, hairpins, bends: Math.max(0, ss.length - 1),
-      len: Math.round(ss.reduce((s, x) => s + x.len, 0)),
-      shape: ss.map((s) => (s.dx ? (s.dx > 0 ? "R" : "L") : (s.dy > 0 ? "D" : "U"))).join(""),
-      lens: ss.map((s) => Math.round(s.len)).join(","),
-    });
   }
   return rows;
 }
@@ -68,6 +90,7 @@ const withRevs = (rows) => [...rows.values()].filter((r) => r.revs > 0).length;
 function summary(name, rows) {
   console.log(`${name}: рёбер ${rows.size}, шпилек ${sum(rows, (r) => r.hairpins)}, ` +
     `разворотов ${sum(rows, (r) => r.revs)} (рёбер с ними ${withRevs(rows)}), ` +
+    `сегментов-над-узлами ${sum(rows, (r) => r.overNode)}, ` +
     `изломов ${sum(rows, (r) => r.bends)}, длина ${sum(rows, (r) => r.len)}`);
 }
 
@@ -76,9 +99,9 @@ if (!fa) { console.error("Нужен файл дампа (и, опциональ
 const A = collect(fa);
 summary(fa.split("/").pop(), A);
 if (!fb) {
-  const bad = [...A.entries()].filter(([, r]) => r.hairpins > 0 || r.revs > 0)
-    .sort((x, y) => y[1].hairpins - x[1].hairpins || y[1].revs - x[1].revs).slice(0, 15);
-  for (const [k, r] of bad) console.log(`  шпилек ${r.hairpins}, разворотов ${r.revs} | ${k.slice(0, 70)} | ${r.shape} ${r.lens}`);
+  const bad = [...A.entries()].filter(([, r]) => r.hairpins > 0 || r.revs > 0 || r.overNode > 0)
+    .sort((x, y) => y[1].hairpins - x[1].hairpins || y[1].overNode - x[1].overNode || y[1].revs - x[1].revs).slice(0, 15);
+  for (const [k, r] of bad) console.log(`  шпилек ${r.hairpins}, над-узлами ${r.overNode}, разворотов ${r.revs} | ${k.slice(0, 66)} | ${r.shape} ${r.lens}`);
 } else {
   const B = collect(fb);
   summary(fb.split("/").pop(), B);

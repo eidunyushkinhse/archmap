@@ -110,6 +110,13 @@ export interface PipelineInput {
   // рисуется свёрнутым (ленивая догрузка, LevelGraph качает по требованию).
   localChildren: Record<string, AppNode[]>;
   isContext: boolean;
+  // РЕАЛЬНЫЕ габариты узлов из DOM (node.measured, V2.2b): узлы растут по контенту, и
+  // стадии КАЧЕСТВА СТРЕЛОК (роутер/плашки/детуры) обязаны видеть настоящие тела —
+  // иначе маршрут ложится «по грани»/поверх реального узла (канон libavoid: препятствия
+  // = реальные shape bounds + буфер). Стадии РАСКЛАДКИ УЗЛОВ (кольца/VPSC/рамки/keep-out)
+  // сознательно остаются на NODE_W×NODE_H: они двигают и персистят позиции, и завязка их
+  // на замер рисковала бы петлёй пере-раскладки. Нет замера (первый прогон) — фолбэк.
+  sizes?: Record<string, { w: number; h: number }>;
 }
 
 export interface PipelineOutput {
@@ -137,7 +144,7 @@ export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | n
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
-    expanded, localChildren, isContext,
+    expanded, localChildren, isContext, sizes,
   } = input;
   const intents: PersistIntent[] = [];
 
@@ -538,6 +545,48 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   let labelPlacements: Map<string, LabelPlacement> | undefined;
   if (!isContext) {
     const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+    // реальные габариты для стадий качества стрелок (роутер/плашки/детуры)
+    const sizeMap = new Map<string, { w: number; h: number }>(
+      sizes ? Object.entries(sizes) : [],
+    );
+    const realRectOf = (id: string): { x: number; y: number; w: number; h: number } | null => {
+      const p = positions.get(id);
+      if (!p) return null;
+      const s = sizeMap.get(id);
+      return { x: p.x, y: p.y, w: s?.w ?? NODE_W, h: s?.h ?? NODE_H };
+    };
+
+    // ВАЛИДНОСТЬ ручного пути (V2.2b, канон libavoid/yFiles: ручной маршрут, ставший
+    // невалидным после сдвигов/пере-раскладок, пере-маршрутизируется). Сохранённые изломы
+    // могли устареть: путь по ним режет ТЕЛА узлов (жалоба «Сбор метрик JMX/SNMP лежат на
+    // HTTP-объектах»). Такой путь для ЭТОГО прогона игнорируем — ребро уходит в авто-роутер.
+    // Данные НЕ удаляем (недеструктивно): подвинет узлы обратно — ручной путь оживёт.
+    {
+      const bodies = displayIds
+        .map((id) => ({ id, r: realRectOf(id) }))
+        .filter((b): b is { id: string; r: NonNullable<ReturnType<typeof realRectOf>> } => b.r != null);
+      const inBody = (p: EdgePoint, r: { x: number; y: number; w: number; h: number }): boolean =>
+        p.x > r.x + 2 && p.x < r.x + r.w - 2 && p.y > r.y + 2 && p.y < r.y + r.h - 2;
+      // Пенетрация bbox сегмента в тело: точен для осевых сегментов, консервативен для
+      // диагональных (pathCrossesRects диагонали не понимает — мимо него и жили пути-зомби).
+      const segCutsBody = (p1: EdgePoint, p2: EdgePoint, r: { x: number; y: number; w: number; h: number }): boolean =>
+        Math.min(p1.x, p2.x) < r.x + r.w - 2 && Math.max(p1.x, p2.x) > r.x + 2 &&
+        Math.min(p1.y, p2.y) < r.y + r.h - 2 && Math.max(p1.y, p2.y) > r.y + 2;
+      for (const g of groupArr) {
+        const key = bundleKey(g.source, g.target);
+        const wp = effectiveWaypoints[key];
+        if (!wp || wp.length === 0) continue;
+        const foreign = bodies.filter((b) => b.id !== g.source && b.id !== g.target);
+        const invalid =
+          // соседние изломы по диагонали: в ортогональной модели не бывает — данные
+          // из прошлой координатной эпохи (рендер рисовал бы диагональ поверх узлов)
+          wp.slice(1).some((p, i) => Math.abs(p.x - wp[i].x) > 1 && Math.abs(p.y - wp[i].y) > 1) ||
+          wp.some((p) => foreign.some((b) => inBody(p, b.r))) ||
+          wp.slice(1).some((p, i) => foreign.some((b) => segCutsBody(wp[i], p, b.r)));
+        if (invalid) delete effectiveWaypoints[key];
+      }
+    }
+
     const routableIds = new Set<string>();
     // pairableIds — рёбра уровня, участвующие в раскладке (авто + ручные-waypoints). По ним
     // ищем встречные рельс-пары (A12.5): рельса соседа не должна зависеть от того, ручное это
@@ -558,7 +607,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       const bh = viewLayout[bundleKey(g.source, g.target)];
       if (bh?.source_handle != null || bh?.target_handle != null) lockedIds.add(g.id);
     }
-    const ar = buildAutoRoutes({ groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds });
+    const ar = buildAutoRoutes({ groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes: sizeMap });
     autoRoutes = ar.routes;
     // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там). Только свободные
     // рёбра (у locked хэндл уже стоит, buildAutoRoutes их в ar.handles не кладёт).
@@ -569,7 +618,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // на линии чисто не встаёт — выноска-leader (A7.3). Только для авто-маршрутов; рёбра с
     // ручным путём сохраняют прежнее поведение подписи (центр/label_t).
     const nodeRects = displayIds
-      .map((id) => { const p = positions.get(id); return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null; })
+      .map(realRectOf)
       .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
     labelPlacements = buildLabelPlacements({
       routes: autoRoutes,
@@ -587,10 +636,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // плашек на обновлённых маршрутах (пересчитает coincidentLegs и вернёт напарника по
     // рельсе к центру). Только авто-рёбра, не locked; кэп длины → иначе остаётся leader.
     const detourPreferred = new Map<string, number>();
-    const rectOf = (id: string): { x: number; y: number; w: number; h: number } | null => {
-      const p = positions.get(id);
-      return p ? { x: p.x, y: p.y, w: NODE_W, h: NODE_H } : null;
-    };
+    const rectOf = realRectOf;
     // кандидаты на детур — leader-рёбра (плашка не влезла), только свободные авто-рёбра
     const detourCands: Array<{ g: EdgeGroup; box: ReturnType<typeof labelBoxSize> }> = [];
     for (const g of groupArr) {

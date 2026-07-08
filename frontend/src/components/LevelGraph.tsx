@@ -205,6 +205,19 @@ function LevelGraphInner({
   const { screenToFlowPosition, setCenter, fitBounds, getInternalNode } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
+  // РЕАЛЬНЫЕ габариты узлов (node.measured — v12 пишет их в контролируемый стейт через
+  // onNodesChange 'dimensions'). Паттерн render→measure→layout (V2.2b): при смене
+  // СИГНАТУРЫ размеров (не позиций/выделения!) перезапускаем раскладку — стадии качества
+  // стрелок получают настоящие тела вместо фолбэка NODE_W×NODE_H. useNodesInitialized не
+  // годится: флипается до публикации замеров (xyflow#4202). Петли нет: пере-раскладка
+  // размеров не меняет → сигнатура стабильна → второго перезапуска не будет.
+  // РЕАЛЬНЫЕ габариты узлов для стадий качества стрелок (V2.2b). Размеры только
+  // НАКАПЛИВАЮТСЯ: сборка пересоздаёт RF-узлы без measured (замер доезжает отдельным
+  // 'dimensions'-событием позже) — сигнатура «полный↔неполный набор» мигала бы и
+  // бесконечно перезапускала раскладку. Запись живёт, пока узел не перемеряется ИНАЧЕ;
+  // исчезновение узла записи не трогает (устаревшие безвредны — конвейер смотрит по id).
+  const nodeSizesRef = useRef<Record<string, { w: number; h: number }>>({});
+  const [sizesVersion, setSizesVersion] = useState(0);
 
   // ЕДИНАЯ запись раскладки вида (R3): merge-патч поверх зеркала viewLayout →
   // батч-PUT view_layout + зеркало родителю (onLayoutChanged). Сервер заменяет
@@ -367,6 +380,30 @@ function LevelGraphInner({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext,
     ancestorIds, ancestorNames, commitLayout, push: history.push,
   });
+
+  // Поток 'dimensions'-изменений RF (замер узлов) → накопление реальных габаритов и
+  // перезапуск раскладки при реально новом размере (V2.2b, паттерн render→measure→layout;
+  // setState в колбэке внешней системы — легален, в отличие от эффекта по rfNodes).
+  const handleNodesChangeMeasured: typeof handleNodesChange = useCallback((changes) => {
+    handleNodesChange(changes);
+    let changed = false;
+    const merged = { ...nodeSizesRef.current };
+    for (const ch of changes) {
+      if (ch.type !== "dimensions" || !ch.dimensions) continue;
+      const t = getInternalNode(ch.id)?.type;
+      if (t === "frame" || t === "spacer") continue;
+      const w = Math.round(ch.dimensions.width * 2) / 2, h = Math.round(ch.dimensions.height * 2) / 2;
+      if (!w || !h) continue;
+      const prev = merged[ch.id];
+      if (!prev || prev.w !== w || prev.h !== h) { merged[ch.id] = { w, h }; changed = true; }
+    }
+    if (changed) {
+      nodeSizesRef.current = merged;
+      const dbg = window as unknown as { __archmapSizesVersion?: number };
+      dbg.__archmapSizesVersion = (dbg.__archmapSizesVersion ?? 0) + 1;
+      setSizesVersion((v) => v + 1);
+    }
+  }, [handleNodesChange, getInternalNode]);
 
   // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
   // узлами, а не растягиваются хвостами). См. useGroupEdgeDrag.
@@ -627,9 +664,17 @@ function LevelGraphInner({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
+      // нуля перед снятием сигнатуры): раскладка двухфазная (фолбэк-габариты → замер →
+      // пере-прогон), и без явного сигнала снапшот ловил межфазное состояние.
+      const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
+      w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
+      w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
+      try {
       const { layout: next, liveInputs, intents } = await computeViewLayout({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren, isContext,
+        sizes: nodeSizesRef.current,
       });
       if (cancelled) return; // устаревший прогон: ни снапшота, ни персиста интентов
       liveHandleInputs.current = liveInputs;
@@ -649,6 +694,9 @@ function LevelGraphInner({
         }
       }
       setLayout(next);
+      } finally {
+        w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 1) - 1;
+      }
     })();
     return () => { cancelled = true; };
     // Геометрия рёбер внутри viewLayout не вся влияет на позиции, НО зависимость — весь
@@ -656,7 +704,7 @@ function LevelGraphInner({
     // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
-  }, [nodes, endpoints, containerId, viewLayout, edges, isContext, expanded, localChildren, stableAncestorIds]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, isContext, expanded, localChildren, stableAncestorIds, sizesVersion]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -1123,7 +1171,7 @@ function LevelGraphInner({
         edges={rfEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        onNodesChange={handleNodesChange}
+        onNodesChange={handleNodesChangeMeasured}
         onEdgesChange={onEdgesChange}
         onEdgeClick={handleEdgeClick}
         onNodeDoubleClick={handleNodeDoubleClick}

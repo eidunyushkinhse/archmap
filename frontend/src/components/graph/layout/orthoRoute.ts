@@ -187,11 +187,18 @@ export function routePorts(
   // Кодирование состояния A*: ((i*NY + j)*5 + dir). dir — знаковое направление ПРИХОДА.
   const encode = (i: number, j: number, dir: number): number => (i * NY + j) * 5 + dir;
 
-  // Проходим ли осевой отрезок между двумя вершинами сетки (не режет ли тело узла).
+  // Проходим ли осевой отрезок между двумя вершинами сетки. Препятствия РАЗДУТЫ на
+  // клиренс margin (канон libavoid shapeBufferDistance): в общей решётке набора есть
+  // линии по ГРАНЯМ чужих узлов (порты соседей), и без раздутия маршрут легально ехал
+  // вдоль самой грани («по грани», 0px зазора). Ход ровно по раздутой границе — касание,
+  // не пересечение (eps в pathCrossesRects) → дистанция margin достижима, ближе нельзя.
+  const grown = obstacles.map((r) => ({
+    x: r.x - margin, y: r.y - margin, w: r.w + 2 * margin, h: r.h + 2 * margin,
+  }));
   const passable = (i1: number, j1: number, i2: number, j2: number): boolean =>
     !pathCrossesRects(
       [{ x: xs[i1], y: ys[j1] }, { x: xs[i2], y: ys[j2] }],
-      obstacles,
+      grown,
     );
 
   // Эвристика: минимальный манхэттен до ближайшей целевой стаб-точки (допустима и согласована).
@@ -278,9 +285,13 @@ export function routePorts(
 
   if (goalKey < 0) {
     // Пути нет (узел заперт). Частая причина в плотной рамке: раздутые на клиренс границы
-    // соседних узлов перекрылись и не оставили грид-канала. Прежде чем сдаться, пробуем без
-    // клиренса — каналы вдоль самих границ узлов (касание границей не считается пересечением).
-    if (margin > EPS) return routePorts(starts, ends, obstacles, { ...opts, margin: 0 });
+    // соседних узлов перекрылись и не оставили грид-канала. Клиренс сбрасываем СТУПЕНЧАТО
+    // (12 → 6 → 3 → 0, аналог сжатия shapeBufferDistance у libavoid): маршрут в тесноте
+    // сохраняет хоть какой-то зазор от граней, а не сразу липнет к ним.
+    if (margin > EPS) {
+      const next = margin >= 2 ? margin / 2 : 0;
+      return routePorts(starts, ends, obstacles, { ...opts, margin: next });
+    }
     return null;
   }
 

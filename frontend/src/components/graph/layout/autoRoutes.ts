@@ -43,13 +43,16 @@ function parseHandle(handle: string | undefined): { side: EdgeSide; idx: number 
 }
 
 // Точка стыковки на стороне узла с учётом позиции хэндла (idx → offset). idx=1 → центр.
-function handlePoint(p: { x: number; y: number }, side: EdgeSide, idx: number): EdgePoint {
+// Считается от РЕАЛЬНОГО прямоугольника узла (V2.2b): RF позиционирует хэндлы в долях
+// реального DOM-бокса, и порт роутера обязан совпасть с живым хэндлом — иначе edges.tsx
+// при переснятии концов получает перпендикулярный сдвиг и «шпильку» на шве.
+function handlePoint(r: NodeRect, side: EdgeSide, idx: number): EdgePoint {
   const off = SIDE_OFFSETS[idx] ?? 0.5;
   switch (side) {
-    case "left":   return { x: p.x,              y: p.y + NODE_H * off };
-    case "right":  return { x: p.x + NODE_W,     y: p.y + NODE_H * off };
-    case "top":    return { x: p.x + NODE_W * off, y: p.y };
-    default:       return { x: p.x + NODE_W * off, y: p.y + NODE_H };
+    case "left":   return { x: r.x,              y: r.y + r.h * off };
+    case "right":  return { x: r.x + r.w,        y: r.y + r.h * off };
+    case "top":    return { x: r.x + r.w * off,  y: r.y };
+    default:       return { x: r.x + r.w * off,  y: r.y + r.h };
   }
 }
 
@@ -68,13 +71,20 @@ export function buildAutoRoutes(params: {
   positions: ReadonlyMap<string, { x: number; y: number }>;
   edgeHandles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
   displayIds: string[];       // все отображаемые id (локальные узлы + сущности)
+  // РЕАЛЬНЫЕ габариты узлов из DOM (node.measured, V2.2b): узлы автоматически растут по
+  // контенту, и роутер обязан видеть их настоящие тела — иначе маршрут «легально» идёт
+  // мимо предполагаемого бокса NODE_W×NODE_H, а визуально по грани/поверх узла (канон:
+  // libavoid маршрутизирует от реальных shape bounds). Нет замера — фолбэк NODE_W×NODE_H.
+  sizes?: ReadonlyMap<string, { w: number; h: number }>;
 }): AutoRoutesResult {
-  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds } = params;
+  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
     const p = positions.get(id);
-    if (p) rects.set(id, { x: p.x, y: p.y, w: NODE_W, h: NODE_H });
+    if (!p) continue;
+    const s = sizes?.get(id);
+    rects.set(id, { x: p.x, y: p.y, w: s?.w ?? NODE_W, h: s?.h ?? NODE_H });
   }
 
   // Рельсы встречных пар (A11): два ребра между одной парой узлов в противоположных
@@ -88,28 +98,28 @@ export function buildAutoRoutes(params: {
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
-    const sp = positions.get(g.source), tp = positions.get(g.target);
-    if (!sp || !tp) continue;
+    const sr = rects.get(g.source), tr = rects.get(g.target);
+    if (!sr || !tr) continue;
     const rail = rails.get(g.id);
     let sPorts: PortSpec[], tPorts: PortSpec[];
     if (lockedIds.has(g.id)) {
       // зафиксированный хэндл — единственный порт, точная точка стыковки
       const h = edgeHandles.get(g.id);
       const ps = parseHandle(h?.sourceHandle), pt = parseHandle(h?.targetHandle);
-      const sSide = ps?.side ?? (tp.x >= sp.x ? "right" : "left");
-      const tSide = pt?.side ?? (tp.x >= sp.x ? "left" : "right");
+      const sSide = ps?.side ?? (tr.x >= sr.x ? "right" : "left");
+      const tSide = pt?.side ?? (tr.x >= sr.x ? "left" : "right");
       const sIdx = ps?.idx ?? 1, tIdx = pt?.idx ?? 1;
-      sPorts = [{ side: sSide, idx: sIdx, point: handlePoint(sp, sSide, sIdx) }];
-      tPorts = [{ side: tSide, idx: tIdx, point: handlePoint(tp, tSide, tIdx) }];
+      sPorts = [{ side: sSide, idx: sIdx, point: handlePoint(sr, sSide, sIdx) }];
+      tPorts = [{ side: tSide, idx: tIdx, point: handlePoint(tr, tSide, tIdx) }];
     } else if (rail) {
       // встречная пара — единственный порт: обращённая сторона на своём слоте-рельсе
       // (idx разводит плечи направлений на параллельные рельсы)
-      sPorts = [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sp, rail.sSide, rail.sIdx) }];
-      tPorts = [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tp, rail.tSide, rail.tIdx) }];
+      sPorts = [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sr, rail.sSide, rail.sIdx) }];
+      tPorts = [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tr, rail.tSide, rail.tIdx) }];
     } else {
       // свободное ребро: порты на всех четырёх сторонах, выбирает A* (V2.2)
-      sPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(sp, side, 1) }));
-      tPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(tp, side, 1) }));
+      sPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(sr, side, 1) }));
+      tPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(tr, side, 1) }));
     }
     portsById.set(g.id, { s: sPorts, t: tPorts });
     terminals.push({

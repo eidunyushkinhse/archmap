@@ -94,7 +94,9 @@ async function readSignature(page) {
       .map((n) => {
         const p = lastPxTranslate(n.style.transform) ?? { x: 0, y: 0 };
         const type = [...n.classList].find((c) => c.startsWith("react-flow__node-"))?.slice("react-flow__node-".length) ?? "";
-        return { id: n.getAttribute("data-id"), type, x: p.x, y: p.y };
+        // реальные габариты (offsetWidth не масштабируется трансформом вьюпорта) —
+        // роутер V2.2b считает от них; метрики проверяют «плечо не над узлом»
+        return { id: n.getAttribute("data-id"), type, x: p.x, y: p.y, w: r1(n.offsetWidth), h: r1(n.offsetHeight) };
       })
       // Рамки-узлы (R4, compound) в раздел nodes не входят — они в разделе frames,
       // сопоставимом со старым (оверлейным) представлением рамок.
@@ -137,15 +139,23 @@ async function readSignature(page) {
 // Ждём стабилизации: раскладка async (ELK) + засев владения может дать 2-3 пере-рендера.
 // Считаем устоявшейся, когда две подряд выборки с шагом 350мс совпали.
 async function settleSignature(page) {
-  let prev = null;
+  // ТРИ совпавших подряд выборки: раскладка стала двухфазной (первый прогон с фолбэк-
+  // габаритами → замер node.measured → пере-прогон, V2.2b), и окно в две выборки ловило
+  // промежуточное состояние между фазами — полигон «мигал» между прогонами.
+  let prev = null, stable = 0;
   for (let i = 0; i < 40; i++) {
-    await page.waitForTimeout(350);
+    await page.waitForTimeout(400);
+    // явный сигнал занятости: async-раскладка LevelGraph в полёте → выборка не в счёт
+    const busy = await page.evaluate(() => window.__archmapLayoutInflight ?? 0);
+    if (busy > 0) { prev = null; stable = 0; continue; }
     const cur = await readSignature(page);
     const s = JSON.stringify(cur);
-    if (prev === s) return cur;
+    if (prev === s) {
+      if (++stable >= 2) return cur;
+    } else stable = 0;
     prev = s;
   }
-  throw new Error("Сигнатура не стабилизировалась за 14с");
+  throw new Error("Сигнатура не стабилизировалась за 16с");
 }
 
 // Раскрыть по очереди все контейнеры уровня (лупа «Раскрыть содержимое»): гостевые
@@ -174,15 +184,26 @@ async function expandAllGuests(page) {
 // Перед каждым шагом — fitView: с персистом раскрытий (R5) раскладка корня бывает
 // широкой, узел уходит за вьюпорт, а клик по элементу вне окна МОЛЧА теряется даже с
 // force (та же грабля, что в expandAllGuests) — уровень тихо оставался корнем.
+// Переход ВЕРИФИЦИРУЕТСЯ (сигнатура обязана смениться): узлы внутри раскрытых рамок
+// кликаются ненадёжно — без проверки в дамп молча подкладывалась КОПИЯ КОРНЯ
+// (фантомные уровни). Одна повторная попытка; не вышло → false, уровень пропускаем.
 async function drillPath(page, path) {
   for (const id of path) {
-    await page.locator(".react-flow__controls-fitview").click({ force: true });
-    await page.waitForTimeout(150);
-    const node = page.locator(`.react-flow__node[data-id="${id}"]`);
-    await node.hover({ force: true });
-    await node.locator('button[title="Войти"]').click({ force: true });
-    await settleSignature(page);
+    let done = false;
+    for (let attempt = 0; attempt < 2 && !done; attempt++) {
+      const before = JSON.stringify(await readSignature(page));
+      await page.locator(".react-flow__controls-fitview").click({ force: true });
+      await page.waitForTimeout(150);
+      const node = page.locator(`.react-flow__node[data-id="${id}"]`);
+      if ((await node.count()) === 0) return false; // узла нет на этом уровне
+      await node.hover({ force: true });
+      await node.locator('button[title="Войти"]').click({ force: true });
+      await settleSignature(page);
+      done = JSON.stringify(await readSignature(page)) !== before;
+    }
+    if (!done) return false;
   }
+  return true;
 }
 
 // Свежая загрузка холста проекта (корень). App читает токен только на монтировании.
@@ -235,7 +256,10 @@ async function main() {
     const rootSig = await freshRoot(page, project.id);
     let sig = rootSig;
     if (path.length > 0) {
-      await drillPath(page, path);
+      if (!(await drillPath(page, path))) {
+        console.log(`  уровень [${path.join(" > ")}]: ПРОПУЩЕН (drill не сработал)`);
+        continue;
+      }
       sig = await settleSignature(page);
     }
     levels.push({ path, state: "default", sig });

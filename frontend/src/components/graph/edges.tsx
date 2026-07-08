@@ -273,9 +273,19 @@ function WrappedLabelEdge({
       // Авто-маршрут (эпик стрелок A7.1, R1+R3): ортоломаная посчитана на раскладке
       // глобальным роутером (минимум пересечений с другими стрелками + жёсткий обход узлов).
       // Концы переснимаем с ЖИВЫХ хэндлов (s/t) — линия держится узла при его сдвиге;
-      // интерьерные изломы берём из снимка. Стаб наружу гарантирует выход вдоль нормали
-      // (как у прочих веток), cleanup схлопнёт вырожденное. Грипы (если editable) — на линии.
+      // интерьерные изломы берём из снимка. ШОВ (V2.2b): живой хэндл может отличаться от
+      // порта снимка на доли пикселя/пиксели (замер vs CSS-процент высоты) — сосед конца
+      // наследует перпендикулярную координату живого конца, крайний сегмент остаётся
+      // осевым. Без этого микро-сдвиг лечился стаб-патчем и давал шпильку 1-2px у узла.
       const raw = d.autoRoute.map((p) => ({ x: p.x, y: p.y }));
+      if (raw.length >= 3) {
+        const headHoriz = Math.abs(raw[1].y - raw[0].y) <= Math.abs(raw[1].x - raw[0].x);
+        const tailHoriz =
+          Math.abs(raw[raw.length - 2].y - raw[raw.length - 1].y) <=
+          Math.abs(raw[raw.length - 2].x - raw[raw.length - 1].x);
+        if (headHoriz) raw[1].y = s.y; else raw[1].x = s.x;
+        if (tailHoriz) raw[raw.length - 2].y = t.y; else raw[raw.length - 2].x = t.x;
+      }
       raw[0] = s;
       raw[raw.length - 1] = t;
       const pts = ensureOutwardStubs(cleanup(raw), sideOf(sourcePosition), sideOf(targetPosition));
