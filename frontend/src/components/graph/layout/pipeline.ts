@@ -37,7 +37,7 @@ import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { buildAutoRoutes } from "./autoRoutes";
-import { nudgeOverlaps } from "./nudgeOverlaps";
+import { nudgeChannels } from "./channelNudge";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { separateForLabels, type LabelEdge } from "./separateForLabels";
 import { labelDetour } from "./labelDetours";
@@ -707,13 +707,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       });
     }
 
-    // РАСТАЛКИВАНИЕ НАЛОЖЕННЫХ ПЛЕЧ ИЗ РАЗНЫХ ХЭНДЛОВ (A13): рельсы (A11) и детур (A12.4)
-    // развели встречные пары, но плечо одного ребра ещё может лечь на «хайвэй» другого (разные
-    // хэндлы/узлы) — на развилке неясно, какая стрелка куда. Сдвигаем короткое плечо вбок,
-    // сохраняя стыковку концов с хэндлами. Чистый пост-проход на финальных маршрутах; при
-    // сдвиге — ещё один пере-проход плашек (геометрия плеч изменилась, coincidentLegs другой).
+    // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи из
+    // РАЗНЫХ хэндлов собираются в «каналы», упорядочиваются по подходам маршрутов и
+    // разводятся равными зазорами вокруг исходной линии (канон GD'09 ordered nudging).
+    // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
+    // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
+    // маршрутах; при сдвиге — пере-проход плашек (геометрия плеч изменилась).
     if (autoRoutes) {
-      const nu = nudgeOverlaps(autoRoutes, edgeHandles);
+      const nu = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
       if (nu.nudged.size > 0) {
         autoRoutes = nu.routes;
         labelPlacements = buildLabelPlacements({
