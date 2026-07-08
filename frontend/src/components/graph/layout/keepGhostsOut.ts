@@ -15,6 +15,7 @@
 //  - clampOutOfNativeFrames — clamp одиночного гостя при отпускании ручного драга.
 import { NODE_W, NODE_H, KEEPOUT_GAP } from "../constants";
 import { computeFrames, type FrameRect } from "./frames";
+import { separateRects } from "./separateRects";
 import { assignEdgeHandles } from "./level";
 import type { DisplayExternal } from "../types";
 import type { LayoutEdge, AncestorRef } from "../../../types";
@@ -160,11 +161,12 @@ export function enforceFramesKeepOut(params: {
  * Выталкивание НЕ-ЧЛЕНОВ из РАСКРЫТЫХ compound-рамок (инвариант R5: узел, не
  * относящийся к рамке, не лежит внутри неё — симметрия старого запрета для
  * родных рамок). Субъекты — ВСЕ отображаемые узлы (локалы и сущности); узлы
- * внутри собственной рамки двигаются с ней жёсткой группой (по top-рамке),
- * члены запретной рамки и её вложенные рамки не трогаются. Рамка при
- * раскрытии пиннится на месте — уступают чужие. `positions` МУТИРУЕТСЯ;
- * рамки пересчитывать между итерациями не нужно (rect рамки зависит только
- * от её членов, а члены не двигаются). Возвращает id сдвинутых узлов.
+ * внутри собственной рамки двигаются с ней жёсткой группой (по top-рамке).
+ * Конфликт узел↔рамка: уступает узел (рамка для него запретка). Конфликт
+ * рамка↔рамка: VPSC-развод с весом-площадью — в основном уступает меньшая,
+ * но при зажатии раздвигаются обе. `positions` МУТИРУЕТСЯ; rect'ы рамок
+ * едут вместе со своими группами (shiftFrameGroup) и остаются источником
+ * правды внутри стадии. Возвращает id сдвинутых узлов.
  */
 export function keepOutOfExpandedFrames(params: {
   displayedIds: string[];
@@ -229,9 +231,25 @@ export function keepOutOfExpandedFrames(params: {
     if (forbidden.length === 0) continue;
     const subjectNodes = displayedIds.filter((id) => homeOf(id) === ctx && positions.has(id));
 
+    // Под-рамки контекста между собой — взвешенное VPSC-разведение (separateRects)
+    // жёсткими группами, вес = площадь: меньшая уступает больше, но при зажатии
+    // раздвигаются и соседи. Прежний попарный MTV «уступает меньшая» зацикливался,
+    // когда рамка зажата между двумя крупными («сэндвич»: щель уже субъекта) —
+    // её гоняло вверх-вниз с нулевой суммой, и наложение рамок переживало все
+    // итерации (Configuration Management лежал в ObsCore при полном раскрытии).
+    if (forbidden.length > 1) {
+      const rects0 = forbidden.map(rectOf);
+      const solved = separateRects(rects0, forbidden.map((f) => f.rect.w * f.rect.h), KEEPOUT_GAP);
+      forbidden.forEach((f, i) => {
+        const dx = solved[i].minX - rects0[i].minX;
+        const dy = solved[i].minY - rects0[i].minY;
+        if (Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6) shiftFrameGroup(f, dx, dy);
+      });
+    }
+    // Одиночные узлы контекста — MTV-выталкивание из уже разведённых под-рамок;
+    // итерации на каскад «вытолкнули из одной — заехал в другую».
     for (let iter = 0; iter < MAX_ITER; iter++) {
       let changed = false;
-      // одиночные узлы контекста
       for (const id of subjectNodes) {
         const p0 = positions.get(id)!;
         const subject: Rect = { minX: p0.x, minY: p0.y, maxX: p0.x + NODE_W, maxY: p0.y + NODE_H };
@@ -242,21 +260,6 @@ export function keepOutOfExpandedFrames(params: {
           moved.add(id);
           subject.minX += push.dx; subject.maxX += push.dx;
           subject.minY += push.dy; subject.maxY += push.dy;
-          changed = true;
-        }
-      }
-      // под-рамки контекста между собой (жёсткие группы). rectOf(g) читается
-      // заново после каждого сдвига — shiftFrameGroup мутирует rect'ы.
-      for (const g of forbidden) {
-        const subjectArea = g.rect.w * g.rect.h;
-        for (const f of forbidden) {
-          if (f === g) continue;
-          // при конфликте двух рамок уступает МЕНЬШАЯ (меньше визуального
-          // разрушения; иначе уступала бы первая по порядку обхода)
-          if (subjectArea > f.rect.w * f.rect.h) continue;
-          const push = pushOut(rectOf(g), rectOf(f), KEEPOUT_GAP);
-          if (!push) continue;
-          shiftFrameGroup(g, push.dx, push.dy);
           changed = true;
         }
       }
