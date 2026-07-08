@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi, edgesApi, exportApi, viewsApi } from "../api/nodes";
+import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type { AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge, Node, NodeShape, NodeStatus, NodeUpdate, SchemaAlerts as Alerts, ViewLayout, ViewLayoutPayload } from "../types";
-import { bundleKey } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import { guardPersist } from "../components/graph/interaction/persistGuard";
 import { liftEdgesToLevel } from "../components/graph/projection";
@@ -591,39 +590,18 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     });
   }
 
-  // Хэндлы из ЖЕСТА создания связи: EdgeCreate их больше не несёт (R3 — геометрия
-  // живёт на пучке display-пары в view_layout). Пара известна прямо из жеста (оба
-  // конца на холсте), поэтому строку пучка пишем сами ДО рефетча — load() уже увидит
-  // её в graph.layout. Мерж поверх зеркала: у пары могла быть геометрия (дозапись
-  // члена в существующий пучок не должна снести изломы/долю). Ошибку глотаем: хэндл
-  // жеста некритичен, а уровень сейчас перечитается и покажет истину.
-  function persistGestureHandles(
-    sourceId: string, targetId: string,
-    sourceHandle: string | null, targetHandle: string | null,
-  ): Promise<void> {
-    if (!isArchitect || (!sourceHandle && !targetHandle)) return Promise.resolve();
-    const bk = bundleKey(sourceId, targetId);
-    return viewsApi
-      .saveLayout(currentParentId, {
-        [bk]: {
-          ...(viewLayout[bk] ?? {}),
-          ...(sourceHandle ? { source_handle: sourceHandle } : {}),
-          ...(targetHandle ? { target_handle: targetHandle } : {}),
-        },
-      })
-      .catch(() => undefined);
-  }
-
-  async function handleQuickCreated(created: Edge) {
-    const q = edgeQuick;
+  // Хэндлы из ЖЕСТА создания связи НЕ персистятся (V2.2, санкция 2026-07-08 —
+  // «запоминание хэндлов» снято): сохранённый хэндл навсегда фиксировал сторону
+  // (lockedIds), и при сдвигах узлов роутер был вынужден вести маршрут огородами от
+  // устаревшей стороны. Сторону стыковки теперь всегда выбирает роутер (V2.2), явная
+  // фиксация остаётся только за ручным перетаскиванием конца стрелки (reconnect).
+  function handleQuickCreated(created: Edge) {
     setEdgeQuick(null);
-    if (q) await persistGestureHandles(q.sourceId, q.targetId, q.sourceHandle, q.targetHandle);
     load(currentParentId);
     pushEdgeCreate(created);
   }
 
-  // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка. Хэндл источника
-  // сохраняем (дальний конец — дефолт, см. CrossLevelEdgePicker).
+  // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка.
   function handleConnectInto(
     sourceId: string, containerId: string, containerName: string,
     sourceHandle: string | null,
@@ -631,21 +609,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     setIntoPicker({ sourceId, containerId, containerName, sourceHandle });
   }
 
-  async function handleIntoCreated(created: Edge) {
-    const p = intoPicker;
+  function handleIntoCreated(created: Edge) {
     setIntoPicker(null);
-    if (p) {
-      // display-конец на текущем холсте — сам контейнер (внутрь него провалили связь).
-      // Направление могли развернуть в пикере: выводим из created (при "in" реальный
-      // источник — выбранный потомок, а хэндл жеста — у конца-цели).
-      const out = created.source_id === p.sourceId;
-      await persistGestureHandles(
-        out ? p.sourceId : p.containerId,
-        out ? p.containerId : p.sourceId,
-        out ? p.sourceHandle : null,
-        out ? null : p.sourceHandle,
-      );
-    }
     load(currentParentId);
     pushEdgeCreate(created);
   }

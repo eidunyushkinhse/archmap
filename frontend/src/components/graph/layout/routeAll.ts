@@ -10,8 +10,8 @@
 // Расталкивание случайно-параллельных плеч разных стрелок — отдельная фаза A3b (vpsc); общие
 // плечи родственных стрелок (из общего хэндла) остаются слитыми (R4=4a). См. ANALYSIS §4, §6.
 import type { EdgePoint } from "../../../types";
-import { segments, type EdgeSide, type NodeRect, type Segment } from "../edgePath";
-import { routeOrthogonal, type RouteOptions } from "./orthoRoute";
+import { cleanup, segments, type NodeRect, type Segment } from "../edgePath";
+import { routePorts, type PortCandidate, type RouteOptions } from "./orthoRoute";
 
 const EPS = 0.5;
 const DEFAULT_CROSS_COST = 200; // px-эквивалент штрафа за одно пересечение (R3 > R1)
@@ -20,36 +20,23 @@ const DEFAULT_CROSS_COST = 200; // px-эквивалент штрафа за о�
 // чужих узлов БЕЗ узлов-концов этого ребра (инвариант routeOrthogonal).
 export interface EdgeTerminal {
   id: string;
+  // Основные концы: порядок прокладки и fallback, когда порты не заданы или путь не найден.
   start: EdgePoint;
   end: EdgePoint;
   obstacles: NodeRect[];
-  // A8 (выбор сторон): альтернативные пары концов — кандидаты сторон источника/цели. Роутер
-  // выберет вариант с минимумом (длина + изломы + пересечения). Если не задано — start/end.
-  // start/end дублируют первый вариант (нужны для порядка прокладки и обратной совместимости).
-  // sSide/tSide (V2.1) — стороны портов: маршрут выходит/входит вдоль нормали стороны со
-  // стабом ПО ПОСТРОЕНИЮ (направленная видимость, шпильки исключены). Без сторон — как раньше.
-  altTerminals?: Array<{ start: EdgePoint; end: EdgePoint; sSide?: EdgeSide; tSide?: EdgeSide }>;
+  // Порты-кандидаты источника/цели (V2.2, замена A8-пробы): ОДИН multi-source/multi-target
+  // A* сразу со всеми разрешёнными портами — сторона выбирается ВНУТРИ поиска с реальными
+  // штрафами (длина + изломы + пересечения), а не отдельной пробой по чистой геометрии.
+  // Порт со стороной даёт направленную видимость (стаб по построению, V2.1). Не задано —
+  // единственный порт start/end без стороны (старое поведение).
+  startPorts?: PortCandidate[];
+  endPorts?: PortCandidate[];
 }
 
 export interface RouteAllOptions {
   margin?: number;
   bendPenalty?: number;
   crossCost?: number; // штраф за каждое пересечение с уже проложенной стрелкой
-}
-
-// Манхэттенова длина ломаной (сумма осевых сегментов).
-function pathLength(pts: EdgePoint[]): number {
-  let n = 0;
-  for (let i = 0; i < pts.length - 1; i++) n += Math.abs(pts[i + 1].x - pts[i].x) + Math.abs(pts[i + 1].y - pts[i].y);
-  return n;
-}
-
-// Число изломов (смен ориентации) очищенной ломаной.
-function bendCount(pts: EdgePoint[]): number {
-  const segs = segments(pts);
-  let n = 0;
-  for (let i = 1; i < segs.length; i++) if (segs[i].orient !== segs[i - 1].orient) n++;
-  return n;
 }
 
 // Сколько уже проложенных сегментов пересёк бы ход (x1,y1)→(x2,y2) «крестиком» —
@@ -92,21 +79,26 @@ function routingOrder(edges: EdgeTerminal[]): EdgeTerminal[] {
   return [...edges].sort((a, b) => span(b) - span(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-// Прокладывает все рёбра, минимизируя взаимные пересечения. Если у ребра заданы altTerminals
-// (кандидаты сторон, A8) — для каждого варианта прокладывает маршрут и выбирает с минимумом
-// (длина + изломы + пересечения с уже проложенными). Возвращает id → ломаная.
+// Прокладывает все рёбра, минимизируя взаимные пересечения. Порты-кандидаты (V2.2) идут
+// в ОДИН multi-source/multi-target A* с полной стоимостью (длина + изломы + пересечения
+// с уже проложенными): сторона стыковки — результат того же поиска, что и форма маршрута.
+// Прежняя A8-проба «сторона по чистой геометрии, форма — со штрафами» давала расстыковку:
+// проба выбирала сторону, финал по ней выкручивался огородами. Цена решения — сторона
+// может смениться при правке соседних рёбер; санкция пользователя 2026-07-08 (читаемость
+// Т0 важнее стабильности хэндлов). Возвращает id → ломаная.
 export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<string, EdgePoint[]> {
   const crossCost = opts?.crossCost ?? DEFAULT_CROSS_COST;
-  const bendPenalty = opts?.bendPenalty ?? 40;
-  // Общая координатная решётка набора: концы ВСЕХ вариантов всех рёбер — чтобы любому ребру
-  // было куда свернуть в объезд чужой стрелки (иначе сетка ребра ограничена своими концами).
+  // Общая координатная решётка набора: порты ВСЕХ рёбер — чтобы любому ребру было куда
+  // свернуть в объезд чужой стрелки (иначе сетка ребра ограничена своими концами).
   const extraXs: number[] = [];
   const extraYs: number[] = [];
-  const termsOf = (e: EdgeTerminal) => e.altTerminals ?? [{ start: e.start, end: e.end }];
+  const portsOf = (e: EdgeTerminal): [PortCandidate[], PortCandidate[]] => [
+    e.startPorts ?? [{ point: e.start }],
+    e.endPorts ?? [{ point: e.end }],
+  ];
   for (const e of edges) {
-    for (const t of termsOf(e)) {
-      extraXs.push(t.start.x, t.end.x);
-      extraYs.push(t.start.y, t.end.y);
+    for (const ports of portsOf(e)) {
+      for (const p of ports) { extraXs.push(p.point.x); extraYs.push(p.point.y); }
     }
   }
   const baseOpts: RouteOptions = {
@@ -120,28 +112,10 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
         ? (x1: number, y1: number, x2: number, y2: number): number =>
             crossCost * crossingCount(x1, y1, x2, y2, placedSegs)
         : undefined;
-    // Выбор стороны (A8) РАЗВЯЗАН от чужих стрелок (стабильность, A7.4): сторону берём по
-    // ЧИСТОЙ геометрии ребра (длина + изломы вокруг узлов-препятствий), БЕЗ штрафа за
-    // пересечения с уже проложенными. Так выбранная сторона = хэндл, отдаваемый наружу, —
-    // чистая функция концов и узлов этого ребра: правка/добавление другого ребра её не
-    // меняет, и стрелка не перескакивает на другой хэндл. Пересечения (R3) влияют только на
-    // ФОРМУ финального маршрута выбранной стороны (ниже), не на точку стыковки.
-    const variants = termsOf(e);
-    let chosen = variants[0];
-    if (variants.length > 1) {
-      let bestCost = Infinity;
-      for (const t of variants) {
-        const probe = routeOrthogonal(t.start, t.end, e.obstacles, {
-          ...baseOpts, startSide: t.sSide, endSide: t.tSide,
-        }); // без moveCost
-        const cost = pathLength(probe) + bendPenalty * bendCount(probe);
-        if (cost < bestCost - EPS) { bestCost = cost; chosen = t; }
-      }
-    }
-    // Финальный маршрут выбранной стороны — С учётом пересечений (R3 формирует изломы).
-    const route = routeOrthogonal(chosen.start, chosen.end, e.obstacles, {
-      ...baseOpts, moveCost, startSide: chosen.sSide, endSide: chosen.tSide,
-    });
+    const [starts, ends] = portsOf(e);
+    const r = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost });
+    // Пути нет даже с margin=0 (порт заперт) — прямой отрезок-fallback, как раньше.
+    const route = r?.pts ?? cleanup([{ ...e.start }, { ...e.end }]);
     placed.set(e.id, route);
     for (const s of segments(route)) placedSegs.push(s);
   }

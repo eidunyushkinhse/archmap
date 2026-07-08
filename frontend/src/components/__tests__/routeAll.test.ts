@@ -38,18 +38,36 @@ describe("routeAll — минимизация пересечений (R3)", () =
   });
 });
 
-describe("routeAll — выбор стороны (A8)", () => {
-  it("из вариантов терминалов берёт тот, что даёт меньше изломов", () => {
+describe("routeAll — выбор порта внутри поиска (V2.2)", () => {
+  it("из портов-кандидатов берёт пару с лучшим маршрутом", () => {
     const e: EdgeTerminal = {
       id: "X", start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, obstacles: [],
-      altTerminals: [
-        { start: { x: 0, y: 0 }, end: { x: 100, y: 0 } },  // прямой ход, 0 изломов
-        { start: { x: 0, y: 0 }, end: { x: 100, y: 50 } }, // потребует излом
+      startPorts: [{ point: { x: 0, y: 0 } }],
+      endPorts: [
+        { point: { x: 100, y: 50 } }, // потребует излом
+        { point: { x: 100, y: 0 } },  // прямой ход, 0 изломов
       ],
     };
     const routes = routeAll([e], { crossCost: 0 });
     const r = routes.get("X")!;
     expect(r[r.length - 1]).toEqual({ x: 100, y: 0 }); // выбран прямой вариант
+  });
+
+  it("сторона выбирается С УЧЁТОМ пересечений (не отдельной пробой)", () => {
+    // Чужая стрелка перегораживает прямой путь к ближнему порту; при высоком crossCost
+    // роутер предпочитает дальний порт без пересечения.
+    const wall: EdgeTerminal = term("W", [50, -200], [50, 200]);
+    const e: EdgeTerminal = {
+      id: "X", start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, obstacles: [],
+      startPorts: [{ point: { x: 0, y: 0 } }],
+      endPorts: [
+        { point: { x: 100, y: 0 } },  // ближний, но за «стеной» W
+        { point: { x: 0, y: 300 } },  // дальний, чистый
+      ],
+    };
+    const withPenalty = routeAll([wall, e], { crossCost: 100000 });
+    const r = withPenalty.get("X")!;
+    expect(r[r.length - 1]).toEqual({ x: 0, y: 300 }); // пересечение перевесило длину
   });
 });
 

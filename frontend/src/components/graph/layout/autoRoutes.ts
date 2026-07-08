@@ -1,20 +1,22 @@
-// Посадка глобального роутера (эпик стрелок, фазы A7.1 + A8) в раскладку уровня.
+// Посадка глобального роутера (эпик стрелок; V2.1–V2.2, см. ARROWS_V2_ANALYSIS.md) в
+// раскладку уровня.
 //
-// Зачем модуль: routeAll — чистый роутер набора рёбер с выбором сторон (A8), но он оперирует
-// абстрактными терминалами. Здесь мост от доменной модели (группы рёбер + позиции + хэндлы) к
-// терминалам и обратно к картам маршрутов и выбранных хэндлов.
+// Зачем модуль: routeAll — чистый роутер набора рёбер, но он оперирует абстрактными
+// портами. Здесь мост от доменной модели (группы рёбер + позиции + хэндлы) к портам-
+// кандидатам и обратно к картам маршрутов и выбранных хэндлов.
 //
-// A8 (выбор сторон): для ребра без зафиксированного пользователем хэндла перебираем варианты
-// стороны источника/цели (обращённые друг к другу) и отдаём в routeAll — он выберет вариант с
-// минимумом изломов и пересечений (вместо слепой доминантной оси). Выбранную сторону отдаём
-// наружу как хэндл (центр стороны), чтобы RF состыковал стрелку именно там. Зафиксированный
-// пользователем хэндл уважаем: единственный вариант — его точная точка стыковки.
+// Выбор стороны (V2.2, замена A8-пробы): свободное ребро получает порты на ВСЕХ четырёх
+// сторонах обоих концов — какой парой стыковаться, решает сам A* routeAll с полной
+// стоимостью (длина + изломы + пересечения). Выбранную сторону отдаём наружу как хэндл
+// (центр стороны), чтобы RF состыковал стрелку именно там. Зафиксированный пользователем
+// хэндл уважаем: единственный порт — его точная точка стыковки. Рельсы встречных пар
+// (A11) — единственный порт на крайнем слоте своей стороны.
 //
 // Стабы наружу входят в маршрут ПО ПОСТРОЕНИЮ (V2.1, направленные порты роутера) — прежний
 // пост-патч ensureOutwardStubs здесь умер: он приклеивал развороты на 180° («шпильки»),
 // когда A*-маршрут выходил из хэндла не по нормали. Геометрия, по которой размещаются
 // плашки (R2), совпадает с рисуемой в edges.tsx (там ensureOutwardStubs остался только как
-// no-op страховка живого драга). См. ARROWS_V2_ANALYSIS.md.
+// no-op страховка живого драга).
 import type { EdgePoint } from "../../../types";
 import { type EdgeSide, type NodeRect } from "../edgePath";
 import { NODE_W, NODE_H, hid } from "../constants";
@@ -22,12 +24,13 @@ import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 import { railAssignments } from "./railPairs";
 
-// Комбинация сторон+слотов хэндлов для ребра: сторона источника/цели и индекс слота (idx 1 —
-// центр; рельсы встречной пары — крайние idx 0/2) + готовые точки стыковки.
-type SideCombo = { s: EdgeSide; t: EdgeSide; sIdx: number; tIdx: number; start: EdgePoint; end: EdgePoint };
+// Порт стыковки ребра на узле: сторона, слот хэндла (idx 1 — центр; рельсы встречной
+// пары — крайние idx 0/2) и готовая точка.
+type PortSpec = { side: EdgeSide; idx: number; point: EdgePoint };
 
 const EPS = 0.5;
 const SIDE_OFFSETS = [0.25, 0.5, 0.75]; // позиции хэндлов вдоль стороны (как SIDE_HANDLES)
+const ALL_SIDES: EdgeSide[] = ["left", "right", "top", "bottom"];
 
 // Сторона из id хэндла `${nodeId}--${side}--${idx}` (см. hid). Невалидный/пустой → null.
 function parseHandle(handle: string | undefined): { side: EdgeSide; idx: number } | null {
@@ -50,29 +53,11 @@ function handlePoint(p: { x: number; y: number }, side: EdgeSide, idx: number): 
   }
 }
 
-// Центр стороны (idx=1) — то, что отдаём наружу как выбранный хэндл и используем в кандидатах.
-const sideCenter = (p: { x: number; y: number }, side: EdgeSide): EdgePoint => handlePoint(p, side, 1);
-
-// Кандидаты сторон для свободного ребра: по две обращённые друг к другу стороны источника и
-// цели (по знаку смещения центров) → до 4 комбинаций. Среди них и доминантная ось (как было).
-function freeCombos(
-  sp: { x: number; y: number }, tp: { x: number; y: number },
-): Array<{ s: EdgeSide; t: EdgeSide }> {
-  const dx = tp.x - sp.x, dy = tp.y - sp.y;
-  const srcSides: EdgeSide[] = [dx >= 0 ? "right" : "left", dy >= 0 ? "bottom" : "top"];
-  const tgtSides: EdgeSide[] = [dx >= 0 ? "left" : "right", dy >= 0 ? "top" : "bottom"];
-  const combos: Array<{ s: EdgeSide; t: EdgeSide }> = [];
-  for (const s of srcSides) for (const t of tgtSides) {
-    if (!combos.some((c) => c.s === s && c.t === t)) combos.push({ s, t });
-  }
-  return combos;
-}
-
 const near = (a: EdgePoint, b: EdgePoint): boolean => Math.abs(a.x - b.x) <= EPS && Math.abs(a.y - b.y) <= EPS;
 
 export interface AutoRoutesResult {
   routes: Map<string, EdgePoint[]>;                                   // groupId → ломаная (со стабами)
-  handles: Map<string, { sourceHandle: string; targetHandle: string }>; // выбранные A8 хэндлы (свободные рёбра)
+  handles: Map<string, { sourceHandle: string; targetHandle: string }>; // выбранные роутером хэндлы (свободные рёбра)
 }
 
 export function buildAutoRoutes(params: {
@@ -85,7 +70,7 @@ export function buildAutoRoutes(params: {
   displayIds: string[];       // все отображаемые id (локальные узлы + сущности)
 }): AutoRoutesResult {
   const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds } = params;
-  // тела всех отображаемых узлов — препятствия (свои концы ребро исключит само)
+  // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
     const p = positions.get(id);
@@ -97,43 +82,43 @@ export function buildAutoRoutes(params: {
   // совпадали (иначе R4 загоняет обе плашки в leader). Чистое назначение сторон+слотов.
   const rails = railAssignments(groups, pairableIds, positions);
 
-  // Готовим терминалы и запоминаем комбинации сторон по каждому ребру (для обратного
-  // сопоставления выбранного маршрута со стороной → хэндлом).
-  const combosById = new Map<string, SideCombo[]>();
+  // Порты-кандидаты по каждому ребру (для обратного сопоставления концов маршрута со
+  // стороной/слотом → хэндлом).
+  const portsById = new Map<string, { s: PortSpec[]; t: PortSpec[] }>();
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
     const sp = positions.get(g.source), tp = positions.get(g.target);
     if (!sp || !tp) continue;
     const rail = rails.get(g.id);
-    let combos: SideCombo[];
+    let sPorts: PortSpec[], tPorts: PortSpec[];
     if (lockedIds.has(g.id)) {
-      // зафиксированный хэндл — единственный вариант, точная точка стыковки
+      // зафиксированный хэндл — единственный порт, точная точка стыковки
       const h = edgeHandles.get(g.id);
       const ps = parseHandle(h?.sourceHandle), pt = parseHandle(h?.targetHandle);
       const sSide = ps?.side ?? (tp.x >= sp.x ? "right" : "left");
       const tSide = pt?.side ?? (tp.x >= sp.x ? "left" : "right");
       const sIdx = ps?.idx ?? 1, tIdx = pt?.idx ?? 1;
-      combos = [{ s: sSide, t: tSide, sIdx, tIdx, start: handlePoint(sp, sSide, sIdx), end: handlePoint(tp, tSide, tIdx) }];
+      sPorts = [{ side: sSide, idx: sIdx, point: handlePoint(sp, sSide, sIdx) }];
+      tPorts = [{ side: tSide, idx: tIdx, point: handlePoint(tp, tSide, tIdx) }];
     } else if (rail) {
-      // встречная пара — единственный вариант: обращённые стороны на своём слоте-рельсе (A8
-      // не выбираем, сторона задана геометрией пары; idx разводит плечи на параллельные рельсы)
-      combos = [{
-        s: rail.sSide, t: rail.tSide, sIdx: rail.sIdx, tIdx: rail.tIdx,
-        start: handlePoint(sp, rail.sSide, rail.sIdx), end: handlePoint(tp, rail.tSide, rail.tIdx),
-      }];
+      // встречная пара — единственный порт: обращённая сторона на своём слоте-рельсе
+      // (idx разводит плечи направлений на параллельные рельсы)
+      sPorts = [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sp, rail.sSide, rail.sIdx) }];
+      tPorts = [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tp, rail.tSide, rail.tIdx) }];
     } else {
-      combos = freeCombos(sp, tp).map((c) => ({ ...c, sIdx: 1, tIdx: 1, start: sideCenter(sp, c.s), end: sideCenter(tp, c.t) }));
+      // свободное ребро: порты на всех четырёх сторонах, выбирает A* (V2.2)
+      sPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(sp, side, 1) }));
+      tPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(tp, side, 1) }));
     }
-    combosById.set(g.id, combos);
-    // Тела ВСЕХ узлов — препятствия, ВКЛЮЧАЯ свои концы (V2.1): порты-стабы стоят снаружи
-    // тел, а собственное тело как препятствие запрещает маршруту «выйти сквозь себя» —
-    // раньше это был главный источник шпилек (стаб-патч разворачивал такой маршрут на 180°).
-    const obstacles: NodeRect[] = [...rects.values()];
+    portsById.set(g.id, { s: sPorts, t: tPorts });
     terminals.push({
-      id: g.id, start: combos[0].start, end: combos[0].end,
-      altTerminals: combos.map((c) => ({ start: c.start, end: c.end, sSide: c.s, tSide: c.t })),
-      obstacles,
+      id: g.id,
+      // основные концы — для детерминированного порядка прокладки и fallback
+      start: sPorts[0].point, end: tPorts[0].point,
+      startPorts: sPorts.map((p) => ({ point: p.point, side: p.side })),
+      endPorts: tPorts.map((p) => ({ point: p.point, side: p.side })),
+      obstacles: [...rects.values()],
     });
   }
 
@@ -143,15 +128,18 @@ export function buildAutoRoutes(params: {
   for (const g of groups) {
     const route = raw.get(g.id);
     if (!route || route.length < 2) continue;
-    const combos = combosById.get(g.id)!;
-    // какая комбинация выбрана: по совпадению концов маршрута с её точками стыковки
-    const chosen =
-      combos.find((c) => near(route[0], c.start) && near(route[route.length - 1], c.end)) ?? combos[0];
     routes.set(g.id, route);
-    // выбранную сторону+слот отдаём как хэндл только для свободных рёбер (у locked хэндл уже
-    // стоит). idx важен для рельсов встречной пары (A11): RF состыкует стрелку на крайнем слоте.
+    // какие порты выбраны — по совпадению концов маршрута с точками стыковки
+    const ports = portsById.get(g.id)!;
+    const sPort = ports.s.find((p) => near(route[0], p.point)) ?? ports.s[0];
+    const tPort = ports.t.find((p) => near(route[route.length - 1], p.point)) ?? ports.t[0];
+    // выбранную сторону+слот отдаём как хэндл только для свободных рёбер (у locked хэндл
+    // уже стоит). idx важен для рельсов встречной пары (A11): RF стыкует на крайнем слоте.
     if (!lockedIds.has(g.id)) {
-      handles.set(g.id, { sourceHandle: hid(g.source, chosen.s, chosen.sIdx), targetHandle: hid(g.target, chosen.t, chosen.tIdx) });
+      handles.set(g.id, {
+        sourceHandle: hid(g.source, sPort.side, sPort.idx),
+        targetHandle: hid(g.target, tPort.side, tPort.idx),
+      });
     }
   }
   return { routes, handles };
