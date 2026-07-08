@@ -421,39 +421,112 @@ function LevelGraphInner({
   // Те же точки жеста кормят groupEdgeDrag: старт фиксирует базу, drag переносит изломы,
   // стоп персистит их.
   const [dragging, setDragging] = useState(false);
-  // Драг РАМКИ (R4.2): RF в аргументах жеста отдаёт только саму рамку, а потомки
-  // едут пассивно (их rel не меняются). Расширяем группу жеста потомками рамок,
-  // чтобы groupEdgeDrag жёстко перенёс изломы рёбер МЕЖДУ потомками, а
-  // noteDragStart снял их стартовые абсолюты для Undo.
-  const expandFrameDescendants = useCallback(
-    (grp: RFNode[]): RFNode[] => {
-      if (!grp.some((n) => n.type === "frame")) return grp;
-      const ids = new Set(grp.map((n) => n.id));
-      const out = [...grp];
-      let added = true;
-      while (added) {
-        added = false;
-        for (const n of rfNodes) {
-          if (n.parentId && ids.has(n.parentId) && !ids.has(n.id)) {
-            ids.add(n.id);
-            out.push(n);
-            added = true;
-          }
-        }
+  // Drill из узла, раскрытого ИНЛАЙН глубже текущего уровня (R5): в breadcrumb входят
+  // промежуточные контейнеры (фактическая архитектура: Контекст > HelixMon > ObsCore >
+  // Zabbix Core), а не прыжок через слои. Цепочку восстанавливаем по parent_id из
+  // локалов уровня + догруженных детей раскрытий; не восстановилась — прежнее поведение.
+  const drillWithPath = useCallback(
+    (n: AppNode) => {
+      if (!onEnterNode || !n.parent_id || n.parent_id === containerId) { onDrillDown(n); return; }
+      const pool = new Map<string, AppNode>();
+      for (const x of nodes) pool.set(x.id, x);
+      for (const kids of Object.values(localChildren)) for (const k of kids) pool.set(k.id, k);
+      const chain: AppNode[] = [];
+      let pid: string | null | undefined = n.parent_id;
+      while (pid && pid !== containerId) {
+        const p = pool.get(pid);
+        if (!p) { onDrillDown(n); return; }
+        chain.unshift(p);
+        pid = p.parent_id;
       }
-      return out;
+      const ref = (x: AppNode): AncestorRef => ({ id: x.id, name: x.name, is_external: x.is_external });
+      const levelRefs: AncestorRef[] = ancestorIds.map((id, i) => ({
+        id, name: ancestorNames[i] ?? id, is_external: false,
+      }));
+      onEnterNode([...levelRefs, ...chain.map(ref), ref(n)]);
     },
-    [rfNodes],
+    [nodes, localChildren, containerId, ancestorIds, ancestorNames, onDrillDown, onEnterNode],
   );
+
+  // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): их rect производен от
+  // детей, перемещение содержимого = перемещение самих узлов. Прежнее расширение
+  // группы жеста потомками рамки (R4.2 expandFrameDescendants) умерло вместе с драгом.
+  // ЖИВОЙ bbox-follow рамок (2026-07-08): при драге ребёнка рамка следует за
+  // содержимым прямо во время жеста (как это делал прежний оверлей LevelBoundary),
+  // а не прыгает на новое место после отпускания. Паддинги рамки снимаются на старте
+  // жеста (рамка = bbox прямых детей + константные отступы) и держатся каждый тик:
+  // рамка получает новые position/размер, дети — компенсацию rel (их абсолюты не
+  // меняются). Обход рамок — глубокие первыми: изменение вложенной рамки двигает
+  // bbox объемлющей.
+  const framePadsRef = useRef<Map<string, { l: number; t: number; r: number; b: number }>>(new Map());
+  const rfSize = (n: RFNode): { w: number; h: number } => ({
+    w: n.measured?.width ?? (typeof n.width === "number" ? n.width : NODE_W),
+    h: n.measured?.height ?? (typeof n.height === "number" ? n.height : NODE_H),
+  });
+  const snapshotFramePads = useCallback(() => {
+    const pads = new Map<string, { l: number; t: number; r: number; b: number }>();
+    for (const f of rfNodes) {
+      if (f.type !== "frame") continue;
+      const kids = rfNodes.filter((k) => k.parentId === f.id && k.type !== "spacer");
+      if (kids.length === 0) continue;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const k of kids) {
+        const { w, h } = rfSize(k);
+        minX = Math.min(minX, k.position.x); minY = Math.min(minY, k.position.y);
+        maxX = Math.max(maxX, k.position.x + w); maxY = Math.max(maxY, k.position.y + h);
+      }
+      const { w: fw, h: fh } = rfSize(f);
+      pads.set(f.id, { l: minX, t: minY, r: fw - maxX, b: fh - maxY });
+    }
+    framePadsRef.current = pads;
+  }, [rfNodes]);
+  const followFrames = useCallback(() => {
+    setRfNodes((prev) => {
+      const pads = framePadsRef.current;
+      if (pads.size === 0) return prev;
+      const work = prev.map((n) => ({ ...n }));
+      const byId = new Map(work.map((n) => [n.id, n]));
+      const depthOf = (n: RFNode): number => {
+        let d = 0, pid = n.parentId;
+        while (pid) { d++; pid = byId.get(pid)?.parentId; }
+        return d;
+      };
+      const frames = work.filter((n) => n.type === "frame").sort((a, b) => depthOf(b) - depthOf(a));
+      let changed = false;
+      for (const f of frames) {
+        const pad = pads.get(f.id);
+        if (!pad) continue;
+        const kids = work.filter((k) => k.parentId === f.id && k.type !== "spacer");
+        if (kids.length === 0) continue;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const k of kids) {
+          const { w, h } = rfSize(k);
+          minX = Math.min(minX, k.position.x); minY = Math.min(minY, k.position.y);
+          maxX = Math.max(maxX, k.position.x + w); maxY = Math.max(maxY, k.position.y + h);
+        }
+        const dx = minX - pad.l, dy = minY - pad.t;
+        const nw = maxX - minX + pad.l + pad.r, nh = maxY - minY + pad.t + pad.b;
+        const { w: fw, h: fh } = rfSize(f);
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(nw - fw) < 0.5 && Math.abs(nh - fh) < 0.5) continue;
+        f.position = { x: f.position.x + dx, y: f.position.y + dy };
+        f.width = nw; f.height = nh;
+        if (f.measured) f.measured = { width: nw, height: nh };
+        for (const k of kids) k.position = { x: k.position.x - dx, y: k.position.y - dy };
+        changed = true;
+      }
+      return changed ? work : prev;
+    });
+  }, [setRfNodes]);
   const handleNodeDragStart = useCallback(
     (_e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(true);
-      const grp = expandFrameDescendants(ns.length > 0 ? ns : [n]);
+      const grp = ns.length > 0 ? ns : [n];
       groupEdgeDrag.begin(grp);
       liveDragHandles.begin(rfNodes); // база позиций всех узлов на старте жеста
       noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
+      snapshotFramePads(); // паддинги рамок для живого bbox-follow
     },
-    [expandFrameDescendants, groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart],
+    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart, snapshotFramePads],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
@@ -465,12 +538,12 @@ function LevelGraphInner({
     [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart],
   );
   const handleNodeDrag = useCallback(
-    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); },
-    [groupEdgeDrag, liveDragHandles],
+    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); followFrames(); },
+    [groupEdgeDrag, liveDragHandles, followFrames],
   );
   const handleSelectionDrag = useCallback(
-    (_e: MouseEvent, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); },
-    [groupEdgeDrag, liveDragHandles],
+    (_e: MouseEvent, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); followFrames(); },
+    [groupEdgeDrag, liveDragHandles, followFrames],
   );
   // Отпускание драга: весь жест (перенос изломов в groupEdgeDrag.end + персист позиций в
   // handleNodeDragStop) сворачиваем в ОДНУ команду истории через beginGroup/commitGroup —
@@ -642,13 +715,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
@@ -763,9 +836,8 @@ function LevelGraphInner({
       // Реальный rect из раскладки; тело прозрачно для мыши (см. FrameNode).
       ...guestFrames.map((f) => {
         const pf = frameOfFrame(f);
-        // Тащить можно только TOP-рамку (вложенная едет с родителем; её собственный
-        // драг шёл бы в rel-системе родителя — клампы там неприменимы, R4.2).
-        const draggable = isArchitect && !isContext && !pf;
+        // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): rect рамки всегда
+        // производен от детей — двигаются только сами узлы.
         return {
           id: f.id,
           type: "frame" as const,
@@ -775,13 +847,12 @@ function LevelGraphInner({
           ...(pf ? { parentId: pf.id } : null),
           width: f.rect.w,
           height: f.rect.h,
-          draggable,
+          draggable: false,
           selectable: false,
           zIndex: -1, // под узлами (и под их рёбрами внутри рамки)
           data: {
             name: f.name,
             onCollapse: () => cb.collapseContainer(f.id),
-            draggable,
           } satisfies FrameData,
         };
       }),
@@ -799,7 +870,7 @@ function LevelGraphInner({
           ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
           data: {
             appNode: n,
-            onDrillDown: cb.onDrillDown,
+            onDrillDown: cb.drillWithPath,
             isArchitect,
             colors: getNodeColors(n.is_external, depth, n.status),
             hideActions: isContext,

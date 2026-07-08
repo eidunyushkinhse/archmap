@@ -146,36 +146,8 @@ export function useSnapAlignment({
 
       const byId = new Map(rfNodes.map((n) => [n.id, n]));
       for (const n of group) {
-        // Драг РАМКИ (R4.2): RF везёт потомков нативно (их rel не менялись весь
-        // жест) — персистим новые АБСОЛЮТЫ всех узлов-потомков. Саму рамку не
-        // персистим: её позиция производна от детей (bbox следующего прогона
-        // раскладки сойдётся с новым положением). Кламп от чужих родных рамок
-        // уже применил живой clamp в handleNodesChange (по полному rect рамки).
-        // Позицию рамки берём из АРГУМЕНТА RF (свежая на момент отпускания).
-        if (n.type === "frame") {
-          const freshById = new Map(byId);
-          const live = byId.get(n.id);
-          if (live) freshById.set(n.id, { ...live, position: n.position });
-          const isDescendant = (x: RFNode): boolean => {
-            let p = x.parentId ? freshById.get(x.parentId) : undefined;
-            while (p) {
-              if (p.id === n.id) return true;
-              p = p.parentId ? freshById.get(p.parentId) : undefined;
-            }
-            return false;
-          };
-          for (const child of rfNodes) {
-            if (child.type !== "ghost" && child.type !== "container") continue;
-            if (!isDescendant(child)) continue;
-            const abs = absPositionOf(child, freshById);
-            patch[child.id] = abs;
-            const start = startPos.current.get(child.id);
-            if (start && (start.x !== abs.x || start.y !== abs.y)) {
-              moves.push({ id: child.id, old: { x: start.x, y: start.y }, next: abs });
-            }
-          }
-          continue;
-        }
+        // Рамки не таскаются (запрет движения рамок, 2026-07-08) — прежний батч-персист
+        // потомков при драге рамки (R4.2) умер вместе с draggable.
         if (n.type !== "block" && n.type !== "ghost" && n.type !== "container") continue;
         // Ребёнок compound-рамки (R4): позиция драга ОТНОСИТЕЛЬНА рамке — живой снап
         // в этой системе неприменим (соседи в абсолюте). Персистим АБСОЛЮТ (конвейер
@@ -297,45 +269,43 @@ export function useSnapAlignment({
       const snapped = changes.map((change) => {
         if (change.type !== "position" || !change.position) return change;
         const dragged = rfNodes.find((n) => n.id === change.id);
-        // Ребёнок compound-рамки (R4): координаты драга — в системе рамки, снап и
-        // рамочные клампы в ней неприменимы. Наложение же на СИБЛИНГОВ (узлы той
-        // же рамки) клампится прямо в rel — у них та же система координат.
+        // Ребёнок compound-рамки (R4): координаты драга — в системе рамки. ЖИВОЙ
+        // кламп (2026-07-08, бывший хвост «кламп только на отпускании»): переводим
+        // в абсолют, применяем ПОЛНЫЙ набор запретов (родные рамки + чужие раскрытые
+        // рамки + все чужие узлы — те же клампы, что и персист на отпускании) и
+        // возвращаем в rel. Соседи внутри клампов сами считаются в абсолюте.
         if (dragged?.parentId) {
-          const sibs: Rect[] = [];
-          for (const o of rfNodes) {
-            if (o.id === change.id || o.parentId !== dragged.parentId) continue;
-            // сиблинги-узлы И сиблинги-РАМКИ (вложенные раскрытия, R5): у всех
-            // та же rel-система родителя — ребёнок не заезжает ни на кого
-            if (o.type !== "block" && o.type !== "ghost" && o.type !== "container" && o.type !== "frame") continue;
-            const { w: ow, h: oh } = nodeSize(o);
-            sibs.push({ minX: o.position.x, minY: o.position.y, maxX: o.position.x + ow, maxY: o.position.y + oh });
-          }
-          const { w: cw, h: ch } = nodeSize(dragged);
-          return { ...change, position: clampOutOfNodeRects(change.position, cw, ch, sibs) };
-        }
-        // Драг РАМКИ (R4.2): без магнита, но с живым клампом по её ПОЛНОМУ rect.
-        // Запретную родную рамку определяет ЧЛЕНСТВО ДЕТЕЙ (как в enforce): гость
-        // с общим предком законно живёт внутри родных рамок до глубины членства —
-        // кламп по самой рамке (не члену) ошибочно выталкивал бы её из всех.
-        if (dragged?.type === "frame") {
-          frames ??= levelFrames();
-          const rep = rfNodes.find(
-            (x) => x.parentId === dragged.id && (x.type === "ghost" || x.type === "container"),
-          );
-          const { w, h } = nodeSize(dragged);
           const byId = new Map(rfNodes.map((n) => [n.id, n]));
-          const descendants = new Set<string>();
-          for (const o of rfNodes) {
-            let pid = o.parentId;
-            while (pid) {
-              if (pid === dragged.id) { descendants.add(o.id); break; }
-              pid = byId.get(pid)?.parentId;
-            }
+          const parent = byId.get(dragged.parentId);
+          if (!parent) return change;
+          const pAbs = absPositionOf(parent, byId);
+          const { w: cw, h: ch } = nodeSize(dragged);
+          frames ??= levelFrames();
+          let abs = { x: pAbs.x + change.position.x, y: pAbs.y + change.position.y };
+          // магнитное выравнивание (2026-07-08, бывший пробел «дети не выравниваются»):
+          // снап считает соседей в абсолюте — ребёнку он доступен так же, как топ-узлу
+          let baseX = abs.x, baseY = abs.y, hitX = false, hitY = false;
+          let childSpacing: SpacingGuide[] = [];
+          let snapCx = 0, snapCy = 0;
+          if (!multiDrag) {
+            const s = snapNode(abs.x + cw / 2, abs.y + ch / 2, cw, ch, rfNodes, dragged.id);
+            snapCx = s.snapCx; snapCy = s.snapCy;
+            baseX = s.snapCx - cw / 2; baseY = s.snapCy - ch / 2;
+            abs = { x: baseX, y: baseY };
+            hitX = s.hitX; hitY = s.hitY; childSpacing = s.spacing;
           }
-          const c1 = clampOutOfNativeFrames(rep?.id ?? change.id, change.position, frames, w, h);
-          const c2 = clampOutOfCompound(change.id, c1, w, h);
-          return { ...change, position: clampOutOfNodes(change.id, c2, w, h, descendants) };
+          abs = clampOutOfNativeFrames(dragged.id, abs, frames);
+          abs = clampOutOfCompound(dragged.id, abs, cw, ch);
+          abs = clampOutOfNodes(dragged.id, abs, cw, ch);
+          if (change.dragging && !multiDrag) {
+            if (hitX && abs.x === baseX) guideX = snapCx;
+            if (hitY && abs.y === baseY) guideY = snapCy;
+            guideSpacing = childSpacing.filter((g) => (g.axis === "x" ? abs.x === baseX : abs.y === baseY));
+          }
+          return { ...change, position: { x: abs.x - pAbs.x, y: abs.y - pAbs.y } };
         }
+        // Рамки не таскаются (запрет движения рамок, 2026-07-08) — ветка драга
+        // рамки R4.2 умерла вместе с draggable.
         const { w: dw, h: dh } = nodeSize(dragged);
         let x = change.position.x, y = change.position.y;
         const isExternal = dragged && (dragged.type === "ghost" || dragged.type === "container");
