@@ -361,7 +361,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       ];
       const allDisplayed = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
       let anythingMoved = false;
-      for (let round = 0; round < 4; round++) {
+      // Кэп раундов 10 (был 4): при раскрытии ВСЕХ контейнеров уровня рамок много,
+      // каскад «вытолкнули → задели третью» не сходился за 4 — рамки оставались
+      // наложенными друг на друга.
+      for (let round = 0; round < 10; round++) {
         const expFrames = computeFrames({
           localIds: nodes.map((n) => n.id),
           externals: externalsRefs,

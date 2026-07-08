@@ -872,7 +872,9 @@ function LevelGraphInner({
             appNode: n,
             onDrillDown: cb.drillWithPath,
             isArchitect,
-            colors: getNodeColors(n.is_external, depth, n.status),
+            // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
+            // вложенность рамки прибавляется к глубине уровня (pf.depth: 0 = внешняя)
+            colors: getNodeColors(n.is_external, depth + (pf ? pf.depth + 1 : 0), n.status),
             hideActions: isContext,
             connectable: isArchitect && !isContext,
             quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
