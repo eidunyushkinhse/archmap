@@ -99,3 +99,34 @@ describe("routeAll — пересечение СТВОЛА = одна точка
     expect(routes.get("X")).toEqual([{ x: 0, y: 150 }, { x: 100, y: 150 }]);
   });
 });
+
+describe("routeAll — гистерезис маршрутов (2026-07-09)", () => {
+  it("равноценный прежний маршрут УДЕРЖИВАЕТСЯ (нет перекладки на ничьей)", () => {
+    // ступенька (0,0)→(100,100): вариантов равной стоимости несколько; prev — один из них
+    const prev = [
+      { x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 100 }, { x: 100, y: 100 },
+    ];
+    const e: EdgeTerminal = { ...term("X", [0, 0], [100, 100]), prev };
+    const routes = routeAll([e]);
+    expect(routes.get("X")).toEqual(prev);
+  });
+
+  it("прежний маршрут ХУЖЕ порога (большой крюк) → берётся свежий", () => {
+    const prev = [
+      { x: 0, y: 0 }, { x: 0, y: -300 }, { x: 100, y: -300 }, { x: 100, y: 100 },
+    ];
+    const e: EdgeTerminal = { ...term("X", [0, 0], [100, 100]), prev };
+    const routes = routeAll([e]);
+    expect(routes.get("X")).not.toEqual(prev);
+  });
+
+  it("прежний маршрут с НОВЫМ пересечением (200 > порога) → перекладывается", () => {
+    // чужая стрелка длиннее → прокладывается первой; prev ребра X её пересекает,
+    // свежий маршрут может обойти через конец стены
+    const wall = term("W", [50, -200], [50, 200]);
+    const prev = [{ x: 0, y: 0 }, { x: 100, y: 0 }];
+    const e: EdgeTerminal = { ...term("X", [0, 0], [100, 0]), prev };
+    const routes = routeAll([e, wall], { crossCost: 1000 });
+    expect(routes.get("X")).not.toEqual(prev);
+  });
+});

@@ -151,3 +151,74 @@ describe("buildAutoRoutes — раздача слотов портов (V2.4c)",
     expect(Math.abs(dockY - 350)).toBeGreaterThan(10); // не центр стороны (350)
   });
 });
+
+describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
+  const positions = new Map([
+    ["A", { x: 0, y: 0 }],
+    ["B", { x: 400, y: 0 }],
+  ]);
+  const groups = [group("g1", "A", "B")];
+  const base = {
+    groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]),
+    lockedIds: new Set<string>(), positions, edgeHandles: new Map<string, { sourceHandle: string; targetHandle: string }>(),
+    displayIds: ["A", "B"],
+  };
+
+  it("свой же вывод, поданный как prev, удерживается вместе с хэндлами (устойчивая точка)", () => {
+    const first = buildAutoRoutes(base);
+    const again = buildAutoRoutes({
+      ...base,
+      prev: { routes: first.routes, handles: first.handles },
+    });
+    expect(again.routes.get("g1")).toEqual(first.routes.get("g1"));
+    expect(again.handles.get("g1")).toEqual(first.handles.get("g1"));
+  });
+
+  it("prev с равноценной, но ДРУГОЙ формой удерживается (нет перекладки на ничьей)", () => {
+    // диагональная пара: ступенек равной стоимости много (та же длина, те же 2 излома);
+    // prev — ступенька с переходом на «неканоничном» x: держим её, а не свежую
+    const diag = new Map([["A", { x: 0, y: 0 }], ["B", { x: 400, y: 300 }]]);
+    const prevRoute = [
+      { x: NODE_W, y: NODE_H / 2 },        // правый центр A (190,50)
+      { x: 237, y: NODE_H / 2 },
+      { x: 237, y: 350 },                   // y левого центра B
+      { x: 400, y: 350 },
+    ];
+    const out = buildAutoRoutes({
+      ...base, positions: diag,
+      prev: {
+        routes: new Map([["g1", prevRoute]]),
+        handles: new Map([["g1", { sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) }]]),
+      },
+    });
+    expect(out.routes.get("g1")).toEqual(prevRoute);
+  });
+
+  it("конец узла ДВИГАЛСЯ (точка хэндла уехала) → prev невалиден, честный пере-роутинг", () => {
+    const moved = new Map([["A", { x: 0, y: 40 }], ["B", { x: 400, y: 0 }]]);
+    const prevRoute = [{ x: NODE_W, y: NODE_H / 2 }, { x: 400, y: NODE_H / 2 }];
+    const out = buildAutoRoutes({
+      ...base, positions: moved,
+      prev: {
+        routes: new Map([["g1", prevRoute]]),
+        handles: new Map([["g1", { sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) }]]),
+      },
+    });
+    expect(out.routes.get("g1")).not.toEqual(prevRoute);
+  });
+
+  it("на prev надвинулось чужое тело → prev невалиден, маршрут обходит", () => {
+    const prevRoute = [{ x: NODE_W, y: NODE_H / 2 }, { x: 400, y: NODE_H / 2 }];
+    const out = buildAutoRoutes({
+      ...base, displayIds: ["A", "B", "C"],
+      positions: new Map([...positions, ["C", { x: 250, y: 0 }]]), // C сел на прямую
+      prev: {
+        routes: new Map([["g1", prevRoute]]),
+        handles: new Map([["g1", { sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) }]]),
+      },
+    });
+    const r = out.routes.get("g1")!;
+    expect(r).not.toEqual(prevRoute);
+    expect(pathCrossesRects(r, [rectOf({ x: 250, y: 0 })])).toBe(false);
+  });
+});

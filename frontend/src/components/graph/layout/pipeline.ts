@@ -120,6 +120,14 @@ export interface PipelineInput {
   // сознательно остаются на NODE_W×NODE_H: они двигают и персистят позиции, и завязка их
   // на замер рисковала бы петлёй пере-раскладки. Нет замера (первый прогон) — фолбэк.
   sizes?: Record<string, { w: number; h: number }>;
+  // ГИСТЕРЕЗИС МАРШРУТОВ (2026-07-09): финальные autoRoutes/edgeHandles прошлого
+  // прогона. Валидные прежние маршруты удерживаются, пока не хуже свежих на порог
+  // (см. buildAutoRoutes.prev / ROUTE_STICKINESS) — стрелки не перекладываются от
+  // чужих микро-сдвигов. Вызывающий обязан передавать их только между прогонами
+  // ОДНОГО класса замеров (оба с реальными sizes): маршруты первого прогона на
+  // фолбэке NODE_W×NODE_H не должны «прилипать» после прихода настоящих замеров.
+  prevRoutes?: Map<string, EdgePoint[]>;
+  prevEdgeHandles?: Map<string, { sourceHandle: string; targetHandle: string }>;
 }
 
 export interface PipelineOutput {
@@ -147,7 +155,7 @@ export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | n
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
-    expanded, localChildren, isContext, sizes,
+    expanded, localChildren, isContext, sizes, prevRoutes, prevEdgeHandles,
   } = input;
   const intents: PersistIntent[] = [];
 
@@ -655,7 +663,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         },
         memberIds: f.memberIds,
       }));
-    const ar = buildAutoRoutes({ groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes: sizeMap, frames: routerFrames });
+    const ar = buildAutoRoutes({
+      groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles,
+      displayIds, sizes: sizeMap, frames: routerFrames,
+      // гистерезис: финальные маршруты/хэндлы прошлого прогона (если вызывающий дал)
+      prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
+    });
     autoRoutes = ar.routes;
     // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там). Только свободные
     // рёбра (у locked хэндл уже стоит, buildAutoRoutes их в ar.handles не кладёт).

@@ -20,7 +20,7 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
 import { nodesApi, viewsApi } from "../api/nodes";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, AncestorRef, ViewLayout, ViewLayoutPayload } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, AncestorRef, ViewLayout, ViewLayoutPayload, EdgePoint } from "../types";
 import { canHaveChildren, bundleKey } from "../types";
 import {
   NODE_W, NODE_H,
@@ -860,6 +860,19 @@ function LevelGraphInner({
   // Конвейер НЕ пишет в БД: побочные записи (засев владения, миграции якорей изломов)
   // приходят интентами и применяются здесь же — только если прогон не устарел (cancelled).
   const [layout, setLayout] = useState<LayoutResult | null>(null);
+  // ГИСТЕРЕЗИС МАРШРУТОВ: финальные autoRoutes/edgeHandles последнего прогона с ТЕМ ЖЕ
+  // комплектом замеров (sizesVersion). Передаются следующему прогону — валидные прежние
+  // маршруты удерживаются, пока не хуже свежих на порог (стрелки не перекладываются от
+  // чужих микро-сдвигов). СТРОГО одинаковый sizesVersion: замеры приходят порциями, и
+  // маршруты частично-замеренного прогона, удержанные в полностью-замеренном мире,
+  // разъезжались с плашками/каналами (аудит ловил плашки, порезанные СВОЕЙ же линией).
+  // При смене уровня — сброс (чужие маршруты всё равно невалидны, но не гоняем валидацию).
+  const prevRoutesRef = useRef<{
+    routes: Map<string, EdgePoint[]>;
+    handles: Map<string, { sourceHandle: string; targetHandle: string }>;
+    version: number;
+  } | null>(null);
+  useEffect(() => { prevRoutesRef.current = null; }, [containerId, isContext]);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -870,12 +883,19 @@ function LevelGraphInner({
       w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
       w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
       try {
+      // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
+      const sameSizes = prevRoutesRef.current?.version === sizesVersion;
       const { layout: next, liveInputs, intents } = await computeViewLayout({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren, isContext,
         sizes: nodeSizesRef.current,
+        prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
+        prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
       });
       if (cancelled) return; // устаревший прогон: ни снапшота, ни персиста интентов
+      if (next.autoRoutes) {
+        prevRoutesRef.current = { routes: next.autoRoutes, handles: next.edgeHandles, version: sizesVersion };
+      }
       liveHandleInputs.current = liveInputs;
       // Побочные записи раскладки (интенты) — через единый commitLayout: засев владения
       // own-on-first-render и приобретение якоря изломом (абсолют → офсет, на экране без

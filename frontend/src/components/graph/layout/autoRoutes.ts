@@ -18,7 +18,7 @@
 // плашки (R2), совпадает с рисуемой в edges.tsx (там ensureOutwardStubs остался только как
 // no-op страховка живого драга).
 import type { EdgePoint } from "../../../types";
-import { type EdgeSide, type NodeRect } from "../edgePath";
+import { pathCrossesRects, type EdgeSide, type NodeRect } from "../edgePath";
 import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
@@ -57,6 +57,10 @@ function handlePoint(r: NodeRect, side: EdgeSide, idx: number): EdgePoint {
 }
 
 const near = (a: EdgePoint, b: EdgePoint): boolean => Math.abs(a.x - b.x) <= EPS && Math.abs(a.y - b.y) <= EPS;
+
+// поточечное равенство ломаных (детект «гистерезис удержал прежний маршрут»)
+const sameRoute = (a: EdgePoint[], b: EdgePoint[]): boolean =>
+  a.length === b.length && a.every((p, i) => near(p, b[i]));
 
 // Штраф за пересечение ГРАНИЦЫ раскрытой рамки (V2.4, container-aware): меньше цены
 // пересечения стрелок (200), но 2 перехода (сквозь рамку насквозь) дороже разумного
@@ -111,8 +115,17 @@ export function buildAutoRoutes(params: {
     plaque: { x: number; y: number; w: number; h: number };
     memberIds: ReadonlySet<string>;
   }>;
+  // ГИСТЕРЕЗИС (2026-07-09): финальные маршруты и хэндлы ПРОШЛОГО прогона. Валидный
+  // прежний маршрут (концы сидят на текущих точках своих хэндлов — узлы-концы не
+  // двигались; тела/плашки не режутся) идёт в routeAll кандидатом: сохраняется, пока
+  // не хуже свежего на ROUTE_STICKINESS. Так стрелки, чьё окружение фактически не
+  // изменилось, не перекладываются от чужих микро-сдвигов (грид-линии, инварианты).
+  prev?: {
+    routes: ReadonlyMap<string, EdgePoint[]>;
+    handles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
+  };
 }): AutoRoutesResult {
-  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes, frames } = params;
+  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes, frames, prev } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -130,11 +143,45 @@ export function buildAutoRoutes(params: {
   // Порты-кандидаты по каждому ребру (для обратного сопоставления концов маршрута со
   // стороной/слотом → хэндлом).
   const portsById = new Map<string, { s: PortSpec[]; t: PortSpec[] }>();
+  // валидированные прежние маршруты (гистерезис) + их распарсенные хэндлы
+  const prevValid = new Map<string, {
+    route: EdgePoint[];
+    s: { side: EdgeSide; idx: number };
+    t: { side: EdgeSide; idx: number };
+  }>();
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
     const sr = rects.get(g.source), tr = rects.get(g.target);
     if (!sr || !tr) continue;
+    // ВАЛИДАЦИЯ прежнего маршрута: концы обязаны сидеть на ТЕКУЩИХ точках прежних
+    // хэндлов (узел двигался/рос → точка уехала → маршрут невалиден, честный пере-
+    // роутинг), тело чужого узла или плашка рамки не режутся (раздутие 2px — терпим
+    // легально-тесные маршруты margin-лестницы (3px), но узел, надвинувшийся на
+    // линию, инвалидирует).
+    {
+      const pr = prev?.routes.get(g.id);
+      const ph = prev?.handles.get(g.id);
+      const ps = parseHandle(ph?.sourceHandle);
+      const pt = parseHandle(ph?.targetHandle);
+      if (pr && pr.length >= 2 && ps && pt) {
+        const spNow = handlePoint(sr, ps.side, ps.idx);
+        const tpNow = handlePoint(tr, pt.side, pt.idx);
+        const endpointsOk = near(pr[0], spNow) && near(pr[pr.length - 1], tpNow);
+        if (endpointsOk) {
+          const GROW = 2;
+          const bodies = [
+            ...[...rects.entries()]
+              .filter(([id]) => id !== g.source && id !== g.target)
+              .map(([, r]) => r),
+            ...(frames ?? []).map((f) => f.plaque),
+          ].map((r) => ({ x: r.x - GROW, y: r.y - GROW, w: r.w + 2 * GROW, h: r.h + 2 * GROW }));
+          if (!pathCrossesRects(pr, bodies)) {
+            prevValid.set(g.id, { route: pr.map((p) => ({ x: p.x, y: p.y })), s: ps, t: pt });
+          }
+        }
+      }
+    }
     const rail = rails.get(g.id);
     let sPorts: PortSpec[], tPorts: PortSpec[];
     if (lockedIds.has(g.id)) {
@@ -179,6 +226,7 @@ export function buildAutoRoutes(params: {
               return n * FRAME_CROSS_COST;
             }
           : undefined,
+      prev: prevValid.get(g.id)?.route,
     });
   }
 
@@ -190,6 +238,17 @@ export function buildAutoRoutes(params: {
     const route = raw.get(g.id);
     if (!route || route.length < 2) continue;
     routes.set(g.id, route.map((p) => ({ x: p.x, y: p.y })));
+    // Гистерезис сохранил прежний маршрут? Тогда хэндлы — прежние (их слоты могли быть
+    // не-центровыми после прошлой раздачи; порты-кандидаты их не знают), и стыковки
+    // ПИННЕМ (free=false): distributeSlots не должен латерально таскать удержанный
+    // маршрут — иначе стабильность, ради которой он удержан, тут же ломается.
+    const kept = prevValid.get(g.id);
+    const keptApplied = !!kept && sameRoute(route, kept.route);
+    if (keptApplied) {
+      docks.push({ edgeId: g.id, nodeId: g.source, side: kept.s.side, idx: kept.s.idx, end: "s", free: false });
+      docks.push({ edgeId: g.id, nodeId: g.target, side: kept.t.side, idx: kept.t.idx, end: "t", free: false });
+      continue;
+    }
     // какие порты выбраны — по совпадению концов маршрута с точками стыковки
     const ports = portsById.get(g.id)!;
     const sPort = ports.s.find((p) => near(route[0], p.point)) ?? ports.s[0];

@@ -15,6 +15,13 @@ import { routePorts, type PortCandidate, type RouteOptions } from "./orthoRoute"
 
 const EPS = 0.5;
 const DEFAULT_CROSS_COST = 200; // px-эквивалент штрафа за одно пересечение (R3 > R1)
+// ГИСТЕРЕЗИС МАРШРУТОВ (2026-07-09): валидный маршрут прошлого прогона сохраняется,
+// если он не хуже свежего A* больше, чем на этот порог. Без гистерезиса любой чих
+// (сдвиг постороннего узла двигал грид-линии/инварианты толкали соседей на пиксели)
+// перекладывал стрелки, которых никто не трогал. Порог ДОЛЖЕН быть меньше цены
+// пересечения (200) и перехода рамки (150): реальную деградацию (новый крест, разрез
+// рамки) гистерезис не маскирует; поглощает ничьи, лишний излом и микро-удлинения.
+const ROUTE_STICKINESS = 100;
 
 // Терминал ребра для глобального роутера: концы (на хэндлах) и СВОИ препятствия — тела
 // чужих узлов БЕЗ узлов-концов этого ребра (инвариант routeOrthogonal).
@@ -35,6 +42,11 @@ export interface EdgeTerminal {
   // ЧУЖИХ рамок штрафуются, а рамки со своим концом бесплатны (переход туда неизбежен).
   // Приоритетнее общего opts.extraMoveCost.
   extraMoveCost?: (x1: number, y1: number, x2: number, y2: number) => number;
+  // ВАЛИДИРОВАННЫЙ маршрут прошлого прогона (гистерезис): вызывающий уже проверил, что
+  // концы сидят на текущих хэндлах и тела/плашки не режутся. Сохраняется, если его
+  // полная стоимость (длина + изломы + пересечения с уже проложенными + extraMoveCost)
+  // не хуже свежей больше, чем на ROUTE_STICKINESS.
+  prev?: EdgePoint[];
 }
 
 export interface RouteAllOptions {
@@ -86,6 +98,32 @@ function crossingCount(x1: number, y1: number, x2: number, y2: number, segs: Seg
   return pts.size;
 }
 
+// Полная стоимость ГОТОВОЙ ломаной в тех же единицах, что цена A*: длина + изломы +
+// пересечения с уже проложенными + доп. штраф среды. Для честного сравнения свежего
+// маршрута с прошлогодним обе ломаные оцениваются ЭТОЙ функцией (стабы включены в обе).
+function routeCost(
+  pts: EdgePoint[],
+  placedSegs: Segment[],
+  crossCost: number,
+  bendPenalty: number,
+  extra?: (x1: number, y1: number, x2: number, y2: number) => number,
+): number {
+  let cost = 0;
+  let prevHoriz: boolean | null = null;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const len = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+    if (len <= EPS) continue;
+    const horiz = Math.abs(b.y - a.y) <= Math.abs(b.x - a.x);
+    if (prevHoriz !== null && horiz !== prevHoriz) cost += bendPenalty;
+    prevHoriz = horiz;
+    cost += len;
+    if (crossCost > 0 && placedSegs.length > 0) cost += crossCost * crossingCount(a.x, a.y, b.x, b.y, placedSegs);
+    if (extra) cost += extra(a.x, a.y, b.x, b.y);
+  }
+  return cost;
+}
+
 // Детерминированный порядок прокладки: по убыванию манхэттенова размаха концов, тай-брейк
 // по id. Длинные/«дорогие в объезде» рёбра берут чистый маршрут первыми.
 function routingOrder(edges: EdgeTerminal[]): EdgeTerminal[] {
@@ -133,7 +171,15 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     const [starts, ends] = portsOf(e);
     const r = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost });
     // Пути нет даже с margin=0 (порт заперт) — прямой отрезок-fallback, как раньше.
-    const route = r?.pts ?? cleanup([{ ...e.start }, { ...e.end }]);
+    let route = r?.pts ?? cleanup([{ ...e.start }, { ...e.end }]);
+    // Гистерезис: прежний валидный маршрут не хуже свежего больше, чем на порог, —
+    // держим прежний (стрелка не перекладывается от чужих микро-сдвигов и ничьих).
+    if (e.prev && e.prev.length >= 2) {
+      const bp = opts?.bendPenalty ?? 40;
+      const cNew = routeCost(route, placedSegs, crossCost, bp, extra);
+      const cPrev = routeCost(e.prev, placedSegs, crossCost, bp, extra);
+      if (cPrev <= cNew + ROUTE_STICKINESS) route = e.prev.map((p) => ({ x: p.x, y: p.y }));
+    }
     placed.set(e.id, route);
     for (const s of segments(route)) placedSegs.push(s);
   }
