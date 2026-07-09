@@ -96,10 +96,12 @@ def edge_deletion_snapshot(
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> DeletionSnapshot:
-    """Снимок связи и её ghost-метаданных для отката удаления/создания (Undo).
+    """Снимок связи для отката удаления/создания (Undo).
 
     Клиент берёт его ПЕРЕД delete (откат удаления связи) либо при undo создания связи,
-    чтобы потом восстановить связь с исходным id через POST /nodes/restore.
+    чтобы потом восстановить связь с исходным id через POST /nodes/restore. Геометрия
+    пучка живёт в view_layout и удаление связи её не сносит (R3) — снимок несёт
+    только само ребро.
     """
     if not scoped_edge(db, edge_id, project):
         raise HTTPException(status_code=404, detail="Связь не найдена")

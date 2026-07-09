@@ -116,6 +116,25 @@ def test_deep_copy_clones_schema_without_touching_source(db):
     assert get_project(src.id, db=db).object_count == 2
 
 
+def test_deep_copy_keeps_node_status(db):
+    """Регрессия 2026-07-09: копия проекта теряла status узлов (planned/deprecated
+    молча сбрасывались в existing) — copy_project_schema не переносил поле."""
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-статусы"), db=db, user=user)
+    a = Node(id=uuid.uuid4(), name="Планируемый", project_id=src.id, status="planned")
+    b = Node(id=uuid.uuid4(), name="Уходящий", project_id=src.id, status="deprecated")
+    db.add_all([a, b])
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-статусы", start=f"copy:{src.id}"), db=db, user=user
+    )
+    statuses = {
+        n.name: n.status for n in db.query(Node).filter(Node.project_id == copy.id).all()
+    }
+    assert statuses == {"Планируемый": "planned", "Уходящий": "deprecated"}
+
+
 def test_copy_unknown_source_404(db):
     user = ensure_architect(db)
     with pytest.raises(HTTPException) as ei:

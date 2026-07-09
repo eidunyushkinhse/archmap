@@ -53,6 +53,7 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 openapi_spec=n.openapi_spec,
                 is_external=n.is_external,
                 shape=n.shape,
+                status=n.status,
             )
         )
     db.flush()
