@@ -2,8 +2,11 @@
 //
 // ЧИСТАЯ композиция всех стадий раскладки уровня/контекста: проекция гостей → ремап
 // рёбер → слияние мастер-стрелок → позиции (ELK/контекст-звезда) → кольца гостей →
-// разведение → keep-out → реконструкция изломов → раздвижка под плашки (A10) →
+// разведение → инварианты (keep-out рамок + наложения) → раздвижка под плашки (A10)
+// → инварианты повторно → засев владения → реконструкция изломов →
 // глобальный роутер (A7/A8/A11) → плашки (A7.2) → детуры плашек (A12) → nudge (A13).
+// A10 — СТРОГО до засева и с добивкой инвариантов: раздвижка не знает о рамках, а
+// засев фиксирует именно показанные позиции (см. комментарий у блока A10).
 //
 // Конвейер НЕ пишет в БД и не трогает React: побочные эффекты прежней async-раскладки
 // (засев владения own-on-first-render, миграция якорей изломов) возвращаются наружу
@@ -353,7 +356,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // Сдвиги ВЛАДЕЕМЫХ узлов копим — их персист (интентом ниже) делает развод
     // устойчивым, иначе каждый прогон разводил бы заново от наложенных строк.
     const movedOwnedByInvariants = new Set<string>();
-    {
+    const runExpandedInvariants = () => {
       const externalsRefs = [
         ...entities.map((e) => ({
           id: e.id,
@@ -407,7 +410,89 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         const displayed = [...nodes.map((n) => ({ id: n.id })), ...entities.map((e) => ({ id: e.id }))];
         edgeHandles = assignEdgeHandles(displayed, layoutEdges, positions);
       }
+    };
+    runExpandedInvariants();
+
+    // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2). Связь между
+    // СОСЕДНИМИ узлами бывает короче своей плашки — инлайн она не лезет и отскакивает
+    // мимо стрелки/под узел (BUG B из A9.0). Раздвигаем концы такого ребра по доминантной
+    // оси, чтобы плечо стало длиннее текста. КРИТ (own-on-first-render): двигаем ТОЛЬКО
+    // свежие ELK-локалы (нет в levelPositions, никем не присвоены) — владеемые позиции
+    // прибиты намертво. МЕСТО В КОНВЕЙЕРЕ: ПОСЛЕ цикла инвариантов (керн раздвижки не
+    // знает о рамках — мог завозить узлы внутрь чужих раскрытых рамок, когда бежал
+    // последним) и ДО засева владения (засев фиксирует ПОКАЗАННЫЕ позиции — раздвижка
+    // после него разъезжалась бы с персистом). Если раздвижка двигала — инварианты
+    // прогоняются ПОВТОРНО (возможные заезды в рамки зачищаются; keep-out и разведение
+    // не сжимают зазоры, поэтому раздвинутое место они не отбирают).
+    let a10moved = false;
+    {
+      const SEP_MARGIN = 8; // клиренс вдоль плеча с каждой стороны плашки
+      const SEP_PAD = 12;   // зазор при каскадной зачистке наложений (как separateGuests)
+      const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
+      const localIds = new Set(nodes.map((n) => n.id)); // владение double-check: только локалы двигаем
+      const idxOf = new Map<string, number>();
+      const rects: Rect[] = [];
+      const weights: number[] = [];
+      for (const id of displayIds) {
+        const p = positions.get(id);
+        if (!p) continue;
+        idxOf.set(id, rects.length);
+        rects.push({ minX: p.x, minY: p.y, maxX: p.x + NODE_W, maxY: p.y + NODE_H });
+        const movable = localIds.has(id) && !ownedPositions[id];
+        weights.push(movable ? 1 : Infinity);
+      }
+      // Сколько рёбер на каждой НЕУПОРЯДОЧЕННОЙ паре узлов — встречную/много-рёберную пару
+      // раздвигать бессмысленно: их плечи совпадают (R4), инлайн на прямом коридоре всё равно
+      // запрещён → за это отвечают рельсы (A11) и детур (A12), а не раздвижка. Иначе A10 зря
+      // выселял бы узел (см. дамп A10.2: ObsCore уезжал, плашка всё равно leader).
+      const pairCount = new Map<string, number>();
+      for (const g of groupArr) {
+        const k = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
+        pairCount.set(k, (pairCount.get(k) ?? 0) + 1);
+      }
+      const labelEdges: LabelEdge[] = [];
+      for (const g of groupArr) {
+        const pk = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
+        if ((pairCount.get(pk) ?? 0) > 1) continue; // встречная/много-рёберная пара → не раздвигаем
+        const si = idxOf.get(g.source);
+        const ti = idxOf.get(g.target);
+        if (si == null || ti == null) continue;
+        // оба конца прибиты — раздвинуть нечем без нарушения ownership, оставляем leader
+        if (weights[si] === Infinity && weights[ti] === Infinity) continue;
+        // ручной путь пучка (waypoints в viewLayout; effectiveWaypoints ещё не собран —
+        // реконструкция ниже по конвейеру) → ребро не авто-маршрутизируем, не раздвигаем
+        if (EDGE_MANUAL_LAYOUT && (viewLayout[bundleKey(g.source, g.target)]?.waypoints?.length ?? 0) > 0) continue;
+        const meta = edgeLabelMeta(g);
+        if (!meta) continue;
+        const box = labelBoxSize(meta.text, { lines: meta.lines });
+        // голодное ли ребро: инлайн-зазор по доминантной оси короче плашки + 2·margin?
+        const s = rects[si];
+        const t = rects[ti];
+        const dx = Math.abs((s.minX + s.maxX - t.minX - t.maxX) / 2);
+        const dy = Math.abs((s.minY + s.maxY - t.minY - t.maxY) / 2);
+        const axisX = dx >= dy;
+        const gap = axisX
+          ? dx - (s.maxX - s.minX + t.maxX - t.minX) / 2
+          : dy - (s.maxY - s.minY + t.maxY - t.minY) / 2;
+        const need = (axisX ? box.w : box.h) + 2 * SEP_MARGIN;
+        if (gap >= need) continue; // места хватает — не раздвигаем
+        labelEdges.push({ source: si, target: ti, box });
+      }
+      if (labelEdges.length > 0) {
+        const widened = separateForLabels(rects, weights, labelEdges, { pad: SEP_PAD, margin: SEP_MARGIN });
+        // пишем новые позиции только подвижным узлам (прибитые VPSC не двигает — но не
+        // трогаем их координаты вовсе, чтобы исключить дрейф владеемых позиций).
+        for (const [id, i] of idxOf) {
+          if (weights[i] === Infinity) continue;
+          const p = positions.get(id)!;
+          if (Math.abs(widened[i].minX - p.x) > 1e-6 || Math.abs(widened[i].minY - p.y) > 1e-6) a10moved = true;
+          positions.set(id, { ...p, x: widened[i].minX, y: widened[i].minY });
+        }
+      }
     }
+    // раздвижка двигала узлы → инварианты (keep-out рамок, наложения, родной keep-out)
+    // обязаны отработать заново: финальные позиции чисты по всем инвариантам
+    if (a10moved) runExpandedInvariants();
 
     // ЗАСЕВ ВЛАДЕНИЯ (own-on-first-render): каждый гость без сохранённой позиции получает
     // её навсегда — на финальных позициях (после колец + enforce + разведения). Покрывает
@@ -469,80 +554,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     });
     Object.assign(effectiveWaypoints, ownedWp);
     if (wpMigrations.length > 0) intents.push({ kind: "own-bundle-waypoints", migrations: wpMigrations });
-  }
-
-  // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2). Связь между
-  // СОСЕДНИМИ узлами бывает короче своей плашки — инлайн она не лезет и отскакивает
-  // мимо стрелки/под узел (BUG B из A9.0). Раздвигаем концы такого ребра по доминантной
-  // оси, чтобы плечо стало длиннее текста. КРИТ (own-on-first-render): двигаем ТОЛЬКО
-  // свежие ELK-локалы (нет в levelPositions, никем не присвоены, конвейером не
-  // персистятся) — владеемые позиции (локал из levelPositions, ЛЮБОЙ гость: его место
-  // персистит засев выше, сдвиг разъехался бы с сохранённым → дёрганье) прибиты намертво.
-  // На финальных позициях (кольца+enforce+разведение), ДО routeAll/плашек — раздвинули,
-  // и маршрут с плашкой лягут инлайн. Оба конца прибиты → ребро не трогаем (останется
-  // leader). Мутируем positions на месте — downstream-роутер видит новые места.
-  if (!isContext) {
-    const SEP_MARGIN = 8; // клиренс вдоль плеча с каждой стороны плашки
-    const SEP_PAD = 12;   // зазор при каскадной зачистке наложений (как separateGuests)
-    const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
-    const localIds = new Set(nodes.map((n) => n.id)); // владение double-check: только локалы двигаем
-    const idxOf = new Map<string, number>();
-    const rects: Rect[] = [];
-    const weights: number[] = [];
-    for (const id of displayIds) {
-      const p = positions.get(id);
-      if (!p) continue;
-      idxOf.set(id, rects.length);
-      rects.push({ minX: p.x, minY: p.y, maxX: p.x + NODE_W, maxY: p.y + NODE_H });
-      const movable = localIds.has(id) && !ownedPositions[id];
-      weights.push(movable ? 1 : Infinity);
-    }
-    // Сколько рёбер на каждой НЕУПОРЯДОЧЕННОЙ паре узлов — встречную/много-рёберную пару
-    // раздвигать бессмысленно: их плечи совпадают (R4), инлайн на прямом коридоре всё равно
-    // запрещён → за это отвечают рельсы (A11) и детур (A12), а не раздвижка. Иначе A10 зря
-    // выселял бы узел (см. дамп A10.2: ObsCore уезжал, плашка всё равно leader).
-    const pairCount = new Map<string, number>();
-    for (const g of groupArr) {
-      const k = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
-      pairCount.set(k, (pairCount.get(k) ?? 0) + 1);
-    }
-    const labelEdges: LabelEdge[] = [];
-    for (const g of groupArr) {
-      const pk = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
-      if ((pairCount.get(pk) ?? 0) > 1) continue; // встречная/много-рёберная пара → не раздвигаем
-      const si = idxOf.get(g.source);
-      const ti = idxOf.get(g.target);
-      if (si == null || ti == null) continue;
-      // оба конца прибиты — раздвинуть нечем без нарушения ownership, оставляем leader
-      if (weights[si] === Infinity && weights[ti] === Infinity) continue;
-      // ручной путь (waypoints) → ребро не авто-маршрутизируем (тот же слой, что роутер ниже)
-      if ((effectiveWaypoints[bundleKey(g.source, g.target)]?.length ?? 0) > 0) continue;
-      const meta = edgeLabelMeta(g);
-      if (!meta) continue;
-      const box = labelBoxSize(meta.text, { lines: meta.lines });
-      // голодное ли ребро: инлайн-зазор по доминантной оси короче плашки + 2·margin?
-      const s = rects[si];
-      const t = rects[ti];
-      const dx = Math.abs((s.minX + s.maxX - t.minX - t.maxX) / 2);
-      const dy = Math.abs((s.minY + s.maxY - t.minY - t.maxY) / 2);
-      const axisX = dx >= dy;
-      const gap = axisX
-        ? dx - (s.maxX - s.minX + t.maxX - t.minX) / 2
-        : dy - (s.maxY - s.minY + t.maxY - t.minY) / 2;
-      const need = (axisX ? box.w : box.h) + 2 * SEP_MARGIN;
-      if (gap >= need) continue; // места хватает — не раздвигаем
-      labelEdges.push({ source: si, target: ti, box });
-    }
-    if (labelEdges.length > 0) {
-      const widened = separateForLabels(rects, weights, labelEdges, { pad: SEP_PAD, margin: SEP_MARGIN });
-      // пишем новые позиции только подвижным узлам (прибитые VPSC не двигает — но не
-      // трогаем их координаты вовсе, чтобы исключить дрейф владеемых позиций).
-      for (const [id, i] of idxOf) {
-        if (weights[i] === Infinity) continue;
-        const p = positions.get(id)!;
-        positions.set(id, { ...p, x: widened[i].minX, y: widened[i].minY });
-      }
-    }
   }
 
   // Авто-маршруты (эпик стрелок A7.1, R1+R3): глобальный роутер на раскладке для рёбер
