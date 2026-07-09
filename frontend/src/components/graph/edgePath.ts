@@ -163,13 +163,13 @@ export function buildRenderPoints(
 // обязательный стаб-колено (стрелка выходит наружу, затем идёт обратно). Для здоровых
 // путей — no-op (cleanup схлопнёт коллинеарное звено). Сравнение с offset=20 у smoothstep.
 // Сегмент у хэндла «чистый», если идёт строго по оси внешней нормали (без
-// перпендикулярной составляющей) и на длину ≥ stub. Ортогональный сегмент всегда
-// осевой, так что «нечистый» = идёт внутрь, вдоль края узла или короче stub.
-function leavesOutward(a: EdgePoint, b: EdgePoint, ox: number, oy: number, stub: number): boolean {
+// перпендикулярной составляющей) и на длину ≥ minAlong. Ортогональный сегмент всегда
+// осевой, так что «нечистый» = идёт внутрь, вдоль края узла или короче minAlong.
+function leavesOutward(a: EdgePoint, b: EdgePoint, ox: number, oy: number, minAlong: number): boolean {
   const vx = b.x - a.x, vy = b.y - a.y;
   const along = vx * ox + vy * oy;
   const perp = Math.abs(vx) * (1 - Math.abs(ox)) + Math.abs(vy) * (1 - Math.abs(oy));
-  return perp < 0.001 && along >= stub - 0.001;
+  return perp < 0.001 && along >= minAlong - 0.001;
 }
 
 // Гарантирует стаб НАРУЖУ у начала пути pts (pts[0] — хэндл, нормаль (ox,oy)). Если первый
@@ -178,8 +178,8 @@ function leavesOutward(a: EdgePoint, b: EdgePoint, ox: number, oy: number, stub:
 // отбрасываем ведущий «внутренний» участок (он шёл по оси нормали). Так возврат идёт вбок,
 // а не назад по той же линии, и cleanup не схлопнёт его как коллинеарный. Если весь путь
 // идёт строго по оси нормали (вырожденно) — обводим прямоугольным крюком на stub в сторону.
-function stubStart(pts: EdgePoint[], ox: number, oy: number, stub: number): EdgePoint[] {
-  if (pts.length < 2 || leavesOutward(pts[0], pts[1], ox, oy, stub)) return pts;
+function stubStart(pts: EdgePoint[], ox: number, oy: number, stub: number, minAlong: number): EdgePoint[] {
+  if (pts.length < 2 || leavesOutward(pts[0], pts[1], ox, oy, minAlong)) return pts;
   const s = pts[0];
   const a = { x: s.x + ox * stub, y: s.y + oy * stub };
   const horiz = ox !== 0;                       // нормаль горизонтальна → перп-ось это Y
@@ -206,15 +206,23 @@ function stubStart(pts: EdgePoint[], ox: number, oy: number, stub: number): Edge
 // узла-конца крайний сегмент может смотреть ВНУТРЬ тела узла (или вдоль его края) — стрелка
 // прячется за узлом, её не ухватить. orthogonalPointsForHandles это соблюдает по построению,
 // здесь — постобработкой. Цель обрабатываем тем же кодом через разворот пути.
+// `minAlong` — минимальная требуемая длина чистого выхода наружу. По умолчанию = stub
+// (произвольные waypoints: короткий выход считаем нечистым и чиним). Для АВТО-маршрутов
+// вызывающий передаёт малый minAlong: роутер кладёт стаб по построению и легально
+// УКОРАЧИВАЕТ его в тесноте (clampStub, узлы в 12px друг от друга) — страховка обязана
+// проверять НАПРАВЛЕНИЕ выхода, а не длину. Иначе она пересобирала концы полным stub,
+// сдвигая излом в зону соседнего узла и схлопывая разведённые nudge-ом плечи обратно
+// на одну линию (жалоба: коллинеальная встречная пара в щели под «Базами данных»).
 export function ensureOutwardStubs(
   pts: EdgePoint[], sSide: EdgeSide, tSide: EdgeSide, stub: number = EDGE_STUB,
+  minAlong: number = stub,
 ): EdgePoint[] {
   if (pts.length < 2) return pts;
   let work = pts.map((p) => ({ x: p.x, y: p.y }));
   const { ox: sox, oy: soy } = OUT[sSide];
-  work = stubStart(work, sox, soy, stub);
+  work = stubStart(work, sox, soy, stub, minAlong);
   const { ox: tox, oy: toy } = OUT[tSide];
-  work = stubStart(work.reverse(), tox, toy, stub).reverse();
+  work = stubStart(work.reverse(), tox, toy, stub, minAlong).reverse();
   return cleanup(work);
 }
 

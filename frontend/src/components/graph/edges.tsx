@@ -288,7 +288,10 @@ function WrappedLabelEdge({
       }
       raw[0] = s;
       raw[raw.length - 1] = t;
-      const pts = ensureOutwardStubs(cleanup(raw), sideOf(sourcePosition), sideOf(targetPosition));
+      // страховка направления выхода: minAlong=2, НЕ полный стаб — авто-маршрут кладёт
+      // стабы по построению и легально укорачивает их в тесноте (clampStub); пере-стаб
+      // полной длиной ломал разведённые плечи (см. комментарий у ensureOutwardStubs)
+      const pts = ensureOutwardStubs(cleanup(raw), sideOf(sourcePosition), sideOf(targetPosition), undefined, 2);
       edgePath = orthoPath(pts);
       const mid = pathMidpoint(pts);
       labelX = mid.x;
