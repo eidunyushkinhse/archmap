@@ -138,10 +138,11 @@ export function useSnapAlignment({
       if (isContext) return; // контекст read-only — перетаскивания не сохраняем
       if (!isArchitect) return;
       const single = group.length === 1;
-      // нативные рамки считаем один раз на группу — нужны только при наличии
-      // гостей/контейнеров/раскрытых рамок (локалам кламп не нужен)
+      // нативные рамки считаем один раз на группу — нужны гостям/контейнерам/
+      // раскрытым рамкам И детям compound-рамок (их персист-ветка гоняет тот же
+      // кламп, что и живой драг); топ-уровневым локалам кламп не нужен
       const frames =
-        group.some((n) => n.type === "ghost" || n.type === "container" || n.type === "frame")
+        group.some((n) => n.type === "ghost" || n.type === "container" || n.type === "frame" || n.parentId)
           ? levelFrames()
           : [];
       // Перемещения, реально изменившие позицию (для записи в историю Undo/Redo).
@@ -162,10 +163,20 @@ export function useSnapAlignment({
         // группово-жёсткий кламп остаётся за enforce; жёсткая группа умрёт в R4.2.
         if (n.parentId) {
           const { w: cw, h: ch } = nodeSize(n);
+          let raw = absPositionOf(n, byId);
+          // ВАЖНО: n.position от RF — «сырая» позиция драга, наших снап-правок из
+          // onNodesChange внутренний трекер RF не видит (как и у топ-узлов ниже).
+          // Без повтора снапа в БД уходила несснапнутая позиция — узел, отпущенный
+          // «выровненным», после пере-раскладки съезжал на пиксели притяжки.
+          // Снап — в АБСОЛЮТЕ (соседи в snapNode считаются абсолютными центрами).
+          if (single) {
+            const s = snapNode(raw.x + cw / 2, raw.y + ch / 2, cw, ch, rfNodes, n.id);
+            raw = { x: s.snapCx - cw / 2, y: s.snapCy - ch / 2 };
+          }
           const abs = clampOutOfNodes(
             n.id,
             clampOutOfCompound(
-              n.id, clampOutOfNativeFrames(n.id, absPositionOf(n, byId), frames), cw, ch,
+              n.id, clampOutOfNativeFrames(n.id, raw, frames), cw, ch,
             ),
             cw, ch,
           );
