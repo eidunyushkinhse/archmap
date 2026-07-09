@@ -623,8 +623,6 @@ def get_node_context(
                 original_target_id=e.target_id,
                 original_source_name=all_nodes[e.source_id].name,
                 original_target_name=all_nodes[e.target_id].name,
-                source_handle=e.source_handle,
-                target_handle=e.target_handle,
             )
         )
 
