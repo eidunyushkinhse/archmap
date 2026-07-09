@@ -22,7 +22,10 @@ import { cleanup, type SegOrient } from "../edgePath";
 
 const EPS = 0.75;      // допуск «одна линия»
 const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложением (касание концами игнорируем)
-const GAP = 12;        // idealNudgingDistance — зазор между соседними плечами канала
+// idealNudgingDistance — зазор между соседними плечами канала. 14 (было 12): воздух
+// под мостики — две дуги JUMP_RADIUS=6 на соседних плечах канала (2·6=12) при 12
+// смыкались впритык; 14 даёт видимый просвет («дуга всегда», 2026-07-09).
+const GAP = 14;
 
 export interface ChannelNudgeResult {
   routes: Map<string, EdgePoint[]>;

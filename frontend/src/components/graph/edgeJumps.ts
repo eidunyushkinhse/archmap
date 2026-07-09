@@ -7,20 +7,62 @@
 // сегменты ПАРАЛЛЕЛЬНЫ → не крестик → дуги нет. Строгая «внутренность» отсекает и
 // T-стыки (конец одной лежит на другой), и общий хэндл, и углы.
 //
-// Перепрыгивает всегда ГОРИЗОНТАЛЬНОЕ ребро (стандартная конвенция line-hop), дуга
-// выгибается вверх (к меньшему y). На каждом крестике прыгает ровно одна стрелка.
+// «ДУГА ВСЕГДА» (2026-07-09): раньше прыгало только горизонтальное ребро, и если
+// пересечение лежало ближе r+jr к его излому — дуга молча пропадала (класс жалобы:
+// крест у поворота соседки по каналу, зазор канала 12 < 18). Теперь ось и радиус
+// выбирает computeJumps по фактически доступной ПРЯМОЙ части сегментов (после трима
+// скруглений): горизонталь с полным jr → иначе вертикаль с полным jr → иначе ось с
+// большим запасом и УМЕНЬШЕННЫМ радиусом (деградация вместо отказа). Непокрытым
+// остаётся только вырожденный крест в зоне скруглений ОБОИХ рёбер — там линия уже
+// не идёт по оси и дуге физически негде стоять.
+//
+// Конвенции выгиба: горизонтальная дуга — вверх (к меньшему y), вертикальная — вправо
+// (к большему x). На каждом крестике прыгает ровно одна стрелка.
 import type { EdgePoint } from "../../types";
 import { segments } from "./edgePath";
+import { JUMP_RADIUS, EDGE_CORNER_RADIUS } from "./constants";
 
 export interface JumpPoint {
   x: number;
   y: number;
+  /** эффективный радиус дуги этого мостика (деградирует в тесноте) */
+  jr: number;
 }
 
 const EPS = 0.5;
+// минимальный видимый радиус мостика: меньше — дуга неотличима от разрыва
+const JR_MIN = 2;
+
+// Прямая часть сегмента i ломаной pts ПО ПРОДОЛЬНОЙ ОСИ — [lo, hi] после трима под
+// скругления углов (та же формула rr = min(r, l1/2, l2/2), что в buildPathWithJumps;
+// концы ломаной не тримятся). По ней computeJumps решает, влезет ли дуга.
+function straightSpan(pts: EdgePoint[], i: number, r: number): { lo: number; hi: number } {
+  const n = pts.length;
+  const p = pts[i], q = pts[i + 1];
+  const horiz = Math.abs(p.y - q.y) <= Math.abs(p.x - q.x);
+  const at = (t: EdgePoint): number => (horiz ? t.x : t.y);
+  const len = (a: EdgePoint, b: EdgePoint): number => Math.hypot(b.x - a.x, b.y - a.y);
+  let start = at(p);
+  let end = at(q);
+  const dir = Math.sign(end - start) || 1;
+  if (i > 0) {
+    const rr = Math.min(r, len(pts[i - 1], p) / 2, len(p, q) / 2);
+    start += dir * rr;
+  }
+  if (i + 2 < n) {
+    const rr = Math.min(r, len(p, q) / 2, len(q, pts[i + 2]) / 2);
+    end -= dir * rr;
+  }
+  return { lo: Math.min(start, end), hi: Math.max(start, end) };
+}
 
 // Для набора ломаных (id → точки) возвращает точки-«мостики» по каждому ребру.
-export function computeJumps(polys: Map<string, EdgePoint[]>): Map<string, JumpPoint[]> {
+// r/jr — радиусы скругления углов и мостика (синхронны с buildPathWithJumps).
+export function computeJumps(
+  polys: Map<string, EdgePoint[]>,
+  r: number = EDGE_CORNER_RADIUS,
+  jr: number = JUMP_RADIUS,
+): Map<string, JumpPoint[]> {
   const ids = [...polys.keys()];
   const result = new Map<string, JumpPoint[]>(ids.map((id) => [id, []]));
   const segs = new Map(ids.map((id) => [id, segments(polys.get(id)!)]));
@@ -41,9 +83,26 @@ export function computeJumps(polys: Map<string, EdgePoint[]>): Map<string, JumpP
           const vyMin = Math.min(v.y1, v.y2);
           const vyMax = Math.max(v.y1, v.y2);
           // СТРОГО внутри обоих сегментов → исключаем общие концы/углы/T-стыки
-          if (vx > hxMin + EPS && vx < hxMax - EPS && hy > vyMin + EPS && hy < vyMax - EPS) {
-            const horizId = sa.orient === "h" ? ids[i] : ids[j]; // прыгает горизонтальное ребро
-            result.get(horizId)!.push({ x: vx, y: hy });
+          if (!(vx > hxMin + EPS && vx < hxMax - EPS && hy > vyMin + EPS && hy < vyMax - EPS)) continue;
+          const horizId = sa.orient === "h" ? ids[i] : ids[j];
+          const vertId = sa.orient === "h" ? ids[j] : ids[i];
+          // Запас прямой части каждой оси в точке креста (после трима скруглений)
+          const spanH = straightSpan(polys.get(horizId)!, h.index, r);
+          const spanV = straightSpan(polys.get(vertId)!, v.index, r);
+          const availH = Math.min(vx - spanH.lo, spanH.hi - vx);
+          const availV = Math.min(hy - spanV.lo, spanV.hi - hy);
+          if (availH >= jr) {
+            result.get(horizId)!.push({ x: vx, y: hy, jr }); // конвенция: горизонталь первой
+          } else if (availV >= jr) {
+            result.get(vertId)!.push({ x: vx, y: hy, jr }); // фолбэк: прыгает вертикаль
+          } else {
+            // деградация: ось с бОльшим запасом, радиус — сколько влезает
+            const useH = availH >= availV;
+            const jrEff = Math.min(jr, (useH ? availH : availV) - 0.25);
+            if (jrEff >= JR_MIN) {
+              result.get(useH ? horizId : vertId)!.push({ x: vx, y: hy, jr: jrEff });
+            }
+            // jrEff < JR_MIN: крест в зоне скруглений обоих рёбер — дуге негде стоять
           }
         }
       }
@@ -53,32 +112,53 @@ export function computeJumps(polys: Map<string, EdgePoint[]>): Map<string, JumpP
 }
 
 // Прямой отрезок start→end (продолжение текущей точки пера) с «мостиками» над теми
-// jumps, что лежат на нём. Дуги только на ГОРИЗОНТАЛЬНОМ отрезке; вертикаль/прочее —
-// прямая линия. Дуга выгибается вверх (к меньшему y) при любом направлении хода.
-function straightWithJumps(start: EdgePoint, end: EdgePoint, jumps: JumpPoint[], jr: number): string {
-  if (Math.abs(start.y - end.y) > EPS) return ` L ${end.x},${end.y}`;
-  const y = start.y;
-  const dir = end.x >= start.x ? 1 : -1;
-  const lo = Math.min(start.x, end.x);
-  const hi = Math.max(start.x, end.x);
-  // мостик целиком умещается на отрезке (с запасом jr от концов, чтобы дуга не лезла в угол)
+// jumps, что лежат на нём. Работает для ОБЕИХ осей: горизонталь выгибается вверх,
+// вертикаль — вправо; неосевой отрезок — прямая линия. Радиус дуги — свой у каждого
+// мостика (hop.jr, деградация в тесноте); перекрывающиеся соседние дуги сжимаются.
+function straightWithJumps(start: EdgePoint, end: EdgePoint, jumps: JumpPoint[], jrDefault: number): string {
+  const horiz = Math.abs(start.y - end.y) <= EPS;
+  const vert = !horiz && Math.abs(start.x - end.x) <= EPS;
+  if (!horiz && !vert) return ` L ${end.x},${end.y}`;
+  const along = (p: { x: number; y: number }): number => (horiz ? p.x : p.y);
+  const c = horiz ? start.y : start.x; // постоянная (поперечная) координата
+  const dir = along(end) >= along(start) ? 1 : -1;
+  const lo = Math.min(along(start), along(end));
+  const hi = Math.max(along(start), along(end));
+  // мостик ложится на отрезок; радиус клампится по фактическому месту (страховка от
+  // рассинхрона с computeJumps), совсем невидимый (< JR_MIN) — пропускается
   const hops = jumps
-    .filter((p) => Math.abs(p.y - y) <= EPS && p.x - jr > lo && p.x + jr < hi)
-    .sort((p, q) => dir * (p.x - q.x)); // в порядке хода пера
+    .filter((p) => Math.abs((horiz ? p.y : p.x) - c) <= EPS && along(p) > lo + EPS && along(p) < hi - EPS)
+    .map((p) => ({
+      pos: along(p),
+      jr: Math.min(p.jr ?? jrDefault, along(p) - lo - 0.25, hi - along(p) - 0.25),
+    }))
+    .filter((hop) => hop.jr >= JR_MIN)
+    .sort((a, b) => dir * (a.pos - b.pos)); // в порядке хода пера
   if (hops.length === 0) return ` L ${end.x},${end.y}`;
+  // перекрывающиеся соседние дуги сжимаются до половины зазора (иначе «пила»)
+  for (let k = 1; k < hops.length; k++) {
+    const gap = Math.abs(hops[k].pos - hops[k - 1].pos);
+    if (hops[k - 1].jr + hops[k].jr > gap - 0.5) {
+      const half = Math.max((gap - 0.5) / 2, JR_MIN);
+      hops[k - 1].jr = Math.min(hops[k - 1].jr, half);
+      hops[k].jr = Math.min(hops[k].jr, half);
+    }
+  }
   let d = "";
   for (const hop of hops) {
-    const before = hop.x - dir * jr;
-    const after = hop.x + dir * jr;
-    const sweep = dir > 0 ? 1 : 0; // выгиб вверх (к меньшему y) независимо от направления
-    d += ` L ${before},${y} A ${jr} ${jr} 0 0 ${sweep} ${after},${y}`;
+    // выгиб: горизонталь — вверх, вертикаль — вправо; формула sweep едина для обеих осей
+    const sweep = dir > 0 ? 1 : 0;
+    const b1 = hop.pos - dir * hop.jr;
+    const b2 = hop.pos + dir * hop.jr;
+    if (horiz) d += ` L ${b1},${c} A ${hop.jr} ${hop.jr} 0 0 ${sweep} ${b2},${c}`;
+    else d += ` L ${c},${b1} A ${hop.jr} ${hop.jr} 0 0 ${sweep} ${c},${b2}`;
   }
   d += ` L ${end.x},${end.y}`;
   return d;
 }
 
 // SVG-путь по ортогональной ломаной со скруглением углов радиуса r (как roundedPolyline)
-// + полудуги-«мостики» радиуса jr над точками jumps на горизонтальных сегментах.
+// + полудуги-«мостики» над точками jumps (обе оси, радиус пер-мостиковый).
 export function buildPathWithJumps(
   pts: EdgePoint[],
   r: number,

@@ -17,7 +17,7 @@ import type { EdgePoint } from "../../types";
 import { buildRenderPoints, orthogonalPointsForHandles, ensureOutwardStubs, cleanup, segments, dragSegment, interior, snapDragCursor, pointAtFraction, nearestFraction, type EdgeSide } from "./edgePath";
 import { buildPathWithJumps } from "./edgeJumps";
 import { useEdgeJumps } from "./EdgeJumpContext";
-import { EDGE_SNAP_PX, JUMP_RADIUS } from "./constants";
+import { EDGE_SNAP_PX, JUMP_RADIUS, EDGE_CORNER_RADIUS } from "./constants";
 
 // Position (сторона хэндла) → сторона для хэндл-ориентированного маршрута грипов.
 function sideOf(p: Position): EdgeSide {
@@ -198,7 +198,7 @@ function WrappedLabelEdge({
   // Орто-путь со скруглением + полудугами над пересечениями (точки прыжков — из реестра).
   const orthoPath = (pts: EdgePoint[]): string => {
     jumpPoly = pts;
-    return buildPathWithJumps(pts, 12, jumpsFor(id), JUMP_RADIUS);
+    return buildPathWithJumps(pts, EDGE_CORNER_RADIUS, jumpsFor(id), JUMP_RADIUS);
   };
   // Ломаная пути для плашки подписи: по ней считаем точку по доле labelT и проекцию
   // курсора при драге. null — у контекст-полок/петель (там плашка не двигается).

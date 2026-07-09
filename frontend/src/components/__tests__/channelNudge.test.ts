@@ -22,7 +22,7 @@ describe("nudgeChannels", () => {
     const { routes: out, nudged } = nudgeChannels({
       routes,
       handles: new Map([H("A", "n1--right--1", "n2--left--1"), H("B", "n3--right--1", "n4--left--1")]),
-      obstacles: [],
+      obstacles: [], gap: 12,
     });
     expect(nudged).toEqual(new Set(["A", "B"]));
     // A пришёл сверху → верхний слот (-6), B снизу → нижний (+6); зазор = gap
@@ -43,7 +43,7 @@ describe("nudgeChannels", () => {
         H("B", "n1--right--1", "n5--left--1"), // тот же источник, что у A
         H("C", "n3--right--1", "n4--left--1"),
       ]),
-      obstacles: [],
+      obstacles: [], gap: 12,
     });
     expect(midY(out.get("A")!)).toBeCloseTo(midY(out.get("B")!)); // ствол слит
     expect(Math.abs(midY(out.get("C")!) - midY(out.get("A")!))).toBeGreaterThanOrEqual(11);
@@ -60,7 +60,7 @@ describe("nudgeChannels", () => {
       handles: new Map([
         H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1"), H("C", "e--right--1", "f--left--1"),
       ]),
-      obstacles: [],
+      obstacles: [], gap: 12,
     });
     expect(midY(out.get("A")!)).toBeCloseTo(88);
     expect(midY(out.get("B")!)).toBeCloseTo(100);
@@ -76,7 +76,7 @@ describe("nudgeChannels", () => {
     const { routes: out } = nudgeChannels({
       routes,
       handles: new Map([H("F", "x--right--1", "y--top--1"), H("A", "a--right--1", "b--left--1")]),
-      obstacles: [],
+      obstacles: [], gap: 12,
     });
     expect(out.get("F")![0].y).toBe(100); // пришпиленный на месте
     expect(midY(out.get("A")!)).toBeCloseTo(88); // сосед ушёл на свой слот от нуля пришпиленного
@@ -91,7 +91,7 @@ describe("nudgeChannels", () => {
       routes,
       handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       // тело точно там, куда уехал бы A (y=94): верхний слот заблокирован
-      obstacles: [{ x: 100, y: 60, w: 100, h: 40 }],
+      obstacles: [{ x: 100, y: 60, w: 100, h: 40 }], gap: 12,
     });
     expect(midY(out.get("A")!)).toBeCloseTo(100); // сдвиг отменён
     expect(midY(out.get("B")!)).toBeCloseTo(106); // партнёр всё же ушёл вниз
@@ -105,7 +105,7 @@ describe("nudgeChannels", () => {
     const { nudged } = nudgeChannels({
       routes,
       handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
-      obstacles: [],
+      obstacles: [], gap: 12,
     });
     expect(nudged.size).toBe(0);
   });
