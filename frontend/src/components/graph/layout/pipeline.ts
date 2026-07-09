@@ -24,7 +24,7 @@ import type {
 import { bundleKey } from "../../../types";
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
 import type { LiveHandleInputs } from "../interaction/useLiveDragHandles";
-import { NODE_W, NODE_H, hid } from "../constants";
+import { NODE_W, NODE_H, hid, EDGE_MANUAL_LAYOUT } from "../constants";
 import { edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
@@ -205,8 +205,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       ...e,
       source_id,
       target_id,
-      source_handle: b?.source_handle ?? null,
-      target_handle: b?.target_handle ?? null,
+      // фиче-тогл: с выключенным ручным слоем сохранённые хэндлы игнорируются —
+      // раскладка назначает все хэндлы сама (label_t — подпись, не положение стрелки)
+      source_handle: EDGE_MANUAL_LAYOUT ? (b?.source_handle ?? null) : null,
+      target_handle: EDGE_MANUAL_LAYOUT ? (b?.target_handle ?? null) : null,
       label_t: b?.label_t ?? null,
     };
   });
@@ -451,9 +453,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       const anc = ent.kind === "leaf" ? (ent.ghost.ancestors ?? []) : ent.ancestors;
       if (anc.some((a) => expanded.has(a.id))) expandedChildIds.add(ent.id);
     }
-    // изломы пучков отображаемых пар — из viewLayout по ключу пучка
+    // изломы пучков отображаемых пар — из viewLayout по ключу пучка.
+    // Фиче-тогл: с выключенным ручным слоем сохранённые изломы не читаются вовсе —
+    // effectiveWaypoints пуст, все рёбра идут в авто-роутер (данные в БД живы).
     const bundleWp: Record<string, BundleWaypoints> = {};
-    for (const g of groupArr) {
+    if (EDGE_MANUAL_LAYOUT) for (const g of groupArr) {
       const key = bundleKey(g.source, g.target);
       const b = viewLayout[key];
       if (b?.waypoints && b.waypoints.length > 0) {
@@ -608,7 +612,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       // всё равно строит. Так смена хэндла одного ребра не выкидывает его из набора и не
       // пере-раскладывает остальные авто-маршруты (стабильность, A7.4).
       const bh = viewLayout[bundleKey(g.source, g.target)];
-      if (bh?.source_handle != null || bh?.target_handle != null) lockedIds.add(g.id);
+      if (EDGE_MANUAL_LAYOUT && (bh?.source_handle != null || bh?.target_handle != null)) lockedIds.add(g.id);
     }
     // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
     // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один

@@ -436,8 +436,9 @@ function WrappedLabelEdge({
       )}
       {/* Грипы перетаскивания сегментов: прозрачная «толстая» линия-хитбокс + видимая
           точка по центру (проявляется при ховере ребра). stopPropagation на клике гасит
-          открытие поповера связи после жеста. */}
-      {gripPts && segments(gripPts).map((seg) => {
+          открытие поповера связи после жеста. Рендерятся только при живом коммите
+          (фиче-тогл ручного слоя выключает onWaypointsCommit — грипы гаснут). */}
+      {gripPts && d?.onWaypointsCommit && segments(gripPts).map((seg) => {
         const mx = (seg.x1 + seg.x2) / 2, my = (seg.y1 + seg.y2) / 2;
         return (
           <g key={seg.index} className="lg-edge-grip">

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { computeViewLayout, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
+import { EDGE_MANUAL_LAYOUT } from "../graph/constants";
 import { bundleKey } from "../../types";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 
@@ -118,7 +119,9 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.groupArr[0].members.map((m) => m.id).sort()).toEqual(["e1", "e2"]);
   });
 
-  it("геометрия пучка (R3): хэндл и изломы читаются по ключу пары и раздаются мастеру", async () => {
+  // Гейт фиче-тоглом ручного слоя стрелок (2026-07-09): при EDGE_MANUAL_LAYOUT=false
+  // конвейер сознательно игнорирует сохранённые хэндлы/изломы — тест оживёт при включении.
+  it.skipIf(!EDGE_MANUAL_LAYOUT)("геометрия пучка (R3): хэндл и изломы читаются по ключу пары и раздаются мастеру", async () => {
     const bk = bundleKey("A", "B");
     const inp = levelInput({
       edges: [edge("e1", "A", "B", "раз"), edge("e2", "A", "B", "два")],

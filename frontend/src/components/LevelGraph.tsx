@@ -25,6 +25,7 @@ import { canHaveChildren, bundleKey } from "../types";
 import {
   NODE_W, NODE_H,
   CTX_LABEL_W,
+  EDGE_MANUAL_LAYOUT,
 } from "./graph/constants";
 import type {
   WrappedEdgeData,
@@ -1099,7 +1100,9 @@ function LevelGraphInner({
           // состояние для инверсии. undefined-путь инвертируется пустым массивом (сброс в авто).
           const oldWp = data.waypoints;
           const oldT = single.label_t ?? null;
-          data.onWaypointsCommit = (nwp) => {
+          // фиче-тогл: ручные изломы выключены → грипы сегментов не рендерятся
+          // (edges.tsx гейтит их наличием этого колбэка), новые изломы не создаются
+          if (EDGE_MANUAL_LAYOUT) data.onWaypointsCommit = (nwp) => {
             cb.commitWaypoints(bk, nwp);
             cb.pushHistory({
               label: "Изменение пути связи",
@@ -1170,8 +1173,9 @@ function LevelGraphInner({
             ...(eDimmed ? { opacity: 0.12 } : null),
           },
           // хэндл мастер-стрелки общий для всех членов — реконнект фанаутит его на все
-          // (смена узла-конца по-прежнему запрещена в handleReconnect: правится только хэндл)
-          reconnectable: isArchitect,
+          // (смена узла-конца по-прежнему запрещена в handleReconnect: правится только хэндл).
+          // Фиче-тогл: реконнект = ручная фиксация хэндла → выключен вместе с ручным слоем.
+          reconnectable: isArchitect && EDGE_MANUAL_LAYOUT,
         };
       })
     );
