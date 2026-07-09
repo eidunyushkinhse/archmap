@@ -3,16 +3,18 @@
 // ЧИСТАЯ композиция всех стадий раскладки уровня/контекста: проекция гостей → ремап
 // рёбер → слияние мастер-стрелок → позиции (ELK/контекст-звезда) → кольца гостей →
 // разведение → инварианты (keep-out рамок + наложения) → раздвижка под плашки (A10)
-// → инварианты повторно → засев владения → реконструкция изломов →
+// → инварианты повторно → засев владения →
 // глобальный роутер (A7/A8/A11) → плашки (A7.2) → детуры плашек (A12) → nudge (A13).
 // A10 — СТРОГО до засева и с добивкой инвариантов: раздвижка не знает о рамках, а
 // засев фиксирует именно показанные позиции (см. комментарий у блока A10).
+// Геометрия стрелок — целиком авто: ручной слой (изломы/хэндлы/label_t) удалён
+// 2026-07-09 вместе с фиче-тоглом EDGE_MANUAL_LAYOUT.
 //
 // Конвейер НЕ пишет в БД и не трогает React: побочные эффекты прежней async-раскладки
-// (засев владения own-on-first-render, миграция якорей изломов) возвращаются наружу
-// СПИСКОМ ИНТЕНТОВ — их применяет вызывающий (LevelGraph), если прогон не устарел.
-// Так композиция стадий тестируется целиком, а класс багов «раскладка пишет в БД из
-// середины рендера» закрыт по построению.
+// (засев владения own-on-first-render) возвращаются наружу СПИСКОМ ИНТЕНТОВ — их
+// применяет вызывающий (LevelGraph), если прогон не устарел. Так композиция стадий
+// тестируется целиком, а класс багов «раскладка пишет в БД из середины рендера»
+// закрыт по построению.
 import type { Node as RFNode } from "@xyflow/react";
 import type {
   Node as AppNode,
@@ -24,17 +26,15 @@ import type {
   ViewLayout,
   AncestorRef,
 } from "../../../types";
-import { bundleKey } from "../../../types";
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
 import type { LiveHandleInputs } from "../interaction/useLiveDragHandles";
-import { NODE_W, NODE_H, hid, EDGE_MANUAL_LAYOUT } from "../constants";
+import { NODE_W, NODE_H, hid } from "../constants";
 import { edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
 import { layoutLevel, layoutContext } from "./engine";
 import { assignEdgeHandles } from "./level";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
-import { reconstructOwnedWaypoints, type BundleWaypoints } from "./ownedWaypoints";
 import { computeFrames, type FrameRect } from "./frames";
 import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
@@ -66,9 +66,6 @@ export type LayoutResult = {
   // размещение плашек подписей (R2+R4): по группе — центр/якорь/режим (online|leader).
   // Считается по авто-маршрутам; сборка кладёт в data.labelPlacement.
   labelPlacements?: Map<string, LabelPlacement>;
-  // изломы ПУЧКОВ, реконструированные в абсолют (владеемые якорем — anchor + офсет,
-  // Ф3/D8; прочие — как пришли). Ключ — ключ пучка. Сборка читает путь отсюда.
-  bundleWaypoints: Record<string, EdgePoint[]>;
   // РАСКРЫТЫЕ гостевые рамки на финальных позициях (R4): реальные rect'ы для
   // compound-узлов RF (id рамки = id раскрытого контейнера; дети — memberIds).
   // Отсортированы по depth (внешние первыми) — порядок вложенности parentId.
@@ -79,18 +76,13 @@ export type LayoutResult = {
 };
 
 // Побочные записи раскладки, вычисленные конвейером как ДАННЫЕ. Применяет вызывающий
-// (через commitLayout — единый батч view_layout):
-// - seed-positions — засев владения own-on-first-render (гость/контейнер без
-//   сохранённой позиции получает текущую навсегда) и персист выдвинутых разведением
-//   владеемых соседей (Ф4.4);
-// - own-bundle-waypoints — приобретение якоря изломом пучка (абсолютный путь к потомку
-//   раскрытой рамки → офсет от узла-якоря, Ф3/D8).
-export type PersistIntent =
-  | { kind: "seed-positions"; seeds: { id: string; x: number; y: number }[] }
-  | {
-      kind: "own-bundle-waypoints";
-      migrations: { itemId: string; waypoints: EdgePoint[]; anchor: string }[];
-    };
+// (через commitLayout — единый батч view_layout): seed-positions — засев владения
+// own-on-first-render (гость/контейнер без сохранённой позиции получает текущую
+// навсегда) и персист выдвинутых разведением владеемых соседей (Ф4.4).
+export type PersistIntent = {
+  kind: "seed-positions";
+  seeds: { id: string; x: number; y: number }[];
+};
 
 export interface PipelineInput {
   nodes: AppNode[];
@@ -102,8 +94,8 @@ export interface PipelineInput {
   edges: AppEdge[];
   containerId: string | null;
   // раскладка вида как есть (R3, единое хранилище): item_id → payload. Позиции —
-  // по id сущности (локалы, гости, контейнеры единообразно), геометрия рёбер —
-  // по ключу пучка "b:<src>><tgt>". В контекст-режиме — пустая (эфемерная звезда).
+  // по id сущности (локалы, гости, контейнеры единообразно). В контекст-режиме —
+  // пустая (эфемерная звезда).
   viewLayout: ViewLayout;
   ancestorIds: string[];
   // раскрытые инлайн контейнеры: и гостевые, и ЛОКАЛЬНЫЕ (R5) — id уникальны
@@ -204,25 +196,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // ПРОЕКЦИЯ, половина 2: сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
   const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghosts, ancestorIds, expanded);
   const remap = (id: string) => ghostToEffective.get(id) ?? id;
-  // Рёбра с концами, переадресованными на отображаемые сущности, ОБОГАЩЁННЫЕ
-  // геометрией своего ПУЧКА (R3): хэндлы/label_t читаются из view_layout по ключу
-  // пучка пары отображаемых концов — у каждой проекции своя строка, члены мастера
-  // делят её по построению (прежний prefix-резолв и fan-out не нужны).
-  const remappedEdges: LayoutEdge[] = liftedEdges.map((e) => {
-    const source_id = remap(e.source_id);
-    const target_id = remap(e.target_id);
-    const b = viewLayout[bundleKey(source_id, target_id)];
-    return {
-      ...e,
-      source_id,
-      target_id,
-      // фиче-тогл: с выключенным ручным слоем сохранённые хэндлы игнорируются —
-      // раскладка назначает все хэндлы сама (label_t — подпись, не положение стрелки)
-      source_handle: EDGE_MANUAL_LAYOUT ? (b?.source_handle ?? null) : null,
-      target_handle: EDGE_MANUAL_LAYOUT ? (b?.target_handle ?? null) : null,
-      label_t: b?.label_t ?? null,
-    };
-  });
+  // Рёбра с концами, переадресованными на отображаемые сущности. Геометрии на
+  // рёбрах нет (ручной слой удалён 2026-07-09) — всю её назначает авто-раскладка.
+  const remappedEdges: LayoutEdge[] = liftedEdges.map((e) => ({
+    ...e,
+    source_id: remap(e.source_id),
+    target_id: remap(e.target_id),
+  }));
 
   // В контекст-режиме раскладка эфемерная и единая — сохранённые координаты
   // (фокус двигали на своём уровне) тут из ДРУГОЙ системы координат и дали бы
@@ -253,17 +233,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   }
 
   // Раскладку/хэндлы считаем на мастер-рёбрах (по одному на направление между парой).
-  // Хэндлы у мастера общие для всех членов (одна линия) — берём у первого члена, у
-  // которого они заданы (в remappedEdges хэндлы уже разрешены: колонка для локального
-  // конца, гостевой по префиксу). Так пересчёт не сбрасывает хэндл мастера на авто.
   const layoutEdges: LayoutEdge[] = groupArr.map((g) => {
     if (g.members.length === 1) return g.members[0];
     const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
     return {
       id: g.id, source_id: g.source, target_id: g.target,
       label: longest.label, technology: longest.technology,
-      source_handle: g.members.find((m) => m.source_handle)?.source_handle ?? null,
-      target_handle: g.members.find((m) => m.target_handle)?.target_handle ?? null,
       created_at: "",
     };
   });
@@ -287,9 +262,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // полки подписей и обходы не родных стрелок считаются только в контекст-раскладке
   const edgeShelves = ctxLayout?.edgeShelves;
   const edgeLoops = ctxLayout?.edgeLoops;
-  // изломы ПУЧКОВ, реконструированные в абсолют (владеемые якорем → anchor + офсет,
-  // ТЗ D8). Заполняется в блоке выноса гостей; сборка читает путь отсюда (ключ пучка).
-  const effectiveWaypoints: Record<string, EdgePoint[]> = {};
 
   // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) —
   // вынесена в ringPlacement под юнит-тесты. МУТИРУЕТ positions
@@ -467,9 +439,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         if (si == null || ti == null) continue;
         // оба конца прибиты — раздвинуть нечем без нарушения ownership, оставляем leader
         if (weights[si] === Infinity && weights[ti] === Infinity) continue;
-        // ручной путь пучка (waypoints в viewLayout; effectiveWaypoints ещё не собран —
-        // реконструкция ниже по конвейеру) → ребро не авто-маршрутизируем, не раздвигаем
-        if (EDGE_MANUAL_LAYOUT && (viewLayout[bundleKey(g.source, g.target)]?.waypoints?.length ?? 0) > 0) continue;
         const meta = edgeLabelMeta(g);
         if (!meta) continue;
         const box = labelBoxSize(meta.text, { lines: meta.lines });
@@ -535,38 +504,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       });
       if (pushed.length > 0) intents.push({ kind: "seed-positions", seeds: pushed });
     }
-
-    // Реконструкция изломов ПУЧКОВ к детям раскрытых рамок (ТЗ D8, рев. B / R3):
-    // путь привязан к СОБСТВЕННОЙ позиции конца — абсолют = офсет + позиция якоря.
-    // Позиции здесь уже финальные (после колец + enforce + сдвига коробки), поэтому
-    // излом едет ровно с ребёнком. Легаси/свежий абсолют к потомку раскрытой рамки
-    // лениво мигрируем в офсет (интентом own-bundle-waypoints).
-    const expandedChildIds = new Set<string>();
-    for (const ent of entities) {
-      const anc = ent.kind === "leaf" ? (ent.ghost.ancestors ?? []) : ent.ancestors;
-      if (anc.some((a) => expanded.has(a.id))) expandedChildIds.add(ent.id);
-    }
-    // изломы пучков отображаемых пар — из viewLayout по ключу пучка.
-    // Фиче-тогл: с выключенным ручным слоем сохранённые изломы не читаются вовсе —
-    // effectiveWaypoints пуст, все рёбра идут в авто-роутер (данные в БД живы).
-    const bundleWp: Record<string, BundleWaypoints> = {};
-    if (EDGE_MANUAL_LAYOUT) for (const g of groupArr) {
-      const key = bundleKey(g.source, g.target);
-      const b = viewLayout[key];
-      if (b?.waypoints && b.waypoints.length > 0) {
-        bundleWp[key] = { source: g.source, target: g.target, waypoints: b.waypoints, anchor: b.anchor ?? null };
-      }
-    }
-    const { effective: ownedWp, migrations: wpMigrations } = reconstructOwnedWaypoints({
-      bundles: bundleWp, pos: (id) => positions.get(id), expandedChildIds,
-    });
-    Object.assign(effectiveWaypoints, ownedWp);
-    if (wpMigrations.length > 0) intents.push({ kind: "own-bundle-waypoints", migrations: wpMigrations });
   }
 
-  // Авто-маршруты (эпик стрелок A7.1, R1+R3): глобальный роутер на раскладке для рёбер
-  // level/main-схемы, которые пользователь НЕ правил вручную (waypoints).
-  // Контекст-схему не трогаем (R2/R4 решены в её собственной модели).
+  // Авто-маршруты (эпик стрелок A7.1, R1+R3): глобальный роутер на раскладке для всех
+  // рёбер level/main-схемы. Контекст-схему не трогаем (R2/R4 решены в её модели).
   let autoRoutes: Map<string, EdgePoint[]> | undefined;
   let labelPlacements: Map<string, LabelPlacement> | undefined;
   if (!isContext) {
@@ -582,56 +523,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       return { x: p.x, y: p.y, w: s?.w ?? NODE_W, h: s?.h ?? NODE_H };
     };
 
-    // ВАЛИДНОСТЬ ручного пути (V2.2b, канон libavoid/yFiles: ручной маршрут, ставший
-    // невалидным после сдвигов/пере-раскладок, пере-маршрутизируется). Сохранённые изломы
-    // могли устареть: путь по ним режет ТЕЛА узлов (жалоба «Сбор метрик JMX/SNMP лежат на
-    // HTTP-объектах»). Такой путь для ЭТОГО прогона игнорируем — ребро уходит в авто-роутер.
-    // Данные НЕ удаляем (недеструктивно): подвинет узлы обратно — ручной путь оживёт.
-    {
-      const bodies = displayIds
-        .map((id) => ({ id, r: realRectOf(id) }))
-        .filter((b): b is { id: string; r: NonNullable<ReturnType<typeof realRectOf>> } => b.r != null);
-      const inBody = (p: EdgePoint, r: { x: number; y: number; w: number; h: number }): boolean =>
-        p.x > r.x + 2 && p.x < r.x + r.w - 2 && p.y > r.y + 2 && p.y < r.y + r.h - 2;
-      // Пенетрация bbox сегмента в тело: точен для осевых сегментов, консервативен для
-      // диагональных (pathCrossesRects диагонали не понимает — мимо него и жили пути-зомби).
-      const segCutsBody = (p1: EdgePoint, p2: EdgePoint, r: { x: number; y: number; w: number; h: number }): boolean =>
-        Math.min(p1.x, p2.x) < r.x + r.w - 2 && Math.max(p1.x, p2.x) > r.x + 2 &&
-        Math.min(p1.y, p2.y) < r.y + r.h - 2 && Math.max(p1.y, p2.y) > r.y + 2;
-      for (const g of groupArr) {
-        const key = bundleKey(g.source, g.target);
-        const wp = effectiveWaypoints[key];
-        if (!wp || wp.length === 0) continue;
-        const foreign = bodies.filter((b) => b.id !== g.source && b.id !== g.target);
-        const invalid =
-          // соседние изломы по диагонали: в ортогональной модели не бывает — данные
-          // из прошлой координатной эпохи (рендер рисовал бы диагональ поверх узлов)
-          wp.slice(1).some((p, i) => Math.abs(p.x - wp[i].x) > 1 && Math.abs(p.y - wp[i].y) > 1) ||
-          wp.some((p) => foreign.some((b) => inBody(p, b.r))) ||
-          wp.slice(1).some((p, i) => foreign.some((b) => segCutsBody(wp[i], p, b.r)));
-        if (invalid) delete effectiveWaypoints[key];
-      }
-    }
-
+    // Все рёбра с позиционированными концами маршрутизирует роутер (ручного слоя нет).
     const routableIds = new Set<string>();
-    // pairableIds — рёбра уровня, участвующие в раскладке (авто + ручные-waypoints). По ним
-    // ищем встречные рельс-пары (A12.5): рельса соседа не должна зависеть от того, ручное это
-    // ребро или авто — иначе правка изломов одного рушит маршрут встречного («двигаю одно —
-    // смещается другое»). См. railAssignments.
-    const pairableIds = new Set<string>();
-    const lockedIds = new Set<string>(); // routable, но сторону зафиксировал пользователь
     for (const g of groupArr) {
       if (!positions.get(g.source) || !positions.get(g.target)) continue;
-      pairableIds.add(g.id); // участвует в раскладке уровня (до фильтра ручного пути)
-      // Ручной ПУТЬ (waypoints) → ребро целиком ручное, не авто-маршрутизируем (приоритет).
-      // Источник РОВНО тот же, что рисует edges.tsx: изломы пучка по ключу пары (R3).
-      if ((effectiveWaypoints[bundleKey(g.source, g.target)]?.length ?? 0) > 0) continue;
       routableIds.add(g.id);
-      // Ручной ХЭНДЛ без ручного пути → сторону уважаем (lockedIds), но путь к ней роутер
-      // всё равно строит. Так смена хэндла одного ребра не выкидывает его из набора и не
-      // пере-раскладывает остальные авто-маршруты (стабильность, A7.4).
-      const bh = viewLayout[bundleKey(g.source, g.target)];
-      if (EDGE_MANUAL_LAYOUT && (bh?.source_handle != null || bh?.target_handle != null)) lockedIds.add(g.id);
     }
     // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
     // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один
@@ -664,20 +560,19 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         memberIds: f.memberIds,
       }));
     const ar = buildAutoRoutes({
-      groups: groupArr, routableIds, pairableIds, lockedIds, positions, edgeHandles,
+      groups: groupArr, routableIds, positions,
       displayIds, sizes: sizeMap, frames: routerFrames,
       // гистерезис: финальные маршруты/хэндлы прошлого прогона (если вызывающий дал)
       prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
     });
     autoRoutes = ar.routes;
-    // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там). Только свободные
-    // рёбра (у locked хэндл уже стоит, buildAutoRoutes их в ar.handles не кладёт).
+    // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там).
     for (const [id, hh] of ar.handles) edgeHandles.set(id, hh);
 
     // Плашки подписей (эпик стрелок A7.2, R2+R4): по авто-маршрутам размещаем плашки без
     // взаимных наложений и не под узлами (R2), запрещая их на совпавших плечах (R4); где
-    // на линии чисто не встаёт — выноска-leader (A7.3). Только для авто-маршрутов; рёбра с
-    // ручным путём сохраняют прежнее поведение подписи (центр/label_t).
+    // на линии чисто не встаёт — выноска-leader (A7.3). Позиция целиком авто (ручной
+    // label_t умер вместе с ручным слоем).
     const nodeRects = displayIds
       .map(realRectOf)
       .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
@@ -685,7 +580,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       routes: autoRoutes,
       groups: groupArr,
       labelMeta: edgeLabelMeta,
-      preferredT: (g) => g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
+      preferredT: () => undefined,
       nodeRects,
     });
 
@@ -695,14 +590,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // маршрут (own-on-first-render цел). Детур детерминирован (lane из габаритов этого ребра),
     // не учитывает чужие пересечения (как A7.4-residual). После детуров — ОДИН пере-проход
     // плашек на обновлённых маршрутах (пересчитает coincidentLegs и вернёт напарника по
-    // рельсе к центру). Только авто-рёбра, не locked; кэп длины → иначе остаётся leader.
+    // рельсе к центру). Кэп длины → иначе остаётся leader.
     const detourPreferred = new Map<string, number>();
     const rectOf = realRectOf;
-    // кандидаты на детур — leader-рёбра (плашка не влезла), только свободные авто-рёбра
+    // кандидаты на детур — leader-рёбра (плашка не влезла) из маршрутизируемых
     const detourCands: Array<{ g: EdgeGroup; box: ReturnType<typeof labelBoxSize> }> = [];
     for (const g of groupArr) {
       if (labelPlacements.get(g.id)?.mode !== "leader") continue;
-      if (!routableIds.has(g.id) || lockedIds.has(g.id)) continue;
+      if (!routableIds.has(g.id)) continue;
       const meta = edgeLabelMeta(g);
       if (!meta) continue;
       detourCands.push({ g, box: labelBoxSize(meta.text, { lines: meta.lines }) });
@@ -784,7 +679,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         routes: autoRoutes,
         groups: groupArr,
         labelMeta: edgeLabelMeta,
-        preferredT: (g) => detourPreferred.get(g.id) ?? g.members.find((m) => m.label_t != null)?.label_t ?? undefined,
+        preferredT: (g) => detourPreferred.get(g.id),
         nodeRects,
       });
     }
@@ -837,7 +732,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   return {
     layout: {
       nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
-      autoRoutes, labelPlacements, bundleWaypoints: effectiveWaypoints, guestFrames, groupArr, spacers,
+      autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
     },
     liveInputs: {
       layoutEdges,

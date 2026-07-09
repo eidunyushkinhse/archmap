@@ -1,12 +1,11 @@
 // Кастомный тип ребра с HTML-лейблом (поддерживает перенос) и реестр edgeTypes.
-// На основной схеме путь можно гнуть жестом: грипы на сегментах тянут излом за курсором
-// (см. edgePath.ts), новая форма хранится в waypoints ребра.
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+// Геометрия стрелки целиком авто (ручной слой изломов/хэндлов/драга плашки удалён
+// 2026-07-09): линия — авто-маршрут роутера либо smoothstep, плашка — авто-размещение.
+import { useCallback, useEffect, useRef, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
   getSmoothStepPath,
-  useReactFlow,
   Position,
   type EdgeProps,
   type EdgeTypes,
@@ -14,10 +13,10 @@ import {
 import { wrapLabel } from "./text";
 import type { WrappedEdgeData } from "./types";
 import type { EdgePoint } from "../../types";
-import { buildRenderPoints, orthogonalPointsForHandles, ensureOutwardStubs, cleanup, segments, dragSegment, interior, snapDragCursor, pointAtFraction, nearestFraction, type EdgeSide } from "./edgePath";
+import { ensureOutwardStubs, cleanup, segments, type EdgeSide } from "./edgePath";
 import { buildPathWithJumps } from "./edgeJumps";
 import { useEdgeJumps } from "./EdgeJumpContext";
-import { EDGE_SNAP_PX, JUMP_RADIUS, EDGE_CORNER_RADIUS } from "./constants";
+import { JUMP_RADIUS, EDGE_CORNER_RADIUS } from "./constants";
 
 // Position (сторона хэндла) → сторона для хэндл-ориентированного маршрута грипов.
 function sideOf(p: Position): EdgeSide {
@@ -46,13 +45,7 @@ function roundedPolyline(pts: Array<{ x: number; y: number }>, r: number): strin
   return d;
 }
 
-// Сравнение двух наборов точек по координатам (для «проп догнал коммит»).
-function samePoints(a: EdgePoint[], b: EdgePoint[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
-}
-
-// Середина ломаной (для плашки подписи кастомного пути): центр среднего сегмента.
+// Середина ломаной (для плашки подписи без авто-размещения): центр среднего сегмента.
 function pathMidpoint(pts: EdgePoint[]): { x: number; y: number } {
   const segs = segments(pts);
   if (segs.length === 0) return pts[0] ?? { x: 0, y: 0 };
@@ -83,131 +76,17 @@ function WrappedLabelEdge({
   // Реестр «мостиков»: публикуем ломаную этого ребра, читаем его точки-прыжки.
   const { publish, jumpsFor } = useEdgeJumps();
 
-  const { screenToFlowPosition, getZoom } = useReactFlow();
-  // Курсор в координатах графа + примагничивание плеча к ровному положению относительно
-  // хэндла (порог EDGE_SNAP_PX делим на зум — липкость одинакова на любом масштабе).
-  const flowCursor = useCallback(
-    (clientX: number, clientY: number, drag: { startPts: EdgePoint[]; index: number }): EdgePoint => {
-      const c = screenToFlowPosition({ x: clientX, y: clientY });
-      return snapDragCursor(drag.startPts, drag.index, c, EDGE_SNAP_PX / getZoom());
-    },
-    [screenToFlowPosition, getZoom],
-  );
-  // Живой набор waypoints во время драга сегмента (null — драга нет). Коммит — на отпускании.
-  const [dragWp, setDragWp] = useState<EdgePoint[] | null>(null);
-  // Снимок исходного пути и индекс тянущегося сегмента (фиксируются в pointerdown): каждый
-  // кадр считаем dragSegment от ИСХОДНОГО пути, иначе вставка стабов/cleanup дрейфуют.
-  const dragRef = useRef<{ startPts: EdgePoint[]; index: number } | null>(null);
-  // Закоммиченный путь, ещё не доехавший до пропа data.waypoints. Коммит дёргает
-  // родительский стейт → АСИНХРОННЫЙ пересчёт раскладки; если погасить dragWp сразу,
-  // кадр между отпусканием и приходом нового пропа покажет старый (авто) путь — стрелка
-  // «мигает назад». Поэтому держим предпросмотр живым, пока проп не догонит коммит.
-  const pendingRef = useRef<EdgePoint[] | null>(null);
-
-  const onGripMove = useCallback((e: ReactPointerEvent<SVGPathElement>) => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const c = flowCursor(e.clientX, e.clientY, drag);
-    setDragWp(interior(dragSegment(drag.startPts, drag.index, c)));
-  }, [flowCursor]);
-
-  const onGripUp = useCallback((e: ReactPointerEvent<SVGPathElement>) => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const c = flowCursor(e.clientX, e.clientY, drag);
-    const wp = interior(dragSegment(drag.startPts, drag.index, c));
-    dragRef.current = null;
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* уже снят */ }
-    // dragWp НЕ гасим — оставляем закоммиченный путь как предпросмотр, пока проп не догонит
-    // (см. pendingRef + эффект ниже), иначе кадр со старым путём → мигание.
-    pendingRef.current = wp;
-    setDragWp(wp);
-    d?.onWaypointsCommit?.(wp);
-  }, [flowCursor, d]);
-
-  // Проп догнал коммит → отпускаем локальный предпросмотр (теперь рисуем от data.waypoints).
-  useEffect(() => {
-    if (pendingRef.current == null) return;
-    if (samePoints(d?.waypoints ?? [], pendingRef.current)) {
-      pendingRef.current = null;
-      setDragWp(null);
-    }
-  }, [d?.waypoints]);
-
-  // --- Перетаскивание плашки с описанием вдоль стрелки (доля пути labelT) ---
-  // Живая доля во время драга (null — драга нет); предпросмотр до прихода нового пропа.
-  const [dragLabelT, setDragLabelT] = useState<number | null>(null);
-  const curLabelTRef = useRef<number | null>(null);       // последняя посчитанная доля
-  const pendingLabelT = useRef<number | null>(null);      // закоммичено, ждём проп
-  const labelMoved = useRef(false);                       // драг сдвинул плашку → проглотить click
-  const labelDrag = useRef<{ moved: boolean; startX: number; startY: number } | null>(null);
-  // Геометрия плашки latest-ref'ом: ломаная пути под проекцию курсора + коммит доли.
-  // Заполняется в рендере (см. ниже), читается в pointer-хэндлерах.
-  const labelGeom = useRef<{ pts: EdgePoint[] | null; commit?: (t: number) => void }>({ pts: null });
-
-  const onLabelDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!labelGeom.current.commit || !labelGeom.current.pts) return;
-    e.stopPropagation(); // не начинать pan/выделение
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* нет capture */ }
-    labelDrag.current = { moved: false, startX: e.clientX, startY: e.clientY };
-  }, []);
-
-  const onLabelMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = labelDrag.current;
-    if (!drag) return;
-    // мёртвая зона: пока курсор не сдвинулся на пару пикселей — это ещё клик, не драг
-    if (!drag.moved) {
-      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 3) return;
-      drag.moved = true;
-    }
-    const pts = labelGeom.current.pts;
-    if (!pts) return;
-    const c = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    const t = nearestFraction(pts, c); // уже зажата в [0,1] → дальше концов не уедет
-    curLabelTRef.current = t;
-    setDragLabelT(t);
-  }, [screenToFlowPosition]);
-
-  const onLabelUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = labelDrag.current;
-    labelDrag.current = null;
-    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* уже снят */ }
-    if (!drag || !drag.moved) return; // не двигали — это клик (откроет детали)
-    const t = curLabelTRef.current;
-    if (t == null) return;
-    labelMoved.current = true;        // следующий click по плашке проглотим
-    // dragLabelT НЕ гасим — держим предпросмотр, пока проп labelT не догонит коммит
-    // (иначе кадр с плашкой по центру → мигание, как у waypoints).
-    pendingLabelT.current = t;
-    labelGeom.current.commit?.(t);
-  }, []);
-
-  // Проп догнал коммит → отпускаем предпросмотр (рисуем от data.labelT).
-  useEffect(() => {
-    if (pendingLabelT.current == null) return;
-    if (d?.labelT === pendingLabelT.current) {
-      pendingLabelT.current = null;
-      curLabelTRef.current = null;
-      setDragLabelT(null);
-    }
-  }, [d?.labelT]);
-
   let edgePath: string;
   let labelX: number;
   let labelY: number;
-  // Сегменты под грипы перетаскивания (только для редактируемого level-ребра).
-  let gripPts: EdgePoint[] | null = null;
   // Ортогональная ломаная этого ребра для реестра «мостиков» (null — стрелка не
-  // участвует: контекст-полки/петли, viewer-smoothstep). Заполняется в орто-ветках.
+  // участвует: контекст-полки/петли, smoothstep). Заполняется в орто-ветках.
   let jumpPoly: EdgePoint[] | null = null;
   // Орто-путь со скруглением + полудугами над пересечениями (точки прыжков — из реестра).
   const orthoPath = (pts: EdgePoint[]): string => {
     jumpPoly = pts;
     return buildPathWithJumps(pts, EDGE_CORNER_RADIUS, jumpsFor(id), JUMP_RADIUS);
   };
-  // Ломаная пути для плашки подписи: по ней считаем точку по доле labelT и проекцию
-  // курсора при драге. null — у контекст-полок/петель (там плашка не двигается).
-  let labelPts: EdgePoint[] | null = null;
   if (loop) {
     // Контекст-схема: «не родная» стрелка bidi огибает колонку. Путь от дальней стороны
     // соседа: полка наружу до loopX → вертикаль до clearY (над/под колонкой) → к центру
@@ -249,32 +128,10 @@ function WrappedLabelEdge({
     labelX = (nX + cx) / 2;                          // середина фактической полки
     labelY = nY;
   } else {
-    // Обычное level-ребро. Есть кастомный путь (waypoints) или идёт драг → рисуем
-    // ортогональную ломаную по точкам; иначе — авто-smoothstep как раньше (визуал
-    // нетронутых стрелок не меняется).
+    // Обычное level-ребро: авто-маршрут роутера, иначе smoothstep.
     const s: EdgePoint = { x: sourceX, y: sourceY };
     const t: EdgePoint = { x: targetX, y: targetY };
-    const activeWp = dragWp ?? d?.waypoints ?? null;
-    const useCustom = dragWp != null || (d?.waypoints != null && d.waypoints.length > 0);
-    if (useCustom) {
-      // Обязательный стаб наружу у обоих концов: ломаную из waypoints (после залома грипом
-      // или сдвига узла) могло развернуть концевым сегментом внутрь тела узла — стрелка
-      // пряталась за ним. ensureOutwardStubs гарантирует выход вдоль нормали хэндла, как у
-      // авто-пути. Во время активного драга грипа (dragWp) форму ведёт пользователь — не
-      // навязываем, выправим на отпускании (статика).
-      const pts = dragWp != null
-        ? buildRenderPoints(s, t, activeWp)
-        : ensureOutwardStubs(
-            buildRenderPoints(s, t, activeWp),
-            sideOf(sourcePosition), sideOf(targetPosition),
-          );
-      edgePath = orthoPath(pts);
-      const mid = pathMidpoint(pts);
-      labelX = mid.x;
-      labelY = mid.y;
-      labelPts = pts;
-      if (d?.editable) gripPts = pts;
-    } else if (d?.autoRoute && d.autoRoute.length >= 2) {
+    if (d?.autoRoute && d.autoRoute.length >= 2) {
       // Авто-маршрут (эпик стрелок A7.1, R1+R3): ортоломаная посчитана на раскладке
       // глобальным роутером (минимум пересечений с другими стрелками + жёсткий обход узлов).
       // Концы переснимаем с ЖИВЫХ хэндлов (s/t) — линия держится узла при его сдвиге;
@@ -301,67 +158,22 @@ function WrappedLabelEdge({
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
-      labelPts = pts;
-      if (d?.editable) gripPts = pts;
-    } else if (d?.editable) {
-      // Редактируемое ребро без waypoints рисуем СВОЕЙ ортогональной ломаной по
-      // сторонам хэндлов — теми же точками, что идут под грипы. Так грипы всегда лежат
-      // на видимой линии. Раньше линия шла через getSmoothStepPath, а грипы — через
-      // orthogonalPoints (доминанта dx/dy): у стрелки с сохранённым хэндлом после
-      // сдвига узла они расходились, и грипы «слетали». Для выровненных сторон эта
-      // ломаная совпадает со smoothstep, поэтому здоровые стрелки выглядят как прежде.
-      const pts = cleanup(
-        orthogonalPointsForHandles(
-          sourceX, sourceY, sideOf(sourcePosition),
-          targetX, targetY, sideOf(targetPosition),
-        ),
-      );
-      edgePath = orthoPath(pts);
-      const mid = pathMidpoint(pts);
-      labelX = mid.x;
-      labelY = mid.y;
-      labelPts = pts;
-      gripPts = pts;
     } else {
-      // Нередактируемое ребро (viewer и т.п.) — прежний авто-smoothstep.
+      // Нет авто-маршрута (живой драг до пересчёта и т.п.) — авто-smoothstep.
       [edgePath, labelX, labelY] = getSmoothStepPath({
         sourceX, sourceY, sourcePosition,
         targetX, targetY, targetPosition,
         borderRadius: 12,
       });
-      // Линию viewer'у не меняем (smoothstep), но если архитектор сдвинул плашку —
-      // позицию подписи считаем по ортогональной ломаной (близка к smoothstep).
-      if (d?.labelT != null) {
-        labelPts = cleanup(
-          orthogonalPointsForHandles(
-            sourceX, sourceY, sideOf(sourcePosition),
-            targetX, targetY, sideOf(targetPosition),
-          ),
-        );
-      }
     }
   }
 
-  // Позиция плашки. Приоритет: активный драг плашки (dragLabelT) → авто-размещение (R2+R4,
-  // labelPlacement — посчитано на раскладке без наложений) → сохранённая доля label_t →
-  // центр (вычислен выше в ветках). Контекст-полки labelPts не дают → подпись по центру полки.
-  if (dragLabelT != null && labelPts) {
-    const p = pointAtFraction(labelPts, dragLabelT);
-    labelX = p.x;
-    labelY = p.y;
-  } else if (d?.labelPlacement) {
+  // Позиция плашки: авто-размещение (R2+R4, labelPlacement — посчитано на раскладке
+  // без наложений), иначе центр из веток выше. Руками плашка не двигается.
+  if (d?.labelPlacement) {
     labelX = d.labelPlacement.center.x;
     labelY = d.labelPlacement.center.y;
-  } else if (labelPts && d?.labelT != null) {
-    const p = pointAtFraction(labelPts, d.labelT);
-    labelX = p.x;
-    labelY = p.y;
   }
-  // latest-ref геометрии для pointer-хэндлеров плашки (читают её при драге). Обновляем
-  // в эффекте без deps — после каждого рендера (рефы в рендере трогать нельзя), как cbRef.
-  useEffect(() => {
-    labelGeom.current = { pts: labelPts, commit: d?.onLabelTCommit };
-  });
 
   // Публикуем ломаную этого ребра в реестр «мостиков» (пересчёт пересечений) и
   // снимаем при размонтировании. jumpPoly — новый массив каждый рендер, но publish
@@ -378,23 +190,14 @@ function WrappedLabelEdge({
   useEffect(() => { publishRef.current = publish; });
   useEffect(() => () => publishRef.current(id, null), [id]);
 
-  const onGripDown = useCallback(
-    (e: ReactPointerEvent<SVGPathElement>, index: number, startPts: EdgePoint[]) => {
-      if (!d?.editable) return;
-      e.stopPropagation(); // не начинать pan/выделение/реконнект
-      e.currentTarget.setPointerCapture(e.pointerId);
-      dragRef.current = { startPts, index };
-    },
-    [d],
-  );
-
   const labelText = d?.label;
   const items = d?.items;
   const capW = d?.maxWidth;
   const lines = labelText ? wrapLabel(labelText) : [];
 
-  // Плашка с описанием — триггер детализации связи (клик по линии на основной схеме
-  // перехватывают грипы изломов). Кликабельна, когда задан onOpenDetails (level-рёбра).
+  // Плашка с описанием — триггер детализации связи (двойной клик; единый триггер по
+  // всей схеме). Кликабельна, когда задан onOpenDetails (level-рёбра). Плашка
+  // ЗАМОРОЖЕНА: перетаскивание вдоль стрелки удалено вместе с ручным слоем.
   const clickable = d?.onOpenDetails != null;
   const openDetails = useCallback(
     (e: ReactMouseEvent) => { e.stopPropagation(); d?.onOpenDetails?.(); },
@@ -402,27 +205,9 @@ function WrappedLabelEdge({
   );
   // pointerEvents:"all" — иначе клик не дойдёт (контейнер EdgeLabelRenderer его глушит);
   // nodrag/nopan — клик по плашке не начинает pan/драг канвы.
-  const clickStyle: CSSProperties = clickable ? { cursor: "pointer", pointerEvents: "all" } : {};
-  const clickCls = clickable ? "nodrag nopan" : undefined;
-
-  // Плашку можно тащить вдоль стрелки, если задан onLabelTCommit (редактируемое
-  // level-ребро) и есть геометрия пути. Мету открывает ДВОЙНОЙ клик (единый триггер по
-  // всей схеме); одиночный — только выделение, а после драга плашки глотаем клик-эхо.
-  const labelDraggable = d?.onLabelTCommit != null && labelPts != null;
-  const onLabelClick = (e: ReactMouseEvent) => {
-    if (labelMoved.current) { labelMoved.current = false; e.stopPropagation(); }
-  };
-  const onLabelDouble = (e: ReactMouseEvent) => { if (clickable) openDetails(e); };
-  const dragProps = labelDraggable
-    ? { onPointerDown: onLabelDown, onPointerMove: onLabelMove, onPointerUp: onLabelUp }
-    : {};
-  const boxCls = labelDraggable ? "nodrag nopan" : clickCls;
-  const boxClick = labelDraggable || clickable ? onLabelClick : undefined;
-  const boxDouble = clickable ? onLabelDouble : undefined;
-  // курсор move + pointerEvents:"all" в режиме драга; иначе прежний clickStyle
-  const boxInteract: CSSProperties = labelDraggable
-    ? { cursor: "move", pointerEvents: "all" }
-    : clickStyle;
+  const boxInteract: CSSProperties = clickable ? { cursor: "pointer", pointerEvents: "all" } : {};
+  const boxCls = clickable ? "nodrag nopan" : undefined;
+  const boxDouble = clickable ? openDetails : undefined;
 
   const boxBase: CSSProperties = {
     position: "absolute",
@@ -453,45 +238,17 @@ function WrappedLabelEdge({
           точкой на стрелке (anchor). Ведём поводок ДО ЦЕНТРА плашки: непрозрачный фон
           плашки сам прячет хвост. Прежний leaderEnd (обрезка до края бокса, A15) резал
           по ОЦЕНЁННОМУ labelBoxSize-боксу — при других шрифтах реальная плашка уже
-          оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). Во время
-          активного драга плашки не рисуем (геометрия поводка из снимка устарела бы). */}
-      {d?.labelPlacement?.mode === "leader" && dragLabelT == null && !drawing && (
+          оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). */}
+      {d?.labelPlacement?.mode === "leader" && !drawing && (
         <path
           d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.center.x},${d.labelPlacement.center.y}`}
           style={{ stroke: "#9ca3af", strokeWidth: 1, strokeDasharray: "3 3", fill: "none", pointerEvents: "none" }}
         />
       )}
-      {/* Грипы перетаскивания сегментов: прозрачная «толстая» линия-хитбокс + видимая
-          точка по центру (проявляется при ховере ребра). stopPropagation на клике гасит
-          открытие поповера связи после жеста. Рендерятся только при живом коммите
-          (фиче-тогл ручного слоя выключает onWaypointsCommit — грипы гаснут). */}
-      {gripPts && d?.onWaypointsCommit && !drawing && segments(gripPts).map((seg) => {
-        const mx = (seg.x1 + seg.x2) / 2, my = (seg.y1 + seg.y2) / 2;
-        return (
-          <g key={seg.index} className="lg-edge-grip">
-            <path
-              d={`M ${seg.x1},${seg.y1} L ${seg.x2},${seg.y2}`}
-              style={{
-                stroke: "transparent",
-                strokeWidth: 16,
-                fill: "none",
-                cursor: seg.orient === "h" ? "ns-resize" : "ew-resize",
-                pointerEvents: "stroke",
-              }}
-              onPointerDown={(e) => onGripDown(e, seg.index, gripPts!)}
-              onPointerMove={onGripMove}
-              onPointerUp={onGripUp}
-              onClick={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => e.stopPropagation()}
-            />
-            <circle className="lg-edge-grip-dot" cx={mx} cy={my} r={3.5} style={{ pointerEvents: "none" }} />
-          </g>
-        );
-      })}
       {drawing ? null : items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
-          <div className={boxCls} onClick={boxClick} onDoubleClick={boxDouble} {...dragProps}
+          <div className={boxCls} onDoubleClick={boxDouble}
             style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...boxInteract, ...dimStyle }}>
             {items.map((it, i) => (
               <div key={i} style={{ display: "flex", gap: 4 }}>
@@ -504,16 +261,16 @@ function WrappedLabelEdge({
         <EdgeLabelRenderer>
           {/* при заданном capW (контекст) подпись переносится по словам и ограничена по
               ширине, чтобы влезть в зазор между фокусом и колонкой и не лезть на узлы */}
-          <div className={boxCls} onClick={boxClick} onDoubleClick={boxDouble} {...dragProps}
+          <div className={boxCls} onDoubleClick={boxDouble}
             style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...boxInteract, ...dimStyle }}>
             {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
           </div>
         </EdgeLabelRenderer>
       ) : clickable && d?.editable ? (
-        // Стрелка без описания: грипы изломов перехватывают клик по линии, поэтому даём
-        // компактный плейсхолдер-плашку как триггер детализации (и точку входа в правку).
+        // Стрелка без описания: компактный плейсхолдер-плашка как триггер детализации
+        // (по тонкой линии двойным кликом попасть трудно).
         <EdgeLabelRenderer>
-          <div className={boxCls} title="Открыть связь (двойной клик)" onClick={boxClick} onDoubleClick={boxDouble} {...dragProps}
+          <div className={boxCls} title="Открыть связь (двойной клик)" onDoubleClick={boxDouble}
             style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", fontSize: 13, lineHeight: "16px", cursor: "pointer", pointerEvents: "all", ...boxInteract, ...dimStyle }}>
             •••
           </div>

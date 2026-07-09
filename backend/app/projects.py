@@ -129,8 +129,9 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
             )
 
     # Раскладочный слой (view_layout): ремапим вид и все uuid внутри строкового
-    # ключа (позиции — сам uuid узла; пучки — "b:<src>><tgt>"; хэндлы в payload
-    # несут uuid узла префиксом `<id>--...`; anchor — uuid узла-якоря).
+    # ключа (позиции — сам uuid узла/сущности). Payload фильтруем до живых ключей
+    # (x/y/expanded): ручной слой стрелок удалён 2026-07-09, легаси-геометрию
+    # пучков в копию не тащим; опустевшие строки не копируем вовсе.
     if not nmap:
         return
     str_map = {str(old): str(new) for old, new in nmap.items()}
@@ -145,10 +146,9 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
         new_view = nmap.get(it.view_id) if it.view_id is not None else None
         if it.view_id is not None and new_view is None:
             continue  # вид ссылался на несуществующий узел — мусор, не копируем
-        payload = dict(it.payload)
-        for key in ("source_handle", "target_handle", "anchor"):
-            if isinstance(payload.get(key), str):
-                payload[key] = remap_str(payload[key])
+        payload = {k: v for k, v in it.payload.items() if k in ("x", "y", "expanded")}
+        if not payload:
+            continue  # чисто легаси-строка (геометрия пучка) — в копии не нужна
         db.add(
             ViewLayoutItem(
                 id=uuid.uuid4(),

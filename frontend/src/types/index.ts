@@ -40,36 +40,28 @@ export const withoutPersons = (nodes: Node[]): Node[] =>
 export type NodeCreate = Schemas["NodeCreate"];
 export type NodeUpdate = Schemas["NodeUpdate"];
 
-// Точка-сгиб кастомного пути стрелки в координатах графа уровня.
-export type EdgePoint = Schemas["Point"];
+// Точка ортогональной ломаной стрелки в координатах графа (чисто фронтовое:
+// авто-маршруты роутера; в контракте геометрии стрелок больше нет).
+export type EdgePoint = { x: number; y: number };
 
-// Геометрия одного объекта раскладки на виде (R3, единое хранилище view_layout).
-// Для узла/сущности — x/y; для пучка рёбер (ключ "b:<src>><tgt>") — хэндлы концов,
-// изломы (+ anchor: не null → точки это ОФСЕТ от позиции узла-якоря, Ф3) и label_t.
+// Геометрия одного объекта раскладки на виде (единое хранилище view_layout):
+// x/y — позиция (own-on-first-render), expanded — раскрытие контейнера. Ручной
+// слой стрелок (пучки "b:…" с хэндлами/изломами/label_t) удалён 2026-07-09.
 export type ViewLayoutPayload = Schemas["ViewLayoutPayload"];
 // Раскладка вида целиком: item_id → payload (как отдаёт GraphResponse.layout).
 export type ViewLayout = Record<string, ViewLayoutPayload>;
 // Владеемая позиция сущности на виде (внутренний формат модулей раскладки:
 // кольца/разведение/keep-out). Производится конвейером из ViewLayout.
 export type LevelPos = { pos_x: number; pos_y: number };
-// Ключ пучка рёбер между парой ОТОБРАЖАЕМЫХ сущностей. Кодирует проекцию (у каждой
-// пары своя геометрия) и мастер-семантику (члены пучка делят одну строку).
-export const bundleKey = (sourceId: string, targetId: string): string =>
-  `b:${sourceId}>${targetId}`;
 
 export type Edge = Schemas["EdgeResponse"];
 export type EdgeUpdate = Schemas["EdgeUpdate"];
 export type EdgeCreate = Schemas["EdgeCreate"];
 
-// Ребро, обогащённое геометрией ПУЧКА для конвейера раскладки (R3): хэндлы, изломы
-// и label_t читаются из view_layout по ключу пучка и раздаются членам (мастер-
-// семантика по построению). Вне конвейера/раскладки геометрии на рёбрах нет.
-export type LayoutEdge = Edge & {
-  source_handle: string | null;
-  target_handle: string | null;
-  waypoints?: EdgePoint[] | null;
-  label_t?: number | null;
-};
+// Ребро в конвейере раскладки. После смерти ручного слоя (2026-07-09) геометрии
+// на рёбрах нет вовсе — алиас оставлен, чтобы сигнатуры модулей раскладки
+// читались как «ребро уровня в раскладке», а не «сырое ребро БД».
+export type LayoutEdge = Edge;
 
 export type AncestorRef = Schemas["AncestorRef"];
 // Инфо о конце ребра, не являющемся локальным узлом уровня (реестр endpoints

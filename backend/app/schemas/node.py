@@ -4,8 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.schemas.edge import Point
-
 # C4-формы узла. Источник правды контракта — этот Literal; фронтовый NodeShape
 # генерируется из него (openapi-typescript). Заодно серверная валидация shape.
 NodeShape = Literal["service", "database", "broker", "person"]
@@ -102,18 +100,16 @@ class ViewLayoutPayload(BaseModel):
     Для узла/отображаемой сущности — x/y (позиция, own-on-first-render) и
     expanded (R5: контейнер раскрыт инлайн в рамку с детьми; часть состояния
     ВИДА — view = (root, expanded set), переживает перезаход).
-    Для ПУЧКА рёбер (item_id "b:<src>><tgt>") — хэндлы концов, изломы waypoints
-    (+ anchor: не null → точки это ОФСЕТ от позиции узла-якоря, Ф3) и доля плашки
-    label_t (теперь пер-вид). Все поля опциональны — хранится только заданное.
+    Все поля опциональны — хранится только заданное.
+
+    Ручной слой стрелок (хэндлы/изломы/якорь/label_t пучков "b:<src>><tgt>")
+    УДАЛЁН 2026-07-09: геометрию стрелок целиком ведёт авто-раскладка. Легаси-
+    строки пучков в БД безвредны (лишние ключи payload игнорируются) и уходят
+    при «Переразложить уровень» / удалении узлов.
     """
     x: float | None = None
     y: float | None = None
     expanded: bool | None = None
-    source_handle: str | None = None
-    target_handle: str | None = None
-    waypoints: list[Point] | None = None
-    anchor: uuid.UUID | None = None
-    label_t: float | None = None
 
 
 class ViewLayoutBatch(BaseModel):
@@ -141,8 +137,8 @@ class GraphEdgeResponse(BaseModel):
 class ContextEdgeResponse(BaseModel):
     """Ребро контекст-схемы: концы СПРОЕЦИРОВАНЫ сервером (внутренний конец →
     фокус), original_* — реальные узлы для деталей связи. Контекст сознательно
-    остаётся серверной проекцией (Д5 аудита: не трогаем до R6); waypoints/label_t
-    не отдаются — раскладка звезды эфемерна и живёт в своей системе координат.
+    остаётся серверной проекцией (Д5 аудита); геометрия не отдаётся — раскладка
+    звезды эфемерна и живёт в своей системе координат.
     """
     id: uuid.UUID
     label: str | None

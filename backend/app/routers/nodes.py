@@ -110,7 +110,12 @@ def _build_graph(
         .filter(ViewLayoutItem.project_id == project_id, view_filter)
         .all()
     ):
-        layout[r.item_id] = ViewLayoutPayload(**r.payload)
+        payload = ViewLayoutPayload(**r.payload)
+        # легаси-строки пучков (ручной слой стрелок, удалён 2026-07-09): все живые
+        # поля пусты — не отдаём мусор
+        if payload.x is None and payload.y is None and payload.expanded is None:
+            continue
+        layout[r.item_id] = payload
 
     # Число прямых детей у каждого родителя — одним проходом по всем узлам.
     # Питает бейдж «есть дети (N)» и кнопку «Войти» и у концов-реестра, и у локалов.
@@ -610,7 +615,7 @@ def get_node_context(
             continue
         neighbor_ids.add(neigh)
         # Контекст остаётся серверной проекцией (Д5 аудита): концы уже свёрнуты на
-        # фокус/соседа. waypoints/label_t сознательно НЕ отдаются — раскладка звезды
+        # фокус/соседа. Геометрия сознательно НЕ отдаётся — раскладка звезды
         # эфемерна и живёт в своей системе координат.
         result_edges.append(
             ContextEdgeResponse(

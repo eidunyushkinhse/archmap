@@ -37,8 +37,6 @@ function edge(id: string, source_id: string, target_id: string, over: Partial<La
     technology: null,
     source_id,
     target_id,
-    source_handle: null,
-    target_handle: null,
     created_at: "2026-06-08T00:00:00Z",
     ...over,
   };
@@ -116,35 +114,11 @@ describe("assignEdgeHandles", () => {
     ["b", { x: 400, y: 0 }],
   ]);
 
-  it("без валидных хэндлов назначает autoHandles по позициям", () => {
+  it("назначает autoHandles по позициям (ручных хэндлов больше нет)", () => {
     const edgeHandles = assignEdgeHandles([{ id: "a" }, { id: "b" }], [edge("e1", "a", "b")], ab);
     expect(edgeHandles.get("e1")).toEqual({
       sourceHandle: "a--right--1",
       targetHandle: "b--left--1",
-    });
-  });
-
-  it("хэндлы пучка берутся как есть (R3: валидны для проекции по построению)", () => {
-    const edgeHandles = assignEdgeHandles(
-      [{ id: "a" }, { id: "b" }],
-      [edge("e1", "a", "b", { source_handle: "a--top--0", target_handle: "b--bottom--2" })],
-      ab,
-    );
-    expect(edgeHandles.get("e1")).toEqual({
-      sourceHandle: "a--top--0",
-      targetHandle: "b--bottom--2",
-    });
-  });
-
-  it("сохранён только source (target_handle=null, как у сквозной связи) → source держится, target auto", () => {
-    const edgeHandles = assignEdgeHandles(
-      [{ id: "a" }, { id: "b" }],
-      [edge("e1", "a", "b", { source_handle: "a--top--0", target_handle: null })],
-      ab,
-    );
-    expect(edgeHandles.get("e1")).toEqual({
-      sourceHandle: "a--top--0", // сохранённый хэндл источника держится
-      targetHandle: "b--left--1", // дальний конец дефолтный → autoHandles
     });
   });
 

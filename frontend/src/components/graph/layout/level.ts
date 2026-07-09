@@ -36,12 +36,8 @@ export function autoHandles(
 
 /**
  * Назначение хэндлов рёбрам по уже посчитанным позициям узлов. Не зависит от того,
- * ЧЕМ посчитаны позиции (dagre/ELK) — только от их значений: сохранённый хэндл берётся
- * как есть, при его отсутствии — autoHandles по взаимному положению. Хэндлы приходят
- * из payload ПУЧКА текущей проекции (R3): ключ пучка — пара отображаемых концов,
- * поэтому сохранённый хэндл валиден для неё по построению (прежний prefix-резолв
- * `${nodeId}--` умер вместе с общей колонкой на все проекции). Концы независимы:
- * у сквозной связи задним может быть только один хэндл — второй в авто.
+ * ЧЕМ посчитаны позиции (dagre/ELK) — только от их значений: autoHandles по взаимному
+ * положению (сохранённых ручных хэндлов больше нет — ручной слой удалён 2026-07-09).
  * Вынесено из computeLayout, чтобы ELK-движок (layoutLevel) переиспользовал ту же логику.
  */
 export function assignEdgeHandles(
@@ -66,11 +62,7 @@ export function assignEdgeHandles(
   for (const e of edges) {
     if (!idSet.has(e.source_id) || !idSet.has(e.target_id)) continue;
     const { idx, total } = pairInfo.get(e.id) ?? { idx: 0, total: 1 };
-    const auto = autoHandles(e.source_id, e.target_id, positions, idx, total);
-    edgeHandles.set(e.id, {
-      sourceHandle: e.source_handle ?? auto.sourceHandle,
-      targetHandle: e.target_handle ?? auto.targetHandle,
-    });
+    edgeHandles.set(e.id, autoHandles(e.source_id, e.target_id, positions, idx, total));
   }
 
   return edgeHandles;

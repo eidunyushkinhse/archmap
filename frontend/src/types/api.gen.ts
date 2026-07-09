@@ -485,10 +485,12 @@ export interface paths {
         };
         /**
          * Edge Deletion Snapshot
-         * @description Снимок связи и её ghost-метаданных для отката удаления/создания (Undo).
+         * @description Снимок связи для отката удаления/создания (Undo).
          *
          *     Клиент берёт его ПЕРЕД delete (откат удаления связи) либо при undo создания связи,
-         *     чтобы потом восстановить связь с исходным id через POST /nodes/restore.
+         *     чтобы потом восстановить связь с исходным id через POST /nodes/restore. Геометрия
+         *     пучка живёт в view_layout и удаление связи её не сносит (R3) — снимок несёт
+         *     только само ребро.
          */
         get: operations["edge_deletion_snapshot_api_v1_edges__edge_id__deletion_snapshot_get"];
         put?: never;
@@ -1545,16 +1547,6 @@ export interface components {
             /** Order */
             order: number;
         };
-        /**
-         * Point
-         * @description Точка-сгиб пути стрелки в координатах графа уровня.
-         */
-        Point: {
-            /** X */
-            x: number;
-            /** Y */
-            y: number;
-        };
         /** ProcessCreate */
         ProcessCreate: {
             /** Name */
@@ -1781,9 +1773,12 @@ export interface components {
          *     Для узла/отображаемой сущности — x/y (позиция, own-on-first-render) и
          *     expanded (R5: контейнер раскрыт инлайн в рамку с детьми; часть состояния
          *     ВИДА — view = (root, expanded set), переживает перезаход).
-         *     Для ПУЧКА рёбер (item_id "b:<src>><tgt>") — хэндлы концов, изломы waypoints
-         *     (+ anchor: не null → точки это ОФСЕТ от позиции узла-якоря, Ф3) и доля плашки
-         *     label_t (теперь пер-вид). Все поля опциональны — хранится только заданное.
+         *     Все поля опциональны — хранится только заданное.
+         *
+         *     Ручной слой стрелок (хэндлы/изломы/якорь/label_t пучков "b:<src>><tgt>")
+         *     УДАЛЁН 2026-07-09: геометрию стрелок целиком ведёт авто-раскладка. Легаси-
+         *     строки пучков в БД безвредны (лишние ключи payload игнорируются) и уходят
+         *     при «Переразложить уровень» / удалении узлов.
          */
         ViewLayoutPayload: {
             /** X */
@@ -1792,16 +1787,6 @@ export interface components {
             y?: number | null;
             /** Expanded */
             expanded?: boolean | null;
-            /** Source Handle */
-            source_handle?: string | null;
-            /** Target Handle */
-            target_handle?: string | null;
-            /** Waypoints */
-            waypoints?: components["schemas"]["Point"][] | null;
-            /** Anchor */
-            anchor?: string | null;
-            /** Label T */
-            label_t?: number | null;
         };
     };
     responses: never;

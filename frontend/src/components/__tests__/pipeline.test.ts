@@ -1,7 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { computeViewLayout, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
-import { EDGE_MANUAL_LAYOUT } from "../graph/constants";
-import { bundleKey } from "../../types";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 
 // Характеризация КОМПОЗИЦИИ конвейера раскладки (R1/R3): отдельные стадии покрыты
@@ -61,7 +59,6 @@ function sig(l: LayoutResult): string {
     handles: m(l.edgeHandles),
     routes: m(l.autoRoutes),
     labels: m(l.labelPlacements),
-    wp: l.bundleWaypoints,
     groups: l.groupArr.map((g) => ({ id: g.id, n: g.members.length })).sort((p, q) => p.id.localeCompare(q.id)),
   });
 }
@@ -117,30 +114,6 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.groupArr).toHaveLength(1);
     expect(out.layout.groupArr[0].id).toBe("merge:A->B");
     expect(out.layout.groupArr[0].members.map((m) => m.id).sort()).toEqual(["e1", "e2"]);
-  });
-
-  // Гейт фиче-тоглом ручного слоя стрелок (2026-07-09): при EDGE_MANUAL_LAYOUT=false
-  // конвейер сознательно игнорирует сохранённые хэндлы/изломы — тест оживёт при включении.
-  it.skipIf(!EDGE_MANUAL_LAYOUT)("геометрия пучка (R3): хэндл и изломы читаются по ключу пары и раздаются мастеру", async () => {
-    const bk = bundleKey("A", "B");
-    const inp = levelInput({
-      edges: [edge("e1", "A", "B", "раз"), edge("e2", "A", "B", "два")],
-      endpoints: [],
-      viewLayout: {
-        A: { x: 0, y: 0 }, B: { x: 400, y: 0 },
-        [bk]: { source_handle: "A--top--0", waypoints: [{ x: 200, y: -80 }] },
-      },
-    });
-    const out = await computeViewLayout(inp);
-    const master = out.layout.groupArr[0];
-    expect(master.id).toBe("merge:A->B");
-    // хэндл пучка разрешён на мастер-ребро (второй конец — авто)
-    expect(out.layout.edgeHandles.get(master.id)?.sourceHandle).toBe("A--top--0");
-    // члены мастера обогащены геометрией пучка (одна строка на пару)
-    for (const m of master.members) expect(m.source_handle).toBe("A--top--0");
-    // ручной путь пучка виден сборке по тому же ключу и выключает авто-маршрут
-    expect(out.layout.bundleWaypoints[bk]).toEqual([{ x: 200, y: -80 }]);
-    expect(out.layout.autoRoutes?.get(master.id)).toBeUndefined();
   });
 
   it("R5: раскрытый ЛОКАЛ заменяется детьми, рамка в guestFrames, концы поднимаются к детям", async () => {

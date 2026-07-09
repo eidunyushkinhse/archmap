@@ -23,18 +23,18 @@ describe("buildAutoRoutes — отбор и терминалы", () => {
 
   it("роутит только группы из routableIds", () => {
     const none = buildAutoRoutes({
-      groups, routableIds: new Set(), pairableIds: new Set(), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(), positions, displayIds: ["A", "B"],
     });
     expect(none.routes.size).toBe(0);
     const one = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(["g1"]), positions, displayIds: ["A", "B"],
     });
     expect(one.routes.has("g1")).toBe(true);
   });
 
   it("свободное ребро (A8): концы на обращённых сторонах (правый край A → левый край B)", () => {
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(["g1"]), positions, displayIds: ["A", "B"],
     });
     const r = out.routes.get("g1")!;
     // дешевле всего прямой ход: правый центр A → левый центр B
@@ -44,17 +44,6 @@ describe("buildAutoRoutes — отбор и терминалы", () => {
     expect(out.handles.get("g1")).toEqual({ sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) });
   });
 
-  it("зафиксированный хэндл (lockedIds): сторона из него, в ar.handles не подменяется", () => {
-    const handles = new Map([["g1", { sourceHandle: hid("A", "bottom", 1), targetHandle: hid("B", "top", 1) }]]);
-    const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(["g1"]),
-      positions, edgeHandles: handles, displayIds: ["A", "B"],
-    });
-    const r = out.routes.get("g1")!;
-    expect(r[0]).toEqual({ x: NODE_W / 2, y: NODE_H }); // низ-центр A
-    expect(r[r.length - 1]).toEqual({ x: 400 + NODE_W / 2, y: 0 }); // верх-центр B
-    expect(out.handles.has("g1")).toBe(false); // locked — хэндл не трогаем
-  });
 });
 
 describe("buildAutoRoutes — обход узла-препятствия", () => {
@@ -67,7 +56,7 @@ describe("buildAutoRoutes — обход узла-препятствия", () =>
     ]);
     const groups = [group("g1", "A", "B")];
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(), positions, edgeHandles: new Map(),
+      groups, routableIds: new Set(["g1"]), positions,
       displayIds: ["A", "B", "C"],
     });
     const r = out.routes.get("g1")!;
@@ -86,8 +75,8 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
 
   it("чужое ребро обходит рамку (2 перехода дороже обхода)", () => {
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(),
-      positions, edgeHandles: new Map(), displayIds: ["A", "B"], frames: [frame],
+      groups, routableIds: new Set(["g1"]),
+      positions, displayIds: ["A", "B"], frames: [frame],
     });
     const r = out.routes.get("g1")!;
     // ни один сегмент не заходит внутрь рамки
@@ -97,8 +86,8 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
 
   it("без рамки тот же маршрут — прямой (санити разницы)", () => {
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]), lockedIds: new Set(),
-      positions, edgeHandles: new Map(), displayIds: ["A", "B"],
+      groups, routableIds: new Set(["g1"]),
+      positions, displayIds: ["A", "B"],
     });
     expect(out.routes.get("g1")!.length).toBe(2); // прямая
   });
@@ -109,8 +98,8 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
     const g = [group("g2", "A", "C")];
     const ownFrame = { ...frame, memberIds: new Set(["C"]) };
     const out = buildAutoRoutes({
-      groups: g, routableIds: new Set(["g2"]), pairableIds: new Set(["g2"]), lockedIds: new Set(),
-      positions: pos, edgeHandles: new Map(), displayIds: ["A", "C"], frames: [ownFrame],
+      groups: g, routableIds: new Set(["g2"]),
+      positions: pos, displayIds: ["A", "C"], frames: [ownFrame],
     });
     const r = out.routes.get("g2")!;
     expect(r.length).toBeLessThanOrEqual(5); // прямой заход, без вихляний от штрафа своей рамки
@@ -135,8 +124,8 @@ describe("buildAutoRoutes — раздача слотов портов (V2.4c)",
 
   it("входящее и исходящие получают разные слоты одной стороны", () => {
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(ids), pairableIds: new Set(ids), lockedIds: new Set(),
-      positions, edgeHandles: new Map(), displayIds: [...positions.keys()],
+      groups, routableIds: new Set(ids),
+      positions, displayIds: [...positions.keys()],
     });
     const hOf = (id: string, end: "sourceHandle" | "targetHandle") => out.handles.get(id)![end];
     // все четыре стыкуются на правой стороне H
@@ -159,8 +148,7 @@ describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
   ]);
   const groups = [group("g1", "A", "B")];
   const base = {
-    groups, routableIds: new Set(["g1"]), pairableIds: new Set(["g1"]),
-    lockedIds: new Set<string>(), positions, edgeHandles: new Map<string, { sourceHandle: string; targetHandle: string }>(),
+    groups, routableIds: new Set(["g1"]), positions,
     displayIds: ["A", "B"],
   };
 

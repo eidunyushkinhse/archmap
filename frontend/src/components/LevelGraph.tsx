@@ -21,11 +21,10 @@ import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
 import { nodesApi, viewsApi } from "../api/nodes";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, AncestorRef, ViewLayout, ViewLayoutPayload, EdgePoint } from "../types";
-import { canHaveChildren, bundleKey } from "../types";
+import { canHaveChildren } from "../types";
 import {
   NODE_W, NODE_H,
   CTX_LABEL_W,
-  EDGE_MANUAL_LAYOUT,
 } from "./graph/constants";
 import type {
   WrappedEdgeData,
@@ -44,19 +43,15 @@ import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import { absPositionOf } from "./graph/absPos";
-import ReconnectBlockedToast from "./graph/ReconnectBlockedToast";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
-import { useReconnectHandles } from "./graph/interaction/useReconnectHandles";
-import { useEdgeWaypoints } from "./graph/interaction/useEdgeWaypoints";
 import { useHistory } from "./graph/interaction/useHistory";
 import type { History } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import { findQuickConnectTarget, type QcNode } from "./graph/interaction/quickConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
-import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
 import { useLayoutAnimation } from "./graph/interaction/useLayoutAnimation";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { guardPersist } from "./graph/interaction/persistGuard";
@@ -423,10 +418,6 @@ function LevelGraphInner({
     }
   }, [handleNodesChange, getInternalNode]);
 
-  // Жёсткий перенос стрелок между двумя перетаскиваемыми узлами (изломы едут вместе с
-  // узлами, а не растягиваются хвостами). См. useGroupEdgeDrag.
-  const groupEdgeDrag = useGroupEdgeDrag({ rfEdges, setRfEdges });
-
   // Живой пересчёт авто-хэндлов локальных стрелок во время драга (WYSIWYG: превью =
   // итог по отпускании). Снимок входов раскладки кладём в ref в конце async-раскладки.
   const liveHandleInputs = useRef<LiveHandleInputs | null>(null);
@@ -436,8 +427,6 @@ function LevelGraphInner({
   // (paused у EdgeJumpProvider): иначе его пересчёт каждый кадр перерисовывал бы ВСЕ
   // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
   // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
-  // Те же точки жеста кормят groupEdgeDrag: старт фиксирует базу, drag переносит изломы,
-  // стоп персистит их.
   const [dragging, setDragging] = useState(false);
   // Drill из узла, раскрытого ИНЛАЙН глубже текущего уровня (R5): в breadcrumb входят
   // промежуточные контейнеры (фактическая архитектура: Контекст > HelixMon > ObsCore >
@@ -657,37 +646,34 @@ function LevelGraphInner({
       setDragging(true);
       cancelAnim(); // transition раскрытия не должен цеплять жест — мгновенно доиграть
       const grp = ns.length > 0 ? ns : [n];
-      groupEdgeDrag.begin(grp);
       liveDragHandles.begin(rfNodes); // база позиций всех узлов на старте жеста
       noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
       snapshotFramePads(); // паддинги рамок для живого bbox-follow
       beginFrameOverlay(grp); // скрыть рамки-предки, включить живой оверлей
     },
-    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
+    [liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
       setDragging(true);
       cancelAnim();
-      groupEdgeDrag.begin(ns);
       liveDragHandles.begin(rfNodes);
       noteDragStart(ns);
       snapshotFramePads();
       beginFrameOverlay(ns);
     },
-    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
+    [liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
   );
   const handleNodeDrag = useCallback(
-    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); liveFollowFrames(ns); },
-    [groupEdgeDrag, liveDragHandles, liveFollowFrames],
+    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); liveFollowFrames(ns); },
+    [liveDragHandles, liveFollowFrames],
   );
   const handleSelectionDrag = useCallback(
-    (_e: MouseEvent, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); liveFollowFrames(ns); },
-    [groupEdgeDrag, liveDragHandles, liveFollowFrames],
+    (_e: MouseEvent, ns: RFNode[]) => { liveDragHandles.move(ns); liveFollowFrames(ns); },
+    [liveDragHandles, liveFollowFrames],
   );
-  // Отпускание драга: весь жест (перенос изломов в groupEdgeDrag.end + персист позиций в
-  // handleNodeDragStop) сворачиваем в ОДНУ команду истории через beginGroup/commitGroup —
-  // иначе мультидраг узлов с изломанными рёбрами между ними давал бы 1+N шагов Undo.
+  // Отпускание драга: жест сворачиваем в ОДНУ команду истории через beginGroup/
+  // commitGroup — мультидраг остаётся одним шагом Undo.
   const handleNodeDragStopP = useCallback(
     (e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(false);
@@ -695,13 +681,12 @@ function LevelGraphInner({
       history.beginGroup();
       try {
         liveDragHandles.end();
-        groupEdgeDrag.end(ns);
         handleNodeDragStop(e, n, ns);
       } finally {
         history.commitGroup("Перемещение группы");
       }
     },
-    [groupEdgeDrag, liveDragHandles, handleNodeDragStop, history, finalizeFrameFollow],
+    [liveDragHandles, handleNodeDragStop, history, finalizeFrameFollow],
   );
   const handleSelectionDragStopP = useCallback(
     (e: MouseEvent, ns: RFNode[]) => {
@@ -710,13 +695,12 @@ function LevelGraphInner({
       history.beginGroup();
       try {
         liveDragHandles.end();
-        groupEdgeDrag.end(ns);
         handleSelectionDragStop(e, ns);
       } finally {
         history.commitGroup("Перемещение группы");
       }
     },
-    [groupEdgeDrag, liveDragHandles, handleSelectionDragStop, history, finalizeFrameFollow],
+    [liveDragHandles, handleSelectionDragStop, history, finalizeFrameFollow],
   );
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
@@ -724,31 +708,6 @@ function LevelGraphInner({
     rfNodes, isArchitect, isContext, onRequestDeleteNode, onRequestDeleteNodes,
   });
 
-
-  // Персист кастомного пути стрелки (изломы) по отпусканию драга сегмента: патч
-  // payload ПУЧКА в view_layout (единый слой R3 — развилка «колонка ребра vs
-  // пер-уровневый слой» умерла). Пустой массив = сброс в авто, якорь снимается.
-  const { commitWaypoints } = useEdgeWaypoints({ isArchitect, commitLayout });
-
-  // Персист позиции плашки (доля label_t) по отпусканию её драга. Доля геометрия-
-  // независима; живёт в payload пучка — общая для членов мастер-стрелки по построению.
-  const commitLabelT = useCallback(
-    (bundleId: string, t: number | null) => {
-      commitLayout({ [bundleId]: { label_t: t } });
-    },
-    [commitLayout],
-  );
-
-  // Реконнект концов рёбер (смена хэндла на том же узле + персист). Смену хэндла и
-  // сброс изломов (старый путь считался от прежних концов — после смены хэндла он
-  // кривой) хук пишет ОДНИМ патчем пучка через commitLayout; Undo — обратным патчем.
-  const {
-    handleReconnectStart, handleReconnect, handleReconnectEnd,
-    isValidConnection: isValidReconnect, isReconnecting, reconnectBlocked, reconnectChildDrill,
-    consumeReconnectClick,
-  } = useReconnectHandles({
-    setRfEdges, isArchitect, commitLayout, push: history.push,
-  });
 
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
   // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
@@ -772,21 +731,13 @@ function LevelGraphInner({
   );
 
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
-  // выбор потомка).
+  // выбор потомка). Реконнект концов существующих рёбер умер вместе с ручным слоем
+  // стрелок (2026-07-09) — поток создания единственный.
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
-      isArchitect, isContext, isReconnecting, resolveTarget,
+      isArchitect, isContext, resolveTarget,
       onCreate: onCreateEdge, onInto: onConnectInto, onExitUp,
     });
-
-  // Общий isValidConnection для двух потоков: при реконнекте — правила реконнекта
-  // (тот же узел), при протягивании новой связи — правила новой связи. Развод по
-  // isReconnecting, иначе «новые» правила разрешали бы реконнект на чужой узел.
-  const isValidConnection = useCallback(
-    (conn: Parameters<typeof isValidReconnect>[0]) =>
-      isReconnecting() ? isValidReconnect(conn) : isValidNewConnection(conn),
-    [isReconnecting, isValidReconnect, isValidNewConnection],
-  );
 
   // --- «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседним
   // узлом. enter (навели на стрелку) → подбираем цель и рисуем превью; leave → гасим;
@@ -857,13 +808,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, commitWaypoints, commitLabelT, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
@@ -914,19 +865,13 @@ function LevelGraphInner({
       }
       liveHandleInputs.current = liveInputs;
       // Побочные записи раскладки (интенты) — через единый commitLayout: засев владения
-      // own-on-first-render и приобретение якоря изломом (абсолют → офсет, на экране без
-      // сдвига). Зеркало onLayoutChanged кладёт их в viewLayout → следующий прогон видит
-      // сохранённое и интент не повторяет. cbRef — чтобы не тащить commitLayout в deps.
+      // own-on-first-render. Зеркало onLayoutChanged кладёт их в viewLayout → следующий
+      // прогон видит сохранённое и интент не повторяет. cbRef — чтобы не тащить
+      // commitLayout в deps.
       for (const intent of intents) {
-        if (intent.kind === "seed-positions") {
-          cbRef.current.commitLayout(
-            Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
-          );
-        } else {
-          cbRef.current.commitLayout(
-            Object.fromEntries(intent.migrations.map((m) => [m.itemId, { waypoints: m.waypoints, anchor: m.anchor }])),
-          );
-        }
+        cbRef.current.commitLayout(
+          Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
+        );
       }
       setLayout(next);
       } finally {
@@ -951,7 +896,7 @@ function LevelGraphInner({
     // nodes берём ИЗ layout (снимок, по которому он посчитан), а не из пропа — чтобы
     // позиции и данные узлов были согласованы и эффект не срабатывал со старым layout
     // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
-    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, bundleWaypoints, guestFrames, groupArr, spacers } = layout;
+    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, guestFrames, groupArr, spacers } = layout;
     const cb = cbRef.current;
     // R4: раскрытые гостевые рамки — compound-узлы RF. Родитель сущности — САМАЯ
     // ГЛУБОКАЯ рамка, содержащая её членом; родитель рамки — самая глубокая внешняя
@@ -1118,53 +1063,11 @@ function LevelGraphInner({
         const data: WrappedEdgeData = isMaster
           ? { items: g.members.map((m) => edgeText(m)), memberIds: g.members.map((m) => m.id) }
           : { label: singleText, memberIds: [single.id] };
-        // Кастомный путь (изломы): архитектор, не контекст. Геометрия живёт на ключе
-        // ПУЧКА (R3) — одна на пару отображаемых концов: мастер-стрелка редактируется
-        // как одиночная, у гостевой/сквозной проекции путь свой по построению (прежняя
-        // развилка bothLocal «колонка ребра vs пер-уровневый слой» умерла).
-        const bk = bundleKey(g.source, g.target);
-        const editable = isArchitect && !isContext;
-        if (editable) {
-          // путь — из РЕКОНСТРУИРОВАННОГО снимка (владеемый якорем = anchor + офсет,
-          // Ф3/D8), а не из сырого зеркала: иначе изломы не ехали бы за рамкой
-          const wp = bundleWaypoints[bk];
-          data.editable = true;
-          data.waypoints = wp && wp.length > 0 ? wp : undefined;
-          // «Старые» геометрия/доля на момент сборки = последнее закоммиченное значение
-          // (драг-превью живёт в локальном стейте edges.tsx и сюда не доходит). Это и есть
-          // состояние для инверсии. undefined-путь инвертируется пустым массивом (сброс в авто).
-          const oldWp = data.waypoints;
-          const oldT = single.label_t ?? null;
-          // фиче-тогл: ручные изломы выключены → грипы сегментов не рендерятся
-          // (edges.tsx гейтит их наличием этого колбэка), новые изломы не создаются
-          if (EDGE_MANUAL_LAYOUT) data.onWaypointsCommit = (nwp) => {
-            cb.commitWaypoints(bk, nwp);
-            cb.pushHistory({
-              label: "Изменение пути связи",
-              undo: () => cb.commitWaypoints(bk, oldWp ?? []),
-              redo: () => cb.commitWaypoints(bk, nwp),
-            });
-          };
-          // Перетаскивание плашки доступно только архитектору (editable); доля — в
-          // payload пучка (общая для членов мастер-стрелки по построению).
-          data.onLabelTCommit = (t) => {
-            cb.commitLabelT(bk, t);
-            cb.pushHistory({
-              label: "Перемещение подписи",
-              undo: () => cb.commitLabelT(bk, oldT),
-              redo: () => cb.commitLabelT(bk, t),
-            });
-          };
-        }
-        // Позиция плашки (доля label_t) — из payload пучка; члены обогащены конвейером
-        // одинаково, читаем у первого. Ставим и viewer'у (отображение сдвига).
-        // null → центр. Контекст-полки долю игнорируют (своя геометрия плашки).
-        if (!isContext) {
-          const lt = single.label_t;
-          if (lt != null) data.labelT = lt;
-        }
-        // Триггер детализации связи на плашке с описанием (клик по линии на основной схеме
-        // перехватывают грипы изломов). В контексте схема только для просмотра — не вешаем.
+        // Признак архитекторского канваса: плейсхолдер-плашка «•••» у безымянных
+        // связей (см. edges.tsx). Ручной правки геометрии стрелок больше нет.
+        if (isArchitect && !isContext) data.editable = true;
+        // Триггер детализации связи на плашке с описанием. В контексте схема только
+        // для просмотра — не вешаем.
         if (!isContext) data.onOpenDetails = () => cb.openEdgeMembers(data.memberIds);
         if (!isContext) {
           // Авто-маршрут (R1+R3): ставим, если для этой группы он посчитан (не customized).
@@ -1207,20 +1110,14 @@ function LevelGraphInner({
             ...(est === "deprecated" ? { strokeDasharray: "6 4" } : null),
             ...(eDimmed ? { opacity: 0.12 } : null),
           },
-          // хэндл мастер-стрелки общий для всех членов — реконнект фанаутит его на все
-          // (смена узла-конца по-прежнему запрещена в handleReconnect: правится только хэндл).
-          // Фиче-тогл: реконнект = ручная фиксация хэндла → выключен вместе с ручным слоем.
-          reconnectable: isArchitect && EDGE_MANUAL_LAYOUT,
+          // реконнект концов умер вместе с ручным слоем стрелок (2026-07-09)
+          reconnectable: false,
         };
       });
 
     // Применение — через оркестратор анимации: без интента раскрытия/сворачивания
     // это те же setRfNodes/setRfEdges, с интентом — режиссированный переход.
     applyLayout(nextNodes, nextEdges);
-    // Путь пучка сборка читает из layout.bundleWaypoints (реконструированный снимок D8),
-    // а НЕ из сырого пропа viewLayout: последний входит в зависимости раскладки выше →
-    // его правка даёт новый layout (со свежим bundleWaypoints), и сборка идёт со СВЕЖИМ
-    // снапшотом. Прямой триггер сборки по сырому пропу откатывал бы хэндл при реконнекте.
   }, [layout, isArchitect, depth, isContext, schemaView, applyLayout]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
@@ -1229,15 +1126,9 @@ function LevelGraphInner({
     isArchitect, isContext, onDropNode, dragShape,
   });
 
-  // Одиночный клик по связи — только штатное выделение React Flow (мету больше не
-  // открывает). Сохраняем обработчик, чтобы гасить клик-эхо после жеста реконнекта.
-  const handleEdgeClick = useCallback(
-    () => { consumeReconnectClick(); },
-    [consumeReconnectClick]
-  );
-
-  // Двойной клик — единственный триггер меты (правая панель). По узлу: только локальный
-  // блок (как и снятая кнопка «Подробнее»; гость/контейнер не правим, контекст read-only).
+  // Двойной клик — единственный триггер меты (правая панель); одиночный — только
+  // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим,
+  // контекст read-only).
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
       if (isContext || rfNode.type !== "block") return;
@@ -1247,15 +1138,14 @@ function LevelGraphInner({
     [isContext]
   );
   // По связи: тот же путь, что у плашки (openEdgeMembers → одна связь сразу в панель,
-  // несколько — выбор участника, см. TreePage). Гасим клик-эхо реконнекта и на double.
+  // несколько — выбор участника, см. TreePage).
   const handleEdgeDoubleClick = useCallback(
     (_e: MouseEvent, rfEdge: RFEdge) => {
       if (isContext) return;
-      if (consumeReconnectClick()) return;
       const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
       cbRef.current.openEdgeMembers(memberIds);
     },
-    [isContext, consumeReconnectClick]
+    [isContext]
   );
 
   // «Показать на схеме» (locate): центрируем холст на цели и коротко её подсвечиваем.
@@ -1340,9 +1230,7 @@ function LevelGraphInner({
         (isArchitect && !isContext ? " lg-canvas--editable" : "") +
         (connecting ? " lg-canvas--connecting" : "") +
         // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
-        (animActive ? " lg-canvas--anim" : "") +
-        // реконнект над не родным узлом: запрещающий курсор + гасим подсветку хэндлов
-        (reconnectBlocked ? " lg-canvas--reconnect-blocked" : "")
+        (animActive ? " lg-canvas--anim" : "")
       }
       style={{ position: "relative", flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
       onDragOver={handleDragOver}
@@ -1381,14 +1269,6 @@ function LevelGraphInner({
       )}
       {/* Легенда статусов и переключатель «Вид схемы» живут в правой панели схемы
           (TreePage → ObjectInspector); оверлея на холсте больше нет. */}
-      {/* Тост «нельзя привязать к чужому узлу» — только архитектору (реконнект его
-          прерогатива). Рендерим всегда (за экраном при !blocked), чтобы проигрывалась
-          анимация уезда; position:fixed не обрезается overflow:hidden канваса. */}
-      {isArchitect && !isContext && <ReconnectBlockedToast visible={reconnectBlocked} />}
-      {/* Тост «нельзя привязать к дочернему объекту» — конец завис над зоной входа
-          своего узла-родителя (явная попытка провалить связь вглубь). Тот же компонент,
-          вариант child. Взаимоисключающ с foreign-тостом (свой узел vs чужой). */}
-      {isArchitect && !isContext && <ReconnectBlockedToast visible={reconnectChildDrill} variant="child" />}
       {/* Плитка «вне уровня»: полоса у верхнего края холста, видна только при
           протягивании НОВОЙ связи на не-корневом уровне. Отпустил на неё конец
           стрелки → выбор дальнего конца из всей схемы (useEdgeConnect ловит дроп по
@@ -1425,7 +1305,6 @@ function LevelGraphInner({
         edgeTypes={edgeTypes}
         onNodesChange={handleNodesChangeMeasured}
         onEdgesChange={onEdgesChange}
-        onEdgeClick={handleEdgeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
         onEdgeDoubleClick={handleEdgeDoubleClick}
         onNodeDragStart={handleNodeDragStart}
@@ -1434,24 +1313,18 @@ function LevelGraphInner({
         onSelectionDragStart={handleSelectionDragStart}
         onSelectionDrag={handleSelectionDrag}
         onSelectionDragStop={handleSelectionDragStopP}
-        onReconnectStart={handleReconnectStart}
-        onReconnect={handleReconnect}
-        onReconnectEnd={handleReconnectEnd}
-        // Создание новой связи протягиванием от хэндла узла. RF шлёт onConnect* И при
-        // реконнекте существующего ребра, поэтому useEdgeConnect latch'ит реконнект
-        // (isReconnecting) и глушит свой поток — иначе отпускание перетянутого конца
-        // ВНУТРИ узла открывало бы поповер новой связи. onConnect ловит защёлку конца
-        // на ХЭНДЛ (в радиусе connectionRadius) → прямая связь к узлу; onConnectEnd —
-        // дроп мимо хэндлов → «зона входа» (тело контейнера) или прямая связь (тело листа).
+        // Создание новой связи протягиванием от хэндла узла. onConnect ловит защёлку
+        // конца на ХЭНДЛ (в радиусе connectionRadius) → прямая связь к узлу;
+        // onConnectEnd — дроп мимо хэндлов → «зона входа» (тело контейнера) или
+        // прямая связь (тело листа).
         onConnectStart={handleConnectStart}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
-        isValidConnection={isValidConnection}
+        isValidConnection={isValidNewConnection}
         // прощающий радиус защёлки конца на хэндл: попасть в периметр-хэндл узла
         // легко, при этом центр тела (≥ полширины узла от хэндлов) остаётся «зоной входа»
         connectionRadius={30}
         connectionMode={ConnectionMode.Loose}
-        reconnectRadius={20}
         // Своя превью-линия с наконечником (см. ConnectionLine): дефолтная RF-линия
         // рисуется без стрелки, из-за чего при драге конца казалось, что связь
         // развёрнута не в ту сторону.

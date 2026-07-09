@@ -8,9 +8,9 @@
 // Выбор стороны (V2.2, замена A8-пробы): свободное ребро получает порты на ВСЕХ четырёх
 // сторонах обоих концов — какой парой стыковаться, решает сам A* routeAll с полной
 // стоимостью (длина + изломы + пересечения). Выбранную сторону отдаём наружу как хэндл
-// (центр стороны), чтобы RF состыковал стрелку именно там. Зафиксированный пользователем
-// хэндл уважаем: единственный порт — его точная точка стыковки. Рельсы встречных пар
-// (A11) — единственный порт на крайнем слоте своей стороны.
+// (центр стороны), чтобы RF состыковал стрелку именно там. Рельсы встречных пар
+// (A11) — единственный порт на крайнем слоте своей стороны. Ручной фиксации хэндлов
+// больше нет (ручной слой стрелок удалён 2026-07-09).
 //
 // Стабы наружу входят в маршрут ПО ПОСТРОЕНИЮ (V2.1, направленные порты роутера) — прежний
 // пост-патч ensureOutwardStubs здесь умер: он приклеивал развороты на 180° («шпильки»),
@@ -95,11 +95,8 @@ export interface AutoRoutesResult {
 
 export function buildAutoRoutes(params: {
   groups: EdgeGroup[];
-  routableIds: Set<string>;   // id групп, которые роутим (не waypoint-customized/context)
-  pairableIds: Set<string>;   // рёбра уровня в раскладке (авто + ручные) — для поиска рельс-пар
-  lockedIds: Set<string>;     // из них: пользователь зафиксировал хэндл → сторону НЕ выбираем
+  routableIds: Set<string>;   // id групп с позиционированными концами (их и роутим)
   positions: ReadonlyMap<string, { x: number; y: number }>;
-  edgeHandles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
   displayIds: string[];       // все отображаемые id (локальные узлы + сущности)
   // РЕАЛЬНЫЕ габариты узлов из DOM (node.measured, V2.2b): узлы автоматически растут по
   // контенту, и роутер обязан видеть их настоящие тела — иначе маршрут «легально» идёт
@@ -125,7 +122,7 @@ export function buildAutoRoutes(params: {
     handles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
   };
 }): AutoRoutesResult {
-  const { groups, routableIds, pairableIds, lockedIds, positions, edgeHandles, displayIds, sizes, frames, prev } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, prev } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -138,7 +135,7 @@ export function buildAutoRoutes(params: {
   // Рельсы встречных пар (A11): два ребра между одной парой узлов в противоположных
   // направлениях разводим на крайние слоты хэндлов обращённых сторон, чтобы их плечи не
   // совпадали (иначе R4 загоняет обе плашки в leader). Чистое назначение сторон+слотов.
-  const rails = railAssignments(groups, pairableIds, positions);
+  const rails = railAssignments(groups, routableIds, positions);
 
   // Порты-кандидаты по каждому ребру (для обратного сопоставления концов маршрута со
   // стороной/слотом → хэндлом).
@@ -184,16 +181,7 @@ export function buildAutoRoutes(params: {
     }
     const rail = rails.get(g.id);
     let sPorts: PortSpec[], tPorts: PortSpec[];
-    if (lockedIds.has(g.id)) {
-      // зафиксированный хэндл — единственный порт, точная точка стыковки
-      const h = edgeHandles.get(g.id);
-      const ps = parseHandle(h?.sourceHandle), pt = parseHandle(h?.targetHandle);
-      const sSide = ps?.side ?? (tr.x >= sr.x ? "right" : "left");
-      const tSide = pt?.side ?? (tr.x >= sr.x ? "left" : "right");
-      const sIdx = ps?.idx ?? 1, tIdx = pt?.idx ?? 1;
-      sPorts = [{ side: sSide, idx: sIdx, point: handlePoint(sr, sSide, sIdx) }];
-      tPorts = [{ side: tSide, idx: tIdx, point: handlePoint(tr, tSide, tIdx) }];
-    } else if (rail) {
+    if (rail) {
       // встречная пара — единственный порт: обращённая сторона на своём слоте-рельсе
       // (idx разводит плечи направлений на параллельные рельсы)
       sPorts = [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sr, rail.sSide, rail.sIdx) }];
@@ -253,7 +241,7 @@ export function buildAutoRoutes(params: {
     const ports = portsById.get(g.id)!;
     const sPort = ports.s.find((p) => near(route[0], p.point)) ?? ports.s[0];
     const tPort = ports.t.find((p) => near(route[route.length - 1], p.point)) ?? ports.t[0];
-    const free = !lockedIds.has(g.id) && !rails.get(g.id);
+    const free = !rails.get(g.id);
     docks.push({ edgeId: g.id, nodeId: g.source, side: sPort.side, idx: sPort.idx, end: "s", free });
     docks.push({ edgeId: g.id, nodeId: g.target, side: tPort.side, idx: tPort.idx, end: "t", free });
   }
@@ -262,8 +250,8 @@ export function buildAutoRoutes(params: {
   // общий хэндл легитимен только В ОДНОМ направлении).
   distributeSlots(docks, routes, rects);
 
-  // выбранную сторону+слот отдаём как хэндл только для свободных рёбер (у locked хэндл
-  // уже стоит). idx важен для рельс (A11) и раздачи слотов: RF стыкует на своём слоте.
+  // выбранную сторону+слот отдаём как хэндл; idx важен для рельс (A11) и раздачи
+  // слотов: RF стыкует на своём слоте.
   const dockOf = new Map<string, { s?: Dock; t?: Dock }>();
   for (const d of docks) {
     const rec = dockOf.get(d.edgeId) ?? dockOf.set(d.edgeId, {}).get(d.edgeId)!;
@@ -271,7 +259,7 @@ export function buildAutoRoutes(params: {
   }
   for (const g of groups) {
     const rec = dockOf.get(g.id);
-    if (!rec?.s || !rec.t || lockedIds.has(g.id)) continue;
+    if (!rec?.s || !rec.t) continue;
     handles.set(g.id, {
       sourceHandle: hid(g.source, rec.s.side, rec.s.idx),
       targetHandle: hid(g.target, rec.t.side, rec.t.idx),

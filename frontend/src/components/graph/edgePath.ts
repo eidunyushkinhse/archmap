@@ -35,19 +35,6 @@ export function cleanup(pts: EdgePoint[]): EdgePoint[] {
   return out;
 }
 
-// Канонический ортогональный маршрут [S, A, B, T] (Z-кроссовер) по доминирующей оси —
-// та же логика выбора стороны, что у autoHandles. Сидинг при первом перетаскивании
-// стрелки без сохранённых waypoints. Для соосных узлов вырождается в прямую (cleanup).
-export function orthogonalPoints(sx: number, sy: number, tx: number, ty: number): EdgePoint[] {
-  const dx = tx - sx, dy = ty - sy;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    const mx = (sx + tx) / 2;
-    return [{ x: sx, y: sy }, { x: mx, y: sy }, { x: mx, y: ty }, { x: tx, y: ty }];
-  }
-  const my = (sy + ty) / 2;
-  return [{ x: sx, y: sy }, { x: sx, y: my }, { x: tx, y: my }, { x: tx, y: ty }];
-}
-
 export type EdgeSide = "left" | "right" | "top" | "bottom";
 
 // Внешняя нормаль стороны: направление, в котором стрелка ВЫХОДИТ из этого хэндла
@@ -131,35 +118,10 @@ export function orthogonalPointsForHandles(
     { x: tx + tox * S, y: ty }, t];
 }
 
-// Диагональную пару (обе координаты разошлись — обычно концевой сегмент после сдвига
-// узла) разбиваем коленом, чтобы путь остался строго ортогональным. Колено
-// детерминированное: сперва горизонталь, затем вертикаль (E = (b.x, a.y)).
-function normalize(raw: EdgePoint[]): EdgePoint[] {
-  const out: EdgePoint[] = [{ x: raw[0].x, y: raw[0].y }];
-  for (let k = 1; k < raw.length; k++) {
-    const a = out[out.length - 1], b = raw[k];
-    if (!eq(a.x, b.x) && !eq(a.y, b.y)) out.push({ x: b.x, y: a.y }); // колено
-    out.push({ x: b.x, y: b.y });
-  }
-  return out;
-}
-
-// Полный список точек для рендера: [S, ...waypoints, T] с нормализацией
-// ортогональности (сдвиг узла-конца не ломает путь — концевой сегмент дотягивается
-// коленом). cleanup убирает вырожденные/коллинеарные звенья.
-export function buildRenderPoints(
-  s: EdgePoint, t: EdgePoint, waypoints?: EdgePoint[] | null,
-): EdgePoint[] {
-  const raw = [s, ...(waypoints ?? []), t];
-  return cleanup(normalize(raw));
-}
-
 // Гарантирует, что путь ВЫХОДИТ из source-хэндла и ВХОДИТ в target-хэндл вдоль внешней
 // нормали стороны хотя бы на stub, ПРЕЖДЕ чем изломиться. orthogonalPointsForHandles это
-// соблюдает по построению, но ломаная из произвольных waypoints (buildRenderPoints) — нет:
-// после залома грипом или сдвига узла-конца её крайний сегмент может смотреть ВНУТРЬ тела
-// узла (или идти перпендикулярно вдоль его края), и стрелка прячется за узлом — её не
-// ухватить. Здесь, если крайний сегмент не идёт строго наружу нужной длины, вставляем
+// соблюдает по построению, но авто-маршрут после переснятия концов с живых хэндлов —
+// не всегда. Здесь, если крайний сегмент не идёт строго наружу нужной длины, вставляем
 // обязательный стаб-колено (стрелка выходит наружу, затем идёт обратно). Для здоровых
 // путей — no-op (cleanup схлопнёт коллинеарное звено). Сравнение с offset=20 у smoothstep.
 // Сегмент у хэндла «чистый», если идёт строго по оси внешней нормали (без
@@ -226,7 +188,7 @@ export function ensureOutwardStubs(
   return cleanup(work);
 }
 
-// Сегменты ломаной с ориентацией (для размещения грипов перетаскивания).
+// Сегменты ломаной с ориентацией (мостики, каналы, интервалы плашек).
 export function segments(pts: EdgePoint[]): Segment[] {
   const segs: Segment[] = [];
   for (let i = 0; i < pts.length - 1; i++) {
@@ -236,73 +198,6 @@ export function segments(pts: EdgePoint[]): Segment[] {
     segs.push({ index: i, x1: a.x, y1: a.y, x2: b.x, y2: b.y, orient });
   }
   return segs;
-}
-
-// Сдвиг сегмента index перпендикулярно к курсору. Горизонтальный сегмент тянется по Y,
-// вертикальный — по X. Внутренний конец сегмента двигаем напрямую; пиннутый конец (S/T,
-// привязан к хэндлу) не двигаем, а вставляем у него ортогональный «стаб»-колено, сохраняя
-// стык с узлом прямым. Возвращает полный очищенный путь [S, ..., T]. Каждый кадр драга
-// зовётся от ИСХОДНОГО pts (не накапливая) — иначе индексы/стабы дрейфуют.
-export function dragSegment(pts: EdgePoint[], index: number, cursor: EdgePoint): EdgePoint[] {
-  const last = pts.length - 1;
-  if (index < 0 || index >= last) return pts;
-  const a = pts[index], b = pts[index + 1];
-  const isH = Math.abs(a.y - b.y) <= Math.abs(a.x - b.x);
-
-  const out: EdgePoint[] = [];
-  for (let k = 0; k < index; k++) out.push({ x: pts[k].x, y: pts[k].y });
-
-  // конец A (index)
-  if (index === 0) {
-    out.push({ x: pts[0].x, y: pts[0].y }); // пиннутый S остаётся
-    out.push(isH ? { x: pts[0].x, y: cursor.y } : { x: cursor.x, y: pts[0].y }); // стаб
-  } else {
-    out.push(isH ? { x: a.x, y: cursor.y } : { x: cursor.x, y: a.y });
-  }
-
-  // конец B (index+1)
-  if (index + 1 === last) {
-    out.push(isH ? { x: pts[last].x, y: cursor.y } : { x: cursor.x, y: pts[last].y }); // стаб
-    out.push({ x: pts[last].x, y: pts[last].y }); // пиннутый T остаётся
-  } else {
-    out.push(isH ? { x: b.x, y: cursor.y } : { x: cursor.x, y: b.y });
-  }
-
-  for (let k = index + 2; k <= last; k++) out.push({ x: pts[k].x, y: pts[k].y });
-  return cleanup(out);
-}
-
-// Примагничивание тянущегося сегмента к «ровному» положению относительно хэндлов:
-// перпендикулярную координату курсора притягиваем к одноимённой координате конца S или T,
-// если она ближе threshold. Тогда у соответствующего плеча концевой стаб схлопывается
-// (cleanup убирает коллинеарное звено) и сегмент становится прямым продолжением хэндла —
-// стрелку легко выровнять. Снапятся независимые оси по ориентации сегмента: горизонтальный
-// (тянем по Y) → к y хэндлов; вертикальный (по X) → к x хэндлов. threshold — в координатах
-// графа (вызывающий делит экранный порог на зум, чтобы липкость не зависела от масштаба).
-export function snapDragCursor(
-  pts: EdgePoint[], index: number, cursor: EdgePoint, threshold: number,
-): EdgePoint {
-  const last = pts.length - 1;
-  if (index < 0 || index >= last) return cursor;
-  const a = pts[index], b = pts[index + 1];
-  const isH = Math.abs(a.y - b.y) <= Math.abs(a.x - b.x);
-  const s = pts[0], t = pts[last];
-  const snap = (v: number, cands: number[]): number => {
-    let best = v, bestD = threshold;
-    for (const c of cands) {
-      const d = Math.abs(c - v);
-      if (d <= bestD) { bestD = d; best = c; }
-    }
-    return best;
-  };
-  return isH
-    ? { x: cursor.x, y: snap(cursor.y, [s.y, t.y]) }
-    : { x: snap(cursor.x, [s.x, t.x]), y: cursor.y };
-}
-
-// Внутренние точки (waypoints) из полного пути [S, ..., T].
-export function interior(pts: EdgePoint[]): EdgePoint[] {
-  return pts.length <= 2 ? [] : pts.slice(1, -1);
 }
 
 // Длины звеньев ломаной и их сумма (общая arc-length). Пустой путь → нули.
@@ -336,31 +231,6 @@ export function pointAtFraction(pts: EdgePoint[], t: number): EdgePoint {
     remain -= seg[i];
   }
   return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
-}
-
-// Доля arc-length t∈[0,1] ближайшей к cursor точки ломаной (проекция курсора на путь).
-// Для драга плашки: курсор → позиция вдоль стрелки. Вырожденный путь → 0.
-export function nearestFraction(pts: EdgePoint[], cursor: EdgePoint): number {
-  if (pts.length < 2) return 0;
-  const { seg, total } = arcLengths(pts);
-  if (total === 0) return 0;
-  let bestDist = Infinity;
-  let bestLen = 0;
-  let acc = 0;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const ax = pts[i].x, ay = pts[i].y;
-    const dx = pts[i + 1].x - ax, dy = pts[i + 1].y - ay;
-    const len2 = dx * dx + dy * dy;
-    const u = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cursor.x - ax) * dx + (cursor.y - ay) * dy) / len2));
-    const px = ax + dx * u, py = ay + dy * u;
-    const dist = Math.hypot(cursor.x - px, cursor.y - py);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestLen = acc + seg[i] * u;
-    }
-    acc += seg[i];
-  }
-  return bestLen / total;
 }
 
 // Прямоугольник узла (для проверки, пересекает ли маршрут стрелки чужие узлы).
