@@ -6,7 +6,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MarkerType,
   ConnectionMode,
   SelectionMode,
   useNodesState,
@@ -20,23 +19,18 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
 import { nodesApi, viewsApi } from "../api/nodes";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, NodeStatus, AncestorRef, ViewLayout, ViewLayoutPayload, EdgePoint } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, AncestorRef, ViewLayout, ViewLayoutPayload, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
-import {
-  NODE_W, NODE_H,
-  CTX_LABEL_W,
-} from "./graph/constants";
+import { NODE_W, NODE_H } from "./graph/constants";
 import type {
   WrappedEdgeData,
-  BlockData, GhostData, ContainerData, FrameData,
+  BlockData, ContainerData,
   QuickConnectHandlers,
 } from "./graph/types";
 import type { EdgeSide } from "./graph/edgePath";
-import { edgeText } from "./graph/text";
-import { getNodeColors, STATUS_META } from "./graph/colors";
-import { viewShows, type SchemaView } from "./schemaView";
+import type { SchemaView } from "./schemaView";
 import { computeViewLayout, type LayoutResult } from "./graph/layout/pipeline";
-import { parentFrameOf, deepestFrameContaining } from "./graph/layout/frames";
+import { assembleRfGraph } from "./graph/assembleRf";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
@@ -54,6 +48,7 @@ import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeC
 import { findQuickConnectTarget, type QcNode } from "./graph/interaction/quickConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation } from "./graph/interaction/useLayoutAnimation";
+import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { guardPersist } from "./graph/interaction/persistGuard";
 
@@ -63,10 +58,6 @@ import { guardPersist } from "./graph/interaction/persistGuard";
 // НОВЫЙ объект на каждый рендер, а он — зависимость async-эффекта раскладки → лишний
 // перезапуск ELK и мигание. Один модульный объект держит ссылку стабильной.
 const EMPTY_VIEW_LAYOUT: ViewLayout = {};
-
-// Стиль приглушения узла, скрытого фильтром «Вид схемы» (мгновенно, без transition —
-// см. ТЗ: fade на opacity в наших прогонах вёл себя нестабильно).
-const DIM_STYLE = { opacity: 0.12, pointerEvents: "none" as const };
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -457,191 +448,9 @@ function LevelGraphInner({
   );
 
   // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): их rect производен от
-  // детей, перемещение содержимого = перемещение самих узлов. Прежнее расширение
-  // группы жеста потомками рамки (R4.2 expandFrameDescendants) умерло вместе с драгом.
-  // ЖИВОЙ bbox-follow рамок (2026-07-08, переписан на оверлей 2026-07-08): при драге
-  // ребёнка рамка следует за содержимым прямо во время жеста. РЕАЛИЗАЦИЯ — ОВЕРЛЕЙ,
-  // а не движение RF-узла рамки: прежний вариант каждый тик двигал рамку в стейте и
-  // компенсировал rel ВСЕХ её детей — (а) каскад ре-рендеров узлов ронял FPS драга,
-  // (б) RF ведёт позицию таскаемого относительно ДВИЖУЩЕЙСЯ рамки — накапливался
-  // дрейф и узел «телепортировался» на сотни px. Теперь на время жеста RF-рамки
-  // предков скрываются (opacity 0, один setState), их живой прямоугольник рисуют
-  // лёгкие div-ы в ViewportPortal, обновляемые ИМПЕРАТИВНО через ref (ноль рендеров
-  // на тик), а финальная геометрия применяется одним setState на отпускании.
-  // Паддинги рамки снимаются на старте жеста (рамка = bbox прямых детей + константные
-  // отступы); обход рамок — глубокие первыми (изменение вложенной двигает объемлющую).
-  const framePadsRef = useRef<Map<string, { l: number; t: number; r: number; b: number }>>(new Map());
-  const rfSize = (n: RFNode): { w: number; h: number } => ({
-    w: n.measured?.width ?? (typeof n.width === "number" ? n.width : NODE_W),
-    h: n.measured?.height ?? (typeof n.height === "number" ? n.height : NODE_H),
-  });
-  const snapshotFramePads = useCallback(() => {
-    const pads = new Map<string, { l: number; t: number; r: number; b: number }>();
-    for (const f of rfNodes) {
-      if (f.type !== "frame") continue;
-      const kids = rfNodes.filter((k) => k.parentId === f.id && k.type !== "spacer");
-      if (kids.length === 0) continue;
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const k of kids) {
-        const { w, h } = rfSize(k);
-        minX = Math.min(minX, k.position.x); minY = Math.min(minY, k.position.y);
-        maxX = Math.max(maxX, k.position.x + w); maxY = Math.max(maxY, k.position.y + h);
-      }
-      const { w: fw, h: fh } = rfSize(f);
-      pads.set(f.id, { l: minX, t: minY, r: fw - maxX, b: fh - maxY });
-    }
-    framePadsRef.current = pads;
-  }, [rfNodes]);
-  // Рамки, скрытые на текущий жест (их рисует оверлей) + div-ы оверлея по id.
-  const affectedFramesRef = useRef<Set<string>>(new Set());
-  const overlayElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [overlayFrames, setOverlayFrames] = useState<
-    { id: string; name: string; x: number; y: number; w: number; h: number }[]
-  >([]);
-  // Старт жеста: рамки-предки таскаемых скрываются, оверлей получает их стартовые rect.
-  const beginFrameOverlay = useCallback((grp: RFNode[]) => {
-    const byId = new Map(rfNodes.map((n) => [n.id, n]));
-    const affected = new Set<string>();
-    for (const n of grp) {
-      let pid = n.parentId;
-      while (pid) {
-        const p = byId.get(pid);
-        if (!p) break;
-        if (p.type === "frame") affected.add(p.id);
-        pid = p.parentId;
-      }
-    }
-    affectedFramesRef.current = affected;
-    if (affected.size === 0) { setOverlayFrames([]); return; }
-    setOverlayFrames([...affected].map((id) => {
-      const f = byId.get(id)!;
-      const abs = absPositionOf(f, byId);
-      const { w, h } = rfSize(f);
-      return { id, name: (f.data as { name?: string }).name ?? "", x: abs.x, y: abs.y, w, h };
-    }));
-    setRfNodes((prev) => prev.map((n) =>
-      affected.has(n.id) ? { ...n, style: { ...n.style, opacity: 0 } } : n,
-    ));
-  }, [rfNodes, setRfNodes]);
-  // Тик жеста: живой bbox затронутых рамок → императивно в div-ы оверлея. Ноль setState.
-  // Позиции читаем из RF-стора (стейт прошлого тика), таскаемые подменяем свежими из
-  // аргумента onNodeDrag; рамки в стейте на время жеста неподвижны, поэтому абсолюты
-  // детей корректны по построению.
-  const liveFollowFrames = useCallback((dragged: RFNode[]) => {
-    const affected = affectedFramesRef.current;
-    if (affected.size === 0) return;
-    const pads = framePadsRef.current;
-    const els = overlayElsRef.current;
-    const nodes = getNodes();
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    for (const d of dragged) {
-      const cur = byId.get(d.id);
-      if (cur) byId.set(d.id, { ...cur, position: d.position });
-    }
-    const depthOf = (n: RFNode): number => {
-      let d = 0, pid = n.parentId;
-      while (pid) { d++; pid = byId.get(pid)?.parentId; }
-      return d;
-    };
-    const kidsOf = new Map<string, RFNode[]>();
-    for (const n of byId.values()) {
-      if (!n.parentId || n.type === "spacer") continue;
-      (kidsOf.get(n.parentId) ?? kidsOf.set(n.parentId, []).get(n.parentId)!).push(n);
-    }
-    // live-rect рамок в АБСОЛЮТЕ, глубокие первыми (объемлющая видит live-rect вложенной)
-    const live = new Map<string, { x: number; y: number; w: number; h: number }>();
-    const frames = [...byId.values()].filter((n) => n.type === "frame" && affected.has(n.id))
-      .sort((a, b) => depthOf(b) - depthOf(a));
-    for (const f of frames) {
-      const pad = pads.get(f.id);
-      const kids = kidsOf.get(f.id);
-      if (!pad || !kids || kids.length === 0) continue;
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const k of kids) {
-        const lr = live.get(k.id);
-        const abs = lr ?? { ...absPositionOf(k, byId), ...rfSize(k) };
-        const { w, h } = lr ?? rfSize(k);
-        minX = Math.min(minX, abs.x); minY = Math.min(minY, abs.y);
-        maxX = Math.max(maxX, abs.x + w); maxY = Math.max(maxY, abs.y + h);
-      }
-      const rect = {
-        x: minX - pad.l, y: minY - pad.t,
-        w: maxX - minX + pad.l + pad.r, h: maxY - minY + pad.t + pad.b,
-      };
-      live.set(f.id, rect);
-      const el = els.get(f.id);
-      if (el) {
-        el.style.left = `${rect.x}px`; el.style.top = `${rect.y}px`;
-        el.style.width = `${rect.w}px`; el.style.height = `${rect.h}px`;
-      }
-    }
-  }, [getNodes]);
-  // Отпускание: финальная геометрия рамок применяется ОДНИМ setState (copy-on-write:
-  // клонируются только рамки с изменившимся bbox и их дети при сдвиге origin — rel-
-  // компенсация держит абсолюты детей), скрытые рамки возвращают видимость, оверлей
-  // гаснет. Дальше обычный персист — конвейер пересчитает всё начисто.
-  const finalizeFrameFollow = useCallback(() => {
-    const affected = affectedFramesRef.current;
-    affectedFramesRef.current = new Set();
-    setOverlayFrames([]);
-    if (affected.size === 0) return;
-    setRfNodes((prev) => {
-      const pads = framePadsRef.current;
-      const patched = new Map<string, RFNode>();
-      const byId = new Map(prev.map((n) => [n.id, n]));
-      const cur = (id: string): RFNode | undefined => patched.get(id) ?? byId.get(id);
-      const unhide = (n: RFNode): RFNode => {
-        if (!affected.has(n.id) || !n.style || n.style.opacity === undefined) return n;
-        const rest = { ...n.style };
-        delete rest.opacity;
-        return { ...n, style: rest };
-      };
-      const depthOf = (n: RFNode): number => {
-        let d = 0, pid = n.parentId;
-        while (pid) { d++; pid = byId.get(pid)?.parentId; }
-        return d;
-      };
-      const frames = prev.filter((n) => n.type === "frame").sort((a, b) => depthOf(b) - depthOf(a));
-      const kidsOf = new Map<string, RFNode[]>();
-      for (const n of prev) {
-        if (!n.parentId || n.type === "spacer") continue;
-        (kidsOf.get(n.parentId) ?? kidsOf.set(n.parentId, []).get(n.parentId)!).push(n);
-      }
-      for (const f of frames) {
-        const pad = pads.get(f.id);
-        const kids0 = kidsOf.get(f.id);
-        if (!pad || !kids0 || kids0.length === 0) continue;
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const k0 of kids0) {
-          const k = cur(k0.id)!;
-          const { w, h } = rfSize(k);
-          minX = Math.min(minX, k.position.x); minY = Math.min(minY, k.position.y);
-          maxX = Math.max(maxX, k.position.x + w); maxY = Math.max(maxY, k.position.y + h);
-        }
-        const dx = minX - pad.l, dy = minY - pad.t;
-        const nw = maxX - minX + pad.l + pad.r, nh = maxY - minY + pad.t + pad.b;
-        const fc = cur(f.id)!;
-        const { w: fw, h: fh } = rfSize(fc);
-        const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
-        if (!moved && Math.abs(nw - fw) < 0.5 && Math.abs(nh - fh) < 0.5) continue;
-        patched.set(f.id, {
-          ...fc,
-          position: { x: fc.position.x + dx, y: fc.position.y + dy },
-          width: nw, height: nh,
-          ...(fc.measured ? { measured: { width: nw, height: nh } } : null),
-        });
-        // компенсация rel нужна только при сдвиге origin рамки; рост вправо/вниз
-        // (dx=dy=0) детей не трогает
-        if (moved) {
-          for (const k0 of kids0) {
-            const k = cur(k0.id)!;
-            patched.set(k.id, { ...k, position: { x: k.position.x - dx, y: k.position.y - dy } });
-          }
-        }
-      }
-      return prev.map((n) => unhide(patched.get(n.id) ?? n));
-    });
-  }, [setRfNodes]);
+  // детей, перемещение содержимого = перемещение самих узлов. ЖИВОЙ bbox-follow
+  // рамок при драге ребёнка — оверлей в useFrameFollowOverlay (вынесен при распиле Ф2).
+  const frameFollow = useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes });
   const handleNodeDragStart = useCallback(
     (_e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(true);
@@ -649,10 +458,10 @@ function LevelGraphInner({
       const grp = ns.length > 0 ? ns : [n];
       liveDragHandles.begin(rfNodes); // база позиций всех узлов на старте жеста
       noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
-      snapshotFramePads(); // паддинги рамок для живого bbox-follow
-      beginFrameOverlay(grp); // скрыть рамки-предки, включить живой оверлей
+      frameFollow.snapshotPads(); // паддинги рамок для живого bbox-follow
+      frameFollow.begin(grp); // скрыть рамки-предки, включить живой оверлей
     },
-    [liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
+    [liveDragHandles, rfNodes, noteDragStart, frameFollow, cancelAnim],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
@@ -660,25 +469,25 @@ function LevelGraphInner({
       cancelAnim();
       liveDragHandles.begin(rfNodes);
       noteDragStart(ns);
-      snapshotFramePads();
-      beginFrameOverlay(ns);
+      frameFollow.snapshotPads();
+      frameFollow.begin(ns);
     },
-    [liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
+    [liveDragHandles, rfNodes, noteDragStart, frameFollow, cancelAnim],
   );
   const handleNodeDrag = useCallback(
-    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); liveFollowFrames(ns); },
-    [liveDragHandles, liveFollowFrames],
+    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
+    [liveDragHandles, frameFollow],
   );
   const handleSelectionDrag = useCallback(
-    (_e: MouseEvent, ns: RFNode[]) => { liveDragHandles.move(ns); liveFollowFrames(ns); },
-    [liveDragHandles, liveFollowFrames],
+    (_e: MouseEvent, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
+    [liveDragHandles, frameFollow],
   );
   // Отпускание драга: жест сворачиваем в ОДНУ команду истории через beginGroup/
   // commitGroup — мультидраг остаётся одним шагом Undo.
   const handleNodeDragStopP = useCallback(
     (e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(false);
-      finalizeFrameFollow(); // рамки: финальный bbox одним setState + вернуть видимость
+      frameFollow.finalize(); // рамки: финальный bbox одним setState + вернуть видимость
       history.beginGroup();
       try {
         liveDragHandles.end();
@@ -687,12 +496,12 @@ function LevelGraphInner({
         history.commitGroup("Перемещение группы");
       }
     },
-    [liveDragHandles, handleNodeDragStop, history, finalizeFrameFollow],
+    [liveDragHandles, handleNodeDragStop, history, frameFollow],
   );
   const handleSelectionDragStopP = useCallback(
     (e: MouseEvent, ns: RFNode[]) => {
       setDragging(false);
-      finalizeFrameFollow();
+      frameFollow.finalize();
       history.beginGroup();
       try {
         liveDragHandles.end();
@@ -701,7 +510,7 @@ function LevelGraphInner({
         history.commitGroup("Перемещение группы");
       }
     },
-    [liveDragHandles, handleSelectionDragStop, history, finalizeFrameFollow],
+    [liveDragHandles, handleSelectionDragStop, history, frameFollow],
   );
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
@@ -889,219 +698,15 @@ function LevelGraphInner({
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
-  // МЕЖДУ пересчётами. Эффект срабатывает ровно тогда же, когда раньше — при смене
-  // данных раскладки / isArchitect / depth, — поэтому интерактив сохраняется. Колбэки
-  // берём из ref (см. cbRef), потому в зависимостях только данные.
+  // МЕЖДУ пересчётами. Сама сборка — чистая функция assembleRfGraph (вынесена при
+  // распиле Ф2); nodes берутся ИЗ layout (снимок, по которому он посчитан), а не из
+  // пропа — позиции и данные согласованы, эффект не срабатывает со старым layout.
+  // Колбэки — из latest-ref (cbRef), поэтому в зависимостях только данные.
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
-    // nodes берём ИЗ layout (снимок, по которому он посчитан), а не из пропа — чтобы
-    // позиции и данные узлов были согласованы и эффект не срабатывал со старым layout
-    // при смене пропа nodes до резолва async-ELK (иначе узел прыгал на исходную позицию).
-    const { nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops, autoRoutes, labelPlacements, guestFrames, groupArr, spacers } = layout;
-    const cb = cbRef.current;
-    // R4: раскрытые гостевые рамки — compound-узлы RF. Родитель сущности — САМАЯ
-    // ГЛУБОКАЯ рамка, содержащая её членом; родитель рамки — самая глубокая внешняя
-    // рамка, накрывающая всех её членов. Дети получают position ОТНОСИТЕЛЬНО родителя.
-    // дерево рамок по членству — единые хелперы frames.ts
-    const frameOfEntity = (id: string) => deepestFrameContaining(guestFrames, id);
-    const frameOfFrame = (f: (typeof guestFrames)[number]) => parentFrameOf(guestFrames, f);
-    // Вложенность рамки ОТНОСИТЕЛЬНО УРОВНЯ (1 = верхняя раскрытая, 2 = раскрытая
-    // внутри раскрытой, …) — длина цепочки объемлющих рамок. Именно она, а не
-    // f.depth: depth рамок нумеруется вслед за breadcrumb, и на дриллнутых уровнях
-    // верхняя рамка несёт depth = глубине уровня — прибавка depth+f.depth двоила бы
-    // глубину и дети красились на ступень светлее положенного.
-    const frameNesting = (f0: (typeof guestFrames)[number]): number => {
-      let n = 0;
-      for (let f: (typeof guestFrames)[number] | null = f0; f; f = frameOfFrame(f)) n++;
-      return n;
-    };
-    // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
-    // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
-    // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
-    const statusOf = new Map<string, NodeStatus>();
-    for (const n of layoutNodes) statusOf.set(n.id, n.status);
-    for (const ent of entities) {
-      statusOf.set(ent.id, ent.kind === "leaf" ? ent.ghost.status : "existing");
-    }
-    // Самый «сильный» статус конца ребра: deprecated > planned > existing.
-    const edgeStatus = (s: string, t: string): NodeStatus => {
-      const a = statusOf.get(s) ?? "existing";
-      const b = statusOf.get(t) ?? "existing";
-      if (a === "deprecated" || b === "deprecated") return "deprecated";
-      if (a === "planned" || b === "planned") return "planned";
-      return "existing";
-    };
-    // Приглушён ли узел статуса st фильтром вида (в контексте фильтра нет). Скрытый
-    // узел НЕ удаляем — гасим opacity, сохраняя пространственную память раскладки.
-    const dimNode = (st: NodeStatus): boolean => !isContext && !viewShows(schemaView, st);
-    const nextNodes: RFNode[] = [
-      // Рамки — первыми (RF требует родителя в массиве раньше детей; guestFrames
-      // отсортированы по depth, поэтому и вложенные рамки идут после объемлющих).
-      // Реальный rect из раскладки; тело прозрачно для мыши (см. FrameNode).
-      ...guestFrames.map((f) => {
-        const pf = frameOfFrame(f);
-        // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): rect рамки всегда
-        // производен от детей — двигаются только сами узлы.
-        return {
-          id: f.id,
-          type: "frame" as const,
-          position: pf
-            ? { x: f.rect.x - pf.rect.x, y: f.rect.y - pf.rect.y }
-            : { x: f.rect.x, y: f.rect.y },
-          ...(pf ? { parentId: pf.id } : null),
-          width: f.rect.w,
-          height: f.rect.h,
-          draggable: false,
-          selectable: false,
-          zIndex: -1, // под узлами (и под их рёбрами внутри рамки)
-          data: {
-            name: f.name,
-            onCollapse: () => cb.collapseContainer(f.id),
-          } satisfies FrameData,
-        };
-      }),
-      ...layoutNodes.map((n) => {
-        const abs = positions.get(n.id) ?? { x: 0, y: 0 };
-        // блок внутри раскрытого ЛОКАЛА (R5) — ребёнок compound-рамки
-        const pf = frameOfEntity(n.id);
-        const compound = pf
-          ? { parentId: pf.id, position: { x: abs.x - pf.rect.x, y: abs.y - pf.rect.y } }
-          : { position: abs };
-        return {
-          id: n.id,
-          type: "block" as const,
-          ...compound,
-          ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
-          data: {
-            appNode: n,
-            onDrillDown: cb.drillWithPath,
-            isArchitect,
-            // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
-            // к глубине уровня прибавляется вложенность рамки относительно уровня
-            colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
-            hideActions: isContext,
-            connectable: isArchitect && !isContext,
-            quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
-            // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
-            // В контексте read-only схема — без раскрытий.
-            onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
-              ? cb.expandLocalContainer
-              : undefined,
-          } satisfies BlockData,
-        };
-      }),
-      ...entities.map((ent) => {
-        const abs = positions.get(ent.id) ?? { x: 0, y: 0 };
-        // сущность внутри раскрытой рамки — ребёнок compound-узла (координаты рамки)
-        const pf = frameOfEntity(ent.id);
-        const compound = pf
-          ? {
-              parentId: pf.id,
-              position: { x: abs.x - pf.rect.x, y: abs.y - pf.rect.y },
-            }
-          : { position: abs };
-        if (ent.kind === "leaf") {
-          return {
-            id: ent.id,
-            type: "ghost" as const,
-            ...compound,
-            ...(dimNode(ent.ghost.status) ? { style: DIM_STYLE } : null),
-            data: {
-              appNode: ent.ghost,
-              colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth, ent.ghost.status),
-              connectable: isArchitect && !isContext,
-              quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
-              // в контекст-режиме навигация по слоям отключена (схема — внутри модалки).
-              // Путь гостя = его предки + он сам (другая ветка дерева).
-              onEnter: isContext
-                ? undefined
-                : () => cb.onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }]),
-            } satisfies GhostData,
-          };
-        }
-        return {
-          id: ent.id,
-          type: "container" as const,
-          ...compound,
-          data: {
-            id: ent.id,
-            name: ent.name,
-            depth: ent.depth,
-            ancestors: ent.ancestors,
-            colors: getNodeColors(ent.is_external, ent.depth),
-            onExpand: cb.expandContainer,
-            // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
-            onEnter: isContext
-              ? undefined
-              : () => cb.onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
-            connectable: isArchitect && !isContext,
-            quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
-          } satisfies ContainerData,
-        };
-      }),
-      ...spacers,
-    ];
-
-    const nextEdges: RFEdge[] = groupArr.map((g) => {
-        const h = edgeHandles.get(g.id);
-        const isMaster = g.members.length > 1;
-        const single = g.members[0];
-        const singleText = [single.label, single.technology].filter(Boolean).join(" · ") || undefined;
-        const data: WrappedEdgeData = isMaster
-          ? { items: g.members.map((m) => edgeText(m)), memberIds: g.members.map((m) => m.id) }
-          : { label: singleText, memberIds: [single.id] };
-        // Признак архитекторского канваса: плейсхолдер-плашка «•••» у безымянных
-        // связей (см. edges.tsx). Ручной правки геометрии стрелок больше нет.
-        if (isArchitect && !isContext) data.editable = true;
-        // Триггер детализации связи на плашке с описанием. В контексте схема только
-        // для просмотра — не вешаем.
-        if (!isContext) data.onOpenDetails = () => cb.openEdgeMembers(data.memberIds);
-        if (!isContext) {
-          // Авто-маршрут (R1+R3): ставим, если для этой группы он посчитан (не customized).
-          // edges.tsx рисует его ортоломаной с минимумом пересечений.
-          const ar = autoRoutes?.get(g.id);
-          if (ar) data.autoRoute = ar;
-          // Авто-размещение плашки (R2+R4): центр/якорь/режим. edges.tsx ставит плашку в
-          // center, а в режиме leader рисует поводок center↔anchor.
-          const lp = labelPlacements?.get(g.id);
-          if (lp) data.labelPlacement = lp;
-        }
-        // в контекст-схеме ограничиваем ширину плашки — зазор колонок рассчитан под неё —
-        // и кладём подпись на приузловую полку (shelf), если раскладка её посчитала
-        if (isContext) {
-          data.maxWidth = CTX_LABEL_W;
-          const lp = edgeLoops?.get(g.id);
-          const sh = edgeShelves?.get(g.id);
-          if (lp) data.loop = lp;       // не родная стрелка bidi — обход
-          else if (sh) data.shelf = sh; // родная/обычная — приузловая полка
-        }
-        // Цвет ребра по статусу сильнейшего конца; deprecated — пунктир («связь уходит»).
-        const est = edgeStatus(g.source, g.target);
-        const eColor = STATUS_META[est].edge;
-        // Приглушаем ребро, если приглушён ЛЮБОЙ его конец (фильтр вида).
-        const eDimmed = dimNode(statusOf.get(g.source) ?? "existing")
-          || dimNode(statusOf.get(g.target) ?? "existing");
-        if (eDimmed) data.dimmed = true;
-        return {
-          id: g.id,
-          source: g.source,
-          target: g.target,
-          sourceHandle: h?.sourceHandle,
-          targetHandle: h?.targetHandle,
-          type: "wrapped",
-          data,
-          markerEnd: { type: MarkerType.ArrowClosed, color: eColor },
-          style: {
-            stroke: eColor,
-            strokeWidth: 1.5,
-            ...(est === "deprecated" ? { strokeDasharray: "6 4" } : null),
-            ...(eDimmed ? { opacity: 0.12 } : null),
-          },
-          // реконнект концов умер вместе с ручным слоем стрелок (2026-07-09)
-          reconnectable: false,
-        };
-      });
-
+    const { nextNodes, nextEdges } = assembleRfGraph({
+      layout, isArchitect, isContext, depth, schemaView, cb: cbRef.current,
+    });
     // Применение — через оркестратор анимации: без интента раскрытия/сворачивания
     // это те же setRfNodes/setRfEdges, с интентом — режиссированный переход.
     applyLayout(nextNodes, nextEdges);
@@ -1366,35 +971,8 @@ function LevelGraphInner({
           </ViewportPortal>
         )}
         {/* Живой оверлей рамок на время драга: RF-рамки предков скрыты, их bbox рисуют
-            эти div-ы (обновляются императивно из liveFollowFrames — без setState). */}
-        {overlayFrames.length > 0 && (
-          <ViewportPortal>
-            {overlayFrames.map((f) => (
-              <div
-                key={f.id}
-                ref={(el) => {
-                  if (el) overlayElsRef.current.set(f.id, el);
-                  else overlayElsRef.current.delete(f.id);
-                }}
-                style={{
-                  position: "absolute", left: f.x, top: f.y, width: f.w, height: f.h,
-                  border: "1px dashed #9ca3af", borderRadius: 12, background: "transparent",
-                  boxSizing: "border-box", pointerEvents: "none",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
-                    color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
-                    border: "1px solid #e5e7eb", whiteSpace: "nowrap", pointerEvents: "none",
-                  }}
-                >
-                  🔍 {f.name}
-                </div>
-              </div>
-            ))}
-          </ViewportPortal>
-        )}
+            div-ы хука useFrameFollowOverlay (императивно, без setState на тик). */}
+        {frameFollow.overlay && <ViewportPortal>{frameFollow.overlay}</ViewportPortal>}
         {/* Превью будущего узла: пустая рамка-форма с прозрачным телом. В
             ViewportPortal координаты — в системе графа, поэтому рамка масштабируется
             вместе с зумом (как реальный узел) и показывает точное место создания. */}
