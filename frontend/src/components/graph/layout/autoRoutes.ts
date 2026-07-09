@@ -268,6 +268,46 @@ export function buildAutoRoutes(params: {
   return { routes, handles };
 }
 
+/**
+ * Пост-детурная разводка in/out (рецидив Т4, 2026-07-09): applyLabelDetours
+ * назначает детурам хэндлы ЗАНОВО (по умолчанию центр стороны) УЖЕ ПОСЛЕ
+ * distributeSlots — вход и выход могли склеиться в одной точке стыковки.
+ * Повторяет раздачу слотов по ВСЕМ текущим хэндлам; двигаются только концы из
+ * movable (детуры с дефолтным центральным слотом) — рельсы, гистерезис и
+ * внешние слоты пар A12.4 пиннятся своим текущим слотом. МУТИРУЕТ routes и
+ * edgeHandles (слоты сдвинутых доков).
+ */
+export function separateInOutDocks(params: {
+  routes: Map<string, EdgePoint[]>;
+  edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
+  rects: Map<string, NodeRect>;
+  /** ребро → какие его концы разрешено двигать (отсутствие записи = пин) */
+  movable: Map<string, { s: boolean; t: boolean }>;
+  /** концы рёбер по id (nodeId для доков) */
+  endpoints: Map<string, { source: string; target: string }>;
+}): void {
+  const { routes, edgeHandles, rects, movable, endpoints } = params;
+  if (movable.size === 0) return;
+  const docks: Dock[] = [];
+  for (const [id, h] of edgeHandles) {
+    const ends = endpoints.get(id);
+    if (!ends || !routes.has(id)) continue;
+    const sp = parseHandle(h.sourceHandle);
+    const tp = parseHandle(h.targetHandle);
+    const mv = movable.get(id);
+    if (sp) docks.push({ edgeId: id, nodeId: ends.source, side: sp.side, idx: sp.idx, end: "s", free: !!mv?.s });
+    if (tp) docks.push({ edgeId: id, nodeId: ends.target, side: tp.side, idx: tp.idx, end: "t", free: !!mv?.t });
+  }
+  distributeSlots(docks, routes, rects);
+  for (const d of docks) {
+    if (!d.free) continue;
+    const h = edgeHandles.get(d.edgeId)!;
+    const nh = hid(d.nodeId, d.side, d.idx);
+    if (d.end === "s" && h.sourceHandle !== nh) edgeHandles.set(d.edgeId, { ...h, sourceHandle: nh });
+    else if (d.end === "t" && h.targetHandle !== nh) edgeHandles.set(d.edgeId, { ...h, targetHandle: nh });
+  }
+}
+
 // Стыковка конца ребра на стороне узла (для раздачи слотов V2.4c).
 interface Dock {
   edgeId: string;

@@ -11,6 +11,7 @@ import type { EdgePoint } from "../../../types";
 import type { EdgeGroup } from "../types";
 import { labelDetour } from "./labelDetours";
 import { labelBoxSize, type Size } from "./labelBox";
+import { separateInOutDocks } from "./autoRoutes";
 import type { LabelPlacement, LabelMeta } from "./labelLayout";
 
 type NodeRect = { x: number; y: number; w: number; h: number };
@@ -75,6 +76,9 @@ export function applyLabelDetours(params: {
     const tIdx = horiz ? (tp.x < sp.x ? 0 : 2) : (tp.y < sp.y ? 0 : 2);
     detourSlot.set(g.id, { sIdx, tIdx });
   }
+  // концы, посаженные детуром на ДЕФОЛТНЫЙ центральный слот — их потом можно
+  // латерально развести (внешние слоты пар A12.4 выбраны осознанно — пин)
+  const detourMovable = new Map<string, { s: boolean; t: boolean }>();
   for (const { g, box } of detourCands) {
     const source = rectOf(g.source), target = rectOf(g.target);
     if (!source || !target) continue;
@@ -94,8 +98,29 @@ export function applyLabelDetours(params: {
     autoRoutes.set(g.id, det.route);
     edgeHandles.set(g.id, { sourceHandle: hid(g.source, det.sSide, slot.sIdx), targetHandle: hid(g.target, det.tSide, slot.tIdx) });
     detourPreferred.set(g.id, det.preferredT);
+    detourMovable.set(g.id, { s: slot.sIdx === 1, t: slot.tIdx === 1 });
     // оценочный прямоугольник лёгшей плашки — препятствие для последующих (более высоких)
     placedLabelRects.push({ x: det.center.x - box.w / 2, y: det.center.y - box.h / 2, w: box.w, h: box.h });
+  }
+
+  // Рецидив Т4 (2026-07-09): детур сажает концы в ЦЕНТР стороны УЖЕ ПОСЛЕ раздачи
+  // слотов distributeSlots — вход и выход разных рёбер склеивались в одной точке
+  // (AlertDashboard: «Запрос данных» входил в тот же хэндл, откуда выходила
+  // «Запись и чтение»). Повторная разводка: двигаются ТОЛЬКО детурные концы с
+  // дефолтным слотом, все прочие стыковки пинятся своим текущим слотом.
+  if (detourMovable.size > 0) {
+    const rects = new Map<string, NodeRect>();
+    for (const id of displayIds) {
+      const r = rectOf(id);
+      if (r) rects.set(id, r);
+    }
+    separateInOutDocks({
+      routes: autoRoutes,
+      edgeHandles,
+      rects,
+      movable: detourMovable,
+      endpoints: new Map(groupArr.map((g) => [g.id, { source: g.source, target: g.target }])),
+    });
   }
   return detourPreferred;
 }

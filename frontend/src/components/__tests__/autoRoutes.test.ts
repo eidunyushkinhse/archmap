@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildAutoRoutes } from "../graph/layout/autoRoutes";
+import { buildAutoRoutes, separateInOutDocks } from "../graph/layout/autoRoutes";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 import { NODE_W, NODE_H, hid } from "../graph/constants";
 import type { EdgeGroup } from "../graph/types";
@@ -138,6 +138,67 @@ describe("buildAutoRoutes — раздача слотов портов (V2.4c)",
     const inRoute = out.routes.get("in")!;
     const dockY = inRoute[inRoute.length - 1].y;
     expect(Math.abs(dockY - 350)).toBeGreaterThan(10); // не центр стороны (350)
+  });
+});
+
+describe("separateInOutDocks — пост-детурная разводка in/out (рецидив Т4, 2026-07-09)", () => {
+  // Сцена бага AlertDashboard: детуры посадили вход И выход в bottom-центр узла N.
+  const N: NodeRect = { x: 600, y: 300, w: NODE_W, h: NODE_H }; // bottom-центр (695, 400)
+  const mkScene = () => ({
+    routes: new Map([
+      // вход: из A снизу-слева по лейну y=550 вверх в bottom-центр N
+      ["ein", [{ x: 95, y: 600 }, { x: 95, y: 550 }, { x: 695, y: 550 }, { x: 695, y: 400 }]],
+      // выход: из bottom-центра N вниз на лейн y=500 и вправо в B
+      ["eout", [{ x: 695, y: 400 }, { x: 695, y: 500 }, { x: 1295, y: 500 }, { x: 1295, y: 600 }]],
+    ]),
+    edgeHandles: new Map([
+      ["ein", { sourceHandle: hid("A", "top", 1), targetHandle: hid("N", "bottom", 1) }],
+      ["eout", { sourceHandle: hid("N", "bottom", 1), targetHandle: hid("B", "top", 1) }],
+    ]),
+    rects: new Map<string, NodeRect>([
+      ["N", N],
+      ["A", { x: 0, y: 600, w: NODE_W, h: NODE_H }],
+      ["B", { x: 1200, y: 600, w: NODE_W, h: NODE_H }],
+    ]),
+    endpoints: new Map([
+      ["ein", { source: "A", target: "N" }],
+      ["eout", { source: "N", target: "B" }],
+    ]),
+  });
+
+  it("вход и выход, склеенные детуром в центр стороны, разводятся по разным слотам", () => {
+    const s = mkScene();
+    separateInOutDocks({
+      ...s,
+      movable: new Map([["ein", { s: false, t: true }], ["eout", { s: true, t: false }]]),
+    });
+    const tIn = s.edgeHandles.get("ein")!.targetHandle;
+    const sOut = s.edgeHandles.get("eout")!.sourceHandle;
+    expect(tIn).not.toBe(sOut);
+    expect(tIn.startsWith("N--bottom--")).toBe(true);
+    expect(sOut.startsWith("N--bottom--")).toBe(true);
+    // маршрут сдвинутого конца реально перенесён на слот (эндпоинт ушёл с центра 695)
+    const moved = tIn.endsWith("--1") ? s.routes.get("eout")! : s.routes.get("ein")!;
+    const dock = tIn.endsWith("--1") ? moved[0] : moved[moved.length - 1];
+    expect(Math.abs(dock.x - 695)).toBeGreaterThan(10);
+  });
+
+  it("пиненный конец не двигается — уступает подвижный", () => {
+    const s = mkScene();
+    separateInOutDocks({
+      ...s,
+      // вход зафиксирован (рельса/гистерезис) — двигаться может только выход
+      movable: new Map([["eout", { s: true, t: false }]]),
+    });
+    expect(s.edgeHandles.get("ein")!.targetHandle).toBe(hid("N", "bottom", 1)); // пин цел
+    expect(s.edgeHandles.get("eout")!.sourceHandle).not.toBe(hid("N", "bottom", 1));
+  });
+
+  it("без подвижных доков ничего не меняется", () => {
+    const s = mkScene();
+    const before = JSON.stringify([...s.edgeHandles], null, 0) + JSON.stringify([...s.routes]);
+    separateInOutDocks({ ...s, movable: new Map() });
+    expect(JSON.stringify([...s.edgeHandles], null, 0) + JSON.stringify([...s.routes])).toBe(before);
   });
 });
 
