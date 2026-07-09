@@ -201,19 +201,22 @@ export function placeLabels(
       const rs = legRectsById.get(id);
       if (rs) otherLegRects.push(...rs);
     }
-    // ключ выбора: [наложения плашки, online<leader, пересечения поводка, индекс-предпочтение]
+    // ключ выбора: [жёсткие наложения (узлы+плашки), мягкие (чужие плечи), online<leader,
+    // пересечения поводка, индекс-предпочтение]. Чужие плечи — МЯГКИЙ конфликт для ВСЕХ
+    // кандидатов (жалоба «плашка под стрелкой»: раньше online их не проверял и садился
+    // прямо под чужую линию): плашка сначала ищет чистое место вдоль СВОЕЙ линии, затем
+    // чистую выноску, и лишь при полном отсутствии мест мирится с чужим плечом.
     let best = 0;
-    let bestKey: [number, number, number, number] = [Infinity, Infinity, Infinity, Infinity];
+    let bestKey: [number, number, number, number, number] = [Infinity, Infinity, Infinity, Infinity, Infinity];
     for (let k = 0; k < L.cands.length; k++) {
       const c = L.cands[k];
-      // online избегает узлов/плашек (как раньше); leader дополнительно избегает чужих плеч
-      const obstacles = c.leader ? [...placedRects, ...otherLegRects] : placedRects;
-      const ov = overlapCount(c.center, L.box, obstacles);
+      const ovHard = overlapCount(c.center, L.box, placedRects);
+      const ovLegs = overlapCount(c.center, L.box, otherLegRects);
       const cross = c.leader
         ? connectorCrossings(L.anchor, leaderEndPoint(L.anchor, c.center, L.box), otherSegs)
         : 0;
-      const key: [number, number, number, number] = [ov, c.leader ? 1 : 0, cross, k];
-      for (let d = 0; d < 4; d++) {
+      const key: [number, number, number, number, number] = [ovHard, ovLegs, c.leader ? 1 : 0, cross, k];
+      for (let d = 0; d < 5; d++) {
         if (key[d] < bestKey[d]) { bestKey = key; best = k; break; }
         if (key[d] > bestKey[d]) break;
       }
