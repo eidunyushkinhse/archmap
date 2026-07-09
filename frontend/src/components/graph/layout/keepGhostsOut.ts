@@ -115,19 +115,29 @@ export function enforceFramesKeepOut(params: {
   ancestorIds: string[];
   layoutEdges: LayoutEdge[];
   positions: Map<string, { x: number; y: number }>;
+  // цепочки контейнеров над детьми РАСКРЫТЫХ ЛОКАЛОВ (pipeline.localFrames): без них
+  // модель нативной рамки не видит колец раскрытых локалов (refMaxDepth меньше → pad
+  // меньше), а НАРИСОВАННАЯ граница (LevelBoundary с синтезом framedBlocks) видит —
+  // гость держал зазор от модели и «чуть-чуть залезал» в видимую рамку (жалоба
+  // 2026-07-09, дрилл HelixMon: рамка Объектов мониторинга внутри нативной).
+  localFrames?: { id: string; ancestors: AncestorRef[] }[];
 }): KeepOutResult | null {
-  const { nodes, entities, ancestorIds, layoutEdges, positions } = params;
+  const { nodes, entities, ancestorIds, layoutEdges, positions, localFrames } = params;
   if (ancestorIds.length === 0 || nodes.length === 0 || entities.length === 0) return null;
 
   const localIds = nodes.map((n) => n.id);
   const entAncestors = (e: DisplayExternal): AncestorRef[] =>
     e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors;
   const externals = entities.map((e) => ({ id: e.id, ancestors: entAncestors(e) }));
+  // вход computeFrames — с цепочками локалов (модель = рисунок); группы/выталкивание
+  // ниже итерируют только externals (гостей) — дети локалов членством нативных рамок
+  // защищены по построению (memberDepth = дно → запреток глубже нет)
+  const frameExternals = [...externals, ...(localFrames ?? [])];
   const pos = (id: string) => positions.get(id);
   const moved = new Set<string>();
 
   for (let iter = 0; iter < MAX_ITER; iter++) {
-    const frames = computeFrames({ localIds, externals, pos, ancestorIds, ancestorNames: ancestorIds });
+    const frames = computeFrames({ localIds, externals: frameExternals, pos, ancestorIds, ancestorNames: ancestorIds });
     const native = nativeByDepth(frames);
     const guestFrames = frames.filter((f) => !f.native);
 

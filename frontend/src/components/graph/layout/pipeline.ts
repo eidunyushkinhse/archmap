@@ -325,7 +325,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     }
 
     const og = placeGhostsOnRings({
-      nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded,
+      nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
     });
 
     // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
@@ -340,14 +340,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // enforce всегда видит финальные позиции, и оба рендера совпадают.
     const sg = separateGuests({
       nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges,
-      positions, emergedFrom, placedOutside: og?.placedOutside ?? new Set<string>(),
+      positions, emergedFrom, placedOutside: og?.placedOutside ?? new Set<string>(), localFrames,
     });
 
     // Страховочная сетка keep-out: кольца держат инвариант по построению, но ручные позиции
     // и рост рамки за ручным гостем ringPlacement не трогает — их добирает enforce. На
     // авто-гостях после ringPlacement он обязан быть no-op. Запускается всегда.
     const enf = enforceFramesKeepOut({
-      nodes, entities, ancestorIds, layoutEdges, positions,
+      nodes, entities, ancestorIds, layoutEdges, positions, localFrames,
     });
     if (enf) edgeHandles = enf.edgeHandles;
     else if (sg) edgeHandles = sg.edgeHandles;
@@ -411,7 +411,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         if (movedOut.size === 0 && movedSep.size === 0) break;
         anythingMoved = true;
         // сдвиги могли нарушить родной keep-out — восстановить его немедленно
-        const reEnf = enforceFramesKeepOut({ nodes, entities, ancestorIds, layoutEdges, positions });
+        const reEnf = enforceFramesKeepOut({ nodes, entities, ancestorIds, layoutEdges, positions, localFrames });
         if (reEnf) edgeHandles = reEnf.edgeHandles;
       }
       if (anythingMoved) {

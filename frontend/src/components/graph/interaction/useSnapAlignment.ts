@@ -114,9 +114,25 @@ export function useSnapAlignment({
         ? (n.data as GhostData).appNode.ancestors ?? []
         : ((n.data as ContainerData).ancestors ?? []);
     const byId = new Map(rfNodes.map((n) => [n.id, n]));
+    // Дети РАСКРЫТЫХ РАМОК (compound): цепочка parentId по рамкам-предкам + breadcrumb-
+    // префикс — без неё модель нативной рамки не видит колец раскрытых локалов и живой
+    // кламп держит гостей от МЕНЬШЕЙ рамки, чем нарисована (тот же синтез, что в
+    // LevelBoundary/boundaries.tsx и pipeline.localFrames).
+    const bcRefs: AncestorRef[] = ancestorIds.map((id, i) => ({ id, name: ancestorNames[i] ?? id, is_external: false }));
+    const framedBlocks = blocks
+      .filter((b) => b.parentId && byId.get(b.parentId)?.type === "frame")
+      .map((b) => {
+        const chain: AncestorRef[] = [];
+        let cur = byId.get(b.parentId!);
+        while (cur && cur.type === "frame") {
+          chain.unshift({ id: cur.id, name: cur.id, is_external: false });
+          cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+        }
+        return { id: b.id, ancestors: [...bcRefs, ...chain] };
+      });
     return computeFrames({
       localIds: blocks.map((b) => b.id),
-      externals: externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
+      externals: [...externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })), ...framedBlocks],
       pos: (id) => { const n = byId.get(id); return n ? absPositionOf(n, byId) : undefined; },
       ancestorIds, ancestorNames,
     });

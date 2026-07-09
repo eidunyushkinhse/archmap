@@ -51,8 +51,11 @@ export function placeGhostsOnRings(params: {
   positions: Map<string, XY>;
   /** раскрытые контейнеры — их дети подчиняются модели офсетов от якоря (ТЗ D2-D4) */
   expanded: Set<string>;
+  /** цепочки над детьми раскрытых ЛОКАЛОВ — модель рамок обязана видеть их кольца
+      (иначе кольцо гостя не совпадает с нарисованной границей, см. enforceFramesKeepOut) */
+  localFrames?: { id: string; ancestors: AncestorRef[] }[];
 }): RingPlacementResult | null {
-  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, expanded } = params;
+  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, expanded, localFrames } = params;
   if (nodes.length === 0 || ancestorIds.length === 0) return null;
 
   const localIds = nodes.map((n) => n.id);
@@ -60,9 +63,10 @@ export function placeGhostsOnRings(params: {
   const entAncestors = (e: DisplayExternal): AncestorRef[] =>
     e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors;
   const externals = entities.map((e) => ({ id: e.id, ancestors: entAncestors(e) }));
+  const frameExternals = [...externals, ...(localFrames ?? [])];
   const pos = (id: string) => positions.get(id);
   const framesNow = () =>
-    computeFrames({ localIds, externals, pos, ancestorIds, ancestorNames: ancestorIds });
+    computeFrames({ localIds, externals: frameExternals, pos, ancestorIds, ancestorNames: ancestorIds });
 
   // авто-гости (без ручной позиции) — кандидаты на кольца
   const autoIds = new Set(entities.filter((e) => !levelPositions[e.id]).map((e) => e.id));

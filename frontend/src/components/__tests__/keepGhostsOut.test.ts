@@ -138,3 +138,40 @@ describe("enforceFramesKeepOut — сходимость каскада", () => {
     expect(nodeOverlapsFrame(positions.get("E")!, A)).toBe(false); // E вне A
   });
 });
+
+describe("enforceFramesKeepOut — кольца раскрытых ЛОКАЛОВ (localFrames, 2026-07-09)", () => {
+  it("модель нативной рамки видит кольцо раскрытого локала: гость держит зазор от БОЛЬШОЙ рамки", () => {
+    // breadcrumb [A]; локалы: M(0,0) и K(300,0) — ребёнок раскрытого ЛОКАЛА L
+    // (цепочка [A, L]). Рамка L даёт нативной A кольцо (+BOUNDARY_STEP к паддингу),
+    // и НАРИСОВАННАЯ граница A шире. Без localFrames enforce держал гостя от
+    // МАЛОЙ модели — гость «чуть-чуть залезал» в видимую рамку (жалоба, дрилл HelixMon).
+    const mkPositions = () => new Map([
+      ["M", { x: 0, y: 0 }], ["K", { x: 300, y: 0 }],
+      ["E", { x: 100, y: 260 }], // гость-ничей чуть ниже рамки: в зоне «между моделями»
+    ]);
+    const localFrames = [{ id: "K", ancestors: [a("A"), a("L")] }];
+    const entities = [leaf("E", [a("D")])];
+
+    // БЕЗ localFrames (старое поведение): позиция E легальна для малой модели
+    const posOld = mkPositions();
+    enforceFramesKeepOut({
+      nodes: [node("M"), node("K")], entities, ancestorIds: ["A"], layoutEdges: [], positions: posOld,
+    });
+    // С localFrames: модель = рисунок (кольцо учтено) → E вытолкнут ниже
+    const posNew = mkPositions();
+    enforceFramesKeepOut({
+      nodes: [node("M"), node("K")], entities, ancestorIds: ["A"], layoutEdges: [], positions: posNew, localFrames,
+    });
+    expect(posNew.get("E")!.y).toBeGreaterThan(posOld.get("E")!.y);
+
+    // финальная проверка: узел E (и его гостевая рамка D) вне НАРИСОВАННОЙ рамки A
+    // (модель с localFrames = то, что рисует LevelBoundary)
+    const frames = computeFrames({
+      localIds: ["M", "K"],
+      externals: [{ id: "E", ancestors: [a("D")] }, ...localFrames],
+      pos: (id) => posNew.get(id), ancestorIds: ["A"], ancestorNames: ["A"],
+    });
+    const nativeA = frames.find((f) => f.id === "A")!;
+    expect(nodeOverlapsFrame(posNew.get("E")!, nativeA)).toBe(false);
+  });
+});

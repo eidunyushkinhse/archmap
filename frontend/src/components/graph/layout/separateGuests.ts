@@ -137,8 +137,10 @@ export function separateGuests(params: {
   emergedFrom: Map<string, string>;
   /** гости, уже размещённые кольцом (их не считаем новичками от вложенного раскрытия) */
   placedOutside: Set<string>;
+  /** цепочки над детьми раскрытых ЛОКАЛОВ (модель рамок = рисунок, см. enforceFramesKeepOut) */
+  localFrames?: { id: string; ancestors: AncestorRef[] }[];
 }): KeepOutResult | null {
-  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, emergedFrom, placedOutside } = params;
+  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, emergedFrom, placedOutside, localFrames } = params;
   if (ancestorIds.length === 0 || nodes.length === 0 || entities.length === 0) return null;
 
   // новички от раскрытия ВЛОЖЕННОЙ рамки: нет постоянной позиции и кольцо их не ставило
@@ -159,8 +161,10 @@ export function separateGuests(params: {
   const entAncestors = (e: DisplayExternal): AncestorRef[] =>
     e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors;
   const externals = entities.map((e) => ({ id: e.id, ancestors: entAncestors(e) }));
+  // модель рамок — с цепочками раскрытых локалов (кольца; см. enforceFramesKeepOut)
+  const frameExternals = [...externals, ...(localFrames ?? [])];
   const pos = (id: string) => positions.get(id);
-  const frames = computeFrames({ localIds, externals, pos, ancestorIds, ancestorNames: ancestorIds });
+  const frames = computeFrames({ localIds, externals: frameExternals, pos, ancestorIds, ancestorNames: ancestorIds });
   const root = buildGuestForest({
     localIds, entityIds: entities.map((e) => e.id), frames, pos,
     localSet: new Set(localIds), lightIds,
