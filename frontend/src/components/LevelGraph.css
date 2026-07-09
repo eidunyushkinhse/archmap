@@ -437,11 +437,27 @@
     width 420ms cubic-bezier(0.22, 0.8, 0.3, 1),
     height 420ms cubic-bezier(0.22, 0.8, 0.3, 1);
 }
+/* Анимированная ОТРИСОВКА стрелки после раскрытия/сворачивания (drawIn из
+   useLayoutAnimation): edges.tsx ставит на path pathLength=1 и inline
+   stroke-dasharray:1, а keyframes гонят offset 1→0 — линия рисуется от
+   исходного хэндла к целевому. Длительность = ANIM_DRAW_MS (layoutAnimation.ts).
+   both — стартовое состояние (пустая линия) действует до первого кадра. */
+@keyframes lg-edge-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.lg-edge-drawin {
+  animation: lg-edge-draw 400ms ease-out both;
+}
+
 /* Уважение prefers-reduced-motion: хук и так применяет мгновенно (см.
    reducedMotion в useLayoutAnimation), это страховка на случай гонки класса. */
 @media (prefers-reduced-motion: reduce) {
   .lg-canvas--anim .react-flow__node,
   .lg-canvas--anim .lg-frame {
     transition: none;
+  }
+  .lg-edge-drawin {
+    animation: none;
   }
 }

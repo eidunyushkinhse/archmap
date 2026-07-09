@@ -25,10 +25,24 @@ import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import { absPositionOf } from "../absPos";
 import { NODE_W, NODE_H } from "../constants";
 
-// Тайминги (мс). ДОЛЖНЫ совпадать с CSS-транзишенами .lg-canvas--anim
-// (LevelGraph.css): move — transform/width/height, fade — opacity.
+// Тайминги (мс). ДОЛЖНЫ совпадать с CSS (LevelGraph.css): move — transition
+// transform/width/height у .lg-canvas--anim, fade — transition opacity, draw —
+// keyframes lg-edge-draw (отрисовка стрелки штрихом).
 export const ANIM_MOVE_MS = 420;
 export const ANIM_FADE_MS = 200;
+export const ANIM_DRAW_MS = 400;
+
+/** Показать спрятанные рёбра ids С анимированной отрисовкой (drawIn — edges.tsx
+ *  рисует линию штрихом от source к target, плашка и наконечник появятся по
+ *  снятии флага). Прочие рёбра не трогаем. */
+export const markDrawIn = (edges: RFEdge[], ids: Set<string>): RFEdge[] =>
+  edges.map((e) => (ids.has(e.id)
+    ? { ...e, hidden: false, data: { ...e.data, drawIn: true } }
+    : e));
+
+/** Снять флаг отрисовки (конец draw-анимации: проявить плашки и наконечники). */
+export const clearDrawIn = (edges: RFEdge[]): RFEdge[] =>
+  edges.map((e) => (e.data?.drawIn ? { ...e, data: { ...e.data, drawIn: false } } : e));
 
 // Габариты RF-узла: замер → явные width/height → фолбэк-константы (новые узлы
 // ещё не замерены — для центрирования стопки хватает номинала).

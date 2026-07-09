@@ -3,7 +3,7 @@
 // (спавн стопкой / схождение в точку) и решают, что спрятать (рамки, рёбра).
 import { describe, it, expect } from "vitest";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
-import { planExpand, planCollapse } from "../graph/interaction/layoutAnimation";
+import { planExpand, planCollapse, markDrawIn, clearDrawIn } from "../graph/interaction/layoutAnimation";
 import { NODE_W, NODE_H } from "../graph/constants";
 
 // Мини-фабрики RF-объектов: только поля, которые читают планировщики.
@@ -141,5 +141,28 @@ describe("planCollapse", () => {
     expect(planCollapse(next, [], next, "X")).toBeNull(); // prev без рамки
     const nextNoX = [node("N", "block", 800, 100)];
     expect(planCollapse(prev, prevEdges, nextNoX, "X")).toBeNull(); // next без узла
+  });
+});
+
+describe("drawIn (анимированная отрисовка стрелок)", () => {
+  it("markDrawIn: помеченные показываются с drawIn, прочие не тронуты", () => {
+    const edges = [
+      { ...edge("e1", "a", "b"), hidden: true, data: { memberIds: [] } },
+      { ...edge("e2", "a", "c"), data: { memberIds: [] } },
+    ];
+    const out = markDrawIn(edges, new Set(["e1"]));
+    expect(out[0].hidden).toBe(false);
+    expect(out[0].data?.drawIn).toBe(true);
+    expect(out[1]).toBe(edges[1]); // без пометки — та же ссылка
+  });
+
+  it("clearDrawIn: снимает флаг только у рисующихся", () => {
+    const edges = [
+      { ...edge("e1", "a", "b"), data: { drawIn: true } },
+      { ...edge("e2", "a", "c"), data: { memberIds: [] } },
+    ];
+    const out = clearDrawIn(edges);
+    expect(out[0].data?.drawIn).toBe(false);
+    expect(out[1]).toBe(edges[1]);
   });
 });

@@ -27,7 +27,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import {
-  planExpand, planCollapse, ANIM_MOVE_MS, ANIM_FADE_MS,
+  planExpand, planCollapse, markDrawIn, clearDrawIn,
+  ANIM_MOVE_MS, ANIM_FADE_MS, ANIM_DRAW_MS,
 } from "./layoutAnimation";
 
 // Интент старше — протух (например, раскрыли пустой контейнер и рамка так и
@@ -75,6 +76,9 @@ export function useLayoutAnimation({
   const intentRef = useRef<Intent | null>(null);
   // маски открытого окна анимации: что прятать в прогонах-посредниках
   const maskRef = useRef<{ frames: Set<string>; edges: Set<string> } | null>(null);
+  // рёбра в фазе ОТРИСОВКИ (drawIn): помечать заново в прогонах-посредниках,
+  // пока таймер не снимет флаг (иначе прогон по замерам разоблачал бы концовку)
+  const drawRef = useRef<Set<string> | null>(null);
   // отложенная раскладка на время фазы 1 сворачивания
   const pendingRef = useRef<{ nodes: RFNode[]; edges: RFEdge[] } | null>(null);
   const timersRef = useRef<number[]>([]);
@@ -90,8 +94,15 @@ export function useLayoutAnimation({
     timersRef.current.push(window.setTimeout(fn, ms));
   }, []);
 
-  // Показать всё замаскированное (конец разъезда раскрытия).
-  const unmask = useCallback(() => {
+  // Конец фазы отрисовки стрелок: снять drawIn (проявить плашки и наконечники).
+  const endDraw = useCallback(() => {
+    drawRef.current = null;
+    setRfEdges((prev) => clearDrawIn(prev));
+  }, [setRfEdges]);
+
+  // Показать всё замаскированное (конец разъезда раскрытия). withDraw — рёбра
+  // показать через анимированную ОТРИСОВКУ (drawIn на ANIM_DRAW_MS), иначе сразу.
+  const unmask = useCallback((withDraw: boolean) => {
     const mask = maskRef.current;
     if (!mask) return;
     maskRef.current = null;
@@ -99,13 +110,20 @@ export function useLayoutAnimation({
       setRfNodes((prev) => prev.map((n) => (mask.frames.has(n.id) ? unhideNode(n) : n)));
     }
     if (mask.edges.size > 0) {
-      setRfEdges((prev) => prev.map((e) => (mask.edges.has(e.id) && e.hidden ? { ...e, hidden: false } : e)));
+      if (withDraw) {
+        drawRef.current = mask.edges;
+        setRfEdges((prev) => markDrawIn(prev, mask.edges));
+        later(ANIM_DRAW_MS, endDraw);
+      } else {
+        setRfEdges((prev) => prev.map((e) => (mask.edges.has(e.id) && e.hidden ? { ...e, hidden: false } : e)));
+      }
     }
-  }, [setRfNodes, setRfEdges]);
+  }, [setRfNodes, setRfEdges, later, endDraw]);
 
   const cancel = useCallback(() => {
     clearTimers();
     intentRef.current = null;
+    drawRef.current = null;
     const pending = pendingRef.current;
     pendingRef.current = null;
     setActive(false); // класс долой ДО применения — без transition на доигровке
@@ -114,7 +132,8 @@ export function useLayoutAnimation({
       setRfNodes(pending.nodes);
       setRfEdges(pending.edges);
     } else {
-      unmask();
+      unmask(false); // мгновенно, без отрисовки — драгу нужна честная сцена сразу
+      setRfEdges((prev) => clearDrawIn(prev)); // и доиграть возможную фазу отрисовки
     }
   }, [clearTimers, unmask, setRfNodes, setRfEdges]);
 
@@ -122,6 +141,7 @@ export function useLayoutAnimation({
     clearTimers();
     intentRef.current = null;
     maskRef.current = null;
+    drawRef.current = null;
     pendingRef.current = null;
     setActive(false);
   }, [clearTimers]);
@@ -159,7 +179,9 @@ export function useLayoutAnimation({
               }));
             }));
           }));
-          later(ANIM_MOVE_MS, unmask); // рамки проявляются fade'ом (класс ещё жив)
+          // конец разъезда: рамки проявляются fade'ом (класс ещё жив), стрелки
+          // РИСУЮТСЯ от исходного хэндла к целевому (drawIn на ANIM_DRAW_MS)
+          later(ANIM_MOVE_MS, () => unmask(true));
           later(ANIM_MOVE_MS + ANIM_FADE_MS + 60, () => setActive(false));
           return;
         }
@@ -169,17 +191,32 @@ export function useLayoutAnimation({
         if (plan) {
           intentRef.current = null;
           clearTimers();
+          // снимок id рёбер ДО фазы 1: на свопе новые пучки (свёрнутого узла)
+          // определяются против него и рисуются анимированно
+          const prevEdgeIds = new Set(getEdges().map((e) => e.id));
           pendingRef.current = { nodes: nextNodes, edges: nextEdges };
           setActive(true);
           setRfNodes(plan.phase1Nodes);
           setRfEdges((prev) => prev.map((e) => (plan.hiddenEdgeIds.has(e.id) ? { ...e, hidden: true } : e)));
           later(ANIM_MOVE_MS, () => {
-            // подмена стопки свёрнутым узлом: применяем САМУЮ СВЕЖУЮ раскладку
+            // подмена стопки свёрнутым узлом: применяем САМУЮ СВЕЖУЮ раскладку;
+            // рёбра, скрытые на фазу 1 или появившиеся заново, — с отрисовкой
             const fin = pendingRef.current;
             pendingRef.current = null;
             if (fin) {
               setRfNodes(fin.nodes);
-              setRfEdges(fin.edges);
+              const drawIds = new Set(
+                fin.edges
+                  .filter((e) => plan.hiddenEdgeIds.has(e.id) || !prevEdgeIds.has(e.id))
+                  .map((e) => e.id),
+              );
+              if (drawIds.size > 0) {
+                drawRef.current = drawIds;
+                setRfEdges(markDrawIn(fin.edges, drawIds));
+                later(ANIM_DRAW_MS, endDraw);
+              } else {
+                setRfEdges(fin.edges);
+              }
             }
             later(60, () => setActive(false));
           });
@@ -194,18 +231,21 @@ export function useLayoutAnimation({
     }
 
     // применение без режиссуры; внутри окна анимации — с повторной маской
+    // (скрытые рамки/рёбра) и повторным drawIn (фаза отрисовки ещё идёт)
     const mask = maskRef.current;
+    const draw = drawRef.current;
     setRfNodes(
       mask && mask.frames.size > 0
         ? nextNodes.map((n) => (mask.frames.has(n.id) ? { ...n, style: { ...n.style, opacity: 0 } } : n))
         : nextNodes,
     );
-    setRfEdges(
-      mask && mask.edges.size > 0
-        ? nextEdges.map((e) => (mask.edges.has(e.id) ? { ...e, hidden: true } : e))
-        : nextEdges,
-    );
-  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, unmask]);
+    let edgesOut = nextEdges;
+    if (mask && mask.edges.size > 0) {
+      edgesOut = edgesOut.map((e) => (mask.edges.has(e.id) ? { ...e, hidden: true } : e));
+    }
+    if (draw && draw.size > 0) edgesOut = markDrawIn(edgesOut, draw);
+    setRfEdges(edgesOut);
+  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, unmask, endDraw]);
 
   const noteExpand = useCallback((id: string) => {
     intentRef.current = { kind: "expand", id, ts: Date.now() };

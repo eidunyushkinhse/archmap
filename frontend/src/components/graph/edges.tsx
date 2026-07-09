@@ -71,6 +71,11 @@ function WrappedLabelEdge({
   const d = data as WrappedEdgeData | undefined;
   const shelf = d?.shelf;
   const loop = d?.loop;
+  // Идёт анимированная ОТРИСОВКА (после раскрытия/сворачивания, useLayoutAnimation):
+  // линия рисуется штрихом от source к target (pathLength=1 нормализует длину пути,
+  // keyframes lg-edge-draw гонит stroke-dashoffset 1→0), а наконечник, плашка,
+  // поводок и грипы скрыты до снятия флага — «плашка появляется по завершении».
+  const drawing = d?.drawIn === true;
   // Приглушение фильтром «Вид схемы»: линию гасит style.opacity (из LevelGraph),
   // а плашку подписи — этот стиль (она рендерится в отдельном слое EdgeLabelRenderer).
   const dimStyle: CSSProperties | null = d?.dimmed ? { opacity: 0.12, pointerEvents: "none" } : null;
@@ -432,7 +437,17 @@ function WrappedLabelEdge({
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      {/* Во время отрисовки: наконечник скрыт (появится с плашкой), pathLength=1 +
+          inline stroke-dasharray:1 (inline — чтобы перебить пунктир deprecated «6 4»
+          на время штриха; после отрисовки пунктир возвращается со style). */}
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={drawing ? undefined : markerEnd}
+        className={drawing ? "lg-edge-drawin" : undefined}
+        {...(drawing ? { pathLength: 1 } : null)}
+        style={drawing ? { ...style, strokeDasharray: 1 } : style}
+      />
       {/* Поводок-выноска (R2-fallback): плашку нельзя поставить на линию без наложения —
           она вынесена сбоку (labelPlacement.center), а пунктирный поводок связывает её с
           точкой на стрелке (anchor). Ведём поводок ДО ЦЕНТРА плашки: непрозрачный фон
@@ -440,7 +455,7 @@ function WrappedLabelEdge({
           по ОЦЕНЁННОМУ labelBoxSize-боксу — при других шрифтах реальная плашка уже
           оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). Во время
           активного драга плашки не рисуем (геометрия поводка из снимка устарела бы). */}
-      {d?.labelPlacement?.mode === "leader" && dragLabelT == null && (
+      {d?.labelPlacement?.mode === "leader" && dragLabelT == null && !drawing && (
         <path
           d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.center.x},${d.labelPlacement.center.y}`}
           style={{ stroke: "#9ca3af", strokeWidth: 1, strokeDasharray: "3 3", fill: "none", pointerEvents: "none" }}
@@ -450,7 +465,7 @@ function WrappedLabelEdge({
           точка по центру (проявляется при ховере ребра). stopPropagation на клике гасит
           открытие поповера связи после жеста. Рендерятся только при живом коммите
           (фиче-тогл ручного слоя выключает onWaypointsCommit — грипы гаснут). */}
-      {gripPts && d?.onWaypointsCommit && segments(gripPts).map((seg) => {
+      {gripPts && d?.onWaypointsCommit && !drawing && segments(gripPts).map((seg) => {
         const mx = (seg.x1 + seg.x2) / 2, my = (seg.y1 + seg.y2) / 2;
         return (
           <g key={seg.index} className="lg-edge-grip">
@@ -473,7 +488,7 @@ function WrappedLabelEdge({
           </g>
         );
       })}
-      {items && items.length > 0 ? (
+      {drawing ? null : items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
           <div className={boxCls} onClick={boxClick} onDoubleClick={boxDouble} {...dragProps}

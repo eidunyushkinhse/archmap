@@ -67,6 +67,11 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   // приглушено фильтром «Вид схемы»: конец ребра в скрытом статусе. Линия рисуется
   // полупрозрачной (style.opacity ставит LevelGraph), а здесь гасим ещё и плашку подписи.
   dimmed?: boolean;
+  // идёт анимированная ОТРИСОВКА стрелки после раскрытия/сворачивания (useLayoutAnimation):
+  // линия рисуется штрихом от исходного хэндла к целевому (CSS lg-edge-drawin,
+  // pathLength=1 + stroke-dashoffset), маркер-наконечник и плашка скрыты до конца
+  // отрисовки. Флаг ставит и снимает оркестратор анимации по таймеру ANIM_DRAW_MS.
+  drawIn?: boolean;
 }
 
 export interface NodeColors { bg: string; border: string; text: string }
