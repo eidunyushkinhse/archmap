@@ -80,6 +80,25 @@ describe("keepOutOfExpandedFrames", () => {
     expect(inside(positions.get("s")!, inn.rect)).toBe(false);
   });
 
+  it("СЭНДВИЧ: узел между двумя рамками (щель уже узла) выходит из ОБЕИХ", () => {
+    // Кейс пользователя (Nucleus/IdHub/Cirrus): узел в нижней полосе рамки A,
+    // сразу под A — рамка B, щель ровно KEEPOUT_GAP (28) < NODE_H. Жадный MTV
+    // «к ближайшему краю» пинг-понгает вниз-вверх и оставляет узел внутри A.
+    const a = frame("A", ["a1"], { x: 0, y: 0, w: 1300, h: 780 });
+    const b = frame("B", ["b1"], { x: 344, y: 808, w: 670, h: 790 });
+    const positions = new Map([
+      ["a1", { x: 100, y: 100 }],
+      ["b1", { x: 400, y: 900 }],
+      ["s", { x: 274, y: 682 }], // чужак в нижней полосе A, x-диапазон перекрывает B
+    ]);
+    const moved = keepOutOfExpandedFrames({
+      displayedIds: ["a1", "b1", "s"], frames: [a, b], positions,
+    });
+    expect(moved.has("s")).toBe(true);
+    expect(inside(positions.get("s")!, a.rect)).toBe(false);
+    expect(inside(positions.get("s")!, b.rect)).toBe(false);
+  });
+
   it("вложенная рамка в СВОЕЙ объемлющей не трогается", () => {
     const outer = frame("OUT", ["a", "b"], { x: 0, y: 0, w: 600, h: 400 });
     const inner = frame("IN", ["a"], { x: 50, y: 50, w: 230, h: 150 }, 1); // members ⊆ outer

@@ -52,6 +52,30 @@ export function pushOut(r: Rect, f: Rect, gap: number): { dx: number; dy: number
   return bestAxis === "x" ? { dx: best, dy: 0 } : { dx: 0, dy: best };
 }
 
+/**
+ * Суммарный сдвиг вдоль направления `dir`, выводящий `r` за пределы ВСЕХ
+ * прямоугольников `fx` (уже раздутых на зазор). Движение монотонно: очищенная
+ * рамка при дальнейшем движении в ту же сторону не задевается снова, поэтому
+ * хватает ≤ fx.length шагов. Возвращает знаковый сдвиг по оси направления.
+ */
+function slideOutAll(r: Rect, fx: Rect[], dir: "left" | "right" | "up" | "down"): number {
+  const cur = { ...r };
+  let total = 0;
+  for (let guard = 0; guard <= fx.length; guard++) {
+    const hit = fx.find((f) => overlaps(cur, f));
+    if (!hit) break;
+    let d: number;
+    if (dir === "left") d = hit.minX - cur.maxX;
+    else if (dir === "right") d = hit.maxX - cur.minX;
+    else if (dir === "up") d = hit.minY - cur.maxY;
+    else d = hit.maxY - cur.minY;
+    total += d;
+    if (dir === "left" || dir === "right") { cur.minX += d; cur.maxX += d; }
+    else { cur.minY += d; cur.maxY += d; }
+  }
+  return total;
+}
+
 // нативные рамки, индексированные по depth (0..k); depth непрерывен по breadcrumb.
 // Экспортируется: ту же индексацию использует ringPlacement, чтобы кольцо гостя
 // совпадало с запретной рамкой keep-out (→ keep-out выполняется по построению).
@@ -80,6 +104,9 @@ const MAX_ITER = 8;
 
 /**
  * Финальный проход: выталкивает гостей/гостевые рамки за пределы чужих родных рамок.
+ * Родные рамки концентрически вложены (запретка одна — F_{L+1}), поэтому здесь
+ * попарного MTV достаточно; «сэндвич» между НЕвложенными рамками бывает только у
+ * раскрытых compound-рамок — см. slideOutAll в keepOutOfExpandedFrames.
  * `positions` МУТИРУЕТСЯ. Возвращает null, если выталкивать нечего (никто не сдвинут).
  */
 export function enforceFramesKeepOut(params: {
@@ -253,24 +280,30 @@ export function keepOutOfExpandedFrames(params: {
         if (Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6) shiftFrameGroup(f, dx, dy);
       });
     }
-    // Одиночные узлы контекста — MTV-выталкивание из уже разведённых под-рамок;
-    // итерации на каскад «вытолкнули из одной — заехал в другую».
-    for (let iter = 0; iter < MAX_ITER; iter++) {
-      let changed = false;
-      for (const id of subjectNodes) {
-        const p0 = positions.get(id)!;
-        const subject: Rect = { minX: p0.x, minY: p0.y, maxX: p0.x + NODE_W, maxY: p0.y + NODE_H };
-        for (const f of forbidden) {
-          const push = pushOut(subject, rectOf(f), KEEPOUT_GAP);
-          if (!push) continue;
-          positions.set(id, { x: positions.get(id)!.x + push.dx, y: positions.get(id)!.y + push.dy });
-          moved.add(id);
-          subject.minX += push.dx; subject.maxX += push.dx;
-          subject.minY += push.dy; subject.maxY += push.dy;
-          changed = true;
-        }
+    // Одиночные узлы контекста — направленное СКОЛЬЖЕНИЕ из ОБЪЕДИНЕНИЯ уже
+    // разведённых под-рамок (slideOutAll). Прежний попарный MTV «к ближайшему
+    // краю» пинг-понгал в сэндвиче двух рамок (щель KEEPOUT_GAP уже субъекта):
+    // выталкивание из одной заводило в другую, итерации выдыхались, и узел
+    // ОСТАВАЛСЯ внутри (Nucleus/IdHub/Cirrus в нижней полосе рамки HelixMon).
+    // Скольжение сразу считает суммарный выход за все рамки по каждой из четырёх
+    // сторон и применяет минимальный — узел чист за один ход, каскад не нужен.
+    const inflated = forbidden.map((f) => {
+      const r = rectOf(f);
+      return { minX: r.minX - KEEPOUT_GAP, minY: r.minY - KEEPOUT_GAP, maxX: r.maxX + KEEPOUT_GAP, maxY: r.maxY + KEEPOUT_GAP };
+    });
+    for (const id of subjectNodes) {
+      const p0 = positions.get(id)!;
+      const subject: Rect = { minX: p0.x, minY: p0.y, maxX: p0.x + NODE_W, maxY: p0.y + NODE_H };
+      if (!inflated.some((f) => overlaps(subject, f))) continue;
+      let best: { dx: number; dy: number } | null = null;
+      for (const dir of ["left", "right", "up", "down"] as const) {
+        const d = slideOutAll(subject, inflated, dir);
+        const cand = dir === "left" || dir === "right" ? { dx: d, dy: 0 } : { dx: 0, dy: d };
+        if (!best || Math.abs(d) < Math.abs(best.dx + best.dy)) best = cand;
       }
-      if (!changed) break;
+      if (!best) continue;
+      positions.set(id, { x: p0.x + best.dx, y: p0.y + best.dy });
+      moved.add(id);
     }
   }
   return moved;
