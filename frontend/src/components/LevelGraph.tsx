@@ -24,7 +24,7 @@ import { canHaveChildren } from "../types";
 import { NODE_W, NODE_H } from "./graph/constants";
 import type {
   WrappedEdgeData,
-  BlockData, ContainerData,
+  BlockData, GhostData, ContainerData,
   QuickConnectHandlers,
 } from "./graph/types";
 import type { EdgeSide } from "./graph/edgePath";
@@ -99,19 +99,22 @@ interface LevelGraphProps {
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
   // протянули стрелку от узла sourceId на ЛИСТОВОЙ узел/хэндл targetId — создать связь.
   // Хэндлы из жеста: при дропе на хэндл известны оба, на тело листа — только исходный.
+  // Имена концов едут С ЖЕСТОМ: дети раскрытых ЛОКАЛЬНЫХ контейнеров известны только
+  // холсту (кэш localChildren) — TreePage разрешить их id в имя не может.
   onCreateEdge?: (
     sourceId: string, targetId: string,
     sourceHandle: string | null, targetHandle: string | null,
+    sourceName?: string, targetName?: string,
   ) => void;
   // протянули стрелку на узел С ДЕТЬМИ (containerId) — открыть выбор его потомка
   // как дальнего конца межуровневой связи (источник — sourceId, его хэндл — sourceHandle)
   onConnectInto?: (
     sourceId: string, containerId: string, containerName: string,
-    sourceHandle: string | null,
+    sourceHandle: string | null, sourceName?: string,
   ) => void;
   // конец стрелки отпустили на плитку «вне уровня» — открыть выбор дальнего конца
   // из всей схемы (узла, которого нет на текущем холсте)
-  onExitUp?: (sourceId: string, sourceHandle: string | null) => void;
+  onExitUp?: (sourceId: string, sourceHandle: string | null, sourceName?: string) => void;
   // запрос на удаление узла прямо с канваса (Backspace/Delete по выбранному
   // узлу) — открыть подтверждение со списком связей (как кнопка «Удалить» в
   // модалке узла). Само удаление React Flow отключено (deleteKeyCode=null).
@@ -549,13 +552,30 @@ function LevelGraphInner({
     [rfNodes],
   );
 
+  // Имя ОТОБРАЖАЕМОГО узла по id — для заголовков модалок создания связи. Дети
+  // раскрытых локальных контейнеров известны только холсту (кэш localChildren),
+  // поэтому имена концов уезжают вместе с жестом, а не разрешаются в TreePage.
+  const displayNameOf = useCallback(
+    (id: string): string | undefined => {
+      const n = rfNodes.find((x) => x.id === id);
+      if (!n) return undefined;
+      if (n.type === "block") return (n.data as BlockData).appNode.name;
+      if (n.type === "ghost") return (n.data as GhostData).appNode.name;
+      if (n.type === "container") return (n.data as ContainerData).name;
+      return undefined;
+    },
+    [rfNodes],
+  );
+
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка). Реконнект концов существующих рёбер умер вместе с ручным слоем
   // стрелок (2026-07-09) — поток создания единственный.
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
       isArchitect, isContext, resolveTarget,
-      onCreate: onCreateEdge, onInto: onConnectInto, onExitUp,
+      onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
+      onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
+      onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
     });
 
   // --- «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседним
@@ -583,10 +603,12 @@ function LevelGraphInner({
   const qcRef = useRef(qc);
   const qcCandidateRef = useRef(qcCandidate);
   const onCreateEdgeRef = useRef(onCreateEdge);
+  const displayNameOfRef = useRef(displayNameOf);
   useEffect(() => {
     qcRef.current = qc;
     qcCandidateRef.current = qcCandidate;
     onCreateEdgeRef.current = onCreateEdge;
+    displayNameOfRef.current = displayNameOf;
   });
   const quickConnectHandlers = useMemo<QuickConnectHandlers>(() => ({
     enter: (sourceId, sourceHandle, side, frac) => setQc({ sourceId, sourceHandle, side, frac }),
@@ -594,7 +616,13 @@ function LevelGraphInner({
     activate: () => {
       const q = qcRef.current, c = qcCandidateRef.current;
       setQc(null);
-      if (q && c) onCreateEdgeRef.current?.(q.sourceId, c.targetId, q.sourceHandle, c.targetHandle);
+      if (q && c) {
+        const nameOf = displayNameOfRef.current;
+        onCreateEdgeRef.current?.(
+          q.sourceId, c.targetId, q.sourceHandle, c.targetHandle,
+          nameOf(q.sourceId), nameOf(c.targetId),
+        );
+      }
     },
   }), []);
 

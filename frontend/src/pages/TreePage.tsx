@@ -75,19 +75,23 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     open: false,
     node: null,
   });
-  // протянули стрелку на узел с детьми — выбор его потомка как дальнего конца связи
+  // протянули стрелку на узел с детьми — выбор его потомка как дальнего конца связи.
+  // Имена концов приезжают С ЖЕСТОМ (LevelGraph): дети раскрытых локальных контейнеров
+  // известны только холсту — findNodeLabel по nodes/endpoints их не разрешит.
   const [intoPicker, setIntoPicker] = useState<{
     sourceId: string;
     containerId: string;
     containerName: string;
     // хэндл узла-источника, из которого протянули стрелку (дальний конец — дефолт)
     sourceHandle: string | null;
+    sourceName?: string;
   } | null>(null);
   // протянули стрелку на верхнюю плитку «вне уровня» — выбор дальнего конца из ВСЕЙ
   // схемы (узел, которого нет на текущем холсте). Доступно только на не-корневом уровне.
   const [outPicker, setOutPicker] = useState<{
     sourceId: string;
     sourceHandle: string | null;
+    sourceName?: string;
   } | null>(null);
   // протянули стрелку на хэндл (прямая связь) — упрощённый поповер: описание+технология.
   // Хэндлы из жеста: при дропе на хэндл оба, на тело листа — только исходный.
@@ -96,6 +100,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     targetId: string;
     sourceHandle: string | null;
     targetHandle: string | null;
+    sourceName?: string;
+    targetName?: string;
   } | null>(null);
   // Объект, чья мета открыта в правой панели (двойной клик по узлу/связи). null — панель
   // показывает пустое состояние. Мету правят inline прямо в панели (см. ObjectInspector).
@@ -561,8 +567,9 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   function handleCreateEdge(
     sourceId: string, targetId: string,
     sourceHandle: string | null, targetHandle: string | null,
+    sourceName?: string, targetName?: string,
   ) {
-    setEdgeQuick({ sourceId, targetId, sourceHandle, targetHandle });
+    setEdgeQuick({ sourceId, targetId, sourceHandle, targetHandle, sourceName, targetName });
   }
 
   // Откат СОЗДАНИЯ связи (Undo): структурная операция, как создание узла — undo снимает
@@ -604,9 +611,9 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // Протянули стрелку на узел С ДЕТЬМИ — открываем выбор его потомка.
   function handleConnectInto(
     sourceId: string, containerId: string, containerName: string,
-    sourceHandle: string | null,
+    sourceHandle: string | null, sourceName?: string,
   ) {
-    setIntoPicker({ sourceId, containerId, containerName, sourceHandle });
+    setIntoPicker({ sourceId, containerId, containerName, sourceHandle, sourceName });
   }
 
   function handleIntoCreated(created: Edge) {
@@ -832,7 +839,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onDropNode={handleDropNode}
               onCreateEdge={handleCreateEdge}
               onConnectInto={handleConnectInto}
-              onExitUp={(sourceId, sourceHandle) => setOutPicker({ sourceId, sourceHandle })}
+              onExitUp={(sourceId, sourceHandle, sourceName) => setOutPicker({ sourceId, sourceHandle, sourceName })}
               onRequestDeleteNode={setPendingDelete}
               onRequestDeleteNodes={setPendingMultiDelete}
               dragShape={dragShape}
@@ -951,8 +958,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         <EdgeQuickCreate
           sourceId={edgeQuick.sourceId}
           targetId={edgeQuick.targetId}
-          sourceLabel={findNodeLabel(edgeQuick.sourceId)}
-          targetLabel={findNodeLabel(edgeQuick.targetId)}
+          sourceLabel={edgeQuick.sourceName ?? findNodeLabel(edgeQuick.sourceId)}
+          targetLabel={edgeQuick.targetName ?? findNodeLabel(edgeQuick.targetId)}
           onClose={() => setEdgeQuick(null)}
           onCreated={handleQuickCreated}
         />
@@ -962,7 +969,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           title={`Связь внутрь «${intoPicker.containerName}»`}
           subtitle="Выберите объект-потомок — дальний конец межуровневой связи."
           sourceId={intoPicker.sourceId}
-          sourceLabel={findNodeLabel(intoPicker.sourceId)}
+          sourceLabel={intoPicker.sourceName ?? findNodeLabel(intoPicker.sourceId)}
           loadNodes={() => nodesApi.getDescendants(intoPicker.containerId)}
           scopeKey={intoPicker.containerId}
           rootParentId={intoPicker.containerId}
@@ -976,7 +983,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           title="Связь с объектом вне уровня"
           subtitle="Выберите объект из любой части схемы — связь станет сквозной."
           sourceId={outPicker.sourceId}
-          sourceLabel={findNodeLabel(outPicker.sourceId)}
+          sourceLabel={outPicker.sourceName ?? findNodeLabel(outPicker.sourceId)}
           loadNodes={() => nodesApi.getAll()}
           scopeKey="all"
           rootParentId={null}

@@ -3,6 +3,15 @@
 # Перенесено из tasks.md 2026-07-09 (Ф3 аудита): закрытые записи секции
 # «В работе» + вся историческая секция «Сделано». Новое сделанное дописывать
 # сюда; в tasks.md держать только живое (в работе + бэклог).
+- [x] fix: UUID вместо имён в модалках создания связи (2026-07-09, жалоба архитектора).
+        Связь между детьми раскрытых ЛОКАЛЬНЫХ контейнеров: findNodeLabel в TreePage
+        знает только локалов уровня (nodes) и реестр endpoints, а дети раскрытий живут
+        в кэше localChildren внутри LevelGraph — фолбэк отдавал голый id. Теперь имена
+        концов едут ВМЕСТЕ С ЖЕСТОМ (как containerName у onConnectInto): displayNameOf
+        по rfNodes в LevelGraph → onCreateEdge/onConnectInto/onExitUp несут sourceName/
+        targetName → TreePage хранит их в стейте пикеров, findNodeLabel — фолбэк.
+        Покрыты все три модалки (EdgeQuickCreate, CrossLevelEdgePicker into/out) и
+        «быстрая связь». Проверено headless-жестом: «UserPortal → EMS» вместо UUID.
 - [x] Анимированная перерисовка изменённых стрелок после ручного жеста (2026-07-09,
         по просьбе архитектора). Отпускание драга узлов/группы и Undo/Redo ставят
         «окно жеста» (noteGesture в useLayoutAnimation); первый прогон раскладки,
