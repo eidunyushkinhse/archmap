@@ -17,7 +17,9 @@
 // не идёт по оси и дуге физически негде стоять.
 //
 // Конвенции выгиба: горизонтальная дуга — вверх (к меньшему y), вертикальная — вправо
-// (к большему x). На каждом крестике прыгает ровно одна стрелка.
+// (к большему x). На каждом крестике прыгает ровно одна СТОРОНА: одиночка — одной
+// дугой, а если прыгать выпало стороне-пучку (совпадающие плечи) — дугу получает
+// КАЖДЫЙ её член (дуги совпадают, визуально одна). См. комментарий у computeJumps.
 import type { EdgePoint } from "../../types";
 import { segments } from "./edgePath";
 import { JUMP_RADIUS, EDGE_CORNER_RADIUS } from "./constants";
@@ -58,6 +60,18 @@ function straightSpan(pts: EdgePoint[], i: number, r: number): { lo: number; hi:
 
 // Для набора ломаных (id → точки) возвращает точки-«мостики» по каждому ребру.
 // r/jr — радиусы скругления углов и мостика (синхронны с buildPathWithJumps).
+//
+// РЕШЕНИЕ ПО ТОЧКЕ, не по-парно (2026-07-09): через один крест могут проходить
+// НЕСКОЛЬКО совпадающих плеч (общее плечо пучка из одного хэндла). Прежний
+// попарный выбор давал на таком кресте кашу: часть членов пучка получала дугу,
+// часть — нет («прямой перекрёсток» насквозь), а одиночке доставались N дублей-
+// мостиков в одной точке, которые сжатие перекрывающихся дуг ужимало до
+// микродуги JR_MIN (жалоба: крест ОС-хосты→Zabbix Core с плечом трёх стрелок).
+// Теперь крестики группируются по точке; сторона-кандидат — с МЕНЬШИМ числом
+// совпадающих плеч (одиночка предпочтительнее пучка: одна дуга над слитым
+// плечом вместо N), при равенстве — горизонталь (прежняя конвенция). Запас
+// стороны — МИНИМУМ по её членам: дуга нужна каждому, иначе член без дуги
+// рисует прямую поверх чужой дуги.
 export function computeJumps(
   polys: Map<string, EdgePoint[]>,
   r: number = EDGE_CORNER_RADIUS,
@@ -67,6 +81,12 @@ export function computeJumps(
   const result = new Map<string, JumpPoint[]>(ids.map((id) => [id, []]));
   const segs = new Map(ids.map((id) => [id, segments(polys.get(id)!)]));
 
+  // 1) все крестики, сгруппированные по точке; члены сторон дедуплицируются
+  // по (ребро, сегмент) — пара «одиночка × k членов пучка» даёт k пар с одной
+  // и той же одиночкой
+  interface Member { id: string; index: number }
+  interface CrossPoint { x: number; y: number; hs: Map<string, Member>; vs: Map<string, Member> }
+  const points = new Map<string, CrossPoint>();
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
       const segA = segs.get(ids[i])!;
@@ -86,26 +106,41 @@ export function computeJumps(
           if (!(vx > hxMin + EPS && vx < hxMax - EPS && hy > vyMin + EPS && hy < vyMax - EPS)) continue;
           const horizId = sa.orient === "h" ? ids[i] : ids[j];
           const vertId = sa.orient === "h" ? ids[j] : ids[i];
-          // Запас прямой части каждой оси в точке креста (после трима скруглений)
-          const spanH = straightSpan(polys.get(horizId)!, h.index, r);
-          const spanV = straightSpan(polys.get(vertId)!, v.index, r);
-          const availH = Math.min(vx - spanH.lo, spanH.hi - vx);
-          const availV = Math.min(hy - spanV.lo, spanV.hi - hy);
-          if (availH >= jr) {
-            result.get(horizId)!.push({ x: vx, y: hy, jr }); // конвенция: горизонталь первой
-          } else if (availV >= jr) {
-            result.get(vertId)!.push({ x: vx, y: hy, jr }); // фолбэк: прыгает вертикаль
-          } else {
-            // деградация: ось с бОльшим запасом, радиус — сколько влезает
-            const useH = availH >= availV;
-            const jrEff = Math.min(jr, (useH ? availH : availV) - 0.25);
-            if (jrEff >= JR_MIN) {
-              result.get(useH ? horizId : vertId)!.push({ x: vx, y: hy, jr: jrEff });
-            }
-            // jrEff < JR_MIN: крест в зоне скруглений обоих рёбер — дуге негде стоять
-          }
+          const key = `${Math.round(vx * 2)},${Math.round(hy * 2)}`;
+          let pt = points.get(key);
+          if (!pt) { pt = { x: vx, y: hy, hs: new Map(), vs: new Map() }; points.set(key, pt); }
+          pt.hs.set(`${horizId}#${h.index}`, { id: horizId, index: h.index });
+          pt.vs.set(`${vertId}#${v.index}`, { id: vertId, index: v.index });
         }
       }
+    }
+  }
+
+  // 2) решение по каждой точке
+  for (const pt of points.values()) {
+    // запас прямой части члена в точке креста (после трима скруглений)
+    const availOf = (m: Member, horiz: boolean): number => {
+      const span = straightSpan(polys.get(m.id)!, m.index, r);
+      const c = horiz ? pt.x : pt.y;
+      return Math.min(c - span.lo, span.hi - c);
+    };
+    const hs = [...pt.hs.values()];
+    const vs = [...pt.vs.values()];
+    const sideH = { members: hs, avail: Math.min(...hs.map((m) => availOf(m, true))) };
+    const sideV = { members: vs, avail: Math.min(...vs.map((m) => availOf(m, false))) };
+    // порядок кандидатов: меньше членов → раньше; при равенстве горизонталь первой
+    const sides = vs.length < hs.length ? [sideV, sideH] : [sideH, sideV];
+    const push = (side: typeof sideH, jrEff: number) => {
+      for (const m of side.members) result.get(m.id)!.push({ x: pt.x, y: pt.y, jr: jrEff });
+    };
+    if (sides[0].avail >= jr) push(sides[0], jr);
+    else if (sides[1].avail >= jr) push(sides[1], jr);
+    else {
+      // деградация: сторона с бОльшим запасом, радиус — сколько влезает
+      const s = sides[0].avail >= sides[1].avail ? sides[0] : sides[1];
+      const jrEff = Math.min(jr, s.avail - 0.25);
+      if (jrEff >= JR_MIN) push(s, jrEff);
+      // jrEff < JR_MIN: крест в зоне скруглений обоих рёбер — дуге негде стоять
     }
   }
   return result;
