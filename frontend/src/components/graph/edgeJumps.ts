@@ -81,12 +81,14 @@ export function computeJumps(
   const result = new Map<string, JumpPoint[]>(ids.map((id) => [id, []]));
   const segs = new Map(ids.map((id) => [id, segments(polys.get(id)!)]));
 
-  // 1) все крестики, сгруппированные по точке; члены сторон дедуплицируются
-  // по (ребро, сегмент) — пара «одиночка × k членов пучка» даёт k пар с одной
-  // и той же одиночкой
+  // 1) все крестики СПИСКОМ; группировка — ниже, КЛАСТЕРАМИ (радиус CLUSTER_R), а не
+  // точным совпадением точки: почти-совпадающие плечи (коллинеарная пара, разъехавшаяся
+  // на пиксели от стаб-клампов/нюджей) дают кресты в паре px друг от друга — решённые
+  // порознь, они расходились («одна огибает, другая игнорирует», жалоба 2026-07-09).
+  // Радиус 8 < GAP канала 14: честно разведённые плечи не слипаются.
   interface Member { id: string; index: number }
-  interface CrossPoint { x: number; y: number; hs: Map<string, Member>; vs: Map<string, Member> }
-  const points = new Map<string, CrossPoint>();
+  interface RawCross { x: number; y: number; hId: string; hIdx: number; vId: string; vIdx: number }
+  const crossings: RawCross[] = [];
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
       const segA = segs.get(ids[i])!;
@@ -106,32 +108,63 @@ export function computeJumps(
           if (!(vx > hxMin + EPS && vx < hxMax - EPS && hy > vyMin + EPS && hy < vyMax - EPS)) continue;
           const horizId = sa.orient === "h" ? ids[i] : ids[j];
           const vertId = sa.orient === "h" ? ids[j] : ids[i];
-          const key = `${Math.round(vx * 2)},${Math.round(hy * 2)}`;
-          let pt = points.get(key);
-          if (!pt) { pt = { x: vx, y: hy, hs: new Map(), vs: new Map() }; points.set(key, pt); }
-          pt.hs.set(`${horizId}#${h.index}`, { id: horizId, index: h.index });
-          pt.vs.set(`${vertId}#${v.index}`, { id: vertId, index: v.index });
+          crossings.push({ x: vx, y: hy, hId: horizId, hIdx: h.index, vId: vertId, vIdx: v.index });
         }
       }
     }
   }
 
-  // 2) решение по каждой точке
-  for (const pt of points.values()) {
-    // запас прямой части члена в точке креста (после трима скруглений)
+  // 2) кластеризация крестов: жадно, детерминированно (сортировка по y,x); крест
+  // липнет к кластеру, чей ЯКОРЬ (первый крест) ближе CLUSTER_R по обеим осям —
+  // без транзитивных цепочек разброс кластера ≤ CLUSTER_R, и дуга jr=6 накрывает
+  // все его кресты от середины
+  const CLUSTER_R = 8;
+  interface CrossPoint { sumX: number; sumY: number; n: number; hs: Map<string, Member>; vs: Map<string, Member> }
+  crossings.sort((a, b) => a.y - b.y || a.x - b.x || a.hId.localeCompare(b.hId) || a.vId.localeCompare(b.vId));
+  const points: CrossPoint[] = [];
+  const anchors: { x: number; y: number }[] = [];
+  for (const c of crossings) {
+    let pt: CrossPoint | undefined;
+    for (let k = 0; k < anchors.length; k++) {
+      if (Math.abs(anchors[k].x - c.x) <= CLUSTER_R && Math.abs(anchors[k].y - c.y) <= CLUSTER_R) { pt = points[k]; break; }
+    }
+    if (!pt) {
+      pt = { sumX: 0, sumY: 0, n: 0, hs: new Map(), vs: new Map() };
+      points.push(pt);
+      anchors.push({ x: c.x, y: c.y });
+    }
+    pt.sumX += c.x; pt.sumY += c.y; pt.n++;
+    pt.hs.set(`${c.hId}#${c.hIdx}`, { id: c.hId, index: c.hIdx });
+    pt.vs.set(`${c.vId}#${c.vIdx}`, { id: c.vId, index: c.vIdx });
+  }
+
+  // 3) решение по каждому кластеру. Позиция дуги — СЕРЕДИНА кластера по продольной
+  // оси члена, а поперечная координата хопа — ОСЬ САМОГО ЧЛЕНА (иначе фильтр
+  // отрисовки «мостик лежит на сегменте» молча выбросил бы хоп).
+  const axisOf = (m: Member, horiz: boolean): number => {
+    const pts = polys.get(m.id)!;
+    return horiz ? pts[m.index].y : pts[m.index].x;
+  };
+  for (const pt of points) {
+    const meanX = pt.sumX / pt.n;
+    const meanY = pt.sumY / pt.n;
+    // запас прямой части члена в середине кластера (после трима скруглений)
     const availOf = (m: Member, horiz: boolean): number => {
       const span = straightSpan(polys.get(m.id)!, m.index, r);
-      const c = horiz ? pt.x : pt.y;
+      const c = horiz ? meanX : meanY;
       return Math.min(c - span.lo, span.hi - c);
     };
     const hs = [...pt.hs.values()];
     const vs = [...pt.vs.values()];
-    const sideH = { members: hs, avail: Math.min(...hs.map((m) => availOf(m, true))) };
-    const sideV = { members: vs, avail: Math.min(...vs.map((m) => availOf(m, false))) };
+    const sideH = { horiz: true, members: hs, avail: Math.min(...hs.map((m) => availOf(m, true))) };
+    const sideV = { horiz: false, members: vs, avail: Math.min(...vs.map((m) => availOf(m, false))) };
     // порядок кандидатов: меньше членов → раньше; при равенстве горизонталь первой
     const sides = vs.length < hs.length ? [sideV, sideH] : [sideH, sideV];
     const push = (side: typeof sideH, jrEff: number) => {
-      for (const m of side.members) result.get(m.id)!.push({ x: pt.x, y: pt.y, jr: jrEff });
+      for (const m of side.members) {
+        const axis = axisOf(m, side.horiz);
+        result.get(m.id)!.push(side.horiz ? { x: meanX, y: axis, jr: jrEff } : { x: axis, y: meanY, jr: jrEff });
+      }
     };
     if (sides[0].avail >= jr) push(sides[0], jr);
     else if (sides[1].avail >= jr) push(sides[1], jr);
