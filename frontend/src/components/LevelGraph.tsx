@@ -57,6 +57,7 @@ import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeC
 import { findQuickConnectTarget, type QcNode } from "./graph/interaction/quickConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useGroupEdgeDrag } from "./graph/interaction/useGroupEdgeDrag";
+import { useLayoutAnimation } from "./graph/interaction/useLayoutAnimation";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { guardPersist } from "./graph/interaction/persistGuard";
 
@@ -203,7 +204,7 @@ function LevelGraphInner({
   locate,
 }: LevelGraphProps) {
   const isContext = mode === "context";
-  const { screenToFlowPosition, setCenter, fitBounds, getInternalNode, getNodes } = useReactFlow();
+  const { screenToFlowPosition, setCenter, fitBounds, getInternalNode, getNodes, getEdges } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
   // РЕАЛЬНЫЕ габариты узлов (node.measured — v12 пишет их в контролируемый стейт через
@@ -219,6 +220,18 @@ function LevelGraphInner({
   // исчезновение узла записи не трогает (устаревшие безвредны — конвейер смотрит по id).
   const nodeSizesRef = useRef<Record<string, { w: number; h: number }>>({});
   const [sizesVersion, setSizesVersion] = useState(0);
+
+  // Анимация раскрытия/сворачивания контейнеров: единственная точка применения
+  // раскладки к RF-стейту (applyLayout вместо прямых setRfNodes/setRfEdges в
+  // сборщике). Интенты ставят обработчики лупы/сворачивания; окно анимации
+  // включает класс lg-canvas--anim (CSS-transition в LevelGraph.css).
+  const {
+    apply: applyLayout, noteExpand, noteCollapse,
+    cancel: cancelAnim, reset: resetAnim, active: animActive,
+  } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges });
+  // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
+  // (свежую раскладку нового уровня применит сборщик).
+  useEffect(() => { resetAnim(); }, [containerId, isContext, resetAnim]);
 
   // ЕДИНАЯ запись раскладки вида (R3): merge-патч поверх зеркала viewLayout →
   // батч-PUT view_layout + зеркало родителю (onLayoutChanged). Сервер заменяет
@@ -292,13 +305,14 @@ function LevelGraphInner({
   );
   // Раскрытие ГОСТЕВОГО контейнера: детей даёт проекция (реестр endpoints).
   const expandContainer = useCallback(
-    (id: string) => { commitExpanded(id, true); },
-    [commitExpanded],
+    (id: string) => { noteExpand(id); commitExpanded(id, true); },
+    [commitExpanded, noteExpand],
   );
   // Раскрытие ЛОКАЛЬНОГО контейнера (R5): лениво догружаем его прямых детей —
   // по Д3 показываются ВСЕ дети, а /graph уровня их не отдаёт.
   const expandLocalContainer = useCallback(
     (id: string) => {
+      noteExpand(id);
       commitExpanded(id, true);
       setLocalChildren((prev) => {
         if (prev[id]) return prev;
@@ -308,11 +322,11 @@ function LevelGraphInner({
         return prev;
       });
     },
-    [commitExpanded],
+    [commitExpanded, noteExpand],
   );
   const collapseContainer = useCallback(
-    (id: string) => { commitExpanded(id, false); },
-    [commitExpanded],
+    (id: string) => { noteCollapse(id); commitExpanded(id, false); },
+    [commitExpanded, noteCollapse],
   );
   // Догрузка детей для ПЕРСИСТНЫХ раскрытий (R5): после перезахода expanded
   // приходит из view_layout, а кэш детей пуст — конвейер держал бы контейнер
@@ -641,6 +655,7 @@ function LevelGraphInner({
   const handleNodeDragStart = useCallback(
     (_e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(true);
+      cancelAnim(); // transition раскрытия не должен цеплять жест — мгновенно доиграть
       const grp = ns.length > 0 ? ns : [n];
       groupEdgeDrag.begin(grp);
       liveDragHandles.begin(rfNodes); // база позиций всех узлов на старте жеста
@@ -648,18 +663,19 @@ function LevelGraphInner({
       snapshotFramePads(); // паддинги рамок для живого bbox-follow
       beginFrameOverlay(grp); // скрыть рамки-предки, включить живой оверлей
     },
-    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay],
+    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
       setDragging(true);
+      cancelAnim();
       groupEdgeDrag.begin(ns);
       liveDragHandles.begin(rfNodes);
       noteDragStart(ns);
       snapshotFramePads();
       beginFrameOverlay(ns);
     },
-    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay],
+    [groupEdgeDrag, liveDragHandles, rfNodes, noteDragStart, snapshotFramePads, beginFrameOverlay, cancelAnim],
   );
   const handleNodeDrag = useCallback(
     (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { groupEdgeDrag.move(ns); liveDragHandles.move(ns); liveFollowFrames(ns); },
@@ -986,7 +1002,7 @@ function LevelGraphInner({
     // Приглушён ли узел статуса st фильтром вида (в контексте фильтра нет). Скрытый
     // узел НЕ удаляем — гасим opacity, сохраняя пространственную память раскладки.
     const dimNode = (st: NodeStatus): boolean => !isContext && !viewShows(schemaView, st);
-    setRfNodes([
+    const nextNodes: RFNode[] = [
       // Рамки — первыми (RF требует родителя в массиве раньше детей; guestFrames
       // отсортированы по depth, поэтому и вложенные рамки идут после объемлющих).
       // Реальный rect из раскладки; тело прозрачно для мыши (см. FrameNode).
@@ -1092,10 +1108,9 @@ function LevelGraphInner({
         };
       }),
       ...spacers,
-    ]);
+    ];
 
-    setRfEdges(
-      groupArr.map((g) => {
+    const nextEdges: RFEdge[] = groupArr.map((g) => {
         const h = edgeHandles.get(g.id);
         const isMaster = g.members.length > 1;
         const single = g.members[0];
@@ -1197,13 +1212,16 @@ function LevelGraphInner({
           // Фиче-тогл: реконнект = ручная фиксация хэндла → выключен вместе с ручным слоем.
           reconnectable: isArchitect && EDGE_MANUAL_LAYOUT,
         };
-      })
-    );
+      });
+
+    // Применение — через оркестратор анимации: без интента раскрытия/сворачивания
+    // это те же setRfNodes/setRfEdges, с интентом — режиссированный переход.
+    applyLayout(nextNodes, nextEdges);
     // Путь пучка сборка читает из layout.bundleWaypoints (реконструированный снимок D8),
     // а НЕ из сырого пропа viewLayout: последний входит в зависимости раскладки выше →
     // его правка даёт новый layout (со свежим bundleWaypoints), и сборка идёт со СВЕЖИМ
     // снапшотом. Прямой триггер сборки по сырому пропу откатывал бы хэндл при реконнекте.
-  }, [layout, isArchitect, depth, isContext, schemaView, setRfNodes, setRfEdges]);
+  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout]);
 
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
@@ -1321,6 +1339,8 @@ function LevelGraphInner({
         "lg-canvas" +
         (isArchitect && !isContext ? " lg-canvas--editable" : "") +
         (connecting ? " lg-canvas--connecting" : "") +
+        // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
+        (animActive ? " lg-canvas--anim" : "") +
         // реконнект над не родным узлом: запрещающий курсор + гасим подсветку хэндлов
         (reconnectBlocked ? " lg-canvas--reconnect-blocked" : "")
       }

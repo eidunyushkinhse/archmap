@@ -413,3 +413,35 @@
 .react-flow__edgelabel-renderer {
   z-index: 1;
 }
+
+/* Анимация раскрытия/сворачивания контейнеров (useLayoutAnimation): класс
+   lg-canvas--anim живёт на холсте ТОЛЬКО на окно анимации (~0.7с), чтобы
+   transition не цеплял драг и обычные пересборки. Тайминги ОБЯЗАНЫ совпадать
+   с ANIM_MOVE_MS/ANIM_FADE_MS в layoutAnimation.ts (420/200мс).
+   transform — разъезд/схождение узлов; width/height — живой rect рамок
+   раскрытия; opacity — гашение/проявление рамок. */
+.lg-canvas--anim .react-flow__node {
+  transition:
+    transform 420ms cubic-bezier(0.22, 0.8, 0.3, 1),
+    width 420ms cubic-bezier(0.22, 0.8, 0.3, 1),
+    height 420ms cubic-bezier(0.22, 0.8, 0.3, 1),
+    opacity 200ms ease;
+}
+/* Нативные границы уровня (boundaries.tsx, div-ы с left/top/width/height в
+   ViewportPortal) едут за содержимым теми же таймингами. Внутренний div
+   FrameNode тоже .lg-frame, но у него width/height 100% — transition-noop. */
+.lg-canvas--anim .lg-frame {
+  transition:
+    left 420ms cubic-bezier(0.22, 0.8, 0.3, 1),
+    top 420ms cubic-bezier(0.22, 0.8, 0.3, 1),
+    width 420ms cubic-bezier(0.22, 0.8, 0.3, 1),
+    height 420ms cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+/* Уважение prefers-reduced-motion: хук и так применяет мгновенно (см.
+   reducedMotion в useLayoutAnimation), это страховка на случай гонки класса. */
+@media (prefers-reduced-motion: reduce) {
+  .lg-canvas--anim .react-flow__node,
+  .lg-canvas--anim .lg-frame {
+    transition: none;
+  }
+}
