@@ -27,13 +27,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import {
-  planExpand, planCollapse, markDrawIn, clearDrawIn,
+  planExpand, planCollapse, markDrawIn, clearDrawIn, changedEdgeIds,
   ANIM_MOVE_MS, ANIM_FADE_MS, ANIM_DRAW_MS,
 } from "./layoutAnimation";
 
 // Интент старше — протух (например, раскрыли пустой контейнер и рамка так и
 // не появилась): не держим маску вечно.
 const INTENT_TTL_MS = 15_000;
+
+// Окно жеста (noteGesture): раскладка, применённая в этом окне после ручного
+// действия, перерисовывает ИЗМЕНЁННЫЕ стрелки анимированно. Флаг потребляется
+// первым применением с изменениями; TTL — страховка, если пересчёта не было
+// (позиция не изменилась → commitLayout задедупил → прогона нет).
+const GESTURE_TTL_MS = 4_000;
 
 type Intent = { kind: "expand" | "collapse"; id: string; ts: number };
 
@@ -49,6 +55,9 @@ export interface LayoutAnimation {
   apply: (nextNodes: RFNode[], nextEdges: RFEdge[]) => void;
   noteExpand: (id: string) => void;
   noteCollapse: (id: string) => void;
+  /** ручной жест изменил раскладку (отпускание драга, undo/redo) — изменённые
+      стрелки следующего пересчёта перерисовать анимированно (drawIn) */
+  noteGesture: () => void;
   /** мгновенно доиграть анимацию (старт драга: применить отложенное, показать скрытое) */
   cancel: () => void;
   /** жёсткий сброс БЕЗ доигровки (смена уровня: отложенное протухло, применит сборщик) */
@@ -74,6 +83,8 @@ export function useLayoutAnimation({
 }: UseLayoutAnimationArgs): LayoutAnimation {
   const [active, setActive] = useState(false);
   const intentRef = useRef<Intent | null>(null);
+  // момент последнего ручного жеста (0 — окна жеста нет)
+  const gestureRef = useRef(0);
   // маски открытого окна анимации: что прятать в прогонах-посредниках
   const maskRef = useRef<{ frames: Set<string>; edges: Set<string> } | null>(null);
   // рёбра в фазе ОТРИСОВКИ (drawIn): помечать заново в прогонах-посредниках,
@@ -123,6 +134,7 @@ export function useLayoutAnimation({
   const cancel = useCallback(() => {
     clearTimers();
     intentRef.current = null;
+    gestureRef.current = 0;
     drawRef.current = null;
     const pending = pendingRef.current;
     pendingRef.current = null;
@@ -140,6 +152,7 @@ export function useLayoutAnimation({
   const reset = useCallback(() => {
     clearTimers();
     intentRef.current = null;
+    gestureRef.current = 0;
     maskRef.current = null;
     drawRef.current = null;
     pendingRef.current = null;
@@ -230,6 +243,25 @@ export function useLayoutAnimation({
       intentRef.current = null;
     }
 
+    // ОКНО ЖЕСТА (noteGesture): ручное действие изменило раскладку — стрелки, чья
+    // геометрия пересчиталась ИНАЧЕ, чем показывало живое превью, перерисовываем
+    // анимированно (drawIn). Прячет расхождение превью драга и финального маршрута.
+    // Флаг потребляется первым применением, реально изменившим геометрию.
+    if (gestureRef.current) {
+      if (Date.now() - gestureRef.current >= GESTURE_TTL_MS) {
+        gestureRef.current = 0;
+      } else if (!reducedMotion()) {
+        const changed = changedEdgeIds(getNodes(), getEdges(), nextNodes, nextEdges);
+        if (changed.size > 0) {
+          gestureRef.current = 0;
+          drawRef.current = new Set([...(drawRef.current ?? []), ...changed]);
+          later(ANIM_DRAW_MS, endDraw);
+        }
+      } else {
+        gestureRef.current = 0;
+      }
+    }
+
     // применение без режиссуры; внутри окна анимации — с повторной маской
     // (скрытые рамки/рёбра) и повторным drawIn (фаза отрисовки ещё идёт)
     const mask = maskRef.current;
@@ -253,6 +285,9 @@ export function useLayoutAnimation({
   const noteCollapse = useCallback((id: string) => {
     intentRef.current = { kind: "collapse", id, ts: Date.now() };
   }, []);
+  const noteGesture = useCallback(() => {
+    gestureRef.current = Date.now();
+  }, []);
 
-  return { apply, noteExpand, noteCollapse, cancel, reset, active };
+  return { apply, noteExpand, noteCollapse, noteGesture, cancel, reset, active };
 }

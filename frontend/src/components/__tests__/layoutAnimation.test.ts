@@ -3,7 +3,7 @@
 // (спавн стопкой / схождение в точку) и решают, что спрятать (рамки, рёбра).
 import { describe, it, expect } from "vitest";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
-import { planExpand, planCollapse, markDrawIn, clearDrawIn } from "../graph/interaction/layoutAnimation";
+import { planExpand, planCollapse, markDrawIn, clearDrawIn, changedEdgeIds } from "../graph/interaction/layoutAnimation";
 import { NODE_W, NODE_H } from "../graph/constants";
 
 // Мини-фабрики RF-объектов: только поля, которые читают планировщики.
@@ -164,5 +164,53 @@ describe("drawIn (анимированная отрисовка стрелок)"
     const out = clearDrawIn(edges);
     expect(out[0].data?.drawIn).toBe(false);
     expect(out[1]).toBe(edges[1]);
+  });
+});
+
+describe("changedEdgeIds (дифф геометрии рёбер для перерисовки после жеста)", () => {
+  const nodes = [node("a", "block", 0, 0), node("b", "block", 400, 0), node("c", "block", 0, 300)];
+
+  it("сдвиг конца, смена хэндла, маршрута и центра плашки — изменение; прочее — нет", () => {
+    const prevEdges = [
+      { ...edge("e1", "a", "b"), sourceHandle: "a--right--1", targetHandle: "b--left--1" },
+      { ...edge("e2", "a", "c"), data: { autoRoute: [{ x: 0, y: 0 }, { x: 0, y: 300 }] } },
+      { ...edge("e3", "b", "c"), data: { labelPlacement: { center: { x: 200, y: 150 } } } },
+      { ...edge("e4", "a", "b") }, // без геометрии — стабильное
+    ];
+    // b сдвинут → e1 (конец) изменилось; у e2 новый маршрут; у e3 новая плашка
+    const nextNodes = [nodes[0], node("b", "block", 500, 0), nodes[2]];
+    const nextEdges = [
+      { ...edge("e1", "a", "b"), sourceHandle: "a--right--1", targetHandle: "b--left--1" },
+      { ...edge("e2", "a", "c"), data: { autoRoute: [{ x: 0, y: 0 }, { x: 40, y: 300 }] } },
+      { ...edge("e3", "b", "c"), data: { labelPlacement: { center: { x: 260, y: 150 } } } },
+      { ...edge("e4", "a", "b") },
+    ];
+    const changed = changedEdgeIds(nodes, prevEdges, nextNodes, nextEdges);
+    expect(changed).toEqual(new Set(["e1", "e2", "e3", "e4"])); // e4 тоже: конец b сдвинут
+  });
+
+  it("идентичные снимки и микро-дрейф < 0.5px — не изменение", () => {
+    const prevEdges = [{ ...edge("e1", "a", "b"), data: { autoRoute: [{ x: 0, y: 0 }, { x: 400, y: 0 }] } }];
+    const nextNodes = [node("a", "block", 0.1, 0), nodes[1], nodes[2]];
+    const nextEdges = [{ ...edge("e1", "a", "b"), data: { autoRoute: [{ x: 0.1, y: 0 }, { x: 400, y: 0 }] } }];
+    expect(changedEdgeIds(nodes, prevEdges, nextNodes, nextEdges).size).toBe(0);
+  });
+
+  it("новые и скрытые рёбра не входят; смена хэндла входит", () => {
+    const prevEdges = [{ ...edge("e1", "a", "b"), sourceHandle: "a--right--1" }];
+    const nextEdges = [
+      { ...edge("e1", "a", "b"), sourceHandle: "a--bottom--1" }, // хэндл сменился
+      { ...edge("eNew", "a", "c") },                             // новое — монтаж, не перекладка
+      { ...edge("eHid", "a", "c"), hidden: true },
+    ];
+    expect(changedEdgeIds(nodes, prevEdges, nodes, nextEdges)).toEqual(new Set(["e1"]));
+  });
+
+  it("ребёнок compound-рамки сравнивается по АБСОЛЮТУ: сдвиг rel при том же месте — не изменение", () => {
+    const prev = [node("F", "frame", 100, 100), node("k", "block", 20, 20, { parentId: "F" }), nodes[1]];
+    // рамка уехала, rel скомпенсирован — абсолют ребёнка тот же
+    const next = [node("F", "frame", 60, 100), node("k", "block", 60, 20, { parentId: "F" }), nodes[1]];
+    const prevEdges = [{ ...edge("e1", "k", "b") }];
+    expect(changedEdgeIds(prev, prevEdges, next, prevEdges).size).toBe(0);
   });
 });

@@ -44,6 +44,51 @@ export const markDrawIn = (edges: RFEdge[], ids: Set<string>): RFEdge[] =>
 export const clearDrawIn = (edges: RFEdge[]): RFEdge[] =>
   edges.map((e) => (e.data?.drawIn ? { ...e, data: { ...e.data, drawIn: false } } : e));
 
+// Сигнатура ГЕОМЕТРИИ ребра: всё, от чего зависит его нарисованный путь и плашка —
+// хэндлы, абсолютные позиции концов, авто-маршрут, центр плашки. Координаты
+// огрубляются до 0.5px: микро-дрейф пересчёта не должен считаться изменением.
+const q = (v: number): number => Math.round(v * 2) / 2;
+const edgeGeoSig = (e: RFEdge, byId: Map<string, RFNode>): string => {
+  const d = e.data as {
+    autoRoute?: { x: number; y: number }[];
+    labelPlacement?: { center?: { x: number; y: number } };
+  } | undefined;
+  const end = (id: string): string => {
+    const n = byId.get(id);
+    if (!n) return "?";
+    const p = absPositionOf(n, byId);
+    return `${q(p.x)},${q(p.y)}`;
+  };
+  const rt = d?.autoRoute?.map((p) => `${q(p.x)},${q(p.y)}`).join(";") ?? "";
+  const c = d?.labelPlacement?.center;
+  return [
+    e.sourceHandle ?? "", e.targetHandle ?? "",
+    end(e.source), end(e.target),
+    rt, c ? `${q(c.x)},${q(c.y)}` : "",
+  ].join("|");
+};
+
+/**
+ * Рёбра, чья геометрия ИЗМЕНИЛАСЬ между снимками (для анимированной перерисовки
+ * после ручного жеста): живут в обоих снимках, но путь/хэндлы/концы/плашка другие.
+ * Новые и исчезнувшие рёбра не входят (их монтаж/демонтаж — не «перекладка»).
+ */
+export function changedEdgeIds(
+  prevNodes: RFNode[], prevEdges: RFEdge[],
+  nextNodes: RFNode[], nextEdges: RFEdge[],
+): Set<string> {
+  const prevById = new Map(prevNodes.map((n) => [n.id, n]));
+  const nextById = new Map(nextNodes.map((n) => [n.id, n]));
+  const prevE = new Map(prevEdges.map((e) => [e.id, e]));
+  const out = new Set<string>();
+  for (const e of nextEdges) {
+    const pe = prevE.get(e.id);
+    if (!pe || e.hidden) continue;
+    if (edgeGeoSig(pe, prevById) !== edgeGeoSig(e, nextById)) out.add(e.id);
+  }
+  return out;
+}
+
 // Габариты RF-узла: замер → явные width/height → фолбэк-константы (новые узлы
 // ещё не замерены — для центрирования стопки хватает номинала).
 const sizeOf = (n: RFNode): { w: number; h: number } => ({

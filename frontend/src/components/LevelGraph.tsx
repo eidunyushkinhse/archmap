@@ -213,7 +213,7 @@ function LevelGraphInner({
   // сборщике). Интенты ставят обработчики лупы/сворачивания; окно анимации
   // включает класс lg-canvas--anim (CSS-transition в LevelGraph.css).
   const {
-    apply: applyLayout, noteExpand, noteCollapse,
+    apply: applyLayout, noteExpand, noteCollapse, noteGesture,
     cancel: cancelAnim, reset: resetAnim, active: animActive,
   } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges });
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
@@ -355,9 +355,16 @@ function LevelGraphInner({
   );
   // Клавиши/кнопки зовут дисптчеры из TreePage (кросс-уровневый редирект). В контекст-
   // модалке дисптчеров нет — там Undo/Redo и так не показываются. Мемоизируем, чтобы не
-  // пересоздавать слушатель клавиш на каждый рендер.
-  const runUndo = useMemo(() => onUndo ?? (() => { history.undo(); }), [onUndo, history]);
-  const runRedo = useMemo(() => onRedo ?? (() => { history.redo(); }), [onRedo, history]);
+  // пересоздавать слушатель клавиш на каждый рендер. Undo/Redo — ручной жест: изменённые
+  // пересчётом стрелки перерисовываются анимированно (noteGesture).
+  const runUndo = useMemo(
+    () => () => { noteGesture(); (onUndo ?? history.undo)(); },
+    [onUndo, history, noteGesture],
+  );
+  const runRedo = useMemo(
+    () => () => { noteGesture(); (onRedo ?? history.redo)(); },
+    [onRedo, history, noteGesture],
+  );
 
   // Клавиши Undo/Redo — ГЛОБАЛЬНО на window (не через onKeyDown канваса): у .lg-canvas
   // нет tabIndex, поэтому его onKeyDown срабатывает лишь при фокусе внутри холста, а
@@ -488,6 +495,7 @@ function LevelGraphInner({
     (e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(false);
       frameFollow.finalize(); // рамки: финальный bbox одним setState + вернуть видимость
+      noteGesture(); // изменённые пересчётом стрелки перерисовать анимированно
       history.beginGroup();
       try {
         liveDragHandles.end();
@@ -496,12 +504,13 @@ function LevelGraphInner({
         history.commitGroup("Перемещение группы");
       }
     },
-    [liveDragHandles, handleNodeDragStop, history, frameFollow],
+    [liveDragHandles, handleNodeDragStop, history, frameFollow, noteGesture],
   );
   const handleSelectionDragStopP = useCallback(
     (e: MouseEvent, ns: RFNode[]) => {
       setDragging(false);
       frameFollow.finalize();
+      noteGesture();
       history.beginGroup();
       try {
         liveDragHandles.end();
@@ -510,7 +519,7 @@ function LevelGraphInner({
         history.commitGroup("Перемещение группы");
       }
     },
-    [liveDragHandles, handleSelectionDragStop, history, frameFollow],
+    [liveDragHandles, handleSelectionDragStop, history, frameFollow, noteGesture],
   );
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
