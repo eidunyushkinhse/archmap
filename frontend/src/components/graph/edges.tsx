@@ -435,12 +435,14 @@ function WrappedLabelEdge({
       <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
       {/* Поводок-выноска (R2-fallback): плашку нельзя поставить на линию без наложения —
           она вынесена сбоку (labelPlacement.center), а пунктирный поводок связывает её с
-          точкой на стрелке (anchor). Конец поводка обрезан до КРАЯ плашки (leaderEnd, A15) —
-          иначе при боковом выносе пунктир уходил бы в центр и прятался под плашкой. Во время
-          активного драга плашки не рисуем (геометрия поводка из снимка раскладки устарела бы). */}
+          точкой на стрелке (anchor). Ведём поводок ДО ЦЕНТРА плашки: непрозрачный фон
+          плашки сам прячет хвост. Прежний leaderEnd (обрезка до края бокса, A15) резал
+          по ОЦЕНЁННОМУ labelBoxSize-боксу — при других шрифтах реальная плашка уже
+          оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). Во время
+          активного драга плашки не рисуем (геометрия поводка из снимка устарела бы). */}
       {d?.labelPlacement?.mode === "leader" && dragLabelT == null && (
         <path
-          d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.leaderEnd.x},${d.labelPlacement.leaderEnd.y}`}
+          d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.center.x},${d.labelPlacement.center.y}`}
           style={{ stroke: "#9ca3af", strokeWidth: 1, strokeDasharray: "3 3", fill: "none", pointerEvents: "none" }}
         />
       )}
