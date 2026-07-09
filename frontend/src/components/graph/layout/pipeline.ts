@@ -28,7 +28,7 @@ import type {
 } from "../../../types";
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
 import type { LiveHandleInputs } from "../interaction/useLiveDragHandles";
-import { NODE_W, NODE_H, hid } from "../constants";
+import { NODE_W, NODE_H } from "../constants";
 import { edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
@@ -42,10 +42,8 @@ import { separateGuests } from "./separateGuests";
 import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeChannels } from "./channelNudge";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
-import { separateForLabels, type LabelEdge } from "./separateForLabels";
-import { labelDetour } from "./labelDetours";
-import { labelBoxSize } from "./labelBox";
-import type { Rect } from "./overlapConstraints";
+import { widenNodesForLabels } from "./widenForLabels";
+import { applyLabelDetours } from "./detourStage";
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
 export type LayoutResult = {
@@ -393,82 +391,19 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     };
     runExpandedInvariants();
 
-    // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2). Связь между
-    // СОСЕДНИМИ узлами бывает короче своей плашки — инлайн она не лезет и отскакивает
-    // мимо стрелки/под узел (BUG B из A9.0). Раздвигаем концы такого ребра по доминантной
-    // оси, чтобы плечо стало длиннее текста. КРИТ (own-on-first-render): двигаем ТОЛЬКО
-    // свежие ELK-локалы (нет в levelPositions, никем не присвоены) — владеемые позиции
-    // прибиты намертво. МЕСТО В КОНВЕЙЕРЕ: ПОСЛЕ цикла инвариантов (керн раздвижки не
-    // знает о рамках — мог завозить узлы внутрь чужих раскрытых рамок, когда бежал
-    // последним) и ДО засева владения (засев фиксирует ПОКАЗАННЫЕ позиции — раздвижка
-    // после него разъезжалась бы с персистом). Если раздвижка двигала — инварианты
-    // прогоняются ПОВТОРНО (возможные заезды в рамки зачищаются; keep-out и разведение
-    // не сжимают зазоры, поэтому раздвинутое место они не отбирают).
-    let a10moved = false;
-    {
-      const SEP_MARGIN = 8; // клиренс вдоль плеча с каждой стороны плашки
-      const SEP_PAD = 12;   // зазор при каскадной зачистке наложений (как separateGuests)
-      const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
-      const localIds = new Set(nodes.map((n) => n.id)); // владение double-check: только локалы двигаем
-      const idxOf = new Map<string, number>();
-      const rects: Rect[] = [];
-      const weights: number[] = [];
-      for (const id of displayIds) {
-        const p = positions.get(id);
-        if (!p) continue;
-        idxOf.set(id, rects.length);
-        rects.push({ minX: p.x, minY: p.y, maxX: p.x + NODE_W, maxY: p.y + NODE_H });
-        const movable = localIds.has(id) && !ownedPositions[id];
-        weights.push(movable ? 1 : Infinity);
-      }
-      // Сколько рёбер на каждой НЕУПОРЯДОЧЕННОЙ паре узлов — встречную/много-рёберную пару
-      // раздвигать бессмысленно: их плечи совпадают (R4), инлайн на прямом коридоре всё равно
-      // запрещён → за это отвечают рельсы (A11) и детур (A12), а не раздвижка. Иначе A10 зря
-      // выселял бы узел (см. дамп A10.2: ObsCore уезжал, плашка всё равно leader).
-      const pairCount = new Map<string, number>();
-      for (const g of groupArr) {
-        const k = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
-        pairCount.set(k, (pairCount.get(k) ?? 0) + 1);
-      }
-      const labelEdges: LabelEdge[] = [];
-      for (const g of groupArr) {
-        const pk = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;
-        if ((pairCount.get(pk) ?? 0) > 1) continue; // встречная/много-рёберная пара → не раздвигаем
-        const si = idxOf.get(g.source);
-        const ti = idxOf.get(g.target);
-        if (si == null || ti == null) continue;
-        // оба конца прибиты — раздвинуть нечем без нарушения ownership, оставляем leader
-        if (weights[si] === Infinity && weights[ti] === Infinity) continue;
-        const meta = edgeLabelMeta(g);
-        if (!meta) continue;
-        const box = labelBoxSize(meta.text, { lines: meta.lines });
-        // голодное ли ребро: инлайн-зазор по доминантной оси короче плашки + 2·margin?
-        const s = rects[si];
-        const t = rects[ti];
-        const dx = Math.abs((s.minX + s.maxX - t.minX - t.maxX) / 2);
-        const dy = Math.abs((s.minY + s.maxY - t.minY - t.maxY) / 2);
-        const axisX = dx >= dy;
-        const gap = axisX
-          ? dx - (s.maxX - s.minX + t.maxX - t.minX) / 2
-          : dy - (s.maxY - s.minY + t.maxY - t.minY) / 2;
-        const need = (axisX ? box.w : box.h) + 2 * SEP_MARGIN;
-        if (gap >= need) continue; // места хватает — не раздвигаем
-        labelEdges.push({ source: si, target: ti, box });
-      }
-      if (labelEdges.length > 0) {
-        const widened = separateForLabels(rects, weights, labelEdges, { pad: SEP_PAD, margin: SEP_MARGIN });
-        // пишем новые позиции только подвижным узлам (прибитые VPSC не двигает — но не
-        // трогаем их координаты вовсе, чтобы исключить дрейф владеемых позиций).
-        for (const [id, i] of idxOf) {
-          if (weights[i] === Infinity) continue;
-          const p = positions.get(id)!;
-          if (Math.abs(widened[i].minX - p.x) > 1e-6 || Math.abs(widened[i].minY - p.y) > 1e-6) a10moved = true;
-          positions.set(id, { ...p, x: widened[i].minX, y: widened[i].minY });
-        }
-      }
-    }
-    // раздвижка двигала узлы → инварианты (keep-out рамок, наложения, родной keep-out)
-    // обязаны отработать заново: финальные позиции чисты по всем инвариантам
+    // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2 — вынесена
+    // в widenForLabels). МЕСТО В КОНВЕЙЕРЕ: ПОСЛЕ цикла инвариантов и ДО засева
+    // владения (обоснование — в шапке модуля). Если раздвижка двигала — инварианты
+    // прогоняются ПОВТОРНО (заезды в рамки зачищаются; keep-out и разведение не
+    // сжимают зазоры, поэтому раздвинутое место они не отбирают).
+    const a10moved = widenNodesForLabels({
+      groupArr,
+      displayIds: [...nodes.map((n) => n.id), ...entities.map((e) => e.id)],
+      localIds: new Set(nodes.map((n) => n.id)),
+      ownedPositions,
+      positions,
+      labelMeta: edgeLabelMeta,
+    });
     if (a10moved) runExpandedInvariants();
 
     // ЗАСЕВ ВЛАДЕНИЯ (own-on-first-render): каждый гость без сохранённой позиции получает
@@ -584,77 +519,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       nodeRects,
     });
 
-    // Альт-маршрут грузного ребра (эпик стрелок A12, ПОСЛЕДНЕЕ средство): если плашка ушла в
-    // leader (инлайн не влез даже после рельсов/раздвижки), уводим ЭТО ребро по минимальному
-    // детуру в чистую полосу рядом с рядом узлов, где плашка ложится инлайн. Двигаем только
-    // маршрут (own-on-first-render цел). Детур детерминирован (lane из габаритов этого ребра),
-    // не учитывает чужие пересечения (как A7.4-residual). После детуров — ОДИН пере-проход
-    // плашек на обновлённых маршрутах (пересчитает coincidentLegs и вернёт напарника по
-    // рельсе к центру). Кэп длины → иначе остаётся leader.
-    const detourPreferred = new Map<string, number>();
-    const rectOf = realRectOf;
-    // кандидаты на детур — leader-рёбра (плашка не влезла) из маршрутизируемых
-    const detourCands: Array<{ g: EdgeGroup; box: ReturnType<typeof labelBoxSize> }> = [];
-    for (const g of groupArr) {
-      if (labelPlacements.get(g.id)?.mode !== "leader") continue;
-      if (!routableIds.has(g.id)) continue;
-      const meta = edgeLabelMeta(g);
-      if (!meta) continue;
-      detourCands.push({ g, box: labelBoxSize(meta.text, { lines: meta.lines }) });
-    }
-    // КООРДИНАЦИЯ СТЕКА: несколько leader-рёбер (напр. встречная пара) уходят в детур в одну
-    // сторону (часто вниз, если сверху другие узлы) — их плашки наложились бы (на дампе A12 так и
-    // вышло: 1-строчная на y=389 перекрыла место 5-строчной → та осталась leader). Копим уже
-    // размещённые плашки-детуры как доп.препятствия и идём от НИЗКИХ боксов к ВЫСОКИМ: высокая
-    // ляжет на lane НИЖЕ чужой, без наложения (кэп длины ограничит стек → совсем глубокий бокс
-    // останется leader). Плашка-препятствие двигает lane глубже и не даёт маршруту её пересечь.
-    const placedLabelRects: { x: number; y: number; w: number; h: number }[] = [];
-    detourCands.sort((a, b) => a.box.h - b.box.h);
-    // РАЗВОДКА ХЭНДЛОВ ВСТРЕЧНОЙ ПАРЫ НА ДЕТУРЕ (A12.4): если оба ребра двунаправленной пары
-    // ушли в детур в одну сторону, по умолчанию они вышли бы из ОДНОГО хэндла (центр, idx=1) и
-    // наложились бы плечами. Раскладка — вложенные «П»: грузное ребро (плашка выше, идёт ГЛУБЖЕ)
-    // ведём по ВНЕШНИМ слотам стороны → его «П» шире и охватывает плашку напарника, не пересекая
-    // её; напарник остаётся в центре (idx=1, прежнее место). Внешний слот — по геометрии узла:
-    // на горизонтальном плече левый узел→слот 0, правый→слот 2 (на вертикальном верхний→0,
-    // нижний→2). Так разводятся и хэндлы, и плечи, и нет наложения плашек.
-    const detourSlot = new Map<string, { sIdx: number; tIdx: number }>();
-    for (const { g, box } of detourCands) {
-      const partner = detourCands.find((c) => c.g.source === g.target && c.g.target === g.source);
-      if (!partner) continue;
-      // глубже ляжет более грузное ребро (выше плашка; при равенстве — больший id)
-      const deeper = box.h > partner.box.h || (box.h === partner.box.h && g.id > partner.g.id);
-      if (!deeper) continue; // напарник остаётся в центре (слот 1/1 по умолчанию)
-      const sp = positions.get(g.source), tp = positions.get(g.target);
-      if (!sp || !tp) continue;
-      const horiz = Math.abs(tp.x - sp.x) >= Math.abs(tp.y - sp.y);
-      const sIdx = horiz ? (sp.x <= tp.x ? 0 : 2) : (sp.y <= tp.y ? 0 : 2);
-      const tIdx = horiz ? (tp.x < sp.x ? 0 : 2) : (tp.y < sp.y ? 0 : 2);
-      detourSlot.set(g.id, { sIdx, tIdx });
-    }
-    for (const { g, box } of detourCands) {
-      const source = rectOf(g.source), target = rectOf(g.target);
-      if (!source || !target) continue;
-      const obstacles = [
-        ...displayIds
-          .filter((id) => id !== g.source && id !== g.target)
-          .map(rectOf)
-          .filter((r): r is { x: number; y: number; w: number; h: number } => r != null),
-        ...placedLabelRects,
-      ];
-      const slot = detourSlot.get(g.id) ?? { sIdx: 1, tIdx: 1 };
-      const det = labelDetour({
-        source, target, obstacles, box, margin: 8, maxExtraLen: 2 * NODE_H + box.h + 16,
-        sIdx: slot.sIdx, tIdx: slot.tIdx,
-      });
-      if (!det) continue;
-      autoRoutes.set(g.id, det.route);
-      edgeHandles.set(g.id, { sourceHandle: hid(g.source, det.sSide, slot.sIdx), targetHandle: hid(g.target, det.tSide, slot.tIdx) });
-      detourPreferred.set(g.id, det.preferredT);
-      // оценочный прямоугольник лёгшей плашки — препятствие для последующих (более высоких)
-      placedLabelRects.push({ x: det.center.x - box.w / 2, y: det.center.y - box.h / 2, w: box.w, h: box.h });
-    }
-    // после детуров плашки НЕ пере-считываем: между детурами и каналом размещения никто
-    // не читает, финальная геометрия ещё изменится — один проход в конце (V2.5)
+    // Альт-маршрут грузного ребра (эпик стрелок A12, ПОСЛЕДНЕЕ средство — вынесен в
+    // detourStage): leader-рёбра уводятся в чистую полосу, где плашка ложится инлайн.
+    // После детуров плашки НЕ пере-считываем: между детурами и каналом размещения
+    // никто не читает, финальная геометрия ещё изменится — один проход в конце (V2.5).
+    const detourPreferred = applyLabelDetours({
+      groupArr, labelPlacements, routableIds, positions, displayIds,
+      rectOf: realRectOf, labelMeta: edgeLabelMeta, autoRoutes, edgeHandles,
+    });
     let labelsStale = detourPreferred.size > 0;
 
     // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи из
