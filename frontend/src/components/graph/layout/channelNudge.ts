@@ -163,7 +163,48 @@ export function nudgeChannels(params: {
     if (fixedIdx.length > 1) continue;
     const n = ordered.length;
     const base = (j: number): number => (j - (n - 1) / 2) * gap;
-    const shift = fixedIdx.length === 1 ? -base(fixedIdx[0]) : 0;
+    let shift = fixedIdx.length === 1 ? -base(fixedIdx[0]) : 0;
+
+    // Применим ли сдвиг сегмента на офсет off: соседние перпендикулярные сегменты не
+    // переламываются (знак направления сохраняется), плечо не заезжает в тело узла.
+    const canApply = (s: Seg, off: number): boolean => {
+      if (Math.abs(off) < 0.5) return true; // нулевой сдвиг всегда легален
+      const pts = work.get(s.edgeId)!;
+      const p = pts[s.i], q = pts[s.i + 1];
+      const newAxis = s.axis + off;
+      const perpOf = (t: EdgePoint): number => (s.orient === "h" ? t.y : t.x);
+      const beforeOk =
+        s.i === 0 ||
+        Math.sign(perpOf(p) - perpOf(pts[s.i - 1])) === 0 ||
+        Math.sign(newAxis - perpOf(pts[s.i - 1])) === Math.sign(perpOf(p) - perpOf(pts[s.i - 1]));
+      const afterOk =
+        s.i + 2 >= pts.length ||
+        Math.sign(perpOf(q) - perpOf(pts[s.i + 2])) === 0 ||
+        Math.sign(newAxis - perpOf(pts[s.i + 2])) === Math.sign(perpOf(q) - perpOf(pts[s.i + 2]));
+      const hitsBody = obstacles.some((r) => cutsBody(s.orient, newAxis, s.lo, s.hi, r));
+      return beforeOk && afterOk && !hitsBody;
+    };
+
+    // ЛЕСЕНКА В ОДНУ СТОРОНУ (2026-07-09): симметричные слоты вокруг исходной линии
+    // упираются в тело узла (канал в тесном проходе — встречная пара в 24px щели под
+    // «Базами данных») → по-сегментное вето молча оставляло канал НЕразведённым
+    // (коллинеарное наложение переживало nudge). Если дефолтная шкала не проходит
+    // целиком, пробуем сдвинуть ВСЮ шкалу дискретными шагами gap/2 (ближние первыми,
+    // детерминированно) — канал уезжает лесенкой в свободную сторону коридора.
+    // Пришпиленная группа пинит шкалу — кандидаты её бы сдвинули, их отфильтрует
+    // evalShift. Ни один кандидат не прошёл — прежнее поведение (применяем что можно).
+    const evalShift = (cand: number): boolean =>
+      ordered.every((g, j) => {
+        const off = base(j) + cand;
+        if (g.fixed) return Math.abs(off) < 0.5;
+        return g.segs.every((s) => canApply(s, off));
+      });
+    if (!evalShift(shift)) {
+      const cands: number[] = [];
+      for (let k = 1; k <= 4; k++) cands.push(shift + (k * gap) / 2, shift - (k * gap) / 2);
+      const ok = cands.find(evalShift);
+      if (ok !== undefined) shift = ok;
+    }
 
     for (let j = 0; j < n; j++) {
       const off = base(j) + shift;
@@ -172,22 +213,10 @@ export function nudgeChannels(params: {
       if (g.fixed) continue;
       // сдвиг применяется по-рёберно: каждый сегмент группы этого ребра — на общий офсет
       for (const s of g.segs) {
+        if (!canApply(s, off)) continue;
         const pts = work.get(s.edgeId)!;
         const p = pts[s.i], q = pts[s.i + 1];
         const newAxis = s.axis + off;
-        // не переломить соседние перпендикулярные сегменты (знак направления сохраняется)
-        const perpOf = (t: EdgePoint): number => (s.orient === "h" ? t.y : t.x);
-        const beforeOk =
-          s.i === 0 ||
-          Math.sign(perpOf(p) - perpOf(pts[s.i - 1])) === 0 ||
-          Math.sign(newAxis - perpOf(pts[s.i - 1])) === Math.sign(perpOf(p) - perpOf(pts[s.i - 1]));
-        const afterOk =
-          s.i + 2 >= pts.length ||
-          Math.sign(perpOf(q) - perpOf(pts[s.i + 2])) === 0 ||
-          Math.sign(newAxis - perpOf(pts[s.i + 2])) === Math.sign(perpOf(q) - perpOf(pts[s.i + 2]));
-        // не загнать плечо в тело узла
-        const hitsBody = obstacles.some((r) => cutsBody(s.orient, newAxis, s.lo, s.hi, r));
-        if (!beforeOk || !afterOk || hitsBody) continue;
         if (s.orient === "h") { p.y = newAxis; q.y = newAxis; }
         else { p.x = newAxis; q.x = newAxis; }
         nudged.add(s.edgeId);
