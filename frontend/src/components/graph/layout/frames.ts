@@ -123,3 +123,33 @@ export function computeFrames(params: {
   rects.sort((a, b) => a.depth - b.depth);
   return rects;
 }
+
+// --- Дерево рамок ПО ЧЛЕНСТВУ (единые хелперы; до 2026-07-09 логика жила тремя
+// копиями: keepGhostsOut.parentOf/homeOf, separateGuests.parentFrameOf/deepestFrameOf,
+// frameOfFrame/frameOfEntity в сборке LevelGraph — и грозила разъехаться).
+
+/**
+ * Родитель рамки = минимальная объемлющая: самая ГЛУБОКАЯ рамка с МЕНЬШИМ depth,
+ * являющаяся надмножеством её членов. null — рамка верхнего уровня.
+ */
+export function parentFrameOf(frames: readonly FrameRect[], f: FrameRect): FrameRect | null {
+  let best: FrameRect | null = null;
+  for (const g of frames) {
+    if (g === f || g.depth >= f.depth) continue;
+    let superset = true;
+    for (const id of f.memberIds) {
+      if (!g.memberIds.has(id)) { superset = false; break; }
+    }
+    if (superset && (!best || g.depth > best.depth)) best = g;
+  }
+  return best;
+}
+
+/** «Домашняя» рамка узла — самая глубокая содержащая его членом; null — вне рамок. */
+export function deepestFrameContaining(frames: readonly FrameRect[], id: string): FrameRect | null {
+  let best: FrameRect | null = null;
+  for (const f of frames) {
+    if (f.memberIds.has(id) && (!best || f.depth > best.depth)) best = f;
+  }
+  return best;
+}

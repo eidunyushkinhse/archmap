@@ -4,8 +4,9 @@
 // источник правды, общий с энфорсом запрета проникновения гостей (keepGhostsOut.ts).
 import type { Node as RFNode } from "@xyflow/react";
 import { computeFrames } from "./layout/frames";
+import { framedBlockRefs } from "./frameChains";
 import { absPositionOf } from "./absPos";
-import type { GhostData, ContainerData, FrameData } from "./types";
+import type { GhostData, ContainerData } from "./types";
 import type { SpacingGuide } from "./interaction/distribute";
 import type { AncestorRef } from "../../types";
 
@@ -34,26 +35,10 @@ export function LevelBoundary({
       : ((n.data as ContainerData).ancestors ?? []);
 
   // Дети раскрытых ЛОКАЛОВ (R5) — блоки, их принадлежность рамкам computeFrames по
-  // externals не видит (у блока нет ancestors). Без неё кольца нативных границ
-  // схлопываются: refMaxDepth не знает о вложенных рамках, паддинг нативной границы
-  // не прирастает и она ложится ВПЛОТНУЮ к внутренней рамке. Восстанавливаем цепочку
-  // рамок блока по parentId compound-узлов и подмешиваем блок в externals (в localIds
-  // он тоже остаётся — memberIds это Set, дубль безвреден); ancestors обязаны включать
-  // breadcrumb-префикс, иначе lca=-1 и depth рамок съедет относительно нативных.
-  const frameNodes = new Map(rfNodes.filter((n) => n.type === "frame").map((n) => [n.id, n]));
-  // is_external в этих ссылках не участвует в вычислении членства/глубины — false
-  const bcRefs: AncestorRef[] = ancestorIds.map((id, i) => ({ id, name: ancestorNames[i], is_external: false }));
-  const frameChain = (startId: string | undefined): AncestorRef[] => {
-    const chain: AncestorRef[] = [];
-    for (let cur = startId ? frameNodes.get(startId) : undefined; cur;
-      cur = cur.parentId ? frameNodes.get(cur.parentId) : undefined) {
-      chain.unshift({ id: cur.id, name: (cur.data as FrameData).name, is_external: false });
-    }
-    return chain;
-  };
-  const framedBlocks = blocks
-    .filter((b) => b.parentId && frameNodes.has(b.parentId))
-    .map((b) => ({ id: b.id, ancestors: [...bcRefs, ...frameChain(b.parentId)] }));
+  // externals не видит (у блока нет ancestors). Без синтеза цепочек кольца нативных
+  // границ схлопываются (см. frameChains.ts — единый источник, общий с живыми
+  // клампами useSnapAlignment).
+  const framedBlocks = framedBlockRefs(rfNodes, ancestorIds, ancestorNames);
 
   // Позиции — АБСОЛЮТНЫЕ: дети compound-рамок несут относительные координаты (R4).
   const byId = new Map(rfNodes.map((n) => [n.id, n]));

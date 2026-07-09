@@ -6,6 +6,7 @@ import type { History } from "./useHistory";
 import { snapNode, nodeSize } from "./snap";
 import type { SpacingGuide } from "./distribute";
 import { computeFrames, type FrameRect } from "../layout/frames";
+import { framedBlockRefs } from "../frameChains";
 import { clampOutOfNativeFrames, pushOut } from "../layout/keepGhostsOut";
 import { clampOutOfNodeRects } from "../layout/separateNodes";
 import type { Rect } from "../layout/overlapConstraints";
@@ -114,22 +115,10 @@ export function useSnapAlignment({
         ? (n.data as GhostData).appNode.ancestors ?? []
         : ((n.data as ContainerData).ancestors ?? []);
     const byId = new Map(rfNodes.map((n) => [n.id, n]));
-    // Дети РАСКРЫТЫХ РАМОК (compound): цепочка parentId по рамкам-предкам + breadcrumb-
-    // префикс — без неё модель нативной рамки не видит колец раскрытых локалов и живой
-    // кламп держит гостей от МЕНЬШЕЙ рамки, чем нарисована (тот же синтез, что в
-    // LevelBoundary/boundaries.tsx и pipeline.localFrames).
-    const bcRefs: AncestorRef[] = ancestorIds.map((id, i) => ({ id, name: ancestorNames[i] ?? id, is_external: false }));
-    const framedBlocks = blocks
-      .filter((b) => b.parentId && byId.get(b.parentId)?.type === "frame")
-      .map((b) => {
-        const chain: AncestorRef[] = [];
-        let cur = byId.get(b.parentId!);
-        while (cur && cur.type === "frame") {
-          chain.unshift({ id: cur.id, name: cur.id, is_external: false });
-          cur = cur.parentId ? byId.get(cur.parentId) : undefined;
-        }
-        return { id: b.id, ancestors: [...bcRefs, ...chain] };
-      });
+    // Дети РАСКРЫТЫХ РАМОК (compound): без синтеза цепочек модель нативной рамки не
+    // видит колец раскрытых локалов и живой кламп держит гостей от МЕНЬШЕЙ рамки,
+    // чем нарисована (см. frameChains.ts — единый источник, общий с LevelBoundary).
+    const framedBlocks = framedBlockRefs(rfNodes, ancestorIds, ancestorNames);
     return computeFrames({
       localIds: blocks.map((b) => b.id),
       externals: [...externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })), ...framedBlocks],

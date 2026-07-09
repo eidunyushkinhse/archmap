@@ -36,6 +36,7 @@ import { edgeText } from "./graph/text";
 import { getNodeColors, STATUS_META } from "./graph/colors";
 import { viewShows, type SchemaView } from "./schemaView";
 import { computeViewLayout, type LayoutResult } from "./graph/layout/pipeline";
+import { parentFrameOf, deepestFrameContaining } from "./graph/layout/frames";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
@@ -901,23 +902,9 @@ function LevelGraphInner({
     // R4: раскрытые гостевые рамки — compound-узлы RF. Родитель сущности — САМАЯ
     // ГЛУБОКАЯ рамка, содержащая её членом; родитель рамки — самая глубокая внешняя
     // рамка, накрывающая всех её членов. Дети получают position ОТНОСИТЕЛЬНО родителя.
-    const frameOfEntity = (id: string) => {
-      let best: (typeof guestFrames)[number] | undefined;
-      for (const f of guestFrames) {
-        if (f.memberIds.has(id) && (!best || f.depth > best.depth)) best = f;
-      }
-      return best;
-    };
-    const frameOfFrame = (f: (typeof guestFrames)[number]) => {
-      let best: (typeof guestFrames)[number] | undefined;
-      for (const g of guestFrames) {
-        if (g === f || g.depth >= f.depth) continue;
-        let covers = true;
-        for (const id of f.memberIds) if (!g.memberIds.has(id)) { covers = false; break; }
-        if (covers && (!best || g.depth > best.depth)) best = g;
-      }
-      return best;
-    };
+    // дерево рамок по членству — единые хелперы frames.ts
+    const frameOfEntity = (id: string) => deepestFrameContaining(guestFrames, id);
+    const frameOfFrame = (f: (typeof guestFrames)[number]) => parentFrameOf(guestFrames, f);
     // Вложенность рамки ОТНОСИТЕЛЬНО УРОВНЯ (1 = верхняя раскрытая, 2 = раскрытая
     // внутри раскрытой, …) — длина цепочки объемлющих рамок. Именно она, а не
     // f.depth: depth рамок нумеруется вслед за breadcrumb, и на дриллнутых уровнях
@@ -925,7 +912,7 @@ function LevelGraphInner({
     // глубину и дети красились на ступень светлее положенного.
     const frameNesting = (f0: (typeof guestFrames)[number]): number => {
       let n = 0;
-      for (let f: (typeof guestFrames)[number] | undefined = f0; f; f = frameOfFrame(f)) n++;
+      for (let f: (typeof guestFrames)[number] | null = f0; f; f = frameOfFrame(f)) n++;
       return n;
     };
     // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —

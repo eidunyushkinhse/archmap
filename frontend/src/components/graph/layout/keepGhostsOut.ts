@@ -14,7 +14,7 @@
 //    за своим членом-гостем → может задеть другого).
 //  - clampOutOfNativeFrames — clamp одиночного гостя при отпускании ручного драга.
 import { NODE_W, NODE_H, KEEPOUT_GAP } from "../constants";
-import { computeFrames, type FrameRect } from "./frames";
+import { computeFrames, parentFrameOf, deepestFrameContaining, type FrameRect } from "./frames";
 import { separateRects } from "./separateRects";
 import { assignEdgeHandles } from "./level";
 import type { DisplayExternal } from "../types";
@@ -216,30 +216,15 @@ export function keepOutOfExpandedFrames(params: {
   const moved = new Set<string>();
   if (frames.length === 0) return moved;
 
-  // ДЕРЕВО РАМОК по членству: родитель рамки — минимальная объемлющая (самая
-  // глубокая рамка-надмножество её членов). Инвариант проверяется РЕКУРСИВНО,
-  // в каждом контексте вложенности (жалоба пользователя: раскрытие внутри
-  // раскрытого — сиблинги внутри рамки HelixMon лежали в рамке ObsCore, потому
-  // что прежняя top-only логика их не видела).
+  // ДЕРЕВО РАМОК по членству (parentFrameOf/deepestFrameContaining — единые хелперы
+  // frames.ts). Инвариант проверяется РЕКУРСИВНО, в каждом контексте вложенности
+  // (жалоба пользователя: раскрытие внутри раскрытого — сиблинги внутри рамки
+  // HelixMon лежали в рамке ObsCore, потому что прежняя top-only логика их не видела).
   const isSubset = (a: FrameRect, b: FrameRect): boolean =>
     [...a.memberIds].every((id) => b.memberIds.has(id));
   const parentOf = new Map<string, FrameRect | null>();
-  for (const f of frames) {
-    let best: FrameRect | null = null;
-    for (const g of frames) {
-      if (g === f || g.depth >= f.depth || !isSubset(f, g)) continue;
-      if (!best || g.depth > best.depth) best = g;
-    }
-    parentOf.set(f.id, best);
-  }
-  // «домашняя» рамка узла — самая глубокая содержащая; null — вне рамок
-  const homeOf = (id: string): FrameRect | null => {
-    let best: FrameRect | null = null;
-    for (const f of frames) {
-      if (f.memberIds.has(id) && (!best || f.depth > best.depth)) best = f;
-    }
-    return best;
-  };
+  for (const f of frames) parentOf.set(f.id, parentFrameOf(frames, f));
+  const homeOf = (id: string): FrameRect | null => deepestFrameContaining(frames, id);
 
   const shiftFrameGroup = (g: FrameRect, dx: number, dy: number) => {
     for (const mid of g.memberIds) {

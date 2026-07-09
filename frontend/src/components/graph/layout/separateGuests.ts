@@ -21,7 +21,7 @@
 // кольце) и устоявшиеся схемы не трогаются. Чистый построитель леса (buildGuestForest) под
 // тестами; separateGuests — тонкая оркестрация (МУТИРУЕТ positions), как enforceFramesKeepOut.
 import { NODE_W, NODE_H, KEEPOUT_GAP } from "../constants";
-import { computeFrames, type FrameRect } from "./frames";
+import { computeFrames, parentFrameOf, deepestFrameContaining, type FrameRect } from "./frames";
 import { separateContainment, type CFrame, type CLeaf } from "./separateContainment";
 import { assignEdgeHandles } from "./level";
 import type { Rect } from "./overlapConstraints";
@@ -72,36 +72,16 @@ export function buildGuestForest(params: {
     frameNode.set(f.id, { kind: "frame", weight: W_OWNED, pad, children: [] });
   }
 
-  // родитель гостевой рамки = глубочайшая ДРУГАЯ гостевая рамка-надмножество по членам
-  // (рамки концентрически вложены). Нет такой — рамка садится в корень.
-  const parentFrameOf = (f: FrameRect): string | null => {
-    let best: string | null = null, bestDepth = -Infinity;
-    for (const g of guestFrames) {
-      if (g.id === f.id || g.depth >= f.depth) continue;
-      let superset = true;
-      for (const m of f.memberIds) if (!g.memberIds.has(m)) { superset = false; break; }
-      if (superset && g.depth > bestDepth) { bestDepth = g.depth; best = g.id; }
-    }
-    return best;
-  };
-  // глубочайшая гостевая рамка, содержащая лист (null → лист садится в корень)
-  const deepestFrameOf = (id: string): string | null => {
-    let best: string | null = null, bestDepth = -Infinity;
-    for (const f of guestFrames) {
-      if (f.memberIds.has(id) && f.depth > bestDepth) { bestDepth = f.depth; best = f.id; }
-    }
-    return best;
-  };
-
   const root: CFrame = { kind: "frame", weight: W_OWNED, pad: 0, children: [] };
 
   // листья (локалы + гости) — в свою глубочайшую гостевую рамку либо в корень
+  // (дерево рамок по членству — единые хелперы frames.ts)
   for (const id of [...localIds, ...entityIds]) {
     const r = rectOf(id);
     if (!r) continue;
     const leaf: CLeaf = { kind: "leaf", id, rect: r, weight: leafWeight(id) };
-    const host = deepestFrameOf(id);
-    (host ? frameNode.get(host)! : root).children.push(leaf);
+    const host = deepestFrameContaining(guestFrames, id);
+    (host ? frameNode.get(host.id)! : root).children.push(leaf);
   }
   // гостевые рамки — к родителям; вес рамки: содержит новичка → пин, иначе владеемая
   for (const f of guestFrames) {
@@ -109,8 +89,8 @@ export function buildGuestForest(params: {
     let hasLight = false;
     for (const m of f.memberIds) if (lightIds.has(m)) { hasLight = true; break; }
     node.weight = hasLight ? W_PIN : W_OWNED;
-    const par = parentFrameOf(f);
-    (par ? frameNode.get(par)! : root).children.push(node);
+    const par = parentFrameOf(guestFrames, f);
+    (par ? frameNode.get(par.id)! : root).children.push(node);
   }
 
   // отбрасываем пустые рамки (все члены ушли глубже / без позиции) — иначе bbox по пустому
