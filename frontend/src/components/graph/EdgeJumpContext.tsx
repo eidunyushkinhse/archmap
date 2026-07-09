@@ -24,12 +24,15 @@ function samePoly(a: EdgePoint[] | undefined, b: EdgePoint[] | null): boolean {
 }
 
 // enabled=false (контекст-схема) — реестр спит: publish игнорит, прыжков нет.
-// paused=true (идёт драг узлов) — реестр заморожен: publish игнорит (геометрия не
-// дёргается), прыжков нет → во время перетаскивания рисуются простые линии без дуг, а
-// не пересчитываются пересечения каждый кадр (иначе смена value реестра перерисовывала
-// бы ВСЕ рёбра по два прохода на кадр — источник лагов и краша на мультидраге). По
-// снятию paused идентичность publish меняется → эффекты-публикаторы рёбер срабатывают
-// заново и реестр пересобирается со свежей геометрией (дуги возвращаются).
+// paused=true (идёт драг узлов) — реестр ЗАМОРОЖЕН: publish игнорит (polys не меняется,
+// пересчёта пересечений на кадр нет — иначе смена value реестра перерисовывала бы ВСЕ
+// рёбра по два прохода на кадр, источник лагов и краша на мультидраге), но ПОСЛЕДНИЕ
+// посчитанные мостики ОСТАЮТСЯ на экране (2026-07-09; раньше пауза гасила все дуги →
+// каждый жест «мигал» дугами всей схемы, даже у стрелок, не связанных с таскаемым
+// узлом). У рёбер таскаемого узла устаревший мостик прячет фильтр отрисовки
+// (straightWithJumps рисует хоп, только если тот лежит на фактическом сегменте).
+// По снятию paused идентичность publish меняется → эффекты-публикаторы рёбер
+// срабатывают заново и реестр пересобирается со свежей геометрией.
 export function EdgeJumpProvider({ enabled, paused = false, children }: { enabled: boolean; paused?: boolean; children: ReactNode }) {
   const active = enabled && !paused;
   // Геометрия всех рёбер уровня (id → ломаная). Новый Map создаём ТОЛЬКО при реальном
@@ -56,7 +59,9 @@ export function EdgeJumpProvider({ enabled, paused = false, children }: { enable
     [active],
   );
 
-  const jumps = useMemo(() => (active ? computeJumps(polys) : EMPTY_JUMPS), [polys, active]);
+  // считаем по enabled, НЕ по active: на паузе polys заморожен → memo не пересчитывается,
+  // прежние мостики продолжают отдаваться (заморозка вместо гашения)
+  const jumps = useMemo(() => (enabled ? computeJumps(polys) : EMPTY_JUMPS), [polys, enabled]);
   const jumpsFor = useCallback((id: string) => jumps.get(id) ?? EMPTY, [jumps]);
   const value = useMemo<Ctx>(() => ({ publish, jumpsFor }), [publish, jumpsFor]);
 

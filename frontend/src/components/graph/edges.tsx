@@ -364,7 +364,14 @@ function WrappedLabelEdge({
   useEffect(() => {
     publish(id, jumpPoly);
   }, [id, jumpPoly, publish]);
-  useEffect(() => () => publish(id, null), [id, publish]);
+  // Снятие — ТОЛЬКО на реальный unmount и СВЕЖИМ publish (latest-ref): завязка cleanup
+  // на идентичность publish вычищала реестр на каждом переключении паузы драга (cleanup
+  // бежал старым, ещё активным publish) — и «заморозка дуг на драге» пустела в ноль.
+  // Цена: unmount ВО ВРЕМЯ паузы оставил бы запись до пере-публикации (не встречается:
+  // рёбра не размонтируются посреди жеста).
+  const publishRef = useRef(publish);
+  useEffect(() => { publishRef.current = publish; });
+  useEffect(() => () => publishRef.current(id, null), [id]);
 
   const onGripDown = useCallback(
     (e: ReactPointerEvent<SVGPathElement>, index: number, startPts: EdgePoint[]) => {
