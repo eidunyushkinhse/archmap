@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node, NodeCreate, NodeShape, NodeStatus } from "../types";
 import { getNodeColors, STATUS_META } from "./graph/colors";
-import { nodesApi } from "../api/nodes";
+import { nodesApi, viewsApi } from "../api/nodes";
 import MermaidRenderer from "./MermaidRenderer";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn } from "../ui/styles";
@@ -19,6 +19,11 @@ interface Props {
   shape?: NodeShape;
   // Координаты, куда бросили шаблон на схему.
   initialPos?: { x: number; y: number } | null;
+  // Вид, в который писать позицию дропа. Задан ТОЛЬКО при дропе в раскрытую рамку:
+  // тогда parentId — контейнер рамки, а позиция принадлежит виду ТЕКУЩЕГО уровня
+  // (posView), а не виду parentId (иначе узел появился бы в рамке не там, где брошен).
+  // undefined — обычный дроп: позицию кладёт сам POST /nodes (в вид parentId).
+  posView?: string | null;
   onClose: () => void;
   // isCreate всегда true — но сигнатуру держим общей с inline-правкой в панели.
   onSaved: (node: Node, isCreate: boolean) => void;
@@ -26,7 +31,9 @@ interface Props {
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
-export default function NodeModal({ parentId, shape: templateShape, initialPos, onClose, onSaved }: Props) {
+export default function NodeModal({ parentId, shape: templateShape, initialPos, posView, onClose, onSaved }: Props) {
+  // Дроп в раскрытую рамку: позицию пишем отдельным батчем в вид текущего уровня.
+  const intoFrame = posView !== undefined;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [role, setRole] = useState("");
@@ -65,10 +72,16 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
         is_external: isExternal,
         shape,
         status,
-        pos_x: initialPos?.x ?? null,
-        pos_y: initialPos?.y ?? null,
+        // При дропе в рамку позицию НЕ отдаём POST-у (он положил бы её в вид parentId) —
+        // пишем ниже в вид текущего уровня. Обычный дроп — как раньше, позицию кладёт POST.
+        pos_x: intoFrame ? null : (initialPos?.x ?? null),
+        pos_y: intoFrame ? null : (initialPos?.y ?? null),
       };
       const saved = await nodesApi.create(data);
+      // Дроп в рамку: позиция принадлежит виду ТЕКУЩЕГО уровня (posView), не виду parentId.
+      if (intoFrame && initialPos) {
+        await viewsApi.saveLayout(posView ?? null, { [saved.id]: { x: initialPos.x, y: initialPos.y } });
+      }
       onSaved(saved, true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Ошибка сохранения");

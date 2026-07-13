@@ -71,10 +71,22 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     node: Node | null;
     shape?: NodeShape;
     pos?: { x: number; y: number } | null;
+    // Дроп в раскрытую рамку: parentId — контейнер рамки (родитель узла), posView — вид
+    // текущего уровня (куда писать позицию). Оба отсутствуют при обычном дропе на уровень.
+    parentId?: string | null;
+    posView?: string | null;
   }>({
     open: false,
     node: null,
   });
+  // Триггер таргетного рефреша кэша детей раскрытого контейнера в LevelGraph (дроп нового
+  // узла в его рамку / откат такого дропа — localChildren иначе держит устаревший список).
+  const [childRefresh, setChildRefresh] = useState<{ id: string; token: number } | null>(null);
+  const childRefreshTok = useRef(0);
+  const refreshFrameChildren = (id: string) => {
+    childRefreshTok.current += 1;
+    setChildRefresh({ id, token: childRefreshTok.current });
+  };
   // протянули стрелку на узел с детьми — выбор его потомка как дальнего конца связи.
   // Имена концов приезжают С ЖЕСТОМ (LevelGraph): дети раскрытых локальных контейнеров
   // известны только холсту — findNodeLabel по nodes/endpoints их не разрешит.
@@ -410,11 +422,21 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // before — узел «как было» до правки полей. У создания приходит из модалки (там before
   // не нужен); у inline-правки в панели его передаёт NodeInspector (модалки уже нет).
   function handleNodeSaved(saved: Node, isCreate: boolean, before?: Node) {
-    setNodes((prev) =>
-      prev.some((n) => n.id === saved.id)
-        ? prev.map((n) => (n.id === saved.id ? saved : n))
-        : [...prev, saved]
-    );
+    // Дроп в раскрытую рамку: узел — ребёнок ДРУГОГО контейнера, а не прямой локал уровня.
+    // В nodes уровня его добавлять нельзя (появился бы вне рамки). Позицию (её NodeModal
+    // записал в вид уровня) зеркалим в стейт viewLayout — иначе own-on-first-render засеет
+    // поверх; кэш детей контейнера обновляем в LevelGraph таргетным рефрешем.
+    const intoFrame = isCreate && saved.parent_id != null && saved.parent_id !== currentParentId;
+    if (intoFrame) {
+      if (nodeModal.pos) handleLayoutChanged({ [saved.id]: { x: nodeModal.pos.x, y: nodeModal.pos.y } });
+      refreshFrameChildren(saved.parent_id!);
+    } else {
+      setNodes((prev) =>
+        prev.some((n) => n.id === saved.id)
+          ? prev.map((n) => (n.id === saved.id ? saved : n))
+          : [...prev, saved]
+      );
+    }
     setNodeModal({ open: false, node: null });
     // Панель меты показывает актуальные данные правленого узла (если он сейчас выбран).
     setSelectedObject((sel) =>
@@ -430,9 +452,14 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     if (!isArchitect) return;
     if (isCreate) {
       // Создание узла (Undo): структурная операция, как удаление — undo снимает снимок
-      // и удаляет (с сохранением id), redo восстанавливает; уровень перечитываем.
+      // и удаляет (с сохранением id), redo восстанавливает; уровень перечитываем. Для дропа
+      // в рамку дополнительно рефрешим кэш детей контейнера (узел не в nodes уровня).
       const levelAtCreate = currentParentId;
-      const refetch = refetchLevel(levelAtCreate);
+      const frameParent = intoFrame ? saved.parent_id : null;
+      const refetch = () => {
+        refetchLevel(levelAtCreate)();
+        if (frameParent) refreshFrameChildren(frameParent);
+      };
       let snap: DeletionSnapshot | null = null;
       history.push({
         label: "Создание объекта",
@@ -635,8 +662,14 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
 
   // Шаблон узла отпустили на схему (LevelGraph посчитал координаты в системе графа) —
   // открываем модалку создания с выбранной формой и точкой дропа.
-  function handleDropNode(shape: NodeShape, pos: { x: number; y: number }) {
-    setNodeModal({ open: true, node: null, shape, pos });
+  function handleDropNode(shape: NodeShape, pos: { x: number; y: number }, dropParentId: string | null) {
+    // Дроп в раскрытую рамку: узел — ребёнок её контейнера (dropParentId), а позиция
+    // принадлежит виду ТЕКУЩЕГО уровня (posView=currentParentId). Обычный дроп — как раньше.
+    if (dropParentId) {
+      setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
+    } else {
+      setNodeModal({ open: true, node: null, shape, pos });
+    }
   }
 
   // Полное ребро уровня по id — LevelGraph отдаёт в колбэках суженный до Edge тип
@@ -860,6 +893,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               }}
               onLayoutChanged={handleLayoutChanged}
               onDropNode={handleDropNode}
+              refreshChildrenOf={childRefresh}
               onCreateEdge={handleCreateEdge}
               onConnectInto={handleConnectInto}
               onExitUp={(sourceId, sourceHandle, sourceName) => setOutPicker({ sourceId, sourceHandle, sourceName })}
@@ -939,9 +973,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
 
       {nodeModal.open && (
         <NodeModal
-          parentId={currentParentId}
+          parentId={nodeModal.parentId !== undefined ? nodeModal.parentId : currentParentId}
           shape={nodeModal.shape}
           initialPos={nodeModal.pos ?? null}
+          posView={nodeModal.posView}
           onClose={() => setNodeModal({ open: false, node: null })}
           onSaved={handleNodeSaved}
         />

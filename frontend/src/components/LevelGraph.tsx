@@ -40,7 +40,7 @@ import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import { absPositionOf } from "./graph/absPos";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
-import { useTemplateDrop } from "./graph/interaction/useTemplateDrop";
+import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
 import { useHistory } from "./graph/interaction/useHistory";
 import type { History } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
@@ -100,8 +100,12 @@ interface LevelGraphProps {
   // канал зеркалирования раскладки (R3; заменил пять прежних колбэков).
   onLayoutChanged?: (items: Record<string, ViewLayoutPayload | null>) => void;
   // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
-  // форма, pos — координаты в системе графа (левый-верхний угол узла)
-  onDropNode?: (shape: NodeShape, pos: { x: number; y: number }) => void;
+  // форма, pos — координаты в системе графа (левый-верхний угол узла), parentId —
+  // контейнер раскрытой рамки под курсором (узел станет его ребёнком) либо null (уровень).
+  onDropNode?: (shape: NodeShape, pos: { x: number; y: number }, parentId: string | null) => void;
+  // Обновить кэш детей раскрытого контейнера (после создания/отката ребёнка в его рамке
+  // на ЭТОМ же уровне — localChildren иначе держит устаревший список). token — триггер.
+  refreshChildrenOf?: { id: string; token: number } | null;
   // протянули стрелку от узла sourceId на ЛИСТОВОЙ узел/хэндл targetId — создать связь.
   // Хэндлы из жеста: при дропе на хэндл известны оба, на тело листа — только исходный.
   // Имена концов едут С ЖЕСТОМ: дети раскрытых ЛОКАЛЬНЫХ контейнеров известны только
@@ -186,6 +190,7 @@ function LevelGraphInner({
   onEdgesChoice,
   onLayoutChanged,
   onDropNode,
+  refreshChildrenOf,
   onCreateEdge,
   onConnectInto,
   onExitUp,
@@ -343,6 +348,20 @@ function LevelGraphInner({
       });
     }
   }, [expanded, nodes, localChildren, isContext]);
+
+  // Таргетный рефреш кэша детей одного контейнера (дроп нового узла в его раскрытую рамку /
+  // откат такого дропа): перечитываем список и ПЕРЕЗАПИСЫВАЕМ (в отличие от ленивой догрузки
+  // выше — та не трогает уже заполненный ключ). token гарантирует срабатывание на повтор.
+  const refreshTokenRef = useRef(0);
+  useEffect(() => {
+    if (isContext || !refreshChildrenOf) return;
+    if (refreshChildrenOf.token === refreshTokenRef.current) return;
+    refreshTokenRef.current = refreshChildrenOf.token;
+    const { id } = refreshChildrenOf;
+    void nodesApi.list(id).then((kids) => {
+      setLocalChildren((cur) => ({ ...cur, [id]: kids }));
+    });
+  }, [refreshChildrenOf, isContext]);
 
   // Состояние центральных направляющих магнитного выравнивания (общее для snap-драга
   // и drop-шаблона).
@@ -756,10 +775,17 @@ function LevelGraphInner({
     applyLayout(nextNodes, nextEdges);
   }, [layout, isArchitect, depth, isContext, schemaView, applyLayout]);
 
+  // Раскрытые рамки уровня (гостевые + локальные) как цели дропа шаблона: id контейнера
+  // (будущий parent_id) + абсолютный rect + depth (глубочайшая побеждает при вложенности).
+  const expandedFrames = useMemo<DropFrame[]>(
+    () => (layout?.guestFrames ?? []).map((f) => ({ id: f.id, depth: f.depth, rect: f.rect })),
+    [layout],
+  );
+
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
-  const { dropPreview, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
+  const { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
     rfNodes, screenToFlowPosition, setGuides, clearGuides,
-    isArchitect, isContext, onDropNode, dragShape,
+    isArchitect, isContext, onDropNode, dragShape, expandedFrames,
   });
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
@@ -1087,6 +1113,27 @@ function LevelGraphInner({
             >
               <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" outline />
             </div>
+          </ViewportPortal>
+        )}
+        {/* Индикация цели дропа в раскрытую рамку: подсвечиваем её контур («рамка
+            раскрывается шире под новый узел» — узел станет ребёнком её контейнера). */}
+        {dropTargetFrame && (
+          <ViewportPortal>
+            <div
+              style={{
+                position: "absolute",
+                left: dropTargetFrame.rect.x,
+                top: dropTargetFrame.rect.y,
+                width: dropTargetFrame.rect.w,
+                height: dropTargetFrame.rect.h,
+                pointerEvents: "none",
+                zIndex: 4,
+                borderRadius: 14,
+                border: "2px solid #6366f1",
+                background: "rgba(99, 102, 241, 0.06)",
+                boxShadow: "0 0 0 3px rgba(99, 102, 241, 0.15)",
+              }}
+            />
           </ViewportPortal>
         )}
         {/* Превью «быстрой связи»: автоопределённая стрелка от хэндла к соседу. Гасим во

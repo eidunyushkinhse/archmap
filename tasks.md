@@ -75,16 +75,15 @@
         источнику»), Selected получил вариант kind:"ghost", handleNodeDoubleClick теперь
         обрабатывает type==="ghost" (onInspectGhost). Переход к источнику — drillToPath к
         уровню-родителю гостя. spec.md обновлён. tsc/eslint зелёные.
-- [ ] П2. Создание дочерних узлов внутри раскрытых рамок на верхних уровнях: узел, брошенный
-        в раскрытую рамку ObsCore, становится ребёнком ObsCore, а не корня уровня. Индикация:
-        подсветка рамки-цели на dragOver («рамка раскрывается шире под новый узел»). Якоря:
-        дроп useTemplateDrop.handleDrop:74; сейчас parent_id жёстко = currentParentId
-        (NodeModal.tsx:62 ← TreePage:918). Хит-тест: rfNodes уже несут frame-узлы
-        (assembleRf.ts:87, id=контейнер, w/h=f.rect) / layout.guestFrames (FrameRect.rect);
-        координаты вставки в рамку → в относительную систему родителя (absPos.ts). Провести
-        parentId через onDropNode→handleDropNode→NodeModal. РЕШИТЬ: вложенные рамки — берём
-        глубочайшую (deepestFrameContaining); дроп в ГОСТЕВУЮ рамку (чужой контейнер) —
-        разрешать (правит чужое поддерево) или только локальные раскрытые.
+- [x] П2. Создание дочерних узлов внутри раскрытых рамок — СДЕЛАНО. useTemplateDrop хит-тестит
+        курсор по layout.guestFrames (глубочайшая рамка побеждает), подсвечивает рамку-цель
+        (ViewportPortal) и отдаёт parentId в onDropNode. Дроп в рамку разрешён и в ГОСТЕВЫЕ
+        (решение пользователя). ГОЧА координат: позиции детей раскрытого контейнера лежат в
+        виде ТЕКУЩЕГО уровня (не в виде контейнера), поэтому при parent_id=контейнер POST
+        не пишет pos (иначе ушло бы в чужой вид) — NodeModal пишет позицию в вид уровня
+        (viewsApi.saveLayout), TreePage зеркалит её в стейт (иначе own-on-first-render
+        засеет поверх) и таргетно рефрешит localChildren контейнера (refreshChildrenOf).
+        Undo/redo тоже рефрешат детей. spec.md обновлён. tsc/eslint зелёные.
 - [x] П3. В дереве узлов: сначала внутренние (is_external=false), потом внешние — СДЕЛАНО.
         compareByRank (types/index.ts) получил первичный ключ Number(is_external); прежняя
         сортировка (child_count↓, затем алфавит) стала вторичной. Общий компаратор (тот же
