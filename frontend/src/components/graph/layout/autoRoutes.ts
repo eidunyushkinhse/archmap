@@ -187,9 +187,16 @@ export function buildAutoRoutes(params: {
       sPorts = [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sr, rail.sSide, rail.sIdx) }];
       tPorts = [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tr, rail.tSide, rail.tIdx) }];
     } else {
-      // свободное ребро: порты на всех четырёх сторонах, выбирает A* (V2.2)
-      sPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(sr, side, 1) }));
-      tPorts = ALL_SIDES.map((side) => ({ side, idx: 1, point: handlePoint(tr, side, 1) }));
+      // свободное ребро: порты на всех четырёх сторонах И ВСЕХ слотах (T1 эпика «читаемые
+      // пучки», V2.2 давал только центры): веер сам расползается по свободным слотам
+      // (езда по чужому штрафуется, ствол в общем слоте бесплатен), in/out разводятся
+      // прямо в поиске — пост-хок distributeSlots остаётся фолбэком. Центр (idx 1)
+      // первым — детерминированный тай-брейк и прежний фолбэк ports[0].
+      const SLOT_ORDER = [1, 0, 2];
+      sPorts = ALL_SIDES.flatMap((side) =>
+        SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(sr, side, idx) })));
+      tPorts = ALL_SIDES.flatMap((side) =>
+        SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(tr, side, idx) })));
     }
     portsById.set(g.id, { s: sPorts, t: tPorts });
     // Границы ЧУЖИХ рамок (ни один конец не член) — штраф за переход: чужое ребро

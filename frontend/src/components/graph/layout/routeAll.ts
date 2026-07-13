@@ -10,7 +10,7 @@
 // Расталкивание случайно-параллельных плеч разных стрелок — отдельная фаза A3b (vpsc); общие
 // плечи родственных стрелок (из общего хэндла) остаются слитыми (R4=4a). См. ANALYSIS §4, §6.
 import type { EdgePoint } from "../../../types";
-import { cleanup, segments, type NodeRect, type Segment } from "../edgePath";
+import { cleanup, pathCrossesRects, segments, type NodeRect, type Segment } from "../edgePath";
 import { routePorts, type PortCandidate, type RouteOptions } from "./orthoRoute";
 
 const EPS = 0.5;
@@ -88,8 +88,8 @@ export interface RouteAllOptions {
 // ные точки пересечения: совпадающие сегменты дают одну точку → один штраф.
 // Сегмент уже проложенного маршрута + КОНЦЫ его ломаной (порты стыковки владельца):
 // нужны исключению стволов — езда по чужому сегменту бесплатна, когда это общий порт
-// той же роли (см. movePenalty).
-interface PlacedSeg {
+// той же роли (см. movePenalty). Экспорт — для юнит-тестов straightenJogs.
+export interface PlacedSeg {
   seg: Segment;
   p0: EdgePoint; // первая точка маршрута-владельца (его source-порт)
   pN: EdgePoint; // последняя точка (его target-порт)
@@ -167,6 +167,68 @@ function pathPenalty(pts: EdgePoint[], placed: PlacedSeg[], crossCost: number, o
     n += movePenalty(a.x, a.y, b.x, b.y, placed, crossCost, own);
   }
   return n;
+}
+
+// Джог короче этого порога — кандидат на спрямление (перескок «дрожи», не структура).
+const JOG_MAX = 24;
+
+/**
+ * ПОСТ-СПРЯМЛЕНИЕ ДЖОГОВ (T3 эпика «читаемые пучки», канон path simplification).
+ * Джог — короткий (≤ JOG_MAX) перпендикулярный перескок между двумя СОНАПРАВЛЕННЫМИ
+ * сегментами: A→B, B→C (перескок), C→D. A*-решётка и инкрементальные штрафы плодят
+ * такие «ступеньки» там, где взгляд ждёт прямую. Спрямляем переносом перескока в
+ * соседний излом (вперёд к D либо назад к A) — длина маршрута НЕ меняется, изломов
+ * на 2 меньше; вариант принимается, только если не режет тела и полная стоимость
+ * (длина+изломы+кресты+езда+рамки) строго меньше — джог, который уворачивался от
+ * реальной езды/креста, остаётся. Концы (доки) не двигаются. Чистая функция.
+ */
+export function straightenJogs(
+  pts: EdgePoint[],
+  obstacles: NodeRect[],
+  others: PlacedSeg[],
+  crossCost: number,
+  bendPenalty: number,
+  extra?: (x1: number, y1: number, x2: number, y2: number) => number,
+  own?: OwnPorts,
+): EdgePoint[] {
+  let cur = cleanup(pts.map((p) => ({ x: p.x, y: p.y })));
+  let guard = 8; // страховка от зацикливания (каждый прогон убирает ≥1 джог)
+  while (guard-- > 0) {
+    let applied = false;
+    const n = cur.length;
+    for (let i = 0; i + 3 < n && !applied; i++) {
+      const A = cur[i], B = cur[i + 1], C = cur[i + 2], D = cur[i + 3];
+      const abH = Math.abs(B.y - A.y) <= EPS, cdH = Math.abs(D.y - C.y) <= EPS;
+      if (abH !== cdH) continue;                    // внешние сегменты не параллельны
+      const jog = abH ? Math.abs(C.y - B.y) : Math.abs(C.x - B.x);
+      if (jog < EPS || jog > JOG_MAX) continue;     // не перескок (или структурный)
+      const dirAB = abH ? Math.sign(B.x - A.x) : Math.sign(B.y - A.y);
+      const dirCD = abH ? Math.sign(D.x - C.x) : Math.sign(D.y - C.y);
+      if (dirAB === 0 || dirAB !== dirCD) continue; // встречные — это U, не джог
+      const curCost = routeCost(cur, others, crossCost, bendPenalty, extra, own);
+      const candidates: EdgePoint[][] = [];
+      // вперёд: весь пролёт на линии AB, перескок уезжает в излом за D (D не конец)
+      if (i + 4 < n) {
+        const Q = abH ? { x: D.x, y: A.y } : { x: A.x, y: D.y };
+        candidates.push(cleanup([...cur.slice(0, i + 1), Q, ...cur.slice(i + 4)]));
+      }
+      // назад: весь пролёт на линии CD, перескок уезжает в излом перед A (A не конец)
+      if (i > 0) {
+        const Q = abH ? { x: A.x, y: D.y } : { x: D.x, y: A.y };
+        candidates.push(cleanup([...cur.slice(0, i), Q, ...cur.slice(i + 3)]));
+      }
+      let best: EdgePoint[] | null = null;
+      let bestCost = curCost - 1; // строго лучше текущего
+      for (const cand of candidates) {
+        if (cand.length < 2 || pathCrossesRects(cand, obstacles)) continue;
+        const c = routeCost(cand, others, crossCost, bendPenalty, extra, own);
+        if (c < bestCost) { bestCost = c; best = cand; }
+      }
+      if (best) { cur = best; applied = true; }
+    }
+    if (!applied) break;
+  }
+  return cur;
 }
 
 // Полная стоимость ГОТОВОЙ ломаной в тех же единицах, что цена A*: длина + изломы +
@@ -279,27 +341,55 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     pushPlaced(list, r);
     placedById.set(id, list);
   }
+  const othersOf = (skipId: string): PlacedSeg[] => {
+    const others: PlacedSeg[] = [...preplacedSegs];
+    for (const [id, s] of placedById) if (id !== skipId) others.push(...s);
+    return others;
+  };
+  const replace = (id: string, route: EdgePoint[]): void => {
+    placed.set(id, route);
+    const list: PlacedSeg[] = [];
+    pushPlaced(list, route);
+    placedById.set(id, list);
+  };
+  const ripUp = (): boolean => {
+    let improved = false;
+    for (const e of order) {
+      const cur = placed.get(e.id);
+      if (!cur) continue;
+      const others = othersOf(e.id);
+      const own = ownPortsOf(e);
+      if (pathPenalty(cur, others, crossCost, own) <= 0) continue; // чистый — не трогаем
+      const extra = e.extraMoveCost ?? opts?.extraMoveCost;
+      const moveCost = (x1: number, y1: number, x2: number, y2: number): number =>
+        movePenalty(x1, y1, x2, y2, others, crossCost, own) + (extra ? extra(x1, y1, x2, y2) : 0);
+      const [starts, ends] = portsOf(e);
+      const r2 = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost });
+      if (!r2?.pts || r2.pts.length < 2) continue;
+      const cCur = routeCost(cur, others, crossCost, bp, extra, own);
+      const cNew = routeCost(r2.pts, others, crossCost, bp, extra, own);
+      if (cNew + ROUTE_STICKINESS < cCur) {
+        replace(e.id, r2.pts);
+        improved = true;
+      }
+    }
+    return improved;
+  };
+  // T6: rip-up итерируется до фикспойнта (перепрокладка одного ребра открывает ходы
+  // другим), с жёсткой крышкой — на практике сходится за 1-2 итерации.
+  for (let iter = 0; iter < 3; iter++) {
+    if (!ripUp()) break;
+  }
+  // T3: пост-спрямление джогов по ФИНАЛЬНОМУ контексту (длина та же, изломов меньше;
+  // джог, уворачивавшийся от реальной езды/креста, остаётся — решает полная стоимость).
   for (const e of order) {
     const cur = placed.get(e.id);
-    if (!cur) continue;
-    const others: PlacedSeg[] = [...preplacedSegs];
-    for (const [id, s] of placedById) if (id !== e.id) others.push(...s);
-    const own = ownPortsOf(e);
-    if (pathPenalty(cur, others, crossCost, own) <= 0) continue; // чистый — не трогаем
+    if (!cur || cur.length < 4) continue;
     const extra = e.extraMoveCost ?? opts?.extraMoveCost;
-    const moveCost = (x1: number, y1: number, x2: number, y2: number): number =>
-      movePenalty(x1, y1, x2, y2, others, crossCost, own) + (extra ? extra(x1, y1, x2, y2) : 0);
-    const [starts, ends] = portsOf(e);
-    const r2 = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost });
-    if (!r2?.pts || r2.pts.length < 2) continue;
-    const cCur = routeCost(cur, others, crossCost, bp, extra, own);
-    const cNew = routeCost(r2.pts, others, crossCost, bp, extra, own);
-    if (cNew + ROUTE_STICKINESS < cCur) {
-      placed.set(e.id, r2.pts);
-      const list: PlacedSeg[] = [];
-      pushPlaced(list, r2.pts);
-      placedById.set(e.id, list);
-    }
+    const str = straightenJogs(
+      cur, e.obstacles, othersOf(e.id), crossCost, bp, extra, ownPortsOf(e),
+    );
+    if (str.length !== cur.length) replace(e.id, str);
   }
   return placed;
 }

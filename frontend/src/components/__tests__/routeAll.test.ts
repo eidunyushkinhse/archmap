@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { routeAll, type EdgeTerminal } from "../graph/layout/routeAll";
+import { routeAll, straightenJogs, type EdgeTerminal } from "../graph/layout/routeAll";
 import { countEdgeCrossings } from "../graph/layout/arrowMetrics";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 
@@ -128,5 +128,46 @@ describe("routeAll — гистерезис маршрутов (2026-07-09)", ()
     const e: EdgeTerminal = { ...term("X", [0, 0], [100, 0]), prev };
     const routes = routeAll([e, wall], { crossCost: 1000 });
     expect(routes.get("X")).not.toEqual(prev);
+  });
+});
+
+describe("straightenJogs — пост-спрямление джогов (T3, 2026-07-13)", () => {
+  const seg = (x1: number, y1: number, x2: number, y2: number) => ({
+    seg: { index: 0, x1, y1, x2, y2, orient: (Math.abs(y2 - y1) <= Math.abs(x2 - x1) ? "h" : "v") as "h" | "v" },
+    p0: { x: x1, y: y1 }, pN: { x: x2, y: y2 },
+  });
+
+  it("короткий перескок между сонаправленными сегментами схлопывается (без чужих линий)", () => {
+    const pts = [
+      { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 8 }, { x: 300, y: 8 }, { x: 300, y: 100 },
+    ];
+    const out = straightenJogs(pts, [], [], 200, 40);
+    expect(out).toEqual([{ x: 0, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 100 }]);
+  });
+
+  it("джог, уворачивающийся от езды по чужой линии, ОСТАЁТСЯ", () => {
+    const pts = [
+      { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 8 }, { x: 300, y: 8 }, { x: 300, y: 100 },
+    ];
+    // чужой сегмент лежит ровно на линии y=0 в [150..600] — спрямление поехало бы по нему
+    const others = [seg(150, 0, 600, 0)];
+    const out = straightenJogs(pts, [], others, 200, 40);
+    expect(out).toEqual(pts); // вариант «на линию y=8» недоступен (A — док), джог остаётся
+  });
+
+  it("доки не двигаются: джог у самого конца остаётся", () => {
+    const pts = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 8 }, { x: 220, y: 8 }];
+    const out = straightenJogs(pts, [], [], 200, 40);
+    expect(out).toEqual(pts);
+  });
+
+  it("спрямление не режет тела: вариант через узел отвергается", () => {
+    const pts = [
+      { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 20 }, { x: 300, y: 20 }, { x: 300, y: 100 },
+    ];
+    // тело узла закрывает линию y=0 в [150..250] — вперёд нельзя; назад нельзя (A — док)
+    const body: NodeRect = { x: 150, y: -10, w: 100, h: 20 };
+    const out = straightenJogs(pts, [body], [], 200, 40);
+    expect(out).toEqual(pts);
   });
 });
