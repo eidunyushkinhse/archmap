@@ -42,6 +42,9 @@ import { separateGuests } from "./separateGuests";
 import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeChannels } from "./channelNudge";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
+import { labelBoxSize } from "./labelBox";
+import { labelCandidates, erodeIntervals } from "./labelIntervals";
+import { coincidentLegs, edgeArcLength, type Interval } from "./coincidentLegs";
 import { widenNodesForLabels } from "./widenForLabels";
 import { applyLabelDetours } from "./detourStage";
 
@@ -64,6 +67,9 @@ export type LayoutResult = {
   // размещение плашек подписей (R2+R4): по группе — центр/якорь/режим (online|leader).
   // Считается по авто-маршрутам; сборка кладёт в data.labelPlacement.
   labelPlacements?: Map<string, LabelPlacement>;
+  // легальные arc-интервалы плашки по группам (labelCandidates после эрозии на пол-плашки):
+  // сборка кладёт в data.labelClamp — по ним edges.tsx зажимает драг плашки (П4).
+  labelClamp?: Map<string, Interval[]>;
   // РАСКРЫТЫЕ гостевые рамки на финальных позициях (R4): реальные rect'ы для
   // compound-узлов RF (id рамки = id раскрытого контейнера; дети — memberIds).
   // Отсортированы по depth (внешние первыми) — порядок вложенности parentId.
@@ -77,10 +83,10 @@ export type LayoutResult = {
 // (через commitLayout — единый батч view_layout): seed-positions — засев владения
 // own-on-first-render (гость/контейнер без сохранённой позиции получает текущую
 // навсегда) и персист выдвинутых разведением владеемых соседей (Ф4.4).
-export type PersistIntent = {
-  kind: "seed-positions";
-  seeds: { id: string; x: number; y: number }[];
-};
+export type PersistIntent =
+  | { kind: "seed-positions"; seeds: { id: string; x: number; y: number }[] }
+  // Владеемый label_t плашки стал нелегальным — удалить строки этих групп из view_layout.
+  | { kind: "reset-label-t"; ids: string[] };
 
 export interface PipelineInput {
   nodes: AppNode[];
@@ -445,6 +451,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // рёбер level/main-схемы. Контекст-схему не трогаем (R2/R4 решены в её модели).
   let autoRoutes: Map<string, EdgePoint[]> | undefined;
   let labelPlacements: Map<string, LabelPlacement> | undefined;
+  // Легальные arc-интервалы плашки по группам (для драга плашки в edges.tsx — кламп) и
+  // список групп, чей владеемый label_t стал нелегальным (сброс в авто + чистка БД).
+  let labelClamp: Map<string, Interval[]> | undefined;
+  const labelResets: string[] = [];
   if (!isContext) {
     const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
     // реальные габариты для стадий качества стрелок (роутер/плашки/детуры)
@@ -511,11 +521,44 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     const nodeRects = displayIds
       .map(realRectOf)
       .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
+
+    // Владеемое положение плашки (П4): архитектор перетащил плашку на долю label_t
+    // (хранится строкой view_layout по id ГРУППЫ). Отдаём как preferredT — но ТОЛЬКО если
+    // доля ещё ЛЕГАЛЬНА (лежит в допустимых arc-интервалах labelCandidates после эрозии на
+    // пол-плашки); ставшую нелегальной (пере-раскладка сдвинула узлы/плечи) — забываем
+    // (сброс в авто) и помечаем в labelResets для чистки строки в БД. Заодно считаем
+    // labelClamp — легальные интервалы по группам для клампа драга в edges.tsx.
+    const EPS = 0.5;
+    const ownedPreferred = (
+      routes: Map<string, EdgePoint[]>,
+      detour?: Map<string, number>,
+    ): ((g: EdgeGroup) => number | undefined) => {
+      const shared = coincidentLegs(routes);
+      const legal = new Map<string, number>();
+      const clamp = new Map<string, Interval[]>();
+      labelResets.length = 0;
+      for (const g of groupArr) {
+        const route = routes.get(g.id);
+        const meta = edgeLabelMeta(g);
+        if (!route || !meta) continue;
+        const box = labelBoxSize(meta.text, { lines: meta.lines });
+        const eroded = erodeIntervals(labelCandidates(route, shared.get(g.id) ?? [], nodeRects, box), box.w / 2);
+        clamp.set(g.id, eroded);
+        const owned = viewLayout[g.id]?.label_t;
+        if (owned == null) continue;
+        const arc = owned * edgeArcLength(route);
+        if (eroded.some((iv) => arc >= iv.s - EPS && arc <= iv.e + EPS)) legal.set(g.id, owned);
+        else labelResets.push(g.id);
+      }
+      labelClamp = clamp;
+      return (g) => legal.get(g.id) ?? detour?.get(g.id);
+    };
+
     labelPlacements = buildLabelPlacements({
       routes: autoRoutes,
       groups: groupArr,
       labelMeta: edgeLabelMeta,
-      preferredT: () => undefined,
+      preferredT: ownedPreferred(autoRoutes),
       nodeRects,
     });
 
@@ -551,7 +594,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         routes: autoRoutes,
         groups: groupArr,
         labelMeta: edgeLabelMeta,
-        preferredT: (g) => detourPreferred.get(g.id),
+        // Владеемый label_t (если легален) в приоритете над детур-долей; кламп/сброс
+        // пересчитываются по ФИНАЛЬНЫМ маршрутам.
+        preferredT: ownedPreferred(autoRoutes, detourPreferred),
         nodeRects,
       });
     }
@@ -601,10 +646,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     guestFrames.push(...frames.filter((f) => !f.native));
   }
 
+  // Владеемый label_t стал нелегальным после пере-раскладки → чистим строки в БД (сброс
+  // в авто). Строка группы несёт только label_t, поэтому удаляем её целиком (null).
+  if (labelResets.length > 0) intents.push({ kind: "reset-label-t", ids: labelResets });
+
   return {
     layout: {
       nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
-      autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
+      autoRoutes, labelPlacements, labelClamp, guestFrames, groupArr, spacers,
     },
     liveInputs: {
       layoutEdges,

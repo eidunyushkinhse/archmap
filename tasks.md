@@ -89,17 +89,15 @@
         сортировка (child_count↓, затем алфавит) стала вторичной. Общий компаратор (тот же
         порядок осмыслен и в детях NodeInspector, и в CrossLevelEdgePicker). Тест
         compareByRank.test.ts. tsc/vitest зелёные.
-- [ ] П4. Вернуть подвижные плашки подписей — но двигать только в «легальном» интервале
-        стрелки и СБРАСЫВАТЬ владеемую долю, если после пере-раскладки она стала нелегальной
-        (откат в авто). Инфраструктура ЖИВА: labelCandidates (labelIntervals.ts:78) = легальные
-        arc-интервалы; placeLabels принимает preferredT (:170); pipeline.ts:518
-        `preferredT:()=>undefined` — точка возврата. Удалено коммитом 766fc33 (восстановить):
-        драг плашки в edges.tsx (dragLabelT/onLabelTCommit), обратная проекция курсор→доля
-        (nearestFraction в edgePath.ts), persist label_t. План: (а) вернуть nearestFraction;
-        (б) драг с setPointerCapture + мёртвая зона 3px (не путать с даблкликом-открытием
-        деталей); (в) КЛАМП доли в labelCandidates, не в [0,1]; (г) СБРОС owned при выпадении
-        из candidates. РЕШИТЬ: хранилище (расширить ViewLayoutPayload полем label_t по ключу
-        пучка «b:src>tgt» vs поле у Edge — миграция) — ViewLayoutPayload сейчас x/y/expanded.
+- [x] П4. Подвижные плашки подписей с клампом в легальном интервале и сбросом нелегального —
+        СДЕЛАНО. Хранилище: label_t в ViewLayoutPayload по id ГРУППЫ рёбер (не поле Edge —
+        плашка это раскладка вида; api.gen перегенерён). Восстановлен nearestFraction
+        (edgePath.ts). Драг в edges.tsx: setPointerCapture + мёртвая зона 3px (не мешает
+        даблклику-открытию), проекция курсора → доля → КЛАМП в легальные интервалы (labelClamp
+        = labelCandidates после эрозии, приходят в data ребра). Конвейер (ownedPreferred):
+        владеемая доля идёт preferredT, но только ЛЕГАЛЬНАЯ; нелегальная (после пере-раскладки)
+        → сброс в авто + reset-label-t интент чистит строку в БД (без петли — commitLayout
+        зеркалит удаление). spec.md обновлён. Полный гейт: tsc/eslint/vitest 363 + pytest 73.
 - [x] П5+П6. Устойчивая подсветка связанного по двойному клику — СДЕЛАНО одной правкой.
         Панель (selectedObject) → linkedHighlight → эффект в LevelGraph вешает по data-id
         классы lg-linked-node/lg-linked-edge (императивно, как locate, но держится пока объект

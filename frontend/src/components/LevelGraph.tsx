@@ -742,9 +742,14 @@ function LevelGraphInner({
       // прогон видит сохранённое и интент не повторяет. cbRef — чтобы не тащить
       // commitLayout в deps.
       for (const intent of intents) {
-        cbRef.current.commitLayout(
-          Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
-        );
+        if (intent.kind === "seed-positions") {
+          cbRef.current.commitLayout(
+            Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
+          );
+        } else {
+          // reset-label-t: владеемая доля плашки стала нелегальной → удаляем строку группы.
+          cbRef.current.commitLayout(Object.fromEntries(intent.ids.map((id) => [id, null])));
+        }
       }
       setLayout(next);
       } finally {
