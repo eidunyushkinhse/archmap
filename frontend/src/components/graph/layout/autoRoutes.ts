@@ -218,7 +218,17 @@ export function buildAutoRoutes(params: {
     });
   }
 
-  const raw = routeAll(terminals);
+  // Маршруты рёбер ВНЕ routableIds (живой драг: жест их не касается) — предпроложенный
+  // контекст: scoped-роутер видит их линии в штрафах пересечений/наложений, как финал.
+  const preplaced: EdgePoint[][] = [];
+  if (prev) {
+    for (const g of groups) {
+      if (routableIds.has(g.id)) continue;
+      const pr = prev.routes.get(g.id);
+      if (pr && pr.length >= 2) preplaced.push(pr.map((p) => ({ x: p.x, y: p.y })));
+    }
+  }
+  const raw = routeAll(terminals, preplaced.length > 0 ? { preplaced } : undefined);
   const routes = new Map<string, EdgePoint[]>();
   const handles = new Map<string, { sourceHandle: string; targetHandle: string }>();
   const docks: Dock[] = [];

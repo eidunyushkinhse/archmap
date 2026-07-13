@@ -15,6 +15,12 @@ import { routePorts, type PortCandidate, type RouteOptions } from "./orthoRoute"
 
 const EPS = 0.5;
 const DEFAULT_CROSS_COST = 200; // px-эквивалент штрафа за одно пересечение (R3 > R1)
+// Штраф за КОЛЛИНЕАРНУЮ езду по чужому сегменту (shared-path penalty, канон libavoid),
+// за каждый px перекрытия. Без него езда по чужой линии БЕСПЛАТНА (и «крестиков» нет) —
+// A* сознательно седлал чужие маршруты: складки-заезды, сотни px слитых линий и парковка
+// в чужой хэндл (нарушение Т4). Короткие совпадения (стыковка веера у общего дока ~10-25px)
+// почти не штрафуются, длинная езда — дороже пересечения.
+const OVERLAP_COST = 1;
 // ГИСТЕРЕЗИС МАРШРУТОВ (2026-07-09): валидный маршрут прошлого прогона сохраняется,
 // если он не хуже свежего A* больше, чем на этот порог. Без гистерезиса любой чих
 // (сдвиг постороннего узла двигал грид-линии/инварианты толкали соседей на пиксели)
@@ -57,6 +63,10 @@ export interface RouteAllOptions {
   // пересечение ГРАНИЦЫ раскрытой рамки (container-aware обходы). Композируется со
   // штрафом за пересечения стрелок. Только положительная (допустимость эвристики A*).
   extraMoveCost?: (x1: number, y1: number, x2: number, y2: number) => number;
+  // ПРЕДПРОЛОЖЕННЫЕ маршруты вне набора (живой драг: рёбра, которых жест не касается) —
+  // контекст пересечений/наложений с первого же ребра. Без него scoped-вызов слеп к
+  // чужим линиям: живой маршрут седлал их и расходился с финалом.
+  preplaced?: EdgePoint[][];
 }
 
 // Сколько РАЗЛИЧНЫХ ТОЧЕК уже проложенных стрелок пересёк бы ход (x1,y1)→(x2,y2)
@@ -76,26 +86,87 @@ export interface RouteAllOptions {
 // ребро обёрнуто вокруг Zabbix Core, лишь бы не пересечь ствол трёх стрелок). Визуально
 // же пересечение ствола — ОДНА дуга-мостик (edgeJumps решает по точке). Считаем различ-
 // ные точки пересечения: совпадающие сегменты дают одну точку → один штраф.
-function crossingCount(x1: number, y1: number, x2: number, y2: number, segs: Segment[]): number {
+// Сегмент уже проложенного маршрута + КОНЦЫ его ломаной (порты стыковки владельца):
+// нужны исключению стволов — езда по чужому сегменту бесплатна, когда это общий порт
+// той же роли (см. movePenalty).
+interface PlacedSeg {
+  seg: Segment;
+  p0: EdgePoint; // первая точка маршрута-владельца (его source-порт)
+  pN: EdgePoint; // последняя точка (его target-порт)
+}
+
+function pushPlaced(list: PlacedSeg[], route: EdgePoint[]): void {
+  if (route.length < 2) return;
+  const p0 = route[0], pN = route[route.length - 1];
+  for (const seg of segments(route)) list.push({ seg, p0, pN });
+}
+
+// Порты текущего ребра для исключения стволов (роль важна: source против target).
+interface OwnPorts {
+  starts: EdgePoint[];
+  ends: EdgePoint[];
+}
+
+const nearPt = (a: EdgePoint, bx: number, by: number): boolean =>
+  Math.abs(a.x - bx) <= EPS && Math.abs(a.y - by) <= EPS;
+
+function movePenalty(
+  x1: number, y1: number, x2: number, y2: number,
+  placed: PlacedSeg[], crossCost: number, own?: OwnPorts,
+): number {
   const moveHoriz = Math.abs(y1 - y2) <= EPS;
   const mConst = moveHoriz ? y1 : x1;             // постоянная координата хода
   const mStart = moveHoriz ? x1 : y1;             // варьируемая в начале хода
   const mEnd = moveHoriz ? x2 : y2;               // варьируемая в конце хода
   const mLo = Math.min(mStart, mEnd), mHi = Math.max(mStart, mEnd);
   const pts = new Set<number>();
-  for (const s of segs) {
+  let overlap = 0; // суммарная длина коллинеарной езды хода по чужим сегментам
+  for (const ps of placed) {
+    const s = ps.seg;
     const segHoriz = s.orient === "h";
-    if (segHoriz === moveHoriz) continue;         // параллельны — не крестик
     const pConst = segHoriz ? s.y1 : s.x1;        // постоянная координата чужого сегмента
     const pLo = Math.min(segHoriz ? s.x1 : s.y1, segHoriz ? s.x2 : s.y2);
     const pHi = Math.max(segHoriz ? s.x1 : s.y1, segHoriz ? s.x2 : s.y2);
+    if (segHoriz === moveHoriz) {
+      // параллельны: на ОДНОЙ линии → перекрытие проекций = езда по чужому сегменту
+      if (Math.abs(pConst - mConst) > EPS) continue;
+      const lo = Math.max(mLo, pLo), hi = Math.min(mHi, pHi);
+      if (hi - lo <= EPS) continue;
+      // ИСКЛЮЧЕНИЕ СТВОЛА (Т4: «один хэндл И одно направление» — легитимно): бесплатна езда
+      // по КРАЙНЕМУ сегменту владельца (примыкает к его порту p0/pN), когда та же точка есть
+      // среди НАШИХ портов той же роли (source↔source, target↔target) — это слитый веер из
+      // общего дока. Разные роли (наш target = его source) НЕ исключаются: парковка входа в
+      // чужой выход — то самое нарушение Т4. Сегменты владельца после его первого излома —
+      // обычная чужая линия, штраф.
+      if (own) {
+        const segHasP0 = nearPt(ps.p0, s.x1, s.y1) || nearPt(ps.p0, s.x2, s.y2);
+        if (segHasP0 && own.starts.some((p) => nearPt(p, ps.p0.x, ps.p0.y))) continue;
+        const segHasPN = nearPt(ps.pN, s.x1, s.y1) || nearPt(ps.pN, s.x2, s.y2);
+        if (segHasPN && own.ends.some((p) => nearPt(p, ps.pN.x, ps.pN.y))) continue;
+      }
+      overlap += hi - lo;
+      continue;
+    }
     // точка пересечения: вдоль чужого сегмента = mConst, вдоль хода = pConst
     if (!(pLo + EPS < mConst && mConst < pHi - EPS)) continue; // строго внутри чужого
     if (pConst < mLo - EPS || pConst > mHi + EPS) continue;    // вне протяжённости хода
     if (Math.abs(pConst - mStart) <= EPS) continue;           // начало хода — посчитает прошлый ход
     pts.add(Math.round(pConst * 2)); // позиция точки вдоль хода (mConst у всех одна)
   }
-  return pts.size;
+  return crossCost * pts.size + OVERLAP_COST * overlap;
+}
+
+// Чистый штраф ГОТОВОЙ ломаной (пересечения+наложения с чужими сегментами), без длины и
+// изломов. 0 — маршрут «чистый»: второй проход его не трогает.
+function pathPenalty(pts: EdgePoint[], placed: PlacedSeg[], crossCost: number, own?: OwnPorts): number {
+  if (placed.length === 0) return 0;
+  let n = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (Math.abs(b.x - a.x) + Math.abs(b.y - a.y) <= EPS) continue;
+    n += movePenalty(a.x, a.y, b.x, b.y, placed, crossCost, own);
+  }
+  return n;
 }
 
 // Полная стоимость ГОТОВОЙ ломаной в тех же единицах, что цена A*: длина + изломы +
@@ -103,10 +174,11 @@ function crossingCount(x1: number, y1: number, x2: number, y2: number, segs: Seg
 // маршрута с прошлогодним обе ломаные оцениваются ЭТОЙ функцией (стабы включены в обе).
 function routeCost(
   pts: EdgePoint[],
-  placedSegs: Segment[],
+  placedSegs: PlacedSeg[],
   crossCost: number,
   bendPenalty: number,
   extra?: (x1: number, y1: number, x2: number, y2: number) => number,
+  own?: OwnPorts,
 ): number {
   let cost = 0;
   let prevHoriz: boolean | null = null;
@@ -118,7 +190,7 @@ function routeCost(
     if (prevHoriz !== null && horiz !== prevHoriz) cost += bendPenalty;
     prevHoriz = horiz;
     cost += len;
-    if (crossCost > 0 && placedSegs.length > 0) cost += crossCost * crossingCount(a.x, a.y, b.x, b.y, placedSegs);
+    if (placedSegs.length > 0) cost += movePenalty(a.x, a.y, b.x, b.y, placedSegs, crossCost, own);
     if (extra) cost += extra(a.x, a.y, b.x, b.y);
   }
   return cost;
@@ -157,15 +229,26 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
   const baseOpts: RouteOptions = {
     margin: opts?.margin, bendPenalty: opts?.bendPenalty, extraXs, extraYs,
   };
+  const bp = opts?.bendPenalty ?? 40;
+  // порты ребра как точки (роль source/target раздельно) — для исключения стволов
+  const ownPortsOf = (e: EdgeTerminal): OwnPorts => {
+    const [starts, ends] = portsOf(e);
+    return { starts: starts.map((p) => p.point), ends: ends.map((p) => p.point) };
+  };
+  // контекст вне набора (живой драг) — участвует в штрафах с первого ребра
+  const preplacedSegs: PlacedSeg[] = [];
+  for (const p of opts?.preplaced ?? []) pushPlaced(preplacedSegs, p);
   const placed = new Map<string, EdgePoint[]>();
-  const placedSegs: Segment[] = []; // сегменты всех уже проложенных рёбер
-  for (const e of routingOrder(edges)) {
+  const placedSegs: PlacedSeg[] = [...preplacedSegs]; // сегменты всех уже проложенных рёбер
+  const order = routingOrder(edges);
+  for (const e of order) {
     const extra = e.extraMoveCost ?? opts?.extraMoveCost;
-    const wantCross = crossCost > 0 && placedSegs.length > 0;
+    const own = ownPortsOf(e);
+    const wantPenalty = placedSegs.length > 0;
     const moveCost =
-      wantCross || extra
+      wantPenalty || extra
         ? (x1: number, y1: number, x2: number, y2: number): number =>
-            (wantCross ? crossCost * crossingCount(x1, y1, x2, y2, placedSegs) : 0) +
+            (wantPenalty ? movePenalty(x1, y1, x2, y2, placedSegs, crossCost, own) : 0) +
             (extra ? extra(x1, y1, x2, y2) : 0)
         : undefined;
     const [starts, ends] = portsOf(e);
@@ -175,13 +258,48 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     // Гистерезис: прежний валидный маршрут не хуже свежего больше, чем на порог, —
     // держим прежний (стрелка не перекладывается от чужих микро-сдвигов и ничьих).
     if (e.prev && e.prev.length >= 2) {
-      const bp = opts?.bendPenalty ?? 40;
-      const cNew = routeCost(route, placedSegs, crossCost, bp, extra);
-      const cPrev = routeCost(e.prev, placedSegs, crossCost, bp, extra);
+      const cNew = routeCost(route, placedSegs, crossCost, bp, extra, own);
+      const cPrev = routeCost(e.prev, placedSegs, crossCost, bp, extra, own);
       if (cPrev <= cNew + ROUTE_STICKINESS) route = e.prev.map((p) => ({ x: p.x, y: p.y }));
     }
     placed.set(e.id, route);
-    for (const s of segments(route)) placedSegs.push(s);
+    pushPlaced(placedSegs, route);
+  }
+
+  // ВТОРОЙ ПРОХОД (rip-up & re-route, канон libavoid): первый проход последовательный —
+  // ранние (длинные) рёбра прокладываются вслепую относительно ещё не проложенных, и
+  // «жертва порядка» не может увернуться от пересечений/наложений, которых при её укладке
+  // ещё не существовало. Теперь перепрокладываем каждое ребро в том же порядке против
+  // ВСЕХ остальных финальных маршрутов; новый берём, только если он лучше текущего больше,
+  // чем на ROUTE_STICKINESS (ничьи не перекладывают стрелку — стабильность). Чистые рёбра
+  // (нет ни пересечений, ни наложений) пропускаем: экономия и нулевой чурн.
+  const placedById = new Map<string, PlacedSeg[]>();
+  for (const [id, r] of placed) {
+    const list: PlacedSeg[] = [];
+    pushPlaced(list, r);
+    placedById.set(id, list);
+  }
+  for (const e of order) {
+    const cur = placed.get(e.id);
+    if (!cur) continue;
+    const others: PlacedSeg[] = [...preplacedSegs];
+    for (const [id, s] of placedById) if (id !== e.id) others.push(...s);
+    const own = ownPortsOf(e);
+    if (pathPenalty(cur, others, crossCost, own) <= 0) continue; // чистый — не трогаем
+    const extra = e.extraMoveCost ?? opts?.extraMoveCost;
+    const moveCost = (x1: number, y1: number, x2: number, y2: number): number =>
+      movePenalty(x1, y1, x2, y2, others, crossCost, own) + (extra ? extra(x1, y1, x2, y2) : 0);
+    const [starts, ends] = portsOf(e);
+    const r2 = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost });
+    if (!r2?.pts || r2.pts.length < 2) continue;
+    const cCur = routeCost(cur, others, crossCost, bp, extra, own);
+    const cNew = routeCost(r2.pts, others, crossCost, bp, extra, own);
+    if (cNew + ROUTE_STICKINESS < cCur) {
+      placed.set(e.id, r2.pts);
+      const list: PlacedSeg[] = [];
+      pushPlaced(list, r2.pts);
+      placedById.set(e.id, list);
+    }
   }
   return placed;
 }

@@ -122,22 +122,79 @@ describe("buildAutoRoutes — раздача слотов портов (V2.4c)",
   ];
   const ids = ["o1", "o2", "o3", "in"];
 
-  it("входящее и исходящие получают разные слоты одной стороны", () => {
+  it("входящее не делит точку стыковки с веером исходящих (Т4)", () => {
     const out = buildAutoRoutes({
       groups, routableIds: new Set(ids),
       positions, displayIds: [...positions.keys()],
     });
     const hOf = (id: string, end: "sourceHandle" | "targetHandle") => out.handles.get(id)![end];
-    // все четыре стыкуются на правой стороне H
-    const sides = ids.map((id) => (id === "in" ? hOf("in", "targetHandle") : hOf(id, "sourceHandle")));
-    expect(sides.every((h) => h.startsWith("H--right--"))).toBe(true);
-    const outSlots = new Set(["o1", "o2", "o3"].map((id) => hOf(id, "sourceHandle")));
-    expect(outSlots.size).toBe(1); // веер исходящих делит один слот (ствол легитимен)
-    expect(hOf("in", "targetHandle")).not.toBe([...outSlots][0]); // вход — на другом слоте
-    // маршрут входящего реально стыкуется в точке нового слота (эндпоинт сдвинут)
+    // исходящие к прямой/нижней цели — на правой стороне H, делят один слот (ствол
+    // легитимен); o1 (цель сверху) волен выйти верхом — сторону выбирает A*
+    const outHandles = ["o1", "o2", "o3"].map((id) => hOf(id, "sourceHandle"));
+    expect(hOf("o2", "sourceHandle").startsWith("H--right--")).toBe(true);
+    expect(hOf("o3", "sourceHandle")).toBe(hOf("o2", "sourceHandle"));
+    // вход НЕ делит хэндл ни с одним выходом (Т4): либо другой слот той же стороны
+    // (распределение слотов V2.4c), либо вовсе другая сторона
+    const inHandle = hOf("in", "targetHandle");
+    expect(inHandle.startsWith("H--")).toBe(true);
+    for (const oh of outHandles) expect(inHandle).not.toBe(oh);
+    // маршрут входящего реально стыкуется НЕ в точке ствола исходящих (right-центр (190,350))
     const inRoute = out.routes.get("in")!;
-    const dockY = inRoute[inRoute.length - 1].y;
-    expect(Math.abs(dockY - 350)).toBeGreaterThan(10); // не центр стороны (350)
+    const dock = inRoute[inRoute.length - 1];
+    expect(Math.abs(dock.x - 190) + Math.abs(dock.y - 350)).toBeGreaterThan(10);
+  });
+
+  it("ствол веера из общего порта БЕСПЛАТЕН: прямое ребро едет по собрату без виляний", () => {
+    // o2 (H → T2 строго вправо) обязано остаться идеальной прямой, хотя целиком совпадает
+    // с первым плечом o3 (общий порт H--right — легитимный ствол Т4). Регрессия штрафа
+    // наложений: без исключения ствола o2 виляло вокруг собственного собрата.
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(ids),
+      positions, displayIds: [...positions.keys()],
+    });
+    expect(out.routes.get("o2")!.length).toBe(2); // прямая без изломов
+  });
+});
+
+describe("buildAutoRoutes — штраф езды по чужой линии (shared-path, 2026-07-13)", () => {
+  // Мини-версия бага «Провайдер → Покупатель»: вход в узел не должен ехать по линии
+  // ЧУЖОГО ВЫХОДА из того же узла (раньше езда была бесплатной — маршрут седлал чужую
+  // линию на сотни px и парковался в её хэндл, нарушая Т4).
+  const positions = new Map([
+    ["H", { x: 0, y: 300 }],
+    ["T", { x: 500, y: 300 }],
+    ["S", { x: 900, y: 300 }],
+  ]);
+  const groups = [group("out", "H", "T"), group("in", "S", "H")];
+
+  // суммарная длина коллинеарных наложений двух ломаных
+  const overlapLen = (a: { x: number; y: number }[], b: { x: number; y: number }[]): number => {
+    let total = 0;
+    for (let i = 1; i < a.length; i++) {
+      for (let j = 1; j < b.length; j++) {
+        const ah = Math.abs(a[i].y - a[i - 1].y) <= Math.abs(a[i].x - a[i - 1].x);
+        const bh = Math.abs(b[j].y - b[j - 1].y) <= Math.abs(b[j].x - b[j - 1].x);
+        if (ah !== bh) continue;
+        const ac = ah ? a[i].y : a[i].x, bc = bh ? b[j].y : b[j].x;
+        if (Math.abs(ac - bc) > 0.5) continue;
+        const [a1, a2] = ah ? [a[i - 1].x, a[i].x] : [a[i - 1].y, a[i].y];
+        const [b1, b2] = bh ? [b[j - 1].x, b[j].x] : [b[j - 1].y, b[j].y];
+        const lo = Math.max(Math.min(a1, a2), Math.min(b1, b2));
+        const hi = Math.min(Math.max(a1, a2), Math.max(b1, b2));
+        if (hi - lo > 0.5) total += hi - lo;
+      }
+    }
+    return total;
+  };
+
+  it("вход не седлает линию чужого выхода и не паркуется в его хэндл", () => {
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["out", "in"]),
+      positions, displayIds: [...positions.keys()],
+    });
+    const rOut = out.routes.get("out")!, rIn = out.routes.get("in")!;
+    expect(overlapLen(rOut, rIn)).toBeLessThan(30); // без совместной езды (докинг-мелочь ок)
+    expect(out.handles.get("in")!.targetHandle).not.toBe(out.handles.get("out")!.sourceHandle);
   });
 });
 

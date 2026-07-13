@@ -20,6 +20,7 @@ import type { EdgeGroup, WrappedEdgeData } from "../types";
 import { assignEdgeHandles } from "../layout/level";
 import { buildAutoRoutes } from "../layout/autoRoutes";
 import { buildLabelPlacements, type LabelPlacement } from "../layout/labelLayout";
+import { labelBoxSize } from "../layout/labelBox";
 import { edgeLabelMeta } from "../layout/pipeline";
 import { NODE_W, NODE_H } from "../constants";
 
@@ -69,6 +70,9 @@ interface Session {
   inp: LiveHandleInputs;
   routes: Map<string, EdgePoint[]>;      // edge.id → авто-маршрут на старте жеста
   labels: Map<string, LabelPlacement>;   // edge.id → размещение плашки на старте жеста
+  // прямоугольники плашек НЕзатронутых рёбер (препятствия живого размещения) — кэш на
+  // жест, считается на первом кадре (набор затронутых постоянен весь жест)
+  fixedLabelRects?: NodeRect[];
 }
 
 type EdgeHandlePair = { sourceHandle: string; targetHandle: string };
@@ -217,11 +221,13 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
         });
         liveRoutes = ar.routes;
         liveHandles = ar.handles;
-        // Размещение плашек — тем же движком, что финал, и с ТЕМ ЖЕ контекстом: ВСЕ группы
-        // и все маршруты (финальные из снимка + живые затронутые поверх). placeLabels
-        // раскладывает плашки с взаимным давлением — усечение до затронутых давало другой
-        // выбор точки вдоль линии, и на отпускании плашка прыгала. Применяются всё равно
-        // только затронутые (resolveDragEdge), прочие остаются на финальных местах.
+        // Размещение плашек — тем же движком, что финал, и с тем же ВЗАИМНЫМ ДАВЛЕНИЕМ,
+        // но размещаем ТОЛЬКО затронутые: плашки прочих рёбер за жест не двигаются, их
+        // прямоугольники (снимок старта, кэш на жест) подкладываются как препятствия.
+        // Полный пере-прогон всех ~25 плашек каждый кадр ронял FPS (leader-кандидаты ×
+        // connectorCrossings по всем плечам), а по гриди-порядку размещения даёт ровно
+        // тот же результат: финальное место затронутой плашки не пересекается с чужими,
+        // и все кандидаты ближе него остаются заняты теми же чужими плашками.
         const rectOf = (id: string): NodeRect | null => {
           const p = positions.get(id);
           if (!p) return null;
@@ -229,11 +235,25 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
           return { x: p.x, y: p.y, w: sz?.w ?? NODE_W, h: sz?.h ?? NODE_H };
         };
         const nodeRects = r.displayIds.map(rectOf).filter((x): x is NodeRect => x != null);
+        if (!s.fixedLabelRects) {
+          // прямоугольники НЕзатронутых плашек по снимку старта (жёсткие препятствия)
+          const fixed: NodeRect[] = [];
+          for (const g of r.groups) {
+            if (affected.has(g.id)) continue;
+            const lp = s.labels.get(g.id);
+            const meta = edgeLabelMeta(g);
+            if (!lp || !meta) continue;
+            const box = labelBoxSize(meta.text, { lines: meta.lines });
+            fixed.push({ x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h });
+          }
+          s.fixedLabelRects = fixed;
+        }
         const routesForLabels = new Map(r.routes);
         for (const [id, rt] of liveRoutes) routesForLabels.set(id, rt);
         liveLabels = buildLabelPlacements({
-          routes: routesForLabels, groups: r.groups, labelMeta: edgeLabelMeta,
+          routes: routesForLabels, groups: affectedGroups, labelMeta: edgeLabelMeta,
           preferredT: () => undefined, nodeRects,
+          obstacleRects: s.fixedLabelRects, // чужие плашки — жёсткие препятствия скоринга
         });
       }
     }

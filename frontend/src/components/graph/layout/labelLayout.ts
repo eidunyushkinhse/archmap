@@ -33,8 +33,12 @@ export function buildLabelPlacements(params: {
   labelMeta: (g: EdgeGroup) => LabelMeta | null;    // null = у группы нет подписи (плашки нет)
   preferredT: (g: EdgeGroup) => number | undefined; // желаемая доля (ручной label_t)
   nodeRects: NodeRect[];                            // тела узлов — препятствия (R2)
+  // Доп. ЖЁСТКИЕ препятствия ТОЛЬКО для скоринга размещения (не для интервалов
+  // кандидатов): живой драг подкладывает сюда плашки незатронутых рёбер — ровно так их
+  // видит финальный гриди (placedRects), а интервалы/сэмплы кандидатов не искажаются.
+  obstacleRects?: NodeRect[];
 }): Map<string, LabelPlacement> {
-  const { routes, groups, labelMeta, preferredT, nodeRects } = params;
+  const { routes, groups, labelMeta, preferredT, nodeRects, obstacleRects } = params;
   // Совпавшие плечи (R4) считаем по ВСЕМ маршрутам набора — даже у безымянных рёбер плечо
   // может быть общим, и подпись соседа туда ставить нельзя.
   const shared = coincidentLegs(routes);
@@ -55,7 +59,11 @@ export function buildLabelPlacements(params: {
   // (A15): плашка не должна ложиться на чужое плечо, а поводок — лишний раз пересекать стрелки.
   const edgeSegs = new Map<string, Segment[]>();
   for (const [id, path] of routes) edgeSegs.set(id, segments(path));
-  const placements = placeLabels(inputs, nodeRects, edgeSegs);
+  const placements = placeLabels(
+    inputs,
+    obstacleRects && obstacleRects.length > 0 ? [...nodeRects, ...obstacleRects] : nodeRects,
+    edgeSegs,
+  );
   const out = new Map<string, LabelPlacement>();
   for (const p of placements) {
     out.set(p.id, { mode: p.mode, center: p.center, anchor: p.anchor, leaderEnd: p.leaderEnd });
