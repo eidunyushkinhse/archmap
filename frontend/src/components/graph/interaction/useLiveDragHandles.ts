@@ -100,6 +100,23 @@ function shiftPlacement(lp: LabelPlacement, dx: number, dy: number): LabelPlacem
   };
 }
 
+// Плашка затронутого ребра на живой позиции. ONLINE-размещение (влезает инлайн на линию)
+// берём как есть — оно стабильно и точно лежит на живом маршруте. LEADER-размещение (плашка
+// вынесена сбоку с поводком) при живом пересчёте ПРЫГАЕТ кадр-к-кадру: свободное место
+// ищется дискретно и крайне чувствительно к набору препятствий, а вживую он усечён до
+// затронутых рёбер — плашка «слетает» и скачет. Поэтому leader НЕ пересчитываем: двигаем
+// СНИМОК плашки на СРЕДНЕЕ смещение концов ребра (оба конца тащим → полный сдвиг, как у
+// жёсткого; один → половина). Опора — только позиции узлов, не усечённый живой маршрут:
+// на старте сдвиг ноль (без прыжка), дальше плавно едет с линией. Финал доводит по отпускании.
+function liveLabelFor(e: RFEdge, f: DragFrame): LabelPlacement | undefined {
+  const live = f.liveLabels?.get(e.id);
+  if (live && live.mode === "online") return live;
+  const snap = f.snapLabels.get(e.id);
+  if (!snap) return live; // нет снимка старта — отдаём живое (или undefined)
+  const ds = f.deltaOf(e.source), dt = f.deltaOf(e.target);
+  return shiftPlacement(snap, (ds.dx + dt.dx) / 2, (ds.dy + dt.dy) / 2);
+}
+
 // Решение по одному ребру за кадр драга (чистая функция). Возвращает НОВЫЙ объект ребра
 // либо тот же e (RF не перерисует не изменённое — сравнение по ссылке).
 export function resolveDragEdge(e: RFEdge, f: DragFrame): RFEdge {
@@ -126,7 +143,7 @@ export function resolveDragEdge(e: RFEdge, f: DragFrame): RFEdge {
   const lr = f.liveRoutes?.get(e.id);
   if (lr) {
     const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: lr };
-    const lp = f.liveLabels?.get(e.id);
+    const lp = liveLabelFor(e, f);
     if (lp) data.labelPlacement = lp;
     const lh = f.liveHandles?.get(e.id);
     return lh

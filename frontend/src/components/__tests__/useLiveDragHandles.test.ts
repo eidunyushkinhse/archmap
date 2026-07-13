@@ -18,6 +18,16 @@ function place(cx: number, cy: number): LabelPlacement {
   };
 }
 
+// leader-плашка: центр вынесен от якоря на (ox,oy) (поводок), режим "leader".
+function leader(ax: number, ay: number, ox: number, oy: number): LabelPlacement {
+  return {
+    mode: "leader",
+    anchor: { x: ax, y: ay },
+    center: { x: ax + ox, y: ay + oy },
+    leaderEnd: { x: ax + ox, y: ay + oy },
+  };
+}
+
 function edge(id: string, source: string, target: string, data: Partial<WrappedEdgeData> = {}): RFEdge {
   return { id, source, target, data } as unknown as RFEdge;
 }
@@ -28,6 +38,7 @@ type Frame = Parameters<typeof resolveDragEdge>[1];
 function frame(over: {
   dragged: string[];
   delta?: { dx: number; dy: number };
+  deltas?: Record<string, { dx: number; dy: number }>; // на узел (иначе общая delta)
   snapRoutes?: Map<string, EdgePoint[]>;
   snapLabels?: Map<string, LabelPlacement>;
   liveRoutes?: Map<string, EdgePoint[]> | null;
@@ -39,7 +50,7 @@ function frame(over: {
   const delta = over.delta ?? { dx: 0, dy: 0 };
   return {
     draggedIds: new Set(over.dragged),
-    deltaOf: () => delta,
+    deltaOf: (id) => over.deltas?.[id] ?? delta,
     snapRoutes: over.snapRoutes ?? new Map(),
     snapLabels: over.snapLabels ?? new Map(),
     liveRoutes: over.liveRoutes ?? null,
@@ -91,6 +102,25 @@ describe("resolveDragEdge", () => {
     expect(d.labelPlacement?.center).toEqual({ x: 100, y: 0 });
     expect(out.sourceHandle).toBe("seller__r__1");
     expect(out.targetHandle).toBe("web__l__1");
+  });
+
+  it("leader-плашка НЕ берётся из живого пересчёта (прыгает), а едет от снимка на среднее смещение концов", () => {
+    // старт: leader-плашка, якорь (100,0), вынос (0,-40) → центр (100,-40)
+    const snapLabels = new Map([["e1", leader(100, 0, 0, -40)]]);
+    // живой пересчёт дал бы leader в ПРЫГНУВШЕЙ точке — его брать нельзя
+    const jumpy = leader(999, 999, 0, -40);
+    const out = resolveDragEdge(edge("e1", "a", "b", { labelPlacement: leader(100, 0, 0, -40) }), frame({
+      dragged: ["a"],                          // тащим только a (source)
+      deltas: { a: { dx: 40, dy: 20 }, b: { dx: 0, dy: 0 } }, // среднее = (20,10)
+      liveRoutes: new Map([["e1", [{ x: 0, y: 0 }, { x: 200, y: 0 }]]]),
+      liveLabels: new Map([["e1", jumpy]]),
+      snapLabels,
+    }));
+    const d = out.data as WrappedEdgeData;
+    // снимок (центр 100,-40) + среднее смещение (20,10) = (120,-30); прыгнувший live игнорируется
+    expect(d.labelPlacement?.mode).toBe("leader");
+    expect(d.labelPlacement?.center).toEqual({ x: 120, y: -30 });
+    expect(d.labelPlacement?.anchor).toEqual({ x: 120, y: 10 });
   });
 
   it("гостевое ребро без живого маршрута фолбэком НЕ трогается (тот же объект)", () => {
