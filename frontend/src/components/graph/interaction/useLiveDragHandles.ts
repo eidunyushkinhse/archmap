@@ -2,15 +2,16 @@
 // заново назначает авто-хэндлы по новым позициям (assignEdgeHandles в layoutLevel) —
 // сторона входа/выхода стрелки может смениться, путь оптимизируется. Но во время самого
 // драга стрелка висела на ПРЕЖНИХ хэндлах, и был разрыв WYSIWYG: видно одно, по
-// отпускании — другое. Этот хук закрывает разрыв: каждый кадр драга прогоняет ТУ ЖЕ
-// assignEdgeHandles по живым позициям и применяет результат к rfEdges. Используем тот же
-// движок, что и пост-драговая раскладка, — значит превью совпадает с итогом по построению.
+// отпускании — другое. Этот хук закрывает разрыв: каждый кадр драга прогоняет ТОТ ЖЕ движок
+// раскладки (buildAutoRoutes + размещение плашек) по живым позициям и применяет результат к
+// rfEdges. Движок тот же, что и пост-драговая раскладка, — значит превью совпадает с итогом.
 //
-// Скоуп — рёбра, у которых ОБА конца локальны (block): для них итоговый хэндл = ровно
-// выход assignEdgeHandles (кольца гостей его не перетирают). Гостевые/сквозные стрелки
-// во время драга не трогаем — они доедут по отпускании (редкий случай, для них
-// WYSIWYG-разрыв незаметен). Сохранённые вручную хэндлы assignEdgeHandles и так
-// оставляет на месте — драг их не двигает.
+// Скоуп живого ре-роута (buildAutoRoutes) — ЛЮБЫЕ level-рёбра с одним перетаскиваемым
+// концом, включая гостевые/сквозные (конец в раскрытом контейнере): ручного слоя «колец
+// гостей» больше нет, assembleRf кладёт всем рёбрам хэндл/маршрут/плашку из ОДНОГО источника
+// (buildAutoRoutes), поэтому превью гостя совпадает с финалом так же, как у локального ребра.
+// Старый assignEdgeHandles остаётся лишь ФОЛБЭКОМ (контекст-схема / ребро не посчиталось
+// роутером) и надёжен только для локально-локальных block-рёбер — там его и применяем.
 import { useCallback, useRef } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { Dispatch, SetStateAction } from "react";
@@ -67,7 +68,78 @@ interface Params {
 interface Session {
   base: Map<string, { x: number; y: number }>;
   inp: LiveHandleInputs;
-  routes: Map<string, EdgePoint[]>; // edge.id → авто-маршрут на старте жеста
+  routes: Map<string, EdgePoint[]>;      // edge.id → авто-маршрут на старте жеста
+  labels: Map<string, LabelPlacement>;   // edge.id → размещение плашки на старте жеста
+}
+
+type EdgeHandlePair = { sourceHandle: string; targetHandle: string };
+
+// Контекст одного кадра драга для решения по каждому ребру. Вынесен в чистую функцию
+// resolveDragEdge (ниже) — тестируется без React/RF и защищает от регрессий (напр. дрейф
+// плашки при мультидраге). Все геометрические базы — из СНИМКА старта жеста (snapRoutes/
+// snapLabels), а не из прошлого кадра: иначе накопление дельты уводит плашку за экран.
+interface DragFrame {
+  draggedIds: Set<string>;
+  deltaOf: (id: string) => { dx: number; dy: number };
+  snapRoutes: Map<string, EdgePoint[]>;
+  snapLabels: Map<string, LabelPlacement>;
+  liveRoutes: Map<string, EdgePoint[]> | null;
+  liveHandles: Map<string, EdgeHandlePair> | null;
+  liveLabels: Map<string, LabelPlacement> | null;
+  localIds: Set<string>;
+  fallbackHandles: Map<string, EdgeHandlePair>;
+}
+
+// Сдвиг размещения плашки на (dx,dy) — центр, якорь и конец поводка едут вместе с ребром.
+function shiftPlacement(lp: LabelPlacement, dx: number, dy: number): LabelPlacement {
+  return {
+    mode: lp.mode,
+    center: { x: lp.center.x + dx, y: lp.center.y + dy },
+    anchor: { x: lp.anchor.x + dx, y: lp.anchor.y + dy },
+    leaderEnd: { x: lp.leaderEnd.x + dx, y: lp.leaderEnd.y + dy },
+  };
+}
+
+// Решение по одному ребру за кадр драга (чистая функция). Возвращает НОВЫЙ объект ребра
+// либо тот же e (RF не перерисует не изменённое — сравнение по ссылке).
+export function resolveDragEdge(e: RFEdge, f: DragFrame): RFEdge {
+  const srcDragged = f.draggedIds.has(e.source), tgtDragged = f.draggedIds.has(e.target);
+  if (!srcDragged && !tgtDragged) return e; // ни один конец не тащим — не трогаем
+  if (srcDragged && tgtDragged) {
+    // ЖЁСТКИЙ сдвиг (оба конца в выделении — мультидраг связанных узлов): маршрут И плашку
+    // берём из СНИМКА старта и двигаем на общую дельту. Ключевое: база — снимок, а НЕ прошлый
+    // кадр, иначе плашка накапливала бы дельту каждый кадр и «улетала» за экран. Хэндлы не
+    // трогаем — концы едут синхронно, сторона не меняется. Годится для любых рёбер (чистая
+    // геометрия, гость/локал без разницы).
+    const orig = f.snapRoutes.get(e.id);
+    if (!orig) return e; // нет снимка маршрута (smoothstep-фолбэк) — оставляем как есть
+    const { dx, dy } = f.deltaOf(e.source);
+    const moved = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+    const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: moved };
+    const lp0 = f.snapLabels.get(e.id);
+    if (lp0) data.labelPlacement = shiftPlacement(lp0, dx, dy);
+    return { ...e, data };
+  }
+  // РОВНО ОДИН конец тащим. Живой маршрут настоящего роутера (buildAutoRoutes) — превью =
+  // будущее. Применяем к ЛЮБОМУ ребру, где он посчитан: гость/сквозняк роутится тем же
+  // движком, что и финал (колец гостей нет), значит и его плашка едет с линией и не «слетает».
+  const lr = f.liveRoutes?.get(e.id);
+  if (lr) {
+    const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: lr };
+    const lp = f.liveLabels?.get(e.id);
+    if (lp) data.labelPlacement = lp;
+    const lh = f.liveHandles?.get(e.id);
+    return lh
+      ? { ...e, data, sourceHandle: lh.sourceHandle, targetHandle: lh.targetHandle }
+      : { ...e, data };
+  }
+  // Фолбэк (живого маршрута нет: контекст-схема или ребро не посчиталось). assignEdgeHandles
+  // надёжен только для локально-локальных block-рёбер — гостевые/контекстные оставляем как
+  // есть (их сторону старый движок мог бы поставить неверно).
+  if (!f.localIds.has(e.source) || !f.localIds.has(e.target)) return e;
+  const h = f.fallbackHandles.get(e.id);
+  if (!h || (h.sourceHandle === e.sourceHandle && h.targetHandle === e.targetHandle)) return e;
+  return { ...e, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle };
 }
 
 export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
@@ -81,22 +153,22 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
     if (!inp) { session.current = null; return; }
     const base = new Map(allNodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }]));
     const routes = new Map<string, EdgePoint[]>();
+    const labels = new Map<string, LabelPlacement>();
     for (const e of allEdges) {
-      const ar = (e.data as WrappedEdgeData | undefined)?.autoRoute;
-      if (ar) routes.set(e.id, ar);
+      const d = e.data as WrappedEdgeData | undefined;
+      if (d?.autoRoute) routes.set(e.id, d.autoRoute);
+      if (d?.labelPlacement) labels.set(e.id, d.labelPlacement); // снимок плашки — база жёсткого сдвига
     }
-    session.current = { base, inp, routes };
+    session.current = { base, inp, routes, labels };
   }, [inputsRef]);
 
-  // Кадр драга. Для каждого затронутого локально-локального ребра:
-  //  • ОБА конца перетаскиваются (мультидраг связанных узлов) → жёстко СДВИГАЕМ весь
-  //    маршрут (снимок стартовой ломаной + общая дельта группы) и держим хэндлы старта:
-  //    ребро едет с узлами как есть, без «прилипшей середины» и без смены сторон;
-  //  • ОДИН конец → гоняем НАСТОЯЩИЙ роутер (buildAutoRoutes) для этих рёбер по живым
-  //    позициям — тем же движком, что и финал: превью нутра совпадает с будущим маршрутом
-  //    (A* ограничен затронутыми рёбрами, остальные — фиксированный контекст prev, дёшево).
-  //    Нет входов роутера/маршрут не посчитался → фолбэк: только сторона хэндла (как раньше).
-  // Неизменные рёбра возвращаем тем же объектом — RF их не перерисует (сравнение по ссылке).
+  // Кадр драга. Считаем живые входы, затем решение по каждому ребру — в чистой resolveDragEdge:
+  //  • ОБА конца перетаскиваются (мультидраг связанных узлов) → жёстко СДВИГАЕМ весь маршрут
+  //    И плашку от СНИМКА старта на общую дельту (без «прилипшей середины» и без дрейфа);
+  //  • ОДИН конец → гоняем НАСТОЯЩИЙ роутер (buildAutoRoutes) для затронутых рёбер по живым
+  //    позициям — тем же движком, что и финал: превью совпадает с будущим маршрутом (A* по
+  //    затронутым, прочие — фиксированный контекст prev). Годится и для гостевых/сквозных;
+  //  • нет живого маршрута (контекст / не посчиталось) → фолбэк: сторона хэндла для block-рёбер.
   const move = useCallback((dragged: RFNode[]) => {
     const s = session.current;
     if (!s) return;
@@ -164,50 +236,13 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
       }
     }
 
-    setRfEdges((prev) =>
-      prev.map((e) => {
-        // только локально-локальные рёбра и хотя бы одним концом в перетаскиваемых
-        if (!s.inp.localIds.has(e.source) || !s.inp.localIds.has(e.target)) return e;
-        const srcDragged = draggedIds.has(e.source), tgtDragged = draggedIds.has(e.target);
-        if (!srcDragged && !tgtDragged) return e;
-        if (srcDragged && tgtDragged) {
-          // жёсткий сдвиг: маршрут стартового снимка + дельта (у группы концы едут вместе).
-          const orig = s.routes.get(e.id);
-          if (!orig) return e; // нет снимка маршрута (smoothstep-фолбэк) — оставляем как есть
-          const { dx, dy } = deltaOf(e.source);
-          const moved = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
-          const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: moved };
-          // плашка подписи едет с ребром жёстко — тем же сдвигом (center/anchor/leaderEnd),
-          // чтобы текст не отставал от линии между двумя перетаскиваемыми узлами
-          const lp = data.labelPlacement;
-          if (lp) {
-            data.labelPlacement = {
-              mode: lp.mode,
-              center: { x: lp.center.x + dx, y: lp.center.y + dy },
-              anchor: { x: lp.anchor.x + dx, y: lp.anchor.y + dy },
-              leaderEnd: { x: lp.leaderEnd.x + dx, y: lp.leaderEnd.y + dy },
-            };
-          }
-          return { ...e, data };
-        }
-        // один конец: живой маршрут роутера (нутро + сторона хэндла) — превью = будущее
-        const lr = liveRoutes?.get(e.id);
-        if (lr) {
-          const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: lr };
-          // плашка подписи — на живой позиции (то же размещение, что и финал): едет с ребром
-          const lp = liveLabels?.get(e.id);
-          if (lp) data.labelPlacement = lp;
-          const lh = liveHandles?.get(e.id);
-          return lh
-            ? { ...e, data, sourceHandle: lh.sourceHandle, targetHandle: lh.targetHandle }
-            : { ...e, data };
-        }
-        // фолбэк (нет входов роутера): обновляем только сторону хэндла, если сменилась
-        const h = handles.get(e.id);
-        if (!h || (h.sourceHandle === e.sourceHandle && h.targetHandle === e.targetHandle)) return e;
-        return { ...e, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle };
-      }),
-    );
+    const frame: DragFrame = {
+      draggedIds, deltaOf,
+      snapRoutes: s.routes, snapLabels: s.labels,
+      liveRoutes, liveHandles, liveLabels,
+      localIds: s.inp.localIds, fallbackHandles: handles,
+    };
+    setRfEdges((prev) => prev.map((e) => resolveDragEdge(e, frame)));
   }, [setRfEdges]);
 
   const end = useCallback(() => { session.current = null; }, []);
