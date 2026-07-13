@@ -18,6 +18,12 @@ import type { EdgePoint, LayoutEdge } from "../../../types";
 import type { EdgeGroup, WrappedEdgeData } from "../types";
 import { assignEdgeHandles } from "../layout/level";
 import { buildAutoRoutes } from "../layout/autoRoutes";
+import { buildLabelPlacements } from "../layout/labelLayout";
+import { applyLabelDetours } from "../layout/detourStage";
+import { edgeLabelMeta } from "../layout/pipeline";
+import { NODE_W, NODE_H } from "../constants";
+
+type NodeRect = { x: number; y: number; w: number; h: number };
 
 // Rect + плашка + члены раскрытой рамки для роутера (тот же формат, что buildAutoRoutes.frames).
 type RouterFrame = {
@@ -109,21 +115,41 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
     const r = s.inp.route;
     if (r) {
       const affected = new Set<string>();
+      const affectedGroups: EdgeGroup[] = [];
       for (const g of r.groups) {
         if (!r.routes.has(g.id)) continue;
         const src = draggedIds.has(g.source), tgt = draggedIds.has(g.target);
-        if (src !== tgt) affected.add(g.id); // ровно один конец перетаскивается
+        if (src !== tgt) { affected.add(g.id); affectedGroups.push(g); } // ровно один конец
       }
       if (affected.size > 0) {
+        const sizeMap = r.sizes ? new Map(Object.entries(r.sizes)) : undefined;
         const ar = buildAutoRoutes({
           groups: r.groups, routableIds: affected, positions,
-          displayIds: r.displayIds,
-          sizes: r.sizes ? new Map(Object.entries(r.sizes)) : undefined,
-          frames: r.frames,
+          displayIds: r.displayIds, sizes: sizeMap, frames: r.frames,
           prev: { routes: r.routes, handles: r.handles }, // прочие маршруты — фиксированный контекст
         });
         liveRoutes = ar.routes;
         liveHandles = ar.handles;
+        // Учёт текстовой плашки: если подпись не влезает инлайн (leader) — уводим ребро в
+        // ДЕТУР (меняет маршрут И хэндлы), ровно как финал (applyLabelDetours). Без этого
+        // превью оставалось бы прямым, а финал изгибался бы под плашку. Placement/детур —
+        // тоже по затронутым (перф-безопасно), нутро уже посчитано.
+        const rectOf = (id: string): NodeRect | null => {
+          const p = positions.get(id);
+          if (!p) return null;
+          const sz = sizeMap?.get(id);
+          return { x: p.x, y: p.y, w: sz?.w ?? NODE_W, h: sz?.h ?? NODE_H };
+        };
+        const nodeRects = r.displayIds.map(rectOf).filter((x): x is NodeRect => x != null);
+        const placements = buildLabelPlacements({
+          routes: liveRoutes, groups: affectedGroups, labelMeta: edgeLabelMeta,
+          preferredT: () => undefined, nodeRects,
+        });
+        applyLabelDetours({
+          groupArr: affectedGroups, labelPlacements: placements, routableIds: affected,
+          positions, displayIds: r.displayIds, rectOf, labelMeta: edgeLabelMeta,
+          autoRoutes: liveRoutes, edgeHandles: liveHandles, // мутируются для детурнутых рёбер
+        });
       }
     }
 

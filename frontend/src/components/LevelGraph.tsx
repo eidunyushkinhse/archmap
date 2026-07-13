@@ -970,7 +970,10 @@ function LevelGraphInner({
         (isArchitect && !isContext ? " lg-canvas--editable" : "") +
         (connecting ? " lg-canvas--connecting" : "") +
         // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
-        (animActive ? " lg-canvas--anim" : "")
+        (animActive ? " lg-canvas--anim" : "") +
+        // идёт драг узлов: прячем плашки подписей стрелок (они не едут с ребром живьём,
+        // а пересчёт позиции плашки — только по отпускании; «висящий на месте» текст мешает)
+        (dragging ? " lg-canvas--dragging" : "")
       }
       style={{ position: "relative", flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
       onDragOver={handleDragOver}

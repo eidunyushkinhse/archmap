@@ -241,6 +241,7 @@ function WrappedLabelEdge({
           оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). */}
       {d?.labelPlacement?.mode === "leader" && !drawing && (
         <path
+          className="lg-edge-leader"
           d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.center.x},${d.labelPlacement.center.y}`}
           style={{ stroke: "#9ca3af", strokeWidth: 1, strokeDasharray: "3 3", fill: "none", pointerEvents: "none" }}
         />
