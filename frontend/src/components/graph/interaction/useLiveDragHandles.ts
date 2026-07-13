@@ -14,7 +14,8 @@
 import { useCallback, useRef } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { Dispatch, SetStateAction } from "react";
-import type { LayoutEdge } from "../../../types";
+import type { EdgePoint, LayoutEdge } from "../../../types";
+import type { WrappedEdgeData } from "../types";
 import { assignEdgeHandles } from "../layout/level";
 
 // Снимок входов раскладки, нужных для пересчёта хэндлов. LevelGraph кладёт его в ref
@@ -34,39 +35,66 @@ interface Params {
 }
 
 // Сессия одного жеста: базовые позиции всех узлов на старте (двигаются только
-// перетаскиваемые) и снимок входов раскладки на момент старта.
+// перетаскиваемые), снимок входов раскладки и снимок авто-маршрутов рёбер на старте
+// (для жёсткого сдвига рёбер, у которых ОБА конца перетаскиваются).
 interface Session {
   base: Map<string, { x: number; y: number }>;
   inp: LiveHandleInputs;
+  routes: Map<string, EdgePoint[]>; // edge.id → авто-маршрут на старте жеста
 }
 
 export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
   const session = useRef<Session | null>(null);
 
   // Старт жеста: фиксируем позиции всех узлов (для неперетаскиваемых они неизменны весь
-  // жест) и снимок входов раскладки. Нет снимка раскладки — хук просто бездействует.
-  const begin = useCallback((allNodes: RFNode[]) => {
+  // жест), снимок входов раскладки и снимок авто-маршрутов рёбер. Нет снимка раскладки —
+  // хук просто бездействует.
+  const begin = useCallback((allNodes: RFNode[], allEdges: RFEdge[]) => {
     const inp = inputsRef.current;
     if (!inp) { session.current = null; return; }
     const base = new Map(allNodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }]));
-    session.current = { base, inp };
+    const routes = new Map<string, EdgePoint[]>();
+    for (const e of allEdges) {
+      const ar = (e.data as WrappedEdgeData | undefined)?.autoRoute;
+      if (ar) routes.set(e.id, ar);
+    }
+    session.current = { base, inp, routes };
   }, [inputsRef]);
 
-  // Кадр драга: позиции = база с подменой перетаскиваемых на живые, прогоняем
-  // assignEdgeHandles и применяем хэндлы к подходящим рёбрам. Неизменные рёбра
-  // возвращаем тем же объектом — RF их не перерисует (сравнение по ссылке).
+  // Кадр драга. Для каждого затронутого локально-локального ребра:
+  //  • ОБА конца перетаскиваются (мультидраг связанных узлов) → жёстко СДВИГАЕМ весь
+  //    маршрут (снимок стартовой ломаной + общая дельта группы) и держим хэндлы старта:
+  //    ребро едет с узлами как есть, без «прилипшей середины» и без смены сторон;
+  //  • иначе (один конец) → как раньше: пересчитываем сторону хэндла тем же
+  //    assignEdgeHandles, что и финал (нутро маршрута доедет по отпускании).
+  // Неизменные рёбра возвращаем тем же объектом — RF их не перерисует (сравнение по ссылке).
   const move = useCallback((dragged: RFNode[]) => {
     const s = session.current;
     if (!s) return;
     const positions = new Map(s.base);
     for (const n of dragged) positions.set(n.id, { x: n.position.x, y: n.position.y });
     const draggedIds = new Set(dragged.map((n) => n.id));
+    const deltaOf = (id: string): { dx: number; dy: number } => {
+      const b = s.base.get(id), p = positions.get(id);
+      return b && p ? { dx: p.x - b.x, dy: p.y - b.y } : { dx: 0, dy: 0 };
+    };
     const handles = assignEdgeHandles(s.inp.nodeIds, s.inp.layoutEdges, positions);
     setRfEdges((prev) =>
       prev.map((e) => {
         // только локально-локальные рёбра и хотя бы одним концом в перетаскиваемых
         if (!s.inp.localIds.has(e.source) || !s.inp.localIds.has(e.target)) return e;
-        if (!draggedIds.has(e.source) && !draggedIds.has(e.target)) return e;
+        const srcDragged = draggedIds.has(e.source), tgtDragged = draggedIds.has(e.target);
+        if (!srcDragged && !tgtDragged) return e;
+        if (srcDragged && tgtDragged) {
+          // жёсткий сдвиг: маршрут стартового снимка + дельта (у группы концы едут вместе).
+          const orig = s.routes.get(e.id);
+          if (!orig) return e; // нет снимка маршрута (smoothstep-фолбэк) — оставляем как есть
+          const { dx, dy } = deltaOf(e.source);
+          const moved = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+          const data = { ...(e.data as WrappedEdgeData), autoRoute: moved };
+          return { ...e, data };
+        }
+        // один конец: обновляем только сторону хэндла, если сменилась
         const h = handles.get(e.id);
         if (!h || (h.sourceHandle === e.sourceHandle && h.targetHandle === e.targetHandle)) return e;
         return { ...e, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle };

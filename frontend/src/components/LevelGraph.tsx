@@ -496,23 +496,23 @@ function LevelGraphInner({
       setDragging(true);
       cancelAnim(); // transition раскрытия не должен цеплять жест — мгновенно доиграть
       const grp = ns.length > 0 ? ns : [n];
-      liveDragHandles.begin(rfNodes); // база позиций всех узлов на старте жеста
+      liveDragHandles.begin(rfNodes, rfEdges); // база позиций узлов + снимок маршрутов на старте
       noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
       frameFollow.snapshotPads(); // паддинги рамок для живого bbox-follow
       frameFollow.begin(grp); // скрыть рамки-предки, включить живой оверлей
     },
-    [liveDragHandles, rfNodes, noteDragStart, frameFollow, cancelAnim],
+    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
       setDragging(true);
       cancelAnim();
-      liveDragHandles.begin(rfNodes);
+      liveDragHandles.begin(rfNodes, rfEdges);
       noteDragStart(ns);
       frameFollow.snapshotPads();
       frameFollow.begin(ns);
     },
-    [liveDragHandles, rfNodes, noteDragStart, frameFollow, cancelAnim],
+    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim],
   );
   const handleNodeDrag = useCallback(
     (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
