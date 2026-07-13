@@ -883,6 +883,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onEditNode={(node) => { setSelectedObject({ kind: "node", node }); setRightCollapsed(false); }}
               onInspectGhost={(ghost) => { setSelectedObject({ kind: "ghost", ghost }); setRightCollapsed(false); }}
               linkedHighlight={linkedHighlight}
+              onClearSelection={() => setSelectedObject(null)}
               onEdgesChoice={(group) => {
                 const les = group
                   .map((g) => findLevelEdge(g.id))

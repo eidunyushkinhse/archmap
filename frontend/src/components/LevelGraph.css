@@ -384,8 +384,11 @@
   filter: drop-shadow(0 0 7px rgba(99, 102, 241, 0.92)) drop-shadow(0 0 2px rgba(99, 102, 241, 0.85));
   z-index: 45 !important;
 }
+/* Glow на всей группе ребра — очерчивает И линию, И наконечник-маркер (маркер рисуется в
+   составе пути, поэтому фильтр группы его захватывает). Плюс перекрашиваем линию в индиго. */
 .react-flow__edge.lg-linked-edge {
   z-index: 20 !important;
+  filter: drop-shadow(0 0 3px rgba(99, 102, 241, 0.95)) drop-shadow(0 0 1px rgba(99, 102, 241, 0.95));
 }
 /* Инлайновый stroke ставит BaseEdge (style-проп) — перебиваем через !important. */
 .react-flow__edge.lg-linked-edge .react-flow__edge-path {

@@ -90,6 +90,9 @@ interface LevelGraphProps {
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
   // стрелка+оба узла). Гость сводится к kind:"node". Считается в TreePage из selectedObject.
   linkedHighlight?: { kind: "node" | "edge"; id: string } | null;
+  // Двойной клик по пустому холсту — сбросить выделение (подсветку связанного) и очистить
+  // правую панель. Вызывается только для клика по пустому pane, не по узлу/ребру.
+  onClearSelection?: () => void;
   // клик по описанию связи (одиночной или «мастер-стрелке») — список для выбора.
   // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
   // связь в том же направлении, а не городить отдельную стрелку.
@@ -187,6 +190,7 @@ function LevelGraphInner({
   onEditNode,
   onInspectGhost,
   linkedHighlight,
+  onClearSelection,
   onEdgesChoice,
   onLayoutChanged,
   onDropNode,
@@ -681,13 +685,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
@@ -955,6 +959,13 @@ function LevelGraphInner({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onKeyDown={handleKeyDown}
+      // Двойной клик по ПУСТОМУ холсту — сброс выделения (подсветки) и правой панели.
+      // Клик по узлу/ребру/плашке исключаем closest'ом (у них свои даблклик-триггеры).
+      onDoubleClick={(e) => {
+        const t = e.target as HTMLElement;
+        if (t.closest?.(".react-flow__node, .react-flow__edge, .react-flow__edgelabel-renderer")) return;
+        cbRef.current.onClearSelection?.();
+      }}
       // ПКМ панорамирует холст — гасим браузерное контекст-меню, чтобы оно не
       // выскакивало при правом клике/перетаскивании по канвасу.
       onContextMenu={(e) => e.preventDefault()}
@@ -1076,6 +1087,9 @@ function LevelGraphInner({
         selectionOnDrag={!isContext}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={["Control", "Meta"]}
+        // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
+        // штатный зум-по-даблклику отключаем, чтобы холст не подлетал на этом жесте
+        zoomOnDoubleClick={false}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
@@ -1131,12 +1145,14 @@ function LevelGraphInner({
                 top: dropTargetFrame.rect.y,
                 width: dropTargetFrame.rect.w,
                 height: dropTargetFrame.rect.h,
+                // border-box + тот же радиус (12), что у .lg-frame — контур подсветки
+                // ложится ровно на контур рамки (иначе бордер уезжал наружу на 2px).
+                boxSizing: "border-box",
                 pointerEvents: "none",
                 zIndex: 4,
-                borderRadius: 14,
+                borderRadius: 12,
                 border: "2px solid #6366f1",
                 background: "rgba(99, 102, 241, 0.06)",
-                boxShadow: "0 0 0 3px rgba(99, 102, 241, 0.15)",
               }}
             />
           </ViewportPortal>

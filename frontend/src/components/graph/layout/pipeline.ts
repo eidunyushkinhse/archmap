@@ -45,6 +45,7 @@ import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { labelBoxSize } from "./labelBox";
 import { labelCandidates, erodeIntervals } from "./labelIntervals";
 import { coincidentLegs, edgeArcLength, type Interval } from "./coincidentLegs";
+import { pointAtFraction } from "../edgePath";
 import { widenNodesForLabels } from "./widenForLabels";
 import { applyLabelDetours } from "./detourStage";
 
@@ -451,9 +452,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // рёбер level/main-схемы. Контекст-схему не трогаем (R2/R4 решены в её модели).
   let autoRoutes: Map<string, EdgePoint[]> | undefined;
   let labelPlacements: Map<string, LabelPlacement> | undefined;
-  // Легальные arc-интервалы плашки по группам (для драга плашки в edges.tsx — кламп) и
-  // список групп, чей владеемый label_t стал нелегальным (сброс в авто + чистка БД).
+  // Легальные arc-интервалы плашки по группам (для драга плашки в edges.tsx — кламп),
+  // владеемые ЛЕГАЛЬНЫЕ доли (group id → t) и список групп, чей label_t стал нелегальным
+  // (сброс в авто + чистка БД).
   let labelClamp: Map<string, Interval[]> | undefined;
+  let labelOwned: Map<string, number> | undefined;
   const labelResets: string[] = [];
   if (!isContext) {
     const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
@@ -551,6 +554,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         else labelResets.push(g.id);
       }
       labelClamp = clamp;
+      labelOwned = legal;
       return (g) => legal.get(g.id) ?? detour?.get(g.id);
     };
 
@@ -599,6 +603,20 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         preferredT: ownedPreferred(autoRoutes, detourPreferred),
         nodeRects,
       });
+    }
+
+    // Владеемые (легальные) доли — ставим плашку ОНЛАЙН РОВНО на этой доле, перебивая
+    // авто-размещение. Пользователь явно позиционировал плашку (owned label_t), поэтому
+    // избегание наложений/уход в leader к ней НЕ применяем: иначе «вынесенную» плашку
+    // раскладка возвращала бы на авто-место при каждом драге (П4-фидбэк). Доля уже зажата
+    // в легальный интервал на драге, так что online-позиция не под узлом и не на слитом плече.
+    if (labelPlacements && labelOwned) {
+      for (const [gid, t] of labelOwned) {
+        const route = autoRoutes.get(gid);
+        if (!route) continue;
+        const c = pointAtFraction(route, t);
+        labelPlacements.set(gid, { mode: "online", center: c, anchor: c, leaderEnd: c });
+      }
     }
   }
 
