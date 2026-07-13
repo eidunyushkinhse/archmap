@@ -101,6 +101,14 @@ function pushPlaced(list: PlacedSeg[], route: EdgePoint[]): void {
   for (const seg of segments(route)) list.push({ seg, p0, pN });
 }
 
+// Публичный конструктор PlacedSeg[] из ломаной — для внешних вызовов straightenJogs
+// (пост-нуджинг-полировка в pipeline).
+export function toPlacedSegs(route: EdgePoint[]): PlacedSeg[] {
+  const list: PlacedSeg[] = [];
+  pushPlaced(list, route);
+  return list;
+}
+
 // Порты текущего ребра для исключения стволов (роль важна: source против target).
 interface OwnPorts {
   starts: EdgePoint[];

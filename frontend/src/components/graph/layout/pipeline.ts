@@ -41,6 +41,7 @@ import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeChannels } from "./channelNudge";
+import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { widenNodesForLabels } from "./widenForLabels";
 
@@ -517,6 +518,33 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // маршрутах.
     const nu = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
     if (nu.nudged.size > 0) autoRoutes = nu.routes;
+
+    // ПОЛИРОВКА ДЖОГОВ ПОСЛЕ НУДЖИНГА (T2 «читаемые пучки»): и роутер (перескок из-за
+    // штрафа езды), и канальная разводка умеют оставить короткую «ступеньку» посреди
+    // коридора. straightenJogs гоняем по финальной геометрии: те же гарантии — не режет
+    // тела/плашки рамок, не прижимается (JOG_CLEAR), не дорожает по крестам/езде.
+    {
+      const jogObstacles = [...nodeRects, ...routerFrames.map((f) => f.plaque)];
+      const segsById = new Map<string, PlacedSeg[]>();
+      for (const [id, rt] of autoRoutes) segsById.set(id, toPlacedSegs(rt));
+      const polished = new Map<string, EdgePoint[]>();
+      for (const g of groupArr) {
+        const rt = autoRoutes.get(g.id);
+        if (!rt || rt.length < 4) continue;
+        const others: PlacedSeg[] = [];
+        for (const [id, s] of segsById) if (id !== g.id) others.push(...s);
+        const own = { starts: [rt[0]], ends: [rt[rt.length - 1]] };
+        const str = straightenJogs(rt, jogObstacles, others, 200, 40, undefined, own);
+        if (str.length !== rt.length) {
+          polished.set(g.id, str);
+          segsById.set(g.id, toPlacedSegs(str));
+        }
+      }
+      if (polished.size > 0) {
+        autoRoutes = new Map(autoRoutes);
+        for (const [id, rt] of polished) autoRoutes.set(id, rt);
+      }
+    }
 
     // Плашки подписей (эпик стрелок A7.2, R2+R4) — один проход по ФИНАЛЬНЫМ маршрутам:
     // без взаимных наложений и не под узлами (R2), не на совпавших плечах (R4); где на

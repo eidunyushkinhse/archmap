@@ -19,6 +19,7 @@
 // - детерминизм: кластеры и группы обходятся в отсортированном порядке.
 import type { EdgePoint } from "../../../types";
 import { cleanup, type SegOrient } from "../edgePath";
+import { solveSeparation } from "./vpsc";
 
 const EPS = 0.75;      // допуск «одна линия»
 const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложением (касание концами игнорируем)
@@ -26,6 +27,11 @@ const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложе
 // под мостики — две дуги JUMP_RADIUS=6 на соседних плечах канала (2·6=12) при 12
 // смыкались впритык; 14 даёт видимый просвет («дуга всегда», 2026-07-09).
 const GAP = 14;
+// Почти-параллельные сегменты (T2 «читаемые пучки»): линии ближе 1.5×gap с существенным
+// совместным пробегом — тоже канал (раньше — только точные наложения, и коридор из линий
+// на 8px друг от друга оставался «плетёнкой»). Порог пробега выше, чем у точных: короткое
+// соседство стабов у доков — не коридор.
+const NEAR_OVERLAP_MIN = 24;
 
 export interface ChannelNudgeResult {
   routes: Map<string, EdgePoint[]>;
@@ -72,16 +78,26 @@ function segsOf(edgeId: string, pts: EdgePoint[]): Seg[] {
 
 const overlap = (a: Seg, b: Seg): number => Math.min(a.hi, b.hi) - Math.max(a.lo, b.lo);
 
-// Кластеризация сегментов одной ориентации в каналы: близкая линия (|Δaxis| ≤ EPS·2 —
-// уже разведённые на GAP не трогаем) и перекрытие по протяжённости. Union-find по парам.
-function clusterChannels(segs: Seg[]): Seg[][] {
+// Кластеризация сегментов одной ориентации в каналы (union-find по парам). Точное
+// наложение (|Δaxis| ≤ EPS, пробег > OVERLAP_MIN) — как раньше; T2: почти-параллельные
+// РАЗНЫХ рёбер (|Δaxis| ≤ nearTol, существенный совместный пробег) — тоже один канал:
+// коридор разводится равными зазорами целиком, а не остаётся «плетёнкой» линий на
+// пиксельных отступах. Пары одного ребра в near-режиме не склеиваем (S-образный маршрут
+// сам себе не коридор).
+function clusterChannels(segs: Seg[], nearTol: number): Seg[][] {
   const parent = segs.map((_, k) => k);
   const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
   for (let a = 0; a < segs.length; a++) {
     for (let b = a + 1; b < segs.length; b++) {
       if (segs[a].orient !== segs[b].orient) continue;
-      if (Math.abs(segs[a].axis - segs[b].axis) > EPS) continue;
-      if (overlap(segs[a], segs[b]) <= OVERLAP_MIN) continue;
+      const dAxis = Math.abs(segs[a].axis - segs[b].axis);
+      if (dAxis <= EPS) {
+        if (overlap(segs[a], segs[b]) <= OVERLAP_MIN) continue;
+      } else {
+        if (dAxis > nearTol) continue;
+        if (segs[a].edgeId === segs[b].edgeId) continue;
+        if (overlap(segs[a], segs[b]) <= NEAR_OVERLAP_MIN) continue;
+      }
       parent[find(a)] = find(b);
     }
   }
@@ -117,7 +133,7 @@ export function nudgeChannels(params: {
   for (const id of ids) allSegs.push(...segsOf(id, work.get(id)!));
 
   const nudged = new Set<string>();
-  const channels = clusterChannels(allSegs).sort(
+  const channels = clusterChannels(allSegs, gap * 1.5).sort(
     (a, b) => a[0].orient.localeCompare(b[0].orient) || a[0].axis - b[0].axis || a[0].lo - b[0].lo,
   );
 
@@ -139,31 +155,30 @@ export function nudgeChannels(params: {
       }
       groupOf.set(id, key);
     }
+    // Бакет по оси (T2): ствол — это сегменты трунк-родственников НА ОДНОЙ ЛИНИИ.
+    // Без бакета сегмент того же ребра на ДРУГОЙ оси (near-кластеризация) наследовал
+    // группу ствола вместе с его пришпиленностью — и переставал разводиться.
     const groups = new Map<string, Seg[]>();
     for (const s of channel) {
-      const k = groupOf.get(s.edgeId)!;
+      const k = `${groupOf.get(s.edgeId)!}@${Math.round(s.axis)}`;
       (groups.get(k) ?? groups.set(k, []).get(k)!).push(s);
     }
     if (groups.size < 2) continue; // весь канал — один ствол, наложение легитимно
 
-    // Порядок групп: по среднему refPerp (откуда приходят/куда уходят маршруты) — соседние
-    // по подходам линии становятся соседними слотами, меньше пересечений на входах в канал.
+    // Порядок групп (T2): первично — по ТЕКУЩЕЙ оси (уже разъехавшиеся линии сохраняют
+    // пространственный порядок — идемпотентность повторных прогонов), при точном
+    // совпадении осей (свежий пучок) — по среднему refPerp (откуда приходят/куда уходят
+    // маршруты): соседние по подходам линии — соседние слоты, меньше крестов на входах.
     const ordered = [...groups.entries()]
       .map(([k, ss]) => ({
         key: k, segs: ss,
+        axis: ss.reduce((sum, s) => sum + s.axis, 0) / ss.length,
         ref: ss.reduce((sum, s) => sum + s.refPerp, 0) / ss.length,
         fixed: ss.some((s) => !s.movable),
       }))
-      .sort((a, b) => a.ref - b.ref || a.key.localeCompare(b.key));
-
-    // Слоты вокруг исходной линии: (j - (n-1)/2)·gap. Группа с пришпиленным (концевым)
-    // сегментом двигаться не может — сдвигаем шкалу так, чтобы её слот стал нулевым.
-    // Двух разных пришпиленных групп шкала примирить не может — канал пропускаем.
-    const fixedIdx = ordered.map((g, j) => (g.fixed ? j : -1)).filter((j) => j >= 0);
-    if (fixedIdx.length > 1) continue;
-    const n = ordered.length;
-    const base = (j: number): number => (j - (n - 1) / 2) * gap;
-    let shift = fixedIdx.length === 1 ? -base(fixedIdx[0]) : 0;
+      .sort((a, b) =>
+        (Math.abs(a.axis - b.axis) > EPS ? a.axis - b.axis : 0) ||
+        a.ref - b.ref || a.key.localeCompare(b.key));
 
     // Применим ли сдвиг сегмента на офсет off: соседние перпендикулярные сегменты не
     // переламываются (знак направления сохраняется), плечо не заезжает в тело узла.
@@ -185,19 +200,65 @@ export function nudgeChannels(params: {
       return beforeOk && afterOk && !hitsBody;
     };
 
-    // ЛЕСЕНКА В ОДНУ СТОРОНУ (2026-07-09): симметричные слоты вокруг исходной линии
-    // упираются в тело узла (канал в тесном проходе — встречная пара в 24px щели под
-    // «Базами данных») → по-сегментное вето молча оставляло канал НЕразведённым
-    // (коллинеарное наложение переживало nudge). Если дефолтная шкала не проходит
-    // целиком, пробуем сдвинуть ВСЮ шкалу дискретными шагами gap/2 (ближние первыми,
-    // детерминированно) — канал уезжает лесенкой в свободную сторону коридора.
-    // Пришпиленная группа пинит шкалу — кандидаты её бы сдвинули, их отфильтрует
-    // evalShift. Ни один кандидат не прошёл — прежнее поведение (применяем что можно).
+    // Целевые линии: равные зазоры gap вокруг ЦЕНТРА канала (середина крайних осей;
+    // для свежего пучка совпадает с исходной линией). Группа с пришпиленным (концевым)
+    // сегментом двигаться не может — сдвигаем шкалу так, чтобы её цель совпала с её осью.
+    const fixedIdx = ordered.map((g, j) => (g.fixed ? j : -1)).filter((j) => j >= 0);
+    const n = ordered.length;
+    // МНОГОПИНОВЫЙ канал (T2): раньше пропускался целиком, и подвижная линия между
+    // двумя стволами-пинами оставалась в пикселях от соседа. Теперь пины держат свои
+    // оси (вес ∞), подвижные распределяются между ними VPSC-цепочкой «соседи ≥ gap»
+    // в порядке осей. Пины ближе gap друг к другу примирить нельзя — канал пропускаем.
+    if (fixedIdx.length > 1) {
+      let pinsConflict = false;
+      for (let k = 1; k < fixedIdx.length && !pinsConflict; k++) {
+        if (ordered[fixedIdx[k]].axis - ordered[fixedIdx[k - 1]].axis < gap - 0.5) pinsConflict = true;
+      }
+      if (pinsConflict) continue;
+      const targets = solveSeparation(
+        ordered.map((g) => g.axis),
+        ordered.map((g) => (g.fixed ? Infinity : 1)),
+        ordered.slice(1).map((_, k) => ({ left: k, right: k + 1, gap })),
+      );
+      // Невыполнимость (подвижным между пинами не хватает места, merge-блок сдвинул
+      // пины с их осей) — канал не примирить, оставляем как есть.
+      if (fixedIdx.some((j) => Math.abs(targets[j] - ordered[j].axis) > 0.5)) continue;
+      for (let j = 0; j < n; j++) {
+        const g = ordered[j];
+        if (g.fixed) continue;
+        for (const s of g.segs) {
+          const off = targets[j] - s.axis;
+          if (Math.abs(off) < 0.5) continue;
+          if (!canApply(s, off)) continue;
+          const pts = work.get(s.edgeId)!;
+          const p = pts[s.i], q = pts[s.i + 1];
+          const newAxis = s.axis + off;
+          if (s.orient === "h") { p.y = newAxis; q.y = newAxis; }
+          else { p.x = newAxis; q.x = newAxis; }
+          nudged.add(s.edgeId);
+        }
+      }
+      continue;
+    }
+    const center = (Math.min(...ordered.map((g) => g.axis)) + Math.max(...ordered.map((g) => g.axis))) / 2;
+    const target = (j: number, shift: number): number => center + (j - (n - 1) / 2) * gap + shift;
+    let shift = 0;
+    if (fixedIdx.length === 1) {
+      const jf = fixedIdx[0];
+      shift = ordered[jf].axis - target(jf, 0);
+    }
+
+    // ЛЕСЕНКА В ОДНУ СТОРОНУ (2026-07-09): симметричные слоты вокруг центра упираются
+    // в тело узла (канал в тесном проходе) → по-сегментное вето молча оставляло канал
+    // НЕразведённым. Если дефолтная шкала не проходит целиком, пробуем сдвинуть ВСЮ
+    // шкалу дискретными шагами gap/2 (ближние первыми, детерминированно) — канал
+    // уезжает лесенкой в свободную сторону коридора. Пришпиленная группа пинит шкалу.
+    // Ни один кандидат не прошёл — прежнее поведение (применяем что можно).
     const evalShift = (cand: number): boolean =>
       ordered.every((g, j) => {
-        const off = base(j) + cand;
+        const off = target(j, cand) - g.axis;
         if (g.fixed) return Math.abs(off) < 0.5;
-        return g.segs.every((s) => canApply(s, off));
+        return g.segs.every((s) => canApply(s, target(j, cand) - s.axis));
       });
     if (!evalShift(shift)) {
       const cands: number[] = [];
@@ -207,12 +268,13 @@ export function nudgeChannels(params: {
     }
 
     for (let j = 0; j < n; j++) {
-      const off = base(j) + shift;
-      if (Math.abs(off) < 0.5) continue;
       const g = ordered[j];
       if (g.fixed) continue;
-      // сдвиг применяется по-рёберно: каждый сегмент группы этого ребра — на общий офсет
+      // сдвиг применяется по-сегментно к ЦЕЛЕВОЙ линии слота: члены группы с чуть
+      // разными осями (near-параллельный коридор) сходятся на одну линию
       for (const s of g.segs) {
+        const off = target(j, shift) - s.axis;
+        if (Math.abs(off) < 0.5) continue;
         if (!canApply(s, off)) continue;
         const pts = work.get(s.edgeId)!;
         const p = pts[s.i], q = pts[s.i + 1];
