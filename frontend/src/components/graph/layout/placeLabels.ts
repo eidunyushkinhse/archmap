@@ -20,7 +20,6 @@ import type { EdgePoint } from "../../../types";
 import { pointAtFraction, type NodeRect, type Segment } from "../edgePath";
 import { rectFromCenter, rectsOverlap } from "./arrowMetrics";
 import { edgeArcLength, subtractIntervals, type Interval } from "./coincidentLegs";
-import { erodeIntervals } from "./labelIntervals";
 import type { Size } from "./labelBox";
 
 const EPS = 0.5;
@@ -169,10 +168,9 @@ export function placeLabels(
     const total = edgeArcLength(l.path);
     const prefT = Math.max(0, Math.min(1, l.preferredT ?? 0.5));
     const preferredArc = prefT * total;
-    // сжимаем интервалы на пол-плашки вдоль линии — чтобы плашка целиком лежала в уникальной
-    // зоне (консервативно по ширине; на вертикальном плече это с запасом, что безопасно для R4)
-    const eroded = erodeIntervals(l.candidates, l.box.w / 2);
-    const onlineArcs = sampleArcs(eroded, preferredArc, Math.max(l.box.w, 24));
+    // candidates — интервалы для ЦЕНТРА плашки (A5 уже учёл габариты: Минковский у узлов,
+    // раздутые слитые плечи R4) — добавочная эрозия не нужна
+    const onlineArcs = sampleArcs(l.candidates, preferredArc, Math.max(l.box.w, 24));
     const toPt = (a: number): EdgePoint => pointAtFraction(l.path, total > 0 ? a / total : 0);
     const online: Cand[] = onlineArcs.map((a) => ({ center: toPt(a), leader: false }));
     // Якорь выноски — в центр самого длинного УНИКАЛЬНОГО плеча (весь путь минус слитые плечи R4).

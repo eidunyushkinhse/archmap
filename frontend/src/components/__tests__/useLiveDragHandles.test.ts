@@ -104,20 +104,29 @@ describe("resolveDragEdge", () => {
     expect(out.targetHandle).toBe("web__l__1");
   });
 
-  it("leader-плашка НЕ берётся из живого пересчёта (прыгает), а едет от снимка на среднее смещение концов", () => {
+  it("живое размещение применяется как есть (и leader тоже — контекст полный, совпадает с финалом)", () => {
+    const liveLeader = leader(150, 40, 0, -40);
+    const out = resolveDragEdge(edge("e1", "a", "b", { labelPlacement: leader(100, 0, 0, -40) }), frame({
+      dragged: ["a"],
+      deltas: { a: { dx: 40, dy: 20 }, b: { dx: 0, dy: 0 } },
+      liveRoutes: new Map([["e1", [{ x: 0, y: 0 }, { x: 200, y: 0 }]]]),
+      liveLabels: new Map([["e1", liveLeader]]),
+      snapLabels: new Map([["e1", leader(100, 0, 0, -40)]]),
+    }));
+    expect((out.data as WrappedEdgeData).labelPlacement).toBe(liveLeader);
+  });
+
+  it("нет живого размещения → фолбэк: снимок плашки + СРЕДНЕЕ смещение концов ребра", () => {
     // старт: leader-плашка, якорь (100,0), вынос (0,-40) → центр (100,-40)
-    const snapLabels = new Map([["e1", leader(100, 0, 0, -40)]]);
-    // живой пересчёт дал бы leader в ПРЫГНУВШЕЙ точке — его брать нельзя
-    const jumpy = leader(999, 999, 0, -40);
     const out = resolveDragEdge(edge("e1", "a", "b", { labelPlacement: leader(100, 0, 0, -40) }), frame({
       dragged: ["a"],                          // тащим только a (source)
       deltas: { a: { dx: 40, dy: 20 }, b: { dx: 0, dy: 0 } }, // среднее = (20,10)
       liveRoutes: new Map([["e1", [{ x: 0, y: 0 }, { x: 200, y: 0 }]]]),
-      liveLabels: new Map([["e1", jumpy]]),
-      snapLabels,
+      liveLabels: new Map(),                   // размещение не посчиталось
+      snapLabels: new Map([["e1", leader(100, 0, 0, -40)]]),
     }));
     const d = out.data as WrappedEdgeData;
-    // снимок (центр 100,-40) + среднее смещение (20,10) = (120,-30); прыгнувший live игнорируется
+    // снимок (центр 100,-40) + среднее смещение (20,10) = (120,-30)
     expect(d.labelPlacement?.mode).toBe("leader");
     expect(d.labelPlacement?.center).toEqual({ x: 120, y: -30 });
     expect(d.labelPlacement?.anchor).toEqual({ x: 120, y: 10 });

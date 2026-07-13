@@ -60,21 +60,18 @@ export function nodeBlockedIntervals(pts: EdgePoint[], nodes: NodeRect[], box: S
   return mergeIntervals(blocks);
 }
 
-// Сжимает каждый интервал на margin с обоих концов, выбрасывая ставшие короче EPS. Нужно
-// A6: чтобы плашка целиком (а не только её центр) укладывалась в уникальный участок — концы
-// допустимого интервала отступают на пол-протяжённости плашки вдоль линии. Чистая функция.
-export function erodeIntervals(intervals: Interval[], margin: number): Interval[] {
-  const out: Interval[] = [];
-  for (const iv of intervals) {
-    const s = iv.s + margin, e = iv.e - margin;
-    if (e - s > EPS) out.push({ s, e });
-  }
-  return out;
+// Раздувает каждый интервал на margin с обоих концов. Нужно для R4: плашка (центр в
+// допустимой зоне) не должна КРАЕМ вылезать на слитое плечо — раздуваем сами слитые
+// интервалы на пол-протяжённости плашки вдоль линии. Чистая функция.
+export function inflateIntervals(intervals: Interval[], margin: number): Interval[] {
+  return intervals.map((iv) => ({ s: iv.s - margin, e: iv.e + margin }));
 }
 
-// Допустимые arc-интервалы для якоря плашки ребра: [0, total] минус совпавшие плечи (R4)
-// минус зоны под узлами с учётом габаритов плашки (R2-узлы). Пустой результат = поставить
-// плашку на линии без нарушений нельзя (кандидат на выноску-leader в A6).
+// Допустимые arc-интервалы для ЦЕНТРА плашки ребра: [0, total] минус совпавшие плечи (R4,
+// раздутые на пол-плашки — чтобы плашка целиком не задевала слитое) минус зоны у узлов с
+// учётом габаритов плашки (R2-узлы, Минковский в nodeBlockedIntervals — уже полный клиренс,
+// добавочная эрозия НЕ нужна: двойной запас требовал сегмент ≥ 2× ширины плашки и массово
+// гнал подписи в выноски). Пустой результат = плашке на линии места нет (leader в A6).
 export function labelCandidates(
   pts: EdgePoint[],
   shared: Interval[],
@@ -82,6 +79,9 @@ export function labelCandidates(
   box: Size,
 ): Interval[] {
   const total = edgeArcLength(pts);
-  const blocked = mergeIntervals([...shared, ...nodeBlockedIntervals(pts, nodes, box)]);
+  const blocked = mergeIntervals([
+    ...inflateIntervals(shared, box.w / 2),
+    ...nodeBlockedIntervals(pts, nodes, box),
+  ]);
   return subtractIntervals({ s: 0, e: total }, blocked);
 }

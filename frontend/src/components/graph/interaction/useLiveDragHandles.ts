@@ -20,7 +20,6 @@ import type { EdgeGroup, WrappedEdgeData } from "../types";
 import { assignEdgeHandles } from "../layout/level";
 import { buildAutoRoutes } from "../layout/autoRoutes";
 import { buildLabelPlacements, type LabelPlacement } from "../layout/labelLayout";
-import { applyLabelDetours } from "../layout/detourStage";
 import { edgeLabelMeta } from "../layout/pipeline";
 import { NODE_W, NODE_H } from "../constants";
 
@@ -100,19 +99,17 @@ function shiftPlacement(lp: LabelPlacement, dx: number, dy: number): LabelPlacem
   };
 }
 
-// Плашка затронутого ребра на живой позиции. ONLINE-размещение (влезает инлайн на линию)
-// берём как есть — оно стабильно и точно лежит на живом маршруте. LEADER-размещение (плашка
-// вынесена сбоку с поводком) при живом пересчёте ПРЫГАЕТ кадр-к-кадру: свободное место
-// ищется дискретно и крайне чувствительно к набору препятствий, а вживую он усечён до
-// затронутых рёбер — плашка «слетает» и скачет. Поэтому leader НЕ пересчитываем: двигаем
-// СНИМОК плашки на СРЕДНЕЕ смещение концов ребра (оба конца тащим → полный сдвиг, как у
-// жёсткого; один → половина). Опора — только позиции узлов, не усечённый живой маршрут:
-// на старте сдвиг ноль (без прыжка), дальше плавно едет с линией. Финал доводит по отпускании.
+// Плашка затронутого ребра на живой позиции. Живое размещение считается тем же движком и с
+// ПОЛНЫМ контекстом (все группы, финальные маршруты прочих) — совпадает с финалом (замер:
+// 0px в покое, ~10px в движении из-за нуджинга финала), поэтому берём его как есть, включая
+// leader. (Раннее правило «leader не брать — прыгает» относилось к УСЕЧЁННОМУ контексту из
+// одних затронутых рёбер: там дискретный поиск места скакал кадр-к-кадру.) Фолбэк, когда
+// размещение не посчиталось: СНИМОК плашки + среднее смещение концов ребра — гладко и близко.
 function liveLabelFor(e: RFEdge, f: DragFrame): LabelPlacement | undefined {
   const live = f.liveLabels?.get(e.id);
-  if (live && live.mode === "online") return live;
+  if (live) return live;
   const snap = f.snapLabels.get(e.id);
-  if (!snap) return live; // нет снимка старта — отдаём живое (или undefined)
+  if (!snap) return undefined;
   const ds = f.deltaOf(e.source), dt = f.deltaOf(e.target);
   return shiftPlacement(snap, (ds.dx + dt.dx) / 2, (ds.dy + dt.dy) / 2);
 }
@@ -220,10 +217,11 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
         });
         liveRoutes = ar.routes;
         liveHandles = ar.handles;
-        // Учёт текстовой плашки: если подпись не влезает инлайн (leader) — уводим ребро в
-        // ДЕТУР (меняет маршрут И хэндлы), ровно как финал (applyLabelDetours). Без этого
-        // превью оставалось бы прямым, а финал изгибался бы под плашку. Placement/детур —
-        // тоже по затронутым (перф-безопасно), нутро уже посчитано.
+        // Размещение плашек — тем же движком, что финал, и с ТЕМ ЖЕ контекстом: ВСЕ группы
+        // и все маршруты (финальные из снимка + живые затронутые поверх). placeLabels
+        // раскладывает плашки с взаимным давлением — усечение до затронутых давало другой
+        // выбор точки вдоль линии, и на отпускании плашка прыгала. Применяются всё равно
+        // только затронутые (resolveDragEdge), прочие остаются на финальных местах.
         const rectOf = (id: string): NodeRect | null => {
           const p = positions.get(id);
           if (!p) return null;
@@ -231,25 +229,12 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
           return { x: p.x, y: p.y, w: sz?.w ?? NODE_W, h: sz?.h ?? NODE_H };
         };
         const nodeRects = r.displayIds.map(rectOf).filter((x): x is NodeRect => x != null);
-        let placements = buildLabelPlacements({
-          routes: liveRoutes, groups: affectedGroups, labelMeta: edgeLabelMeta,
+        const routesForLabels = new Map(r.routes);
+        for (const [id, rt] of liveRoutes) routesForLabels.set(id, rt);
+        liveLabels = buildLabelPlacements({
+          routes: routesForLabels, groups: r.groups, labelMeta: edgeLabelMeta,
           preferredT: () => undefined, nodeRects,
         });
-        const detourPreferred = applyLabelDetours({
-          groupArr: affectedGroups, labelPlacements: placements, routableIds: affected,
-          positions, displayIds: r.displayIds, rectOf, labelMeta: edgeLabelMeta,
-          autoRoutes: liveRoutes, edgeHandles: liveHandles, // мутируются для детурнутых рёбер
-        });
-        // ФИНАЛЬНЫЙ пере-проход размещения на детурнутых маршрутах (шаг V2.5 pipeline):
-        // после детура геометрия изменилась — плашку кладём на ИТОГОВУЮ линию, иначе центр
-        // остался бы на до-детурном маршруте и текст «уезжал» бы от стрелки.
-        if (detourPreferred.size > 0) {
-          placements = buildLabelPlacements({
-            routes: liveRoutes, groups: affectedGroups, labelMeta: edgeLabelMeta,
-            preferredT: (g) => detourPreferred.get(g.id), nodeRects,
-          });
-        }
-        liveLabels = placements; // позиции плашек затронутых рёбер → едут с ребром живьём
       }
     }
 

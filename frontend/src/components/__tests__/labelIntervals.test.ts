@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   labelCandidates,
   nodeBlockedIntervals,
-  erodeIntervals,
+  inflateIntervals,
 } from "../graph/layout/labelIntervals";
 import type { NodeRect } from "../graph/edgePath";
 import type { Size } from "../graph/layout/labelBox";
@@ -48,12 +48,13 @@ describe("labelCandidates — вычитание узлов (R2)", () => {
 });
 
 describe("labelCandidates — совпавшие плечи (R4)", () => {
-  it("вычитает и совпавшее плечо, и узел", () => {
+  it("вычитает и совпавшее плечо (раздутое на пол-плашки), и узел", () => {
     const path = poly([0, 0], [300, 0]);
     const node: NodeRect = { x: 130, y: -30, w: 40, h: 60 }; // → блок [120,180]
     const shared = [{ s: 0, e: 50 }];                         // общее плечо в начале
+    // плечо раздуто на w/2=10 → [.,60]: центр плашки в 60 — её край ровно у конца плеча
     expect(labelCandidates(path, shared, [node], box)).toEqual([
-      { s: 50, e: 120 },
+      { s: 60, e: 120 },
       { s: 180, e: 300 },
     ]);
   });
@@ -77,9 +78,9 @@ describe("nodeBlockedIntervals", () => {
   });
 });
 
-describe("erodeIntervals", () => {
-  it("сжимает с обоих концов и выбрасывает слишком короткие", () => {
-    const r = erodeIntervals([{ s: 0, e: 100 }, { s: 200, e: 210 }], 10);
-    expect(r).toEqual([{ s: 10, e: 90 }]); // второй (10 длины) после сжатия на 10 исчезает
+describe("inflateIntervals", () => {
+  it("раздувает каждый интервал на margin с обоих концов", () => {
+    const r = inflateIntervals([{ s: 0, e: 100 }, { s: 200, e: 210 }], 10);
+    expect(r).toEqual([{ s: -10, e: 110 }, { s: 190, e: 220 }]);
   });
 });

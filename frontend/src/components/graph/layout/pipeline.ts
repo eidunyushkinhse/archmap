@@ -43,7 +43,6 @@ import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeChannels } from "./channelNudge";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { widenNodesForLabels } from "./widenForLabels";
-import { applyLabelDetours } from "./detourStage";
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
 export type LayoutResult = {
@@ -449,7 +448,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   let liveRoute: LiveRouteInputs | undefined;
   if (!isContext) {
     const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
-    // реальные габариты для стадий качества стрелок (роутер/плашки/детуры)
+    // реальные габариты для стадий качества стрелок (роутер/плашки)
     const sizeMap = new Map<string, { w: number; h: number }>(
       sizes ? Object.entries(sizes) : [],
     );
@@ -506,30 +505,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там).
     for (const [id, hh] of ar.handles) edgeHandles.set(id, hh);
 
-    // Плашки подписей (эпик стрелок A7.2, R2+R4): по авто-маршрутам размещаем плашки без
-    // взаимных наложений и не под узлами (R2), запрещая их на совпавших плечах (R4); где
-    // на линии чисто не встаёт — выноска-leader (A7.3). Позиция целиком авто (ручной
-    // label_t умер вместе с ручным слоем).
     const nodeRects = displayIds
       .map(realRectOf)
       .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
-    labelPlacements = buildLabelPlacements({
-      routes: autoRoutes,
-      groups: groupArr,
-      labelMeta: edgeLabelMeta,
-      preferredT: () => undefined,
-      nodeRects,
-    });
-
-    // Альт-маршрут грузного ребра (эпик стрелок A12, ПОСЛЕДНЕЕ средство — вынесен в
-    // detourStage): leader-рёбра уводятся в чистую полосу, где плашка ложится инлайн.
-    // После детуров плашки НЕ пере-считываем: между детурами и каналом размещения
-    // никто не читает, финальная геометрия ещё изменится — один проход в конце (V2.5).
-    const detourPreferred = applyLabelDetours({
-      groupArr, labelPlacements, routableIds, positions, displayIds,
-      rectOf: realRectOf, labelMeta: edgeLabelMeta, autoRoutes, edgeHandles,
-    });
-    let labelsStale = detourPreferred.size > 0;
 
     // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи из
     // РАЗНЫХ хэндлов собираются в «каналы», упорядочиваются по подходам маршрутов и
@@ -537,26 +515,23 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
     // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
     // маршрутах.
-    if (autoRoutes) {
-      const nu = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
-      if (nu.nudged.size > 0) {
-        autoRoutes = nu.routes;
-        labelsStale = true;
-      }
-    }
+    const nu = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
+    if (nu.nudged.size > 0) autoRoutes = nu.routes;
 
-    // ПЛАШКИ — ОДИН ФИНАЛЬНЫЙ ПРОХОД (V2.5): если детуры/канал меняли геометрию, размещение
-    // пересчитывается один раз по ФИНАЛЬНЫМ маршрутам (раньше — после каждой стадии, до
-    // трёх полных проходов; первый проход выше остаётся — по нему детуры находят leader-ов).
-    if (labelsStale) {
-      labelPlacements = buildLabelPlacements({
-        routes: autoRoutes,
-        groups: groupArr,
-        labelMeta: edgeLabelMeta,
-        preferredT: (g) => detourPreferred.get(g.id),
-        nodeRects,
-      });
-    }
+    // Плашки подписей (эпик стрелок A7.2, R2+R4) — один проход по ФИНАЛЬНЫМ маршрутам:
+    // без взаимных наложений и не под узлами (R2), не на совпавших плечах (R4); где на
+    // линии чисто не встаёт — выноска-leader с поводком (A7.3). Позиция целиком авто.
+    // Детур-стадия A12 («изогнуть стрелку, чтобы плашка легла инлайн») УДАЛЕНА 2026-07-13:
+    // она превращала прямые маршруты в необъяснимые объезды (жалоба: стрелка при свободном
+    // прямом коридоре идёт полкой сверху/снизу) и дестабилизировала живое превью драга.
+    // Маршрут — только у роутера; невлезающая подпись решается leader-выноской.
+    labelPlacements = buildLabelPlacements({
+      routes: autoRoutes,
+      groups: groupArr,
+      labelMeta: edgeLabelMeta,
+      preferredT: () => undefined,
+      nodeRects,
+    });
 
     // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
     // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг
