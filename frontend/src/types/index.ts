@@ -26,10 +26,15 @@ export type ProjectPreview = Schemas["ProjectPreview"];
 
 export type Node = Schemas["NodeResponse"];
 
-// Порядок узлов-сиблингов в дереве: «главное» (с бОльшим числом прямых детей) —
-// выше; при равенстве — по алфавиту. child_count считает бэкенд (_mark_has_children).
+// Порядок узлов-сиблингов в дереве: сначала ВНУТРЕННИЕ, потом внешние (по
+// собственному is_external узла, не его детей — пограничный «внешний с внутренними
+// детьми» допустим, но на него не ориентируемся). Внутри каждой группы «главное»
+// (с бОльшим числом прямых детей) — выше; при равенстве — по алфавиту. child_count
+// считает бэкенд (_mark_has_children). Наследуется на всех уровнях дерева.
 export const compareByRank = (a: Node, b: Node): number =>
-  b.child_count - a.child_count || a.name.localeCompare(b.name);
+  Number(a.is_external) - Number(b.is_external) ||
+  b.child_count - a.child_count ||
+  a.name.localeCompare(b.name);
 
 // Узлы-«пользователи» (shape: person) в дереве-навигаторе не показываем: дерево —
 // навигатор детализации, «провалиться» внутрь пользователя нечего. Общий отсев для

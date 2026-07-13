@@ -87,11 +87,11 @@
         parentId через onDropNode→handleDropNode→NodeModal. РЕШИТЬ: вложенные рамки — берём
         глубочайшую (deepestFrameContaining); дроп в ГОСТЕВУЮ рамку (чужой контейнер) —
         разрешать (правит чужое поддерево) или только локальные раскрытые.
-- [ ] П3. В дереве узлов: сначала внутренние (is_external=false), потом внешние. Якорь:
-        compareByRank types/index.ts:31 (сейчас child_count↓, затем алфавит) — добавить
-        первичным ключом `Number(a.is_external)-Number(b.is_external)`. РЕШИТЬ: править общий
-        compareByRank (заденет детей NodeInspector и CrossLevelEdgePicker) или tree-специфичный
-        компаратор. Опц.: дерево is_external не показывает — можно заодно добавить бейдж «внешний».
+- [x] П3. В дереве узлов: сначала внутренние (is_external=false), потом внешние — СДЕЛАНО.
+        compareByRank (types/index.ts) получил первичный ключ Number(is_external); прежняя
+        сортировка (child_count↓, затем алфавит) стала вторичной. Общий компаратор (тот же
+        порядок осмыслен и в детях NodeInspector, и в CrossLevelEdgePicker). Тест
+        compareByRank.test.ts. tsc/vitest зелёные.
 - [ ] П4. Вернуть подвижные плашки подписей — но двигать только в «легальном» интервале
         стрелки и СБРАСЫВАТЬ владеемую долю, если после пере-раскладки она стала нелегальной
         (откат в авто). Инфраструктура ЖИВА: labelCandidates (labelIntervals.ts:78) = легальные
