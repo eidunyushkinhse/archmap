@@ -27,7 +27,7 @@ import type {
   AncestorRef,
 } from "../../../types";
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
-import type { LiveHandleInputs } from "../interaction/useLiveDragHandles";
+import type { LiveHandleInputs, LiveRouteInputs } from "../interaction/useLiveDragHandles";
 import { NODE_W, NODE_H } from "../constants";
 import { edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
@@ -445,6 +445,8 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // рёбер level/main-схемы. Контекст-схему не трогаем (R2/R4 решены в её модели).
   let autoRoutes: Map<string, EdgePoint[]> | undefined;
   let labelPlacements: Map<string, LabelPlacement> | undefined;
+  // Входы роутера для живого ре-роута при драге (issue 1) — снимаем в конце блока роутинга.
+  let liveRoute: LiveRouteInputs | undefined;
   if (!isContext) {
     const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
     // реальные габариты для стадий качества стрелок (роутер/плашки/детуры)
@@ -555,6 +557,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         nodeRects,
       });
     }
+
+    // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
+    // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг
+    // подставит живые. Роутим только затронутые — прочие маршруты идут фиксированным prev.
+    liveRoute = {
+      groups: groupArr,
+      displayIds,
+      sizes,
+      frames: routerFrames,
+      routes: autoRoutes ?? new Map(),
+      handles: edgeHandles,
+    };
   }
 
   // Распорки: обходы не родных стрелок выходят за bbox узлов → крайними точками
@@ -610,6 +624,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       layoutEdges,
       nodeIds: [...nodes.map((n) => ({ id: n.id })), ...entities.map((e) => ({ id: e.id }))],
       localIds: new Set(nodes.map((n) => n.id)),
+      route: liveRoute,
     },
     intents,
   };

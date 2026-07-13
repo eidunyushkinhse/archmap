@@ -15,8 +15,27 @@ import { useCallback, useRef } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { Dispatch, SetStateAction } from "react";
 import type { EdgePoint, LayoutEdge } from "../../../types";
-import type { WrappedEdgeData } from "../types";
+import type { EdgeGroup, WrappedEdgeData } from "../types";
 import { assignEdgeHandles } from "../layout/level";
+import { buildAutoRoutes } from "../layout/autoRoutes";
+
+// Rect + плашка + члены раскрытой рамки для роутера (тот же формат, что buildAutoRoutes.frames).
+type RouterFrame = {
+  rect: { x: number; y: number; w: number; h: number };
+  plaque: { x: number; y: number; w: number; h: number };
+  memberIds: ReadonlySet<string>;
+};
+
+// Входы НАСТОЯЩЕГО роутера для живого ре-роута во время драга (issue 1): те же, по которым
+// финал считает маршруты. Снимаются на конец async-раскладки. Позиции подставляются живые.
+export interface LiveRouteInputs {
+  groups: EdgeGroup[];
+  displayIds: string[];
+  sizes?: Record<string, { w: number; h: number }>;
+  frames: RouterFrame[];
+  routes: Map<string, EdgePoint[]>;                                     // финальные маршруты (контекст prev)
+  handles: Map<string, { sourceHandle: string; targetHandle: string }>; // финальные хэндлы (контекст prev)
+}
 
 // Снимок входов раскладки, нужных для пересчёта хэндлов. LevelGraph кладёт его в ref
 // в конце async-раскладки — те же layoutEdges/узлы, по которым считался текущий layout.
@@ -27,6 +46,8 @@ export interface LiveHandleInputs {
   nodeIds: Array<{ id: string }>;
   // id локальных узлов уровня (block): пересчитываем только рёбра, оба конца которых тут
   localIds: Set<string>;
+  // входы роутера для живого ре-роута затронутых стрелок (issue 1). undefined — контекст-схема.
+  route?: LiveRouteInputs;
 }
 
 interface Params {
@@ -65,8 +86,10 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
   //  • ОБА конца перетаскиваются (мультидраг связанных узлов) → жёстко СДВИГАЕМ весь
   //    маршрут (снимок стартовой ломаной + общая дельта группы) и держим хэндлы старта:
   //    ребро едет с узлами как есть, без «прилипшей середины» и без смены сторон;
-  //  • иначе (один конец) → как раньше: пересчитываем сторону хэндла тем же
-  //    assignEdgeHandles, что и финал (нутро маршрута доедет по отпускании).
+  //  • ОДИН конец → гоняем НАСТОЯЩИЙ роутер (buildAutoRoutes) для этих рёбер по живым
+  //    позициям — тем же движком, что и финал: превью нутра совпадает с будущим маршрутом
+  //    (A* ограничен затронутыми рёбрами, остальные — фиксированный контекст prev, дёшево).
+  //    Нет входов роутера/маршрут не посчитался → фолбэк: только сторона хэндла (как раньше).
   // Неизменные рёбра возвращаем тем же объектом — RF их не перерисует (сравнение по ссылке).
   const move = useCallback((dragged: RFNode[]) => {
     const s = session.current;
@@ -79,6 +102,31 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
       return b && p ? { dx: p.x - b.x, dy: p.y - b.y } : { dx: 0, dy: 0 };
     };
     const handles = assignEdgeHandles(s.inp.nodeIds, s.inp.layoutEdges, positions);
+
+    // Живой ре-роут стрелок с ОДНИМ перетаскиваемым концом настоящим роутером.
+    let liveRoutes: Map<string, EdgePoint[]> | null = null;
+    let liveHandles: Map<string, { sourceHandle: string; targetHandle: string }> | null = null;
+    const r = s.inp.route;
+    if (r) {
+      const affected = new Set<string>();
+      for (const g of r.groups) {
+        if (!r.routes.has(g.id)) continue;
+        const src = draggedIds.has(g.source), tgt = draggedIds.has(g.target);
+        if (src !== tgt) affected.add(g.id); // ровно один конец перетаскивается
+      }
+      if (affected.size > 0) {
+        const ar = buildAutoRoutes({
+          groups: r.groups, routableIds: affected, positions,
+          displayIds: r.displayIds,
+          sizes: r.sizes ? new Map(Object.entries(r.sizes)) : undefined,
+          frames: r.frames,
+          prev: { routes: r.routes, handles: r.handles }, // прочие маршруты — фиксированный контекст
+        });
+        liveRoutes = ar.routes;
+        liveHandles = ar.handles;
+      }
+    }
+
     setRfEdges((prev) =>
       prev.map((e) => {
         // только локально-локальные рёбра и хотя бы одним концом в перетаскиваемых
@@ -91,10 +139,18 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
           if (!orig) return e; // нет снимка маршрута (smoothstep-фолбэк) — оставляем как есть
           const { dx, dy } = deltaOf(e.source);
           const moved = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
-          const data = { ...(e.data as WrappedEdgeData), autoRoute: moved };
-          return { ...e, data };
+          return { ...e, data: { ...(e.data as WrappedEdgeData), autoRoute: moved } };
         }
-        // один конец: обновляем только сторону хэндла, если сменилась
+        // один конец: живой маршрут роутера (нутро + сторона хэндла) — превью = будущее
+        const lr = liveRoutes?.get(e.id);
+        if (lr) {
+          const data = { ...(e.data as WrappedEdgeData), autoRoute: lr };
+          const lh = liveHandles?.get(e.id);
+          return lh
+            ? { ...e, data, sourceHandle: lh.sourceHandle, targetHandle: lh.targetHandle }
+            : { ...e, data };
+        }
+        // фолбэк (нет входов роутера): обновляем только сторону хэндла, если сменилась
         const h = handles.get(e.id);
         if (!h || (h.sourceHandle === e.sourceHandle && h.targetHandle === e.targetHandle)) return e;
         return { ...e, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle };
