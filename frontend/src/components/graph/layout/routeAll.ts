@@ -171,6 +171,11 @@ function pathPenalty(pts: EdgePoint[], placed: PlacedSeg[], crossCost: number, o
 
 // Джог короче этого порога — кандидат на спрямление (перескок «дрожи», не структура).
 const JOG_MAX = 24;
+// Клиренс пост-спрямления: кандидат не должен ПРИЖИМАТЬ линию к чужому телу (A* держит
+// зазор раздутыми препятствиями — пост-проход обязан его уважать, иначе «стрелка по грани
+// узла» возвращается). Меньше маршрутного margin=12: легально-тесные проходы (лестница
+// 12→6→3) не блокируют спрямление там, где ТЕКУЩИЙ маршрут уже тесный.
+const JOG_CLEAR = 8;
 
 /**
  * ПОСТ-СПРЯМЛЕНИЕ ДЖОГОВ (T3 эпика «читаемые пучки», канон path simplification).
@@ -192,6 +197,11 @@ export function straightenJogs(
   own?: OwnPorts,
 ): EdgePoint[] {
   let cur = cleanup(pts.map((p) => ({ x: p.x, y: p.y })));
+  // тела, раздутые на клиренс: кандидат, влезающий в раздутое тело, к которому текущий
+  // маршрут НЕ прижат, отвергается (не приклеивать линию к грани узла)
+  const inflated = obstacles.map((r) => ({
+    x: r.x - JOG_CLEAR, y: r.y - JOG_CLEAR, w: r.w + 2 * JOG_CLEAR, h: r.h + 2 * JOG_CLEAR,
+  }));
   let guard = 8; // страховка от зацикливания (каждый прогон убирает ≥1 джог)
   while (guard-- > 0) {
     let applied = false;
@@ -221,6 +231,12 @@ export function straightenJogs(
       let bestCost = curCost - 1; // строго лучше текущего
       for (const cand of candidates) {
         if (cand.length < 2 || pathCrossesRects(cand, obstacles)) continue;
+        // клиренс: не прижимать к телу, к которому текущий маршрут не прижат
+        let hugs = false;
+        for (let r = 0; r < inflated.length && !hugs; r++) {
+          if (pathCrossesRects(cand, [inflated[r]]) && !pathCrossesRects(cur, [inflated[r]])) hugs = true;
+        }
+        if (hugs) continue;
         const c = routeCost(cand, others, crossCost, bendPenalty, extra, own);
         if (c < bestCost) { bestCost = c; best = cand; }
       }
