@@ -104,6 +104,16 @@ export function useLayoutAnimation({
   const later = useCallback((ms: number, fn: () => void) => {
     timersRef.current.push(window.setTimeout(fn, ms));
   }, []);
+  // Отсчёт от ПЕРВОГО ПОКАЗАННОГО КАДРА, а не от setState (rAF → setTimeout): CSS-анимация
+  // фазы стартует на кадре, следующем за коммитом, а тяжёлый пересчёт раскладки (прогон по
+  // замерам приходит ровно в окно анимации) откладывает этот кадр. Wall-clock-таймер от
+  // setState в таком случае съедал окно ДО видимого старта фазы: конец отрисовки стрелок
+  // наступал раньше её первого кадра — «анимация пропадает, когда стрелок много».
+  const laterFromFrame = useCallback((ms: number, fn: () => void) => {
+    rafsRef.current.push(window.requestAnimationFrame(() => {
+      timersRef.current.push(window.setTimeout(fn, ms));
+    }));
+  }, []);
 
   // Конец фазы отрисовки стрелок: снять drawIn (проявить плашки и наконечники).
   const endDraw = useCallback(() => {
@@ -124,12 +134,12 @@ export function useLayoutAnimation({
       if (withDraw) {
         drawRef.current = mask.edges;
         setRfEdges((prev) => markDrawIn(prev, mask.edges));
-        later(ANIM_DRAW_MS, endDraw);
+        laterFromFrame(ANIM_DRAW_MS, endDraw);
       } else {
         setRfEdges((prev) => prev.map((e) => (mask.edges.has(e.id) && e.hidden ? { ...e, hidden: false } : e)));
       }
     }
-  }, [setRfNodes, setRfEdges, later, endDraw]);
+  }, [setRfNodes, setRfEdges, laterFromFrame, endDraw]);
 
   const cancel = useCallback(() => {
     clearTimers();
@@ -190,12 +200,15 @@ export function useLayoutAnimation({
                 const p = plan.finalPositions.get(n.id);
                 return p ? { ...n, position: p } : n;
               }));
+              // конец разъезда: рамки проявляются fade'ом (класс ещё жив), стрелки
+              // РИСУЮТСЯ от исходного хэндла к целевому (drawIn на ANIM_DRAW_MS).
+              // Отсчёт — ОТ ОТПУСКА (транзишен стартует на кадре этого setState), а не
+              // от первого кадра стопки: тяжёлый прогон по замерам, влезший между,
+              // сдвигал транзишен, и unmask бил по ещё едущим узлам.
+              later(ANIM_MOVE_MS, () => unmask(true));
+              later(ANIM_MOVE_MS + ANIM_FADE_MS + 60, () => setActive(false));
             }));
           }));
-          // конец разъезда: рамки проявляются fade'ом (класс ещё жив), стрелки
-          // РИСУЮТСЯ от исходного хэндла к целевому (drawIn на ANIM_DRAW_MS)
-          later(ANIM_MOVE_MS, () => unmask(true));
-          later(ANIM_MOVE_MS + ANIM_FADE_MS + 60, () => setActive(false));
           return;
         }
         // рамки в этом прогоне ещё нет (дети локала грузятся) — интент ждёт
@@ -211,7 +224,7 @@ export function useLayoutAnimation({
           setActive(true);
           setRfNodes(plan.phase1Nodes);
           setRfEdges((prev) => prev.map((e) => (plan.hiddenEdgeIds.has(e.id) ? { ...e, hidden: true } : e)));
-          later(ANIM_MOVE_MS, () => {
+          laterFromFrame(ANIM_MOVE_MS, () => {
             // подмена стопки свёрнутым узлом: применяем САМУЮ СВЕЖУЮ раскладку;
             // рёбра, скрытые на фазу 1 или появившиеся заново, — с отрисовкой
             const fin = pendingRef.current;
@@ -226,7 +239,9 @@ export function useLayoutAnimation({
               if (drawIds.size > 0) {
                 drawRef.current = drawIds;
                 setRfEdges(markDrawIn(fin.edges, drawIds));
-                later(ANIM_DRAW_MS, endDraw);
+                // отсчёт от первого кадра: сразу за свопом приходит прогон по замерам
+                // вернувшегося узла, и wall-clock-отсчёт съедал бы окно отрисовки
+                laterFromFrame(ANIM_DRAW_MS, endDraw);
               } else {
                 setRfEdges(fin.edges);
               }
@@ -255,7 +270,7 @@ export function useLayoutAnimation({
         if (changed.size > 0) {
           gestureRef.current = 0;
           drawRef.current = new Set([...(drawRef.current ?? []), ...changed]);
-          later(ANIM_DRAW_MS, endDraw);
+          laterFromFrame(ANIM_DRAW_MS, endDraw);
         }
       } else {
         gestureRef.current = 0;
@@ -277,7 +292,7 @@ export function useLayoutAnimation({
     }
     if (draw && draw.size > 0) edgesOut = markDrawIn(edgesOut, draw);
     setRfEdges(edgesOut);
-  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, unmask, endDraw]);
+  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, laterFromFrame, unmask, endDraw]);
 
   const noteExpand = useCallback((id: string) => {
     intentRef.current = { kind: "expand", id, ts: Date.now() };

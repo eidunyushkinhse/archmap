@@ -34,7 +34,29 @@ export interface RouteOptions {
   extraXs?: number[];
   extraYs?: number[];
   stub?: number;         // длина обязательного выхода/входа вдоль нормали порта
+  // КЭШ ПОДГОТОВЛЕННОЙ СЕТКИ (оптимизация 2026-07): routeAll зовёт routePorts для одного
+  // терминала несколько раз (проход 1, итерации rip-up) — меняется только moveCost, а
+  // сетка, раздутые тела, проходимость грид-шагов и эвристика от него НЕ зависят. Задав
+  // gridCache + cacheKey, вызывающий разрешает переиспользовать их между вызовами.
+  // Ключ включает margin (ступенчатый сброс клиренса строит ДРУГУЮ сетку).
+  cacheKey?: string;
+  gridCache?: RouteGridCache;
 }
+
+// Подготовленная сетка терминала (см. RouteOptions.gridCache). Содержимое приватно для
+// модуля: снаружи кэш — непрозрачный Map, который вызывающий лишь создаёт и передаёт.
+interface PreparedGrid {
+  xs: number[];
+  ys: number[];
+  grown: NodeRect[];
+  sOrigins: EdgePoint[];
+  eOrigins: EdgePoint[];
+  goals: Map<number, { endIdx: number; forbidden: number }[]>;
+  hPass: Int8Array;    // проходимость шага (i,j)→(i+1,j); -1 не считана, 0 нет, 1 да
+  vPass: Int8Array;    // проходимость шага (i,j)→(i,j+1)
+  hMemo: Float64Array; // эвристика вершины (i*NY+j); -1 не считана
+}
+export type RouteGridCache = Map<string, PreparedGrid>;
 
 // Порт: точка стыковки (хэндл) и, опционально, сторона узла. Со стороной маршрут обязан
 // выйти/войти вдоль её нормали (направленная видимость); без — как свободная вершина.
@@ -151,6 +173,71 @@ class MinHeap {
   }
 }
 
+// Сборка PreparedGrid терминала: грид-линии, раздутые тела, цели. Кэши проходимости
+// и эвристики создаются пустыми и наполняются лениво по ходу поисков.
+function prepareGrid(
+  starts: PortCandidate[],
+  ends: PortCandidate[],
+  obstacles: NodeRect[],
+  margin: number,
+  stub: number,
+  extraXs?: number[],
+  extraYs?: number[],
+): PreparedGrid {
+  const sOrigins = starts.map((p) => portOrigin(p, obstacles, stub));
+  const eOrigins = ends.map((p) => portOrigin(p, obstacles, stub));
+
+  // Грид-линии: раздвинутые на клиренс границы препятствий + порты (хэндлы и стаб-точки)
+  // + подсказки. Хэндлы дают линии вдоль граней своих узлов — каналы общей решётки набора.
+  const xsRaw: number[] = [...(extraXs ?? [])];
+  const ysRaw: number[] = [...(extraYs ?? [])];
+  for (const p of [...starts, ...ends]) { xsRaw.push(p.point.x); ysRaw.push(p.point.y); }
+  for (const p of [...sOrigins, ...eOrigins]) { xsRaw.push(p.x); ysRaw.push(p.y); }
+  for (const r of obstacles) {
+    xsRaw.push(r.x - margin, r.x + r.w + margin);
+    ysRaw.push(r.y - margin, r.y + r.h + margin);
+  }
+  const xs = axisLines(xsRaw);
+  const ys = axisLines(ysRaw);
+  const NX = xs.length, NY = ys.length;
+
+  // Тела, раздутые на клиренс margin (канон libavoid shapeBufferDistance): в общей решётке
+  // набора есть линии по ГРАНЯМ чужих узлов (порты соседей), и без раздутия маршрут легально
+  // ехал вдоль самой грани («по грани», 0px зазора). Ход ровно по раздутой границе — касание,
+  // не пересечение (eps в pathCrossesRects) → дистанция margin достижима, ближе нельзя.
+  const grown = obstacles.map((r) => ({
+    x: r.x - margin, y: r.y - margin, w: r.w + 2 * margin, h: r.h + 2 * margin,
+  }));
+
+  // Целевые вершины: (i,j) → список кандидатов. Направленный порт принимает приход с любым
+  // dir, КРОМЕ его внешней нормали: приход «наружу» означал бы разворот на 180° на шве с
+  // приклеиваемым стабом внутрь.
+  const goals = new Map<number, { endIdx: number; forbidden: number }[]>();
+  eOrigins.forEach((g, k) => {
+    const cell = lineIndex(xs, g.x) * NY + lineIndex(ys, g.y);
+    const side = ends[k].side;
+    const arr = goals.get(cell) ?? [];
+    arr.push({ endIdx: k, forbidden: side ? OUT_DIR[side] : -1 });
+    goals.set(cell, arr);
+  });
+
+  return {
+    xs, ys, grown, sOrigins, eOrigins, goals,
+    hPass: new Int8Array(Math.max(0, (NX - 1) * NY)).fill(-1),
+    vPass: new Int8Array(Math.max(0, NX * (NY - 1))).fill(-1),
+    hMemo: new Float64Array(NX * NY).fill(-1),
+  };
+}
+
+// Скретч-буферы состояния A* (gScore/cameFrom/closed): переиспользуются между вызовами,
+// растут до максимального встреченного грида. Легально: routePorts синхронна и не
+// реентерабельна (moveCost не зовёт роутер), поток один — гонок нет.
+const scratch = {
+  g: new Float64Array(0),
+  came: new Int32Array(0),
+  closed: new Uint8Array(0),
+};
+
 /**
  * Один маршрут из ЛЮБОГО стартового порта в ЛЮБОЙ целевой (multi-source/multi-target A*).
  * Вход в поиск у всех портов бесплатный — побеждает пара с лучшим суммарным маршрутом
@@ -167,66 +254,69 @@ export function routePorts(
   const moveCost = opts?.moveCost;
   const stub = opts?.stub ?? EDGE_STUB;
 
-  const sOrigins = starts.map((p) => portOrigin(p, obstacles, stub));
-  const eOrigins = ends.map((p) => portOrigin(p, obstacles, stub));
-
-  // Грид-линии: раздвинутые на клиренс границы препятствий + порты (хэндлы и стаб-точки)
-  // + подсказки. Хэндлы дают линии вдоль граней своих узлов — каналы общей решётки набора.
-  const xsRaw: number[] = [...(opts?.extraXs ?? [])];
-  const ysRaw: number[] = [...(opts?.extraYs ?? [])];
-  for (const p of [...starts, ...ends]) { xsRaw.push(p.point.x); ysRaw.push(p.point.y); }
-  for (const p of [...sOrigins, ...eOrigins]) { xsRaw.push(p.x); ysRaw.push(p.y); }
-  for (const r of obstacles) {
-    xsRaw.push(r.x - margin, r.x + r.w + margin);
-    ysRaw.push(r.y - margin, r.y + r.h + margin);
+  // Подготовленная сетка терминала — из кэша вызывающего (если дан) или свежая.
+  const cacheKey = opts?.cacheKey != null && opts?.gridCache ? `${opts.cacheKey}@${margin}` : null;
+  let grid = cacheKey ? opts!.gridCache!.get(cacheKey) : undefined;
+  if (!grid) {
+    grid = prepareGrid(starts, ends, obstacles, margin, stub, opts?.extraXs, opts?.extraYs);
+    if (cacheKey) opts!.gridCache!.set(cacheKey, grid);
   }
-  const xs = axisLines(xsRaw);
-  const ys = axisLines(ysRaw);
+  const { xs, ys, grown, sOrigins, eOrigins, goals, hPass, vPass, hMemo } = grid;
   const NX = xs.length, NY = ys.length;
 
   // Кодирование состояния A*: ((i*NY + j)*5 + dir). dir — знаковое направление ПРИХОДА.
   const encode = (i: number, j: number, dir: number): number => (i * NY + j) * 5 + dir;
 
-  // Проходим ли осевой отрезок между двумя вершинами сетки. Препятствия РАЗДУТЫ на
-  // клиренс margin (канон libavoid shapeBufferDistance): в общей решётке набора есть
-  // линии по ГРАНЯМ чужих узлов (порты соседей), и без раздутия маршрут легально ехал
-  // вдоль самой грани («по грани», 0px зазора). Ход ровно по раздутой границе — касание,
-  // не пересечение (eps в pathCrossesRects) → дистанция margin достижима, ближе нельзя.
-  const grown = obstacles.map((r) => ({
-    x: r.x - margin, y: r.y - margin, w: r.w + 2 * margin, h: r.h + 2 * margin,
-  }));
-  const passable = (i1: number, j1: number, i2: number, j2: number): boolean =>
-    !pathCrossesRects(
-      [{ x: xs[i1], y: ys[j1] }, { x: xs[i2], y: ys[j2] }],
-      grown,
-    );
+  // Проходимость грид-шага с ленивым мемо (шаги всегда на соседнюю линию; отрезок
+  // симметричен, ключ — канонический «меньший индекс»). От moveCost не зависит →
+  // мемо живёт в PreparedGrid и переживает попытки rip-up.
+  const stepPassH = (i: number, j: number): boolean => { // (i,j)→(i+1,j)
+    const k = i * NY + j;
+    let v = hPass[k];
+    if (v < 0) {
+      v = pathCrossesRects([{ x: xs[i], y: ys[j] }, { x: xs[i + 1], y: ys[j] }], grown) ? 0 : 1;
+      hPass[k] = v;
+    }
+    return v === 1;
+  };
+  const stepPassV = (i: number, j: number): boolean => { // (i,j)→(i,j+1)
+    const k = i * (NY - 1) + j;
+    let v = vPass[k];
+    if (v < 0) {
+      v = pathCrossesRects([{ x: xs[i], y: ys[j] }, { x: xs[i], y: ys[j + 1] }], grown) ? 0 : 1;
+      vPass[k] = v;
+    }
+    return v === 1;
+  };
 
-  // Эвристика: минимальный манхэттен до ближайшей целевой стаб-точки (допустима и согласована).
+  // Эвристика: минимальный манхэттен до ближайшей целевой стаб-точки (допустима и
+  // согласована); мемо по вершине (тоже не зависит от moveCost).
   const h = (i: number, j: number): number => {
-    let best = Infinity;
-    for (const g of eOrigins) {
-      const d = Math.abs(xs[i] - g.x) + Math.abs(ys[j] - g.y);
-      if (d < best) best = d;
+    const k = i * NY + j;
+    let best = hMemo[k];
+    if (best < 0) {
+      best = Infinity;
+      for (const g of eOrigins) {
+        const d = Math.abs(xs[i] - g.x) + Math.abs(ys[j] - g.y);
+        if (d < best) best = d;
+      }
+      hMemo[k] = best;
     }
     return best;
   };
 
-  // Целевые вершины: (i,j) → список кандидатов. Направленный порт принимает приход с любым
-  // dir, КРОМЕ его внешней нормали: приход «наружу» означал бы разворот на 180° на шве с
-  // приклеиваемым стабом внутрь.
-  const goals = new Map<number, { endIdx: number; forbidden: number }[]>();
-  eOrigins.forEach((g, k) => {
-    const cell = lineIndex(xs, g.x) * NY + lineIndex(ys, g.y);
-    const side = ends[k].side;
-    const arr = goals.get(cell) ?? [];
-    arr.push({ endIdx: k, forbidden: side ? OUT_DIR[side] : -1 });
-    goals.set(cell, arr);
-  });
-
-  const gScore = new Map<number, number>();
-  const cameFrom = new Map<number, number>();
+  // Состояние поиска — в скретч-буферах (индекс = ключ состояния).
+  const nStates = NX * NY * 5;
+  if (scratch.g.length < nStates) {
+    scratch.g = new Float64Array(nStates);
+    scratch.came = new Int32Array(nStates);
+    scratch.closed = new Uint8Array(nStates);
+  }
+  const gScore = scratch.g, cameFrom = scratch.came, closed = scratch.closed;
+  gScore.fill(Infinity, 0, nStates);
+  cameFrom.fill(-1, 0, nStates);
+  closed.fill(0, 0, nStates);
   const seedOf = new Map<number, number>(); // стартовое состояние → индекс порта
-  const closed = new Set<number>();
   const open = new MinHeap();
 
   sOrigins.forEach((o, k) => {
@@ -235,8 +325,8 @@ export function routePorts(
     // ходу нырнуть обратно к узлу, а первый поворот честно заплатит bendPenalty.
     const side = starts[k].side;
     const key = encode(i, j, side ? OUT_DIR[side] : NONE);
-    if ((gScore.get(key) ?? Infinity) > 0) {
-      gScore.set(key, 0);
+    if (gScore[key] > 0) {
+      gScore[key] = 0;
       seedOf.set(key, k);
       open.push(key, h(i, j));
     }
@@ -245,8 +335,8 @@ export function routePorts(
   let goalKey = -1, goalEndIdx = -1;
   while (open.size > 0) {
     const key = open.pop();
-    if (closed.has(key)) continue;
-    closed.add(key);
+    if (closed[key] === 1) continue;
+    closed[key] = 1;
 
     const dir = key % 5;
     const cell = (key - dir) / 5;
@@ -259,28 +349,29 @@ export function routePorts(
       if (hit) { goalKey = key; goalEndIdx = hit.endIdx; break; }
     }
 
-    const g = gScore.get(key)!;
-    // Четыре соседа со знаковым направлением хода; разворот (ход против dir) запрещён.
-    const moves: Array<[number, number, number]> = [
-      [i + 1, j, XP], [i - 1, j, XM],
-      [i, j + 1, YP], [i, j - 1, YM],
-    ];
-    for (const [ni, nj, md] of moves) {
-      if (ni < 0 || ni >= NX || nj < 0 || nj >= NY) continue;
-      if (md === OPPOSITE[dir]) continue;
-      if (!passable(i, j, ni, nj)) continue;
+    const g = gScore[key];
+    const opp = OPPOSITE[dir];
+    // Четыре соседа со знаковым направлением хода (порядок XP, XM, YP, YM — часть
+    // детерминизма результата); разворот (ход против dir) запрещён. Развёрнуто в
+    // локальную функцию без аллокаций — это самый горячий цикл роутера.
+    const expand = (ni: number, nj: number, md: number, pass: boolean): void => {
+      if (!pass) return;
       const segLen = Math.abs(xs[ni] - xs[i]) + Math.abs(ys[nj] - ys[j]);
-      if (segLen <= EPS) continue; // вырожденный (слипшиеся линии)
+      if (segLen <= EPS) return; // вырожденный (слипшиеся линии)
       const turn = dir !== NONE && isHor(dir) !== isHor(md) ? bendPenalty : 0;
       const extra = moveCost ? moveCost(xs[i], ys[j], xs[ni], ys[nj]) : 0;
       const ng = g + segLen + turn + extra;
       const nkey = encode(ni, nj, md);
-      if (ng < (gScore.get(nkey) ?? Infinity)) {
-        gScore.set(nkey, ng);
-        cameFrom.set(nkey, key);
+      if (ng < gScore[nkey]) {
+        gScore[nkey] = ng;
+        cameFrom[nkey] = key;
         open.push(nkey, ng + h(ni, nj));
       }
-    }
+    };
+    if (i + 1 < NX && opp !== XP) expand(i + 1, j, XP, stepPassH(i, j));
+    if (i - 1 >= 0 && opp !== XM) expand(i - 1, j, XM, stepPassH(i - 1, j));
+    if (j + 1 < NY && opp !== YP) expand(i, j + 1, YP, stepPassV(i, j));
+    if (j - 1 >= 0 && opp !== YM) expand(i, j - 1, YM, stepPassV(i, j - 1));
   }
 
   if (goalKey < 0) {
@@ -305,8 +396,8 @@ export function routePorts(
     const j = cell % NY;
     const i = (cell - j) / NY;
     pts.push({ x: xs[i], y: ys[j] });
-    const prev = cameFrom.get(cur);
-    if (prev === undefined) break;
+    const prev = cameFrom[cur];
+    if (prev < 0) break;
     cur = prev;
   }
   const startIdx = seedOf.get(cur) ?? 0;
