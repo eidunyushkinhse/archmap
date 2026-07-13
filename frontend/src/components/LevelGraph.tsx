@@ -87,6 +87,9 @@ interface LevelGraphProps {
   onEditNode: (node: AppNode) => void;
   // Двойной клик по ГОСТЮ (проекция чужого узла) — детализация read-only в правой панели.
   onInspectGhost?: (ghost: GhostNode) => void;
+  // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
+  // стрелка+оба узла). Гость сводится к kind:"node". Считается в TreePage из selectedObject.
+  linkedHighlight?: { kind: "node" | "edge"; id: string } | null;
   // клик по описанию связи (одиночной или «мастер-стрелке») — список для выбора.
   // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
   // связь в том же направлении, а не городить отдельную стрелку.
@@ -179,6 +182,7 @@ function LevelGraphInner({
   onEnterNode,
   onEditNode,
   onInspectGhost,
+  linkedHighlight,
   onEdgesChoice,
   onLayoutChanged,
   onDropNode,
@@ -850,6 +854,51 @@ function LevelGraphInner({
     });
     return () => cancelAnimationFrame(raf);
   }, [locate, rfNodes, rfEdges, getInternalNode, setCenter, fitBounds]);
+
+  // УСТОЙЧИВАЯ подсветка связанного по двойному клику (П5/П6): что открыто в правой панели,
+  // то и подсвечено, пока открыто. Узел → он сам + инцидентные отрисованные стрелки; связь
+  // → её отрисованное ребро (панель держит ЧЛЕНА пучка — ищем несущее ребро) + оба его узла.
+  // Как и locate — императивно по data-id (не ввязываем пересборку rfNodes из async-раскладки);
+  // отличие: держим до смены выделения (класс снимаем в cleanup, а не по таймеру). Зависимость
+  // от rfNodes/rfEdges — переналожение после пере-раскладки/ремаунта холста.
+  useEffect(() => {
+    if (!linkedHighlight || isContext) return;
+    const nodeIds = new Set<string>();
+    const edgeIds = new Set<string>();
+    if (linkedHighlight.kind === "node") {
+      nodeIds.add(linkedHighlight.id);
+      for (const e of rfEdges) {
+        if (e.source === linkedHighlight.id || e.target === linkedHighlight.id) edgeIds.add(e.id);
+      }
+    } else {
+      const re = rfEdges.find((e) => {
+        const mids = (e.data as WrappedEdgeData | undefined)?.memberIds;
+        return mids ? mids.includes(linkedHighlight.id) : e.id === linkedHighlight.id;
+      });
+      if (re) {
+        edgeIds.add(re.id);
+        if (re.source) nodeIds.add(re.source);
+        if (re.target) nodeIds.add(re.target);
+      }
+    }
+    if (nodeIds.size === 0 && edgeIds.size === 0) return;
+    let applied: Element[] = [];
+    const raf = requestAnimationFrame(() => {
+      for (const id of nodeIds) {
+        const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
+        if (el) { el.classList.add("lg-linked-node"); applied.push(el); }
+      }
+      for (const id of edgeIds) {
+        const el = document.querySelector(`.react-flow__edge[data-id="${CSS.escape(id)}"]`);
+        if (el) { el.classList.add("lg-linked-edge"); applied.push(el); }
+      }
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      for (const el of applied) el.classList.remove("lg-linked-node", "lg-linked-edge");
+      applied = [];
+    };
+  }, [linkedHighlight, rfNodes, rfEdges, isContext]);
 
   // Контекст-схема без фокус-узла не бывает — защитно ничего не рисуем. Обычный
   // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно

@@ -375,6 +375,24 @@
   animation: lg-locate-pulse 2.1s ease-in-out;
 }
 
+/* Подсветка СВЯЗАННОГО по двойному клику (панельное выделение): узел + его стрелки,
+   либо стрелка + оба её узла. Держится, пока объект открыт в правой панели — устойчивая,
+   не мигающая (в отличие от lg-locate-flash). Класс вешается императивно на DOM xyflow по
+   data-id (LevelGraph effect). Индиго — отличается от синего RF-selected и оранжевого
+   locate. drop-shadow очерчивает alpha-форму узла, а не bbox. */
+.react-flow__node.lg-linked-node {
+  filter: drop-shadow(0 0 7px rgba(99, 102, 241, 0.92)) drop-shadow(0 0 2px rgba(99, 102, 241, 0.85));
+  z-index: 45 !important;
+}
+.react-flow__edge.lg-linked-edge {
+  z-index: 20 !important;
+}
+/* Инлайновый stroke ставит BaseEdge (style-проп) — перебиваем через !important. */
+.react-flow__edge.lg-linked-edge .react-flow__edge-path {
+  stroke: #6366f1 !important;
+  stroke-width: 2.4 !important;
+}
+
 /* Плашки подписей — ПОВЕРХ линий стрелок (жалоба «плашка под стрелкой»).
    RF поднимает svg ребра до z:1, когда его конец — ребёнок compound-рамки (после
    раскрытия контейнеров это почти все рёбра), а edgelabel-renderer живёт на z:auto —

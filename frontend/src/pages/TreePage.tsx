@@ -665,6 +665,16 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     [edges, endpoints, nodes, currentParentId],
   );
 
+  // Что открыто в панели → устойчивая подсветка связанного на схеме (П5/П6). Гость и
+  // локал сводятся к kind:"node" (подсветить узел + его стрелки); связь → kind:"edge"
+  // (подсветить стрелку + оба её узла). Мемо — чтобы эффект подсветки не гонялся каждый рендер.
+  const linkedHighlight = useMemo((): { kind: "node" | "edge"; id: string } | null => {
+    if (!selectedObject) return null;
+    if (selectedObject.kind === "edge") return { kind: "edge", id: selectedObject.edge.id };
+    if (selectedObject.kind === "ghost") return { kind: "node", id: selectedObject.ghost.id };
+    return { kind: "node", id: selectedObject.node.id };
+  }, [selectedObject]);
+
   // Имя конца связи для заголовка «Выберите связь». Берём ФАКТИЧЕСКИЙ конец ребра
   // (может быть дочерним узлом при сквозной связи), а не спроецированный на уровень
   // узел. У членов мастер-стрелки фактические концы могут различаться (общий лишь
@@ -839,6 +849,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onEnterNode={drillToPath}
               onEditNode={(node) => { setSelectedObject({ kind: "node", node }); setRightCollapsed(false); }}
               onInspectGhost={(ghost) => { setSelectedObject({ kind: "ghost", ghost }); setRightCollapsed(false); }}
+              linkedHighlight={linkedHighlight}
               onEdgesChoice={(group) => {
                 const les = group
                   .map((g) => findLevelEdge(g.id))
