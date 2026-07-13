@@ -2,19 +2,21 @@
 // схемы» + легенда статусов (когда есть не-existing узлы), ниже — мета выбранного
 // объекта (узел/связь) либо пустое состояние. Одна область меты для наблюдателя и
 // архитектора: роли различает сам NodeInspector/EdgeInspector.
-import type { Edge, EdgeUpdate, DeletionSnapshot, Node, NodeStatus, LevelEdge } from "../../types";
+import type { Edge, EdgeUpdate, DeletionSnapshot, GhostNode, Node, NodeStatus, LevelEdge } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { SchemaViewFilter } from "../SchemaViewFilter";
 import { viewShows, type SchemaView } from "../schemaView";
 import NodeInspector from "./NodeInspector";
 import EdgeInspector from "./EdgeInspector";
+import GhostInspector from "./GhostInspector";
 import "./inspector.css";
 
-// Что показано в панели: узел, связь или ничего. Источник правды — TreePage (двойной
-// клик по объекту наполняет панель).
+// Что показано в панели: узел-локал, связь, ГОСТЬ (проекция чужого узла, read-only) или
+// ничего. Источник правды — TreePage (двойной клик по объекту наполняет панель).
 export type Selected =
   | { kind: "node"; node: Node }
   | { kind: "edge"; edge: LevelEdge }
+  | { kind: "ghost"; ghost: GhostNode }
   | null;
 
 interface Props {
@@ -28,11 +30,12 @@ interface Props {
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
   onEdgeSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
   onEdgeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
+  onGhostGoToSource: (ghost: GhostNode) => void;
 }
 
 export default function ObjectInspector({
   hasStatusInfo, view, onViewChange, counts, selected, isArchitect,
-  onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted,
+  onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
 }: Props) {
   return (
     <div className="insp">
@@ -53,6 +56,12 @@ export default function ObjectInspector({
           isArchitect={isArchitect}
           onNodeSaved={onNodeSaved}
           onNodeDeleted={onNodeDeleted}
+        />
+      ) : selected.kind === "ghost" ? (
+        <GhostInspector
+          key={selected.ghost.id}
+          ghost={selected.ghost}
+          onGoToSource={onGhostGoToSource}
         />
       ) : (
         <EdgeInspector

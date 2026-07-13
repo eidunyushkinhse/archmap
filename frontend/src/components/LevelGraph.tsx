@@ -85,6 +85,8 @@ interface LevelGraphProps {
   // аппендить к текущему breadcrumb нельзя.
   onEnterNode?: (path: AncestorRef[]) => void;
   onEditNode: (node: AppNode) => void;
+  // Двойной клик по ГОСТЮ (проекция чужого узла) — детализация read-only в правой панели.
+  onInspectGhost?: (ghost: GhostNode) => void;
   // клик по описанию связи (одиночной или «мастер-стрелке») — список для выбора.
   // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
   // связь в том же направлении, а не городить отдельную стрелку.
@@ -176,6 +178,7 @@ function LevelGraphInner({
   onDrillDown,
   onEnterNode,
   onEditNode,
+  onInspectGhost,
   onEdgesChoice,
   onLayoutChanged,
   onDropNode,
@@ -655,13 +658,13 @@ function LevelGraphInner({
     [edges, onEdgesChoice],
   );
 
-  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
@@ -760,9 +763,15 @@ function LevelGraphInner({
   // контекст read-only).
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
-      if (isContext || rfNode.type !== "block") return;
-      const appNode = (rfNode.data as BlockData | undefined)?.appNode;
-      if (appNode) cbRef.current.onEditNode(appNode);
+      if (isContext) return;
+      if (rfNode.type === "block") {
+        const appNode = (rfNode.data as BlockData | undefined)?.appNode;
+        if (appNode) cbRef.current.onEditNode(appNode);
+      } else if (rfNode.type === "ghost") {
+        // Гость — проекция чужого узла: детализация read-only (GhostInspector), без правок.
+        const ghost = (rfNode.data as GhostData | undefined)?.appNode;
+        if (ghost) cbRef.current.onInspectGhost?.(ghost);
+      }
     },
     [isContext]
   );

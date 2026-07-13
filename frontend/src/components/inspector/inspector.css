@@ -124,6 +124,43 @@
   margin: 16px 0 8px;
 }
 
+/* Карточка гостя (проекция чужого узла): шапка с глифом, заметка, переход к источнику */
+.insp-ghost-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14.5px;
+  color: #1e293b;
+  padding: 2px 0 6px;
+}
+.insp-ghost-note {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: #94a3b8;
+  font-style: italic;
+}
+.insp-goto {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px;
+  margin-top: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.insp-goto:hover {
+  background: #f1f5f9;
+}
+
 /* Поля ввода (архитектор) */
 .insp-field {
   width: 100%;

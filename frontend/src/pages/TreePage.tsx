@@ -372,6 +372,17 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     load(path[path.length - 1].id);
   }
 
+  // «Перейти к источнику» гостя: гость — проекция чужого узла, реальный узел живёт на
+  // уровне своего непосредственного родителя (ancestors = корень→родитель). Уводим туда,
+  // где узел показан как локал; пустой путь предков → узел живёт на корневом уровне.
+  function goToGhostSource(ghost: GhostNode) {
+    if (ghost.ancestors.length > 0) { drillToPath(ghost.ancestors); return; }
+    setContextNode(null);
+    setSelectedObject(null);
+    setBreadcrumb([]);
+    load(null);
+  }
+
   // Рефетч уровня + бокового дерева для undo/redo структурных команд: замыкание
   // фиксирует уровень правки на момент создания команды (redo/undo могут выполняться
   // с другого уровня — дисптчер сперва средиректит по cmd.level).
@@ -827,6 +838,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onDrillDown={drillDown}
               onEnterNode={drillToPath}
               onEditNode={(node) => { setSelectedObject({ kind: "node", node }); setRightCollapsed(false); }}
+              onInspectGhost={(ghost) => { setSelectedObject({ kind: "ghost", ghost }); setRightCollapsed(false); }}
               onEdgesChoice={(group) => {
                 const les = group
                   .map((g) => findLevelEdge(g.id))
@@ -897,6 +909,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
                 onNodeDeleted={handleNodeDeleted}
                 onEdgeSaved={handleEdgeSaved}
                 onEdgeDeleted={handleEdgeDeleted}
+                onGhostGoToSource={goToGhostSource}
               />
             </div>
           )}
