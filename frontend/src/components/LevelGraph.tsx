@@ -746,14 +746,9 @@ function LevelGraphInner({
       // прогон видит сохранённое и интент не повторяет. cbRef — чтобы не тащить
       // commitLayout в deps.
       for (const intent of intents) {
-        if (intent.kind === "seed-positions") {
-          cbRef.current.commitLayout(
-            Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
-          );
-        } else {
-          // reset-label-t: владеемая доля плашки стала нелегальной → удаляем строку группы.
-          cbRef.current.commitLayout(Object.fromEntries(intent.ids.map((id) => [id, null])));
-        }
+        cbRef.current.commitLayout(
+          Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
+        );
       }
       setLayout(next);
       } finally {
@@ -918,6 +913,13 @@ function LevelGraphInner({
     }
     if (nodeIds.size === 0 && edgeIds.size === 0) return;
     let applied: Element[] = [];
+    // Подсвеченные рёбра поднимаем НАД прочими рёбрами перестановкой их <svg> в конец
+    // контейнера .react-flow__edges: RF рисует каждое ребро отдельным <svg>, стекинг между
+    // ними — по DOM-порядку (z-index бесполезен и опасен: рёбра делят stacking-контекст с
+    // узлами и положительный z накрыл бы узлы). Так дуги-мостики подсвеченного ребра идут
+    // ПОВЕРХ пересекаемых серых стрелок, но ребро остаётся под узлами (узлы — в своём div
+    // после контейнера рёбер). Возврат на место — по восстановлению исходного соседа.
+    let restore: Array<{ svg: Element; parent: Node; before: Node | null }> = [];
     const raf = requestAnimationFrame(() => {
       for (const id of nodeIds) {
         const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
@@ -925,13 +927,29 @@ function LevelGraphInner({
       }
       for (const id of edgeIds) {
         const el = document.querySelector(`.react-flow__edge[data-id="${CSS.escape(id)}"]`);
-        if (el) { el.classList.add("lg-linked-edge"); applied.push(el); }
+        if (!el) continue;
+        el.classList.add("lg-linked-edge");
+        applied.push(el);
+        const svg = el.closest("svg");
+        const parent = svg?.parentElement;
+        if (svg && parent && parent.classList.contains("react-flow__edges") && svg !== parent.lastElementChild) {
+          restore.push({ svg, parent, before: svg.nextSibling });
+          parent.appendChild(svg); // в конец → рисуется поверх прочих рёбер
+        }
       }
     });
     return () => {
       cancelAnimationFrame(raf);
       for (const el of applied) el.classList.remove("lg-linked-node", "lg-linked-edge");
+      // Возврат <svg> ребра на исходную позицию (best-effort: только если узлы ещё в DOM
+      // на прежних местах — иначе RF уже перерисовал список и сам восстановил порядок).
+      for (const r of restore) {
+        if (r.svg.parentElement !== r.parent) continue;
+        if (r.before && r.before.parentNode === r.parent) r.parent.insertBefore(r.svg, r.before);
+        else if (!r.before) r.parent.appendChild(r.svg);
+      }
       applied = [];
+      restore = [];
     };
   }, [linkedHighlight, rfNodes, rfEdges, isContext]);
 

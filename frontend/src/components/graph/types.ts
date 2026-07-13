@@ -46,11 +46,6 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   // чтобы пунктир не прятался под плашкой). Считается по авто-маршруту на раскладке.
   // Плашка НЕ двигается руками (заморожена вместе с удалением ручного слоя, 2026-07-09).
   labelPlacement?: { mode: "online" | "leader"; center: EdgePoint; anchor: EdgePoint; leaderEnd: EdgePoint };
-  // П4 (возврат подвижных плашек): легальные arc-интервалы, куда МОЖНО утащить плашку
-  // (labelCandidates после эрозии на пол-плашки) — edges.tsx зажимает драг в них; и колбэк
-  // коммита доли (null — сброс в авто). Заданы только архитектору на level-ребре с маршрутом.
-  labelClamp?: Array<{ s: number; e: number }>;
-  onLabelTCommit?: (t: number | null) => void;
   // архитекторский канвас: у безымянной связи рисуется плейсхолдер-плашка «•••»
   // (точка входа в детали); сама геометрия стрелок руками не правится
   editable?: boolean;

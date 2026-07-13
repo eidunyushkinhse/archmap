@@ -28,8 +28,6 @@ export interface AssembleCallbacks {
   collapseContainer: (id: string) => void;
   openEdgeMembers: (memberIds: string[]) => void;
   quickConnect: QuickConnectHandlers;
-  // Персист владеемой доли плашки (П4): { [groupId]: { label_t } } либо null (сброс в авто).
-  commitLayout: (patch: Record<string, { label_t: number } | null>) => void;
 }
 
 export function assembleRfGraph(params: {
@@ -43,7 +41,7 @@ export function assembleRfGraph(params: {
   const { layout, isArchitect, isContext, depth, schemaView, cb } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
-    autoRoutes, labelPlacements, labelClamp, guestFrames, groupArr, spacers,
+    autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
   } = layout;
 
   // R4: раскрытые гостевые рамки — compound-узлы RF. Родитель сущности — САМАЯ
@@ -212,15 +210,6 @@ export function assembleRfGraph(params: {
       // center, а в режиме leader рисует поводок center↔anchor.
       const lp = labelPlacements?.get(g.id);
       if (lp) data.labelPlacement = lp;
-      // П4: плашку можно тащить вдоль стрелки (только архитектор, только в легальном
-      // интервале). Даём легальные интервалы для клампа + колбэк персиста доли.
-      if (isArchitect) {
-        const clamp = labelClamp?.get(g.id);
-        if (clamp && clamp.length > 0) {
-          data.labelClamp = clamp;
-          data.onLabelTCommit = (t) => cb.commitLayout({ [g.id]: t == null ? null : { label_t: t } });
-        }
-      }
     }
     // в контекст-схеме ограничиваем ширину плашки — зазор колонок рассчитан под неё —
     // и кладём подпись на приузловую полку (shelf), если раскладка её посчитала

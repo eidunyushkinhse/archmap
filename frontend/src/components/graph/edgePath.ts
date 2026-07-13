@@ -233,33 +233,6 @@ export function pointAtFraction(pts: EdgePoint[], t: number): EdgePoint {
   return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
 }
 
-// Доля arc-length [0,1] точки ломаной, ближайшей к курсору (обратная к pointAtFraction).
-// Для драга плашки подписи: курсор → доля на стрелке. Проекция на каждое звено с клампом
-// в [0,1] по звену, берётся ближайшее. Вырожденный путь → 0. Восстановлено 2026-07-13
-// (узкий возврат ради подвижных плашек; остальной ручной слой стрелок остаётся удалённым).
-export function nearestFraction(pts: EdgePoint[], cursor: EdgePoint): number {
-  if (pts.length < 2) return 0;
-  const { seg, total } = arcLengths(pts);
-  if (total === 0) return 0;
-  let bestDist = Infinity;
-  let bestLen = 0;
-  let acc = 0;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const ax = pts[i].x, ay = pts[i].y;
-    const dx = pts[i + 1].x - ax, dy = pts[i + 1].y - ay;
-    const len2 = dx * dx + dy * dy;
-    const u = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cursor.x - ax) * dx + (cursor.y - ay) * dy) / len2));
-    const px = ax + dx * u, py = ay + dy * u;
-    const dist = Math.hypot(cursor.x - px, cursor.y - py);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestLen = acc + seg[i] * u;
-    }
-    acc += seg[i];
-  }
-  return bestLen / total;
-}
-
 // Прямоугольник узла (для проверки, пересекает ли маршрут стрелки чужие узлы).
 export interface NodeRect { x: number; y: number; w: number; h: number; }
 
