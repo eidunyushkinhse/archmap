@@ -198,6 +198,37 @@ describe("buildAutoRoutes — штраф езды по чужой линии (sh
   });
 });
 
+describe("buildAutoRoutes — плашки как штраф маршрута (T4, 2026-07-13)", () => {
+  const positions = new Map([
+    ["A", { x: 0, y: 300 }],
+    ["B", { x: 800, y: 300 }],
+  ]);
+  const groups = [group("g", "A", "B")];
+  // плашка ЧУЖОГО ребра ровно на прямой A→B (y=350): маршрут обязан объехать
+  const foreign = { x: 420, y: 330, w: 140, h: 40 };
+
+  it("чужая плашка отталкивает маршрут (объезд вместо линии сквозь текст)", () => {
+    const clean = buildAutoRoutes({
+      groups, routableIds: new Set(["g"]), positions, displayIds: ["A", "B"],
+    });
+    expect(pathCrossesRects(clean.routes.get("g")!, [foreign])).toBe(true); // без T4 — сквозь
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g"]), positions, displayIds: ["A", "B"],
+      labelObstacles: new Map([["other", foreign]]),
+    });
+    expect(pathCrossesRects(out.routes.get("g")!, [foreign])).toBe(false);
+  });
+
+  it("СВОЯ плашка не отталкивает (online-плашка лежит на собственной линии)", () => {
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g"]), positions, displayIds: ["A", "B"],
+      labelObstacles: new Map([["g", foreign]]),
+    });
+    // маршрут остаётся прямым, сквозь «свою» плашку
+    expect(out.routes.get("g")!.length).toBe(2);
+  });
+});
+
 describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
   const positions = new Map([
     ["A", { x: 0, y: 0 }],

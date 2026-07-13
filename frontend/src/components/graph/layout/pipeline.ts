@@ -43,6 +43,8 @@ import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeChannels } from "./channelNudge";
 import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
+import { labelBoxSize } from "./labelBox";
+import { pathCrossesRects } from "../edgePath";
 import { widenNodesForLabels } from "./widenForLabels";
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
@@ -560,6 +562,62 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       preferredT: () => undefined,
       nodeRects,
     });
+
+    // ПЛАШКИ → ПРЕПЯТСТВИЯ МАРШРУТОВ (T4 «читаемые пучки», один мини-проход): линия
+    // сквозь чужой текст нечитаема. «Грязные» рёбра (маршрут режет прямоугольник ЧУЖОЙ
+    // плашки) перепрокладываются со штрафом LABEL_CROSS_COST за переход границы плашки
+    // (своя не отталкивает); прочие маршруты — фиксированный контекст prev. После —
+    // одно пере-размещение плашек по изменённой геометрии. Второй итерации нет
+    // осознанно: сдвинутая плашка теоретически может лечь на другую линию — редкий
+    // остаток, не стоит цикла.
+    {
+      const labelRectOf = new Map<string, { x: number; y: number; w: number; h: number }>();
+      for (const g of groupArr) {
+        const lp = labelPlacements.get(g.id);
+        const meta = edgeLabelMeta(g);
+        if (!lp || !meta) continue;
+        const box = labelBoxSize(meta.text, { lines: meta.lines });
+        labelRectOf.set(g.id, {
+          x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h,
+        });
+      }
+      const dirty = new Set<string>();
+      for (const g of groupArr) {
+        const rt = autoRoutes.get(g.id);
+        if (!rt) continue;
+        for (const [gid, r] of labelRectOf) {
+          if (gid === g.id) continue;
+          if (pathCrossesRects(rt, [r])) { dirty.add(g.id); break; }
+        }
+      }
+      if (dirty.size > 0) {
+        const ar2 = buildAutoRoutes({
+          groups: groupArr, routableIds: dirty, positions,
+          displayIds, sizes: sizeMap, frames: routerFrames,
+          prev: { routes: autoRoutes, handles: edgeHandles },
+          labelObstacles: labelRectOf,
+        });
+        let changed = false;
+        for (const id of dirty) {
+          const rt = ar2.routes.get(id);
+          const hh = ar2.handles.get(id);
+          if (!rt) continue;
+          autoRoutes.set(id, rt);
+          if (hh) edgeHandles.set(id, hh);
+          changed = true;
+        }
+        // пере-размещение по финальной геометрии (маршруты грязных изменились)
+        if (changed) {
+          labelPlacements = buildLabelPlacements({
+            routes: autoRoutes,
+            groups: groupArr,
+            labelMeta: edgeLabelMeta,
+            preferredT: () => undefined,
+            nodeRects,
+          });
+        }
+      }
+    }
 
     // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
     // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг

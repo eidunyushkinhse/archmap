@@ -67,6 +67,11 @@ const sameRoute = (a: EdgePoint[], b: EdgePoint[]): boolean =>
 // обхода. Чужое ребро обходит рамку, внутреннее не выскакивает наружу, ребро
 // «внутрь» платит ровно один переход в любом маршруте — «ворота» выбирает A*.
 const FRAME_CROSS_COST = 150;
+// Штраф за пересечение ЧУЖОЙ плашки подписи (T4 эпика «читаемые пучки»): линия сквозь
+// текст нечитаема. Не жёсткое препятствие (в тесноте лучше линия под плашкой, чем
+// огород на пол-экрана), но дороже пары изломов; выше ROUTE_STICKINESS=100 — гистерезис
+// грязный маршрут не удержит.
+const LABEL_CROSS_COST = 150;
 
 // Сколько раз осевой ход (x1,y1)→(x2,y2) пересекает границу прямоугольника.
 // Горизонтальный ход считает переходы через вертикальные грани (когда y строго внутри
@@ -121,8 +126,13 @@ export function buildAutoRoutes(params: {
     routes: ReadonlyMap<string, EdgePoint[]>;
     handles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
   };
+  // ПЛАШКИ ПОДПИСЕЙ как штраф маршрута (T4 «читаемые пучки», мини-проход после
+  // размещения): groupId → прямоугольник его плашки. Ребро платит LABEL_CROSS_COST за
+  // каждый переход границы ЧУЖОЙ плашки (своя не отталкивает — online-плашка лежит на
+  // собственной линии по построению).
+  labelObstacles?: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>;
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, prev } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, prev, labelObstacles } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -205,6 +215,13 @@ export function buildAutoRoutes(params: {
     const foreignRects = (frames ?? [])
       .filter((f) => !f.memberIds.has(g.source) && !f.memberIds.has(g.target))
       .map((f) => f.rect);
+    // чужие плашки подписей (T4) — штраф за переход границы; своя не отталкивает
+    const foreignLabels: { x: number; y: number; w: number; h: number }[] = [];
+    if (labelObstacles) {
+      for (const [gid, r] of labelObstacles) {
+        if (gid !== g.id) foreignLabels.push(r);
+      }
+    }
     terminals.push({
       id: g.id,
       // основные концы — для детерминированного порядка прокладки и fallback
@@ -214,11 +231,12 @@ export function buildAutoRoutes(params: {
       // тела узлов + плашки подписей раскрытых рамок — жёсткие препятствия
       obstacles: [...rects.values(), ...(frames ?? []).map((f) => f.plaque)],
       extraMoveCost:
-        foreignRects.length > 0
+        foreignRects.length > 0 || foreignLabels.length > 0
           ? (x1, y1, x2, y2): number => {
               let n = 0;
-              for (const r of foreignRects) n += borderCrossings(x1, y1, x2, y2, r);
-              return n * FRAME_CROSS_COST;
+              for (const r of foreignRects) n += borderCrossings(x1, y1, x2, y2, r) * FRAME_CROSS_COST;
+              for (const r of foreignLabels) n += borderCrossings(x1, y1, x2, y2, r) * LABEL_CROSS_COST;
+              return n;
             }
           : undefined,
       prev: prevValid.get(g.id)?.route,

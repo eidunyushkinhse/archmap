@@ -218,6 +218,12 @@ function WrappedLabelEdge({
     fontSize: 11,
     color: "#374151",
     lineHeight: 1.4,
+    // T5: вынесенная плашка получает лёгкий halo — белая кайма отделяет текст от линий
+    // под ним, и выноска не сливается с «паутиной» (online-плашка лежит на своей линии,
+    // ей halo не нужен)
+    ...(d?.labelPlacement?.mode === "leader"
+      ? { boxShadow: "0 0 0 2px rgba(255,255,255,0.9), 0 1px 4px rgba(15,23,42,0.18)" }
+      : null),
   };
 
   return (
@@ -243,7 +249,9 @@ function WrappedLabelEdge({
         <path
           className="lg-edge-leader"
           d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.center.x},${d.labelPlacement.center.y}`}
-          style={{ stroke: "#9ca3af", strokeWidth: 1, strokeDasharray: "3 3", fill: "none", pointerEvents: "none" }}
+          // T5 «читаемые пучки»: поводок заметнее (1.5px, темнее) — тонкий 1px-пунктир
+          // в гуще линий терялся, и вынесенная плашка читалась как «текст ни о чём»
+          style={{ stroke: "#6b7280", strokeWidth: 1.5, strokeDasharray: "4 3", fill: "none", pointerEvents: "none" }}
         />
       )}
       {drawing ? null : items && items.length > 0 ? (
