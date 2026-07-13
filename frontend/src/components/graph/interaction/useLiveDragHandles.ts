@@ -18,7 +18,7 @@ import type { EdgePoint, LayoutEdge } from "../../../types";
 import type { EdgeGroup, WrappedEdgeData } from "../types";
 import { assignEdgeHandles } from "../layout/level";
 import { buildAutoRoutes } from "../layout/autoRoutes";
-import { buildLabelPlacements } from "../layout/labelLayout";
+import { buildLabelPlacements, type LabelPlacement } from "../layout/labelLayout";
 import { applyLabelDetours } from "../layout/detourStage";
 import { edgeLabelMeta } from "../layout/pipeline";
 import { NODE_W, NODE_H } from "../constants";
@@ -112,6 +112,7 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
     // Живой ре-роут стрелок с ОДНИМ перетаскиваемым концом настоящим роутером.
     let liveRoutes: Map<string, EdgePoint[]> | null = null;
     let liveHandles: Map<string, { sourceHandle: string; targetHandle: string }> | null = null;
+    let liveLabels: Map<string, LabelPlacement> | null = null;
     const r = s.inp.route;
     if (r) {
       const affected = new Set<string>();
@@ -141,15 +142,25 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
           return { x: p.x, y: p.y, w: sz?.w ?? NODE_W, h: sz?.h ?? NODE_H };
         };
         const nodeRects = r.displayIds.map(rectOf).filter((x): x is NodeRect => x != null);
-        const placements = buildLabelPlacements({
+        let placements = buildLabelPlacements({
           routes: liveRoutes, groups: affectedGroups, labelMeta: edgeLabelMeta,
           preferredT: () => undefined, nodeRects,
         });
-        applyLabelDetours({
+        const detourPreferred = applyLabelDetours({
           groupArr: affectedGroups, labelPlacements: placements, routableIds: affected,
           positions, displayIds: r.displayIds, rectOf, labelMeta: edgeLabelMeta,
           autoRoutes: liveRoutes, edgeHandles: liveHandles, // мутируются для детурнутых рёбер
         });
+        // ФИНАЛЬНЫЙ пере-проход размещения на детурнутых маршрутах (шаг V2.5 pipeline):
+        // после детура геометрия изменилась — плашку кладём на ИТОГОВУЮ линию, иначе центр
+        // остался бы на до-детурном маршруте и текст «уезжал» бы от стрелки.
+        if (detourPreferred.size > 0) {
+          placements = buildLabelPlacements({
+            routes: liveRoutes, groups: affectedGroups, labelMeta: edgeLabelMeta,
+            preferredT: (g) => detourPreferred.get(g.id), nodeRects,
+          });
+        }
+        liveLabels = placements; // позиции плашек затронутых рёбер → едут с ребром живьём
       }
     }
 
@@ -165,12 +176,27 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
           if (!orig) return e; // нет снимка маршрута (smoothstep-фолбэк) — оставляем как есть
           const { dx, dy } = deltaOf(e.source);
           const moved = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
-          return { ...e, data: { ...(e.data as WrappedEdgeData), autoRoute: moved } };
+          const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: moved };
+          // плашка подписи едет с ребром жёстко — тем же сдвигом (center/anchor/leaderEnd),
+          // чтобы текст не отставал от линии между двумя перетаскиваемыми узлами
+          const lp = data.labelPlacement;
+          if (lp) {
+            data.labelPlacement = {
+              mode: lp.mode,
+              center: { x: lp.center.x + dx, y: lp.center.y + dy },
+              anchor: { x: lp.anchor.x + dx, y: lp.anchor.y + dy },
+              leaderEnd: { x: lp.leaderEnd.x + dx, y: lp.leaderEnd.y + dy },
+            };
+          }
+          return { ...e, data };
         }
         // один конец: живой маршрут роутера (нутро + сторона хэндла) — превью = будущее
         const lr = liveRoutes?.get(e.id);
         if (lr) {
-          const data = { ...(e.data as WrappedEdgeData), autoRoute: lr };
+          const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: lr };
+          // плашка подписи — на живой позиции (то же размещение, что и финал): едет с ребром
+          const lp = liveLabels?.get(e.id);
+          if (lp) data.labelPlacement = lp;
           const lh = liveHandles?.get(e.id);
           return lh
             ? { ...e, data, sourceHandle: lh.sourceHandle, targetHandle: lh.targetHandle }
