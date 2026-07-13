@@ -988,6 +988,25 @@ function LevelGraphInner({
       // выскакивало при правом клике/перетаскивании по канвасу.
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Индиго-наконечник для ПОДСВЕЧЕННЫХ рёбер (П5/П6): наконечник — общий для цвета
+          SVG-маркер, покрасить его CSS'ом на пути нельзя, поэтому на подсвеченное ребро
+          через CSS marker-end указываем ЭТОТ маркер. Геометрия 1:1 со штатным RF
+          ArrowClosed (viewBox/points/markerUnits), поэтому размер/форма те же. */}
+      <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden>
+        <defs>
+          <marker
+            id="lg-linked-arrow" className="react-flow__arrowhead"
+            markerWidth="12.5" markerHeight="12.5" viewBox="-10 -10 20 20"
+            markerUnits="strokeWidth" orient="auto-start-reverse" refX="0" refY="0"
+          >
+            <polyline
+              className="arrowclosed" strokeLinecap="round" strokeLinejoin="round"
+              style={{ stroke: "#6366f1", fill: "#6366f1", strokeWidth: 1 }}
+              points="-5,-4 0,0 -5,4 -5,-4"
+            />
+          </marker>
+        </defs>
+      </svg>
       {/* Тулбар Undo/Redo (архитектор, не контекст). Кнопка надёжнее клавиш — не зависит
           от фокуса. Обе зовут дисптчеры из TreePage (кросс-уровневый редирект). */}
       {isArchitect && !isContext && (
