@@ -11,14 +11,19 @@
 //  - apply(next):
 //      expand  — первый кадр по плану (дети стопкой в точке спавна, рамки
 //                скрыты, задетые стрелки hidden), через 2×rAF отпуск на финальные
-//                позиции, по концу разъезда — проявление рамок и стрелок;
+//                позиции; конец разъезда — «мёртвая зона»: gate.flush() досчитывает
+//                прогоны, отложенные тихим окном (Ф1), и по ПРИМЕНЕНИИ — проявление
+//                рамок и отрисовка стрелок уже свежими маршрутами;
 //      collapse — фаза 1 на ТЕКУЩЕМ снимке (потомки съезжаются в точку, рамка
-//                гаснет, соседи едут), свежая раскладка стоит в pendingRef и
-//                применяется целиком по концу фазы; прогоны, прилетевшие во
-//                время фазы (зеркало viewLayout), откладываются туда же;
+//                гаснет, соседи едут); по концу фазы gate.flush() досчитывает
+//                отложенное (свежая раскладка ложится в pendingRef через apply)
+//                и своп применяет самое свежее целиком;
 //      прочее  — применение как есть, но внутри окна анимации повторно
-//                маскируются скрытые рамки/стрелки (прогон по замерам детей
-//                приходит СРАЗУ после спавна и иначе разоблачал бы концовку).
+//                маскируются скрытые рамки/стрелки (флаш приходит в окно и
+//                иначе разоблачал бы концовку).
+//    На окно режиссуры прогоны конвейера ОТЛОЖЕНЫ (gate.hold — «тихое окно» Ф1),
+//    а реестр мостиков на паузе (jumpsPaused) до unmask/свопа: счёт, тотальный
+//    apply и двойной проход рендера рёбер не дёргают кадры разъезда.
 //  - cancel() — драг/смена уровня: мгновенно доиграть (применить отложенное,
 //    показать скрытое, снять класс), чтобы transition не цеплял жест.
 //
@@ -43,11 +48,27 @@ const GESTURE_TTL_MS = 4_000;
 
 type Intent = { kind: "expand" | "collapse"; id: string; ts: number };
 
+// «Тихое окно» (Ф1 плавности): шлюз отложенного пересчёта раскладки. Владелец —
+// LevelGraph (holdRef/dirtyRef/computeNow там); хук только дёргает фазы:
+//  - hold()    — окно режиссуры открылось: прогоны конвейера НЕ считать, копить dirty;
+//  - flush()   — «мёртвая зона» (узлы доехали, рёбра ещё скрыты): досчитать отложенное
+//                и ДОЖДАТЬСЯ применения (резолв — после applyLayout этого прогона);
+//  - release() — окно закрыто: hold снять; накопившееся досчитать в фоне (не ждём);
+//  - reset()   — смена уровня: hold снять, накопленное выбросить (уровень пересчитает
+//                собственный эффект по смене deps).
+export interface LayoutGate {
+  hold: () => void;
+  flush: () => Promise<void>;
+  release: () => void;
+  reset: () => void;
+}
+
 interface UseLayoutAnimationArgs {
   getNodes: () => RFNode[];
   getEdges: () => RFEdge[];
   setRfNodes: (updater: RFNode[] | ((prev: RFNode[]) => RFNode[])) => void;
   setRfEdges: (updater: RFEdge[] | ((prev: RFEdge[]) => RFEdge[])) => void;
+  gate: LayoutGate;
 }
 
 export interface LayoutAnimation {
@@ -64,6 +85,9 @@ export interface LayoutAnimation {
   reset: () => void;
   /** окно анимации открыто — холсту нужен класс lg-canvas--anim */
   active: boolean;
+  /** пауза реестра «мостиков» на фазу move (снимается на unmask/свопе — реестр
+      пересобирается одним батчем ДО первого кадра отрисовки стрелок) */
+  jumpsPaused: boolean;
 }
 
 const reducedMotion = (): boolean =>
@@ -79,9 +103,14 @@ const unhideNode = (n: RFNode): RFNode => {
 };
 
 export function useLayoutAnimation({
-  getNodes, getEdges, setRfNodes, setRfEdges,
+  getNodes, getEdges, setRfNodes, setRfEdges, gate,
 }: UseLayoutAnimationArgs): LayoutAnimation {
   const [active, setActive] = useState(false);
+  // Пауза реестра мостиков на фазу move: его пересчёт даёт второй проход рендера
+  // ВСЕХ рёбер (смена версии контекста), а в окне анимации геометрия массово
+  // меняется. true — вместе с планом (батчится с его setState), false — на
+  // unmask/свопе (пересборка одним батчем до первого кадра drawIn).
+  const [jumpsPaused, setJumpsPaused] = useState(false);
   const intentRef = useRef<Intent | null>(null);
   // момент последнего ручного жеста (0 — окна жеста нет)
   const gestureRef = useRef(0);
@@ -92,6 +121,10 @@ export function useLayoutAnimation({
   const drawRef = useRef<Set<string> | null>(null);
   // отложенная раскладка на время фазы 1 сворачивания
   const pendingRef = useRef<{ nodes: RFNode[]; edges: RFEdge[] } | null>(null);
+  // Эпоха окна анимации: инкремент на каждый старт режиссуры и на cancel/reset.
+  // Продолжения флаша (async, переживают clearTimers) гейтятся ею: устаревшее
+  // продолжение не должно трогать УЖЕ отменённое или новое окно.
+  const epochRef = useRef(0);
   const timersRef = useRef<number[]>([]);
   const rafsRef = useRef<number[]>([]);
 
@@ -116,39 +149,51 @@ export function useLayoutAnimation({
   }, []);
 
   // Конец фазы отрисовки стрелок: снять drawIn (проявить плашки и наконечники).
+  // Это конечная точка обеих режиссур — тихое окно закрывается здесь (release
+  // досчитает накопленное в фоне; зовётся и после drawIn жеста — там hold не
+  // открывался, и release без dirty — no-op).
   const endDraw = useCallback(() => {
     drawRef.current = null;
     setRfEdges((prev) => clearDrawIn(prev));
-  }, [setRfEdges]);
+    gate.release();
+  }, [setRfEdges, gate]);
 
   // Показать всё замаскированное (конец разъезда раскрытия). withDraw — рёбра
   // показать через анимированную ОТРИСОВКУ (drawIn на ANIM_DRAW_MS), иначе сразу.
+  // Пауза реестра мостиков снимается здесь всегда (батч с проявлением); тихое окно
+  // остаётся открытым, только если стартовала фаза отрисовки (закроет endDraw).
   const unmask = useCallback((withDraw: boolean) => {
     const mask = maskRef.current;
     if (!mask) return;
     maskRef.current = null;
+    setJumpsPaused(false);
     if (mask.frames.size > 0) {
       setRfNodes((prev) => prev.map((n) => (mask.frames.has(n.id) ? unhideNode(n) : n)));
     }
+    let drawStarted = false;
     if (mask.edges.size > 0) {
       if (withDraw) {
         drawRef.current = mask.edges;
         setRfEdges((prev) => markDrawIn(prev, mask.edges));
         laterFromFrame(ANIM_DRAW_MS, endDraw);
+        drawStarted = true;
       } else {
         setRfEdges((prev) => prev.map((e) => (mask.edges.has(e.id) && e.hidden ? { ...e, hidden: false } : e)));
       }
     }
-  }, [setRfNodes, setRfEdges, laterFromFrame, endDraw]);
+    if (!drawStarted) gate.release();
+  }, [setRfNodes, setRfEdges, laterFromFrame, endDraw, gate]);
 
   const cancel = useCallback(() => {
     clearTimers();
+    epochRef.current++; // продолжения флаша в полёте — устаревают
     intentRef.current = null;
     gestureRef.current = 0;
     drawRef.current = null;
     const pending = pendingRef.current;
     pendingRef.current = null;
     setActive(false); // класс долой ДО применения — без transition на доигровке
+    setJumpsPaused(false);
     if (pending) {
       maskRef.current = null;
       setRfNodes(pending.nodes);
@@ -157,17 +202,24 @@ export function useLayoutAnimation({
       unmask(false); // мгновенно, без отрисовки — драгу нужна честная сцена сразу
       setRfEdges((prev) => clearDrawIn(prev)); // и доиграть возможную фазу отрисовки
     }
-  }, [clearTimers, unmask, setRfNodes, setRfEdges]);
+    // тихое окно: снять hold, накопленное досчитать в фоне — свежий прогон доедет
+    // обычным путём (как сегодня при драге), потерянных изменений не остаётся
+    gate.release();
+  }, [clearTimers, unmask, setRfNodes, setRfEdges, gate]);
 
   const reset = useCallback(() => {
     clearTimers();
+    epochRef.current++; // продолжения флаша в полёте — устаревают
     intentRef.current = null;
     gestureRef.current = 0;
     maskRef.current = null;
     drawRef.current = null;
     pendingRef.current = null;
     setActive(false);
-  }, [clearTimers]);
+    setJumpsPaused(false);
+    // смена уровня: накопленное протухло вместе с уровнем — выбросить без досчёта
+    gate.reset();
+  }, [clearTimers, gate]);
 
   // На размонтирование — только погасить таймеры (стейт трогать уже нельзя).
   useEffect(() => clearTimers, [clearTimers]);
@@ -189,6 +241,9 @@ export function useLayoutAnimation({
         if (plan) {
           intentRef.current = null;
           clearTimers();
+          const epoch = ++epochRef.current;
+          gate.hold(); // тихое окно: прогоны конвейера копятся до «мёртвой зоны»
+          setJumpsPaused(true); // реестр мостиков заморожен до unmask
           maskRef.current = { frames: plan.hiddenFrameIds, edges: plan.hiddenEdgeIds };
           setActive(true);
           setRfNodes(plan.initialNodes);
@@ -202,11 +257,19 @@ export function useLayoutAnimation({
               }));
               // конец разъезда: рамки проявляются fade'ом (класс ещё жив), стрелки
               // РИСУЮТСЯ от исходного хэндла к целевому (drawIn на ANIM_DRAW_MS).
-              // Отсчёт — ОТ ОТПУСКА (транзишен стартует на кадре этого setState), а не
-              // от первого кадра стопки: тяжёлый прогон по замерам, влезший между,
-              // сдвигал транзишен, и unmask бил по ещё едущим узлам.
-              later(ANIM_MOVE_MS, () => unmask(true));
-              later(ANIM_MOVE_MS + ANIM_FADE_MS + 60, () => setActive(false));
+              // Отсчёт — ОТ ОТПУСКА (транзишен стартует на кадре этого setState).
+              // Конец move — «мёртвая зона» (узлы доехали, рёбра ещё скрыты): здесь
+              // флашатся отложенные тихим окном прогоны (замеры детей), и unmask
+              // ждёт ПРИМЕНЕНИЯ — drawIn рисует уже СВЕЖИЕ маршруты. Фейд рамок и
+              // снятие класса отсчитываются от фактического unmask (флаш сдвигает
+              // его на длительность прогона — блок падает в невидимую зону).
+              later(ANIM_MOVE_MS, () => {
+                void gate.flush().then(() => {
+                  if (epoch !== epochRef.current) return; // окно отменено/переоткрыто
+                  unmask(true);
+                  later(ANIM_FADE_MS + 60, () => setActive(false));
+                });
+              });
             }));
           }));
           return;
@@ -217,6 +280,9 @@ export function useLayoutAnimation({
         if (plan) {
           intentRef.current = null;
           clearTimers();
+          const epoch = ++epochRef.current;
+          gate.hold(); // тихое окно: прогоны копятся до конца фазы 1
+          setJumpsPaused(true); // реестр мостиков заморожен до свопа
           // снимок id рёбер ДО фазы 1: на свопе новые пучки (свёрнутого узла)
           // определяются против него и рисуются анимированно
           const prevEdgeIds = new Set(getEdges().map((e) => e.id));
@@ -225,28 +291,38 @@ export function useLayoutAnimation({
           setRfNodes(plan.phase1Nodes);
           setRfEdges((prev) => prev.map((e) => (plan.hiddenEdgeIds.has(e.id) ? { ...e, hidden: true } : e)));
           laterFromFrame(ANIM_MOVE_MS, () => {
-            // подмена стопки свёрнутым узлом: применяем САМУЮ СВЕЖУЮ раскладку;
-            // рёбра, скрытые на фазу 1 или появившиеся заново, — с отрисовкой
-            const fin = pendingRef.current;
-            pendingRef.current = null;
-            if (fin) {
-              setRfNodes(fin.nodes);
-              const drawIds = new Set(
-                fin.edges
-                  .filter((e) => plan.hiddenEdgeIds.has(e.id) || !prevEdgeIds.has(e.id))
-                  .map((e) => e.id),
-              );
-              if (drawIds.size > 0) {
-                drawRef.current = drawIds;
-                setRfEdges(markDrawIn(fin.edges, drawIds));
-                // отсчёт от первого кадра: сразу за свопом приходит прогон по замерам
-                // вернувшегося узла, и wall-clock-отсчёт съедал бы окно отрисовки
-                laterFromFrame(ANIM_DRAW_MS, endDraw);
-              } else {
-                setRfEdges(fin.edges);
+            // конец фазы 1 — тоже «мёртвая зона» (потомки съехались, задетые рёбра
+            // скрыты): флашим отложенное — свежая раскладка ляжет в pendingRef
+            // через apply — и свапаем уже на самое свежее.
+            void gate.flush().then(() => {
+              if (epoch !== epochRef.current) return; // окно отменено (pending применил cancel)
+              // подмена стопки свёрнутым узлом: применяем САМУЮ СВЕЖУЮ раскладку;
+              // рёбра, скрытые на фазу 1 или появившиеся заново, — с отрисовкой
+              const fin = pendingRef.current;
+              pendingRef.current = null;
+              setJumpsPaused(false); // реестр пересоберётся батчем со свопом
+              let drawStarted = false;
+              if (fin) {
+                setRfNodes(fin.nodes);
+                const drawIds = new Set(
+                  fin.edges
+                    .filter((e) => plan.hiddenEdgeIds.has(e.id) || !prevEdgeIds.has(e.id))
+                    .map((e) => e.id),
+                );
+                if (drawIds.size > 0) {
+                  drawRef.current = drawIds;
+                  setRfEdges(markDrawIn(fin.edges, drawIds));
+                  // отсчёт от первого кадра: сразу за свопом приходит прогон по замерам
+                  // вернувшегося узла, и wall-clock-отсчёт съедал бы окно отрисовки
+                  laterFromFrame(ANIM_DRAW_MS, endDraw);
+                  drawStarted = true;
+                } else {
+                  setRfEdges(fin.edges);
+                }
               }
-            }
-            later(60, () => setActive(false));
+              if (!drawStarted) gate.release(); // отрисовки не будет — окно закрыто
+              later(60, () => setActive(false));
+            });
           });
           return;
         }
@@ -292,7 +368,7 @@ export function useLayoutAnimation({
     }
     if (draw && draw.size > 0) edgesOut = markDrawIn(edgesOut, draw);
     setRfEdges(edgesOut);
-  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, laterFromFrame, unmask, endDraw]);
+  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, laterFromFrame, unmask, endDraw, gate]);
 
   const noteExpand = useCallback((id: string) => {
     intentRef.current = { kind: "expand", id, ts: Date.now() };
@@ -304,5 +380,5 @@ export function useLayoutAnimation({
     gestureRef.current = Date.now();
   }, []);
 
-  return { apply, noteExpand, noteCollapse, noteGesture, cancel, reset, active };
+  return { apply, noteExpand, noteCollapse, noteGesture, cancel, reset, active, jumpsPaused };
 }

@@ -31,6 +31,7 @@ import type {
 import type { EdgeSide } from "./graph/edgePath";
 import type { SchemaView } from "./schemaView";
 import { computeViewLayout, type LayoutResult } from "./graph/layout/pipeline";
+import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
@@ -48,7 +49,7 @@ import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import { findQuickConnectTarget, type QcNode } from "./graph/interaction/quickConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
-import { useLayoutAnimation } from "./graph/interaction/useLayoutAnimation";
+import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { guardPersist } from "./graph/interaction/persistGuard";
@@ -228,14 +229,56 @@ function LevelGraphInner({
   const nodeSizesRef = useRef<Record<string, { w: number; h: number }>>({});
   const [sizesVersion, setSizesVersion] = useState(0);
 
+  // --- «Тихое окно» (Ф1 эпика плавности): на окно анимации раскрытия/сворачивания
+  // прогоны конвейера раскладки ОТКЛАДЫВАЮТСЯ (holdRef), копятся флагом dirtyRef и
+  // досчитываются в «мёртвой зоне» конца move (gate.flush, зовёт оркестратор
+  // анимации) — тяжёлый счёт и тотальный apply не дёргают кадры разъезда узлов.
+  // Владение здесь (не в хуке): счёт — computeNow этого компонента; хук только
+  // дёргает фазы. Сигналы — СИНХРОННЫЕ ref'ы (state лагал бы на рендер).
+  const holdRef = useRef(false); // окно открыто — счёт откладывать
+  const dirtyRef = useRef(false); // в окне менялись входы раскладки
+  const runIdRef = useRef(0); // «последний выигрывает» для async-прогонов
+  const lastSigRef = useRef<string | null>(null); // сигнатура последнего применённого
+  const appliedResolveRef = useRef<(() => void) | null>(null); // ждун применения (flush)
+  const computeNowRef = useRef<() => Promise<"applied" | "skipped" | "stale">>(
+    async () => "stale",
+  );
+  const gate = useMemo<LayoutGate>(() => ({
+    hold: () => { holdRef.current = true; },
+    // Флаш «мёртвой зоны»: досчитать отложенное и ДОЖДАТЬСЯ применения (резолв —
+    // в эффекте-сборщике после applyLayout, либо сразу — если прогон скипнут по
+    // сигнатуре или перегнан более свежим: тогда применение придёт от победителя.
+    flush: async () => {
+      if (!dirtyRef.current) return;
+      dirtyRef.current = false;
+      const applied = new Promise<void>((res) => { appliedResolveRef.current = res; });
+      const r = await computeNowRef.current();
+      if (r === "applied") await applied;
+      else appliedResolveRef.current = null;
+    },
+    // Окно закрыто (endDraw/cancel): hold снять; накопившееся досчитать в фоне.
+    release: () => {
+      holdRef.current = false;
+      if (dirtyRef.current) {
+        dirtyRef.current = false;
+        void computeNowRef.current();
+      }
+    },
+    // Смена уровня: накопленное протухло — новый уровень пересчитает свой эффект.
+    reset: () => {
+      holdRef.current = false;
+      dirtyRef.current = false;
+    },
+  }), []);
+
   // Анимация раскрытия/сворачивания контейнеров: единственная точка применения
   // раскладки к RF-стейту (applyLayout вместо прямых setRfNodes/setRfEdges в
   // сборщике). Интенты ставят обработчики лупы/сворачивания; окно анимации
   // включает класс lg-canvas--anim (CSS-transition в LevelGraph.css).
   const {
     apply: applyLayout, noteExpand, noteCollapse, noteGesture,
-    cancel: cancelAnim, reset: resetAnim, active: animActive,
-  } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges });
+    cancel: cancelAnim, reset: resetAnim, active: animActive, jumpsPaused,
+  } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges, gate });
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
   // (свежую раскладку нового уровня применит сборщик).
   useEffect(() => { resetAnim(); }, [containerId, isContext, resetAnim]);
@@ -717,17 +760,46 @@ function LevelGraphInner({
     handles: Map<string, { sourceHandle: string; targetHandle: string }>;
     version: number;
   } | null>(null);
-  useEffect(() => { prevRoutesRef.current = null; }, [containerId, isContext]);
+  useEffect(() => { prevRoutesRef.current = null; lastSigRef.current = null; }, [containerId, isContext]);
+
+  // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
+  // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
+  // МЕЖДУ пересчётами. Сама сборка — чистая функция assembleRfGraph (вынесена при
+  // распиле Ф2); nodes берутся ИЗ layout (снимок, по которому он посчитан), а не из
+  // пропа — позиции и данные согласованы, эффект не срабатывает со старым layout.
+  // Колбэки — из latest-ref (cbRef), поэтому в зависимостях только данные.
+  // ПОРЯДОК ОБЪЯВЛЕНИЯ ВАЖЕН (Ф1): сборщик стоит ПЕРЕД эффектом раскладки. Прогон,
+  // открывающий окно анимации, приносит setLayout и зеркало интентов (viewLayout)
+  // ОДНИМ батчем; сборщик успевает применить план (applyLayout → gate.hold())
+  // до того, как эффект раскладки среагирует на viewLayout, — зеркальный прогон
+  // не стартует в окно, а откладывается (dirty) до флаша.
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
-      // нуля перед снятием сигнатуры): раскладка двухфазная (фолбэк-габариты → замер →
-      // пере-прогон), и без явного сигнала снапшот ловил межфазное состояние.
-      const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
-      w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
-      w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
-      try {
+    if (!layout) return; // первый рендер до резолва async-раскладки
+    const { nextNodes, nextEdges } = assembleRfGraph({
+      layout, isArchitect, isContext, depth, schemaView, cb: cbRef.current,
+    });
+    // Применение — через оркестратор анимации: без интента раскрытия/сворачивания
+    // это те же setRfNodes/setRfEdges, с интентом — режиссированный переход.
+    applyLayout(nextNodes, nextEdges);
+    // Применение состоялось — разбудить ждущий флаш тихого окна: unmask ждёт
+    // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
+    appliedResolveRef.current?.();
+    appliedResolveRef.current = null;
+  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout]);
+
+  // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
+  // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).
+  // «Последний выигрывает»: прогон, перегнанный более новым (runIdRef), не пишет
+  // ничего — ни снапшота гистерезиса, ни персиста интентов, ни setLayout.
+  const computeNow = useCallback(async (): Promise<"applied" | "skipped" | "stale"> => {
+    const runId = ++runIdRef.current;
+    // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
+    // нуля перед снятием сигнатуры): раскладка двухфазная (фолбэк-габариты → замер →
+    // пере-прогон), и без явного сигнала снапшот ловил межфазное состояние.
+    const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
+    w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
+    w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
+    try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
       const { layout: next, liveInputs, intents } = await computeViewLayout({
@@ -737,7 +809,7 @@ function LevelGraphInner({
         prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
         prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
       });
-      if (cancelled) return; // устаревший прогон: ни снапшота, ни персиста интентов
+      if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
       if (next.autoRoutes) {
         prevRoutesRef.current = { routes: next.autoRoutes, handles: next.edgeHandles, version: sizesVersion };
       }
@@ -751,34 +823,36 @@ function LevelGraphInner({
           Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
         );
       }
+      // Скип идентичных применений (Ф1): зеркальные прогоны (зеркало засева,
+      // зеркало expanded) дают результат, идентичный применённому ПО ПОСТРОЕНИЮ, —
+      // не дёргаем setLayout (и тотальную пересборку RF). Гистерезис, снимок
+      // живого драга и интенты выше обновлены ОБЯЗАТЕЛЬНО и при скипе.
+      const sig = layoutSig(next);
+      if (sig === lastSigRef.current) return "skipped";
+      lastSigRef.current = sig;
       setLayout(next);
-      } finally {
-        w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 1) - 1;
-      }
-    })();
-    return () => { cancelled = true; };
+      return "applied";
+    } finally {
+      w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 1) - 1;
+    }
     // Геометрия рёбер внутри viewLayout не вся влияет на позиции, НО зависимость — весь
-    // объект намеренно: изломы/хэндлы пучков читает эффект-сборщик ниже, и он должен
+    // объект намеренно: изломы/хэндлы пучков читает эффект-сборщик выше, и он должен
     // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
   }, [nodes, endpoints, containerId, viewLayout, edges, isContext, expanded, localChildren, stableAncestorIds, sizesVersion]);
+  useEffect(() => { computeNowRef.current = computeNow; });
+  // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
+  // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).
+  useEffect(() => () => { runIdRef.current++; }, []);
 
-  // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
-  // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
-  // МЕЖДУ пересчётами. Сама сборка — чистая функция assembleRfGraph (вынесена при
-  // распиле Ф2); nodes берутся ИЗ layout (снимок, по которому он посчитан), а не из
-  // пропа — позиции и данные согласованы, эффект не срабатывает со старым layout.
-  // Колбэки — из latest-ref (cbRef), поэтому в зависимостях только данные.
+  // Эффект раскладки: данные изменились → пересчитать. В тихом окне (hold) — только
+  // пометить dirty: счёт и применение случатся на флаше «мёртвой зоны» конца move
+  // (или в release при отмене окна). Пересоздание computeNow == смена данных.
   useEffect(() => {
-    if (!layout) return; // первый рендер до резолва async-раскладки
-    const { nextNodes, nextEdges } = assembleRfGraph({
-      layout, isArchitect, isContext, depth, schemaView, cb: cbRef.current,
-    });
-    // Применение — через оркестратор анимации: без интента раскрытия/сворачивания
-    // это те же setRfNodes/setRfEdges, с интентом — режиссированный переход.
-    applyLayout(nextNodes, nextEdges);
-  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout]);
+    if (holdRef.current) { dirtyRef.current = true; return; }
+    void computeNow();
+  }, [computeNow]);
 
   // Раскрытые рамки уровня (гостевые + локальные) как цели дропа шаблона: id контейнера
   // (будущий parent_id) + абсолютный rect + depth (глубочайшая побеждает при вложенности).
@@ -1082,8 +1156,10 @@ function LevelGraphInner({
         </div>
       )}
       {/* Реестр «мостиков»: рёбра внутри ReactFlow публикуют сюда геометрию и читают
-          точки прыжков. Выключен в контекст-схеме (read-only звезда). */}
-      <EdgeJumpProvider enabled={!isContext} paused={dragging}>
+          точки прыжков. Выключен в контекст-схеме (read-only звезда). Пауза — на драг
+          И на фазу move анимации (иначе пересчёт реестра даёт второй проход рендера
+          всех рёбер посреди окна); снятие — на unmask/свопе, батчем с проявлением. */}
+      <EdgeJumpProvider enabled={!isContext} paused={dragging || jumpsPaused}>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
