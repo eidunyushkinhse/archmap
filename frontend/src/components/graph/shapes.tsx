@@ -136,6 +136,9 @@ export const nodeContainer: CSSProperties = {
 };
 // Свечение выбранного узла (см. BlockNode). Два drop-shadow: тонкий контурный +
 // мягкий ореол синим — повторяют силуэт SVG-формы.
+// ЗЕРКАЛО: у узла, открытого в панели, та же формула в индиго живёт в LevelGraph.css
+// (.lg-linked-node > div, с !important — индиго приоритетнее синего). Меняешь громкость
+// здесь — поменяй и там, иначе состояния снова разъедутся по заметности.
 export const SELECTED_GLOW =
   "drop-shadow(0 0 2px #2563eb) drop-shadow(0 0 7px rgba(37,99,235,0.65))";
 
