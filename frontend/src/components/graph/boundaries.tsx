@@ -65,7 +65,9 @@ export function LevelBoundary({
             data-frame-id={f.id}
             style={{
               position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
-              border: "1px dashed #9ca3af", borderRadius: 12, background: "transparent",
+              // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме,
+              // растёт при отдалении — на экране рамка всегда ~1px и не исчезает
+              border: "var(--lg-frame-bw, 1px) dashed #9ca3af", borderRadius: 12, background: "transparent",
               boxSizing: "border-box", pointerEvents: "none",
             }}
           >

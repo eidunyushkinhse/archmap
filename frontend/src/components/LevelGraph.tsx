@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useCallback, useRef, useState } from "react";
-import type { MouseEvent } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -14,6 +14,7 @@ import {
   ViewportPortal,
   type Node as RFNode,
   type Edge as RFEdge,
+  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
@@ -953,6 +954,22 @@ function LevelGraphInner({
     };
   }, [linkedHighlight, rfNodes, rfEdges, isContext]);
 
+  // АДАПТИВНАЯ ТОЛЩИНА РАМОК ПОД ЗУМ: рамки (нативные C4-boundary и compound-рамки
+  // раскрытий) рисуются 1px-пунктиром в координатах графа — на сильном отдалении
+  // физический 1px тает до долей экранного пикселя и рамка исчезает. Держим на холсте
+  // CSS-переменную --lg-frame-bw = max(1, 1/zoom)px: при приближении рамка остаётся
+  // прежним аккуратным 1px, при отдалении растёт физически ровно настолько, чтобы на
+  // экране оставаться ~1px. Пишем императивно (не через стейт) — зум не должен
+  // ре-рендерить граф; квант 0.25px гасит дёрганье стилей на каждом тике колеса.
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const frameBwRef = useRef(0);
+  const handleViewportChange = useCallback((vp: Viewport) => {
+    const bw = Math.round(Math.max(1, 1 / vp.zoom) * 4) / 4;
+    if (bw === frameBwRef.current) return;
+    frameBwRef.current = bw;
+    canvasRef.current?.style.setProperty("--lg-frame-bw", `${bw}px`);
+  }, []);
+
   // Контекст-схема без фокус-узла не бывает — защитно ничего не рисуем. Обычный
   // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
   // дропнуть первый узел, а зум остаётся «отдалённым» (defaultViewport ниже),
@@ -972,7 +989,10 @@ function LevelGraphInner({
         // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
         (animActive ? " lg-canvas--anim" : "")
       }
-      style={{ position: "relative", flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}
+      ref={canvasRef}
+      // --lg-frame-bw: стартовое значение под defaultViewport (zoom 0.85 → ~1.18px);
+      // дальше живёт императивно в handleViewportChange (включая fitView при маунте)
+      style={{ position: "relative", flex: 1, minHeight: 0, border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden", "--lg-frame-bw": "1.25px" } as CSSProperties}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -1127,6 +1147,9 @@ function LevelGraphInner({
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
         // штатный зум-по-даблклику отключаем, чтобы холст не подлетал на этом жесте
         zoomOnDoubleClick={false}
+        // толщина рамок компенсирует отдаление (см. handleViewportChange выше);
+        // колбэк ловит и колесо/пан, и программные fitView/setViewport
+        onViewportChange={handleViewportChange}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
