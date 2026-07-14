@@ -34,15 +34,27 @@ export const ANIM_DRAW_MS = 400;
 
 /** Показать спрятанные рёбра ids С анимированной отрисовкой (drawIn — edges.tsx
  *  рисует линию штрихом от source к target, плашка и наконечник появятся по
- *  снятии флага). Прочие рёбра не трогаем. */
+ *  снятии флага). Прочие рёбра не трогаем. Снятые маски НЕ оставляют ключей
+ *  (hidden удаляется, не пишется false): отгоревшее анимацией ребро обязано быть
+ *  структурно равно свежесобранному — иначе реконсиляция сборки (Ф2) никогда
+ *  не вернёт для него прошлый объект. */
 export const markDrawIn = (edges: RFEdge[], ids: Set<string>): RFEdge[] =>
-  edges.map((e) => (ids.has(e.id)
-    ? { ...e, hidden: false, data: { ...e.data, drawIn: true } }
-    : e));
+  edges.map((e) => {
+    if (!ids.has(e.id)) return e;
+    const out = { ...e, data: { ...e.data, drawIn: true } };
+    delete out.hidden;
+    return out;
+  });
 
-/** Снять флаг отрисовки (конец draw-анимации: проявить плашки и наконечники). */
+/** Снять флаг отрисовки (конец draw-анимации: проявить плашки и наконечники).
+ *  Ключ drawIn удаляется (см. markDrawIn — структурное равенство со сборкой). */
 export const clearDrawIn = (edges: RFEdge[]): RFEdge[] =>
-  edges.map((e) => (e.data?.drawIn ? { ...e, data: { ...e.data, drawIn: false } } : e));
+  edges.map((e) => {
+    if (!e.data?.drawIn) return e;
+    const data = { ...e.data };
+    delete data.drawIn;
+    return { ...e, data };
+  });
 
 // Сигнатура ГЕОМЕТРИИ ребра: всё, от чего зависит его нарисованный путь и плашка —
 // хэндлы, абсолютные позиции концов, авто-маршрут, центр плашки. Координаты

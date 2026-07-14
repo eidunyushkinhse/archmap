@@ -94,12 +94,27 @@ const reducedMotion = (): boolean =>
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// Снять маску opacity:0, не тронув прочие стили узла.
+// Снять маску opacity:0, не тронув прочие стили узла. Опустевший style удаляется
+// целиком (не остаётся {}): размаскированный узел структурно равен свежесобранному —
+// без этого реконсиляция сборки (Ф2) считала бы его вечно изменённым.
 const unhideNode = (n: RFNode): RFNode => {
   if (!n.style || n.style.opacity !== 0) return n;
   const style = { ...n.style };
   delete style.opacity;
+  if (Object.keys(style).length === 0) {
+    const rest = { ...n };
+    delete rest.style;
+    return rest;
+  }
   return { ...n, style };
+};
+
+// Показать скрытое ребро БЕЗ отрисовки: ключ hidden удаляется (см. unhideNode —
+// структурное равенство со свежей сборкой).
+const unhideEdge = (e: RFEdge): RFEdge => {
+  const rest = { ...e };
+  delete rest.hidden;
+  return rest;
 };
 
 export function useLayoutAnimation({
@@ -178,7 +193,7 @@ export function useLayoutAnimation({
         laterFromFrame(ANIM_DRAW_MS, endDraw);
         drawStarted = true;
       } else {
-        setRfEdges((prev) => prev.map((e) => (mask.edges.has(e.id) && e.hidden ? { ...e, hidden: false } : e)));
+        setRfEdges((prev) => prev.map((e) => (mask.edges.has(e.id) && e.hidden ? unhideEdge(e) : e)));
       }
     }
     if (!drawStarted) gate.release();

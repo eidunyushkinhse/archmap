@@ -33,6 +33,7 @@ import type { SchemaView } from "./schemaView";
 import { computeViewLayout, type LayoutResult } from "./graph/layout/pipeline";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
+import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
@@ -314,6 +315,18 @@ function LevelGraphInner({
     },
     [isArchitect, isContext, containerId, viewLayout, onPersistError, onLayoutChanged],
   );
+  // СТАБИЛЬНАЯ обёртка коммита для долгоживущих замыканий (команды undo/redo в
+  // истории живут произвольно долго): всегда зовёт СВЕЖИЙ commitLayout. Иначе
+  // дедуп выше сравнивал бы патч со СНИМКОМ viewLayout из момента создания
+  // команды и гасил бы законную запись: Ctrl+Z перемещения молча не работал
+  // (undo-патч «вернуть старую позицию» совпадает со старым зеркалом; сломано
+  // дедупом cb2faad 2026-07-07, вскрыто смоуком Ф2 эпика плавности).
+  const commitLayoutRef = useRef(commitLayout);
+  useEffect(() => { commitLayoutRef.current = commitLayout; });
+  const commitLayoutStable = useCallback(
+    (patch: Record<string, Partial<ViewLayoutPayload> | null>) => commitLayoutRef.current(patch),
+    [],
+  );
 
   // Раскрытые инлайн контейнеры (гостевые и ЛОКАЛЬНЫЕ, R5). Раскрытие — часть
   // состояния ВИДА и персистится (payload.expanded в view_layout, архитектор);
@@ -360,19 +373,25 @@ function LevelGraphInner({
   );
   // Раскрытие ЛОКАЛЬНОГО контейнера (R5): лениво догружаем его прямых детей —
   // по Д3 показываются ВСЕ дети, а /graph уровня их не отдаёт.
+  // Ф2 плавности: expanded включается ПО ПРИХОДУ детей (одним батчем с
+  // localChildren) — иначе между кликом и фетчем успевал стартовать прогон
+  // «expanded есть, детей нет» (контейнер в нём всё равно свёрнут), который
+  // только скипался по сигнатуре, съедая ~60мс латентности старта анимации.
+  // С тёплым кэшем раскрываем сразу (повторное раскрытие мгновенно, как раньше).
   const expandLocalContainer = useCallback(
     (id: string) => {
-      noteExpand(id);
-      commitExpanded(id, true);
-      setLocalChildren((prev) => {
-        if (prev[id]) return prev;
-        void nodesApi.list(id).then((kids) => {
-          setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: kids }));
-        });
-        return prev;
+      if (localChildren[id]) {
+        noteExpand(id);
+        commitExpanded(id, true);
+        return;
+      }
+      void nodesApi.list(id).then((kids) => {
+        noteExpand(id);
+        commitExpanded(id, true);
+        setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: kids }));
       });
     },
-    [commitExpanded, noteExpand],
+    [localChildren, commitExpanded, noteExpand],
   );
   const collapseContainer = useCallback(
     (id: string) => { noteCollapse(id); commitExpanded(id, false); },
@@ -462,9 +481,11 @@ function LevelGraphInner({
   }, [isArchitect, isContext, runUndo, runRedo]);
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
+  // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
+  // кладёт в историю, обязаны коммитить через СВЕЖЕЕ зеркало (см. commitLayoutStable).
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext,
-    ancestorIds, ancestorNames, commitLayout, push: history.push,
+    ancestorIds, ancestorNames, commitLayout: commitLayoutStable, push: history.push,
   });
 
   // Поток 'dimensions'-изменений RF (замер узлов) → накопление реальных габаритов и
@@ -737,6 +758,10 @@ function LevelGraphInner({
   useEffect(() => {
     cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, pushHistory: history.push, commitLayout, quickConnect: quickConnectHandlers };
   });
+  // Ленивая читалка колбэков для сборки: обработчики в data собранных объектов зовут
+  // getCb() в момент клика (не при сборке) — объект может пережить несколько прогонов
+  // (скип Ф1, реконсиляция Ф2), а действия обязаны идти через СВЕЖИЙ commitLayout.
+  const getCb = useCallback(() => cbRef.current, []);
 
   // Раскладка вида: ВЕСЬ конвейер (проекция гостей → слияние мастеров → ELK/контекст →
   // кольца → разведение → keep-out → изломы → A10 → роутер → плашки → детуры → nudge)
@@ -776,16 +801,22 @@ function LevelGraphInner({
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
     const { nextNodes, nextEdges } = assembleRfGraph({
-      layout, isArchitect, isContext, depth, schemaView, cb: cbRef.current,
+      layout, isArchitect, isContext, depth, schemaView, getCb,
     });
+    // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
+    // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
+    // ре-рендерить всю сцену (заодно неизменённые узлы переживают пересчёт с
+    // сохранённым выделением/замерами).
+    const recNodes = reconcileNodes(getNodes(), nextNodes);
+    const recEdges = reconcileEdges(getEdges(), nextEdges);
     // Применение — через оркестратор анимации: без интента раскрытия/сворачивания
     // это те же setRfNodes/setRfEdges, с интентом — режиссированный переход.
-    applyLayout(nextNodes, nextEdges);
+    applyLayout(recNodes, recEdges);
     // Применение состоялось — разбудить ждущий флаш тихого окна: unmask ждёт
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout]);
+  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout, getCb, getNodes, getEdges]);
 
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).

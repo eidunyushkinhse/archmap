@@ -1,7 +1,10 @@
 // Сборка RF-узлов/рёбер из результата раскладки (вынесена из эффекта LevelGraph
 // при распиле Ф2 аудита 2026-07-09). ЧИСТАЯ функция: layout → массивы для
-// setRfNodes/setRfEdges; колбэки приходят снимком (LevelGraph держит их в
-// latest-ref, чтобы сборка не зависела от их идентичности).
+// setRfNodes/setRfEdges. Колбэки приходят ЧИТАЛКОЙ latest-ref (getCb), а
+// обработчики в data зовут getCb() В МОМЕНТ КЛИКА, не при сборке: собранный
+// объект может жить дольше одного прогона (скип идентичных применений Ф1,
+// реконсиляция Ф2), и снимок колбэков в замыкании протухал бы — клик по старому
+// объекту шёл бы через старый commitLayout (merge против устаревшего viewLayout).
 import { MarkerType, type Node as RFNode, type Edge as RFEdge } from "@xyflow/react";
 import type { Node as AppNode, NodeStatus, AncestorRef } from "../../types";
 import { canHaveChildren } from "../../types";
@@ -36,9 +39,9 @@ export function assembleRfGraph(params: {
   isContext: boolean;
   depth: number;
   schemaView: SchemaView;
-  cb: AssembleCallbacks;
+  getCb: () => AssembleCallbacks;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isContext, depth, schemaView, cb } = params;
+  const { layout, isArchitect, isContext, depth, schemaView, getCb } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
@@ -102,7 +105,7 @@ export function assembleRfGraph(params: {
         zIndex: -1, // под узлами (и под их рёбрами внутри рамки)
         data: {
           name: f.name,
-          onCollapse: () => cb.collapseContainer(f.id),
+          onCollapse: () => getCb().collapseContainer(f.id),
         } satisfies FrameData,
       };
     }),
@@ -120,18 +123,20 @@ export function assembleRfGraph(params: {
         ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
         data: {
           appNode: n,
-          onDrillDown: cb.drillWithPath,
+          onDrillDown: (node) => getCb().drillWithPath(node),
           isArchitect,
           // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
           // к глубине уровня прибавляется вложенность рамки относительно уровня
           colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
           hideActions: isContext,
           connectable: isArchitect && !isContext,
-          quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
+          // quickConnect — объект-снимок: он стабилен по построению (useMemo []
+          // в LevelGraph, внутри только latest-ref'ы), лениво оборачивать нечего
+          quickConnect: isArchitect && !isContext ? getCb().quickConnect : undefined,
           // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
           // В контексте read-only схема — без раскрытий.
           onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
-            ? cb.expandLocalContainer
+            ? (id) => getCb().expandLocalContainer(id)
             : undefined,
         } satisfies BlockData,
       };
@@ -156,12 +161,12 @@ export function assembleRfGraph(params: {
             appNode: ent.ghost,
             colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth, ent.ghost.status),
             connectable: isArchitect && !isContext,
-            quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
+            quickConnect: isArchitect && !isContext ? getCb().quickConnect : undefined,
             // в контекст-режиме навигация по слоям отключена (схема — внутри модалки).
             // Путь гостя = его предки + он сам (другая ветка дерева).
             onEnter: isContext
               ? undefined
-              : () => cb.onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }]),
+              : () => getCb().onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }]),
           } satisfies GhostData,
         };
       }
@@ -175,13 +180,13 @@ export function assembleRfGraph(params: {
           depth: ent.depth,
           ancestors: ent.ancestors,
           colors: getNodeColors(ent.is_external, ent.depth),
-          onExpand: cb.expandContainer,
+          onExpand: (id) => getCb().expandContainer(id),
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
           onEnter: isContext
             ? undefined
-            : () => cb.onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
+            : () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
           connectable: isArchitect && !isContext,
-          quickConnect: isArchitect && !isContext ? cb.quickConnect : undefined,
+          quickConnect: isArchitect && !isContext ? getCb().quickConnect : undefined,
         } satisfies ContainerData,
       };
     }),
@@ -201,7 +206,7 @@ export function assembleRfGraph(params: {
     if (isArchitect && !isContext) data.editable = true;
     // Триггер детализации связи на плашке с описанием. В контексте схема только
     // для просмотра — не вешаем.
-    if (!isContext) data.onOpenDetails = () => cb.openEdgeMembers(data.memberIds);
+    if (!isContext) data.onOpenDetails = () => getCb().openEdgeMembers(data.memberIds);
     if (!isContext) {
       // Авто-маршрут (R1+R3): edges.tsx рисует его ортоломаной с минимумом пересечений.
       const ar = autoRoutes?.get(g.id);

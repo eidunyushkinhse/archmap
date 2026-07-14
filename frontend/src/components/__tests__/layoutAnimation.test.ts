@@ -145,24 +145,26 @@ describe("planCollapse", () => {
 });
 
 describe("drawIn (анимированная отрисовка стрелок)", () => {
-  it("markDrawIn: помеченные показываются с drawIn, прочие не тронуты", () => {
+  it("markDrawIn: помеченные показываются (hidden УДАЛЁН) с drawIn, прочие не тронуты", () => {
     const edges = [
       { ...edge("e1", "a", "b"), hidden: true, data: { memberIds: [] } },
       { ...edge("e2", "a", "c"), data: { memberIds: [] } },
     ];
     const out = markDrawIn(edges, new Set(["e1"]));
-    expect(out[0].hidden).toBe(false);
+    // ключ удаляется, а не пишется false: отгоревшее ребро обязано быть
+    // структурно равно свежесобранному (реконсиляция Ф2)
+    expect("hidden" in out[0]).toBe(false);
     expect(out[0].data?.drawIn).toBe(true);
     expect(out[1]).toBe(edges[1]); // без пометки — та же ссылка
   });
 
-  it("clearDrawIn: снимает флаг только у рисующихся", () => {
+  it("clearDrawIn: снимает флаг (ключ УДАЛЁН) только у рисующихся", () => {
     const edges = [
       { ...edge("e1", "a", "b"), data: { drawIn: true } },
       { ...edge("e2", "a", "c"), data: { memberIds: [] } },
     ];
     const out = clearDrawIn(edges);
-    expect(out[0].data?.drawIn).toBe(false);
+    expect(out[0].data && "drawIn" in out[0].data).toBe(false);
     expect(out[1]).toBe(edges[1]);
   });
 });
