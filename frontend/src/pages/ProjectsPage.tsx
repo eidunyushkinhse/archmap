@@ -421,4 +421,5 @@ const toastStyle: CSSProperties = {
   position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
   background: "#0f172a", color: "#fff", padding: "10px 18px", borderRadius: 10,
   fontSize: 14, boxShadow: "0 12px 30px rgba(15,23,42,.28)", zIndex: 50,
+  pointerEvents: "none", // информативный снекбар не должен глотать клики под собой
 };

@@ -208,7 +208,10 @@ function Item({ children, onClick }: { children: ReactNode; onClick?: (() => voi
 }
 
 /* --------------------------------- стили --------------------------------- */
-const wrap: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6 };
+// Позиционирует рейл тостов холста (TreePage.toastRail); relative — якорь для
+// выпадающей панели. pointerEvents возвращаем: рейл прозрачен для мыши, а знак
+// и панель — интерактивные.
+const wrap: CSSProperties = { position: "relative", pointerEvents: "auto" };
 const badge: CSSProperties = {
   position: "relative", width: 42, height: 42, borderRadius: 21, background: "#f59e0b",
   border: "none", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",

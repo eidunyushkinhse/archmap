@@ -9,17 +9,21 @@ interface Props {
 
 /**
  * Подсказка «на уровне нет узлов». Раньше замещала собой весь холст текстом —
- * теперь холст виден сразу (пустая канва с точками), а подсказка висит тостом в
- * правом верхнем углу и плавно уезжает за правый край после добавления первого узла.
- * ВСЕГДА смонтирована (за экраном при visible=false), чтобы проигрывалась анимация
- * уезда; position:fixed не обрезается overflow:hidden холста.
+ * теперь холст виден сразу (пустая канва с точками), а подсказка живёт тостом в
+ * рейле правого верхнего угла ХОЛСТА (toastRail в TreePage) и плавно уезжает за
+ * его правый край после добавления первого узла. ВСЕГДА смонтирована (уехавшей
+ * при visible=false), чтобы проигрывалась анимация уезда; overflow:hidden области
+ * графа ОБРЕЗАЕТ сдвинутый тост — он скрывается за краем холста, а не выезжает
+ * поверх шапки/правой панели (прежний position:fixed заслонял их кнопки).
+ * Сдвиг 100% + 48px — с запасом на тень (blur 24), чтобы у кромки не оставалось
+ * её следа.
  */
 export default function EmptyLevelHint({ visible, isArchitect }: Props) {
   return (
     <div
       style={{
         ...wrap,
-        transform: visible ? "translateX(0)" : "translateX(calc(100% + 32px))",
+        transform: visible ? "translateX(0)" : "translateX(calc(100% + 48px))",
       }}
       role="status"
     >
@@ -41,10 +45,9 @@ export default function EmptyLevelHint({ visible, isArchitect }: Props) {
 }
 
 const wrap: CSSProperties = {
-  position: "fixed",
-  top: 16,
-  right: 16,
-  zIndex: 1001,
+  // позиционирует рейл тостов холста (TreePage.toastRail) — сам тост лишь
+  // сдвигается transform-ом за край области графа и обратно
+  position: "relative",
   maxWidth: 320,
   display: "flex",
   alignItems: "flex-start",

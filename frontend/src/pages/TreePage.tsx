@@ -854,17 +854,22 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
 
         {/* Область графа — заполняет оставшееся пространство */}
         <div style={graphArea}>
-          {/* Индикатор незавершённости схемы (только архитектор) */}
-          {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleLocate} />}
-          {/* Подсказка про пустой уровень — тостом в правом верхнем углу. Холст
-              (даже пустой) рендерим всегда, чтобы сразу была видна канва и в неё
-              можно было дропнуть первый узел. Тост уезжает уже при открытии окна
-              создания узла: пользователь до него дошёл — значит инструкцию прочёл,
-              дальше тост только отвлекает. */}
-          <EmptyLevelHint
-            visible={!loading && !hasNodes && !nodeModal.open}
-            isArchitect={isArchitect}
-          />
+          {/* РЕЙЛ ТОСТОВ в правом верхнем углу ХОЛСТА (не вьюпорта): все всплывашки
+              схемы живут здесь колонкой, не заслоняя шапку и панели. overflow:hidden
+              graphArea обрезает их анимации — тосты выезжают из-за края холста и
+              уезжают туда же (а не за край экрана поверх правой панели). */}
+          <div style={toastRail}>
+            {/* Индикатор незавершённости схемы (только архитектор) */}
+            {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleLocate} />}
+            {/* Подсказка про пустой уровень. Холст (даже пустой) рендерим всегда,
+                чтобы сразу была видна канва и в неё можно было дропнуть первый узел.
+                Тост уезжает уже при открытии окна создания узла: пользователь до него
+                дошёл — значит инструкцию прочёл, дальше тост только отвлекает. */}
+            <EmptyLevelHint
+              visible={!loading && !hasNodes && !nodeModal.open}
+              isArchitect={isArchitect}
+            />
+          </div>
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
           ) : (
@@ -1187,7 +1192,21 @@ const graphArea: CSSProperties = {
   padding: "16px 20px 20px",
   display: "flex",
   flexDirection: "column",
-  position: "relative", // якорь для абсолютного индикатора алертов
+  position: "relative", // якорь для рейла тостов (и клип их въезда/уезда)
+};
+// Рейл тостов холста: колонка в правом верхнем углу graphArea (алерты схемы,
+// подсказка пустого уровня). Сам рейл прозрачен для мыши — интерактив включают
+// дети точечно (кнопка алертов); чисто информативные тосты остаются некликабельными.
+const toastRail: CSSProperties = {
+  position: "absolute",
+  top: 12,
+  right: 12,
+  zIndex: 6,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+  gap: 8,
+  pointerEvents: "none",
 };
 // Правая панель схемы (вид схемы; позже — мета узлов/связей) — зеркало левого дерева:
 // сворачивается в узкий рейл, футер-кнопка снизу. Стили .nt-collapse/.nt-railbtn
