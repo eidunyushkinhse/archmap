@@ -9,13 +9,32 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     description: str | None = None
     # Старт схемы: "blank" — пусто; "template:<id>" — преднастроенный каркас;
-    # "copy:<projectId>" — глубокая копия другого проекта. Парсится в роутере.
+    # "copy:<projectId>" — глубокая копия другого проекта; "import" — схема из
+    # YAML в формате экспорта (поле import_yaml). Парсится в роутере.
     start: str = "blank"
+    # YAML схемы в формате экспорта — только при start="import".
+    import_yaml: str | None = Field(default=None, max_length=2_000_000)
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=256)
     description: str | None = None
+
+
+class ImportPreviewIn(BaseModel):
+    """Текст YAML для dry-run проверки импорта (без записи в БД)."""
+
+    content: str = Field(max_length=2_000_000)
+
+
+class ImportPreviewOut(BaseModel):
+    """Сводка dry-run импорта для живой валидации в модалке создания."""
+
+    ok: bool
+    errors: list[str]  # пусто при ok=true
+    node_count: int
+    edge_count: int
+    roots: list[str]  # имена корневых узлов (для сводки), не больше первых 8
 
 
 class TemplateNodeOut(BaseModel):

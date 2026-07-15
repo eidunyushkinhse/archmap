@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
+from app.import_yaml import parse_import, seed_import
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
@@ -23,6 +24,8 @@ from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.projects import copy_project_schema
 from app.schemas.project import (
+    ImportPreviewIn,
+    ImportPreviewOut,
     ProjectCreate,
     ProjectPreview,
     ProjectPreviewEdge,
@@ -211,6 +214,25 @@ def get_templates(_user: User = Depends(get_current_user)) -> list[dict]:
     return list_templates()
 
 
+@router.post("/import/preview", response_model=ImportPreviewOut)
+def import_preview(
+    payload: ImportPreviewIn,
+    _user: User = Depends(require_architect),
+) -> ImportPreviewOut:
+    """Dry-run импорта YAML для живой сводки в модалке: только парсинг/валидация,
+    БД не трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет."""
+    parsed, errors = parse_import(payload.content)
+    if parsed is None:
+        return ImportPreviewOut(ok=False, errors=errors, node_count=0, edge_count=0, roots=[])
+    return ImportPreviewOut(
+        ok=True,
+        errors=[],
+        node_count=len(parsed.nodes),
+        edge_count=len(parsed.edges),
+        roots=parsed.roots[:8],
+    )
+
+
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(
     project_id: uuid.UUID,
@@ -231,7 +253,8 @@ def create_project(
     user: User = Depends(require_architect),
 ) -> ProjectResponse:
     """Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
-    "copy:<projectId>" — глубокая копия схемы другого проекта."""
+    "copy:<projectId>" — глубокая копия схемы другого проекта; "import" — схема
+    из YAML в формате экспорта (payload.import_yaml)."""
     project = Project(
         id=uuid.uuid4(),
         name=payload.name,
@@ -257,6 +280,13 @@ def create_project(
         if src is None:
             raise HTTPException(status_code=404, detail="Исходный проект не найден")
         copy_project_schema(db, src_id, project.id)
+    elif start == "import":
+        if not payload.import_yaml:
+            raise HTTPException(status_code=400, detail="Не передан YAML для импорта")
+        parsed, errors = parse_import(payload.import_yaml)
+        if parsed is None:
+            raise HTTPException(status_code=400, detail="; ".join(errors[:10]))
+        seed_import(db, project.id, parsed)
     else:
         raise HTTPException(status_code=400, detail="Неизвестный способ старта проекта")
 

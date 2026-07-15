@@ -54,7 +54,8 @@ export interface paths {
         /**
          * Create Project
          * @description Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
-         *     "copy:<projectId>" — глубокая копия схемы другого проекта.
+         *     "copy:<projectId>" — глубокая копия схемы другого проекта; "import" — схема
+         *     из YAML в формате экспорта (payload.import_yaml).
          */
         post: operations["create_project_api_v1_projects_post"];
         delete?: never;
@@ -74,6 +75,27 @@ export interface paths {
         get: operations["get_templates_api_v1_projects_templates_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Preview
+         * @description Dry-run импорта YAML для живой сводки в модалке: только парсинг/валидация,
+         *     БД не трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет.
+         */
+        post: operations["import_preview_api_v1_projects_import_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1179,6 +1201,30 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * ImportPreviewIn
+         * @description Текст YAML для dry-run проверки импорта (без записи в БД).
+         */
+        ImportPreviewIn: {
+            /** Content */
+            content: string;
+        };
+        /**
+         * ImportPreviewOut
+         * @description Сводка dry-run импорта для живой валидации в модалке создания.
+         */
+        ImportPreviewOut: {
+            /** Ok */
+            ok: boolean;
+            /** Errors */
+            errors: string[];
+            /** Node Count */
+            node_count: number;
+            /** Edge Count */
+            edge_count: number;
+            /** Roots */
+            roots: string[];
+        };
+        /**
          * IntermediateEdgeAlert
          * @description Связь, у которой хотя бы один конец упирается в промежуточный
          *     (контейнерный) узел, а не в атомарный.
@@ -1627,6 +1673,8 @@ export interface components {
              * @default blank
              */
             start: string;
+            /** Import Yaml */
+            import_yaml?: string | null;
         };
         /**
          * ProjectPreview
@@ -2020,6 +2068,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TemplateOut"][];
+                };
+            };
+        };
+    };
+    import_preview_api_v1_projects_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportPreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
