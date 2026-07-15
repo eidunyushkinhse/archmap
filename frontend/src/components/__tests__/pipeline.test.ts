@@ -144,6 +144,36 @@ describe("computeViewLayout — композиция конвейера уров
     expect(seeds.map((s) => s.id).sort()).toEqual(expect.arrayContaining(["B1", "B2"]));
   });
 
+  it("R5-регрессия: единственный ребёнок БЕЗ видимых связей ложится на месте контейнера, рамка вокруг", async () => {
+    // Все связи ребёнка ведут в сам раскрытый контейнер (типично для свежей схемы:
+    // пользователь протянул связь к контейнеру, а не к его будущим детям) — проекция
+    // их дропает, ребёнок изолирован. Гарантия: при owned-позиции контейнера (её
+    // закрепляет own-on-expand в LevelGraph) сетка первого показа кладёт ребёнка на
+    // место контейнера, а не оставляет ELK-изолятом в углу канвы.
+    const b1 = { ...appNode("B1"), parent_id: "B" } as AppNode;
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAB", "A", "B", "в контейнер")],
+      endpoints: [],
+      viewLayout: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } },
+      expanded: new Set(["B"]),
+      localChildren: { B: [b1] },
+    }));
+    // связь «прямо в контейнер» при его раскрытии скрыта (алерт-кейс) — рёбер нет
+    expect(out.layout.groupArr).toEqual([]);
+    // ребёнок сел от owned-позиции контейнера (сетка 1×1 = ровно его угол)
+    expect(out.layout.positions.get("B1")).toEqual({ x: 400, y: 0 });
+    // рамка раскрытия обнимает ребёнка на месте контейнера
+    const bf = out.layout.guestFrames.find((f) => f.id === "B")!;
+    expect(bf).toBeTruthy();
+    expect([...bf.memberIds]).toEqual(["B1"]);
+    expect(bf.rect.x).toBeLessThan(400);
+    expect(bf.rect.y).toBeLessThan(0);
+    expect(bf.rect.x + bf.rect.w).toBeGreaterThan(400 + 190);
+    // и засеян интентом — раскрытие персистит место навсегда
+    const seeds = out.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
+    expect(seeds.map((s) => s.id)).toContain("B1");
+  });
+
   it("R5-инвариант: чужой узел не остаётся внутри рамки раскрытого локала", async () => {
     // A владеет позицией ровно там, где раскроется B (сетка детей от позиции B=400,0) —
     // конвейер обязан вытолкнуть A за rect рамки.

@@ -329,6 +329,10 @@ function LevelGraphInner({
     [],
   );
 
+  // Последний применённый результат конвейера (заполняется эффектом у стейта
+  // layout ниже): own-on-expand берёт отсюда абсолютную позицию контейнера.
+  const layoutLatestRef = useRef<LayoutResult | null>(null);
+
   // Раскрытые инлайн контейнеры (гостевые и ЛОКАЛЬНЫЕ, R5). Раскрытие — часть
   // состояния ВИДА и персистится (payload.expanded в view_layout, архитектор);
   // поверх сохранённого живут ЭФЕМЕРНЫЕ правки текущей сессии (overrides): у
@@ -362,10 +366,19 @@ function LevelGraphInner({
     (id: string, value: boolean) => {
       setExpandOverrides((prev) => new Map(prev).set(id, value));
       // персист (архитектор, не контекст — гейтит commitLayout): true — раскрыт,
-      // null-поле — сброс (exclude_none выкинет его из payload строки)
-      commitLayout({ [id]: { expanded: value ? true : null } });
+      // null-поле — сброс (exclude_none выкинет его из payload строки).
+      // OWN-ON-EXPAND: контейнер, не владевший позицией (чисто-ELK уровень —
+      // типично сразу после импорта), при раскрытии закрепляет текущую. Иначе
+      // сетке первого показа детей не от чего стартовать, и ребёнка без видимых
+      // рёбер (все его связи ведут в сам раскрытый контейнер и дропнуты
+      // проекцией) ELK уносил изолированной компонентой в угол канвы — рамка
+      // «раскрывалась» вдали от места клика, под левой панелью.
+      const p = viewLayout[id];
+      const owned = p?.x != null && p?.y != null;
+      const cur = value && !owned ? layoutLatestRef.current?.positions.get(id) : undefined;
+      commitLayout({ [id]: { expanded: value ? true : null, ...(cur ? { x: cur.x, y: cur.y } : null) } });
     },
-    [commitLayout],
+    [commitLayout, viewLayout],
   );
   // Раскрытие ГОСТЕВОГО контейнера: детей даёт проекция (реестр endpoints).
   const expandContainer = useCallback(
@@ -774,6 +787,10 @@ function LevelGraphInner({
   // Конвейер НЕ пишет в БД: побочные записи (засев владения, миграции якорей изломов)
   // приходят интентами и применяются здесь же — только если прогон не устарел (cancelled).
   const [layout, setLayout] = useState<LayoutResult | null>(null);
+  // Последний применённый layout — latest-ref для обработчиков, объявленных выше
+  // по файлу (own-on-expand в commitExpanded читает позицию контейнера в момент
+  // клика). Зеркалим только эффектом (react-hooks/refs).
+  useEffect(() => { layoutLatestRef.current = layout; });
   // ГИСТЕРЕЗИС МАРШРУТОВ: финальные autoRoutes/edgeHandles последнего прогона с ТЕМ ЖЕ
   // комплектом замеров (sizesVersion). Передаются следующему прогону — валидные прежние
   // маршруты удерживаются, пока не хуже свежих на порог (стрелки не перекладываются от
