@@ -30,7 +30,8 @@ import type {
 } from "./graph/types";
 import type { EdgeSide } from "./graph/edgePath";
 import type { SchemaView } from "./schemaView";
-import { computeViewLayout, type LayoutResult } from "./graph/layout/pipeline";
+import type { LayoutResult } from "./graph/layout/pipeline";
+import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
 import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
@@ -833,7 +834,9 @@ function LevelGraphInner({
     try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
-      const { layout: next, liveInputs, intents } = await computeViewLayout({
+      // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
+      // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
+      const { layout: next, liveInputs, intents } = await computeViewLayoutOffThread({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren, isContext,
         sizes: nodeSizesRef.current,
