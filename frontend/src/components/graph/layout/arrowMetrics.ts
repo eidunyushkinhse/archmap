@@ -31,6 +31,23 @@ export function rectsOverlap(a: NodeRect, b: NodeRect): boolean {
   );
 }
 
+// Пересекает ли отрезок a→b прямоугольник r (Лианг-Барски). Прямоугольник сжат на EPS —
+// скольжение вдоль границы и старт «впритык» не считаются пересечением (согласовано с
+// rectsOverlap). Точка a внутри r — тоже пересечение (клип не пуст).
+export function segCrossesRect(a: EdgePoint, b: EdgePoint, r: NodeRect): boolean {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const p = [-dx, dx, -dy, dy];
+  const q = [a.x - (r.x + EPS), r.x + r.w - EPS - a.x, a.y - (r.y + EPS), r.y + r.h - EPS - a.y];
+  let t0 = 0, t1 = 1;
+  for (let i = 0; i < 4; i++) {
+    if (Math.abs(p[i]) < 1e-9) { if (q[i] < 0) return false; continue; }
+    const t = q[i] / p[i];
+    if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else { if (t < t0) return false; if (t < t1) t1 = t; }
+  }
+  return t0 <= t1;
+}
+
 // Число пар наложенных плашек (R2).
 export function countLabelOverlaps(labels: NodeRect[]): number {
   let n = 0;

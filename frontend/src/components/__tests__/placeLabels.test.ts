@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { placeLabels, type LabelInput, type Placement } from "../graph/layout/placeLabels";
-import { rectFromCenter, rectsOverlap, countLabelOverlaps, countLabelsUnderNodes } from "../graph/layout/arrowMetrics";
+import { rectFromCenter, rectsOverlap, countLabelOverlaps, countLabelsUnderNodes, segCrossesRect } from "../graph/layout/arrowMetrics";
 import type { NodeRect, Segment } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
 
@@ -145,6 +145,55 @@ describe("placeLabels — качество выноски (A15)", () => {
     // и leaderEnd на границе бокса: |center - leaderEnd| ≈ пол-высоты (вынос по нормали к линии)
     const dEndCenter = Math.hypot(p.center.x - p.leaderEnd.x, p.center.y - p.leaderEnd.y);
     expect(dEndCenter).toBeCloseTo(p.box.h / 2, 0);
+  });
+});
+
+describe("segCrossesRect — геометрия поводка", () => {
+  const r: NodeRect = { x: 40, y: -10, w: 20, h: 20 };
+  it("сквозь прямоугольник → true", () => {
+    expect(segCrossesRect({ x: 0, y: 0 }, { x: 100, y: 0 }, r)).toBe(true);
+  });
+  it("мимо → false", () => {
+    expect(segCrossesRect({ x: 0, y: 20 }, { x: 100, y: 20 }, r)).toBe(false);
+  });
+  it("скольжение вдоль границы (в пределах EPS) → false", () => {
+    expect(segCrossesRect({ x: 0, y: 10 }, { x: 100, y: 10 }, r)).toBe(false);
+  });
+  it("старт на границе с уходом прочь → false, старт внутри → true", () => {
+    expect(segCrossesRect({ x: 60, y: 0 }, { x: 100, y: 0 }, r)).toBe(false);
+    expect(segCrossesRect({ x: 50, y: 0 }, { x: 100, y: 0 }, r)).toBe(true);
+  });
+});
+
+describe("placeLabels — поводок и узлы (мягкое избегание)", () => {
+  it("поводок обходит узел: чистое направление выигрывает у более близкого с нырком", () => {
+    // Якорь (100,0) зажат в щели: узел A вплотную сверху, глубокий B вплотную снизу.
+    // Все ближние кандидаты заняты боксом; первый чистый боксом — НАД A, но его поводок
+    // ныряет сквозь A (по-старому победил бы он). Чистая альтернатива — вбок по щели.
+    const A: NodeRect = { x: 70, y: -46, w: 60, h: 40 };
+    const B: NodeRect = { x: 70, y: 6, w: 60, h: 200 };
+    const labels: LabelInput[] = [
+      { id: "L", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
+    ];
+    const [p] = placeLabels(labels, [A, B]);
+    expect(p.mode).toBe("leader");
+    expect(segCrossesRect(p.anchor, p.center, A)).toBe(false);
+    expect(segCrossesRect(p.anchor, p.center, B)).toBe(false);
+  });
+
+  it("в полной тесноте нырок допустим: плашка всё равно размещается", () => {
+    // Две плиты во всю ширину со щелью 12px < высоты плашки: ЛЮБОЙ кандидат-бокс задевает
+    // плиту (ovHard>0), чистых мест нет вовсе — штраф поводка не должен отвергать насмерть.
+    const top: NodeRect = { x: -100, y: -46, w: 400, h: 40 };
+    const bot: NodeRect = { x: -100, y: 6, w: 400, h: 200 };
+    const labels: LabelInput[] = [
+      { id: "L", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
+    ];
+    const ps = placeLabels(labels, [top, bot]);
+    expect(ps).toHaveLength(1);
+    expect(ps[0].mode).toBe("leader");
+    expect(Number.isFinite(ps[0].center.x)).toBe(true);
+    expect(Number.isFinite(ps[0].center.y)).toBe(true);
   });
 });
 

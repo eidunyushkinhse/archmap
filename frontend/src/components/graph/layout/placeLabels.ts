@@ -16,9 +16,14 @@
 // (не только узлов) + минимума пересечений поводка с чужими стрелками. Так плашка не ложится на
 // соседнее плечо, а пунктир ведёт в середину «своего» отрезка и не прячется под плашкой (его конец
 // обрезается до края плашки в edges.tsx). См. ARROWS_ANALYSIS §5, §6 (A6) + arrows-routing-epic A15.
+//
+// ПОВОДОК И УЗЛЫ (2026-07-15): поводок по возможности не ныряет под узлы (узлы рендерятся поверх
+// слоя рёбер — скрытый участок пунктира рвёт связь «плашка↔стрелка»). Штраф МЯГКИЙ, компонент
+// nodeCross в ключе выбора: чистое направление выигрывает даже дальнее, в полной тесноте нырок
+// допустим (плашка размещается всегда).
 import type { EdgePoint } from "../../../types";
 import { pointAtFraction, type NodeRect, type Segment } from "../edgePath";
-import { rectFromCenter, rectsOverlap } from "./arrowMetrics";
+import { rectFromCenter, rectsOverlap, segCrossesRect } from "./arrowMetrics";
 import { edgeArcLength, subtractIntervals, type Interval } from "./coincidentLegs";
 import type { Size } from "./labelBox";
 
@@ -154,10 +159,23 @@ function connectorCrossings(anchor: EdgePoint, end: EdgePoint, segs: Segment[]):
   return n;
 }
 
+// Сколько прямоугольников rects пересёк бы поводок anchor→end. Узлы рисуются ПОВЕРХ слоя
+// рёбер — участок пунктира под узлом невидим, связь «плашка↔стрелка» на глаз рвётся.
+function rectCrossings(anchor: EdgePoint, end: EdgePoint, rects: NodeRect[]): number {
+  let n = 0;
+  for (const r of rects) if (segCrossesRect(anchor, end, r)) n++;
+  return n;
+}
+
 export function placeLabels(
   labels: LabelInput[],
   nodes: NodeRect[] = [],
   edgeSegs: ReadonlyMap<string, Segment[]> = new Map(),
+  // Добавочные жёсткие препятствия ТОЛЬКО для наложений плашки (ovHard) — живой драг
+  // подкладывает сюда плашки незатронутых рёбер (эмуляция placedRects финального гриди).
+  // В штрафе поводка (nodeCross) НЕ участвуют — иначе live-скоринг разошёлся бы с
+  // финальным, где ранее размещённые плашки в nodeCross тоже не входят.
+  obstacles: NodeRect[] = [],
 ): Placement[] {
   // плечи каждого ребра как препятствия + сырые сегменты для оценки пересечений поводка
   const legRectsById = new Map<string, NodeRect[]>();
@@ -187,7 +205,7 @@ export function placeLabels(
     (a, b) => a.onlineCount - b.onlineCount || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
 
-  const placedRects: NodeRect[] = [...nodes]; // узлы + уже размещённые плашки — препятствия
+  const placedRects: NodeRect[] = [...nodes, ...obstacles]; // узлы + внешние препятствия + уже размещённые плашки
   const chosen = new Map<string, Placement>();
   for (const L of order) {
     // чужие плечи (все рёбра, кроме своего) — препятствия для ПЛАШКИ и помеха для поводка
@@ -200,21 +218,30 @@ export function placeLabels(
       if (rs) otherLegRects.push(...rs);
     }
     // ключ выбора: [жёсткие наложения (узлы+плашки), мягкие (чужие плечи), online<leader,
-    // пересечения поводка, индекс-предпочтение]. Чужие плечи — МЯГКИЙ конфликт для ВСЕХ
-    // кандидатов (жалоба «плашка под стрелкой»: раньше online их не проверял и садился
-    // прямо под чужую линию): плашка сначала ищет чистое место вдоль СВОЕЙ линии, затем
-    // чистую выноску, и лишь при полном отсутствии мест мирится с чужим плечом.
+    // поводок под узлами, пересечения поводка со стрелками, индекс-предпочтение]. Чужие
+    // плечи — МЯГКИЙ конфликт для ВСЕХ кандидатов (жалоба «плашка под стрелкой»: раньше
+    // online их не проверял и садился прямо под чужую линию): плашка сначала ищет чистое
+    // место вдоль СВОЕЙ линии, затем чистую выноску, и лишь при полном отсутствии мест
+    // мирится с чужим плечом. Поводок под узлами (жалоба 2026-07-15: пунктир ныряет под
+    // узел и связь «плашка↔стрелка» теряется) — тоже МЯГКИЙ штраф: чистое направление
+    // выигрывает даже дальнее/диагональное, но в полной тесноте нырок допустим; весом
+    // выше крестов с чужими стрелками (перекрестье видно, исчезновение под узлом — нет).
     let best = 0;
-    let bestKey: [number, number, number, number, number] = [Infinity, Infinity, Infinity, Infinity, Infinity];
+    let bestKey: [number, number, number, number, number, number] = [Infinity, Infinity, Infinity, Infinity, Infinity, Infinity];
     for (let k = 0; k < L.cands.length; k++) {
       const c = L.cands[k];
       const ovHard = overlapCount(c.center, L.box, placedRects);
       const ovLegs = overlapCount(c.center, L.box, otherLegRects);
-      const cross = c.leader
-        ? connectorCrossings(L.anchor, leaderEndPoint(L.anchor, c.center, L.box), otherSegs)
-        : 0;
-      const key: [number, number, number, number, number] = [ovHard, ovLegs, c.leader ? 1 : 0, cross, k];
-      for (let d = 0; d < 5; d++) {
+      let cross = 0, nodeCross = 0;
+      if (c.leader) {
+        // хвост leaderEnd→center лежит под боксом плашки, чистоту бокса держит ovHard —
+        // оцениваем видимую часть поводка anchor→leaderEnd (как и cross)
+        const end = leaderEndPoint(L.anchor, c.center, L.box);
+        cross = connectorCrossings(L.anchor, end, otherSegs);
+        nodeCross = rectCrossings(L.anchor, end, nodes);
+      }
+      const key: [number, number, number, number, number, number] = [ovHard, ovLegs, c.leader ? 1 : 0, nodeCross, cross, k];
+      for (let d = 0; d < 6; d++) {
         if (key[d] < bestKey[d]) { bestKey = key; best = k; break; }
         if (key[d] > bestKey[d]) break;
       }

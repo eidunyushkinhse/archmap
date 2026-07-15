@@ -59,11 +59,10 @@ export function buildLabelPlacements(params: {
   // (A15): плашка не должна ложиться на чужое плечо, а поводок — лишний раз пересекать стрелки.
   const edgeSegs = new Map<string, Segment[]>();
   for (const [id, path] of routes) edgeSegs.set(id, segments(path));
-  const placements = placeLabels(
-    inputs,
-    obstacleRects && obstacleRects.length > 0 ? [...nodeRects, ...obstacleRects] : nodeRects,
-    edgeSegs,
-  );
+  // obstacleRects — отдельным параметром, НЕ подмешивать в nodeRects: узлы участвуют и в
+  // штрафе поводка (nodeCross), а внешние препятствия (чужие плашки живого драга) — только
+  // в наложениях плашки, как placedRects финального гриди.
+  const placements = placeLabels(inputs, nodeRects, edgeSegs, obstacleRects ?? []);
   const out = new Map<string, LabelPlacement>();
   for (const p of placements) {
     out.set(p.id, { mode: p.mode, center: p.center, anchor: p.anchor, leaderEnd: p.leaderEnd });
