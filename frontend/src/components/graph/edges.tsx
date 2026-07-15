@@ -68,7 +68,10 @@ function WrappedLabelEdge({
   // линия рисуется штрихом от source к target (pathLength=1 нормализует длину пути,
   // keyframes lg-edge-draw гонит stroke-dashoffset 1→0), а наконечник, плашка,
   // поводок и грипы скрыты до снятия флага — «плашка появляется по завершении».
+  // Каскад (Ф5): drawInDelay сдвигает старт волны этого ребра (animation-delay);
+  // до старта линия пуста (fill-mode both держит from-состояние).
   const drawing = d?.drawIn === true;
+  const drawDelay = drawing ? (d?.drawInDelay ?? 0) : 0;
   // Приглушение фильтром «Вид схемы»: линию гасит style.opacity (из LevelGraph),
   // а плашку подписи — этот стиль (она рендерится в отдельном слое EdgeLabelRenderer).
   const dimStyle: CSSProperties | null = d?.dimmed ? { opacity: 0.12, pointerEvents: "none" } : null;
@@ -237,7 +240,9 @@ function WrappedLabelEdge({
         markerEnd={drawing ? undefined : markerEnd}
         className={drawing ? "lg-edge-drawin" : undefined}
         {...(drawing ? { pathLength: 1 } : null)}
-        style={drawing ? { ...style, strokeDasharray: 1 } : style}
+        style={drawing
+          ? { ...style, strokeDasharray: 1, ...(drawDelay > 0 ? { animationDelay: `${drawDelay}ms` } : null) }
+          : style}
       />
       {/* Поводок-выноска (R2-fallback): плашку нельзя поставить на линию без наложения —
           она вынесена сбоку (labelPlacement.center), а пунктирный поводок связывает её с

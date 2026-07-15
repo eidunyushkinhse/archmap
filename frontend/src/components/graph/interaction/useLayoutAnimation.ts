@@ -33,7 +33,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import {
   planExpand, planCollapse, markDrawIn, clearDrawIn, changedEdgeIds,
-  ANIM_MOVE_MS, ANIM_FADE_MS, ANIM_DRAW_MS,
+  ANIM_MOVE_MS, ANIM_FADE_MS, drawSpanMs,
 } from "./layoutAnimation";
 
 // Интент старше — протух (например, раскрыли пустой контейнер и рамка так и
@@ -190,7 +190,8 @@ export function useLayoutAnimation({
       if (withDraw) {
         drawRef.current = mask.edges;
         setRfEdges((prev) => markDrawIn(prev, mask.edges));
-        laterFromFrame(ANIM_DRAW_MS, endDraw);
+        // конец фазы — по ПОСЛЕДНЕЙ волне каскада (Ф5): спан растёт с числом рёбер
+        laterFromFrame(drawSpanMs(mask.edges.size), endDraw);
         drawStarted = true;
       } else {
         setRfEdges((prev) => prev.map((e) => (mask.edges.has(e.id) && e.hidden ? unhideEdge(e) : e)));
@@ -328,8 +329,9 @@ export function useLayoutAnimation({
                   drawRef.current = drawIds;
                   setRfEdges(markDrawIn(fin.edges, drawIds));
                   // отсчёт от первого кадра: сразу за свопом приходит прогон по замерам
-                  // вернувшегося узла, и wall-clock-отсчёт съедал бы окно отрисовки
-                  laterFromFrame(ANIM_DRAW_MS, endDraw);
+                  // вернувшегося узла, и wall-clock-отсчёт съедал бы окно отрисовки;
+                  // конец — по последней волне каскада (Ф5)
+                  laterFromFrame(drawSpanMs(drawIds.size), endDraw);
                   drawStarted = true;
                 } else {
                   setRfEdges(fin.edges);
@@ -361,7 +363,7 @@ export function useLayoutAnimation({
         if (changed.size > 0) {
           gestureRef.current = 0;
           drawRef.current = new Set([...(drawRef.current ?? []), ...changed]);
-          laterFromFrame(ANIM_DRAW_MS, endDraw);
+          laterFromFrame(drawSpanMs(drawRef.current.size), endDraw);
         }
       } else {
         gestureRef.current = 0;

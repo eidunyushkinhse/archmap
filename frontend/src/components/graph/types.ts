@@ -58,8 +58,12 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   // идёт анимированная ОТРИСОВКА стрелки после раскрытия/сворачивания (useLayoutAnimation):
   // линия рисуется штрихом от исходного хэндла к целевому (CSS lg-edge-drawin,
   // pathLength=1 + stroke-dashoffset), маркер-наконечник и плашка скрыты до конца
-  // отрисовки. Флаг ставит и снимает оркестратор анимации по таймеру ANIM_DRAW_MS.
+  // отрисовки. Флаг ставит и снимает оркестратор анимации по таймеру drawSpanMs.
   drawIn?: boolean;
+  // Ф5, каскад отрисовки: задержка старта волны этого ребра (animation-delay, мс).
+  // Ставится markDrawIn только при DRAW_CASCADE и только ненулевая (нормальная
+  // форма для реконсиляции); fill-mode both держит линию пустой до старта волны.
+  drawInDelay?: number;
 }
 
 export interface NodeColors { bg: string; border: string; text: string }

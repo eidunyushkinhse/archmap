@@ -32,27 +32,77 @@ export const ANIM_MOVE_MS = 420;
 export const ANIM_FADE_MS = 200;
 export const ANIM_DRAW_MS = 400;
 
+// Ф5: КАСКАДНАЯ отрисовка стрелок — не все разом, а волнами по DRAW_WAVE_SIZE
+// с шагом DRAW_WAVE_STEP_MS (короткие маршруты первыми: связи «расцветают» от
+// ближних к дальним). Реализация — animation-delay (data.drawInDelay) на уже
+// стоящем keyframes lg-edge-draw: его fill-mode both держит линию пустой до
+// старта её волны. ФЛАГ ОТКАТА: DRAW_CASCADE=false возвращает одновременный
+// старт (delay не проставляется, спан = ANIM_DRAW_MS) — решение пользователя
+// «каскад последним и легко откатываемым».
+export const DRAW_CASCADE = true;
+export const DRAW_WAVE_SIZE = 8;
+export const DRAW_WAVE_STEP_MS = 60;
+
+// Длина авто-маршрута ребра (сумма сегментов) — ключ порядка волн. Ребро без
+// маршрута (прямое/фолбэк) считается нулевой длины — уходит в первую волну.
+const routeLen = (e: RFEdge): number => {
+  const pts = (e.data as { autoRoute?: { x: number; y: number }[] } | undefined)?.autoRoute;
+  if (!pts || pts.length < 2) return 0;
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    len += Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y);
+  }
+  return len;
+};
+
+// Задержки волн для помечаемых рёбер: сортировка по (длина маршрута, id — детер-
+// минированный тай-брейк), волны по DRAW_WAVE_SIZE, шаг DRAW_WAVE_STEP_MS.
+const cascadeDelays = (edges: RFEdge[], ids: Set<string>): Map<string, number> => {
+  const marked = edges
+    .filter((e) => ids.has(e.id))
+    .sort((a, b) => routeLen(a) - routeLen(b) || (a.id < b.id ? -1 : 1));
+  const delays = new Map<string, number>();
+  marked.forEach((e, i) => {
+    delays.set(e.id, Math.floor(i / DRAW_WAVE_SIZE) * DRAW_WAVE_STEP_MS);
+  });
+  return delays;
+};
+
+/** Полная длительность фазы отрисовки для count рёбер (конец = endDraw):
+ *  последняя волна стартует с максимальной задержкой и рисуется ANIM_DRAW_MS. */
+export const drawSpanMs = (count: number): number =>
+  ANIM_DRAW_MS +
+  (DRAW_CASCADE && count > 0 ? (Math.ceil(count / DRAW_WAVE_SIZE) - 1) * DRAW_WAVE_STEP_MS : 0);
+
 /** Показать спрятанные рёбра ids С анимированной отрисовкой (drawIn — edges.tsx
  *  рисует линию штрихом от source к target, плашка и наконечник появятся по
  *  снятии флага). Прочие рёбра не трогаем. Снятые маски НЕ оставляют ключей
- *  (hidden удаляется, не пишется false): отгоревшее анимацией ребро обязано быть
- *  структурно равно свежесобранному — иначе реконсиляция сборки (Ф2) никогда
- *  не вернёт для него прошлый объект. */
-export const markDrawIn = (edges: RFEdge[], ids: Set<string>): RFEdge[] =>
-  edges.map((e) => {
+ *  (hidden удаляется, не пишется false; нулевой drawInDelay не пишется):
+ *  отгоревшее анимацией ребро обязано быть структурно равно свежесобранному —
+ *  иначе реконсиляция сборки (Ф2) никогда не вернёт для него прошлый объект. */
+export const markDrawIn = (edges: RFEdge[], ids: Set<string>): RFEdge[] => {
+  const delays = DRAW_CASCADE ? cascadeDelays(edges, ids) : null;
+  return edges.map((e) => {
     if (!ids.has(e.id)) return e;
-    const out = { ...e, data: { ...e.data, drawIn: true } };
+    const delay = delays?.get(e.id) ?? 0;
+    const out = {
+      ...e,
+      data: { ...e.data, drawIn: true, ...(delay > 0 ? { drawInDelay: delay } : null) },
+    };
     delete out.hidden;
     return out;
   });
+};
 
 /** Снять флаг отрисовки (конец draw-анимации: проявить плашки и наконечники).
- *  Ключ drawIn удаляется (см. markDrawIn — структурное равенство со сборкой). */
+ *  Ключи drawIn/drawInDelay удаляются (см. markDrawIn — структурное равенство
+ *  со сборкой). */
 export const clearDrawIn = (edges: RFEdge[]): RFEdge[] =>
   edges.map((e) => {
     if (!e.data?.drawIn) return e;
     const data = { ...e.data };
     delete data.drawIn;
+    delete data.drawInDelay;
     return { ...e, data };
   });
 

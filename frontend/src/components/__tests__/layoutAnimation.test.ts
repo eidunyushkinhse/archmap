@@ -3,7 +3,10 @@
 // (спавн стопкой / схождение в точку) и решают, что спрятать (рамки, рёбра).
 import { describe, it, expect } from "vitest";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
-import { planExpand, planCollapse, markDrawIn, clearDrawIn, changedEdgeIds } from "../graph/interaction/layoutAnimation";
+import {
+  planExpand, planCollapse, markDrawIn, clearDrawIn, changedEdgeIds,
+  drawSpanMs, ANIM_DRAW_MS, DRAW_CASCADE, DRAW_WAVE_SIZE, DRAW_WAVE_STEP_MS,
+} from "../graph/interaction/layoutAnimation";
 import { NODE_W, NODE_H } from "../graph/constants";
 
 // Мини-фабрики RF-объектов: только поля, которые читают планировщики.
@@ -166,6 +169,59 @@ describe("drawIn (анимированная отрисовка стрелок)"
     const out = clearDrawIn(edges);
     expect(out[0].data && "drawIn" in out[0].data).toBe(false);
     expect(out[1]).toBe(edges[1]);
+  });
+});
+
+describe("каскад отрисовки (Ф5)", () => {
+  // ребро с маршрутом заданной манхэттенской длины
+  const routedEdge = (id: string, len: number): RFEdge =>
+    ({ id, source: "a", target: "b", data: { autoRoute: [{ x: 0, y: 0 }, { x: len, y: 0 }] } } as RFEdge);
+
+  it("волны по длине маршрута: короткие первыми, шаг DRAW_WAVE_STEP_MS", () => {
+    if (!DRAW_CASCADE) return; // флаг откачен — каскадных ожиданий нет
+    // WAVE_SIZE+2 рёбер: длинные объявлены первыми — сортировка обязана перегнать
+    const n = DRAW_WAVE_SIZE + 2;
+    const edges = Array.from({ length: n }, (_, i) => routedEdge(`e${i}`, (n - i) * 100));
+    const ids = new Set(edges.map((e) => e.id));
+    const out = markDrawIn(edges, ids);
+    const delayOf = (id: string) =>
+      (out.find((e) => e.id === id)!.data as { drawInDelay?: number }).drawInDelay ?? 0;
+    // самые короткие (объявлены последними) — первая волна, задержки нет (ключ не пишется)
+    expect(delayOf(`e${n - 1}`)).toBe(0);
+    expect(delayOf(`e${n - 2}`)).toBe(0);
+    // самые длинные (первые по объявлению) — вторая волна
+    expect(delayOf("e0")).toBe(DRAW_WAVE_STEP_MS);
+    expect(delayOf("e1")).toBe(DRAW_WAVE_STEP_MS);
+    // нулевые задержки не записаны ключом (нормальная форма для реконсиляции)
+    const first = out.find((e) => e.id === `e${n - 1}`)!;
+    expect(first.data && "drawInDelay" in first.data).toBe(false);
+  });
+
+  it("делеи детерминированы (tie-break по id при равных длинах)", () => {
+    if (!DRAW_CASCADE) return;
+    const edges = Array.from({ length: DRAW_WAVE_SIZE + 1 }, (_, i) => routedEdge(`e${String(i).padStart(2, "0")}`, 100));
+    const ids = new Set(edges.map((e) => e.id));
+    const a = markDrawIn(edges, ids);
+    const b = markDrawIn([...edges].reverse(), ids);
+    const sig = (arr: RFEdge[]) =>
+      arr.map((e) => `${e.id}:${(e.data as { drawInDelay?: number }).drawInDelay ?? 0}`).sort().join("|");
+    expect(sig(a)).toBe(sig(b));
+  });
+
+  it("clearDrawIn снимает и drawInDelay", () => {
+    const edges = [{ ...edge("e1", "a", "b"), data: { drawIn: true, drawInDelay: 120 } }];
+    const out = clearDrawIn(edges);
+    expect(out[0].data && "drawInDelay" in out[0].data).toBe(false);
+  });
+
+  it("drawSpanMs: одна волна = ANIM_DRAW_MS, дальше + шаг за волну", () => {
+    expect(drawSpanMs(0)).toBe(ANIM_DRAW_MS);
+    expect(drawSpanMs(1)).toBe(ANIM_DRAW_MS);
+    expect(drawSpanMs(DRAW_WAVE_SIZE)).toBe(ANIM_DRAW_MS);
+    if (DRAW_CASCADE) {
+      expect(drawSpanMs(DRAW_WAVE_SIZE + 1)).toBe(ANIM_DRAW_MS + DRAW_WAVE_STEP_MS);
+      expect(drawSpanMs(DRAW_WAVE_SIZE * 3)).toBe(ANIM_DRAW_MS + 2 * DRAW_WAVE_STEP_MS);
+    }
   });
 });
 
