@@ -1,0 +1,51 @@
+/* Витрина создания проекта (CreateProjectDialog): сегменты режимов, списки
+   шаблонов/копий, скелетон загрузки. Токены — единый синий акцент #2563eb
+   (активный текст #1d4ed8, мягкий фон #eff6ff) + slate-нейтрали. */
+
+.cp-seg {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #1e293b;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cp-seg:hover { background: #f1f5f9; }
+.cp-seg--on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+.cp-seg--on:hover { background: #eff6ff; }
+.cp-seg:disabled { opacity: 0.5; cursor: not-allowed; }
+.cp-seg:disabled:hover { background: #fff; }
+
+/* Строка выбора в списке слева (шаблон или проект-источник копии) */
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #1e293b;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.cp-row:hover { background: #f1f5f9; }
+.cp-row--on { border-color: #2563eb; background: #eff6ff; }
+.cp-row--on:hover { background: #eff6ff; }
+
+/* Скелетон, пока каталог шаблонов не загрузился */
+.cp-skel {
+  border-radius: 10px;
+  background: #f1f5f9;
+  animation: cp-pulse 1.2s ease-in-out infinite;
+}
+@keyframes cp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
