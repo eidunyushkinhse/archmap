@@ -1,0 +1,287 @@
+/* Оверлей документации (DocOverlay): широкий сплит «код | живое превью».
+   Токены — ТЗ «Визуализация Mermaid и OpenAPI» + принятая палитра панели. */
+
+/* ── каркас ─────────────────────────────────────────────────────────────── */
+
+/* Размер задан на корне контента: <dialog> (fit-content) и обёртка Modal
+   обнимают его — сам Modal не трогаем, боксу хватает padding:0 из boxStyle. */
+.doc-root {
+  width: min(1120px, calc(100vw - 64px));
+  height: min(700px, 92vh);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.doc-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef0f2;
+}
+.doc-headglyph { display: flex; color: #64748b; }
+.doc-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-title span { color: #94a3b8; font-weight: 600; }
+.doc-tag {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #7c5cd6;
+  background: #f3efff;
+  border-radius: 5px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.doc-tag--oas { color: #0f766e; background: #e8f7f3; }
+
+/* Ghost-кнопка «Показать код» (наблюдатель) */
+.doc-codebtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 13px;
+  cursor: pointer;
+}
+.doc-codebtn:hover { background: #f1f5f9; }
+
+/* Крестик в шапке (свой — Modal рендерится с closeButton=false) */
+.doc-x {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  color: #64748b;
+  cursor: pointer;
+}
+.doc-x:hover { color: #1e293b; }
+
+.doc-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.doc-foot {
+  flex: none;
+  padding: 9px 16px;
+  border-top: 1px solid #eef0f2;
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+/* ── колонка редактора ──────────────────────────────────────────────────── */
+
+.doc-edcol {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid #eef0f2;
+}
+.doc-edhead {
+  flex: none;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.doc-edta {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 10px 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.75;
+  color: #0f172a;
+  background: #fff;
+}
+.doc-edta[readonly] { background: #fbfcfd; color: #475569; }
+
+/* ── статус-строка редактора (Часть D) ──────────────────────────────────── */
+
+.doc-edstat {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: none;
+  border-top: 1px solid #f3f4f6;
+  background: none;
+  font-family: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  color: #475569;
+}
+.doc-edstat--ok .doc-stico { color: #16a34a; }
+.doc-edstat--err {
+  background: #fef2f2;
+  border-top-color: #fecaca;
+  color: #b91c1c;
+  font-weight: 600;
+}
+.doc-edstat--btn { cursor: pointer; }
+.doc-stico { display: flex; flex: none; }
+.doc-edstat-msg {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-edstat-r { margin-left: auto; color: #b6bfca; font-weight: 400; white-space: nowrap; }
+
+/* ── превью ─────────────────────────────────────────────────────────────── */
+
+.doc-pv {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #fbfcfd;
+  background-image: radial-gradient(#e3e8ee 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+/* Сцена с пан/зумом (flowchart) */
+.doc-pvstage {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  cursor: grab;
+}
+.doc-pvstage--drag { cursor: grabbing; }
+.doc-pz { position: absolute; left: 0; top: 0; width: max-content; }
+
+/* Скролл-область OpenAPI (без пан/зума) */
+.doc-pvscroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  padding: 18px;
+}
+.doc-oascard {
+  max-width: 640px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #e5e9ef;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  padding: 16px 18px;
+}
+.doc-dim { opacity: 0.6; filter: saturate(0.85); }
+
+/* Заглушки по центру превью */
+.doc-pvcenter {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.doc-pvempty { color: #9ca3af; }
+.doc-pvnote { color: #94a3b8; padding: 24px; text-align: center; }
+.doc-mmderr {
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-radius: 8px;
+  padding: 14px 18px;
+  max-width: 80%;
+  overflow-wrap: anywhere;
+}
+
+/* Amber-баннер «последняя корректная версия» */
+.doc-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* Зум-пилюля (правый нижний угол превью) */
+.doc-zoom {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+}
+.doc-zoom button {
+  border: none;
+  background: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: #475569;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+}
+.doc-zoom button:hover { background: #f6f8fa; }
+.doc-zval {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #334155;
+  padding: 0 4px;
+  min-width: 38px;
+  text-align: center;
+}
+.doc-zsep { width: 1px; height: 18px; background: #eef0f2; }
+
+/* ── подгонка Swagger UI под карточку ───────────────────────────────────── */
+
+.doc-oas .swagger-ui { font-family: inherit; background: transparent; }
+.doc-oas .swagger-ui .wrapper { padding: 0; max-width: none; }
+.doc-oas .swagger-ui .information-container { padding: 0; margin: 0 0 12px; background: transparent; }
+.doc-oas .swagger-ui .info { margin: 0; }
+.doc-oas .swagger-ui .info .title { font-size: 20px; }
+/* Титул и версия уже в теге шапки оверлея; блок info с описанием остаётся */
+.doc-oas .swagger-ui .info .link { display: none; }
+.doc-oas .swagger-ui .scheme-container,
+.doc-oas .swagger-ui .servers,
+.doc-oas .swagger-ui .servers-title,
+.doc-oas .swagger-ui .auth-wrapper { display: none; }

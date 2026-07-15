@@ -1,12 +1,14 @@
-// Оверлей тяжёлого поля меты (Flowchart / OpenAPI) — единственная оставшаяся модалка
-// меты объекта. В узкую правую панель Mermaid-редактор и YAML не помещаются, поэтому
-// открываются окном по кнопке-строке. Наблюдателю — только просмотр; архитектору —
-// редактирование с тем же inline-сохранением (blur → onCommit → nodesApi.update → история).
-import { useState } from "react";
-import type { CSSProperties } from "react";
+// Оверлей тяжёлых полей меты (Логика / OpenAPI) — тонкий shell: шапка с тегом
+// формата, футер-подсказка и выбор режима. Тело наполняют FlowchartDoc /
+// OpenApiDoc (сплит «код | живое превью»); семантика сохранения прежняя —
+// blur textarea → onCommit → nodesApi.update → история (страховка при
+// размонтировании — в DocEditorColumn). Наблюдателю — сразу рендер, код по кнопке.
+import { useCallback, useState } from "react";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
-import MermaidRenderer from "../MermaidRenderer";
+import FlowchartDoc from "./FlowchartDoc";
+import OpenApiDoc from "./OpenApiDoc";
+import "./docOverlay.css";
 
 interface Props {
   mode: "flowchart" | "openapi";
@@ -18,78 +20,95 @@ interface Props {
   onClose: () => void;
 }
 
-export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchitect, onCommit, onClose }: Props) {
-  const [flow, setFlow] = useState(flowchart);
-  const [api, setApi] = useState(openapi);
-  const [flowTab, setFlowTab] = useState<"edit" | "preview">(isArchitect ? "edit" : "preview");
+// «3.0.3» → «3.0» для тега «OAS 3.0 · YAML»
+function shortVersion(v: string): string {
+  return v.split(".").slice(0, 2).join(".");
+}
 
-  const title = `${nodeName} · ${mode === "flowchart" ? "Логика" : "OpenAPI"}`;
+export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchitect, onCommit, onClose }: Props) {
+  const [showCode, setShowCode] = useState(false);
+  // Версия OAS из последнего валидного парса спеки (шлёт OpenApiDoc)
+  const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
+
+  const commitFlow = useCallback((v: string) => onCommit("flowchart", v), [onCommit]);
+  const commitApi = useCallback((v: string) => onCommit("openapi_spec", v), [onCommit]);
+
+  const isFlow = mode === "flowchart";
+  const foot = !isArchitect
+    ? "Наблюдателю редактирование недоступно"
+    : isFlow
+      ? "Изменения сохраняются при потере фокуса — превью обновляется на лету"
+      : "Невалидная спека сохраняется как черновик — рендер не обновляется до исправления";
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 620, maxHeight: "90vh", overflowY: "auto" }}>
-      <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>{title}</h2>
-        <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
-      </div>
-
-      {mode === "flowchart" ? (
-        <>
-          {isArchitect && (
-            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-              <button onClick={() => setFlowTab("edit")} style={flowTab === "edit" ? activeTab : tabBtn}>Редактор</button>
-              <button onClick={() => setFlowTab("preview")} style={flowTab === "preview" ? activeTab : tabBtn}>Превью</button>
-            </div>
+    <Modal onClose={onClose} closeButton={false} boxStyle={{ padding: 0, borderRadius: 14 }}>
+      <div className="doc-root">
+        <div className="doc-head">
+          <span className="doc-headglyph">{isFlow ? flowGlyph : apiGlyph}</span>
+          <div className="doc-title">
+            {nodeName} <span>· {isFlow ? "Логика" : "OpenAPI"}</span>
+          </div>
+          <span className={"doc-tag" + (isFlow ? "" : " doc-tag--oas")}>
+            {isFlow
+              ? "mermaid · flowchart"
+              : oasVersion
+                ? `OAS ${shortVersion(oasVersion)} · YAML`
+                : "OpenAPI · YAML"}
+          </span>
+          {!isArchitect && (
+            <button type="button" className="doc-codebtn" onClick={() => setShowCode((s) => !s)}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                <path d="M5.5 5 2.5 8l3 3M10.5 5l3 3-3 3" />
+              </svg>
+              {showCode ? "Скрыть код" : "Показать код"}
+            </button>
           )}
-          {isArchitect && flowTab === "edit" ? (
-            <textarea
-              value={flow}
-              onChange={(e) => setFlow(e.target.value)}
-              onBlur={() => onCommit("flowchart", flow)}
-              style={{ ...textarea, fontFamily: "monospace", fontSize: 13 }}
-              rows={12}
-              placeholder={"graph TD\n  A[Старт] --> B[Конец]"}
+          <button type="button" className="doc-x" onClick={onClose} aria-label="Закрыть">
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="doc-body">
+          {isFlow ? (
+            <FlowchartDoc
+              initial={flowchart}
+              isArchitect={isArchitect}
+              showCode={showCode}
+              onCommit={commitFlow}
             />
           ) : (
-            <div style={previewBox}>
-              {flow.trim() ? <MermaidRenderer chart={flow} /> : <span style={{ color: "#9ca3af" }}>Нет диаграммы</span>}
-            </div>
+            <OpenApiDoc
+              initial={openapi}
+              isArchitect={isArchitect}
+              showCode={showCode}
+              onCommit={commitApi}
+              onVersion={setOasVersion}
+            />
           )}
-        </>
-      ) : isArchitect ? (
-        <textarea
-          value={api}
-          onChange={(e) => setApi(e.target.value)}
-          onBlur={() => onCommit("openapi_spec", api)}
-          style={{ ...textarea, fontFamily: "monospace", fontSize: 12 }}
-          rows={16}
-          placeholder={"openapi: 3.0.0\ninfo:\n  title: My API\n  version: 1.0.0"}
-        />
-      ) : api.trim() ? (
-        <pre style={preBlock}>{api}</pre>
-      ) : (
-        <p style={{ color: "#9ca3af", margin: 0 }}>Нет спеки</p>
-      )}
+        </div>
+
+        <div className="doc-foot">{foot}</div>
+      </div>
     </Modal>
   );
 }
 
-const head: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  marginBottom: 14, paddingRight: 4,
-};
-const textarea: CSSProperties = {
-  display: "block", width: "100%", padding: "9px 11px", border: "1px solid #e2e8f0",
-  borderRadius: 8, fontSize: 14, boxSizing: "border-box", color: "#0f172a", resize: "vertical",
-};
-const tabBtn: CSSProperties = {
-  padding: "5px 14px", border: "1px solid #e2e8f0", borderRadius: 8,
-  background: "#f1f5f9", color: "#475569", cursor: "pointer", fontSize: 13, fontWeight: 600,
-};
-const activeTab: CSSProperties = { ...tabBtn, border: "1px solid #2563eb", background: "#2563eb", color: "#fff" };
-const previewBox: CSSProperties = {
-  border: "1px solid #e5e7eb", borderRadius: 6, padding: 12, minHeight: 80, background: "#fafafa",
-};
-const preBlock: CSSProperties = {
-  background: "#f4f4f5", padding: 12, borderRadius: 6, overflowX: "auto", fontSize: 12,
-  fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0,
-};
+// Глифы режима в шапке — те же, что на кнопках-строках «Документация» в панели
+const gs = {
+  width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
+  stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
+} as const;
+const flowGlyph = (
+  <svg {...gs}>
+    <circle cx="4" cy="4" r="1.8" />
+    <circle cx="12" cy="8" r="1.8" />
+    <circle cx="4" cy="12" r="1.8" />
+    <path d="M5.6 4H9a1.7 1.7 0 0 1 1.7 1.7v.6 M5.6 12H9a1.7 1.7 0 0 0 1.7-1.7v-.6" />
+  </svg>
+);
+const apiGlyph = (
+  <svg {...gs}>
+    <rect x="2" y="3" width="12" height="10" rx="1.5" />
+    <path d="M5 6.5 3.5 8 5 9.5 M11 6.5 12.5 8 11 9.5 M8.6 5.7 7.4 10.3" />
+  </svg>
+);
