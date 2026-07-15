@@ -169,12 +169,17 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // computeFrames строит рамку раскрытого локала той же механикой, что и гостевые.
   const nodes: AppNode[] = [];
   const localFrames: { id: string; ancestors: AncestorRef[] }[] = [];
+  // Контейнеры, поглощённые раскрытием (заменены детьми): их рамка гарантирована,
+  // а конец ребра «прямо в такой контейнер» не должен материализоваться гостем-
+  // дублем (см. фильтр сущностей после projectGhosts).
+  const absorbed = new Set<string>();
   // предки уровня как AncestorRef-лайт: для расчёта lca в computeFrames важны
   // только id (имена рамок уровня рисует ancestorNames — не отсюда)
   const bcRefs: AncestorRef[] = ancestorIds.map((id) => ({ id, name: id, is_external: false }));
   const expandLocal = (n: AppNode, path: AncestorRef[]) => {
     const kids = expanded.has(n.id) ? localChildren[n.id] : undefined;
     if (!isContext && kids && kids.length > 0) {
+      absorbed.add(n.id);
       const deeper = [...path, { id: n.id, name: n.name, is_external: n.is_external }];
       for (const k of kids) expandLocal(k, deeper);
       return;
@@ -194,7 +199,27 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     : liftEdgesToLevel({ edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId });
 
   // ПРОЕКЦИЯ, половина 2: сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
-  const { entities, ghostToEffective, emergedFrom } = projectGhosts(ghosts, ancestorIds, expanded);
+  const { entities: entitiesRaw, ghostToEffective, emergedFrom } = projectGhosts(ghosts, ancestorIds, expanded);
+  // СВЯЗЬ «ПРЯМО В РАСКРЫТЫЙ КОНТЕЙНЕР» (двойник алерт-кейса локалов, 2026-07-15):
+  // на уровнях, где контейнер — глубокий конец из реестра (корень; вложенные
+  // раскрытия), lift не находит ему локального предка и отдаёт гостем, а
+  // projectGhosts материализовал бы его УЗЛОМ — рядом с его же РАМКОЙ (duplicate
+  // id в RF ломал драг: «фантомный» узел поверх рамки). Гость-лист, чей id —
+  // контейнер, уже отображаемый рамкой (поглощён локальным раскрытием либо
+  // раскрытый гость, из-под которого проекция вывела другую сущность), узлом не
+  // становится; ребро с таким концом отсеет группировка по displayedIds — связь
+  // скрыта, как у раскрытого локала (алерт intermediate_edges её подсвечивает).
+  // Гость-контейнер, раскрытый «вхолостую» (глубоких концов нет, рамки нет),
+  // остаётся узлом — иначе связь пропала бы без замены.
+  const emergesFrom = (cid: string): boolean =>
+    entitiesRaw.some(
+      (e) =>
+        e.id !== cid &&
+        (e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors).some((x) => x.id === cid),
+    );
+  const entities = entitiesRaw.filter(
+    (e) => !(e.kind === "leaf" && (absorbed.has(e.id) || (expanded.has(e.id) && emergesFrom(e.id)))),
+  );
   const remap = (id: string) => ghostToEffective.get(id) ?? id;
   // Рёбра с концами, переадресованными на отображаемые сущности. Геометрии на
   // рёбрах нет (ручной слой удалён 2026-07-09) — всю её назначает авто-раскладка.

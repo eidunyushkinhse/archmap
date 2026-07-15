@@ -201,6 +201,68 @@ describe("computeViewLayout — композиция конвейера уров
     }
   });
 
+  it("конец «в контейнер», раскрытый вложенно на корне, не плодит узел-дубль рядом с рамкой", async () => {
+    // Корень: X (лист) и P (контейнер); P раскрыт → [A, C]; C раскрыт → [D];
+    // ребро X→C ведёт В САМ контейнер C. На корне C — глубокий конец из реестра:
+    // до фикса lift отдавал его гостем, projectGhosts материализовал листом-узлом —
+    // на канве жили и рамка C, и узел C (duplicate id в RF ломал драг).
+    const out = await computeViewLayout({
+      nodes: [appNode("X"), { ...appNode("P"), parent_id: null, has_children: true, child_count: 2 } as AppNode],
+      endpoints: [
+        { ...ghost("C", [a("P")]), is_external: false, has_children: true, child_count: 1 },
+      ],
+      edges: [edge("eXC", "X", "C", "в контейнер")],
+      containerId: null,
+      viewLayout: { P: { x: 400, y: 0 }, X: { x: 0, y: 0 }, C: { x: 500, y: 100 } },
+      ancestorIds: [],
+      expanded: new Set(["P", "C"]),
+      localChildren: {
+        P: [
+          { ...appNode("A"), parent_id: "P" } as AppNode,
+          { ...appNode("C"), parent_id: "P", has_children: true, child_count: 1 } as AppNode,
+        ],
+        C: [{ ...appNode("D"), parent_id: "C" } as AppNode],
+      },
+      isContext: false,
+    });
+    // C отображается ТОЛЬКО рамкой: сущности-узла с его id нет
+    expect(out.layout.entities.map((e) => e.id)).not.toContain("C");
+    const frameIds = out.layout.guestFrames.map((f) => f.id).sort();
+    expect(frameIds).toEqual(["C", "P"]);
+    // связь «прямо в раскрытый контейнер» скрыта (алерт-кейс, как у локалов)
+    expect(out.layout.groupArr).toEqual([]);
+    expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "D", "X"]);
+  });
+
+  it("конец в раскрытый ГОСТЕВОЙ контейнер скрыт, пока его дети отображаются", async () => {
+    // G — контейнер чужой ветки (под Q); его ребёнок Gc — тоже конец рёбер.
+    // Q и G раскрыты: Gc отображается листом, G — рамкой вокруг него; конец e1
+    // «прямо в G» не должен воскресить G узлом поверх рамки.
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("e1", "A", "G", "в контейнер"), edge("e2", "B", "Gc", "в ребёнка")],
+      endpoints: [
+        { ...ghost("G", [a("Q")]), has_children: true, child_count: 1 },
+        ghost("Gc", [a("Q"), a("G")]),
+      ],
+      expanded: new Set(["Q", "G"]),
+    }));
+    expect(out.layout.entities.map((e) => e.id).sort()).toEqual(["Gc"]);
+    expect(out.layout.guestFrames.map((f) => f.id).sort()).toEqual(["G", "Q"]);
+    expect(out.layout.groupArr.map((g) => g.id)).toEqual(["e2"]);
+  });
+
+  it("гость-контейнер, раскрытый «вхолостую» (без глубоких концов), остаётся узлом-концом", async () => {
+    // Раскрытие гостя G ничего не обнажило (глубже него концов нет) — рамки нет,
+    // и прятать его узел нельзя: связь A→G пропала бы без замены.
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAG", "A", "G", "в контейнер")],
+      endpoints: [{ ...ghost("G", [a("Q")]), has_children: true, child_count: 1 }],
+      expanded: new Set(["Q", "G"]),
+    }));
+    expect(out.layout.entities.map((e) => e.id)).toContain("G");
+    expect(out.layout.groupArr.map((g) => g.id)).toEqual(["eAG"]);
+  });
+
   it("инвариант наложений: два владеемых узла, сохранённых друг на друге, разведены и персистятся", async () => {
     const out = await computeViewLayout(levelInput({
       edges: [edge("eAB", "A", "B", "зов")],
