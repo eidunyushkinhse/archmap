@@ -11,15 +11,24 @@
 //
 // Ограничения по построению:
 // - двигаем только ИНТЕРЬЕРНЫЕ сегменты (оба конца — не концы ломаной): концевые пришпилены
-//   к хэндлам. Пришпиленный участник канала фиксирует свой офсет 0, остальные распределяются
+//   к хэндлам. Пришпиленный участник канала фиксирует свою ось, остальные распределяются
 //   вокруг него;
-// - сдвиг не должен загнать плечо в тело узла (bbox-пенетрация) и не должен «переломить»
-//   соседние перпендикулярные сегменты (знак их направления сохраняется) — иначе сдвиг
-//   этого ребра отменяется;
+// - КЛИРЕНС ОТ УЗЛОВ (фикс регрессии T2, 2026-07-15): цель сдвига не подходит к грани узла
+//   ближе NUDGE_CLEAR при совместном пробеге. Раньше защитой была только bbox-пенетрация
+//   с 2px-запасом — жёсткая шкала слотов выталкивала крайнее плечо тесного коридора на
+//   грань и даже внутрь тела (репро: «Инициация оплаты» в теле «Сервиса пользователей»);
+// - ЦЕЛИ КАНАЛА — ЕДИНЫМ VPSC (там же): пины (концевые) держат оси весом ∞, клиренс-границы
+//   узлов по пробегу КАЖДОЙ группы — стенки-псевдопины, соседи ≥ gap. Тесно — gap деградирует
+//   14→12→10→8 (ниже нельзя: дуги мостиков JUMP_RADIUS=6 сольются); совсем никак — канал
+//   не трогаем (лучше остаточное наложение, чем ложь о теле узла). Прежние ветки «жёсткая
+//   шкала center+j·gap», «лесенка сдвига шкалы» и отдельный многопиновый путь — частные
+//   случаи этого решения и удалены;
+// - сдвиг не должен «переломить» соседние перпендикулярные сегменты (знак их направления
+//   сохраняется) — иначе сдвиг этого ребра отменяется;
 // - детерминизм: кластеры и группы обходятся в отсортированном порядке.
 import type { EdgePoint } from "../../../types";
 import { cleanup, type SegOrient } from "../edgePath";
-import { solveSeparation } from "./vpsc";
+import { solveSeparation, type SepConstraint } from "./vpsc";
 
 const EPS = 0.75;      // допуск «одна линия»
 const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложением (касание концами игнорируем)
@@ -32,6 +41,14 @@ const GAP = 14;
 // на 8px друг от друга оставался «плетёнкой»). Порог пробега выше, чем у точных: короткое
 // соседство стабов у доков — не коридор.
 const NEAR_OVERLAP_MIN = 24;
+// Клиренс плеч от тел узлов (= JOG_CLEAR спрямления джогов в routeAll — единый зазор
+// пост-обработки; роутер держит 12, но его линии по margin легальны и трогаются каналом).
+const NUDGE_CLEAR = 8;
+// Плечо, уже лежащее в клиренс-полосе узла (роутер прижал в вынужденной тесноте либо канал
+// исторически лёг на грань), выталкивается в ближайший свободный зазор, только если тот
+// не дальше MAX_EVICT×gap — дальний увод растягивал бы маршрут (это уже пере-роутинг,
+// не нуджинг); иначе пин на месте: не делаем хуже.
+const MAX_EVICT = 2;
 
 export interface ChannelNudgeResult {
   routes: Map<string, EdgePoint[]>;
@@ -109,11 +126,58 @@ function clusterChannels(segs: Seg[], nearTol: number): Seg[][] {
   return [...byRoot.values()].filter((c) => c.length > 1);
 }
 
-// Пенетрация bbox сегмента в тело (осевые сегменты — точен).
-const cutsBody = (orient: SegOrient, axis: number, lo: number, hi: number, r: Rect): boolean =>
-  orient === "h"
-    ? axis > r.y + 2 && axis < r.y + r.h - 2 && lo < r.x + r.w - 2 && hi > r.x + 2
-    : axis > r.x + 2 && axis < r.x + r.w - 2 && lo < r.y + r.h - 2 && hi > r.y + 2;
+// Ось в клиренс-полосе узла [грань−clear, грань+clear] при совместном пробеге (осевые
+// сегменты — точен). Люфт 0.25 согласован со стенками corridorOf: цель РОВНО на краю
+// полосы (стенке) легальна и не дрожит от float-шума VPSC.
+const inClearance = (
+  orient: SegOrient, axis: number, lo: number, hi: number, r: Rect, clear: number,
+): boolean => {
+  const spanOverlap = orient === "h"
+    ? lo < r.x + r.w - 2 && hi > r.x + 2
+    : lo < r.y + r.h - 2 && hi > r.y + 2;
+  if (!spanOverlap) return false;
+  const a = (orient === "h" ? r.y : r.x) - clear;
+  const b = (orient === "h" ? r.y + r.h : r.x + r.w) + clear;
+  return axis > a + 0.25 && axis < b - 0.25;
+};
+
+// Допустимый интервал осей группы: свободный зазор между клиренс-полосами узлов,
+// перекрывающих пробег её сегментов. Ось внутри полосы → выталкивание в ближний зазор
+// (тай-брейк — вниз/вправо), если он не дальше MAX_EVICT×gap; иначе {axis, axis} — пин.
+const corridorOf = (
+  segs: Seg[], axis: number, obstacles: Rect[], gap: number,
+): { lo: number; hi: number } => {
+  const bands: Array<[number, number]> = [];
+  for (const s of segs) {
+    for (const r of obstacles) {
+      const spanOverlap = s.orient === "h"
+        ? s.lo < r.x + r.w - 2 && s.hi > r.x + 2
+        : s.lo < r.y + r.h - 2 && s.hi > r.y + 2;
+      if (!spanOverlap) continue;
+      const a = (s.orient === "h" ? r.y : r.x) - NUDGE_CLEAR;
+      bands.push([a, a + (s.orient === "h" ? r.h : r.w) + 2 * NUDGE_CLEAR]);
+    }
+  }
+  if (bands.length === 0) return { lo: -Infinity, hi: Infinity };
+  bands.sort((p, q) => p[0] - q[0]);
+  const merged: Array<[number, number]> = [];
+  for (const b of bands) {
+    const last = merged[merged.length - 1];
+    if (last && b[0] <= last[1] + 0.25) last[1] = Math.max(last[1], b[1]);
+    else merged.push([b[0], b[1]]);
+  }
+  let below = -Infinity, above = Infinity, insideIdx = -1;
+  merged.forEach(([a, b], k) => {
+    if (axis > a + 0.25 && axis < b - 0.25) insideIdx = k;
+    if (b <= axis + 0.25 && b > below) below = b;
+    if (a >= axis - 0.25 && a < above) above = a;
+  });
+  if (insideIdx < 0) return { lo: below, hi: above };
+  const [a, b] = merged[insideIdx];
+  if (Math.min(axis - a, b - axis) > MAX_EVICT * gap) return { lo: axis, hi: axis };
+  if (b - axis <= axis - a) return { lo: b, hi: merged[insideIdx + 1]?.[0] ?? Infinity };
+  return { lo: merged[insideIdx - 1]?.[1] ?? -Infinity, hi: a };
+};
 
 export function nudgeChannels(params: {
   routes: Map<string, EdgePoint[]>;
@@ -165,23 +229,32 @@ export function nudgeChannels(params: {
     }
     if (groups.size < 2) continue; // весь канал — один ствол, наложение легитимно
 
-    // Порядок групп (T2): первично — по ТЕКУЩЕЙ оси (уже разъехавшиеся линии сохраняют
-    // пространственный порядок — идемпотентность повторных прогонов), при точном
-    // совпадении осей (свежий пучок) — по среднему refPerp (откуда приходят/куда уходят
-    // маршруты): соседние по подходам линии — соседние слоты, меньше крестов на входах.
+    // Группы канала с допустимыми интервалами осей (клиренс-стенки коридора по пробегу
+    // КАЖДОЙ группы, не канала целиком — узел, мешающий одной группе, не сжимает
+    // остальных). desired — ось, клампнутая в свой зазор (выталкивание с грани/из тела).
+    // Порядок — по desired (уже разъехавшиеся линии сохраняют пространственный порядок —
+    // идемпотентность повторных прогонов), при совпадении — по среднему refPerp (откуда
+    // приходят/куда уходят маршруты): соседние по подходам линии — соседние слоты,
+    // меньше крестов на входах.
     const ordered = [...groups.entries()]
-      .map(([k, ss]) => ({
-        key: k, segs: ss,
-        axis: ss.reduce((sum, s) => sum + s.axis, 0) / ss.length,
-        ref: ss.reduce((sum, s) => sum + s.refPerp, 0) / ss.length,
-        fixed: ss.some((s) => !s.movable),
-      }))
+      .map(([k, ss]) => {
+        const axis = ss.reduce((sum, s) => sum + s.axis, 0) / ss.length;
+        const fixed = ss.some((s) => !s.movable);
+        const corridor = fixed ? { lo: axis, hi: axis } : corridorOf(ss, axis, obstacles, gap);
+        return {
+          key: k, segs: ss, axis, fixed, corridor,
+          ref: ss.reduce((sum, s) => sum + s.refPerp, 0) / ss.length,
+          desired: Math.min(Math.max(axis, corridor.lo), corridor.hi),
+        };
+      })
       .sort((a, b) =>
-        (Math.abs(a.axis - b.axis) > EPS ? a.axis - b.axis : 0) ||
+        (Math.abs(a.desired - b.desired) > EPS ? a.desired - b.desired : 0) ||
         a.ref - b.ref || a.key.localeCompare(b.key));
+    const n = ordered.length;
 
     // Применим ли сдвиг сегмента на офсет off: соседние перпендикулярные сегменты не
-    // переламываются (знак направления сохраняется), плечо не заезжает в тело узла.
+    // переламываются (знак направления сохраняется), цель вне клиренс-полос узлов —
+    // страховка применения на случай несовершенства модели стенок.
     const canApply = (s: Seg, off: number): boolean => {
       if (Math.abs(off) < 0.5) return true; // нулевой сдвиг всегда легален
       const pts = work.get(s.edgeId)!;
@@ -196,84 +269,59 @@ export function nudgeChannels(params: {
         s.i + 2 >= pts.length ||
         Math.sign(perpOf(q) - perpOf(pts[s.i + 2])) === 0 ||
         Math.sign(newAxis - perpOf(pts[s.i + 2])) === Math.sign(perpOf(q) - perpOf(pts[s.i + 2]));
-      const hitsBody = obstacles.some((r) => cutsBody(s.orient, newAxis, s.lo, s.hi, r));
-      return beforeOk && afterOk && !hitsBody;
+      const hitsClearance = obstacles.some((r) =>
+        inClearance(s.orient, newAxis, s.lo, s.hi, r, NUDGE_CLEAR));
+      return beforeOk && afterOk && !hitsClearance;
     };
 
-    // Целевые линии: равные зазоры gap вокруг ЦЕНТРА канала (середина крайних осей;
-    // для свежего пучка совпадает с исходной линией). Группа с пришпиленным (концевым)
-    // сегментом двигаться не может — сдвигаем шкалу так, чтобы её цель совпала с её осью.
-    const fixedIdx = ordered.map((g, j) => (g.fixed ? j : -1)).filter((j) => j >= 0);
-    const n = ordered.length;
-    // МНОГОПИНОВЫЙ канал (T2): раньше пропускался целиком, и подвижная линия между
-    // двумя стволами-пинами оставалась в пикселях от соседа. Теперь пины держат свои
-    // оси (вес ∞), подвижные распределяются между ними VPSC-цепочкой «соседи ≥ gap»
-    // в порядке осей. Пины ближе gap друг к другу примирить нельзя — канал пропускаем.
-    if (fixedIdx.length > 1) {
-      let pinsConflict = false;
-      for (let k = 1; k < fixedIdx.length && !pinsConflict; k++) {
-        if (ordered[fixedIdx[k]].axis - ordered[fixedIdx[k - 1]].axis < gap - 0.5) pinsConflict = true;
-      }
-      if (pinsConflict) continue;
-      const targets = solveSeparation(
-        ordered.map((g) => g.axis),
-        ordered.map((g) => (g.fixed ? Infinity : 1)),
-        ordered.slice(1).map((_, k) => ({ left: k, right: k + 1, gap })),
-      );
-      // Невыполнимость (подвижным между пинами не хватает места, merge-блок сдвинул
-      // пины с их осей) — канал не примирить, оставляем как есть.
-      if (fixedIdx.some((j) => Math.abs(targets[j] - ordered[j].axis) > 0.5)) continue;
-      for (let j = 0; j < n; j++) {
-        const g = ordered[j];
-        if (g.fixed) continue;
-        for (const s of g.segs) {
-          const off = targets[j] - s.axis;
-          if (Math.abs(off) < 0.5) continue;
-          if (!canApply(s, off)) continue;
-          const pts = work.get(s.edgeId)!;
-          const p = pts[s.i], q = pts[s.i + 1];
-          const newAxis = s.axis + off;
-          if (s.orient === "h") { p.y = newAxis; q.y = newAxis; }
-          else { p.x = newAxis; q.x = newAxis; }
-          nudged.add(s.edgeId);
+    // Цели канала при зазоре sepGap — VPSC: пины (fixed и «замурованные» с пустым
+    // зазором) держат оси весом ∞; конечные стенки коридора — псевдопеременные весом ∞
+    // с нулевым зазором к своей группе; соседние группы ≥ sepGap. Невыполнимость
+    // (какой-то ∞ съехал с desired при merge-склейке) → null.
+    const solveAt = (sepGap: number): number[] | null => {
+      const desired: number[] = ordered.map((g) => g.desired);
+      const weights: number[] = ordered.map((g) => (g.corridor.lo === g.corridor.hi ? Infinity : 1));
+      const cons: SepConstraint[] = [];
+      for (let j = 1; j < n; j++) cons.push({ left: j - 1, right: j, gap: sepGap });
+      ordered.forEach((g, j) => {
+        if (weights[j] === Infinity) return;
+        if (g.corridor.lo > -Infinity) {
+          cons.push({ left: desired.length, right: j, gap: 0 });
+          desired.push(g.corridor.lo); weights.push(Infinity);
         }
-      }
-      continue;
-    }
-    const center = (Math.min(...ordered.map((g) => g.axis)) + Math.max(...ordered.map((g) => g.axis))) / 2;
-    const target = (j: number, shift: number): number => center + (j - (n - 1) / 2) * gap + shift;
-    let shift = 0;
-    if (fixedIdx.length === 1) {
-      const jf = fixedIdx[0];
-      shift = ordered[jf].axis - target(jf, 0);
-    }
-
-    // ЛЕСЕНКА В ОДНУ СТОРОНУ (2026-07-09): симметричные слоты вокруг центра упираются
-    // в тело узла (канал в тесном проходе) → по-сегментное вето молча оставляло канал
-    // НЕразведённым. Если дефолтная шкала не проходит целиком, пробуем сдвинуть ВСЮ
-    // шкалу дискретными шагами gap/2 (ближние первыми, детерминированно) — канал
-    // уезжает лесенкой в свободную сторону коридора. Пришпиленная группа пинит шкалу.
-    // Ни один кандидат не прошёл — прежнее поведение (применяем что можно).
-    const evalShift = (cand: number): boolean =>
-      ordered.every((g, j) => {
-        const off = target(j, cand) - g.axis;
-        if (g.fixed) return Math.abs(off) < 0.5;
-        return g.segs.every((s) => canApply(s, target(j, cand) - s.axis));
+        if (g.corridor.hi < Infinity) {
+          cons.push({ left: j, right: desired.length, gap: 0 });
+          desired.push(g.corridor.hi); weights.push(Infinity);
+        }
       });
-    if (!evalShift(shift)) {
-      const cands: number[] = [];
-      for (let k = 1; k <= 4; k++) cands.push(shift + (k * gap) / 2, shift - (k * gap) / 2);
-      const ok = cands.find(evalShift);
-      if (ok !== undefined) shift = ok;
+      const targets = solveSeparation(desired, weights, cons);
+      // Порог строгий (0.25, не 0.5): нехватка места размазывается merge-блоком
+      // ПОРОВНУ на обе стенки — по 0.5 при дефиците в 1px — и щедрый порог
+      // признал бы решение, которое canApply потом честно ветирует.
+      for (let k = 0; k < desired.length; k++) {
+        if (weights[k] === Infinity && Math.abs(targets[k] - desired[k]) > 0.25) return null;
+      }
+      return targets.slice(0, n);
+    };
+
+    // Деградация зазора в тесном коридоре: gap → 12 → 10 → 8 (ниже нельзя — дуги
+    // мостиков JUMP_RADIUS=6 соседних плеч сольются совсем). Ни одна ступень не
+    // влезла → канал не трогаем: лучше остаточное наложение, чем плечо на грани
+    // или в теле узла.
+    let targets: number[] | null = null;
+    for (const sepGap of [...new Set([gap, 12, 10, 8])].filter((v) => v <= gap)) {
+      targets = solveAt(sepGap);
+      if (targets) break;
     }
+    if (!targets) continue;
 
     for (let j = 0; j < n; j++) {
       const g = ordered[j];
       if (g.fixed) continue;
-      // сдвиг применяется по-сегментно к ЦЕЛЕВОЙ линии слота: члены группы с чуть
-      // разными осями (near-параллельный коридор) сходятся на одну линию
+      // сдвиг применяется по-сегментно к целевой линии: члены группы с чуть разными
+      // осями (near-параллельный коридор) сходятся на одну линию
       for (const s of g.segs) {
-        const off = target(j, shift) - s.axis;
+        const off = targets[j] - s.axis;
         if (Math.abs(off) < 0.5) continue;
         if (!canApply(s, off)) continue;
         const pts = work.get(s.edgeId)!;
