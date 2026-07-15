@@ -60,6 +60,7 @@ function WrappedLabelEdge({
   data,
   markerEnd,
   style,
+  selected,
 }: EdgeProps) {
   const d = data as WrappedEdgeData | undefined;
   const shelf = d?.shelf;
@@ -227,6 +228,11 @@ function WrappedLabelEdge({
     ...(d?.labelPlacement?.mode === "leader"
       ? { boxShadow: "0 0 0 2px rgba(255,255,255,0.9), 0 1px 4px rgba(15,23,42,0.18)" }
       : null),
+    // Плашка ВЫДЕЛЕННОЙ стрелки — над соседними плашками (в тесноте они ложатся друг
+    // на друга — выбранную не прочитать). Работает внутри stacking context
+    // edgelabel-renderer (z:1) — над узлами не поднимает. Панельное индиго-выделение
+    // решается классом lg-linked-label (императивный эффект LevelGraph, тот же z).
+    ...(selected ? { zIndex: 30 } : null),
   };
 
   return (
@@ -262,7 +268,8 @@ function WrappedLabelEdge({
       {drawing ? null : items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
-          <div className={boxCls} onDoubleClick={boxDouble}
+          {/* data-lg-edge: адрес плашки для императивного панельного выделения (LevelGraph) */}
+          <div className={boxCls} onDoubleClick={boxDouble} data-lg-edge={id}
             style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...boxInteract, ...dimStyle }}>
             {items.map((it, i) => (
               <div key={i} style={{ display: "flex", gap: 4 }}>
@@ -275,7 +282,7 @@ function WrappedLabelEdge({
         <EdgeLabelRenderer>
           {/* при заданном capW (контекст) подпись переносится по словам и ограничена по
               ширине, чтобы влезть в зазор между фокусом и колонкой и не лезть на узлы */}
-          <div className={boxCls} onDoubleClick={boxDouble}
+          <div className={boxCls} onDoubleClick={boxDouble} data-lg-edge={id}
             style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...boxInteract, ...dimStyle }}>
             {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
           </div>
@@ -284,7 +291,7 @@ function WrappedLabelEdge({
         // Стрелка без описания: компактный плейсхолдер-плашка как триггер детализации
         // (по тонкой линии двойным кликом попасть трудно).
         <EdgeLabelRenderer>
-          <div className={boxCls} title="Открыть связь (двойной клик)" onDoubleClick={boxDouble}
+          <div className={boxCls} title="Открыть связь (двойной клик)" onDoubleClick={boxDouble} data-lg-edge={id}
             style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", fontSize: 13, lineHeight: "16px", cursor: "pointer", pointerEvents: "all", ...boxInteract, ...dimStyle }}>
             •••
           </div>

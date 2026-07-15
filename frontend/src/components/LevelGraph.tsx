@@ -1035,6 +1035,11 @@ function LevelGraphInner({
         if (el) { el.classList.add("lg-linked-node"); applied.push(el); }
       }
       for (const id of edgeIds) {
+        // Плашка подписи живёт в другом контейнере (edgelabel-renderer) — поднимаем её
+        // над соседними плашками классом (z внутри stacking context renderer'а; жалоба
+        // «плашки друг на друге — выбранную не прочитать»). Адрес — data-lg-edge (edges.tsx).
+        const lb = document.querySelector(`.react-flow__edgelabel-renderer [data-lg-edge="${CSS.escape(id)}"]`);
+        if (lb) { lb.classList.add("lg-linked-label"); applied.push(lb); }
         const el = document.querySelector(`.react-flow__edge[data-id="${CSS.escape(id)}"]`);
         if (!el) continue;
         el.classList.add("lg-linked-edge");
@@ -1049,7 +1054,7 @@ function LevelGraphInner({
     });
     return () => {
       cancelAnimationFrame(raf);
-      for (const el of applied) el.classList.remove("lg-linked-node", "lg-linked-edge");
+      for (const el of applied) el.classList.remove("lg-linked-node", "lg-linked-edge", "lg-linked-label");
       // Возврат <svg> ребра на исходную позицию (best-effort: только если узлы ещё в DOM
       // на прежних местах — иначе RF уже перерисовал список и сам восстановил порядок).
       for (const r of restore) {
