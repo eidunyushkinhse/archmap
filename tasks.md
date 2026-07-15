@@ -4,6 +4,31 @@
 
 В работе
 # сюда перемещай задачу, когда начинаешь над ней работать
+- [x] ТЗ Claude Design «Шаблоны старта проекта — каталог + модалка выбора с превью
+        + импорт YAML» (ревизия 2026-07-15). СДЕЛАНО, 6 коммитов по плану ТЗ.
+        Бэк: каталог 3 игрушечных → 6 практических C4-шаблонов (monolith, webapp
+        ← бывш. c4, microservices, eventdriven, serverless, cqrs) с tagline/blurb/
+        techs; _NodeSpec.ext → Node.is_external (сидер, единственная правка блока);
+        GET /projects/templates (до параметрического /{project_id}); импорт YAML —
+        app/import_yaml.py (зеркало export.py: parse_import копит ВСЕ ошибки RU-
+        строками с путём «nodes[2].children[0]: …», резолвинг ссылок edges голым
+        именем/путём «Предок / Имя», лимиты 2000/4000/32; seed_import без
+        view_layout — авто-ELK) + start="import"+ProjectCreate.import_yaml +
+        dry-run POST /projects/import/preview. Фронт: C4Preview (реальные формы/
+        палитра холста, transform:scale, ResizeObserver) + CreateProjectDialog
+        переписан в двухпанельную витрину (сегменты, глифы-SVG, живое превью,
+        textarea импорта с дебаунс-сводкой 500мс и отбросом устаревших ответов,
+        файл через FileReader; пропсы прежние — обе точки вызова без правок).
+        Отступления от снипетов ТЗ: measW не зеркалит заданный width (производное
+        в рендере, требование react-hooks/set-state-in-effect); первичный замер —
+        колбэком ResizeObserver. ГЕЙТЫ: pytest 86 (12 новых: каталог-контракт,
+        roundtrip импорт↔экспорт, ошибки/пути/лимиты, preview не пишет в БД),
+        tsc/eslint 0, vitest 411, build ок; живой dry-run экспорта «Ярмарки»
+        33/35 ок; Playwright-смоук 17/17 (витрина/тексты §3.4/битый YAML →
+        disabled/импорт «Ярмарки» → 6 корней на канве/модалка из свитчера/
+        монолит: 3 серых + 2 синих), смоук-проекты удалены. Замечено (не скоуп,
+        было и раньше): при navigate лендинг → проект первые запросы TreePage
+        уходят до установки X-Project-Id (pageerror в консоли, канва грузится).
 - [x] ТЗ Claude Design «Визуализация Mermaid и OpenAPI в оверлее документации»
         (2026-07-15). СДЕЛАНО (колонка A макета, A1–A3; колонка B/полноэкран — вне
         скоупа по ТЗ). DocOverlay 620px+вкладки → сплит 1120×700 «код | живое
