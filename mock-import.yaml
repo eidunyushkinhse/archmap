@@ -1,0 +1,171 @@
+# Моковая схема для проверки импорта: «Новый проект» → Импорт → «Выбрать файл…»
+# (или вставить текст). Формат — тот же, что выдаёт «Экспорт»: дерево nodes
+# (вложенность через children) + edges по именам узлов; при дублях имён конец
+# связи указывается путём «Предок / Имя» (см. две «БД» ниже). Координат в
+# формате нет — раскладку построит авто-ELK при первом открытии уровня.
+nodes:
+  - name: Зритель
+    shape: person
+    role: актор
+    external: true
+    description: Смотрит фильмы и сериалы по подписке.
+  - name: Плёнка
+    shape: service
+    role: система
+    description: |
+      Онлайн-кинотеатр: каталог, стриминг с DRM и подписочный биллинг.
+      Демо-схема: вложенные контейнеры, статусы planned/deprecated, внешние системы.
+    children:
+      - name: Веб-плеер
+        shape: service
+        role: SPA
+        technology: React
+      - name: Приложение Smart TV
+        shape: service
+        role: клиент
+        technology: Tizen / webOS
+      - name: API-шлюз
+        shape: service
+        role: шлюз
+        technology: Kong
+      - name: Сервис каталога
+        shape: service
+        role: сервис
+        technology: Go
+        children:
+          - name: БД
+            shape: database
+            technology: PostgreSQL
+          - name: Кэш каталога
+            shape: database
+            technology: Redis
+      - name: Сервис биллинга
+        shape: service
+        role: сервис
+        technology: Java
+        children:
+          - name: БД
+            shape: database
+            technology: PostgreSQL
+      - name: Сервис рекомендаций
+        shape: service
+        role: сервис
+        technology: Python
+        status: planned
+        description: Персональная лента по событиям просмотров. Пока проектируется.
+        children:
+          - name: Витрина фичей
+            shape: database
+            technology: ClickHouse
+            status: planned
+      - name: Транскодер
+        shape: service
+        role: воркер
+        technology: FFmpeg
+      - name: Легаси-выдача MP4
+        shape: service
+        role: сервис
+        technology: nginx
+        status: deprecated
+        description: Прямые MP4-ссылки для старых клиентов. Выводится в пользу HLS.
+      - name: Шина событий
+        shape: broker
+        technology: Kafka
+      - name: Хранилище видео
+        shape: database
+        technology: S3
+  - name: Платёжный провайдер
+    shape: service
+    technology: ЮKassa
+    external: true
+  - name: DRM-провайдер
+    shape: service
+    technology: Widevine
+    external: true
+  - name: CDN
+    shape: service
+    technology: CloudFront
+    external: true
+edges:
+  - from: Зритель
+    to: Веб-плеер
+    label: смотрит в браузере
+    technology: HTTPS
+  - from: Зритель
+    to: Приложение Smart TV
+    label: смотрит на ТВ
+  - from: Веб-плеер
+    to: API-шлюз
+    label: REST
+    technology: HTTPS
+  - from: Приложение Smart TV
+    to: API-шлюз
+    label: REST
+    technology: HTTPS
+  - from: API-шлюз
+    to: Сервис каталога
+    label: поиск и подборки
+    technology: HTTP
+  - from: API-шлюз
+    to: Сервис биллинга
+    label: подписка и оплата
+    technology: HTTP
+  - from: API-шлюз
+    to: Сервис рекомендаций
+    label: персональная лента
+    technology: HTTP
+  - from: API-шлюз
+    to: Легаси-выдача MP4
+    label: старые клиенты
+    technology: HTTP
+  - from: Сервис каталога
+    to: Плёнка / Сервис каталога / БД
+    label: читает/пишет
+    technology: SQL
+  - from: Сервис каталога
+    to: Кэш каталога
+    label: горячие подборки
+    technology: Redis
+  - from: Сервис биллинга
+    to: Плёнка / Сервис биллинга / БД
+    label: счета и подписки
+    technology: SQL
+  - from: Сервис биллинга
+    to: Платёжный провайдер
+    label: списания и возвраты
+    technology: HTTPS
+  - from: Сервис биллинга
+    to: Шина событий
+    label: события оплат
+    technology: Kafka
+  - from: Шина событий
+    to: Сервис рекомендаций
+    label: события просмотров
+    technology: Kafka
+  - from: Шина событий
+    to: Транскодер
+    label: задания на транскод
+    technology: Kafka
+  - from: Транскодер
+    to: Хранилище видео
+    label: кладёт рендиции
+    technology: S3 API
+  - from: Легаси-выдача MP4
+    to: Хранилище видео
+    label: читает мастер-файлы
+  - from: Веб-плеер
+    to: DRM-провайдер
+    label: лицензии
+    technology: Widevine
+  - from: CDN
+    to: Хранилище видео
+    label: origin-запросы
+    technology: HTTPS
+  - from: Веб-плеер
+    to: CDN
+    label: видеопоток
+    technology: HLS
+  - from: Приложение Smart TV
+    to: CDN
+    label: видеопоток
+    technology: HLS
