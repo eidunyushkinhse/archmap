@@ -29,8 +29,9 @@ from app.schemas.project import (
     ProjectPreviewNode,
     ProjectResponse,
     ProjectUpdate,
+    TemplateOut,
 )
-from app.templates import seed_template
+from app.templates import list_templates, seed_template
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -200,6 +201,14 @@ def list_projects(
     users = _users_map(db, projects)
     previews = _previews(db, ids)
     return [_to_response(p, nc, ec, users, previews) for p in projects]
+
+
+# ⚠️ Статические пути — ДО параметрического GET /{project_id}, иначе он их перехватит
+# (та же норма, что /search|/all|/graph в nodes.py).
+@router.get("/templates", response_model=list[TemplateOut])
+def get_templates(_user: User = Depends(get_current_user)) -> list[dict]:
+    # Статический каталог стартовых шаблонов для витрины создания проекта.
+    return list_templates()
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

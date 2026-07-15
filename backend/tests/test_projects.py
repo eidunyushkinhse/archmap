@@ -102,6 +102,22 @@ def test_all_templates_seed_and_match_catalog(db):
         assert (p.object_count, p.edge_count) == (len(tpl.nodes), len(tpl.edges)), tid
 
 
+def test_templates_catalog_serializes():
+    """Каталог витрины проходит контракт TemplateOut: 6 шаблонов, у каждого узла
+    валидная форма и обязательные координаты (превью = раскладка холста)."""
+    from app.schemas.project import TemplateOut
+    from app.templates import list_templates
+
+    catalog = [TemplateOut.model_validate(t) for t in list_templates()]
+    assert [t.id for t in catalog] == [
+        "monolith", "webapp", "microservices", "eventdriven", "serverless", "cqrs",
+    ]
+    for t in catalog:
+        keys = {n.key for n in t.nodes}
+        assert t.tagline and t.blurb and t.techs
+        assert all(e.source in keys and e.target in keys for e in t.edges)
+
+
 def test_create_unknown_template_404(db):
     user = ensure_architect(db)
     with pytest.raises(HTTPException) as ei:

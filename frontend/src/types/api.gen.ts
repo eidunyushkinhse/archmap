@@ -63,6 +63,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Templates */
+        get: operations["get_templates_api_v1_projects_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -835,8 +852,8 @@ export interface components {
          * ContextEdgeResponse
          * @description Ребро контекст-схемы: концы СПРОЕЦИРОВАНЫ сервером (внутренний конец →
          *     фокус), original_* — реальные узлы для деталей связи. Контекст сознательно
-         *     остаётся серверной проекцией (Д5 аудита: не трогаем до R6); waypoints/label_t
-         *     не отдаются — раскладка звезды эфемерна и живёт в своей системе координат.
+         *     остаётся серверной проекцией (Д5 аудита); геометрия не отдаётся — раскладка
+         *     звезды эфемерна и живёт в своей системе координат.
          */
         ContextEdgeResponse: {
             /**
@@ -1704,6 +1721,66 @@ export interface components {
             /** Ids */
             ids: string[];
         };
+        /**
+         * TemplateEdgeOut
+         * @description Связь стартового шаблона: source/target — ключи узлов того же шаблона.
+         */
+        TemplateEdgeOut: {
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+            /** Label */
+            label?: string | null;
+            /** Technology */
+            technology?: string | null;
+        };
+        /**
+         * TemplateNodeOut
+         * @description Узел стартового шаблона для витрины выбора (GET /projects/templates).
+         *     x/y всегда заданы — превью в модалке совпадает с раскладкой на холсте.
+         */
+        TemplateNodeOut: {
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "service" | "database" | "broker" | "person";
+            /** Role */
+            role?: string | null;
+            /** Technology */
+            technology?: string | null;
+            /** Is External */
+            is_external: boolean;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * TemplateOut
+         * @description Стартовый шаблон целиком: подписи для витрины + узлы/связи для превью.
+         */
+        TemplateOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Tagline */
+            tagline: string;
+            /** Blurb */
+            blurb: string;
+            /** Techs */
+            techs: string[];
+            /** Nodes */
+            nodes: components["schemas"]["TemplateNodeOut"][];
+            /** Edges */
+            edges: components["schemas"]["TemplateEdgeOut"][];
+        };
         /** Token */
         Token: {
             /** Access Token */
@@ -1923,6 +2000,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_templates_api_v1_projects_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateOut"][];
                 };
             };
         };

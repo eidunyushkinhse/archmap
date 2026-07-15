@@ -212,6 +212,43 @@ def template_ids() -> list[str]:
     return list(_TEMPLATES.keys())
 
 
+def list_templates() -> list[dict]:
+    """Каталог для витрины выбора (GET /projects/templates). x/y у шаблонных узлов
+    всегда заданы, поэтому превью в модалке совпадает с раскладкой на холсте."""
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "tagline": t.tagline,
+            "blurb": t.blurb,
+            "techs": t.techs,
+            "nodes": [
+                {
+                    "key": n.key,
+                    "name": n.name,
+                    "shape": n.shape,
+                    "role": n.role,
+                    "technology": n.technology,
+                    "is_external": n.ext,
+                    "x": n.x,
+                    "y": n.y,
+                }
+                for n in t.nodes
+            ],
+            "edges": [
+                {
+                    "source": e.source,
+                    "target": e.target,
+                    "label": e.label,
+                    "technology": e.technology,
+                }
+                for e in t.edges
+            ],
+        }
+        for t in _TEMPLATES.values()
+    ]
+
+
 def seed_template(db: Session, project_id: uuid.UUID, template_id: str) -> bool:
     """Засеять схему проекта узлами/связями шаблона. Возвращает False, если шаблон
     неизвестен (роутер вернёт 404). Коммит — на вызывающей стороне."""

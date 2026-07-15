@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,41 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=256)
     description: str | None = None
+
+
+class TemplateNodeOut(BaseModel):
+    """Узел стартового шаблона для витрины выбора (GET /projects/templates).
+    x/y всегда заданы — превью в модалке совпадает с раскладкой на холсте."""
+
+    key: str
+    name: str
+    shape: Literal["service", "database", "broker", "person"]
+    role: str | None = None
+    technology: str | None = None
+    is_external: bool
+    x: float
+    y: float
+
+
+class TemplateEdgeOut(BaseModel):
+    """Связь стартового шаблона: source/target — ключи узлов того же шаблона."""
+
+    source: str
+    target: str
+    label: str | None = None
+    technology: str | None = None
+
+
+class TemplateOut(BaseModel):
+    """Стартовый шаблон целиком: подписи для витрины + узлы/связи для превью."""
+
+    id: str
+    name: str
+    tagline: str
+    blurb: str
+    techs: list[str]
+    nodes: list[TemplateNodeOut]
+    edges: list[TemplateEdgeOut]
 
 
 class ProjectPreviewNode(BaseModel):
