@@ -128,20 +128,29 @@ describe("buildAutoRoutes — раздача слотов портов (V2.4c)",
       positions, displayIds: [...positions.keys()],
     });
     const hOf = (id: string, end: "sourceHandle" | "targetHandle") => out.handles.get(id)![end];
-    // исходящие к прямой/нижней цели — на правой стороне H, делят один слот (ствол
-    // легитимен); o1 (цель сверху) волен выйти верхом — сторону выбирает A*
+    // исходящие к прямой/нижней цели — на правой стороне H; o1 (цель сверху) волен
+    // выйти верхом — сторону выбирает A*. Обязательного СЛИЯНИЯ o2/o3 в один слот
+    // больше не фиксируем: T1 разрешает вееру расползтись по свободным слотам, а
+    // прежнее слияние в этой сцене было случайным артефактом rip-up-цепочки, которую
+    // портовый штраф (2026-07-15) убрал вместе с Т4-нарушением в pass1 (выход o1
+    // садился ровно в точку входа in). Бесплатность легитимного ствола держит
+    // соседний тест («прямое ребро едет по собрату без виляний»).
     const outHandles = ["o1", "o2", "o3"].map((id) => hOf(id, "sourceHandle"));
     expect(hOf("o2", "sourceHandle").startsWith("H--right--")).toBe(true);
-    expect(hOf("o3", "sourceHandle")).toBe(hOf("o2", "sourceHandle"));
+    expect(hOf("o3", "sourceHandle").startsWith("H--right--")).toBe(true);
     // вход НЕ делит хэндл ни с одним выходом (Т4): либо другой слот той же стороны
     // (распределение слотов V2.4c), либо вовсе другая сторона
     const inHandle = hOf("in", "targetHandle");
     expect(inHandle.startsWith("H--")).toBe(true);
     for (const oh of outHandles) expect(inHandle).not.toBe(oh);
-    // маршрут входящего реально стыкуется НЕ в точке ствола исходящих (right-центр (190,350))
+    // и ГЕОМЕТРИЧЕСКИ: точка стыковки входа не совпадает с точкой НИ ОДНОГО выхода
+    // (строже прежней проверки одного ствол-центра)
     const inRoute = out.routes.get("in")!;
     const dock = inRoute[inRoute.length - 1];
-    expect(Math.abs(dock.x - 190) + Math.abs(dock.y - 350)).toBeGreaterThan(10);
+    for (const id of ["o1", "o2", "o3"]) {
+      const or = out.routes.get(id)!;
+      expect(Math.abs(dock.x - or[0].x) + Math.abs(dock.y - or[0].y)).toBeGreaterThan(10);
+    }
   });
 
   it("ствол веера из общего порта БЕСПЛАТЕН: прямое ребро едет по собрату без виляний", () => {

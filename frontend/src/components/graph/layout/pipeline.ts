@@ -606,8 +606,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           if (hh) edgeHandles.set(id, hh);
           changed = true;
         }
-        // пере-размещение по финальной геометрии (маршруты грязных изменились)
         if (changed) {
+          // ДОВОДКА НУДЖИНГА (регрессия 2026-07-15): перепроложенный здесь маршрут
+          // минует канальную разводку (она отработала ВЫШЕ) и мог лечь коллинеарно
+          // на чужое плечо — наложение оставалось до конца прогона. Повторный
+          // nudgeChannels идемпотентен для уже разведённых каналов и дешёв.
+          const nu2 = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
+          if (nu2.nudged.size > 0) autoRoutes = nu2.routes;
+          // пере-размещение по финальной геометрии (маршруты грязных изменились)
           labelPlacements = buildLabelPlacements({
             routes: autoRoutes,
             groups: groupArr,

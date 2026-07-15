@@ -63,6 +63,10 @@ export type RouteGridCache = Map<string, PreparedGrid>;
 export interface PortCandidate {
   point: EdgePoint;
   side?: EdgeSide;
+  // Надбавка к стоимости пути за ИСПОЛЬЗОВАНИЕ этого порта (>= 0). Мягкий рычаг против
+  // нелегальной парковки (Т4: вход в порт, занятый чужим ВЫХОДОМ, и наоборот): дорогой
+  // порт проигрывает соседнему слоту, но в полной блокаде остаётся достижим.
+  penalty?: number;
 }
 
 export interface PortsRoute {
@@ -323,30 +327,43 @@ export function routePorts(
     const i = lineIndex(xs, o.x), j = lineIndex(ys, o.y);
     // Направленный порт сеется как «уже идущий наружу»: запрет разворота не даст первому
     // ходу нырнуть обратно к узлу, а первый поворот честно заплатит bendPenalty.
+    // Штраф порта — стартовая стоимость семени (при нескольких семенах на одном
+    // состоянии побеждает дешёвое).
     const side = starts[k].side;
     const key = encode(i, j, side ? OUT_DIR[side] : NONE);
-    if (gScore[key] > 0) {
-      gScore[key] = 0;
+    const pen = starts[k].penalty ?? 0;
+    if (gScore[key] > pen) {
+      gScore[key] = pen;
       seedOf.set(key, k);
-      open.push(key, h(i, j));
+      open.push(key, pen + h(i, j));
     }
   });
 
+  // Финал с учётом штрафа ЦЕЛЕВОГО порта: нельзя брать первый pop на goal-cell (дорогая
+  // цель достигается раньше дешёвой дальней) — копим лучший «финиш» fin = g + penalty и
+  // останавливаемся, когда приоритет очереди его превысил (эвристика допустимая, дальше
+  // только дороже). При нулевых штрафах поведение эквивалентно прежнему «break на первом
+  // достижении»: bestFin = g первого попадания, следующий pop имеет f >= g → стоп.
   let goalKey = -1, goalEndIdx = -1;
+  let bestFin = Infinity;
   while (open.size > 0) {
     const key = open.pop();
     if (closed[key] === 1) continue;
-    closed[key] = 1;
 
     const dir = key % 5;
     const cell = (key - dir) / 5;
     const j = cell % NY;
     const i = (cell - j) / NY;
+    if (bestFin <= gScore[key] + h(i, j)) break; // дешевле уже не будет
+    closed[key] = 1;
 
     const atGoal = goals.get(cell);
     if (atGoal) {
-      const hit = atGoal.find((g) => dir !== g.forbidden);
-      if (hit) { goalKey = key; goalEndIdx = hit.endIdx; break; }
+      for (const gl of atGoal) {
+        if (dir === gl.forbidden) continue;
+        const fin = gScore[key] + (ends[gl.endIdx].penalty ?? 0);
+        if (fin < bestFin) { bestFin = fin; goalKey = key; goalEndIdx = gl.endIdx; }
+      }
     }
 
     const g = gScore[key];

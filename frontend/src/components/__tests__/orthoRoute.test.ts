@@ -144,3 +144,54 @@ describe("routePorts — порты-кандидаты (V2.2, ядро)", () => 
     expect(r!.endIdx).toBe(1);
   });
 });
+
+// Штраф порта (2026-07-15, против нелегальной парковки Т4): дорогой порт проигрывает
+// чистой альтернативе, даже более дальней; при отсутствии альтернатив остаётся достижим.
+describe("routePorts — штраф порта (penalty)", () => {
+  it("дорогая ближняя цель проигрывает чистой дальней", () => {
+    const r = routePorts(
+      [{ point: { x: 0, y: 0 } }],
+      [
+        { point: { x: 200, y: 0 }, penalty: 600 }, // прямая, но порт занят (штраф)
+        { point: { x: 200, y: 50 } },              // +50px и излом, зато чисто
+      ],
+      [],
+    );
+    expect(r).not.toBeNull();
+    expect(r!.endIdx).toBe(1);
+    expect(r!.pts[r!.pts.length - 1]).toEqual({ x: 200, y: 50 });
+  });
+
+  it("без штрафов выбор прежний (ближняя прямая)", () => {
+    const r = routePorts(
+      [{ point: { x: 0, y: 0 } }],
+      [{ point: { x: 200, y: 0 } }, { point: { x: 200, y: 50 } }],
+      [],
+    );
+    expect(r).not.toBeNull();
+    expect(r!.endIdx).toBe(0);
+  });
+
+  it("штраф стартового порта отводит на чистый старт", () => {
+    const r = routePorts(
+      [
+        { point: { x: 0, y: 0 }, penalty: 600 },
+        { point: { x: 0, y: 50 } },
+      ],
+      [{ point: { x: 200, y: 0 } }],
+      [],
+    );
+    expect(r).not.toBeNull();
+    expect(r!.startIdx).toBe(1);
+  });
+
+  it("единственный дорогой порт НЕ блокирует маршрут (мягкость)", () => {
+    const r = routePorts(
+      [{ point: { x: 0, y: 0 } }],
+      [{ point: { x: 200, y: 0 }, penalty: 600 }],
+      [],
+    );
+    expect(r).not.toBeNull();
+    expect(r!.pts[r!.pts.length - 1]).toEqual({ x: 200, y: 0 });
+  });
+});

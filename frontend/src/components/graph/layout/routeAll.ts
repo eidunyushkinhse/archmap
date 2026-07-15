@@ -28,6 +28,13 @@ const OVERLAP_COST = 1;
 // пересечения (200) и перехода рамки (150): реальную деградацию (новый крест, разрез
 // рамки) гистерезис не маскирует; поглощает ничьи, лишний излом и микро-удлинения.
 const ROUTE_STICKINESS = 100;
+// ШТРАФ ПАРКОВКИ В ЗАНЯТЫЙ ПОРТ ПРОТИВОПОЛОЖНОЙ РОЛИ (регрессия 2026-07-15: вход
+// садился в точку чужого ВЫХОДА — встречные стрелки сливались концевыми плечами,
+// нуджинг бессилен: оба конца пришпилены к одному хэндлу). Нарушение Т4 грубее
+// пересечения (3 креста), но НЕ бесконечное: при полной блокаде всех слотов маршрут
+// возможен ценой нарушения (деградация вместо отказа). Одноимённая роль (веер
+// out-out / in-in в общем доке) — легальна и не штрафуется.
+const PORT_CONFLICT_COST = 600;
 
 // Терминал ребра для глобального роутера: концы (на хэндлах) и СВОИ препятствия — тела
 // чужих узлов БЕЗ узлов-концов этого ребра (инвариант routeOrthogonal).
@@ -385,6 +392,47 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
   // контекст вне набора (живой драг) — участвует в штрафах с первого ребра
   const preplacedSegs: PlacedSeg[] = [];
   for (const p of opts?.preplaced ?? []) pushPlaced(preplacedSegs, p);
+
+  // ЗАНЯТЫЕ ПОРТЫ по ролям (портовый штраф, 2026-07-15): p0/pN уже проложенных маршрутов.
+  // Наш ВЫХОД конфликтует с чужим ВХОДОМ (pN) и наоборот; одноимённая роль — легальный
+  // веер, не конфликт. Реестр живёт по edgeId (rip-up исключает само ребро и обновляет
+  // запись при замене маршрута); preplaced-контекст (живой драг) — под синтетическими id.
+  const portOf = new Map<string, { p0: EdgePoint; pN: EdgePoint }>();
+  for (const p of opts?.preplaced ?? []) {
+    if (p.length >= 2) portOf.set(`pre:${portOf.size}`, { p0: p[0], pN: p[p.length - 1] });
+  }
+  // Кандидаты с проставленным штрафом занятости (пересчёт на каждый вызов routePorts:
+  // реестр растёт/меняется). Сетка грид-кэша от penalty не зависит (точки те же).
+  const conflictPorts = (e: EdgeTerminal): [PortCandidate[], PortCandidate[]] => {
+    const oppToStart: EdgePoint[] = []; // чужие ВХОДЫ — конфликт нашему выходу
+    const oppToEnd: EdgePoint[] = [];   // чужие ВЫХОДЫ — конфликт нашему входу
+    for (const [id, pp] of portOf) {
+      if (id === e.id) continue;
+      oppToStart.push(pp.pN);
+      oppToEnd.push(pp.p0);
+    }
+    const mark = (cands: PortCandidate[], opp: EdgePoint[]): PortCandidate[] =>
+      cands.map((c) => (opp.some((q) => nearPt(q, c.point.x, c.point.y))
+        ? { ...c, penalty: (c.penalty ?? 0) + PORT_CONFLICT_COST }
+        : c));
+    const [starts, ends] = portsOf(e);
+    return [mark(starts, oppToStart), mark(ends, oppToEnd)];
+  };
+  // Тот же штраф для ГОТОВОЙ ломаной (гистерезис/rip-up сравнивают маршруты внешней
+  // routeCost — конфликт концов обязан быть виден и там, иначе прилипший prev вечно
+  // выигрывает у чистой альтернативы).
+  const portConflictCost = (edgeId: string, pts: EdgePoint[]): number => {
+    if (pts.length < 2) return 0;
+    const a = pts[0], b = pts[pts.length - 1];
+    let cost = 0;
+    for (const [id, pp] of portOf) {
+      if (id === edgeId) continue;
+      if (nearPt(pp.pN, a.x, a.y)) cost += PORT_CONFLICT_COST; // наш выход в чужом входе
+      if (nearPt(pp.p0, b.x, b.y)) cost += PORT_CONFLICT_COST; // наш вход в чужом выходе
+    }
+    return cost;
+  };
+
   const placed = new Map<string, EdgePoint[]>();
   const placedSegs: PlacedSeg[] = [...preplacedSegs]; // сегменты всех уже проложенных рёбер
   let placedIdx = buildPlacedIndex(placedSegs); // пересобирается после каждой прокладки
@@ -400,18 +448,19 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
             (wantPenalty ? movePenalty(x1, y1, x2, y2, idx, crossCost, own) : 0) +
             (extra ? extra(x1, y1, x2, y2) : 0)
         : undefined;
-    const [starts, ends] = portsOf(e);
+    const [starts, ends] = conflictPorts(e);
     const r = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost, cacheKey: e.id });
     // Пути нет даже с margin=0 (порт заперт) — прямой отрезок-fallback, как раньше.
     let route = r?.pts ?? cleanup([{ ...e.start }, { ...e.end }]);
     // Гистерезис: прежний валидный маршрут не хуже свежего больше, чем на порог, —
     // держим прежний (стрелка не перекладывается от чужих микро-сдвигов и ничьих).
     if (e.prev && e.prev.length >= 2) {
-      const cNew = routeCost(route, idx, crossCost, bp, extra, own);
-      const cPrev = routeCost(e.prev, idx, crossCost, bp, extra, own);
+      const cNew = routeCost(route, idx, crossCost, bp, extra, own) + portConflictCost(e.id, route);
+      const cPrev = routeCost(e.prev, idx, crossCost, bp, extra, own) + portConflictCost(e.id, e.prev);
       if (cPrev <= cNew + ROUTE_STICKINESS) route = e.prev.map((p) => ({ x: p.x, y: p.y }));
     }
     placed.set(e.id, route);
+    if (route.length >= 2) portOf.set(e.id, { p0: route[0], pN: route[route.length - 1] });
     pushPlaced(placedSegs, route);
     placedIdx = buildPlacedIndex(placedSegs);
   }
@@ -446,6 +495,7 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     const list: PlacedSeg[] = [];
     pushPlaced(list, route);
     placedById.set(id, list);
+    if (route.length >= 2) portOf.set(id, { p0: route[0], pN: route[route.length - 1] });
     envVersion++;
   };
   const ripUp = (): boolean => {
@@ -456,15 +506,17 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
       if (lastTried.get(e.id) === envVersion) continue; // окружение прежнее — результат тот же
       const others = buildPlacedIndex(othersOf(e.id));
       const own = ownPortsOf(e);
-      if (pathPenalty(cur, others, crossCost, own) <= 0) continue; // чистый — не трогаем
+      // конфликт порта — тоже «грязь»: без него ребро с нелегальной парковкой считалось
+      // бы чистым и никогда не перепрокладывалось
+      if (pathPenalty(cur, others, crossCost, own) + portConflictCost(e.id, cur) <= 0) continue;
       const extra = e.extraMoveCost ?? opts?.extraMoveCost;
       const moveCost = (x1: number, y1: number, x2: number, y2: number): number =>
         movePenalty(x1, y1, x2, y2, others, crossCost, own) + (extra ? extra(x1, y1, x2, y2) : 0);
-      const [starts, ends] = portsOf(e);
+      const [starts, ends] = conflictPorts(e);
       const r2 = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost, cacheKey: e.id });
       if (!r2?.pts || r2.pts.length < 2) { lastTried.set(e.id, envVersion); continue; }
-      const cCur = routeCost(cur, others, crossCost, bp, extra, own);
-      const cNew = routeCost(r2.pts, others, crossCost, bp, extra, own);
+      const cCur = routeCost(cur, others, crossCost, bp, extra, own) + portConflictCost(e.id, cur);
+      const cNew = routeCost(r2.pts, others, crossCost, bp, extra, own) + portConflictCost(e.id, r2.pts);
       if (cNew + ROUTE_STICKINESS < cCur) {
         replace(e.id, r2.pts);
         improved = true;
