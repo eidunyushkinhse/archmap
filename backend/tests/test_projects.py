@@ -80,11 +80,26 @@ def test_preview_projects_edges_to_root_ancestors(db):
 
 def test_create_from_template_seeds_schema(db):
     user = ensure_architect(db)
-    p = create_project(ProjectCreate(name="C4", start="template:c4"), db=db, user=user)
+    p = create_project(ProjectCreate(name="Веб", start="template:webapp"), db=db, user=user)
     assert p.object_count > 0 and p.edge_count > 0
     # У шаблонных узлов задана раскладка → превью карточки показывает реальные
     # координаты (а не гадает по центроидам/окружности).
     assert p.preview.nodes and all(n.x is not None and n.y is not None for n in p.preview.nodes)
+    # Внешние системы шаблона (актор, вход, почта) сидятся с is_external → серые.
+    ext = {n.name for n in db.query(Node).filter(Node.project_id == p.id, Node.is_external).all()}
+    assert ext == {"Пользователь", "Провайдер входа", "Сервис email"}
+
+
+def test_all_templates_seed_and_match_catalog(db):
+    """Каждый шаблон каталога сидится, и счётчики совпадают с его описанием —
+    страховка от рёбер на несуществующие ключи при правке каталога."""
+    from app.templates import _TEMPLATES, template_ids
+
+    user = ensure_architect(db)
+    for tid in template_ids():
+        p = create_project(ProjectCreate(name=f"T-{tid}", start=f"template:{tid}"), db=db, user=user)
+        tpl = _TEMPLATES[tid]
+        assert (p.object_count, p.edge_count) == (len(tpl.nodes), len(tpl.edges)), tid
 
 
 def test_create_unknown_template_404(db):
