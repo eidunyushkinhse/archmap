@@ -1,4 +1,4 @@
-import type { Project, ProjectCreate, ProjectUpdate } from "../types";
+import type { ImportPreviewOut, Project, ProjectCreate, ProjectUpdate, TemplateOut } from "../types";
 import { api } from "./client";
 
 // Управление проектами. Запросы к /projects скоупом X-Project-Id не оборачиваются
@@ -6,6 +6,11 @@ import { api } from "./client";
 export const projectsApi = {
   list: (archived = false): Promise<Project[]> =>
     api.get<Project[]>(`/projects?archived=${archived}`),
+  // Каталог стартовых шаблонов для витрины создания проекта.
+  templates: (): Promise<TemplateOut[]> => api.get<TemplateOut[]>(`/projects/templates`),
+  // Dry-run импорта YAML: сводка/ошибки для живой валидации в модалке, БД не трогает.
+  importPreview: (content: string): Promise<ImportPreviewOut> =>
+    api.post<ImportPreviewOut>(`/projects/import/preview`, { content }),
   get: (id: string): Promise<Project> => api.get<Project>(`/projects/${id}`),
   create: (payload: ProjectCreate): Promise<Project> =>
     api.post<Project>(`/projects`, payload),
