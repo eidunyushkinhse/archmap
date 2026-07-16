@@ -91,6 +91,30 @@ describe("weldTrunks — сварка исходящих стволов (E78)", 
     expect(routes.get("b")).toEqual(weldedShape);
   });
 
+  it("входящий веер: follower перенимает СУФФИКС лидера через излом (E79)", () => {
+    // зеркало сценария префиксов: общий порт-цель (0,0)
+    const inLeader = [P(300, 100), P(150, 100), P(150, 0), P(0, 0)];
+    const inFollower = [P(300, 140), P(0, 140), P(0, 0)];
+    const routes = new Map([["a", inLeader], ["b", inFollower]]);
+    const welded = weldTrunks({ routes, routableIds: new Set(["a", "b"]), obstacles: [] });
+    expect([...welded]).toEqual(["b"]);
+    // слился на (150,140)→(150,0) и дошёл до хэндла вместе с лидером
+    expect(routes.get("b")).toEqual([P(300, 140), P(150, 140), P(150, 0), P(0, 0)]);
+    expect(routes.get("a")).toEqual(inLeader);
+  });
+
+  it("входящий веер: повторный прогон идемпотентен", () => {
+    const routes = new Map([
+      ["a", [P(300, 100), P(150, 100), P(150, 0), P(0, 0)]],
+      ["b", [P(300, 140), P(0, 140), P(0, 0)]],
+    ]);
+    weldTrunks({ routes, routableIds: new Set(["a", "b"]), obstacles: [] });
+    const snapshot = JSON.parse(JSON.stringify([...routes]));
+    const again = weldTrunks({ routes, routableIds: new Set(["a", "b"]), obstacles: [] });
+    expect(again.size).toBe(0);
+    expect(JSON.parse(JSON.stringify([...routes]))).toEqual(snapshot);
+  });
+
   it("детерминизм: два прогона на копиях дают одинаковый результат", () => {
     const mk = (): Map<string, EdgePoint[]> =>
       new Map([

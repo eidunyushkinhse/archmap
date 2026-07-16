@@ -1,10 +1,13 @@
-// СВАРКА СТВОЛОВ (эпик «общие плечи v2», Ф2 — исходящие; docs/plan-arrow-trunks.md).
+// СВАРКА СТВОЛОВ (эпик «общие плечи v2», Ф2 исходящие + Ф3 входящие;
+// docs/plan-arrow-trunks.md, E78/E79).
 //
-// Пост-проход после distributeSlots: follower веера (общий ФАКТИЧЕСКИЙ p0) пробует
-// перенять префикс собрата до его j-го излома (j ≤ WELD_K за попытку), хвост от точки
-// перенятия до СВОЕГО целевого дока докладывает обычный routePorts (доки не двигаются —
-// сварка меняет форму, не хэндлы). Семя хвоста направлено ПО ходу ствола (разворот
-// на шве невозможен физически), финиш — против нормали дока.
+// Пост-проход после distributeSlots: follower веера (общий ФАКТИЧЕСКИЙ порт одной
+// роли) пробует перенять ПРЕФИКС (исходящие) либо СУФФИКС (входящие) собрата до его
+// j-го излома (j ≤ WELD_K за попытку), хвост от точки перенятия до СВОЕГО свободного
+// дока докладывает обычный routePorts (доки не двигаются — сварка меняет форму, не
+// хэндлы). Семя хвоста направлено ПО ходу ствола (разворот на шве невозможен
+// физически), финиш — против нормали дока. Входящие свариваются тем же алгоритмом
+// на развёрнутых ломаных (задача зеркальна), слился → до хэндла вместе по построению.
 //
 // Принятие ДВУХСТУПЕНЧАТОЕ (E78):
 //  (1) «грязь» не хуже ПОКОМПОНЕНТНО: кресты, нелегальная езда, штрафы среды
@@ -78,8 +81,10 @@ export interface WeldParams {
   obstacles: NodeRect[];              // тела узлов + плашки рамок (общие для всех рёбер)
   // пер-рёберный штраф среды (границы чужих рамок / чужие плашки), как у терминалов
   extraOf?: (id: string) => ((x1: number, y1: number, x2: number, y2: number) => number) | undefined;
-  // сторона целевого дока follower-а (направленный финиш хвоста); undefined — без стороны
+  // стороны доков follower-а: целевого (свободный конец out-прохода) и исходного
+  // (свободный конец in-прохода); undefined — финиш хвоста без стороны
   endSideOf?: (id: string) => EdgeSide | undefined;
+  startSideOf?: (id: string) => EdgeSide | undefined;
   crossCost?: number;
   bendPenalty?: number;
 }
@@ -87,7 +92,7 @@ export interface WeldParams {
 // Возвращает id перекроенных рёбер. Детерминирован (порядок: ключ порта → id follower-а
 // → id собрата → дуга излома); повторный вызов на результате — no-op.
 export function weldTrunks(params: WeldParams): Set<string> {
-  const { routes, routableIds, obstacles, extraOf, endSideOf } = params;
+  const { routes, routableIds, obstacles, extraOf, endSideOf, startSideOf } = params;
   const preplaced = params.preplaced ?? [];
   const crossCost = params.crossCost ?? 200;
   const bp = params.bendPenalty ?? 40;
@@ -114,83 +119,100 @@ export function weldTrunks(params: WeldParams): Set<string> {
 
   for (let iter = 0; iter < WELD_ITER_CAP; iter++) {
     let changed = false;
-    // веера по фактическому порту-источнику: routable — кандидаты в followers,
-    // preplaced — только лидеры (их не переписываем)
-    const buckets = new Map<string, Array<{ id: string | null; pts: EdgePoint[] }>>();
-    const push = (id: string | null, pts: EdgePoint[]): void => {
-      if (pts.length < 2) return;
-      const k = portKey(pts[0]);
-      (buckets.get(k) ?? buckets.set(k, []).get(k)!).push({ id, pts });
-    };
-    for (const id of [...routes.keys()].sort()) push(id, routes.get(id)!);
-    preplaced.forEach((r) => push(null, r));
+    // Два прохода: "out" — веера по порту-источнику (перенимаются ПРЕФИКСЫ, E78);
+    // "in" — по порту-цели (СУФФИКСЫ, E79). На РАЗВЁРНУТЫХ ломаных in-задача
+    // тождественна out-проходу: общий порт становится [0], семя хвоста по ходу
+    // развёрнутого ствола запрещает разворот на шве в обе стороны (T-подход сбоку
+    // легален), свободный конец — исходный док. Результат разворачивается обратно,
+    // оценка всегда в реальном пространстве.
+    for (const kind of ["out", "in"] as const) {
+      const orient = (pts: EdgePoint[]): EdgePoint[] =>
+        kind === "out" ? pts : [...pts].reverse();
+      // routable — кандидаты в followers, preplaced — только лидеры (не переписываем)
+      const buckets = new Map<string, Array<{ id: string | null; pts: EdgePoint[] }>>();
+      const push = (id: string | null, pts: EdgePoint[]): void => {
+        if (pts.length < 2) return;
+        const k = portKey(pts[0]);
+        (buckets.get(k) ?? buckets.set(k, []).get(k)!).push({ id, pts });
+      };
+      for (const id of [...routes.keys()].sort()) push(id, orient(routes.get(id)!));
+      preplaced.forEach((r) => push(null, orient(r)));
 
-    for (const key of [...buckets.keys()].sort()) {
-      const bucket = buckets.get(key)!;
-      if (bucket.length < 2) continue;
-      for (const member of bucket) {
-        if (member.id === null || !routableIds.has(member.id)) continue;
-        const follower = member.id;
-        const cur = routes.get(follower)!;
-        if (cur.length < 2) continue;
-        const ctx = contextOf(follower);
-        const extra = extraOf?.(follower);
-        const curParts = evalRouteParts(cur, ctx.segs, { extra, fellowRoutes: ctx.routes });
-        const curInk = ink(curParts, sharedLegal(cur, ctx.routes));
-        const dock = cur[cur.length - 1];
-        let best: EdgePoint[] | null = null;
-        let bestInk = curInk - WELD_EPS;
-        for (const mate of bucket) {
-          if (mate === member) continue;
-          // живой маршрут собрата (мог быть переварен ранее в этой же итерации)
-          const matePts = mate.id !== null ? routes.get(mate.id)! : mate.pts;
-          if (matePts.length < 2) continue;
-          const diverge = pieceLen(commonPrefix(cur, matePts));
-          const verts = vertsWithArc(cleanup(matePts.map((p) => ({ x: p.x, y: p.y }))));
-          // изломы собрата ЗА точкой расхождения (интерьерные вершины), первые WELD_K
-          const qs = verts.slice(1, -1).filter((v) => v.arc > diverge + EPS).slice(0, WELD_K);
-          for (const q of qs) {
-            const qi = verts.indexOf(q);
-            const arrSide = sideAlong(verts[qi - 1].p, q.p);
-            if (!arrSide) continue; // диагональный подход — не ствол
-            // хвост: от излома собрата (семя по ходу ствола, стаб минимальный — точка
-            // поворота может лежать прямо за Q) до СВОЕГО дока
-            const tailMove = makeMoveCost(ctx.segs, crossCost, { starts: [], ends: [dock] });
-            const tail = routePorts(
-              [{ point: { x: q.p.x, y: q.p.y }, side: arrSide }],
-              [{ point: { x: dock.x, y: dock.y }, side: endSideOf?.(follower) }],
-              obstacles,
-              {
-                bendPenalty: bp,
-                stub: 2,
-                moveCost: extra
-                  ? (x1, y1, x2, y2): number => tailMove(x1, y1, x2, y2) + extra(x1, y1, x2, y2)
-                  : tailMove,
-              },
-            );
-            if (!tail || tail.pts.length < 2) continue;
-            const adopted = verts.slice(0, qi).map((v) => ({ x: v.p.x, y: v.p.y }));
-            const full = cleanup([...adopted, ...tail.pts]);
-            if (full.length < 2) continue;
-            const candParts = evalRouteParts(full, ctx.segs, { extra, fellowRoutes: ctx.routes });
-            // ступень 1: грязь не хуже покомпонентно (допуски — числовой шум)
-            if (
-              candParts.crosses > curParts.crosses ||
-              candParts.overlap > curParts.overlap + EPS ||
-              candParts.extra > curParts.extra + 1e-6
-            ) continue;
-            // ступень 2: чернила с бонусом слияния строго лучше
-            const candInk = ink(candParts, sharedLegal(full, ctx.routes));
-            if (candInk < bestInk) {
-              bestInk = candInk;
-              best = full;
+      for (const key of [...buckets.keys()].sort()) {
+        const bucket = buckets.get(key)!;
+        if (bucket.length < 2) continue;
+        for (const member of bucket) {
+          if (member.id === null || !routableIds.has(member.id)) continue;
+          const follower = member.id;
+          const curReal = routes.get(follower)!;
+          if (curReal.length < 2) continue;
+          const cur = orient(curReal);
+          const ctx = contextOf(follower);
+          const extra = extraOf?.(follower);
+          const curParts = evalRouteParts(curReal, ctx.segs, { extra, fellowRoutes: ctx.routes });
+          const curInk = ink(curParts, sharedLegal(curReal, ctx.routes));
+          // свободный конец ориентированной ломаной: out → целевой док, in → исходный
+          const dock = cur[cur.length - 1];
+          const dockSide = kind === "out" ? endSideOf?.(follower) : startSideOf?.(follower);
+          let best: EdgePoint[] | null = null;
+          let bestInk = curInk - WELD_EPS;
+          for (const mate of bucket) {
+            if (mate === member) continue;
+            // живой маршрут собрата (мог быть переварен ранее в этой же итерации)
+            const matePts = mate.id !== null ? orient(routes.get(mate.id)!) : mate.pts;
+            if (matePts.length < 2) continue;
+            const diverge = pieceLen(commonPrefix(cur, matePts));
+            const verts = vertsWithArc(cleanup(matePts.map((p) => ({ x: p.x, y: p.y }))));
+            // изломы собрата ЗА точкой расхождения (интерьерные вершины), первые WELD_K
+            const qs = verts.slice(1, -1).filter((v) => v.arc > diverge + EPS).slice(0, WELD_K);
+            for (const q of qs) {
+              const qi = verts.indexOf(q);
+              const arrSide = sideAlong(verts[qi - 1].p, q.p);
+              if (!arrSide) continue; // диагональный подход — не ствол
+              // хвост: от излома собрата до свободного дока. Стаб дефолтный (E9):
+              // у дока — полноценный выход из хэндла, у Q — поворот не раньше стаба
+              // за изломом собрата (лесенки вплотную к шву не строим); в тесноте
+              // clampStub укоротит сам.
+              const tailMove = makeMoveCost(ctx.segs, crossCost, {
+                starts: kind === "in" ? [dock] : [],
+                ends: kind === "out" ? [dock] : [],
+              });
+              const tail = routePorts(
+                [{ point: { x: q.p.x, y: q.p.y }, side: arrSide }],
+                [{ point: { x: dock.x, y: dock.y }, side: dockSide }],
+                obstacles,
+                {
+                  bendPenalty: bp,
+                  moveCost: extra
+                    ? (x1, y1, x2, y2): number => tailMove(x1, y1, x2, y2) + extra(x1, y1, x2, y2)
+                    : tailMove,
+                },
+              );
+              if (!tail || tail.pts.length < 2) continue;
+              const adopted = verts.slice(0, qi).map((v) => ({ x: v.p.x, y: v.p.y }));
+              const fullOriented = cleanup([...adopted, ...tail.pts]);
+              if (fullOriented.length < 2) continue;
+              const full = orient(fullOriented); // orient — инволюция
+              const candParts = evalRouteParts(full, ctx.segs, { extra, fellowRoutes: ctx.routes });
+              // ступень 1: грязь не хуже покомпонентно (допуски — числовой шум)
+              if (
+                candParts.crosses > curParts.crosses ||
+                candParts.overlap > curParts.overlap + EPS ||
+                candParts.extra > curParts.extra + 1e-6
+              ) continue;
+              // ступень 2: чернила с бонусом слияния строго лучше
+              const candInk = ink(candParts, sharedLegal(full, ctx.routes));
+              if (candInk < bestInk) {
+                bestInk = candInk;
+                best = full;
+              }
             }
           }
-        }
-        if (best) {
-          routes.set(follower, best);
-          welded.add(follower);
-          changed = true;
+          if (best) {
+            routes.set(follower, best);
+            welded.add(follower);
+            changed = true;
+          }
         }
       }
     }

@@ -311,9 +311,10 @@ export function buildAutoRoutes(params: {
     });
   }
 
-  // СВАРКА СТВОЛОВ (Ф2, E78): followers вееров перенимают префиксы собратьев через
-  // изломы, где это строго выигрывает по «чернилам с бонусом слияния» без новой грязи.
-  // После раздачи слотов: доки финальны, стороны доков — направленный финиш хвостов.
+  // СВАРКА СТВОЛОВ (Ф2 префиксы E78 + Ф3 суффиксы E79): followers вееров перенимают
+  // префиксы/суффиксы собратьев через изломы, где это строго выигрывает по «чернилам
+  // с бонусом слияния» без новой грязи. После раздачи слотов: доки финальны, их
+  // стороны — направленный финиш хвостов.
   if (weld !== false) {
     weldTrunks({
       routes,
@@ -322,6 +323,7 @@ export function buildAutoRoutes(params: {
       obstacles: obstacleBodies,
       extraOf: (id) => extraById.get(id),
       endSideOf: (id) => dockOf.get(id)?.t?.side,
+      startSideOf: (id) => dockOf.get(id)?.s?.side,
     });
   }
   return { routes, handles };
