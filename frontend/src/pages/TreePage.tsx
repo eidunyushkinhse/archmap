@@ -208,6 +208,20 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
   // Флаг «идёт жест драга» (пишет LevelGraph): поллинг не врывается в жест.
   const gestureActiveRef = useRef(false);
+  // Канал переигровки 409 user-батча раскладки (этап 0): живёт ЗДЕСЬ, потому что
+  // ресинк показывает «Загрузка…» и размонтирует LevelGraph — локальный канал
+  // умирал бы вместе с холстом (ретрай терялся; найдено e2e-зондом). Патч
+  // возвращается вниз пропом retryPatch; token — одноразовость на маунт.
+  const layoutRetrySeq = useRef(0);
+  const [layoutRetry, setLayoutRetry] = useState<{
+    patch: Record<string, Partial<ViewLayoutPayload> | null>;
+    token: number;
+  } | null>(null);
+  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
+    void resyncOnPersistError().then(() => {
+      setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
+    });
+  }
 
   // Поллинг курсора изменений (этап 1): кто-то изменил проект в другой сессии →
   // перечитать уровень + короткий тост. Свои записи чужими не считаются
@@ -231,6 +245,10 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
 
   async function load(parentId: string | null) {
     setLoading(true);
+    // Незавершённая переигровка 409 протухает с любой перезагрузкой уровня
+    // (навигация/ресинк): патч старого мира не должен пережить смену контекста.
+    // Ресинк-путь ставит её ЗАНОВО после завершения load (handlePersistConflict).
+    setLayoutRetry(null);
     try {
       const graph = await nodesApi.getGraph(parentId);
       // версии конкурентности (этап 0/1): fence вида + курсор проекта — живой
@@ -955,6 +973,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onUndo={dispatchUndo}
               onRedo={dispatchRedo}
               onPersistError={resyncOnPersistError}
+              onPersistConflict={handlePersistConflict}
+              retryPatch={layoutRetry}
               viewMeta={viewMetaRef}
               gestureActiveRef={gestureActiveRef}
               schemaView={schemaView}

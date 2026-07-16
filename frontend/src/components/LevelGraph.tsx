@@ -170,6 +170,13 @@ interface LevelGraphProps {
   // пока пользователь тащит узлы (перезагрузка уровня посреди жеста снесла бы
   // RF-стейт под рукой). Реф, не колбэк — ноль ре-рендеров на жест.
   gestureActiveRef?: { current: boolean };
+  // Канал переигровки 409 user-батча (этап 0): persistFenced отдаёт исходный
+  // патч НАВЕРХ (onPersistConflict), TreePage делает ресинк и возвращает патч
+  // пропом retryPatch. Канал живёт в TreePage сознательно: ресинк показывает
+  // «Загрузка…» и РАЗМОНТИРУЕТ холст — локальный стейт канала умер бы вместе с
+  // ним (ретрай терялся, найдено e2e-зондом).
+  onPersistConflict?: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
+  retryPatch?: { patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number } | null;
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
@@ -231,6 +238,8 @@ function LevelGraphInner({
   onUndo,
   onRedo,
   onPersistError,
+  onPersistConflict,
+  retryPatch,
   viewMeta,
   gestureActiveRef,
   mode = "level",
@@ -318,23 +327,13 @@ function LevelGraphInner({
   // viewLayout (и пересчёта раскладки) НЕ будет — по этому сигналу dragStop
   // откатывает живое превью рёбер (liveDragHandles.restore).
   //
-  // Канал переигровки политики 409: persistFenced после ресинка кладёт сюда
-  // исходный патч, а эффект ниже (объявлен ПОСЛЕ commitLayout — тот нужен ему в
-  // deps) коммитит его заново. Стейт, а не прямой вызов: ретрай обязан идти от
-  // СВЕЖЕГО зеркала viewLayout — setRetryPatch планируется тем же батчем React,
-  // что и setState'ы ресинка, поэтому эффект по построению видит commitLayout,
-  // замкнутый уже на перезагруженные данные. token — одноразовость (см. эффект).
-  const retrySeqRef = useRef(0);
-  const [retryPatch, setRetryPatch] = useState<{
-    patch: Record<string, Partial<ViewLayoutPayload> | null>;
-    token: number;
-  } | null>(null);
-  //
   // Фенсированный персист (этап 0 конкурентности): запись несёт base_version
   // вида; устаревшая (вид изменён другой сессией) → 409 → политика
   // planPersistFailure: user-интент после ресинка переигрывается ОДИН раз
   // исходным патчем (merge заново, уже от свежего зеркала), derived-интент
   // выбрасывается — пересчёт конвейера от свежих данных сам родит актуальное.
+  // Переигровку исполняет канал TreePage (onPersistConflict → проп retryPatch,
+  // см. комментарий к пропу); без канала (не передан) — деградация до ресинка.
   const persistFenced = useCallback(
     (
       items: Record<string, ViewLayoutPayload | null>,
@@ -349,18 +348,17 @@ function LevelGraphInner({
         })
         .catch((e: unknown) => {
           console.error("Запись раскладки не прошла — ресинхронизирую уровень из БД", e);
-          if (planPersistFailure(isConflict(e), origin, isRetry) === "resync-only") {
-            void onPersistError?.(e);
+          if (
+            planPersistFailure(isConflict(e), origin, isRetry) === "retry-after-resync" &&
+            onPersistConflict
+          ) {
+            onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
             return;
           }
-          // Ресинк (вернёт зеркало и версию к истине) → одна переигровка
-          // исходного патча через канал retryPatch.
-          void Promise.resolve(onPersistError?.(e)).then(() => {
-            setRetryPatch({ patch, token: ++retrySeqRef.current });
-          });
+          void onPersistError?.(e);
         });
     },
-    [containerId, onPersistError, viewMeta],
+    [containerId, onPersistError, onPersistConflict, viewMeta],
   );
   const commitLayout = useCallback(
     (
@@ -393,9 +391,10 @@ function LevelGraphInner({
     },
     [isArchitect, isContext, viewLayout, persistFenced, onLayoutChanged],
   );
-  // Исполнитель переигровки 409 (см. retryPatch выше): одноразово (token) коммитит
-  // исходный патч заново — commitLayout здесь из deps, т.е. замкнут на СВЕЖЕЕ
-  // зеркало после ресинка; isRetry=true — второй 409 уже не переигрывается.
+  // Исполнитель переигровки 409 (проп retryPatch из TreePage): одноразово (token)
+  // коммитит исходный патч заново — commitLayout здесь из deps, т.е. замкнут на
+  // СВЕЖЕЕ зеркало после ресинка (типично это уже НОВЫЙ маунт холста — ресинк
+  // показывает «Загрузка…»); isRetry=true — второй 409 уже не переигрывается.
   const retryDoneRef = useRef(0);
   useEffect(() => {
     if (!retryPatch || retryPatch.token === retryDoneRef.current) return;
