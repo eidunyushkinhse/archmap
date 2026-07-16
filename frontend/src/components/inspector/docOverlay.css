@@ -180,6 +180,11 @@
   overflow: hidden;
   min-height: 0;
   cursor: grab;
+  /* Превью — не текстовая зона: пан не должен растягивать нативное выделение
+     по SVG-тексту mermaid, а двойной клик (fit) — выделять слово. Копировать
+     текст можно из панели кода рядом. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .doc-pvstage--drag { cursor: grabbing; }
 .doc-pz { position: absolute; left: 0; top: 0; width: max-content; }

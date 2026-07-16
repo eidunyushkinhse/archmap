@@ -101,6 +101,10 @@ export function usePanZoom(
       if (e.button !== 0 || (e.target as Element).closest("button")) return;
       const box = containerRef.current;
       if (!box) return;
+      // Гасим нативное выделение текста: без preventDefault браузер стартует
+      // selection от точки mousedown, и пан «растягивает» его по SVG-тексту
+      // диаграммы (user-select:none на сцене — второй пояс той же защиты).
+      e.preventDefault();
       box.setPointerCapture(e.pointerId);
       dragFrom.current = { px: e.clientX, py: e.clientY, x: tRef.current.x, y: tRef.current.y };
       setDragging(true);
