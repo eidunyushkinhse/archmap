@@ -87,9 +87,9 @@ export type ContextEdge = Schemas["ContextEdgeResponse"];
 
 // Ребро в стейте уровня/контекста: EdgeResponse-подобное (source_id/target_id —
 // РЕАЛЬНЫЕ концы, R2) плюс синтезируемые original_* — те же реальные концы с
-// именами для деталей связи. Поля original_* остаются в типе ради модалок
-// (EdgeInspector/EdgeDetailModal); на уровне их заполняет TreePage.load из
-// реестра endpoints, в контексте — сервер (ContextEdgeResponse).
+// именами для деталей связи. Поля original_* остаются в типе ради панели
+// EdgeInspector; на уровне их заполняет TreePage.load из реестра endpoints,
+// в контексте — сервер (ContextEdgeResponse), но там детализации нет.
 export type LevelEdge = Edge & {
   original_source_id: string;
   original_target_id: string;

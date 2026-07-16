@@ -3,8 +3,6 @@ import type { CSSProperties } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeContext, LevelEdge } from "../types";
 import LevelGraph from "./LevelGraph";
-import EdgeDetailModal from "./EdgeDetailModal";
-import EdgeChoiceModal from "./EdgeChoiceModal";
 import Modal from "../ui/Modal";
 
 interface Props {
@@ -17,8 +15,8 @@ interface Props {
  * показывает диаграмму вокруг одного узла: сам узел (фокус) + его прямые соседи
  * (другой конец связей, выходящих за пределы поддерева фокуса), обёрнутый в рамки
  * своих предков. Соседи — «гости» (пунктир). Рендер переиспользует LevelGraph в
- * режиме mode="context": без кнопок входа/правки, координаты не сохраняются,
- * связи кликабельны только на просмотр деталей.
+ * режиме mode="context": read-only, без кнопок входа/правки и детализации,
+ * координаты не сохраняются.
  */
 export default function NodeContextModal({ node, onClose }: Props) {
   // Контекст грузим в ОДИН стейт с привязкой к узлу: forNodeId фиксирует, для какого
@@ -28,9 +26,6 @@ export default function NodeContextModal({ node, onClose }: Props) {
   // (forNodeId ещё старый) → loading, без эффекта-сброса. Сохраняет сценарий смены
   // node.id при уже открытой модалке.
   const [state, setState] = useState<{ forNodeId: string; ctx?: NodeContext; error?: string } | null>(null);
-  // просмотр деталей связи (и выбор из «мастер-стрелки»)
-  const [edgeDetail, setEdgeDetail] = useState<LevelEdge | null>(null);
-  const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -57,6 +52,8 @@ export default function NodeContextModal({ node, onClose }: Props) {
   // Рёбра контекста → формат, который ждёт LevelGraph (концы уже спроецированы).
   // Мемоизируем по ctx: пропсы LevelGraph — зависимости async-эффекта раскладки,
   // новая ссылка на каждый рендер модалки гоняла бы раскладку зря (мигание).
+  // original_* — обязательные поля общего типа LevelEdge (на уровне их потребляет
+  // EdgeInspector); в контексте детализации связи нет — здесь они только данные.
   const edges: LevelEdge[] = useMemo(
     () =>
       (ctx?.edges ?? []).map((ge) => ({
@@ -65,7 +62,6 @@ export default function NodeContextModal({ node, onClose }: Props) {
         technology: ge.technology,
         source_id: ge.source_id,
         target_id: ge.target_id,
-        // реальные концы ребра — модалка деталей показывает их, а не проекцию на фокус
         original_source_id: ge.original_source_id,
         original_target_id: ge.original_target_id,
         original_source_name: ge.original_source_name,
@@ -75,24 +71,12 @@ export default function NodeContextModal({ node, onClose }: Props) {
     [ctx],
   );
 
-  // Полное ребро контекста по id — LevelGraph в колбэках сужает тип до Edge (без
-  // original_*); восстанавливаем из мемо (тот же объект) для модалки деталей.
-  const findEdge = (id: string): LevelEdge | null =>
-    edges.find((e) => e.id === id) ?? null;
-
   // Фокус-узел стабильной ссылкой (тоже вход раскладки)
   const focusNodes = useMemo(() => (ctx ? [ctx.focus] : []), [ctx]);
-
-  // Имя конца связи для модалок деталей (фокус + соседи)
-  const labelOf = (id: string): string =>
-    ctx?.focus.id === id
-      ? ctx.focus.name
-      : ctx?.neighbors.find((n) => n.id === id)?.name ?? id;
 
   const noNeighbors = !!ctx && ctx.neighbors.length === 0;
 
   return (
-    <>
     <Modal
       onClose={onClose}
       closeOnBackdrop
@@ -121,45 +105,15 @@ export default function NodeContextModal({ node, onClose }: Props) {
             isArchitect={false}
             onDrillDown={() => {}}
             onEditNode={() => {}}
-            onEdgesChoice={(g) =>
-              setEdgeChoice(
-                g.map((m) => findEdge(m.id)).filter((e): e is LevelEdge => e != null),
-              )
-            }
+            // в контексте детализация связи не открывается (двойной клик и плашка
+            // гейтятся isContext) — колбэк номинальный, мёртвый путь модалок
+            // деталей удалён 2026-07-16
+            onEdgesChoice={() => {}}
             mode="context"
           />
         ) : null}
       </div>
     </Modal>
-
-      {/* Детали/выбор связи — отдельные <dialog> поверх (top-layer), рендерим
-          СИБЛИНГОМ контекст-модалки, а не внутри её <dialog>: вложенный <dialog>
-          бубблил бы cancel (Escape) на контекст и закрывал бы обе модалки. Как
-          сиблинг — Escape закрывает только детали, контекст остаётся; клик по
-          подложке контекста ловит только клик ровно по нему (см. Modal). */}
-      {edgeDetail && (
-        <EdgeDetailModal
-          edge={edgeDetail}
-          sourceId={edgeDetail.original_source_id}
-          targetId={edgeDetail.original_target_id}
-          sourceLabel={edgeDetail.original_source_name}
-          targetLabel={edgeDetail.original_target_name}
-          isArchitect={false}
-          onClose={() => setEdgeDetail(null)}
-          onDeleted={() => setEdgeDetail(null)}
-          onSaved={() => setEdgeDetail(null)}
-        />
-      )}
-      {edgeChoice && edgeChoice.length > 0 && (
-        <EdgeChoiceModal
-          edges={edgeChoice}
-          sourceLabel={labelOf(edgeChoice[0].source_id)}
-          targetLabel={labelOf(edgeChoice[0].target_id)}
-          onPick={(e) => { setEdgeChoice(null); setEdgeDetail(e); }}
-          onClose={() => setEdgeChoice(null)}
-        />
-      )}
-    </>
   );
 }
 

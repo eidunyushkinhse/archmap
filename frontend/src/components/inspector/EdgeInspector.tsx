@@ -1,7 +1,8 @@
 // Мета связи в правой панели: просмотр (наблюдатель) и inline-правка (архитектор).
-// Перенос ветки «просмотр/правка» из EdgeDetailModal (сама модалка остаётся для
-// NodeContextModal, где правой панели нет). Inline-правка коммитится по blur/смене конца
-// и ложится в Undo/Redo через тот же onEdgeSaved (та же сигнатура, что у модалки).
+// Перенос ветки «просмотр/правка» из бывшей EdgeDetailModal (модалка удалена
+// 2026-07-16: её последний потребитель — путь деталей в контекст-схеме — был
+// недостижим). Inline-правка коммитится по blur/смене конца и ложится в
+// Undo/Redo через onEdgeSaved.
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DeletionSnapshot, Edge, EdgeUpdate, LevelEdge, Node } from "../../types";
@@ -22,7 +23,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
   const [labelText, setLabelText] = useState(edge.label ?? "");
   const [technology, setTechnology] = useState(edge.technology ?? "");
   // Концы: РЕАЛЬНЫЕ (original_*), а не их проекция на уровень — иначе правка затёрла бы
-  // концы спроецированными значениями (как и в EdgeDetailModal).
+  // концы спроецированными значениями.
   const [sourceId, setSourceId] = useState(edge.original_source_id);
   const [targetId, setTargetId] = useState(edge.original_target_id);
   const [srcLabel, setSrcLabel] = useState(edge.original_source_name);

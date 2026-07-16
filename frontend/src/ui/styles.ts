@@ -10,7 +10,7 @@ import type { CSSProperties } from "react";
  * стилями псевдоклассы недоступны) — он накрывает все инпуты/кнопки внутри .app-modal.
  */
 
-// Подпись поля формы (она же fieldLabel в EdgeDetailModal)
+// Подпись поля формы (EdgeQuickCreate, диалоги проектов)
 export const labelStyle: CSSProperties = {
   display: "block",
   fontSize: 13,
@@ -61,12 +61,4 @@ export const dangerBtn: CSSProperties = {
   ...btnBase,
   background: "#dc2626",
   color: "#fff",
-};
-
-// Мягкая красная кнопка удаления (EdgeDetailModal)
-export const dangerBtnSoft: CSSProperties = {
-  ...btnBase,
-  background: "#fee2e2",
-  color: "#dc2626",
-  border: "1px solid #fca5a5",
 };

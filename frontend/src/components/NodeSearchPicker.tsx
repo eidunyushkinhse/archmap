@@ -32,7 +32,7 @@ export default function NodeSearchPicker({
 
   // Дебаунс-поиск: при пустом query результаты НЕ трогаем (показ — производный
   // `shown` ниже), эффект только фетчит. Пустой query невозможен «извне»: компонент
-  // используется лишь в EdgeDetailModal с value-UUID существующей связи, а очистку
+  // используется лишь в EdgeInspector с value-UUID существующей связи, а очистку
   // (clear) сам же зануляет локально — поэтому зеркалящего value→selected эффекта нет.
   useEffect(() => {
     if (!query.trim()) return;
