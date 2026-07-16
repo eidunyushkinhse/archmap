@@ -66,6 +66,7 @@ export default function NodeContextModal({ node, onClose }: Props) {
         original_target_id: ge.original_target_id,
         original_source_name: ge.original_source_name,
         original_target_name: ge.original_target_name,
+        version: ge.version,
         created_at: "",
       })),
     [ctx],

@@ -259,6 +259,15 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   свежести для поллинга, доступен обеим ролям. Мёртвый вид не проверяет
   (версия 0): арбитр существования — рефетч графа (404).
   [тест: backend/tests/test_concurrency.py]
+- **V51.** Фронт: каждый батч commitLayout несёт base_version из живого снимка
+  viewMeta (TreePage наполняет его из GraphResponse при load(), LevelGraph
+  обновляет из ответов PUT — свои записи не выглядят чужими). Политика отказа —
+  planPersistFailure: 409 у user-интента (драг/клавиатура/undo перемещений/
+  expanded) → ресинк уровня → ОДНА переигровка исходного патча (канал
+  retryPatch: эффект коммитит от СВЕЖЕГО зеркала — merge и дедуп заново);
+  409 у derived-интента (сиды конвейера) → только ресинк; прочие ошибки —
+  прежний resync (V19/U20). Клиент различает статусы через ApiError.
+  [тест: persistGuard.test.ts]
 
 ## Известные ограничения (зафиксированы, не баги)
 

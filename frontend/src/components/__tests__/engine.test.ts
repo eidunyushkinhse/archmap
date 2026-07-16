@@ -9,6 +9,7 @@ import type { LayoutEdge } from "../../types";
 function edge(id: string, source_id: string, target_id: string): LayoutEdge {
   return {
     id, label: null, technology: null, source_id, target_id,
+    version: 1,
     created_at: "2026-06-08T00:00:00Z",
   };
 }

@@ -15,7 +15,7 @@ import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import NodeContextModal from "../components/NodeContextModal";
 import RelayoutConfirm from "../components/RelayoutConfirm";
-import LevelGraph, { type LocateRequest } from "../components/LevelGraph";
+import LevelGraph, { type LocateRequest, type ViewMetaState } from "../components/LevelGraph";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
@@ -200,10 +200,19 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     }
   };
 
+  // Живой снимок версий конкурентности (этап 0/1): version — fence вида (LevelGraph
+  // шлёт её с каждой записью и обновляет из ответов PUT), graphRev — курсор проекта
+  // для поллинга. Ref, не стейт: версии не влияют на рендер, а читаться должны
+  // синхронно в момент записи.
+  const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
+
   async function load(parentId: string | null) {
     setLoading(true);
     try {
       const graph = await nodesApi.getGraph(parentId);
+      // версии конкурентности (этап 0/1): fence вида + курсор проекта — живой
+      // снимок для LevelGraph (записи) и поллинга (echo-suppression)
+      viewMetaRef.current = { version: graph.version, graphRev: graph.graph_rev };
       setNodes(graph.nodes);
       setEndpoints(graph.endpoints);
       // раскладка вида как есть (R3): геометрию по ней раздаёт конвейер LevelGraph
@@ -225,6 +234,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           original_target_id: ge.target_id,
           original_source_name: nameById.get(ge.source_id) ?? "",
           original_target_name: nameById.get(ge.target_id) ?? "",
+          version: ge.version,
           created_at: "",
         }))
       );
@@ -239,12 +249,14 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // Компенсирующий/оптимистичный персист правки канваса упал — БД осталась в прежнем
   // состоянии, а зеркало уже показывает новое. Возвращаем зеркало к истине, перезагружая
   // уровень из БД. Дедуп: при пачке отказов (групповой драг — N узлов разом) хватает
-  // одной перезагрузки, иначе спиннер дёргался бы N раз.
-  const resyncingRef = useRef(false);
-  function resyncOnPersistError() {
-    if (resyncingRef.current) return;
-    resyncingRef.current = true;
-    void load(currentParentId).finally(() => { resyncingRef.current = false; });
+  // одной перезагрузки, иначе спиннер дёргался бы N раз — параллельные вызовы получают
+  // ОДИН общий промис ресинка (его ждёт политика 409 перед переигровкой user-патча).
+  const resyncingRef = useRef<Promise<void> | null>(null);
+  function resyncOnPersistError(): Promise<void> {
+    if (resyncingRef.current) return resyncingRef.current;
+    const p = load(currentParentId).finally(() => { resyncingRef.current = null; });
+    resyncingRef.current = p;
+    return p;
   }
 
   // Алерты считаются на бэке по всей схеме; viewer'у эндпоинт недоступен.
@@ -918,6 +930,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onUndo={dispatchUndo}
               onRedo={dispatchRedo}
               onPersistError={resyncOnPersistError}
+              viewMeta={viewMetaRef}
               schemaView={schemaView}
               locate={locate}
             />

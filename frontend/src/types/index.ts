@@ -59,6 +59,10 @@ export type EdgePoint = { x: number; y: number };
 // x/y — позиция (own-on-first-render), expanded — раскрытие контейнера. Ручной
 // слой стрелок (пучки "b:…" с хэндлами/изломами/label_t) удалён 2026-07-09.
 export type ViewLayoutPayload = Schemas["ViewLayoutPayload"];
+// Ответ записи раскладки: новая версия вида (fence) + курсор проекта (поллинг).
+export type ViewLayoutResult = Schemas["ViewLayoutResult"];
+// Лёгкий опрос свежести (поллинг этапа 1): версия вида + курсор проекта.
+export type ViewState = Schemas["ViewStateResponse"];
 // Раскладка вида целиком: item_id → payload (как отдаёт GraphResponse.layout).
 export type ViewLayout = Record<string, ViewLayoutPayload>;
 // Владеемая позиция сущности на виде (внутренний формат модулей раскладки:

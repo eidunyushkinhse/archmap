@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts, ViewLayoutPayload } from "../types";
+import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -54,11 +54,20 @@ export const viewsApi = {
   // payload; null — удалить строку (сброс объекта в авто-геометрию).
   // viewId=null — корневой вид. ВАЖНО: payload заменяет строку ЦЕЛИКОМ —
   // частичные правки мержит вызывающий (commitLayout в LevelGraph).
+  // baseVersion — fence конкурентных сессий (этап 0): устаревшая версия вида →
+  // 409, ничего не применяется; ответ несёт новую версию + graph_rev.
   saveLayout: (
     viewId: string | null,
     items: Record<string, ViewLayoutPayload | null>,
-  ): Promise<void> =>
-    api.put(`/views/${viewId ?? "root"}/layout`, { items }),
+    baseVersion?: number,
+  ): Promise<ViewLayoutResult> =>
+    api.put<ViewLayoutResult>(`/views/${viewId ?? "root"}/layout`, {
+      items,
+      ...(baseVersion !== undefined ? { base_version: baseVersion } : {}),
+    }),
+  // Лёгкий опрос свежести вида/проекта (поллинг этапа 1; доступен обеим ролям).
+  state: (viewId: string | null): Promise<ViewState> =>
+    api.get<ViewState>(`/views/${viewId ?? "root"}/state`),
 };
 
 export const exportApi = {

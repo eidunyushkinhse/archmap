@@ -88,6 +88,7 @@ def _build_graph(
                 technology=edge.technology,
                 source_id=edge.source_id,
                 target_id=edge.target_id,
+                version=edge.version,
             )
         )
         for nid in (edge.source_id, edge.target_id):
@@ -688,6 +689,7 @@ def get_node_context(
                 original_target_id=e.target_id,
                 original_source_name=all_nodes[e.source_id].name,
                 original_target_name=all_nodes[e.target_id].name,
+                version=e.version,
             )
         )
 

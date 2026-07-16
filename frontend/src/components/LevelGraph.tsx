@@ -54,7 +54,8 @@ import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
-import { guardPersist } from "./graph/interaction/persistGuard";
+import { planPersistFailure, type CommitOrigin } from "./graph/interaction/persistGuard";
+import { isConflict } from "../api/client";
 
 // --- Основной компонент ---
 
@@ -156,7 +157,15 @@ interface LevelGraphProps {
   // фоновый («оптимистичный»/компенсирующий) персист правки канваса упал — родитель
   // возвращает зеркало к истине, перезагружая уровень из БД. Без него зеркало и БД
   // молча расходятся при сетевой ошибке/409. В контекст-модалке не нужен (read-only).
-  onPersistError?: (e: unknown) => void;
+  // Возвращаемый промис (ресинк) нужен политике 409: переигровка user-патча ждёт
+  // завершения перезагрузки уровня.
+  onPersistError?: (e: unknown) => void | Promise<void>;
+  // Версия вида (fence записей раскладки) + курсор проекта (поллинг) — живой
+  // снимок, шарится с TreePage мутируемым ref'ом: TreePage наполняет его из
+  // GraphResponse при load(), LevelGraph читает версию при каждой записи и
+  // обновляет из ответов PUT. Не передан (контекст-модалка, read-only) — записи
+  // всё равно не идут (гейт isContext); на уровне ОБЯЗАТЕЛЕН для fence.
+  viewMeta?: { current: ViewMetaState };
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
@@ -171,6 +180,10 @@ interface LevelGraphProps {
   // поэтому фокус срабатывает отложенно — как только цель появится в rfNodes/rfEdges.
   locate?: LocateRequest | null;
 }
+
+// Живой снимок версий конкурентности (этап 0/1, docs/plan-concurrency.md):
+// version — fence вида, graphRev — курсор изменений проекта.
+export type ViewMetaState = { version: number; graphRev: number };
 
 // Запрос фокуса на объекте/связи/группе. ids: для node — [nodeId]; для edge — [edgeId];
 // для group — id всех узлов кластера. token — монотонный счётчик из TreePage.
@@ -214,6 +227,7 @@ function LevelGraphInner({
   onUndo,
   onRedo,
   onPersistError,
+  viewMeta,
   mode = "level",
   schemaView = "all",
   locate,
@@ -298,8 +312,57 @@ function LevelGraphInner({
   // Возвращает, была ли запись: false — весь батч погашен дедупом/гардами, смены
   // viewLayout (и пересчёта раскладки) НЕ будет — по этому сигналу dragStop
   // откатывает живое превью рёбер (liveDragHandles.restore).
+  //
+  // Канал переигровки политики 409: persistFenced после ресинка кладёт сюда
+  // исходный патч, а эффект ниже (объявлен ПОСЛЕ commitLayout — тот нужен ему в
+  // deps) коммитит его заново. Стейт, а не прямой вызов: ретрай обязан идти от
+  // СВЕЖЕГО зеркала viewLayout — setRetryPatch планируется тем же батчем React,
+  // что и setState'ы ресинка, поэтому эффект по построению видит commitLayout,
+  // замкнутый уже на перезагруженные данные. token — одноразовость (см. эффект).
+  const retrySeqRef = useRef(0);
+  const [retryPatch, setRetryPatch] = useState<{
+    patch: Record<string, Partial<ViewLayoutPayload> | null>;
+    token: number;
+  } | null>(null);
+  //
+  // Фенсированный персист (этап 0 конкурентности): запись несёт base_version
+  // вида; устаревшая (вид изменён другой сессией) → 409 → политика
+  // planPersistFailure: user-интент после ресинка переигрывается ОДИН раз
+  // исходным патчем (merge заново, уже от свежего зеркала), derived-интент
+  // выбрасывается — пересчёт конвейера от свежих данных сам родит актуальное.
+  const persistFenced = useCallback(
+    (
+      items: Record<string, ViewLayoutPayload | null>,
+      patch: Record<string, Partial<ViewLayoutPayload> | null>,
+      origin: CommitOrigin,
+      isRetry: boolean,
+    ): void => {
+      viewsApi
+        .saveLayout(containerId, items, viewMeta?.current.version)
+        .then((res) => {
+          if (viewMeta) viewMeta.current = { version: res.version, graphRev: res.graph_rev };
+        })
+        .catch((e: unknown) => {
+          console.error("Запись раскладки не прошла — ресинхронизирую уровень из БД", e);
+          if (planPersistFailure(isConflict(e), origin, isRetry) === "resync-only") {
+            void onPersistError?.(e);
+            return;
+          }
+          // Ресинк (вернёт зеркало и версию к истине) → одна переигровка
+          // исходного патча через канал retryPatch.
+          void Promise.resolve(onPersistError?.(e)).then(() => {
+            setRetryPatch({ patch, token: ++retrySeqRef.current });
+          });
+        });
+    },
+    [containerId, onPersistError, viewMeta],
+  );
   const commitLayout = useCallback(
-    (patch: Record<string, Partial<ViewLayoutPayload> | null>): boolean => {
+    (
+      patch: Record<string, Partial<ViewLayoutPayload> | null>,
+      origin: CommitOrigin = "user",
+      isRetry = false,
+    ): boolean => {
       if (!isArchitect || isContext) return false;
       // Нормализация payload для сравнения с зеркалом: null-поля эквивалентны
       // отсутствию (сервер выкидывает их exclude_none).
@@ -319,12 +382,21 @@ function LevelGraphInner({
         items[k] = merged;
       }
       if (Object.keys(items).length === 0) return false;
-      guardPersist(viewsApi.saveLayout(containerId, items), onPersistError);
+      persistFenced(items, patch, origin, isRetry);
       onLayoutChanged?.(items);
       return true;
     },
-    [isArchitect, isContext, containerId, viewLayout, onPersistError, onLayoutChanged],
+    [isArchitect, isContext, viewLayout, persistFenced, onLayoutChanged],
   );
+  // Исполнитель переигровки 409 (см. retryPatch выше): одноразово (token) коммитит
+  // исходный патч заново — commitLayout здесь из deps, т.е. замкнут на СВЕЖЕЕ
+  // зеркало после ресинка; isRetry=true — второй 409 уже не переигрывается.
+  const retryDoneRef = useRef(0);
+  useEffect(() => {
+    if (!retryPatch || retryPatch.token === retryDoneRef.current) return;
+    retryDoneRef.current = retryPatch.token;
+    commitLayout(retryPatch.patch, "user", true);
+  }, [retryPatch, commitLayout]);
   // СТАБИЛЬНАЯ обёртка коммита для долгоживущих замыканий (команды undo/redo в
   // истории живут произвольно долго): всегда зовёт СВЕЖИЙ commitLayout. Иначе
   // дедуп выше сравнивал бы патч со СНИМКОМ viewLayout из момента создания
@@ -898,8 +970,11 @@ function LevelGraphInner({
       // прогон видит сохранённое и интент не повторяет. cbRef — чтобы не тащить
       // commitLayout в deps.
       for (const intent of intents) {
+        // origin "derived": при 409 такой батч НЕ переигрывается — после ресинка
+        // конвейер пересчитает сиды от свежего мира (устаревший интент — мусор).
         cbRef.current.commitLayout(
           Object.fromEntries(intent.seeds.map((s) => [s.id, { x: s.x, y: s.y }])),
+          "derived",
         );
       }
       // Скип идентичных применений (Ф1): зеркальные прогоны (зеркало засева,

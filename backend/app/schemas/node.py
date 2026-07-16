@@ -156,6 +156,8 @@ class GraphEdgeResponse(BaseModel):
     technology: str | None
     source_id: uuid.UUID
     target_id: uuid.UUID
+    # Версия связи для optimistic CAS правок из инспектора (base_version в PATCH).
+    version: int = 1
 
 
 class ContextEdgeResponse(BaseModel):
@@ -173,6 +175,9 @@ class ContextEdgeResponse(BaseModel):
     original_target_id: uuid.UUID
     original_source_name: str
     original_target_name: str
+    # Версия связи (единообразно с GraphEdgeResponse; контекст read-only, но
+    # LevelEdge на фронте один для уровня и контекста).
+    version: int = 1
 
 
 class GraphResponse(BaseModel):

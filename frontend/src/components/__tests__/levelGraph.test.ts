@@ -37,6 +37,7 @@ function edge(id: string, source_id: string, target_id: string, over: Partial<La
     technology: null,
     source_id,
     target_id,
+    version: 1,
     created_at: "2026-06-08T00:00:00Z",
     ...over,
   };

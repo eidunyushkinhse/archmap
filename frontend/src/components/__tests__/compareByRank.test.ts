@@ -11,6 +11,7 @@ function n(name: string, opts: { external?: boolean; kids?: number } = {}): Node
     parent_id: null, flowchart: null, openapi_spec: null,
     is_external: opts.external ?? false, shape: "service", status: "existing",
     child_count: opts.kids ?? 0, has_children: (opts.kids ?? 0) > 0,
+    version: 1,
     created_at: "2026-07-13T00:00:00Z", updated_at: "2026-07-13T00:00:00Z",
   };
 }

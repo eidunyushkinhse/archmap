@@ -264,6 +264,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     return {
       id: g.id, source_id: g.source, target_id: g.target,
       label: longest.label, technology: longest.technology,
+      version: longest.version,
       created_at: "",
     };
   });

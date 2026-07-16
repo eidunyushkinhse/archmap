@@ -540,6 +540,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/views/{view_id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get View State
+         * @description Лёгкий опрос свежести (поллинг этапа 1): версия вида + курсор проекта.
+         *
+         *     Доступен обеим ролям — наблюдатель поллит наравне с архитектором. Удалённый
+         *     вид здесь не проверяется (версия просто 0): арбитр существования — рефетч
+         *     графа, который на мёртвом виде отдаст 404.
+         */
+        get: operations["get_view_state_api_v1_views__view_id__state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/views/{view_id}/layout": {
         parameters: {
             query?: never;
@@ -911,6 +935,11 @@ export interface components {
             original_source_name: string;
             /** Original Target Name */
             original_target_name: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
         };
         /**
          * DeletionSnapshot
@@ -984,6 +1013,11 @@ export interface components {
             /** Is Synchronous */
             is_synchronous?: boolean | null;
             /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1025,6 +1059,8 @@ export interface components {
             target_id?: string | null;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
+            /** Base Version */
+            base_version?: number | null;
         };
         /**
          * ExportResponse
@@ -1178,6 +1214,11 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
         };
         /** GraphResponse */
         GraphResponse: {
@@ -1194,6 +1235,16 @@ export interface components {
             layout: {
                 [key: string]: components["schemas"]["ViewLayoutPayload"];
             };
+            /**
+             * Version
+             * @default 0
+             */
+            version: number;
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1497,6 +1548,11 @@ export interface components {
              */
             has_children: boolean;
             /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1568,6 +1624,8 @@ export interface components {
             shape?: ("service" | "database" | "broker" | "person") | null;
             /** Status */
             status?: ("existing" | "planned" | "deprecated") | null;
+            /** Base Version */
+            base_version?: number | null;
         };
         /** ParticipantCreate */
         ParticipantCreate: {
@@ -1877,6 +1935,8 @@ export interface components {
             items: {
                 [key: string]: components["schemas"]["ViewLayoutPayload"] | null;
             };
+            /** Base Version */
+            base_version?: number | null;
         };
         /**
          * ViewLayoutItemSnapshot
@@ -1912,6 +1972,28 @@ export interface components {
             y?: number | null;
             /** Expanded */
             expanded?: boolean | null;
+        };
+        /**
+         * ViewLayoutResult
+         * @description Ответ записи раскладки: новая версия вида (fence) и курсор изменений
+         *     проекта (поллинг этапа 1) — клиент отслеживает их без рефетча
+         *     (echo-suppression: свои записи не выглядят чужими).
+         */
+        ViewLayoutResult: {
+            /** Version */
+            version: number;
+            /** Graph Rev */
+            graph_rev: number;
+        };
+        /**
+         * ViewStateResponse
+         * @description Лёгкий опрос свежести (этап 1): версия вида + курсор проекта.
+         */
+        ViewStateResponse: {
+            /** Version */
+            version: number;
+            /** Graph Rev */
+            graph_rev: number;
         };
     };
     responses: never;
@@ -3050,6 +3132,39 @@ export interface operations {
             };
         };
     };
+    get_view_state_api_v1_views__view_id__state_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                view_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewStateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     save_view_layout_api_v1_views__view_id__layout_put: {
         parameters: {
             query?: never;
@@ -3068,11 +3183,13 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ViewLayoutResult"];
+                };
             };
             /** @description Validation Error */
             422: {
