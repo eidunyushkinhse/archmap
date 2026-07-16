@@ -92,6 +92,18 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
             )}
           </span>
         ))}
+        {/* «+» — пустой документ под вставку текста (второй YAML не обязан быть файлом) */}
+        {docs.length < MAX_IMPORT_FILES && docs[docs.length - 1].trim() !== "" && (
+          <button
+            type="button"
+            className="cp-chip"
+            style={{ ...chipBtn, padding: "3px 10px" }}
+            title="Добавить ещё один YAML вставкой"
+            onClick={() => { onDocs([...docs, ""]); setActiveRaw(docs.length); }}
+          >
+            +
+          </button>
+        )}
         <input
           ref={fileRef}
           type="file"

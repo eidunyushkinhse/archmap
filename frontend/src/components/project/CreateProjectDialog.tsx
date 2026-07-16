@@ -191,7 +191,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                 onClick={() => projects.length && setMode("copy")}
               />
               <SegBtn label="Импорт" on={mode === "import"} onClick={() => setMode("import")} />
-              <SegBtn label="Репозиторий" on={mode === "repo"} onClick={() => setMode("repo")} />
+              <SegBtn label="ИИ-агент" on={mode === "repo"} onClick={() => setMode("repo")} />
             </div>
 
             <div style={listArea}>
