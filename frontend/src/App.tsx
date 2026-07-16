@@ -14,20 +14,27 @@ function parseHash(): Route {
   return m ? { name: "tree", projectId: m[1] } : { name: "projects" };
 }
 
+// Скоуп проекта (X-Project-Id) обязан быть выставлен ДО маунта TreePage: его
+// mount-эффект грузит уровень РАНЬШЕ эффектов App (эффекты родителя исполняются
+// после эффектов ребёнка), и установка скоупа эффектом опаздывала — первые
+// запросы уровня уходили со старым/пустым заголовком (гонка X-Project-Id,
+// баг prod-сборки 2026-07-14, починен 2026-07-16). Поэтому скоуп ставится
+// СИНХРОННО при каждом разборе маршрута; setCurrentProjectId идемпотентен.
+function routeFromHash(): Route {
+  const route = parseHash();
+  setCurrentProjectId(route.name === "tree" ? route.projectId : null);
+  return route;
+}
+
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());
-  const [route, setRoute] = useState<Route>(parseHash);
+  const [route, setRoute] = useState<Route>(routeFromHash);
 
   useEffect(() => {
-    const onHash = () => setRoute(parseHash());
+    const onHash = () => setRoute(routeFromHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-
-  // Текущий проект (заголовок X-Project-Id) держим синхронным с маршрутом.
-  useEffect(() => {
-    setCurrentProjectId(route.name === "tree" ? route.projectId : null);
-  }, [route]);
 
   function navigate(hash: string) {
     window.location.hash = hash;
