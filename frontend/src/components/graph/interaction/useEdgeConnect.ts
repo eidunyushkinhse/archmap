@@ -173,8 +173,8 @@ export function useEdgeConnect({
     [enabled, onCreate],
   );
 
-  // Разрешённость НОВОЙ связи (вызывающий разводит её с реконнектом по isReconnecting):
-  // нужна, чтобы onConnect защёлкивался на хэндл и подсвечивал валидную цель.
+  // Разрешённость НОВОЙ связи: нужна, чтобы onConnect защёлкивался на хэндл и
+  // подсвечивал валидную цель.
   const isValidNewConnection = useCallback(
     (conn: Connection | RFEdge) =>
       enabled && conn.source != null && conn.target != null && conn.source !== conn.target,

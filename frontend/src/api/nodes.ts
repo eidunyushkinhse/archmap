@@ -42,8 +42,8 @@ export const nodesApi = {
   // Восстановить удалённое поддерево из снимка (Undo удаления) — с исходными id.
   restore: (snapshot: DeletionSnapshot): Promise<void> =>
     api.post<void>(`/nodes/restore`, snapshot),
-  // «Переразложить уровень»: стирает весь ручной layout уровня (позиции локалов и
-  // гостей, хэндлы гостевых концов, изломы стрелок) → возврат к авто-раскладке.
+  // «Переразложить уровень»: стирает ВСЕ строки view_layout уровня (позиции
+  // локалов и гостей, раскрытия expanded, легаси) → возврат к авто-виду.
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.
   relayoutLevel: (containerId: string | null): Promise<void> =>
     api.post(containerId ? `/nodes/${containerId}/relayout` : `/nodes/relayout`, {}),
@@ -53,7 +53,7 @@ export const viewsApi = {
   // Батч-запись раскладки вида (R3, единое хранилище view_layout): item_id →
   // payload; null — удалить строку (сброс объекта в авто-геометрию).
   // viewId=null — корневой вид. ВАЖНО: payload заменяет строку ЦЕЛИКОМ —
-  // частичные правки пучка мержит вызывающий (commitLayout в LevelGraph).
+  // частичные правки мержит вызывающий (commitLayout в LevelGraph).
   saveLayout: (
     viewId: string | null,
     items: Record<string, ViewLayoutPayload | null>,
