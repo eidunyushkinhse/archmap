@@ -23,6 +23,7 @@ import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 import { railAssignments } from "./railPairs";
+import { weldTrunks } from "./weldTrunks";
 
 // Порт стыковки ребра на узле: сторона, слот хэндла (idx 1 — центр; рельсы встречной
 // пары — крайние idx 0/2) и готовая точка.
@@ -131,8 +132,11 @@ export function buildAutoRoutes(params: {
   // каждый переход границы ЧУЖОЙ плашки (своя не отталкивает — online-плашка лежит на
   // собственной линии по построению).
   labelObstacles?: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>;
+  // СВАРКА СТВОЛОВ (Ф2, E78): по умолчанию включена; живой драг передаёт false —
+  // сварка не гоняется живьём (E62), доворот на отпускании прячет drawIn (E64).
+  weld?: boolean;
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, prev, labelObstacles } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, prev, labelObstacles, weld } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -150,6 +154,10 @@ export function buildAutoRoutes(params: {
   // Порты-кандидаты по каждому ребру (для обратного сопоставления концов маршрута со
   // стороной/слотом → хэндлом).
   const portsById = new Map<string, { s: PortSpec[]; t: PortSpec[] }>();
+  // тела узлов + плашки раскрытых рамок — общий набор препятствий терминалов и сварки
+  const obstacleBodies = [...rects.values(), ...(frames ?? []).map((f) => f.plaque)];
+  // пер-рёберный штраф среды — сварка оценивает кандидатов той же средой, что роутер
+  const extraById = new Map<string, (x1: number, y1: number, x2: number, y2: number) => number>();
   // валидированные прежние маршруты (гистерезис) + их распарсенные хэндлы
   const prevValid = new Map<string, {
     route: EdgePoint[];
@@ -222,6 +230,16 @@ export function buildAutoRoutes(params: {
         if (gid !== g.id) foreignLabels.push(r);
       }
     }
+    const extraMoveCost =
+      foreignRects.length > 0 || foreignLabels.length > 0
+        ? (x1: number, y1: number, x2: number, y2: number): number => {
+            let n = 0;
+            for (const r of foreignRects) n += borderCrossings(x1, y1, x2, y2, r) * FRAME_CROSS_COST;
+            for (const r of foreignLabels) n += borderCrossings(x1, y1, x2, y2, r) * LABEL_CROSS_COST;
+            return n;
+          }
+        : undefined;
+    if (extraMoveCost) extraById.set(g.id, extraMoveCost);
     terminals.push({
       id: g.id,
       // основные концы — для детерминированного порядка прокладки и fallback
@@ -229,16 +247,8 @@ export function buildAutoRoutes(params: {
       startPorts: sPorts.map((p) => ({ point: p.point, side: p.side })),
       endPorts: tPorts.map((p) => ({ point: p.point, side: p.side })),
       // тела узлов + плашки подписей раскрытых рамок — жёсткие препятствия
-      obstacles: [...rects.values(), ...(frames ?? []).map((f) => f.plaque)],
-      extraMoveCost:
-        foreignRects.length > 0 || foreignLabels.length > 0
-          ? (x1, y1, x2, y2): number => {
-              let n = 0;
-              for (const r of foreignRects) n += borderCrossings(x1, y1, x2, y2, r) * FRAME_CROSS_COST;
-              for (const r of foreignLabels) n += borderCrossings(x1, y1, x2, y2, r) * LABEL_CROSS_COST;
-              return n;
-            }
-          : undefined,
+      obstacles: obstacleBodies,
+      extraMoveCost,
       prev: prevValid.get(g.id)?.route,
     });
   }
@@ -298,6 +308,20 @@ export function buildAutoRoutes(params: {
     handles.set(g.id, {
       sourceHandle: hid(g.source, rec.s.side, rec.s.idx),
       targetHandle: hid(g.target, rec.t.side, rec.t.idx),
+    });
+  }
+
+  // СВАРКА СТВОЛОВ (Ф2, E78): followers вееров перенимают префиксы собратьев через
+  // изломы, где это строго выигрывает по «чернилам с бонусом слияния» без новой грязи.
+  // После раздачи слотов: доки финальны, стороны доков — направленный финиш хвостов.
+  if (weld !== false) {
+    weldTrunks({
+      routes,
+      routableIds,
+      preplaced,
+      obstacles: obstacleBodies,
+      extraOf: (id) => extraById.get(id),
+      endSideOf: (id) => dockOf.get(id)?.t?.side,
     });
   }
   return { routes, handles };

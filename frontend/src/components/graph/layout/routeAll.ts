@@ -219,6 +219,8 @@ function movePenalty(
   x1: number, y1: number, x2: number, y2: number,
   placed: PlacedIndex, crossCost: number, own?: OwnPorts,
   trunk?: TrunkEvalCtx, moveArc0?: number,
+  // аккумулятор компонент (сварка стволов, Ф2): кресты и нелегальная езда раздельно
+  outParts?: { crosses: number; overlap: number },
 ): number {
   const moveHoriz = Math.abs(y1 - y2) <= EPS;
   const mConst = moveHoriz ? y1 : x1;             // постоянная координата хода
@@ -288,7 +290,69 @@ function movePenalty(
     lastKey = key;
     crosses++;
   }
+  if (outParts) {
+    outParts.crosses += crosses;
+    outParts.overlap += overlap;
+  }
   return crossCost * crosses + OVERLAP_COST * overlap;
+}
+
+// ── Покомпонентная оценка для внешних пассов (сварка стволов, Ф2) ────────────
+// Та же математика, что routeCost/movePenalty, но компоненты раздельно: сварке
+// нужна ступень «грязь не хуже покомпонентно» (кресты / нелегальная езда / среда)
+// отдельно от «чернил» (длина+изломы). own — фактические концы ломаной (кандидатное
+// правило крайнего сегмента), легальные стволы кредитуются против fellowRoutes.
+export interface RouteParts {
+  len: number;     // манхэттенова длина
+  bends: number;   // число изломов
+  crosses: number; // пересечения-«крестики» (дедуп по точке)
+  overlap: number; // НЕлегальная коллинеарная езда, px (кредит стволов вычтен)
+  extra: number;   // штрафы среды (границы рамок, чужие плашки)
+}
+
+export function evalRouteParts(
+  pts: EdgePoint[],
+  others: PlacedSeg[],
+  opts?: {
+    extra?: (x1: number, y1: number, x2: number, y2: number) => number;
+    fellowRoutes?: EdgePoint[][];
+  },
+): RouteParts {
+  const parts: RouteParts = { len: 0, bends: 0, crosses: 0, overlap: 0, extra: 0 };
+  if (pts.length < 2) return parts;
+  const idx = buildPlacedIndex(others);
+  const own: OwnPorts = { starts: [pts[0]], ends: [pts[pts.length - 1]] };
+  const trunk = buildTrunkCtx(pts, opts?.fellowRoutes ?? []);
+  const acc = { crosses: 0, overlap: 0 };
+  let arc = 0;
+  let prevHoriz: boolean | null = null;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const len = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+    if (len > EPS) {
+      const horiz = Math.abs(b.y - a.y) <= Math.abs(b.x - a.x);
+      if (prevHoriz !== null && horiz !== prevHoriz) parts.bends++;
+      prevHoriz = horiz;
+      parts.len += len;
+      if (idx.count > 0) movePenalty(a.x, a.y, b.x, b.y, idx, 0, own, trunk, arc, acc);
+      if (opts?.extra) parts.extra += opts.extra(a.x, a.y, b.x, b.y);
+    }
+    arc += len;
+  }
+  parts.crosses = acc.crosses;
+  parts.overlap = acc.overlap;
+  return parts;
+}
+
+// Штраф хода против фиксированного набора чужих сегментов — для A*-хвостов внешних
+// пассов (сварка): те же кресты/езда, что видит основной роутер. own — как в A*.
+export function makeMoveCost(
+  others: PlacedSeg[],
+  crossCost: number,
+  own?: { starts: EdgePoint[]; ends: EdgePoint[] },
+): (x1: number, y1: number, x2: number, y2: number) => number {
+  const idx = buildPlacedIndex(others);
+  return (x1, y1, x2, y2) => movePenalty(x1, y1, x2, y2, idx, crossCost, own);
 }
 
 // Чистый штраф ГОТОВОЙ ломаной (пересечения+наложения с чужими сегментами), без длины и
@@ -350,6 +414,35 @@ export function straightenJogs(
   const inflated = obstacles.map((r) => ({
     x: r.x - JOG_CLEAR, y: r.y - JOG_CLEAR, w: r.w + 2 * JOG_CLEAR, h: r.h + 2 * JOG_CLEAR,
   }));
+  // ПРИЖАТОСТЬ К ЧУЖИМ ЛИНИЯМ (E34, фикс 2026-07-17 — найден гейтом Ф2): кандидат не
+  // ложится ближе минимального канала (LINE_CLEAR = 8, E29) к чужому ПАРАЛЛЕЛЬНОМУ
+  // сегменту с совместным пробегом, к которому текущий маршрут не прижат. Оценщик езды
+  // видит наложение только при |Δ| ≤ EPS — схлоп джога в 1px-щель от чужой линии был
+  // «бесплатен» (−2 излома → принят), а нуджинг после полировки уже не бежит: линии
+  // визуально сливались (спор полировки с канальной разводкой). Точное слияние
+  // (|Δ| ≤ EPS) — не сюда: его судит езда/легальность ствола.
+  const LINE_CLEAR = 8;
+  const lineProximity = (p: EdgePoint[]): Set<IndexedSeg> => {
+    const out = new Set<IndexedSeg>();
+    for (let k = 1; k < p.length; k++) {
+      const a = p[k - 1], b = p[k];
+      const len = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+      if (len <= EPS) continue;
+      const horiz = Math.abs(b.y - a.y) <= Math.abs(b.x - a.x);
+      const c = horiz ? a.y : a.x;
+      const lo = horiz ? Math.min(a.x, b.x) : Math.min(a.y, b.y);
+      const hi = horiz ? Math.max(a.x, b.x) : Math.max(a.y, b.y);
+      const par = horiz ? othersIdx.h : othersIdx.v;
+      for (let m = lowerBound(par, c - LINE_CLEAR); m < par.length && par[m].c <= c + LINE_CLEAR; m++) {
+        const e = par[m];
+        const d = Math.abs(e.c - c);
+        if (d <= EPS || d >= LINE_CLEAR) continue;
+        if (Math.min(hi, e.hi) - Math.max(lo, e.lo) <= 3) continue; // касание — не пробег
+        out.add(e);
+      }
+    }
+    return out;
+  };
   let guard = 8; // страховка от зацикливания (каждый прогон убирает ≥1 джог)
   while (guard-- > 0) {
     let applied = false;
@@ -357,6 +450,7 @@ export function straightenJogs(
     // прижатости и стоимость ТЕКУЩЕГО маршрута фиксированы, пока он не заменён, —
     // считаем на итерацию while один раз (лениво: только если нашёлся джог-кандидат)
     let curHugs: boolean[] | null = null;
+    let curProx: Set<IndexedSeg> | null = null;
     let curCost = NaN;
     for (let i = 0; i + 3 < n && !applied; i++) {
       const A = cur[i], B = cur[i + 1], C = cur[i + 2], D = cur[i + 3];
@@ -390,6 +484,14 @@ export function straightenJogs(
           if (!curHugs[r] && pathCrossesRects(cand, [inflated[r]])) hugs = true;
         }
         if (hugs) continue;
+        // не прижиматься к чужой линии (щель уже минимального канала), к которой
+        // текущий маршрут не прижат
+        if (!curProx) curProx = lineProximity(cur);
+        let sticks = false;
+        for (const e of lineProximity(cand)) {
+          if (!curProx.has(e)) { sticks = true; break; }
+        }
+        if (sticks) continue;
         const c = evalCost(cand);
         if (c < bestCost) { bestCost = c; best = cand; }
       }

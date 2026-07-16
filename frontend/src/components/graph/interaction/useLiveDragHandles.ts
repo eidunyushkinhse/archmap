@@ -260,6 +260,7 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
           groups: r.groups, routableIds: affected, positions,
           displayIds: r.displayIds, sizes: sizeMap, frames: r.frames,
           prev: { routes: r.routes, handles: r.handles }, // прочие маршруты — фиксированный контекст
+          weld: false, // сварка стволов живьём не гоняется (E62) — доворот прячет drawIn
         });
         liveRoutes = ar.routes;
         liveHandles = ar.handles;
