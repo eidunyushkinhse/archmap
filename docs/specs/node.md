@@ -1,13 +1,13 @@
 # Атомарный узел — спецификация поведения
 
-Нормативный реестр инвариантов узла на холсте (атомарный локальный узел и
-узел-гость; контейнер и его рамка — [container.md](container.md), стыковка
-связей — [edge.md](edge.md) §2, §13). Формат — [README.md](README.md).
+Нормативный реестр инвариантов узла на холсте (атомарный локальный узел;
+гость — [guest.md](guest.md), контейнер и его рамка —
+[container.md](container.md), стыковка связей — [edge.md](edge.md) §2, §13).
+Формат — [README.md](README.md).
 
 Данные (БД): `Node {id, name, description?, role?, technology?, parent_id?,
 shape, status, is_external, flowchart?, openapi_spec?}`. Гость (GhostNode) —
-запись реестра не-локальных концов рёбер: id, name, role, technology,
-is_external, shape, status, node_depth, has_children, child_count, ancestors.
+запись реестра endpoints, состав — guest.md §1.
 Код: `graph/{nodes,shapes,boundaries}.tsx`, `graph/colors.ts`,
 `graph/layout/{separateNodes,separateRects,overlapConstraints,level,engine}.ts`,
 `graph/interaction/{snap,useSnapAlignment,distribute}.ts`, `graph/absPos.ts`,
@@ -63,19 +63,14 @@ is_external, shape, status, node_depth, has_children, child_count, ancestors.
   глобальная панель SchemaAlerts. На узле бейджи только статуса и child_count.
   [код]
 
-## 4. Гость (узел-проекция чужой ветки)
+## 4. Гость (перенесено в guest.md)
 
-- **N13.** Гость рисуется той же формой с ПУНКТИРНЫМ контуром "5 3"; несёт
-  только имя/роль/технологию/статус/глубину/путь предков — без description,
-  доков и правок (read-only инспектор по двойному клику; «Перейти к источнику»
-  уводит на уровень-родитель). [код]
-- **N14.** Кнопка гостя «Войти к компонентам» — только при `has_children` (у
-  атомарного листа-гостя кнопки нет); бейдж child_count — при has_children.
-  Путь при входе строится заново (предки + узел), не аппендом к breadcrumb.
-  [код]
-- **N15.** Гость никогда не лежит внутри чужой родной рамки и выталкивается на
-  её кольцо — инварианты размещения гостей: container.md §5. [тест:
-  keepGhostsOut.test.ts]
+- **N13.** ПЕРЕНЕСЁН (2026-07-16) в [guest.md](guest.md) G8 — визуал и
+  read-only природа гостя.
+- **N14.** ПЕРЕНЕСЁН (2026-07-16) в guest.md G9 — «Войти к компонентам»,
+  бейдж child_count, путь входа.
+- **N15.** ПЕРЕНЕСЁН (2026-07-16) в guest.md G14 — keep-out гостей из чужих
+  рамок.
 
 ## 5. Кнопки, зоны, хэндлы
 

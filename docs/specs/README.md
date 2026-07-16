@@ -19,13 +19,19 @@ spec.md ↔ specs/* нормативен specs/*, spec.md подтягивает
 ## Формат инварианта
 Каждый пункт: `<ПРЕФИКС><номер>` + формулировка + константы (ИМЯ = значение) +
 маркер закрепления:
-- `[тест: <файл>]` — закреплено юнит-тестом (vitest, frontend/src/components/__tests__/);
+- `[тест: <файл>]` — закреплено юнит-тестом: vitest
+  (frontend/src/components/__tests__/) или pytest (пишется с префиксом
+  backend/tests/);
 - `[код]` — гарантировано конструкцией (по построению), отдельного теста нет;
-- `[глаза]` — проверяется только визуально (браузер-репро/скриншот).
+- `[глаза]` — проверяется только визуально (браузер-репро/скриншот);
+- `[полигон]` — закреплено headless-полигоном scripts/dump-levels.mjs
+  («финал == перезагрузка»), запускается вручную на живом dev-стеке.
 
 Правила ведения:
 - ID стабильны и НЕ переиспользуются. Снятый инвариант не удаляется молча:
   помечается `СНЯТ (дата, причина)` и остаётся до следующей чистки файла.
+- Инвариант, переехавший в другую спеку, оставляет на старом месте указатель
+  `ПЕРЕНЕСЁН (дата) в <спека> <ID>` — старый ID навсегда остаётся ссылкой.
 - Новые инварианты дописываются в конец своей секции со следующим свободным
   номером файла (номера сквозные по файлу, поэтому внутри секции могут быть
   непоследовательными — это нормально).
@@ -34,7 +40,8 @@ spec.md ↔ specs/* нормативен specs/*, spec.md подтягивает
 - Изменил ПОВЕДЕНИЕ движка → правка спеки идёт В ТОМ ЖЕ коммите, что и код.
 
 ## Процедура регрессионного прохода (для Claude)
-При любой правке в `frontend/src/components/graph/**`:
+При любой правке модулей из карты ниже (движок `frontend/src/components/graph/**`,
+LevelGraph/TreePage-машинерия, бэк-эндпоинты графа/вида/алертов/контекста):
 1. По карте ниже определи затронутые спеки (модуль → спека).
 2. Пройди инварианты затронутых секций: каждый пункт — вопрос «моя правка могла
    это сломать?». Сомневаешься — проверь.
@@ -46,13 +53,26 @@ spec.md ↔ specs/* нормативен specs/*, spec.md подтягивает
    это регрессия (чини код), либо осознанная смена (правь спеку тем же коммитом).
 
 ## Спеки и карта «модуль → спека»
-| Спека | Сущность | Модули (frontend/src/components/graph/) |
+
+Пути в карте: без префикса — `frontend/src/components/` (модули движка — в
+`graph/`); `бэк:` — `backend/app/`.
+
+| Спека | Сущность | Модули |
 |---|---|---|
-| [edge.md](edge.md) | Связь (ребро) | layout/{orthoRoute,routeAll,autoRoutes,channelNudge,coincidentLegs,railPairs,labelBox,labelIntervals,labelLayout,placeLabels,widenForLabels,separateForLabels,context}.ts, edgePath.ts, edgeJumps.ts, EdgeJumpContext.tsx, edges.tsx, ConnectionLine.tsx, interaction/{useEdgeConnect,quickConnect,useLiveDragHandles}.ts, QuickConnectPreview.tsx |
-| [node.md](node.md) | Атомарный узел | nodes.tsx, shapes.tsx, colors.ts, layout/{separateNodes,separateRects,overlapConstraints,level}.ts, interaction/{snap,useSnapAlignment,distribute}.ts, absPos.ts, assembleRf.ts, reconcileRf.ts |
-| [container.md](container.md) | Контейнер и рамка | layout/{pipeline,projectGhosts,frames,ringPlacement,keepGhostsOut,separateGuests,separateContainment}.ts, projection.ts, frameChains.ts, boundaries.tsx, interaction/{layoutAnimation,useLayoutAnimation}.ts, useFrameFollowOverlay.tsx |
+| [edge.md](edge.md) | Связь (ребро) | graph/layout/{orthoRoute,routeAll,autoRoutes,channelNudge,coincidentLegs,railPairs,labelBox,labelIntervals,labelLayout,placeLabels,widenForLabels,separateForLabels,context}.ts, graph/{edgePath,edgeJumps}.ts, graph/{EdgeJumpContext,edges,ConnectionLine,QuickConnectPreview}.tsx, graph/interaction/{useEdgeConnect,quickConnect,useLiveDragHandles}.ts |
+| [node.md](node.md) | Атомарный узел | graph/{nodes,shapes}.tsx, graph/colors.ts, graph/layout/{separateNodes,separateRects,overlapConstraints,level}.ts, graph/interaction/{snap,useSnapAlignment,distribute}.ts, graph/{absPos,assembleRf,reconcileRf}.ts |
+| [container.md](container.md) | Контейнер и рамка | graph/layout/{pipeline,projectGhosts,frames,ringPlacement,keepGhostsOut,separateGuests,separateContainment}.ts, graph/{projection,frameChains}.ts, graph/boundaries.tsx, graph/nodes.tsx (Container/Frame), graph/interaction/{layoutAnimation,useLayoutAnimation}.ts, graph/interaction/useFrameFollowOverlay.tsx |
+| [guest.md](guest.md) | Гость | graph/layout/{projectGhosts,ringPlacement,keepGhostsOut,separateGuests}.ts, graph/projection.ts, graph/nodes.tsx (Ghost/Container), graph/assembleRf.ts, inspector/GhostInspector.tsx; бэк: routers/nodes.py (_build_graph), tree.py |
+| [canvas.md](canvas.md) | Холст и выделение | LevelGraph.tsx + LevelGraph.css, ../pages/TreePage.tsx (рейл тостов, панель-выделение), graph/{assembleRf.ts,shapes.tsx,boundaries.tsx}, graph/interaction/{useAlignmentGuides,useSnapAlignment,useCanvasDelete,useEdgeConnect,useTemplateDrop}.ts, EmptyLevelHint.tsx |
+| [history.md](history.md) | История Undo/Redo | graph/interaction/{useHistory,persistGuard}.ts, graph/interaction/useSnapAlignment.ts (persistGroup), LevelGraph.tsx (клавиши/кнопки/адаптер), ../pages/TreePage.tsx (структурные команды, диспетчеры) |
+| [view.md](view.md) | Уровень и вид | ../pages/TreePage.tsx, LevelGraph.tsx (commitLayout/expanded), graph/layout/{pipeline,engine}.ts, ../api/{client,projectScope,nodes}.ts; бэк: models/view_layout.py, routers/{views,nodes}.py, projects.py, restore.py, tree.py |
+| [alerts.md](alerts.md) | Алерты схемы | SchemaAlerts.tsx + schemaAlerts.css, ../pages/TreePage.tsx (loadAlerts/handleLocate), LevelGraph.tsx (locate); бэк: routers/nodes.py (get_alerts) |
+| [context.md](context.md) | Контекст-схема | NodeContextModal.tsx, LevelGraph.tsx (ветки isContext), graph/layout/{context,pipeline}.ts, NodeTreePanel.tsx (точка входа); бэк: routers/nodes.py (get_node_context) |
+| [transitions.md](transitions.md) | Анимации переходов | graph/interaction/{layoutAnimation,useLayoutAnimation}.ts, graph/layout/{pipeline.worker,pipelineClient,layoutSig}.ts, graph/EdgeJumpContext.tsx, graph/edges.tsx (drawIn), LevelGraph.tsx (gate/тихое окно), graph/reconcileRf.ts, scripts/dump-levels.mjs |
 
 Модули, живущие сразу в нескольких спеках (pipeline.ts, assembleRf.ts,
-constants.ts, interaction/layoutAnimation.ts), при правке требуют прохода по
-всем задетым спекам. Реестр пополняется: список кандидатов на новые спеки — в
-tasks.md (валидируется пользователем).
+LevelGraph.tsx, TreePage.tsx, constants.ts, interaction/layoutAnimation.ts,
+бэк routers/nodes.py), при правке требуют прохода по всем задетым спекам.
+Продуктовые сущности (дерево узлов, инспекторы/детализация, оверлей доков,
+бизнес-процессы, экспорт/импорт, проекты, роли/аутентификация) реестром
+осознанно НЕ покрыты — отложены решением 2026-07-16, кандидаты в tasks.md.
