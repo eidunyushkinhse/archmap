@@ -16,6 +16,7 @@ import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import NodeContextModal from "../components/NodeContextModal";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph, { type LocateRequest, type ViewMetaState } from "../components/LevelGraph";
+import { useRemoteSync } from "./useRemoteSync";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
@@ -205,6 +206,28 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // для поллинга. Ref, не стейт: версии не влияют на рендер, а читаться должны
   // синхронно в момент записи.
   const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
+  // Флаг «идёт жест драга» (пишет LevelGraph): поллинг не врывается в жест.
+  const gestureActiveRef = useRef(false);
+
+  // Поллинг курсора изменений (этап 1): кто-то изменил проект в другой сессии →
+  // перечитать уровень + короткий тост. Свои записи чужими не считаются
+  // (echo-suppression через viewMetaRef). Поллят обе роли.
+  const [remoteToast, setRemoteToast] = useState(false);
+  const remoteToastTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
+  }, []);
+  useRemoteSync({
+    currentParentId,
+    viewMeta: viewMetaRef,
+    gestureActiveRef,
+    onRemoteChange: () => {
+      void load(currentParentId);
+      setRemoteToast(true);
+      if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
+      remoteToastTimer.current = window.setTimeout(() => setRemoteToast(false), 4000);
+    },
+  });
 
   async function load(parentId: string | null) {
     setLoading(true);
@@ -269,7 +292,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
     }
   }
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- первичная загрузка при маунте; load() синхронно зовётся и из навигации, в deps зациклил бы эффект
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- первичная загрузка при маунте; load() синхронно зовётся и из навигации, в deps зациклил бы эффект
   useEffect(() => { load(null); }, []);
 
   // История теперь СКВОЗНАЯ (не чистится при навигации): кросс-уровневый Undo сам
@@ -881,6 +904,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           <div style={toastRail}>
             {/* Индикатор незавершённости схемы (только архитектор) */}
             {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleLocate} />}
+            {/* Схему изменила другая сессия — уровень перечитан поллингом (этап 1) */}
+            {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
             {/* Подсказка про пустой уровень. Холст (даже пустой) рендерим всегда,
                 чтобы сразу была видна канва и в неё можно было дропнуть первый узел.
                 Тост уезжает уже при открытии окна создания узла: пользователь до него
@@ -931,6 +956,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               onRedo={dispatchRedo}
               onPersistError={resyncOnPersistError}
               viewMeta={viewMetaRef}
+              gestureActiveRef={gestureActiveRef}
               schemaView={schemaView}
               locate={locate}
             />
@@ -1226,6 +1252,16 @@ const toastRail: CSSProperties = {
   alignItems: "flex-end",
   gap: 8,
   pointerEvents: "none",
+};
+// Тост «схема обновлена в другой сессии» (поллинг этапа 1) — живёт в общем рейле.
+const remoteToastStyle: CSSProperties = {
+  background: "#eef2ff",
+  border: "1px solid #c7d2fe",
+  color: "#3730a3",
+  borderRadius: 10,
+  padding: "7px 12px",
+  fontSize: 13,
+  boxShadow: "0 4px 12px rgba(30, 41, 59, .10)",
 };
 // Правая панель схемы (вид схемы; позже — мета узлов/связей) — зеркало левого дерева:
 // сворачивается в узкий рейл, футер-кнопка снизу. Стили .nt-collapse/.nt-railbtn

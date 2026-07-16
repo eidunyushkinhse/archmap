@@ -166,6 +166,10 @@ interface LevelGraphProps {
   // обновляет из ответов PUT. Не передан (контекст-модалка, read-only) — записи
   // всё равно не идут (гейт isContext); на уровне ОБЯЗАТЕЛЕН для fence.
   viewMeta?: { current: ViewMetaState };
+  // Флаг «идёт жест драга» для поллинга этапа 1: TreePage пропускает рефетч,
+  // пока пользователь тащит узлы (перезагрузка уровня посреди жеста снесла бы
+  // RF-стейт под рукой). Реф, не колбэк — ноль ре-рендеров на жест.
+  gestureActiveRef?: { current: boolean };
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
@@ -228,6 +232,7 @@ function LevelGraphInner({
   onRedo,
   onPersistError,
   viewMeta,
+  gestureActiveRef,
   mode = "level",
   schemaView = "all",
   locate,
@@ -655,6 +660,7 @@ function LevelGraphInner({
   const handleNodeDragStart = useCallback(
     (_e: MouseEvent, n: RFNode, ns: RFNode[]) => {
       setDragging(true);
+      if (gestureActiveRef) gestureActiveRef.current = true; // поллинг этапа 1: рефетч не врывается в жест
       cancelAnim(); // transition раскрытия не должен цеплять жест — мгновенно доиграть
       const grp = ns.length > 0 ? ns : [n];
       liveDragHandles.begin(rfNodes, rfEdges); // база позиций узлов + снимок маршрутов на старте
@@ -662,18 +668,19 @@ function LevelGraphInner({
       frameFollow.snapshotPads(); // паддинги рамок для живого bbox-follow
       frameFollow.begin(grp); // скрыть рамки-предки, включить живой оверлей
     },
-    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim],
+    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
   );
   const handleSelectionDragStart = useCallback(
     (_e: MouseEvent, ns: RFNode[]) => {
       setDragging(true);
+      if (gestureActiveRef) gestureActiveRef.current = true;
       cancelAnim();
       liveDragHandles.begin(rfNodes, rfEdges);
       noteDragStart(ns);
       frameFollow.snapshotPads();
       frameFollow.begin(ns);
     },
-    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim],
+    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
   );
   const handleNodeDrag = useCallback(
     (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
@@ -701,9 +708,10 @@ function LevelGraphInner({
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");
+        if (gestureActiveRef) gestureActiveRef.current = false;
       }
     },
-    [liveDragHandles, handleNodeDragStop, history, frameFollow, noteGesture],
+    [liveDragHandles, handleNodeDragStop, history, frameFollow, noteGesture, gestureActiveRef],
   );
   const handleSelectionDragStopP = useCallback(
     (e: MouseEvent, ns: RFNode[]) => {
@@ -717,9 +725,10 @@ function LevelGraphInner({
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");
+        if (gestureActiveRef) gestureActiveRef.current = false;
       }
     },
-    [liveDragHandles, handleSelectionDragStop, history, frameFollow, noteGesture],
+    [liveDragHandles, handleSelectionDragStop, history, frameFollow, noteGesture, gestureActiveRef],
   );
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
