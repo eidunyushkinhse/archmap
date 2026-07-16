@@ -714,11 +714,15 @@ function LevelGraphInner({
   const qcRef = useRef(qc);
   const qcCandidateRef = useRef(qcCandidate);
   const onCreateEdgeRef = useRef(onCreateEdge);
+  const onConnectIntoRef = useRef(onConnectInto);
+  const resolveTargetRef = useRef(resolveTarget);
   const displayNameOfRef = useRef(displayNameOf);
   useEffect(() => {
     qcRef.current = qc;
     qcCandidateRef.current = qcCandidate;
     onCreateEdgeRef.current = onCreateEdge;
+    onConnectIntoRef.current = onConnectInto;
+    resolveTargetRef.current = resolveTarget;
     displayNameOfRef.current = displayNameOf;
   });
   const quickConnectHandlers = useMemo<QuickConnectHandlers>(() => ({
@@ -727,13 +731,22 @@ function LevelGraphInner({
     activate: () => {
       const q = qcRef.current, c = qcCandidateRef.current;
       setQc(null);
-      if (q && c) {
-        const nameOf = displayNameOfRef.current;
-        onCreateEdgeRef.current?.(
-          q.sourceId, c.targetId, q.sourceHandle, c.targetHandle,
-          nameOf(q.sourceId), nameOf(c.targetId),
+      if (!q || !c) return;
+      const nameOf = displayNameOfRef.current;
+      // Цель-«зона входа» (контейнер или сервис с детьми) и у быстрой связи уводит
+      // в выбор потомка — как дроп протягивания в тело (E73). Прямая связь в
+      // промежуточный объект рождала бы алерт intermediate_edges (баг 2026-07-16).
+      const target = resolveTargetRef.current(c.targetId);
+      if (target && target.kind === "into") {
+        onConnectIntoRef.current?.(
+          q.sourceId, c.targetId, target.name, q.sourceHandle, nameOf(q.sourceId),
         );
+        return;
       }
+      onCreateEdgeRef.current?.(
+        q.sourceId, c.targetId, q.sourceHandle, c.targetHandle,
+        nameOf(q.sourceId), nameOf(c.targetId),
+      );
     },
   }), []);
 
