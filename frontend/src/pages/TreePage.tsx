@@ -321,11 +321,17 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
       level = commonLevel([target.id]);
       req = { kind: "node", ids: [target.id], token: ++locateSeq.current };
     } else if (target.kind === "edge") {
-      // источник/цель связи берём из самих алертов (в onLocate приходит только edge_id)
+      // источник/цель связи берём из самих алертов (в onLocate приходит только edge_id);
+      // концы едут в запрос фолбэком — связь, скрытая проекцией, фокусируется по ним
       const al = alerts.intermediate_edges.find((e) => e.edge_id === target.id);
       if (!al) return;
       level = commonLevel([al.source_id, al.target_id]);
-      req = { kind: "edge", ids: [target.id], token: ++locateSeq.current };
+      req = {
+        kind: "edge",
+        ids: [target.id],
+        endIds: [al.source_id, al.target_id],
+        token: ++locateSeq.current,
+      };
     } else {
       level = commonLevel(target.ids);
       req = { kind: "group", ids: target.ids, token: ++locateSeq.current };
