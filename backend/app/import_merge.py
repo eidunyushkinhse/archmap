@@ -1,0 +1,228 @@
+"""Слияние нескольких разобранных импортов в один (сценарий «Из репозитория»:
+один промпт × N репозиториев системы → N YAML → один проект).
+
+Мерджим РАЗОБРАННЫЕ структуры (ParsedImport), а не YAML-тексты: ссылки рёбер уже
+разрезолвлены parse_import'ом внутри своего файла, поэтому кросс-файловой
+неоднозначности имён в ссылках не существует. Идентичность узла — нормализованное
+имя в пределах одного СМЕРДЖЕННОГО родителя (то есть фактически путь
+«Система / Сервис / …»). Поля сливаются по правилу «богатое побеждает»
+(заполненное бьёт пустое, не-дефолт бьёт дефолт); расхождения заполненных
+значений не решаются молча — берётся первое по порядку файлов, а факт уходит
+строкой в отчёт. Fuzzy-похожие имена НИКОГДА не склеиваются автоматически
+(ложная склейка двух разных сервисов хуже дубля) — только предупреждение.
+
+Результат детерминирован; порядок файлов влияет лишь на tie-break конфликтов,
+и это видно в отчёте. Выход совместим с seed_import без изменений (порядок
+«родители раньше детей» сохраняется по построению).
+"""
+
+from dataclasses import dataclass, field, replace
+from difflib import SequenceMatcher
+
+from app.import_yaml import MAX_EDGES, MAX_NODES, ParsedImport, _ImpEdge, _ImpNode
+
+# Порог похожести имён сиблингов для предупреждения «возможно, одно и то же».
+_FUZZY_RATIO = 0.78
+# Группы сиблингов крупнее этого попарно не сравниваем (квадратичная стоимость;
+# реальные уровни на порядки меньше — защита от патологического входа).
+_FUZZY_GROUP_LIMIT = 250
+_MAX_WARNINGS = 30
+
+
+@dataclass
+class MergeReport:
+    """Человеческий отчёт слияния для превью модалки. errors — только нарушение
+    суммарных лимитов (per-file лимиты держит parse_import)."""
+
+    files: int
+    merged_paths: list[str] = field(default_factory=list)  # узлы, склеенные из ≥2 файлов
+    conflicts: list[str] = field(default_factory=list)  # расхождения полей (оставлено первое)
+    warnings: list[str] = field(default_factory=list)  # fuzzy-пары, разные корни, похожие рёбра
+    dropped_edges: int = 0  # выброшенные точные дубли рёбер
+    errors: list[str] = field(default_factory=list)
+
+
+def _norm(name: str) -> str:
+    """Нормализация имени для сравнения идентичности: регистр + схлоп пробелов."""
+    return " ".join(name.split()).casefold()
+
+
+def _fill(val: str | None) -> bool:
+    return val is not None and val.strip() != ""
+
+
+def _similar(a: str, b: str) -> bool:
+    """Похожи ли нормализованные имена: вложение подстроки (payments ⊂
+    payments-service) либо высокий difflib-ratio (опечатки, суффиксы)."""
+    if a == b:
+        return False  # равные склеились бы раньше — сюда не попадают
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) >= 4 and short in long_:
+        return True
+    return SequenceMatcher(None, a, b).ratio() >= _FUZZY_RATIO
+
+
+class _Merger:
+    """Состояние одного прогона слияния (класс вместо замыканий — читаемость)."""
+
+    def __init__(self, files: int):
+        self.report = MergeReport(files=files)
+        self.nodes: list[_ImpNode] = []  # копии узлов, порядок «родители раньше детей»
+        self.paths: list[str] = []  # полный путь merged-узла (для отчёта)
+        self.sources: list[set[int]] = []  # какие файлы внесли вклад в узел
+        self.by_key: dict[tuple[int | None, str], int] = {}  # (merged-родитель, норм-имя) → idx
+        self.edges: list[_ImpEdge] = []
+        self.edge_seen: set[tuple[int, int, str, str]] = set()
+        # (src, dst) → [(label, файл)] — для предупреждения о похожих рёбрах.
+        self.pair_labels: dict[tuple[int, int], list[tuple[str, int]]] = {}
+
+    # ── узлы ──────────────────────────────────────────────────────────────
+
+    def _conflict(self, idx: int, fld: str, kept: str, dropped: str, fi: int) -> None:
+        first = min(self.sources[idx]) + 1
+        self.report.conflicts.append(
+            f"{self.paths[idx]}: {fld}: оставлено «{kept}» (файл {first}), "
+            f"отброшено «{dropped}» (файл {fi + 1})"
+        )
+
+    def _merge_str(self, idx: int, fld: str, new: str | None, fi: int) -> None:
+        cur = getattr(self.nodes[idx], fld)
+        if not _fill(new) or (_fill(cur) and cur.strip() == new.strip()):
+            return
+        if not _fill(cur):
+            setattr(self.nodes[idx], fld, new)
+            return
+        self._conflict(idx, fld, cur, new, fi)
+
+    def _merge_enum(self, idx: int, fld: str, new: str, default: str, fi: int) -> None:
+        # shape/status: не-дефолт бьёт дефолт (явный дефолт после парсинга
+        # неотличим от отсутствия поля — считаем его самым слабым утверждением).
+        cur = getattr(self.nodes[idx], fld)
+        if new == default or new == cur:
+            return
+        if cur == default:
+            setattr(self.nodes[idx], fld, new)
+            return
+        self._conflict(idx, fld, cur, new, fi)
+
+    def add_node(self, node: _ImpNode, parent_m: int | None, fi: int) -> int:
+        key = (parent_m, _norm(node.name))
+        hit = self.by_key.get(key)
+        if hit is None:
+            idx = len(self.nodes)
+            self.nodes.append(replace(node, parent_idx=parent_m))
+            prefix = f"{self.paths[parent_m]} / " if parent_m is not None else ""
+            self.paths.append(prefix + node.name)
+            self.sources.append({fi})
+            self.by_key[key] = idx
+            return idx
+        # Узел уже есть — склейка полей. Имя оставляем первое встреченное
+        # (различие лишь в регистре/пробелах — в отчёт не шумим).
+        if fi not in self.sources[hit] and len(self.sources[hit]) == 1:
+            self.report.merged_paths.append(self.paths[hit])
+        self._merge_str(hit, "role", node.role, fi)
+        self._merge_str(hit, "technology", node.technology, fi)
+        self._merge_str(hit, "description", node.description, fi)
+        self._merge_enum(hit, "shape", node.shape, "service", fi)
+        self._merge_enum(hit, "status", node.status, "existing", fi)
+        if node.is_external != self.nodes[hit].is_external:
+            # external обычно ставят осознанно — расхождение решаем в пользу true.
+            first = min(self.sources[hit]) + 1
+            self.report.conflicts.append(
+                f"{self.paths[hit]}: external: файлы {first} и {fi + 1} расходятся — оставлено true"
+            )
+            self.nodes[hit].is_external = True
+        self.sources[hit].add(fi)
+        return hit
+
+    # ── рёбра ─────────────────────────────────────────────────────────────
+
+    def add_edge(self, e: _ImpEdge, idx_map: list[int], fi: int) -> None:
+        src, dst = idx_map[e.source_idx], idx_map[e.target_idx]
+        key = (src, dst, e.label or "", e.technology or "")
+        if key in self.edge_seen:
+            self.report.dropped_edges += 1
+            return
+        self.edge_seen.add(key)
+        self.edges.append(_ImpEdge(src, dst, e.label, e.technology))
+        self.pair_labels.setdefault((src, dst), []).append((e.label or "", fi))
+
+    # ── предупреждения ────────────────────────────────────────────────────
+
+    def warn_similar_edges(self) -> None:
+        """Одна пара концов, разные подписи из РАЗНЫХ файлов — возможно, дубль
+        (в одном файле мульти-рёбра между парой считаем осознанными)."""
+        for (src, dst), entries in self.pair_labels.items():
+            if len({lbl for lbl, _ in entries}) < 2 or len({f for _, f in entries}) < 2:
+                continue
+            labels = ", ".join(f"«{lbl or '—'}»" for lbl, _ in entries[:4])
+            self.report.warnings.append(
+                f"связи {self.paths[src]} → {self.paths[dst]}: разные подписи из разных "
+                f"файлов ({labels}) — проверьте, не дубли ли это"
+            )
+
+    def warn_fuzzy_siblings(self) -> None:
+        """Похожие имена сиблингов из непересекающихся наборов файлов — кандидаты
+        «одно и то же, названное по-разному». Не склеиваем — только сигналим."""
+        groups: dict[int | None, list[int]] = {}
+        for i, n in enumerate(self.nodes):
+            groups.setdefault(n.parent_idx, []).append(i)
+        for parent, idxs in groups.items():
+            if len(idxs) < 2 or len(idxs) > _FUZZY_GROUP_LIMIT:
+                continue
+            norms = [_norm(self.nodes[i].name) for i in idxs]
+            for a in range(len(idxs)):
+                for b in range(a + 1, len(idxs)):
+                    ia, ib = idxs[a], idxs[b]
+                    if self.sources[ia] & self.sources[ib]:
+                        continue  # жили в одном файле — названы different осознанно
+                    if not _similar(norms[a], norms[b]):
+                        continue
+                    where = f"внутри «{self.paths[parent]}»" if parent is not None else "на верхнем уровне"
+                    self.report.warnings.append(
+                        f"«{self.nodes[ia].name}» и «{self.nodes[ib].name}» ({where}) похожи — "
+                        f"возможно, один объект из разных файлов; если да, приведите имена к одному"
+                    )
+
+    def warn_roots(self, parts: list[ParsedImport]) -> None:
+        """Каждый файл принёс единственный корень, а после слияния корней >1 —
+        скорее всего, агентам задали разные имена системы."""
+        roots = [i for i, n in enumerate(self.nodes) if n.parent_idx is None]
+        if len(roots) > 1 and all(len(p.roots) == 1 for p in parts):
+            names = ", ".join(f"«{self.nodes[i].name}»" for i in roots[:6])
+            self.report.warnings.append(
+                f"корневые узлы файлов не совпали ({names}) — если это одна система, "
+                f"задайте всем файлам одно имя корня и повторите"
+            )
+
+    def finish(self, parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
+        self.warn_similar_edges()
+        self.warn_fuzzy_siblings()
+        self.warn_roots(parts)
+        if len(self.report.warnings) > _MAX_WARNINGS:
+            extra = len(self.report.warnings) - _MAX_WARNINGS
+            del self.report.warnings[_MAX_WARNINGS:]
+            self.report.warnings.append(f"…и ещё {extra} предупреждений")
+        if len(self.nodes) > MAX_NODES:
+            self.report.errors.append(f"После слияния слишком много узлов (больше {MAX_NODES})")
+        if len(self.edges) > MAX_EDGES:
+            self.report.errors.append(f"После слияния слишком много связей (больше {MAX_EDGES})")
+        roots = [n.name for n in self.nodes if n.parent_idx is None]
+        return ParsedImport(nodes=self.nodes, edges=self.edges, roots=roots), self.report
+
+
+def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
+    """Слить N разобранных импортов в один. Всегда возвращает (результат, отчёт);
+    непустой report.errors означает «результат непригоден» (суммарные лимиты).
+    Один файл — passthrough без отчётных записей."""
+    if len(parts) == 1:
+        return parts[0], MergeReport(files=1)
+    m = _Merger(files=len(parts))
+    for fi, part in enumerate(parts):
+        idx_map: list[int] = []  # индекс узла в файле → индекс в merged
+        for node in part.nodes:
+            parent_m = idx_map[node.parent_idx] if node.parent_idx is not None else None
+            idx_map.append(m.add_node(node, parent_m, fi))
+        for e in part.edges:
+            m.add_edge(e, idx_map, fi)
+    return m.finish(parts)
