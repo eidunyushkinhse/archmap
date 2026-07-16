@@ -5,8 +5,6 @@ import type { EdgePoint } from "../../types";
 // Канальный nudging (V2.3): наложенные плечи из разных хэндлов упорядочиваются и
 // разводятся равными зазорами; стволы одного хэндла остаются слитыми (Т4).
 
-const H = (id: string, s: string, t: string) => [id, { sourceHandle: s, targetHandle: t }] as const;
-
 // горизонтальный маршрут с интерьерным плечом на y=axis: старт слева-сверху, финиш справа
 const zRoute = (y0: number, axis: number, y1: number): EdgePoint[] => [
   { x: 0, y: y0 }, { x: 40, y: y0 }, { x: 40, y: axis }, { x: 360, y: axis }, { x: 360, y: y1 }, { x: 400, y: y1 },
@@ -21,7 +19,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out, nudged } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "n1--right--1", "n2--left--1"), H("B", "n3--right--1", "n4--left--1")]),
       obstacles: [], gap: 12,
     });
     expect(nudged).toEqual(new Set(["A", "B"]));
@@ -30,23 +27,48 @@ describe("nudgeChannels", () => {
     expect(midY(out.get("B")!)).toBeCloseTo(106);
   });
 
-  it("ствол одного хэндла не расщепляется, чужое плечо уходит в сторону", () => {
-    const routes = new Map([
-      ["A", zRoute(40, 100, 40)],
-      ["B", zRoute(60, 100, 60)],   // общий хэндл с A → один ствол
-      ["C", zRoute(180, 100, 180)], // чужое
+  it("легальный ствол (общий префикс веера) не расщепляется, чужое плечо уходит в сторону", () => {
+    // A и B — веер из одного порта (0,60): общий префикс до (360,100), расходятся
+    // на последнем изломе (E25 v2) — их слитое плечо y=100 остаётся одним стволом
+    const routes = new Map<string, EdgePoint[]>([
+      ["A", [{ x: 0, y: 60 }, { x: 40, y: 60 }, { x: 40, y: 100 }, { x: 360, y: 100 }, { x: 360, y: 40 }, { x: 400, y: 40 }]],
+      ["B", [{ x: 0, y: 60 }, { x: 40, y: 60 }, { x: 40, y: 100 }, { x: 360, y: 100 }, { x: 360, y: 220 }, { x: 400, y: 220 }]],
+      ["C", zRoute(180, 100, 180)], // чужое (концы не совпадают ни с A, ни с B)
     ]);
     const { routes: out } = nudgeChannels({
       routes,
-      handles: new Map([
-        H("A", "n1--right--1", "n2--left--1"),
-        H("B", "n1--right--1", "n5--left--1"), // тот же источник, что у A
-        H("C", "n3--right--1", "n4--left--1"),
-      ]),
       obstacles: [], gap: 12,
     });
     expect(midY(out.get("A")!)).toBeCloseTo(midY(out.get("B")!)); // ствол слит
     expect(Math.abs(midY(out.get("C")!) - midY(out.get("A")!))).toBeGreaterThanOrEqual(11);
+  });
+
+  it("РАЗОШЕДШИЕСЯ члены веера разводятся: повторное схождение — не ствол (E30 v2)", () => {
+    // A и B делят только первый сегмент (y=0, до x=100), потом расходятся; ХВОСТ B
+    // возвращается на линию плеча A (y=50) — прежний ключ «общий хэндл» склеивал их
+    // навсегда, теперь нелегальное схождение разводится зазором
+    const routes = new Map<string, EdgePoint[]>([
+      ["A", [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 300, y: 50 }, { x: 300, y: 90 }]],
+      ["B", [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: -60 }, { x: 180, y: -60 }, { x: 180, y: 50 }, { x: 320, y: 50 }, { x: 320, y: 200 }]],
+    ]);
+    const { routes: out } = nudgeChannels({ routes, obstacles: [], gap: 12 });
+    const aShoulder = out.get("A")![2].y;
+    const bShoulder = out.get("B")![4].y;
+    expect(Math.abs(bShoulder - aShoulder)).toBeGreaterThanOrEqual(11);
+  });
+
+  it("роль-микс (мой выход = его вход в одной точке) — НЕ ствол, плечи разводятся (E26)", () => {
+    // A стартует в (0,0), B ЗАКАНЧИВАЕТСЯ в (0,0) — общая точка РАЗНЫХ ролей.
+    // Их интерьерные плечи коллинеарны на y=60: легального куска нет (роли разные),
+    // канал обязан развести; прежний ключ по строке хэндла склеил бы их навсегда.
+    const routes = new Map<string, EdgePoint[]>([
+      ["A", [{ x: 0, y: 0 }, { x: 0, y: 60 }, { x: 200, y: 60 }, { x: 200, y: 140 }]],
+      ["B", [{ x: 300, y: 200 }, { x: 300, y: 60 }, { x: 20, y: 60 }, { x: 20, y: 0 }, { x: 0, y: 0 }]],
+    ]);
+    const { routes: out } = nudgeChannels({ routes, obstacles: [], gap: 12 });
+    const aY = out.get("A")![1].y; // плечо A: (0,·)→(200,·)
+    const bY = out.get("B")![1].y; // плечо B: (300,·)→(20,·)
+    expect(Math.abs(aY - bY)).toBeGreaterThanOrEqual(11);
   });
 
   it("три чужих плеча → слоты -gap/0/+gap", () => {
@@ -57,9 +79,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out } = nudgeChannels({
       routes,
-      handles: new Map([
-        H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1"), H("C", "e--right--1", "f--left--1"),
-      ]),
       obstacles: [], gap: 12,
     });
     expect(midY(out.get("A")!)).toBeCloseTo(88);
@@ -75,7 +94,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out } = nudgeChannels({
       routes,
-      handles: new Map([H("F", "x--right--1", "y--top--1"), H("A", "a--right--1", "b--left--1")]),
       obstacles: [], gap: 12,
     });
     expect(out.get("F")![0].y).toBe(100); // пришпиленный на месте
@@ -92,7 +110,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       obstacles: [{ x: 100, y: 60, w: 100, h: 40 }], gap: 12,
     });
     expect(midY(out.get("A")!)).toBeCloseTo(108); // край клиренс-полосы тела (100 + NUDGE_CLEAR)
@@ -116,7 +133,6 @@ describe("nudgeChannels", () => {
     const lower = { x: 968, y: 262, w: 190, h: 100 };     // верх 262
     const { routes: out } = nudgeChannels({
       routes: new Map([["r1", r1], ["r2", r2]]),
-      handles: new Map([H("r1", "gw--right--0", "pay--left--0"), H("r2", "cat--right--0", "log--left--0")]),
       obstacles: [upper, lower],
     });
     const shoulder1 = out.get("r1")![2].y; // плечо r1
@@ -136,7 +152,6 @@ describe("nudgeChannels", () => {
     ]);
     const { nudged } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       obstacles: [
         { x: 100, y: 0, w: 200, h: 100 },    // низ 100
         { x: 100, y: 112, w: 200, h: 100 },  // верх 112
@@ -153,7 +168,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       obstacles: [
         { x: 100, y: -100, w: 200, h: 100 }, // низ 0 → полоса до 8
         { x: 100, y: 25, w: 200, h: 100 },   // верх 25 → полоса от 17
@@ -172,7 +186,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       // тела сверху И снизу вплотную: ни один сдвиг шкалы не проходит целиком
       obstacles: [
         { x: 100, y: 60, w: 100, h: 38 },   // низ 98: блокирует всё выше 100
@@ -193,7 +206,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out, nudged } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       obstacles: [], gap: 12,
     });
     expect(nudged).toEqual(new Set(["A", "B"]));
@@ -202,7 +214,6 @@ describe("nudgeChannels", () => {
     // идемпотентность: повторный прогон уже разведённого канала ничего не двигает
     const again = nudgeChannels({
       routes: out,
-      handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       obstacles: [], gap: 12,
     });
     expect(again.nudged.size).toBe(0);
@@ -216,7 +227,6 @@ describe("nudgeChannels", () => {
     ]);
     const { nudged } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "a--right--1", "b--top--1"), H("B", "c--right--1", "d--top--1")]),
       obstacles: [], gap: 12,
     });
     expect(nudged.size).toBe(0);
@@ -234,10 +244,6 @@ describe("nudgeChannels", () => {
     ]);
     const { routes: out, nudged } = nudgeChannels({
       routes,
-      handles: new Map([
-        H("P", "p--right--1", "x--top--1"), H("Q", "q--right--1", "y--top--1"),
-        H("M", "m--right--1", "z--left--1"),
-      ]),
       obstacles: [], gap: 12,
     });
     expect(out.get("P")![0].y).toBe(100); // пины на месте
@@ -257,10 +263,6 @@ describe("nudgeChannels", () => {
     ]);
     const { nudged } = nudgeChannels({
       routes,
-      handles: new Map([
-        H("P", "p--right--1", "x--top--1"), H("Q", "q--right--1", "y--top--1"),
-        H("M", "m--right--1", "z--left--1"),
-      ]),
       obstacles: [], gap: 12,
     });
     expect(nudged.size).toBe(0);
@@ -273,7 +275,6 @@ describe("nudgeChannels", () => {
     ]);
     const { nudged } = nudgeChannels({
       routes,
-      handles: new Map([H("A", "a--right--1", "b--left--1"), H("B", "c--right--1", "d--left--1")]),
       obstacles: [], gap: 12,
     });
     expect(nudged.size).toBe(0);

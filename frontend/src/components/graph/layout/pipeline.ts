@@ -548,7 +548,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
     // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
     // маршрутах.
-    const nu = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
+    const nu = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
     if (nu.nudged.size > 0) autoRoutes = nu.routes;
 
     // ПОЛИРОВКА ДЖОГОВ ПОСЛЕ НУДЖИНГА (T2 «читаемые пучки»): и роутер (перескок из-за
@@ -647,7 +647,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           // минует канальную разводку (она отработала ВЫШЕ) и мог лечь коллинеарно
           // на чужое плечо — наложение оставалось до конца прогона. Повторный
           // nudgeChannels идемпотентен для уже разведённых каналов и дешёв.
-          const nu2 = nudgeChannels({ routes: autoRoutes, handles: edgeHandles, obstacles: nodeRects });
+          const nu2 = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
           if (nu2.nudged.size > 0) autoRoutes = nu2.routes;
           // пере-размещение по финальной геометрии (маршруты грязных изменились)
           labelPlacements = buildLabelPlacements({

@@ -6,8 +6,11 @@
 // их РАВНЫМИ зазорами (idealNudgingDistance) вокруг исходной линии. Так пучок из N стрелок
 // в одном коридоре превращается в N параллельных читаемых линий, а не в кашу.
 //
-// Правило Т4 (архитектор): наложение плеч допустимо ТОЛЬКО из одного хэндла — родственные
-// стрелки общего хэндла остаются слитым стволом (одна группа канала, один общий офсет).
+// Правило Т4 v2 (E25/E30, эпик arrow-trunks Ф4): наложение плеч допустимо только в
+// ЛЕГАЛЬНОМ КУСКЕ пары — общем префиксе (исходящий веер) или суффиксе (входящий) от
+// общего порта одной роли. Такие сегменты остаются слитым стволом (одна группа канала,
+// один общий офсет); всё прочее — включая повторные схождения разошедшихся членов веера
+// и встречные плечи — разные группы, разводятся зазором.
 //
 // Ограничения по построению:
 // - двигаем только ИНТЕРЬЕРНЫЕ сегменты (оба конца — не концы ломаной): концевые пришпилены
@@ -27,8 +30,9 @@
 //   сохраняется) — иначе сдвиг этого ребра отменяется;
 // - детерминизм: кластеры и группы обходятся в отсортированном порядке.
 import type { EdgePoint } from "../../../types";
-import { cleanup, type SegOrient } from "../edgePath";
+import { cleanup, segments, type SegOrient } from "../edgePath";
 import { solveSeparation, type SepConstraint } from "./vpsc";
+import { trunkPieces } from "./trunks";
 
 const EPS = 0.75;      // допуск «одна линия»
 const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложением (касание концами игнорируем)
@@ -181,11 +185,10 @@ const corridorOf = (
 
 export function nudgeChannels(params: {
   routes: Map<string, EdgePoint[]>;
-  handles: ReadonlyMap<string, { sourceHandle: string; targetHandle: string }>;
   obstacles: Rect[];
   gap?: number;
 }): ChannelNudgeResult {
-  const { routes, handles, obstacles } = params;
+  const { routes, obstacles } = params;
   const gap = params.gap ?? GAP;
 
   // рабочие копии ломаных — сдвиги мутируют их на месте
@@ -201,32 +204,66 @@ export function nudgeChannels(params: {
     (a, b) => a[0].orient.localeCompare(b[0].orient) || a[0].axis - b[0].axis || a[0].lo - b[0].lo,
   );
 
-  for (const channel of channels) {
-    // Группы канала: рёбра, делящие хэндл, — легитимный общий ствол (Т4), один офсет.
-    // Ключ группы — общий хэндл, если он есть у пары; иначе своё ребро.
-    const groupOf = new Map<string, string>(); // edgeId → groupKey
-    const edgeIds = [...new Set(channel.map((s) => s.edgeId))].sort();
-    for (const id of edgeIds) {
-      const h = handles.get(id);
-      const hs = h ? [h.sourceHandle, h.targetHandle] : [];
-      let key = id;
-      for (const other of edgeIds) {
-        if (other === id) continue;
-        const oh = handles.get(other);
-        if (!oh) continue;
-        const shared = hs.find((x) => x === oh.sourceHandle || x === oh.targetHandle);
-        if (shared) { key = `trunk:${shared}`; break; }
+  // ЛЕГАЛЬНЫЕ СТВОЛЫ (E30 v2, Ф4): куски общих префиксов/суффиксов по фактическим
+  // концам маршрутов (E25 v2, trunks.ts) — единственное основание держать плечи
+  // РАЗНЫХ рёбер слитыми. Прежний ключ «делят хэндл» склеивал и разошедшиеся члены
+  // веера (повторное схождение не разводилось), и был слеп к ролям (встречная пара
+  // в одной точке стыковки считалась стволом). Сегменты кусков — по парам рёбер.
+  const pieceSegs = new Map<string, Array<{ h: boolean; c: number; lo: number; hi: number }>>();
+  for (const [id, list] of trunkPieces(routes)) {
+    for (const p of list) {
+      const key = id < p.mateId ? `${id}|${p.mateId}` : `${p.mateId}|${id}`;
+      const arr = pieceSegs.get(key) ?? pieceSegs.set(key, []).get(key)!;
+      // записи симметричны (кусок кладётся от обоих концов пары) — поиск терпит дубли
+      for (const s of segments(p.pts)) {
+        const h = s.orient === "h";
+        arr.push({
+          h,
+          c: h ? s.y1 : s.x1,
+          lo: h ? Math.min(s.x1, s.x2) : Math.min(s.y1, s.y2),
+          hi: h ? Math.max(s.x1, s.x2) : Math.max(s.y1, s.y2),
+        });
       }
-      groupOf.set(id, key);
     }
-    // Бакет по оси (T2): ствол — это сегменты трунк-родственников НА ОДНОЙ ЛИНИИ.
-    // Без бакета сегмент того же ребра на ДРУГОЙ оси (near-кластеризация) наследовал
-    // группу ствола вместе с его пришпиленностью — и переставал разводиться.
+  }
+  // Пара сегментов канала слита ЛЕГАЛЬНО: точное совпадение осей и перекрытие,
+  // лежащее внутри сегмента легального куска этой пары (допуски — дрейф walk-а).
+  const legallyMerged = (a: Seg, b: Seg): boolean => {
+    if (Math.abs(a.axis - b.axis) > EPS) return false;
+    const lo = Math.max(a.lo, b.lo), hi = Math.min(a.hi, b.hi);
+    if (hi - lo <= OVERLAP_MIN) return false;
+    const key = a.edgeId < b.edgeId ? `${a.edgeId}|${b.edgeId}` : `${b.edgeId}|${a.edgeId}`;
+    const list = pieceSegs.get(key);
+    if (!list) return false;
+    const horiz = a.orient === "h";
+    for (const ps of list) {
+      if (ps.h !== horiz || Math.abs(ps.c - a.axis) > 1) continue;
+      if (lo >= ps.lo - 1 && hi <= ps.hi + 1) return true;
+    }
+    return false;
+  };
+
+  for (const channel of channels) {
+    // ГРУППЫ КАНАЛА (E30 v2): union-find по парам сегментов — слиты только легальные
+    // куски (сваренный веер остаётся одним стволом с одним офсетом); сегменты ОДНОГО
+    // ребра на одной линии двигаются вместе (прежний бакет по оси). Разошедшиеся и
+    // встречные плечи попадают в разные группы и разводятся зазором.
+    const parent = channel.map((_, k) => k);
+    const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
+    for (let x = 0; x < channel.length; x++) {
+      for (let y = x + 1; y < channel.length; y++) {
+        const a = channel[x], b = channel[y];
+        const sameEdgeLine = a.edgeId === b.edgeId && Math.abs(a.axis - b.axis) <= EPS;
+        if (sameEdgeLine || (a.edgeId !== b.edgeId && legallyMerged(a, b))) {
+          parent[find(x)] = find(y);
+        }
+      }
+    }
     const groups = new Map<string, Seg[]>();
-    for (const s of channel) {
-      const k = `${groupOf.get(s.edgeId)!}@${Math.round(s.axis)}`;
-      (groups.get(k) ?? groups.set(k, []).get(k)!).push(s);
-    }
+    channel.forEach((s, k) => {
+      const key = `g${String(find(k)).padStart(3, "0")}`;
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(s);
+    });
     if (groups.size < 2) continue; // весь канал — один ствол, наложение легитимно
 
     // Группы канала с допустимыми интервалами осей (клиренс-стенки коридора по пробегу
