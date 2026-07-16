@@ -538,6 +538,68 @@ export interface paths {
         patch: operations["update_doc_api_v1_nodes__node_id__docs__doc_id__patch"];
         trace?: never;
     };
+    "/api/v1/docs-import/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Docs Prompt
+         * @description Промпт агенту со вложенным срезом схемы: node_id — поддерево (агенту
+         *     одного сервиса хватает его контейнера), без node_id — весь проект.
+         */
+        get: operations["docs_prompt_api_v1_docs_import_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/docs-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Docs Import Preview
+         * @description Dry-run: план без записи (build_docs_plan — чистая функция).
+         */
+        post: operations["docs_import_preview_api_v1_docs_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/docs-import/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Docs Import Apply
+         * @description Применение: план пересчитывается на живом состоянии (между превью и
+         *     применением мир мог измениться); при errors не пишется ничего.
+         */
+        post: operations["docs_import_apply_api_v1_docs_import_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/edges/": {
         parameters: {
             query?: never;
@@ -1035,6 +1097,124 @@ export interface components {
             node_id: string;
             /** Node Name */
             node_name: string;
+        };
+        /**
+         * DocsFileIn
+         * @description Один загруженный файл пакета: имя нужно для file-референсов манифеста
+         *     и префиксов ошибок.
+         */
+        DocsFileIn: {
+            /** Name */
+            name: string;
+            /** Content */
+            content: string;
+        };
+        /** DocsImportIn */
+        DocsImportIn: {
+            /** Files */
+            files: components["schemas"]["DocsFileIn"][];
+            /**
+             * Overwrite
+             * @default false
+             */
+            overwrite: boolean;
+        };
+        /**
+         * DocsImportReport
+         * @description Отчёт превью и применения (общая форма; applied различает).
+         */
+        DocsImportReport: {
+            /**
+             * Logic
+             * @default []
+             */
+            logic: components["schemas"]["DocsLogicItem"][];
+            /**
+             * Specs
+             * @default []
+             */
+            specs: components["schemas"]["DocsSpecItem"][];
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Conflicts
+             * @default []
+             */
+            conflicts: string[];
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Created Docs
+             * @default 0
+             */
+            created_docs: number;
+            /**
+             * Updated Docs
+             * @default 0
+             */
+            updated_docs: number;
+            /**
+             * Specs Written
+             * @default 0
+             */
+            specs_written: number;
+        };
+        /** DocsLogicItem */
+        DocsLogicItem: {
+            /** Node Path */
+            node_path: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "overview" | "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "overwrite" | "skip" | "unchanged";
+            /** Mermaid */
+            mermaid: string;
+        };
+        /** DocsPromptOut */
+        DocsPromptOut: {
+            /** Prompt */
+            prompt: string;
+        };
+        /** DocsSpecItem */
+        DocsSpecItem: {
+            /** Node Path */
+            node_path: string;
+            /** Source */
+            source: string;
+            /** Origin */
+            origin: ("found" | "generated" | "synthesized") | null;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "overwrite" | "skip" | "unchanged";
+            /** Valid Yaml */
+            valid_yaml: boolean;
+            /** Looks Openapi */
+            looks_openapi: boolean;
+            /** Oas Version */
+            oas_version: string | null;
         };
         /** EdgeCreate */
         EdgeCreate: {
@@ -3322,6 +3502,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeDocResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    docs_prompt_api_v1_docs_import_prompt_get: {
+        parameters: {
+            query?: {
+                node_id?: string | null;
+                include?: "logic" | "api" | "both";
+                lang?: string;
+                hints?: string | null;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocsPromptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    docs_import_preview_api_v1_docs_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocsImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocsImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    docs_import_apply_api_v1_docs_import_apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocsImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocsImportReport"];
                 };
             };
             /** @description Validation Error */

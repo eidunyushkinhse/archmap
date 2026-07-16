@@ -10,7 +10,9 @@ parse_manifest: структура/enum'ы/лимиты/дубли + толер�
 
 import uuid
 
-from conftest import ensure_project
+import pytest
+from conftest import ensure_architect, ensure_project
+from fastapi import HTTPException
 
 from app.docs_import import (
     apply_docs_plan,
@@ -20,6 +22,8 @@ from app.docs_import import (
 )
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.routers.docs_import import docs_import_apply, docs_import_preview, docs_prompt
+from app.schemas.docs_import import DocsFileIn, DocsImportIn
 
 
 def _node(db, name, parent=None):
@@ -263,3 +267,92 @@ def test_apply_and_idempotent(db):
     assert [a.action for a in again.logic] == ["unchanged"]
     assert [s.action for s in again.specs] == ["unchanged"]
     assert apply_docs_plan(db, again) == (0, 0, 0)
+
+
+# ── Эндпоинты ──────────────────────────────────────────────────────────────────
+
+def _payload(*files, overwrite=False):
+    return DocsImportIn(
+        files=[DocsFileIn(name=n, content=c) for n, c in files], overwrite=overwrite
+    )
+
+
+def test_endpoint_prompt_slices(db):
+    # lang/hints передаём явно: прямой вызов минует DI, дефолты Query — не значения
+    root, orders, billing, *_ = _tree(db)
+    whole = docs_prompt(
+        lang="ru", hints=None, db=db, project=ensure_project(db), _=ensure_architect(db)
+    )
+    assert "Ярмарка" in whole.prompt and "billing" in whole.prompt
+
+    sub = docs_prompt(
+        node_id=billing.id, lang="ru", hints=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    slice_part = sub.prompt.split("## Срез схемы")[1].split("## Что документировать")[0]
+    assert "billing" in slice_part and "orders" not in slice_part
+
+    with pytest.raises(HTTPException) as e:
+        docs_prompt(
+            node_id=uuid.uuid4(), lang="ru", hints=None,
+            db=db, project=ensure_project(db), _=ensure_architect(db),
+        )
+    assert e.value.status_code == 404
+
+
+def test_endpoint_preview_does_not_write(db):
+    _tree(db)
+    report = docs_import_preview(
+        _payload(("manifest.yaml", MANIFEST), ("orders-api.yaml", SPEC)),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert report.applied is False and report.errors == []
+    assert [a.action for a in report.logic] == ["create"]
+    assert report.logic[0].mermaid.startswith("graph TD")  # текст для фронт-валидации
+    assert db.query(NodeDoc).count() == 0
+
+
+def test_endpoint_apply_writes_and_bumps(db):
+    _tree(db)
+    project = ensure_project(db)
+    rev0 = project.graph_rev
+    report = docs_import_apply(
+        _payload(("manifest.yaml", MANIFEST), ("orders-api.yaml", SPEC)),
+        db=db, project=project, user=ensure_architect(db),
+    )
+    assert report.applied is True
+    assert (report.created_docs, report.updated_docs, report.specs_written) == (1, 0, 1)
+    assert db.query(NodeDoc).count() == 1
+    db.refresh(project)
+    assert project.graph_rev == rev0 + 1
+
+    # Идемпотентный повтор: applied=True, но нули и БЕЗ бампа graph_rev
+    again = docs_import_apply(
+        _payload(("manifest.yaml", MANIFEST), ("orders-api.yaml", SPEC)),
+        db=db, project=project, user=ensure_architect(db),
+    )
+    assert again.applied is True
+    assert (again.created_docs, again.updated_docs, again.specs_written) == (0, 0, 0)
+    db.refresh(project)
+    assert project.graph_rev == rev0 + 1
+
+
+def test_endpoint_apply_blocked_by_errors(db):
+    _tree(db)
+    broken = "docs:\n  - logic: []\n"  # нет node → ошибка парсинга манифеста
+    report = docs_import_apply(
+        _payload(("manifest.yaml", broken)),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert report.applied is False
+    assert any("manifest.yaml: " in e for e in report.errors)
+    assert db.query(NodeDoc).count() == 0
+
+
+def test_endpoint_no_manifest_error(db):
+    _tree(db)
+    report = docs_import_preview(
+        _payload(("orders-api.yaml", SPEC)),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert any("нет манифеста" in e for e in report.errors)

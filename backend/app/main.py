@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import (
     auth,
+    docs_import,
     edges,
     export,
     node_docs,
@@ -30,6 +31,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
 app.include_router(nodes.router, prefix="/api/v1")
 app.include_router(node_docs.router, prefix="/api/v1")
+app.include_router(docs_import.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")
 app.include_router(views.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")

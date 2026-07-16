@@ -1,0 +1,163 @@
+"""Дозаливка доков от ИИ-агента в СУЩЕСТВУЮЩИЙ проект (этап 2 plan-agent-docs.md).
+
+Три эндпоинта под require_architect (кнопка и применение — только архитектор):
+prompt — промпт со вложенным срезом схемы (весь проект или поддерево);
+preview — dry-run плана без записи; apply — тот же план, пересчитанный на живом
+состоянии, + запись (при errors ничего не пишется, отчёт с applied=false).
+Структуру дозаливка НЕ меняет — только node_docs и openapi_spec существующих
+узлов, поэтому этап B (мердж схемы) ей не нужен.
+"""
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from app import tree
+from app.auth import require_architect
+from app.database import get_db
+from app.deps import get_current_project, touch_project
+from app.docs_import import (
+    DocsPlan,
+    ParsedManifest,
+    apply_docs_plan,
+    build_docs_plan,
+    looks_like_manifest,
+    parse_manifest,
+)
+from app.docs_prompt import build_docs_prompt
+from app.export import build_export
+from app.models.edge import Edge
+from app.models.node import Node
+from app.models.project import Project
+from app.models.user import User
+from app.schemas.docs_import import (
+    DocsImportIn,
+    DocsImportReport,
+    DocsInclude,
+    DocsLogicItem,
+    DocsPromptOut,
+    DocsSpecItem,
+)
+from app.view_state import bump_graph_rev
+
+router = APIRouter(prefix="/docs-import", tags=["docs-import"])
+
+
+@router.get("/prompt", response_model=DocsPromptOut)
+def docs_prompt(
+    node_id: uuid.UUID | None = None,
+    include: DocsInclude = "both",
+    lang: str = Query("ru", max_length=8),
+    hints: str | None = Query(None, max_length=4000),
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> DocsPromptOut:
+    """Промпт агенту со вложенным срезом схемы: node_id — поддерево (агенту
+    одного сервиса хватает его контейнера), без node_id — весь проект."""
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project.id).all()
+    if node_id is not None:
+        by_id = {n.id: n for n in nodes}
+        if node_id not in by_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
+        sub_ids = tree.subtree_ids(by_id, node_id)
+        nodes = [by_id[i] for i in sub_ids]
+        edges = [e for e in edges if e.source_id in sub_ids and e.target_id in sub_ids]
+    export_slice = build_export(nodes, edges, root_id=node_id)
+    return DocsPromptOut(prompt=build_docs_prompt(export_slice, include, lang, hints))
+
+
+def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> DocsPlan:
+    """Разбор загруженных файлов (манифесты отличаются от ресурсов ПО СОДЕРЖИМОМУ)
+    → план. Ошибки парсинга любого манифеста блокируют план целиком (частичный
+    план вводил бы в заблуждение кнопку «Применить»)."""
+    manifests: list[tuple[str, ParsedManifest]] = []
+    assets: dict[str, str] = {}
+    errors: list[str] = []
+    for f in payload.files:
+        if looks_like_manifest(f.content):
+            parsed, errs = parse_manifest(f.content)
+            if parsed is not None:
+                manifests.append((f.name, parsed))
+            errors.extend(f"{f.name}: {e}" for e in errs)
+        else:
+            # Дубль имени ресурса — последний побеждает молча (имена в одной папке
+            # уникальны по построению; дубль возможен только ручной загрузкой).
+            assets[f.name] = f.content
+    if not manifests and not errors:
+        errors.append("среди загруженных файлов нет манифеста (YAML с ключом docs)")
+    if errors:
+        plan = DocsPlan()
+        plan.errors = errors
+        return plan
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    return build_docs_plan(nodes, manifests, assets, payload.overwrite)
+
+
+def _report(plan: DocsPlan) -> DocsImportReport:
+    return DocsImportReport(
+        logic=[
+            DocsLogicItem(
+                node_path=a.node_path,
+                name=a.name,
+                kind=a.kind,  # type: ignore[arg-type] — kind провалидирован парсером
+                operation=a.operation,
+                action=a.action,  # type: ignore[arg-type]
+                mermaid=a.mermaid,
+            )
+            for a in plan.logic
+        ],
+        specs=[
+            DocsSpecItem(
+                node_path=s.node_path,
+                source=s.source,
+                origin=s.origin,  # type: ignore[arg-type]
+                action=s.action,  # type: ignore[arg-type]
+                valid_yaml=s.valid_yaml,
+                looks_openapi=s.looks_openapi,
+                oas_version=s.oas_version,
+            )
+            for s in plan.specs
+        ],
+        errors=plan.errors,
+        warnings=plan.warnings,
+        conflicts=plan.conflicts,
+    )
+
+
+@router.post("/preview", response_model=DocsImportReport)
+def docs_import_preview(
+    payload: DocsImportIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> DocsImportReport:
+    """Dry-run: план без записи (build_docs_plan — чистая функция)."""
+    return _report(_plan_from_files(db, project, payload))
+
+
+@router.post("/apply", response_model=DocsImportReport)
+def docs_import_apply(
+    payload: DocsImportIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> DocsImportReport:
+    """Применение: план пересчитывается на живом состоянии (между превью и
+    применением мир мог измениться); при errors не пишется ничего."""
+    plan = _plan_from_files(db, project, payload)
+    report = _report(plan)
+    if plan.errors:
+        return report  # applied=False — фронт показывает ошибки
+    created, updated, specs = apply_docs_plan(db, plan)
+    if created or updated or specs:
+        bump_graph_rev(db, project)  # мета доков едет в graph-выдаче — поллинг увидит
+    touch_project(db, project, user.id)
+    db.commit()
+    report.applied = True
+    report.created_docs = created
+    report.updated_docs = updated
+    report.specs_written = specs
+    return report
