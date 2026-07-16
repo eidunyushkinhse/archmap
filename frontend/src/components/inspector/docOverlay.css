@@ -290,3 +290,7 @@
 .doc-oas .swagger-ui .servers,
 .doc-oas .swagger-ui .servers-title,
 .doc-oas .swagger-ui .auth-wrapper { display: none; }
+/* Ховер-кнопка «копировать путь» на плашке эндпоинта: в нашем embed молча не
+   работает (проверено — буфер не меняется), фидбэка у неё нет и в оригинале,
+   а полный YAML копируется из соседней панели кода. Прячем. */
+.doc-oas .swagger-ui .opblock-summary .copy-to-clipboard { display: none; }
