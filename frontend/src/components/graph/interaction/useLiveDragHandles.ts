@@ -23,6 +23,7 @@ import { buildLabelPlacements, type LabelPlacement } from "../layout/labelLayout
 import { labelBoxSize } from "../layout/labelBox";
 import { edgeLabelMeta } from "../layout/pipeline";
 import { NODE_W, NODE_H } from "../constants";
+import { absPositionOf } from "../absPos";
 
 type NodeRect = { x: number; y: number; w: number; h: number };
 
@@ -65,11 +66,22 @@ interface Params {
 // Сессия одного жеста: базовые позиции всех узлов на старте (двигаются только
 // перетаскиваемые), снимок входов раскладки и снимок авто-маршрутов рёбер на старте
 // (для жёсткого сдвига рёбер, у которых ОБА конца перетаскиваются).
+// ВСЕ позиции сессии — АБСОЛЮТ вида: дети compound-рамок несут rel-позицию к рамке,
+// а роутер/препятствия/prev-контекст живут в абсолюте — без конверсии ребро ребёнка
+// рисовалось смещённым к началу координат (на -origin рамки) и резало чужие тела.
 interface Session {
   base: Map<string, { x: number; y: number }>;
+  // снимок узлов старта — для конверсии rel→abs перетаскиваемых: рамки на время
+  // жеста статичны (frameFollow двигает только оверлей), цепочка родителей верна
+  byId: Map<string, RFNode>;
   inp: LiveHandleInputs;
   routes: Map<string, EdgePoint[]>;      // edge.id → авто-маршрут на старте жеста
   labels: Map<string, LabelPlacement>;   // edge.id → размещение плашки на старте жеста
+  // объекты рёбер на старте жеста — для отката живого превью, когда жест не привёл
+  // к записи раскладки и пересчёта не будет (restore)
+  origEdges: Map<string, RFEdge>;
+  // перетаскиваемый набор из последнего кадра move (постоянен весь жест)
+  draggedIds?: Set<string>;
   // прямоугольники плашек НЕзатронутых рёбер (препятствия живого размещения) — кэш на
   // жест, считается на первом кадре (набор затронутых постоянен весь жест)
   fixedLabelRects?: NodeRect[];
@@ -91,6 +103,33 @@ interface DragFrame {
   liveLabels: Map<string, LabelPlacement> | null;
   localIds: Set<string>;
   fallbackHandles: Map<string, EdgeHandlePair>;
+}
+
+// Абсолютные позиции узлов кадра драга: база старта + живые позиции перетаскиваемых.
+// Дети compound-рамок несут rel-позицию — конвертируем цепочкой родителей ИЗ СНИМКА
+// старта (рамки на время жеста статичны). Чистая — регрессия rel/abs прибита тестом.
+export function gestureAbsPositions(
+  base: Map<string, { x: number; y: number }>,
+  dragged: RFNode[],
+  byId: Map<string, RFNode>,
+): Map<string, { x: number; y: number }> {
+  const positions = new Map(base);
+  for (const n of dragged) positions.set(n.id, absPositionOf(n, byId));
+  return positions;
+}
+
+// Возврат рёбер жеста к объектам старта: применяется, когда жест не привёл к записи
+// раскладки — пересчёта не будет, и без отката живое превью последнего кадра осталось
+// бы в rfEdges насовсем (фантомные маршруты/плашки в покое). Незатронутые рёбра — те же
+// ссылки (RF их не перерисует). Чистая — тестируется.
+export function restoreDragEdges(
+  prev: RFEdge[],
+  draggedIds: ReadonlySet<string>,
+  origEdges: ReadonlyMap<string, RFEdge>,
+): RFEdge[] {
+  return prev.map((e) =>
+    draggedIds.has(e.source) || draggedIds.has(e.target) ? origEdges.get(e.id) ?? e : e,
+  );
 }
 
 // Сдвиг размещения плашки на (dx,dy) — центр, якорь и конец поводка едут вместе с ребром.
@@ -169,7 +208,9 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
   const begin = useCallback((allNodes: RFNode[], allEdges: RFEdge[]) => {
     const inp = inputsRef.current;
     if (!inp) { session.current = null; return; }
-    const base = new Map(allNodes.map((n) => [n.id, { x: n.position.x, y: n.position.y }]));
+    const byId = new Map(allNodes.map((n) => [n.id, n]));
+    // база — в АБСОЛЮТЕ вида (rel детей compound-рамок конвертируется цепочкой родителей)
+    const base = new Map(allNodes.map((n) => [n.id, absPositionOf(n, byId)]));
     const routes = new Map<string, EdgePoint[]>();
     const labels = new Map<string, LabelPlacement>();
     for (const e of allEdges) {
@@ -177,7 +218,7 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
       if (d?.autoRoute) routes.set(e.id, d.autoRoute);
       if (d?.labelPlacement) labels.set(e.id, d.labelPlacement); // снимок плашки — база жёсткого сдвига
     }
-    session.current = { base, inp, routes, labels };
+    session.current = { base, byId, inp, routes, labels, origEdges: new Map(allEdges.map((e) => [e.id, e])) };
   }, [inputsRef]);
 
   // Кадр драга. Считаем живые входы, затем решение по каждому ребру — в чистой resolveDragEdge:
@@ -190,9 +231,10 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
   const move = useCallback((dragged: RFNode[]) => {
     const s = session.current;
     if (!s) return;
-    const positions = new Map(s.base);
-    for (const n of dragged) positions.set(n.id, { x: n.position.x, y: n.position.y });
+    // живые позиции перетаскиваемых — тоже в абсолют (у детей рамок RF отдаёт rel)
+    const positions = gestureAbsPositions(s.base, dragged, s.byId);
     const draggedIds = new Set(dragged.map((n) => n.id));
+    s.draggedIds = draggedIds;
     const deltaOf = (id: string): { dx: number; dy: number } => {
       const b = s.base.get(id), p = positions.get(id);
       return b && p ? { dx: p.x - b.x, dy: p.y - b.y } : { dx: 0, dy: 0 };
@@ -267,7 +309,18 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
     setRfEdges((prev) => prev.map((e) => resolveDragEdge(e, frame)));
   }, [setRfEdges]);
 
+  // Откат живого превью к состоянию старта жеста. Зовётся ПЕРЕД end(), когда отпускание
+  // не записало раскладку (нетто-сдвига нет: кламп вернул узел, микродвижение) — смены
+  // viewLayout не будет, пересчёт не запустится, и последний кадр превью иначе остался бы
+  // на экране насовсем (см. tasks.md «БАГИ ДРАГА ДЕТЕЙ РАСКРЫТЫХ РАМОК», пункт 2).
+  const restore = useCallback(() => {
+    const s = session.current;
+    if (!s?.draggedIds || s.draggedIds.size === 0) return; // move не бегал — превью не трогало рёбра
+    const { draggedIds, origEdges } = s;
+    setRfEdges((prev) => restoreDragEdges(prev, draggedIds, origEdges));
+  }, [setRfEdges]);
+
   const end = useCallback(() => { session.current = null; }, []);
 
-  return { begin, move, end };
+  return { begin, move, end, restore };
 }

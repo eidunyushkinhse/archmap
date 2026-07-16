@@ -29,8 +29,10 @@ interface Params {
   ancestorNames: string[];
   // Единая запись раскладки вида (R3): позиции ЛЮБЫХ перетянутых сущностей —
   // локалов, гостей и свёрнутых контейнеров — уходят одним батчем view_layout
-  // (персист + зеркало делает LevelGraph.commitLayout).
-  commitLayout: (items: Record<string, { x: number; y: number }>) => void;
+  // (персист + зеркало делает LevelGraph.commitLayout). Возвращает, была ли
+  // запись: дедуп против зеркала может погасить весь батч — тогда пересчёта
+  // раскладки не будет (сигнал для отката живого превью рёбер).
+  commitLayout: (items: Record<string, { x: number; y: number }>) => boolean;
   // запись действия в историю Undo/Redo (перемещение группы = одна команда)
   push?: History["push"];
   // открыть «окно жеста» анимаций (drawIn изменившихся стрелок) — зовём на флаше
@@ -194,10 +196,11 @@ export function useSnapAlignment({
   // Снап применяем только к одиночному узлу: групповой снап считал бы притяжку
   // каждого к своим соседям и исказил бы взаимные интервалы перемещаемой группы.
   // R3: локалы, гости и контейнеры пишутся ЕДИНООБРАЗНО — батчем view_layout.
+  // Возвращает, записан ли батч (false — пересчёта раскладки после жеста не будет).
   const persistGroup = useCallback(
-    (group: RFNode[]) => {
-      if (isContext) return; // контекст read-only — перетаскивания не сохраняем
-      if (!isArchitect) return;
+    (group: RFNode[]): boolean => {
+      if (isContext) return false; // контекст read-only — перетаскивания не сохраняем
+      if (!isArchitect) return false;
       const single = group.length === 1;
       // нативные рамки считаем один раз на группу — нужны гостям/контейнерам/
       // раскрытым рамкам И детям compound-рамок (их персист-ветка гоняет тот же
@@ -285,7 +288,7 @@ export function useSnapAlignment({
           moves.push({ id: n.id, old: { x: start.x, y: start.y }, next: { x: px, y: py } });
         }
       }
-      if (Object.keys(patch).length > 0) commitLayout(patch);
+      const wrote = Object.keys(patch).length > 0 ? commitLayout(patch) : false;
 
       // Записываем перемещение в историю одной командой (вся перетянутая группа). undo/redo
       // переигрывают тот же персист+зеркало с нужной АБСОЛЮТНОЙ позицией. Позиции уже
@@ -300,17 +303,19 @@ export function useSnapAlignment({
           redo: () => apply("next"),
         });
       }
+      return wrote;
     },
     [isArchitect, isContext, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, clampOutOfNodes, rfNodes, push],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт
-  // все перетянутые узлы третьим аргументом — сохраняем их все.
+  // все перетянутые узлы третьим аргументом — сохраняем их все. Возвращает, была ли
+  // запись раскладки (false — пересчёта не будет, живое превью рёбер надо откатить).
   const handleNodeDragStop = useCallback(
-    (_event: MouseEvent, rfNode: RFNode, draggedNodes: RFNode[]) => {
+    (_event: MouseEvent, rfNode: RFNode, draggedNodes: RFNode[]): boolean => {
       dragLive.current = false; // финальное «оседание» уже пришло — сессия жеста закрыта
       setGuides({ x: null, y: null, spacing: [] }); // прячем направляющие
-      persistGroup(draggedNodes.length > 0 ? draggedNodes : [rfNode]);
+      return persistGroup(draggedNodes.length > 0 ? draggedNodes : [rfNode]);
     },
     [setGuides, persistGroup],
   );
@@ -318,10 +323,10 @@ export function useSnapAlignment({
   // Отпускание драга рамки выделения (NodesSelection) — RF тащит всю группу через
   // отдельный обработчик. Сохраняем те же узлы.
   const handleSelectionDragStop = useCallback(
-    (_event: MouseEvent, draggedNodes: RFNode[]) => {
+    (_event: MouseEvent, draggedNodes: RFNode[]): boolean => {
       dragLive.current = false;
       setGuides({ x: null, y: null, spacing: [] });
-      persistGroup(draggedNodes);
+      return persistGroup(draggedNodes);
     },
     [setGuides, persistGroup],
   );

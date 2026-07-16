@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import type { Edge as RFEdge } from "@xyflow/react";
-import { resolveDragEdge } from "../graph/interaction/useLiveDragHandles";
+import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
+import {
+  resolveDragEdge,
+  gestureAbsPositions,
+  restoreDragEdges,
+} from "../graph/interaction/useLiveDragHandles";
 import type { LabelPlacement } from "../graph/layout/labelLayout";
 import type { WrappedEdgeData } from "../graph/types";
 import type { EdgePoint } from "../../types";
@@ -153,5 +157,64 @@ describe("resolveDragEdge", () => {
     }));
     expect(out.sourceHandle).toBe("a__b__1");
     expect(out.targetHandle).toBe("b__t__1");
+  });
+});
+
+// Позиции кадра драга для живого роутера: ВСЕГДА абсолют вида. Регрессия бага
+// 2026-07-16: у детей compound-рамок position относительна рамке — сырые rel в
+// buildAutoRoutes смещали ребро ребёнка к началу координат (на -origin рамки),
+// живые маршруты резали чужие тела, плашки размещались по фантомам.
+describe("gestureAbsPositions (живой драг детей раскрытых рамок)", () => {
+  const node = (id: string, x: number, y: number, parentId?: string): RFNode =>
+    ({ id, position: { x, y }, parentId, data: {} }) as unknown as RFNode;
+
+  it("топ-узел: позиция и так абсолютна — не меняется", () => {
+    const top = node("a", 300, 400);
+    const byId = new Map([["a", top]]);
+    const base = new Map([["a", { x: 300, y: 400 }]]);
+    const out = gestureAbsPositions(base, [node("a", 350, 420)], byId);
+    expect(out.get("a")).toEqual({ x: 350, y: 420 });
+  });
+
+  it("ребёнок рамки: rel из RF конвертируется цепочкой родителей в абсолют", () => {
+    const frameNode = node("f", 960, 645); // раскрытая рамка контейнера
+    const child = node("c", 10, 20, "f");
+    const byId = new Map([["f", frameNode], ["c", child]]);
+    const base = new Map([["f", { x: 960, y: 645 }], ["c", { x: 970, y: 665 }]]);
+    // живой кадр: RF отдал ребёнку rel (30,40) — абсолют обязан быть (990,685)
+    const out = gestureAbsPositions(base, [node("c", 30, 40, "f")], byId);
+    expect(out.get("c")).toEqual({ x: 990, y: 685 });
+    expect(out.get("f")).toEqual({ x: 960, y: 645 }); // не перетаскиваемые — из базы
+  });
+
+  it("вложенная рамка: суммируется вся цепочка родителей", () => {
+    const outer = node("fo", 100, 200);
+    const inner = node("fi", 50, 60, "fo");
+    const child = node("c", 5, 10, "fi");
+    const byId = new Map([["fo", outer], ["fi", inner], ["c", child]]);
+    const base = new Map<string, { x: number; y: number }>();
+    const out = gestureAbsPositions(base, [child], byId);
+    expect(out.get("c")).toEqual({ x: 155, y: 270 });
+  });
+});
+
+// Откат живого превью: жест без записи раскладки не запускает пересчёт — рёбра с
+// перетаскиваемым концом возвращаются к объектам старта, прочие сохраняют ссылку
+// (RF не перерисует). Регрессия бага 2026-07-16: фантомные маршруты последнего
+// кадра оставались в rfEdges насовсем.
+describe("restoreDragEdges (жест без записи раскладки)", () => {
+  it("затронутые рёбра → объект старта, незатронутые → та же ссылка", () => {
+    const touched = edge("e1", "drag", "other");
+    const untouched = edge("e2", "x", "y");
+    const orig = edge("e1", "drag", "other", { autoRoute: [{ x: 0, y: 0 }, { x: 9, y: 9 }] });
+    const out = restoreDragEdges([touched, untouched], new Set(["drag"]), new Map([["e1", orig], ["e2", untouched]]));
+    expect(out[0]).toBe(orig);      // превью откатилось к снимку старта
+    expect(out[1]).toBe(untouched); // идентичность сохранена — без перерисовки
+  });
+
+  it("ребро без снимка (появилось позже) остаётся как есть", () => {
+    const e = edge("e1", "drag", "b");
+    const out = restoreDragEdges([e], new Set(["drag"]), new Map());
+    expect(out[0]).toBe(e);
   });
 });

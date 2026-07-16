@@ -295,9 +295,12 @@ function LevelGraphInner({
   // payload строки ЦЕЛИКОМ, поэтому частичный патч мержится здесь; null-патч —
   // удалить строку (сброс в авто); null-ПОЛЕ в патче попадает в merged, сервер
   // выкидывает его как None (exclude_none) — сброс отдельного поля.
+  // Возвращает, была ли запись: false — весь батч погашен дедупом/гардами, смены
+  // viewLayout (и пересчёта раскладки) НЕ будет — по этому сигналу dragStop
+  // откатывает живое превью рёбер (liveDragHandles.restore).
   const commitLayout = useCallback(
-    (patch: Record<string, Partial<ViewLayoutPayload> | null>) => {
-      if (!isArchitect || isContext) return;
+    (patch: Record<string, Partial<ViewLayoutPayload> | null>): boolean => {
+      if (!isArchitect || isContext) return false;
       // Нормализация payload для сравнения с зеркалом: null-поля эквивалентны
       // отсутствию (сервер выкидывает их exclude_none).
       const norm = (v: ViewLayoutPayload | null | undefined): string => {
@@ -315,9 +318,10 @@ function LevelGraphInner({
         if (norm(merged) === norm(viewLayout[k])) continue;
         items[k] = merged;
       }
-      if (Object.keys(items).length === 0) return;
+      if (Object.keys(items).length === 0) return false;
       guardPersist(viewsApi.saveLayout(containerId, items), onPersistError);
       onLayoutChanged?.(items);
+      return true;
     },
     [isArchitect, isContext, containerId, viewLayout, onPersistError, onLayoutChanged],
   );
@@ -617,9 +621,13 @@ function LevelGraphInner({
       noteGesture(); // изменённые пересчётом стрелки перерисовать анимированно
       history.beginGroup();
       try {
-        liveDragHandles.end();
-        handleNodeDragStop(e, n, ns);
+        // персист первым: нужен факт записи — жест без неё (нетто-сдвига нет)
+        // не сменит viewLayout и не запустит пересчёт, поэтому живое превью
+        // рёбер откатывается к состоянию старта (иначе висело бы насовсем)
+        const committed = handleNodeDragStop(e, n, ns);
+        if (!committed) liveDragHandles.restore();
       } finally {
+        liveDragHandles.end();
         history.commitGroup("Перемещение группы");
       }
     },
@@ -632,9 +640,10 @@ function LevelGraphInner({
       noteGesture();
       history.beginGroup();
       try {
-        liveDragHandles.end();
-        handleSelectionDragStop(e, ns);
+        const committed = handleSelectionDragStop(e, ns);
+        if (!committed) liveDragHandles.restore();
       } finally {
+        liveDragHandles.end();
         history.commitGroup("Перемещение группы");
       }
     },
