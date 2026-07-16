@@ -21,6 +21,7 @@ import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
+import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import ExportModal from "../components/ExportModal";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
@@ -161,6 +162,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
 
   // экспорт схемы в YAML для LLM. Область снимаем на момент открытия (nodeId=null —
   // вся схема, иначе поддерево узла), чтобы навигация её не сбила.
+  // Модалка «Доки от агента» (BYOA-дозаливка схем логики и OpenAPI-спек)
+  const [docsAgentOpen, setDocsAgentOpen] = useState(false);
   const [exportScope, setExportScope] = useState<{
     key: string;
     title: string;
@@ -941,6 +944,24 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           {/* Создание узла — перетаскиванием шаблона из боковой панели (секция
               «Добавить объект»), связи — протягиванием стрелки от хэндла узла.
               Отдельных кнопок создания в шапке больше нет. */}
+          {isArchitect && mode !== "proc" && (
+            <button
+              className="icon-btn"
+              onClick={() => setDocsAgentOpen(true)}
+              style={iconBtn}
+              title="Доки от агента — наполнить схемы логики и OpenAPI-спеки ИИ-агентом по репозиторию"
+              aria-label="Доки от агента"
+            >
+              {/* глиф-робот: голова с антенной */}
+              <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="9" width="14" height="9" rx="2" />
+                <path d="M12 9V6" /><circle cx="12" cy="4.6" r="1.3" />
+                <path d="M9.2 13.5h.01M14.8 13.5h.01" />
+                <path d="M2.8 12.5v3M21.2 12.5v3" />
+              </svg>
+            </button>
+          )}
           <button
             className="icon-btn"
             onClick={openExport}
@@ -1235,6 +1256,17 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           loadKey={exportScope.key}
           load={exportScope.load}
           onClose={() => setExportScope(null)}
+        />
+      )}
+
+      {docsAgentOpen && (
+        <DocsAgentModal
+          currentParentId={currentParentId}
+          currentParentName={currentParent?.name ?? null}
+          onClose={() => setDocsAgentOpen(false)}
+          // Применение записало доки — перечитываем уровень (мета docs узлов в
+          // инспекторе); чужие сессии догонит поллинг по бампнутому graph_rev.
+          onApplied={() => load(currentParentId)}
         />
       )}
 

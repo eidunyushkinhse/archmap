@@ -60,6 +60,11 @@ export type NodeDocKind = NodeDocMeta["kind"];
 export type NodeDocCreate = Schemas["NodeDocCreate"];
 export type NodeDocUpdate = Schemas["NodeDocUpdate"];
 
+// Дозаливка доков от ИИ-агента: отчёт превью/применения пакета archmap-docs.
+export type DocsImportReport = Schemas["DocsImportReport"];
+export type DocsLogicItem = Schemas["DocsLogicItem"];
+export type DocsSpecItem = Schemas["DocsSpecItem"];
+
 // Точка ортогональной ломаной стрелки в координатах графа (чисто фронтовое:
 // авто-маршруты роутера; в контракте геометрии стрелок больше нет).
 export type EdgePoint = { x: number; y: number };

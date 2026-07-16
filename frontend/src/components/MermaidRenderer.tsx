@@ -4,23 +4,13 @@
 // статус-строки редактора DocOverlay; без onStatus ведёт себя как раньше
 // (текст ошибки в контейнер) — NodeModal не замечает разницы.
 import { useEffect, useId, useRef } from "react";
-import type { Mermaid } from "mermaid";
+import { loadMermaid, mermaidLoaded } from "./mermaidLoader";
 
 // Статус парсинга для статус-строки редактора (Часть D ТЗ визуализации доков).
 export type MmdStatus =
   | { kind: "ok" }
   | { kind: "error"; line?: number; message: string }
   | { kind: "loading" };
-
-// Модульный синглтон: один import и один initialize на всё приложение.
-let mermaidP: Promise<Mermaid> | null = null;
-function loadMermaid(): Promise<Mermaid> {
-  mermaidP ??= import("mermaid").then((mod) => {
-    mod.default.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "strict" });
-    return mod.default;
-  });
-  return mermaidP;
-}
 
 // Номер строки из ошибки mermaid: у Jison-ошибок это hash.loc.first_line,
 // у остальных пробуем вытащить «on line N» из текста сообщения.
@@ -56,7 +46,7 @@ export default function MermaidRenderer({ chart, debounceMs = 0, onStatus }: Pro
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      if (mermaidP === null) onStatusRef.current?.({ kind: "loading" });
+      if (!mermaidLoaded()) onStatusRef.current?.({ kind: "loading" });
       try {
         const mermaid = await loadMermaid();
         if (cancelled) return;
