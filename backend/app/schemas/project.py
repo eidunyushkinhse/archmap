@@ -1,8 +1,13 @@
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
+
+# Один YAML-документ импорта (текст файла). Лимит — защита от «бомбы» в textarea.
+_ImportDoc = Annotated[str, Field(max_length=2_000_000)]
+# Максимум документов за раз (мульти-репо «Из репозитория»); с запасом.
+MAX_IMPORT_FILES = 16
 
 
 class ProjectCreate(BaseModel):
@@ -10,10 +15,12 @@ class ProjectCreate(BaseModel):
     description: str | None = None
     # Старт схемы: "blank" — пусто; "template:<id>" — преднастроенный каркас;
     # "copy:<projectId>" — глубокая копия другого проекта; "import" — схема из
-    # YAML в формате экспорта (поле import_yaml). Парсится в роутере.
+    # YAML в формате экспорта (import_yaml либо import_yamls). Парсится в роутере.
     start: str = "blank"
     # YAML схемы в формате экспорта — только при start="import".
     import_yaml: str | None = Field(default=None, max_length=2_000_000)
+    # Несколько YAML (мульти-репо): сливаются merge_imports. Приоритетнее import_yaml.
+    import_yamls: list[_ImportDoc] | None = Field(default=None, max_length=MAX_IMPORT_FILES)
 
 
 class ProjectUpdate(BaseModel):
@@ -22,19 +29,34 @@ class ProjectUpdate(BaseModel):
 
 
 class ImportPreviewIn(BaseModel):
-    """Текст YAML для dry-run проверки импорта (без записи в БД)."""
+    """YAML для dry-run проверки импорта (без записи в БД): один текст (content)
+    либо несколько (contents — мульти-репо, сливаются merge_imports)."""
 
-    content: str = Field(max_length=2_000_000)
+    content: str | None = Field(default=None, max_length=2_000_000)
+    contents: list[_ImportDoc] | None = Field(default=None, max_length=MAX_IMPORT_FILES)
 
 
 class ImportPreviewOut(BaseModel):
-    """Сводка dry-run импорта для живой валидации в модалке создания."""
+    """Сводка dry-run импорта для живой валидации в модалке создания.
+    Поля слияния заполнены и при одном файле (нулями) — фронт не ветвится."""
 
     ok: bool
     errors: list[str]  # пусто при ok=true
     node_count: int
     edge_count: int
     roots: list[str]  # имена корневых узлов (для сводки), не больше первых 8
+    files: int = 1  # сколько документов разбиралось
+    merged_count: int = 0  # узлов, склеенных из ≥2 файлов
+    merged: list[str] = []  # пути склеенных узлов, не больше первых 8
+    conflicts: list[str] = []  # расхождения полей (оставлено первое)
+    warnings: list[str] = []  # fuzzy-пары, несовпавшие корни, похожие рёбра
+    dropped_edges: int = 0  # выброшенные точные дубли рёбер
+
+
+class ImportPromptOut(BaseModel):
+    """Текст универсального промпта «Из репозитория» для ИИ-агента пользователя."""
+
+    prompt: str
 
 
 class TemplateNodeOut(BaseModel):

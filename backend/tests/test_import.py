@@ -237,3 +237,56 @@ def test_preview_roots_capped_at_8(db):
     out = import_preview(ImportPreviewIn(content=content), _user=user)
     assert out.ok and out.node_count == 10
     assert out.roots == [f"R{i}" for i in range(8)]
+
+
+# ── Мульти-файловый импорт (contents / import_yamls → merge_imports) ─────────
+
+_MULTI_A = (
+    "nodes:\n"
+    "  - name: Система\n"
+    "    children:\n"
+    "      - name: payments\n"
+    "        technology: Python\n"
+    "      - name: orders\n"
+    "edges:\n"
+    "  - from: orders\n"
+    "    to: payments\n"
+    "    label: REST\n"
+)
+def test_preview_multi_contents_merges(db):
+    user = ensure_architect(db)
+    b = "nodes:\n  - name: Система\n    children:\n      - name: orders\n        technology: Go\n"
+    out = import_preview(ImportPreviewIn(contents=[_MULTI_A, b]), _user=user)
+    assert out.ok and out.files == 2
+    assert out.node_count == 3  # Система + payments + orders (склеены)
+    assert out.merged_count == 2 and "Система" in out.merged
+    assert out.conflicts == [] and out.errors == []
+
+
+def test_preview_multi_errors_prefixed_by_file(db):
+    user = ensure_architect(db)
+    out = import_preview(
+        ImportPreviewIn(contents=[_MULTI_A, "nodes:\n  - name: [оборвано"]), _user=user
+    )
+    assert out.ok is False and out.files == 2
+    assert any(e.startswith("файл 2: ") for e in out.errors)
+
+
+def test_preview_requires_some_content(db):
+    user = ensure_architect(db)
+    with pytest.raises(HTTPException) as ei:
+        import_preview(ImportPreviewIn(), _user=user)
+    assert ei.value.status_code == 400
+
+
+def test_create_project_with_import_yamls(db):
+    """Полный цикл мульти-репо: два YAML сливаются в одну схему проекта."""
+    user = ensure_architect(db)
+    b = "nodes:\n  - name: Система\n    children:\n      - name: orders\n        technology: Go\n"
+    p = create_project(
+        ProjectCreate(name="Мульти", start="import", import_yamls=[_MULTI_A, b]),
+        db=db, user=user,
+    )
+    assert (p.object_count, p.edge_count) == (3, 1)
+    tech = {n.name: n.technology for n in db.query(Node).filter(Node.project_id == p.id)}
+    assert tech == {"Система": None, "payments": "Python", "orders": "Go"}

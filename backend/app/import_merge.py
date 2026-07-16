@@ -19,7 +19,14 @@
 from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 
-from app.import_yaml import MAX_EDGES, MAX_NODES, ParsedImport, _ImpEdge, _ImpNode
+from app.import_yaml import (
+    MAX_EDGES,
+    MAX_NODES,
+    ParsedImport,
+    _ImpEdge,
+    _ImpNode,
+    parse_import,
+)
 
 # Порог похожести имён сиблингов для предупреждения «возможно, одно и то же».
 _FUZZY_RATIO = 0.78
@@ -226,3 +233,24 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
         for e in part.edges:
             m.add_edge(e, idx_map, fi)
     return m.finish(parts)
+
+
+def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:
+    """Общий путь превью и создания: разобрать N текстов и слить. Возвращает
+    (результат, отчёт, ошибки); при любых ошибках результат None. Ошибки
+    парсинга при N>1 префиксуются «файл N: …» (нумерация с 1, как в UI)."""
+    parts: list[ParsedImport] = []
+    errors: list[str] = []
+    for i, text in enumerate(texts):
+        parsed, errs = parse_import(text)
+        if parsed is None:
+            prefix = f"файл {i + 1}: " if len(texts) > 1 else ""
+            errors.extend(prefix + e for e in errs)
+        else:
+            parts.append(parsed)
+    if errors:
+        return None, MergeReport(files=len(texts)), errors
+    merged, report = merge_imports(parts)
+    if report.errors:
+        return None, report, list(report.errors)
+    return merged, report, []

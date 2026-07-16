@@ -29,6 +29,7 @@ export type TemplateOut = Schemas["TemplateOut"];
 export type TemplateNode = Schemas["TemplateNodeOut"];
 export type TemplateEdge = Schemas["TemplateEdgeOut"];
 export type ImportPreviewOut = Schemas["ImportPreviewOut"];
+export type ImportPromptOut = Schemas["ImportPromptOut"];
 
 export type Node = Schemas["NodeResponse"];
 

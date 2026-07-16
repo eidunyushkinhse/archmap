@@ -90,7 +90,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         (e: unknown) => {
           if (!alive) return;
           const msg = e instanceof Error ? e.message : "Не удалось проверить YAML";
-          setImportSummary({ forText: text, res: { ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [] } });
+          setImportSummary({ forText: text, res: {
+            ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [],
+            files: 1, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
+          } });
         },
       );
     }, 500);

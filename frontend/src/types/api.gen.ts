@@ -55,7 +55,8 @@ export interface paths {
          * Create Project
          * @description Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
          *     "copy:<projectId>" — глубокая копия схемы другого проекта; "import" — схема
-         *     из YAML в формате экспорта (payload.import_yaml).
+         *     из YAML в формате экспорта: import_yamls (N документов, сливаются
+         *     merge_imports) либо одиночный import_yaml.
          */
         post: operations["create_project_api_v1_projects_post"];
         delete?: never;
@@ -81,6 +82,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/import/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Import Prompt
+         * @description Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
+         *     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
+         *     сливает merge_imports. Параметры вшиваются в текст (docs/plan-repo-import.md).
+         */
+        get: operations["import_prompt_api_v1_projects_import_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/import/preview": {
         parameters: {
             query?: never;
@@ -92,8 +115,9 @@ export interface paths {
         put?: never;
         /**
          * Import Preview
-         * @description Dry-run импорта YAML для живой сводки в модалке: только парсинг/валидация,
-         *     БД не трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет.
+         * @description Dry-run импорта YAML для живой сводки в модалке: парсинг/валидация каждого
+         *     документа + слияние (contents; один content — вырожденный случай), БД не
+         *     трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет.
          */
         post: operations["import_preview_api_v1_projects_import_preview_post"];
         delete?: never;
@@ -1253,15 +1277,19 @@ export interface components {
         };
         /**
          * ImportPreviewIn
-         * @description Текст YAML для dry-run проверки импорта (без записи в БД).
+         * @description YAML для dry-run проверки импорта (без записи в БД): один текст (content)
+         *     либо несколько (contents — мульти-репо, сливаются merge_imports).
          */
         ImportPreviewIn: {
             /** Content */
-            content: string;
+            content?: string | null;
+            /** Contents */
+            contents?: string[] | null;
         };
         /**
          * ImportPreviewOut
          * @description Сводка dry-run импорта для живой валидации в модалке создания.
+         *     Поля слияния заполнены и при одном файле (нулями) — фронт не ветвится.
          */
         ImportPreviewOut: {
             /** Ok */
@@ -1274,6 +1302,44 @@ export interface components {
             edge_count: number;
             /** Roots */
             roots: string[];
+            /**
+             * Files
+             * @default 1
+             */
+            files: number;
+            /**
+             * Merged Count
+             * @default 0
+             */
+            merged_count: number;
+            /**
+             * Merged
+             * @default []
+             */
+            merged: string[];
+            /**
+             * Conflicts
+             * @default []
+             */
+            conflicts: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Dropped Edges
+             * @default 0
+             */
+            dropped_edges: number;
+        };
+        /**
+         * ImportPromptOut
+         * @description Текст универсального промпта «Из репозитория» для ИИ-агента пользователя.
+         */
+        ImportPromptOut: {
+            /** Prompt */
+            prompt: string;
         };
         /**
          * IntermediateEdgeAlert
@@ -1733,6 +1799,8 @@ export interface components {
             start: string;
             /** Import Yaml */
             import_yaml?: string | null;
+            /** Import Yamls */
+            import_yamls?: string[] | null;
         };
         /**
          * ProjectPreview
@@ -2150,6 +2218,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TemplateOut"][];
+                };
+            };
+        };
+    };
+    import_prompt_api_v1_projects_import_prompt_get: {
+        parameters: {
+            query: {
+                system_name: string;
+                depth?: number;
+                lang?: "ru" | "en";
+                hints?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPromptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

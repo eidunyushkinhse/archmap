@@ -9,14 +9,17 @@
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
-from app.import_yaml import parse_import, seed_import
+from app.import_merge import parse_and_merge
+from app.import_prompt import build_import_prompt
+from app.import_yaml import seed_import
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
@@ -26,6 +29,7 @@ from app.projects import copy_project_schema
 from app.schemas.project import (
     ImportPreviewIn,
     ImportPreviewOut,
+    ImportPromptOut,
     ProjectCreate,
     ProjectPreview,
     ProjectPreviewEdge,
@@ -214,22 +218,52 @@ def get_templates(_user: User = Depends(get_current_user)) -> list[dict]:
     return list_templates()
 
 
+@router.get("/import/prompt", response_model=ImportPromptOut)
+def import_prompt(
+    system_name: str = Query(min_length=1, max_length=256),
+    depth: int = Query(default=3, ge=2, le=3),
+    lang: Literal["ru", "en"] = "ru",
+    hints: str | None = Query(default=None, max_length=2_000),
+    _user: User = Depends(require_architect),
+) -> ImportPromptOut:
+    """Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
+    один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
+    сливает merge_imports. Параметры вшиваются в текст (docs/plan-repo-import.md)."""
+    return ImportPromptOut(
+        prompt=build_import_prompt(system_name, depth=depth, lang=lang, hints=hints)
+    )
+
+
 @router.post("/import/preview", response_model=ImportPreviewOut)
 def import_preview(
     payload: ImportPreviewIn,
     _user: User = Depends(require_architect),
 ) -> ImportPreviewOut:
-    """Dry-run импорта YAML для живой сводки в модалке: только парсинг/валидация,
-    БД не трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет."""
-    parsed, errors = parse_import(payload.content)
-    if parsed is None:
-        return ImportPreviewOut(ok=False, errors=errors, node_count=0, edge_count=0, roots=[])
+    """Dry-run импорта YAML для живой сводки в модалке: парсинг/валидация каждого
+    документа + слияние (contents; один content — вырожденный случай), БД не
+    трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет."""
+    texts = payload.contents if payload.contents is not None else (
+        [payload.content] if payload.content is not None else []
+    )
+    if not texts:
+        raise HTTPException(status_code=400, detail="Не передан YAML для проверки")
+    merged, report, errors = parse_and_merge(texts)
+    if merged is None:
+        return ImportPreviewOut(
+            ok=False, errors=errors, node_count=0, edge_count=0, roots=[], files=len(texts)
+        )
     return ImportPreviewOut(
         ok=True,
         errors=[],
-        node_count=len(parsed.nodes),
-        edge_count=len(parsed.edges),
-        roots=parsed.roots[:8],
+        node_count=len(merged.nodes),
+        edge_count=len(merged.edges),
+        roots=merged.roots[:8],
+        files=len(texts),
+        merged_count=len(report.merged_paths),
+        merged=report.merged_paths[:8],
+        conflicts=report.conflicts,
+        warnings=report.warnings,
+        dropped_edges=report.dropped_edges,
     )
 
 
@@ -254,7 +288,8 @@ def create_project(
 ) -> ProjectResponse:
     """Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
     "copy:<projectId>" — глубокая копия схемы другого проекта; "import" — схема
-    из YAML в формате экспорта (payload.import_yaml)."""
+    из YAML в формате экспорта: import_yamls (N документов, сливаются
+    merge_imports) либо одиночный import_yaml."""
     project = Project(
         id=uuid.uuid4(),
         name=payload.name,
@@ -281,12 +316,15 @@ def create_project(
             raise HTTPException(status_code=404, detail="Исходный проект не найден")
         copy_project_schema(db, src_id, project.id)
     elif start == "import":
-        if not payload.import_yaml:
+        texts = payload.import_yamls if payload.import_yamls is not None else (
+            [payload.import_yaml] if payload.import_yaml else []
+        )
+        if not texts:
             raise HTTPException(status_code=400, detail="Не передан YAML для импорта")
-        parsed, errors = parse_import(payload.import_yaml)
-        if parsed is None:
+        merged, _report, errors = parse_and_merge(texts)
+        if merged is None:
             raise HTTPException(status_code=400, detail="; ".join(errors[:10]))
-        seed_import(db, project.id, parsed)
+        seed_import(db, project.id, merged)
     else:
         raise HTTPException(status_code=400, detail="Неизвестный способ старта проекта")
 
