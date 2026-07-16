@@ -194,6 +194,9 @@ def create_node(
                 payload={"x": payload.pos_x, "y": payload.pos_y},
             )
         )
+    # мир вида родителя изменился (новый локал ± строка позиции): fence + курсор
+    bump_view_version(db, project.id, payload.parent_id)
+    bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(node)
@@ -237,6 +240,20 @@ def restore_nodes(
             )
     # Восстанавливаем в текущий проект: всем воссоздаваемым узлам/связям проставляем project_id.
     restore.restore_from_snapshot(db, snapshot, project_id=project.id)
+    # Fence видам, чей мир пополнился извне поддерева: родительские виды корней
+    # снимка + виды восстановленных строк раскладки вне снимка (гостевые позиции).
+    # Виды ВНУТРИ снимка воссозданы заново — их никто не наблюдал, бамп не нужен.
+    touched_views = {
+        n.parent_id for n in snapshot.nodes if n.parent_id is None or n.parent_id not in ids
+    }
+    touched_views |= {
+        it.view_id
+        for it in snapshot.layout_items
+        if it.view_id is None or it.view_id not in ids
+    }
+    for vid in touched_views:
+        bump_view_version(db, project.id, vid)
+    bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
 
@@ -427,8 +444,21 @@ def update_node(
     node = scoped_node(db, node_id, project)
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(node, field, value)
+    data = payload.model_dump(exclude_unset=True)
+    # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле узла)
+    base_version = data.pop("base_version", None)
+    if base_version is not None and base_version != node.version:
+        raise HTTPException(status_code=409, detail="Узел изменён в другой сессии")
+    if data:
+        old_parent = node.parent_id
+        for field, value in data.items():
+            setattr(node, field, value)
+        node.version += 1
+        if "parent_id" in data and data["parent_id"] != old_parent:
+            # перенос между уровнями меняет членство ОБОИХ видов — fence обоим
+            bump_view_version(db, project.id, old_parent)
+            bump_view_version(db, project.id, data["parent_id"])
+        bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(node)
@@ -471,10 +501,25 @@ def delete_node(
     # пучков "b:<src>><tgt>"), FK не накрыты (item_id — строка) — чистим явно по
     # вхождению uuid в ключ.
     subtree = tree.collect_subtree_ids_db(db, node_id)
+    like_filter = or_(*[ViewLayoutItem.item_id.like(f"%{sid}%") for sid in subtree])
+    # Виды, из которых чистка вычистит строки (гостевые позиции и т.п.), — их мир
+    # меняется, fence должен это увидеть. Виды ВНУТРИ поддерева умирают каскадом —
+    # им версию не бампаем (строка view_state уйдёт тем же каскадом view_id).
+    touched_views = {
+        vid
+        for (vid,) in db.query(ViewLayoutItem.view_id)
+        .filter(ViewLayoutItem.project_id == project.id, like_filter)
+        .distinct()
+        .all()
+        if vid is None or vid not in subtree
+    }
     db.query(ViewLayoutItem).filter(
-        ViewLayoutItem.project_id == project.id,
-        or_(*[ViewLayoutItem.item_id.like(f"%{sid}%") for sid in subtree]),
+        ViewLayoutItem.project_id == project.id, like_filter
     ).delete(synchronize_session=False)
+    touched_views.add(node.parent_id)  # членство родительского вида изменилось
+    for vid in touched_views:
+        bump_view_version(db, project.id, vid)
+    bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.delete(node)
     db.commit()

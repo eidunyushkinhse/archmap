@@ -12,6 +12,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.edge import EdgeCreate, EdgeResponse, EdgeUpdate
 from app.schemas.restore import DeletionSnapshot
+from app.view_state import bump_graph_rev
 
 router = APIRouter(prefix="/edges", tags=["edges"])
 
@@ -38,6 +39,7 @@ def create_edge(
     # project_id проставляем сервером из текущего проекта (концы уже проверены в нём).
     edge = Edge(**payload.model_dump(), project_id=project.id)
     db.add(edge)
+    bump_graph_rev(db, project)  # курсор поллинга: связь меняет картинку уровней
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(edge)
@@ -69,6 +71,10 @@ def update_edge(
     if not edge:
         raise HTTPException(status_code=404, detail="Связь не найдена")
     data = payload.model_dump(exclude_unset=True)
+    # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле связи)
+    base_version = data.pop("base_version", None)
+    if base_version is not None and base_version != edge.version:
+        raise HTTPException(status_code=409, detail="Связь изменена в другой сессии")
 
     # Смена концов: проверяем существование узлов (в этом же проекте) и запрещаем петлю.
     # Геометрия (хэндлы/изломы/плашка) на связи больше не живёт (R3) — при смене конца
@@ -83,6 +89,9 @@ def update_edge(
 
     for field, value in data.items():
         setattr(edge, field, value)
+    if data:
+        edge.version += 1
+        bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(edge)
@@ -118,6 +127,7 @@ def delete_edge(
     edge = scoped_edge(db, edge_id, project)
     if not edge:
         raise HTTPException(status_code=404, detail="Связь не найдена")
+    bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.delete(edge)
     db.commit()

@@ -41,6 +41,10 @@ class NodeUpdate(BaseModel):
     is_external: bool | None = None
     shape: NodeShape | None = None
     status: NodeStatus | None = None
+    # CAS (этап 0 конкурентности): версия узла, от которой клиент правил. Не
+    # совпала с текущей → 409 (узел изменён другой сессией — критично для текстов
+    # flowchart/openapi_spec). None — без проверки (компенсации undo, совместимость).
+    base_version: int | None = None
 
 
 class NodeResponse(BaseModel):
@@ -59,6 +63,8 @@ class NodeResponse(BaseModel):
     # их наличия. child_count — для ранжирования узлов в дереве UI («главное» сверху).
     child_count: int = 0
     has_children: bool = False
+    # Версия для optimistic CAS: клиент шлёт её обратно как base_version в PATCH.
+    version: int = 1
     created_at: datetime
     updated_at: datetime
 

@@ -22,14 +22,14 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_architect
+from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.deps import get_current_project, scoped_node
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
-from app.schemas.node import ViewLayoutBatch, ViewLayoutResult
-from app.view_state import bump_graph_rev, lock_view_state
+from app.schemas.node import ViewLayoutBatch, ViewLayoutResult, ViewStateResponse
+from app.view_state import bump_graph_rev, current_version, lock_view_state
 
 router = APIRouter(prefix="/views", tags=["views"])
 
@@ -42,6 +42,25 @@ def parse_view_id(view_id: str) -> uuid.UUID | None:
         return uuid.UUID(view_id)
     except ValueError as e:
         raise HTTPException(status_code=422, detail="Некорректный id вида") from e
+
+
+@router.get("/{view_id}/state", response_model=ViewStateResponse)
+def get_view_state(
+    view_id: str,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> ViewStateResponse:
+    """Лёгкий опрос свежести (поллинг этапа 1): версия вида + курсор проекта.
+
+    Доступен обеим ролям — наблюдатель поллит наравне с архитектором. Удалённый
+    вид здесь не проверяется (версия просто 0): арбитр существования — рефетч
+    графа, который на мёртвом виде отдаст 404.
+    """
+    vid = parse_view_id(view_id)
+    return ViewStateResponse(
+        version=current_version(db, project.id, vid), graph_rev=project.graph_rev
+    )
 
 
 @router.put("/{view_id}/layout", response_model=ViewLayoutResult)

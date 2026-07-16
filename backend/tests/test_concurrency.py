@@ -13,10 +13,22 @@ import pytest
 from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
+from app.models.edge import Edge
 from app.models.node import Node
-from app.routers.nodes import get_root_graph, relayout_level, relayout_root_level
-from app.routers.views import save_view_layout
-from app.schemas.node import ViewLayoutBatch, ViewLayoutPayload
+from app.routers.edges import create_edge, delete_edge, update_edge
+from app.routers.nodes import (
+    create_node,
+    delete_node,
+    get_deletion_snapshot,
+    get_root_graph,
+    relayout_level,
+    relayout_root_level,
+    restore_nodes,
+    update_node,
+)
+from app.routers.views import get_view_state, save_view_layout
+from app.schemas.edge import EdgeCreate, EdgeUpdate
+from app.schemas.node import NodeCreate, NodeUpdate, ViewLayoutBatch, ViewLayoutPayload
 
 
 def _node(db, name, parent=None):
@@ -132,3 +144,175 @@ def test_relayout_bumps_fence_root_and_level(db):
     with pytest.raises(HTTPException) as e:
         _put(db, str(c.id), {str(c1.id): ViewLayoutPayload(x=2, y=2)}, base_version=1)
     assert e.value.status_code == 409
+
+
+# ── CAS смысловых правок (узлы/связи) ──────────────────────────────────────
+
+
+def _patch_node(db, node_id, **kwargs):
+    return update_node(
+        node_id,
+        NodeUpdate(**kwargs),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+
+
+def test_node_patch_cas(db):
+    n = _node(db, "N")
+    db.commit()
+    assert n.version == 1
+
+    updated = _patch_node(db, n.id, name="N2", base_version=1)
+    assert updated.version == 2 and updated.name == "N2"
+    # Та же (теперь устаревшая) версия второй раз — 409, правка не применяется.
+    with pytest.raises(HTTPException) as e:
+        _patch_node(db, n.id, flowchart="graph TD; A-->B", base_version=1)
+    assert e.value.status_code == 409
+    db.rollback()
+    assert db.get(Node, n.id).flowchart is None
+    # Без base_version — совместимость/компенсации undo: пишется без проверки.
+    unfenced = _patch_node(db, n.id, name="N3")
+    assert unfenced.version == 3
+
+
+def test_edge_patch_cas(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    db.commit()
+    e = Edge(id=uuid.uuid4(), source_id=a.id, target_id=b.id, project_id=ensure_project(db).id)
+    db.add(e)
+    db.commit()
+
+    upd = update_edge(
+        e.id,
+        EdgeUpdate(label="ok", base_version=1),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+    assert upd.version == 2
+    with pytest.raises(HTTPException) as exc:
+        update_edge(
+            e.id,
+            EdgeUpdate(label="stale", base_version=1),
+            db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
+        )
+    assert exc.value.status_code == 409
+
+
+# ── Бампы fence структурными мутациями ─────────────────────────────────────
+
+
+def test_create_and_delete_bump_root_fence(db):
+    r1 = _node(db, "R1")
+    db.commit()
+    _put(db, "root", {str(r1.id): ViewLayoutPayload(x=1, y=1)}, base_version=0)  # → v1
+
+    created = create_node(
+        NodeCreate(name="Новый", pos_x=5, pos_y=5),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )  # членство корня изменилось → v2
+    with pytest.raises(HTTPException) as e:
+        _put(db, "root", {str(r1.id): ViewLayoutPayload(x=2, y=2)}, base_version=1)
+    assert e.value.status_code == 409
+    res = _put(db, "root", {str(r1.id): ViewLayoutPayload(x=2, y=2)}, base_version=2)
+    assert res.version == 3
+
+    delete_node(created.id, db=db, project=ensure_project(db), user=ensure_architect(db))  # → v4
+    with pytest.raises(HTTPException) as e:
+        _put(db, "root", {str(r1.id): ViewLayoutPayload(x=3, y=3)}, base_version=3)
+    assert e.value.status_code == 409
+
+
+def test_delete_bumps_guest_views(db):
+    a = _node(db, "A")
+    c = _node(db, "C")
+    _node(db, "C1", c)
+    db.commit()
+
+    # Гостевая позиция узла A на виде контейнера C.
+    _put(db, str(c.id), {str(a.id): ViewLayoutPayload(x=7, y=7)}, base_version=0)  # → v1
+    delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    # Вид C потерял строку гостя — его fence сдвинут (v2), отставший батч отсечён.
+    with pytest.raises(HTTPException) as e:
+        _put(db, str(c.id), {"k": ViewLayoutPayload(x=1, y=1)}, base_version=1)
+    assert e.value.status_code == 409
+
+
+def test_parent_move_bumps_both_views(db):
+    c = _node(db, "C")
+    d = _node(db, "D")
+    x = _node(db, "X", c)
+    db.commit()
+
+    _put(db, str(c.id), {str(x.id): ViewLayoutPayload(x=1, y=1)}, base_version=0)  # C → v1
+    _put(db, str(d.id), {"seed": ViewLayoutPayload(x=1, y=1)}, base_version=0)  # D → v1
+    _patch_node(db, x.id, parent_id=d.id)
+    for view in (c, d):  # оба вида сдвинуты переносом → v2
+        with pytest.raises(HTTPException) as e:
+            _put(db, str(view.id), {"k": ViewLayoutPayload(x=2, y=2)}, base_version=1)
+        assert e.value.status_code == 409
+
+
+def test_restore_bumps_fence(db):
+    r1 = _node(db, "R1")
+    db.commit()
+    _put(db, "root", {str(r1.id): ViewLayoutPayload(x=1, y=1)}, base_version=0)  # → v1
+
+    snapshot = get_deletion_snapshot(
+        r1.id, db=db, project=ensure_project(db), _=ensure_architect(db)
+    )
+    delete_node(r1.id, db=db, project=ensure_project(db), user=ensure_architect(db))  # → v2
+    restore_nodes(snapshot, db=db, project=ensure_project(db), user=ensure_architect(db))  # → v3
+    res = _put(db, "root", {str(r1.id): ViewLayoutPayload(x=2, y=2)}, base_version=3)
+    assert res.version == 4
+
+
+# ── Поллинг: /state и graph_rev ────────────────────────────────────────────
+
+
+def test_state_endpoint_and_graph_rev_monotonic(db):
+    state = get_view_state("root", db=db, project=ensure_project(db), _=ensure_architect(db))
+    assert state.version == 0 and state.graph_rev == 0
+
+    revs = [0]
+
+    def snap():
+        s = get_view_state("root", db=db, project=ensure_project(db), _=ensure_architect(db))
+        revs.append(s.graph_rev)
+
+    a = create_node(
+        NodeCreate(name="A"), db=db, project=ensure_project(db), user=ensure_architect(db)
+    )
+    snap()
+    b = create_node(
+        NodeCreate(name="B"), db=db, project=ensure_project(db), user=ensure_architect(db)
+    )
+    snap()
+    _put(db, "root", {str(a.id): ViewLayoutPayload(x=1, y=1)})
+    snap()
+    e = create_edge(
+        EdgeCreate(source_id=a.id, target_id=b.id),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+    snap()
+    update_edge(
+        e.id, EdgeUpdate(label="l"), db=db, project=ensure_project(db), user=ensure_architect(db)
+    )
+    snap()
+    delete_edge(e.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    snap()
+    _patch_node(db, a.id, name="A2")
+    snap()
+    delete_node(b.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    snap()
+
+    # Каждая мутация двигает курсор строго вверх (в т.ч. раскладка — V48).
+    assert revs == sorted(revs) and len(set(revs)) == len(revs)

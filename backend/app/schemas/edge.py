@@ -25,6 +25,8 @@ class EdgeUpdate(BaseModel):
     target_id: uuid.UUID | None = None
     # Синхронность канала (бизнес-процессы): null=дефолт (синхронный), true/false=явный выбор
     is_synchronous: bool | None = None
+    # CAS (этап 0 конкурентности): см. NodeUpdate.base_version.
+    base_version: int | None = None
 
 
 class EdgeResponse(BaseModel):
@@ -35,6 +37,8 @@ class EdgeResponse(BaseModel):
     target_id: uuid.UUID
     # Синхронность канала: null=дефолт (синхронный), true/false=явный выбор архитектора
     is_synchronous: bool | None = None
+    # Версия для optimistic CAS: клиент шлёт её обратно как base_version в PATCH.
+    version: int = 1
     created_at: datetime
 
     model_config = {"from_attributes": True}

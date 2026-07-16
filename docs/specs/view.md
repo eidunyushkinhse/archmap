@@ -234,9 +234,11 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   строки версии закрывает savepoint. На SQLite тестов FOR UPDATE — no-op. [код]
 - **V46.** Мутации мира вида ВНЕ батча раскладки тоже бампают его версию:
   relayout уровня; создание узла (вид родителя); удаление узла (вид родителя +
-  DISTINCT-виды вычищенных строк раскладки); перенос узла между родителями
-  (оба вида). Отставший после relayout батч отсекается fence'ом.
-  [тест: backend/tests/test_concurrency.py — relayout; остальное — коммит CAS]
+  DISTINCT-виды вычищенных строк раскладки, кроме умирающих каскадом видов
+  поддерева); перенос узла между родителями (оба вида); restore снимка
+  (родительские виды корней + виды восстановленных строк вне снимка).
+  Отставший после любой из них батч отсекается fence'ом.
+  [тест: backend/tests/test_concurrency.py]
 - **V47.** `GraphResponse` несёт `version` (вида) и `graph_rev` (проекта) —
   базовая точка отсчёта клиента; `PUT layout` возвращает оба после записи
   (echo-suppression: свои записи не выглядят чужими).
@@ -246,6 +248,17 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   не read-modify-write). В отличие от `updated_at` (V12) двигается и
   раскладкой; V12 при этом в силе — updated_at раскладка по-прежнему не
   трогает. [тест: backend/tests/test_concurrency.py]
+- **V49.** CAS смысловых правок: `PATCH /nodes/{id}` и `PATCH /edges/{id}`
+  принимают `base_version`; задан и ≠ текущей версии сущности → 409, НИЧЕГО не
+  применяется (главная ценность — тексты flowchart/openapi_spec не затираются
+  молча). Успешная правка с полями бампает `version` на 1; `base_version` не
+  задан → без проверки (компенсации undo, совместимость); PATCH без полей
+  версию не двигает. `version` отдаётся в NodeResponse/EdgeResponse.
+  [тест: backend/tests/test_concurrency.py]
+- **V50.** `GET /views/{view_id}/state` → `{version, graph_rev}` — лёгкий опрос
+  свежести для поллинга, доступен обеим ролям. Мёртвый вид не проверяет
+  (версия 0): арбитр существования — рефетч графа (404).
+  [тест: backend/tests/test_concurrency.py]
 
 ## Известные ограничения (зафиксированы, не баги)
 
