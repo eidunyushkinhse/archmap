@@ -8,7 +8,7 @@ import type { Node } from "../../types";
 function n(name: string, opts: { external?: boolean; kids?: number } = {}): Node {
   return {
     id: name, name, description: null, role: null, technology: null,
-    parent_id: null, flowchart: null, openapi_spec: null,
+    parent_id: null, openapi_spec: null, docs: [],
     is_external: opts.external ?? false, shape: "service", status: "existing",
     child_count: opts.kids ?? 0, has_children: (opts.kids ?? 0) > 0,
     version: 1,

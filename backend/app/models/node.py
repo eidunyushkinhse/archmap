@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     # Только для типов/линтера: связь Node ↔ Edge SQLAlchemy резолвит по строке
     # через свой реестр в рантайме, поэтому здесь импорт не нужен (и создал бы цикл).
     from app.models.edge import Edge
+    from app.models.node_doc import NodeDoc
     from app.models.project import Project
 
 
@@ -29,7 +30,8 @@ class Node(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True
     )
-    flowchart: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Логика узла живёт в коллекции именованных схем node_docs (relationship docs
+    # ниже); прежнее единственное поле flowchart перенесено туда миграцией.
     openapi_spec: Mapped[str | None] = mapped_column(Text, nullable=True)
     # ПОЗИЦИЙ здесь больше нет (R3): координаты пер-вид, хранятся в view_layout
     # (item_id = id узла, вид = родитель).
@@ -80,4 +82,15 @@ class Node(Base):
         # без cascade на уровне ORM: рёбра «принадлежат» источнику (outgoing_edges).
         # Удаление узла-цели сносит входящие рёбра БД-каскадом (target_id ondelete CASCADE).
         passive_deletes=True,
+    )
+    # Именованные схемы логики (mermaid). lazy="selectin": мета доков едет в каждой
+    # graph-выдаче (NodeResponse.docs) — selectin грузит их одним запросом на выборку
+    # узлов, без N+1. Удаление узла сносит доки БД-каскадом (passive_deletes).
+    docs: Mapped[list["NodeDoc"]] = relationship(
+        "NodeDoc",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="NodeDoc.name",
     )

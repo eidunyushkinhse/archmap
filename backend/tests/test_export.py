@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.routers.export import export_all, export_subtree
 
 
@@ -73,15 +74,15 @@ def test_export_all_tree_and_edges(db):
 
 def test_export_omits_layout_and_documents(db):
     # Поля раскладки и вложенные документы в экспорт НЕ попадают.
-    _node(
+    n = _node(
         db,
         "Узел",
         shape="service",
-        flowchart="graph TD; A-->B",
         openapi_spec="openapi: 3.0.0",
         is_external=True,
         description="Первая строка\nвторая строка",
     )
+    db.add(NodeDoc(node_id=n.id, name="Логика", content="graph TD; A-->B"))
     db.commit()
 
     doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)

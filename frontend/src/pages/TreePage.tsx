@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi, edgesApi, exportApi } from "../api/nodes";
+import { nodesApi, nodeDocsApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
-import type { AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge, Node, NodeShape, NodeStatus, NodeUpdate, SchemaAlerts as Alerts, ViewLayout, ViewLayoutPayload } from "../types";
+import type { AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge, Node, NodeDoc, NodeDocMeta, NodeShape, NodeStatus, NodeUpdate, SchemaAlerts as Alerts, ViewLayout, ViewLayoutPayload } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import { guardPersist } from "../components/graph/interaction/persistGuard";
 import { liftEdgesToLevel } from "../components/graph/projection";
@@ -20,6 +20,7 @@ import { useRemoteSync } from "./useRemoteSync";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
+import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import ExportModal from "../components/ExportModal";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
@@ -464,15 +465,16 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   };
 
   // Семантические (версионируемые) поля узла для отката правки — без раскладки
-  // (pos/handle) и parent_id (через модалку не меняется). Совпадает с payload правки
-  // в NodeModal, поэтому update(before)/update(after) точно отменяют/повторяют правку.
+  // (pos/handle) и parent_id (через панель не меняется). Совпадает с payload правки
+  // в NodeInspector, поэтому update(before)/update(after) точно отменяют/повторяют
+  // правку. Схемы логики (node_docs) сюда не входят — у них свои команды истории
+  // (handleDocEvent).
   function nodeFields(n: Node): NodeUpdate {
     return {
       name: n.name,
       description: n.description,
       role: n.role,
       technology: n.technology,
-      flowchart: n.flowchart,
       openapi_spec: n.openapi_spec,
       is_external: n.is_external,
       shape: n.shape,
@@ -550,6 +552,65 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         undo: () => { apply(before); guardPersist(nodesApi.update(before.id, nodeFields(before)), resyncOnPersistError); },
         redo: () => { apply(saved); guardPersist(nodesApi.update(saved.id, nodeFields(saved)), resyncOnPersistError); },
       });
+    }
+  }
+
+  // ── Схемы логики узла (node_docs) ─────────────────────────────────────────
+  // Мутации из оверлея «Логика»: освежаем мету node.docs в стейте уровня и панели
+  // (счётчик в инспекторе) и кладём компенсации в Undo/Redo. Компенсации зовут
+  // docs-API БЕЗ base_version (паттерн U24: undo не спорит с fence); пересозданный
+  // док получает НОВЫЙ id — замыкание команды ведёт его в локальной переменной
+  // (извне на доки пока никто не ссылается, сохранять id, как у узлов, не нужно).
+  function applyDocsMeta(nodeId: string, mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) {
+    const patch = (n: Node): Node => (n.id === nodeId ? { ...n, docs: mut(n.docs) } : n);
+    setNodes((prev) => prev.map(patch));
+    setSelectedObject((sel) => (sel?.kind === "node" && sel.node.id === nodeId ? { kind: "node", node: patch(sel.node) } : sel));
+  }
+
+  function handleDocEvent(evt: NodeDocEvent) {
+    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation });
+    const fields = (d: NodeDoc) => ({ name: d.name, kind: d.kind, operation: d.operation, content: d.content });
+    const level = currentParentId;
+
+    if (evt.type === "edit") {
+      const { nodeId, before, after } = evt;
+      applyDocsMeta(nodeId, (ds) => ds.map((m) => (m.id === after.id ? meta(after) : m)));
+      history.push({
+        label: "Правка схемы логики",
+        level,
+        undo: () => {
+          applyDocsMeta(nodeId, (ds) => ds.map((m) => (m.id === before.id ? meta(before) : m)));
+          guardPersist(nodeDocsApi.update(nodeId, before.id, fields(before)), resyncOnPersistError);
+        },
+        redo: () => {
+          applyDocsMeta(nodeId, (ds) => ds.map((m) => (m.id === after.id ? meta(after) : m)));
+          guardPersist(nodeDocsApi.update(nodeId, after.id, fields(after)), resyncOnPersistError);
+        },
+      });
+      return;
+    }
+
+    const { nodeId } = evt;
+    let cur = evt.doc; // живой указатель: после пересоздания здесь свежий id
+    const recreate = () =>
+      guardPersist(
+        nodeDocsApi.create(nodeId, fields(cur)).then((d) => {
+          cur = d;
+          applyDocsMeta(nodeId, (ds) => [...ds, meta(d)]);
+        }),
+        resyncOnPersistError,
+      );
+    const remove = () => {
+      applyDocsMeta(nodeId, (ds) => ds.filter((m) => m.id !== cur.id));
+      guardPersist(nodeDocsApi.delete(nodeId, cur.id), resyncOnPersistError);
+    };
+
+    if (evt.type === "create") {
+      applyDocsMeta(nodeId, (ds) => [...ds, meta(evt.doc)]);
+      history.push({ label: "Создание схемы логики", level, undo: remove, redo: recreate });
+    } else {
+      applyDocsMeta(nodeId, (ds) => ds.filter((m) => m.id !== evt.doc.id));
+      history.push({ label: "Удаление схемы логики", level, undo: recreate, redo: remove });
     }
   }
 
@@ -1025,6 +1086,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
                 isArchitect={isArchitect}
                 onNodeSaved={handleNodeSaved}
                 onNodeDeleted={handleNodeDeleted}
+                onDocEvent={handleDocEvent}
                 onEdgeSaved={handleEdgeSaved}
                 onEdgeDeleted={handleEdgeDeleted}
                 onGhostGoToSource={goToGhostSource}

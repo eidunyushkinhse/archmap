@@ -13,7 +13,7 @@ function appNode(id: string): AppNode {
   return {
     id, name: id, description: null, role: null, technology: null,
     parent_id: "P", shape: "service", is_external: false, status: "existing",
-    flowchart: null, openapi_spec: null,
+    openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: false, child_count: 0,
   } as AppNode;
 }

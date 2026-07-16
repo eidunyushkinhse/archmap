@@ -16,10 +16,12 @@ from sqlalchemy.orm import Session
 from app import tree
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.view_layout import ViewLayoutItem
 from app.schemas.restore import (
     DeletionSnapshot,
     EdgeSnapshot,
+    NodeDocSnapshot,
     NodeSnapshot,
     ViewLayoutItemSnapshot,
 )
@@ -50,10 +52,14 @@ def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot
         .all()
     )
 
+    # Доки логики узлов поддерева — умрут БД-каскадом node_id вместе с узлами.
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id.in_(subtree)).all()
+
     return DeletionSnapshot(
         nodes=[NodeSnapshot.model_validate(n) for n in nodes],
         edges=[EdgeSnapshot.model_validate(e) for e in edges],
         layout_items=[ViewLayoutItemSnapshot.model_validate(r) for r in layout_rows],
+        node_docs=[NodeDocSnapshot.model_validate(d) for d in docs],
     )
 
 
@@ -102,14 +108,26 @@ def restore_from_snapshot(
                 role=ns.role,
                 technology=ns.technology,
                 parent_id=ns.parent_id,
-                flowchart=ns.flowchart,
                 openapi_spec=ns.openapi_spec,
                 is_external=ns.is_external,
                 shape=ns.shape,
                 status=ns.status,
             )
         )
-    db.flush()  # узлы существуют до рёбер/раскладки
+    db.flush()  # узлы существуют до рёбер/раскладки/доков
+
+    # Доки логики — с исходными id (redo-удаление и внешние ссылки работают по id)
+    for ds in snapshot.node_docs:
+        db.add(
+            NodeDoc(
+                id=ds.id,
+                node_id=ds.node_id,
+                name=ds.name,
+                kind=ds.kind,
+                operation=ds.operation,
+                content=ds.content,
+            )
+        )
 
     for es in snapshot.edges:
         db.add(

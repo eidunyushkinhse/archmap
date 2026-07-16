@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeEdgeInfo, NodeUpdate, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -47,6 +47,19 @@ export const nodesApi = {
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.
   relayoutLevel: (containerId: string | null): Promise<void> =>
     api.post(containerId ? `/nodes/${containerId}/relayout` : `/nodes/relayout`, {}),
+};
+
+// Именованные схемы логики узла (node_docs). Полные доки (с контентом) тянутся
+// лениво при открытии оверлея «Логика»; мета для строки инспектора едет в Node.docs.
+// PATCH — под optimistic CAS (base_version), как правки самого узла.
+export const nodeDocsApi = {
+  list: (nodeId: string): Promise<NodeDoc[]> => api.get<NodeDoc[]>(`/nodes/${nodeId}/docs`),
+  create: (nodeId: string, data: NodeDocCreate): Promise<NodeDoc> =>
+    api.post<NodeDoc>(`/nodes/${nodeId}/docs`, data),
+  update: (nodeId: string, docId: string, data: NodeDocUpdate): Promise<NodeDoc> =>
+    api.patch<NodeDoc>(`/nodes/${nodeId}/docs/${docId}`, data),
+  delete: (nodeId: string, docId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/docs/${docId}`),
 };
 
 export const viewsApi = {

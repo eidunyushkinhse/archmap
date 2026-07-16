@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -49,13 +50,27 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 role=n.role,
                 technology=n.technology,
                 parent_id=nmap.get(n.parent_id) if n.parent_id else None,
-                flowchart=n.flowchart,
                 openapi_spec=n.openapi_spec,
                 is_external=n.is_external,
                 shape=n.shape,
                 status=n.status,
             )
         )
+    db.flush()
+
+    # Доки логики узлов (node_docs) — с новыми id, перевешены на новые узлы.
+    if nmap:
+        for d in db.query(NodeDoc).filter(NodeDoc.node_id.in_(nmap.keys())).all():
+            db.add(
+                NodeDoc(
+                    id=uuid.uuid4(),
+                    node_id=nmap[d.node_id],
+                    name=d.name,
+                    kind=d.kind,
+                    operation=d.operation,
+                    content=d.content,
+                )
+            )
     db.flush()
 
     for e in db.query(Edge).filter(Edge.project_id == src_id).all():

@@ -3,7 +3,6 @@ import type { CSSProperties } from "react";
 import type { Node, NodeCreate, NodeShape, NodeStatus } from "../types";
 import { getNodeColors, STATUS_META } from "./graph/colors";
 import { nodesApi, viewsApi } from "../api/nodes";
-import MermaidRenderer from "./MermaidRenderer";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn } from "../ui/styles";
 import { useScrollEdges } from "../ui/useScrollEdges";
@@ -38,13 +37,11 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
   const [description, setDescription] = useState("");
   const [role, setRole] = useState("");
   const [technology, setTechnology] = useState("");
-  const [flowchart, setFlowchart] = useState("");
   const [openapi, setOpenapi] = useState("");
   const [isExternal, setIsExternal] = useState(false);
   const [status, setStatus] = useState<NodeStatus>("existing");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [flowTab, setFlowTab] = useState<"edit" | "preview">("edit");
 
   // Форма не редактируется: при создании — из шаблона. Используется для скрытия полей у person.
   const shape: NodeShape = templateShape ?? "service";
@@ -67,7 +64,8 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
         role: role || null,
         technology: technology || null,
         parent_id: parentId,
-        flowchart: flowchart || null,
+        // Логика (mermaid) в создание не входит: доки узла — коллекция node_docs,
+        // добавляются после создания через оверлей «Логика» в инспекторе.
         openapi_spec: openapi || null,
         is_external: isExternal,
         shape,
@@ -144,25 +142,6 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
 
       {shape !== "person" && (
         <>
-          <label style={labelStyle}>Логика (Mermaid)</label>
-          <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-            <button onClick={() => setFlowTab("edit")} style={flowTab === "edit" ? activeTab : tabBtn}>Редактор</button>
-            <button onClick={() => setFlowTab("preview")} style={flowTab === "preview" ? activeTab : tabBtn}>Превью</button>
-          </div>
-          {flowTab === "edit" ? (
-            <textarea
-              value={flowchart}
-              onChange={(e) => setFlowchart(e.target.value)}
-              style={{ ...textarea, fontFamily: "monospace", fontSize: 13 }}
-              rows={5}
-              placeholder={"graph TD\n  A[Старт] --> B[Конец]"}
-            />
-          ) : (
-            <div style={previewBox}>
-              {flowchart.trim() ? <MermaidRenderer chart={flowchart} /> : <span style={{ color: "#9ca3af" }}>Нет диаграммы</span>}
-            </div>
-          )}
-
           <label style={labelStyle}>OpenAPI YAML</label>
           <textarea
             value={openapi}
@@ -191,17 +170,6 @@ const textarea: CSSProperties = {
   display: "block", width: "100%", marginBottom: 10, padding: "9px 11px",
   border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, boxSizing: "border-box",
   color: "#0f172a", resize: "vertical",
-};
-const tabBtn: CSSProperties = {
-  padding: "5px 14px", border: "1px solid #e2e8f0", borderRadius: 8,
-  background: "#f1f5f9", color: "#475569", cursor: "pointer", fontSize: 13, fontWeight: 600,
-};
-const activeTab: CSSProperties = {
-  padding: "5px 14px", border: "1px solid #2563eb", borderRadius: 8,
-  background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600,
-};
-const previewBox: CSSProperties = {
-  border: "1px solid #e5e7eb", borderRadius: 6, padding: 12, minHeight: 60, marginBottom: 10, background: "#fafafa",
 };
 const errStyle: CSSProperties = { color: "#dc2626", margin: "0 0 8px" };
 const toggleRow: CSSProperties = {

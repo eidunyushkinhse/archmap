@@ -12,6 +12,7 @@ import { isConflict } from "../../api/client";
 import { ShapeGlyph, Chevron } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import DocOverlay from "./DocOverlay";
+import type { NodeDocEvent } from "./FlowchartDocs";
 import "../NodeTreePanel.css"; // классы nt-tree/nt-row для справочной ветки детей
 import "./inspector.css";
 
@@ -21,11 +22,14 @@ interface Props {
   // Тот же обработчик, что у модалки: кладёт правку в Undo/Redo. before — узел ДО правки.
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
+  // Мутации схем логики (node_docs) из оверлея: TreePage кладёт компенсации в
+  // Undo/Redo и освежает мету node.docs в стейте уровня.
+  onDocEvent: (evt: NodeDocEvent) => void;
 }
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
-export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted }: Props) {
+export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onDocEvent }: Props) {
   // Локальные значения полей. Сбрасываются на смену выбора: ObjectInspector монтирует
   // NodeInspector с key=node.id, поэтому при выборе другого узла компонент перемонтируется.
   const [name, setName] = useState(node.name);
@@ -48,8 +52,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const isPerson = shape === "person";
 
   // Единый коммит: собирает полный NodeUpdate из локального состояния + правленого поля
-  // (over перекрывает то, что ещё не доехало в стейт на момент blur). Тяжёлые поля берём
-  // из beforeRef (последнее сохранённое) — их меняет только DocOverlay через over.
+  // (over перекрывает то, что ещё не доехало в стейт на момент blur). Тяжёлое поле
+  // openapi_spec берём из beforeRef (последнее сохранённое) — его меняет только
+  // DocOverlay через over; схемы логики живут отдельным API (node_docs), не здесь.
   const save = useCallback(
     async (over: Partial<NodeUpdate>) => {
       const before = beforeRef.current;
@@ -58,7 +63,6 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         description: description || null,
         role: role || null,
         technology: technology || null,
-        flowchart: before.flowchart,
         openapi_spec: before.openapi_spec,
         is_external: isExternal,
         shape: before.shape,
@@ -126,10 +130,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
     setStatus(st);
     void save({ status: st });
   };
-  const commitDoc = (field: "flowchart" | "openapi_spec", value: string) => {
-    const cur = (beforeRef.current[field] as string | null) ?? "";
-    if (value === cur) return;
-    void save(field === "flowchart" ? { flowchart: value || null } : { openapi_spec: value || null });
+  const commitOpenapi = (value: string) => {
+    if (value === (beforeRef.current.openapi_spec ?? "")) return;
+    void save({ openapi_spec: value || null });
   };
 
   const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
@@ -287,11 +290,13 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       {!isPerson && (
         <>
           <div className="insp-block-label">Документация</div>
-          {(isArchitect || node.flowchart) && (
+          {(isArchitect || node.docs.length > 0) && (
             <button type="button" className="insp-heavy" onClick={() => setDoc("flowchart")}>
               <span className="insp-heavy-ico">{META_ICON.flow}</span>
               <span className="insp-heavy-name">Логика</span>
-              <span className="insp-heavy-status">{node.flowchart ? "открыть →" : "не задано"}</span>
+              <span className="insp-heavy-status">
+                {node.docs.length > 0 ? `${node.docs.length} ${pluralScheme(node.docs.length)} →` : "не задано"}
+              </span>
             </button>
           )}
           {(isArchitect || node.openapi_spec) && (
@@ -322,11 +327,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       {doc && (
         <DocOverlay
           mode={doc}
+          nodeId={node.id}
           nodeName={node.name}
-          flowchart={node.flowchart ?? ""}
           openapi={node.openapi_spec ?? ""}
           isArchitect={isArchitect}
-          onCommit={commitDoc}
+          onCommitOpenapi={commitOpenapi}
+          onDocEvent={onDocEvent}
           onClose={() => setDoc(null)}
           notice={conflict}
         />
@@ -433,6 +439,14 @@ function pluralObj(n: number): string {
   if (m10 === 1 && m100 !== 11) return "объект";
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "объекта";
   return "объектов";
+}
+
+// «1 схема / 2 схемы / 5 схем» — счётчик доков логики в строке «Документация».
+function pluralScheme(n: number): string {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return "схема";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "схемы";
+  return "схем";
 }
 
 // Форма узла → человекочитаемая подпись типа.

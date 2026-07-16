@@ -6,7 +6,11 @@
 Формат — [README.md](README.md).
 
 Данные (БД): `Node {id, name, description?, role?, technology?, parent_id?,
-shape, status, is_external, flowchart?, openapi_spec?}`. Гость (GhostNode) —
+shape, status, is_external, openapi_spec?}` + коллекция именованных схем логики
+`NodeDoc {id, node_id, name, kind: overview|operation|worker, operation?,
+content, version}` (уникальность имени в пределах узла; мета едет в
+`NodeResponse.docs`, контент — лениво GET /nodes/{id}/docs; прежнее одиночное
+поле flowchart перенесено миграцией в док «Логика»). Гость (GhostNode) —
 запись реестра endpoints, состав — guest.md §1.
 Код: `graph/{nodes,shapes,boundaries}.tsx`, `graph/colors.ts`,
 `graph/layout/{separateNodes,separateRects,overlapConstraints,level,engine}.ts`,

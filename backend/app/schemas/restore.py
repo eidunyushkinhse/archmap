@@ -12,6 +12,7 @@ import uuid
 from pydantic import BaseModel
 
 from app.schemas.node import NodeShape, NodeStatus
+from app.schemas.node_doc import NodeDocKind
 
 
 class NodeSnapshot(BaseModel):
@@ -21,11 +22,24 @@ class NodeSnapshot(BaseModel):
     role: str | None = None
     technology: str | None = None
     parent_id: uuid.UUID | None = None
-    flowchart: str | None = None
     openapi_spec: str | None = None
     is_external: bool = False
     shape: NodeShape = "service"
     status: NodeStatus = "existing"
+
+    model_config = {"from_attributes": True}
+
+
+class NodeDocSnapshot(BaseModel):
+    """Док логики узла (node_docs) — умирает БД-каскадом вместе с узлом,
+    восстанавливается с исходным id."""
+
+    id: uuid.UUID
+    node_id: uuid.UUID
+    name: str
+    kind: NodeDocKind = "overview"
+    operation: str | None = None
+    content: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -53,8 +67,11 @@ class ViewLayoutItemSnapshot(BaseModel):
 
 class DeletionSnapshot(BaseModel):
     """Полный снимок того, что исчезнет при удалении узла: поддерево узлов,
-    инцидентные рёбра и строки раскладки. Достаточно для точного восстановления."""
+    их доки логики, инцидентные рёбра и строки раскладки. Достаточно для
+    точного восстановления."""
 
     nodes: list[NodeSnapshot]
     edges: list[EdgeSnapshot]
     layout_items: list[ViewLayoutItemSnapshot] = []
+    # Дефолт [] — снимки, снятые до появления доков (в памяти живой сессии), валидны
+    node_docs: list[NodeDocSnapshot] = []

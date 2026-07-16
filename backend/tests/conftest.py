@@ -18,6 +18,7 @@ from app.models.edge import Edge  # noqa: F401
 
 # Импортируем все модели, чтобы они зарегистрировались в Base.metadata до create_all.
 from app.models.node import Node  # noqa: F401
+from app.models.node_doc import NodeDoc  # noqa: F401
 from app.models.process_fragment import ProcessFragment  # noqa: F401
 from app.models.process_message import ProcessMessage  # noqa: F401
 from app.models.process_participant import ProcessParticipant  # noqa: F401

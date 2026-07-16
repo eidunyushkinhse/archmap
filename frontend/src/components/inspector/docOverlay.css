@@ -82,6 +82,65 @@
   min-height: 0;
 }
 
+/* ── режим «Логика»: колонка «панель схем + сплит» (FlowchartDocs) ─────────── */
+
+.doc-flowwrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.doc-flowbody {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* Панель управления схемами: переключатель, имя, вид, операция, кнопки */
+.doc-sub {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eef0f2;
+  background: #fbfcfd;
+}
+.doc-subsel,
+.doc-subfield {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 12.5px;
+  font-family: inherit;
+  padding: 6px 9px;
+  min-width: 0;
+}
+.doc-subsel { max-width: 300px; cursor: pointer; }
+.doc-subfield--name { flex: 1; max-width: 260px; font-weight: 600; }
+.doc-subgap { flex: 1; }
+.doc-subbtn {
+  flex: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 6px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.doc-subbtn:hover { background: #f1f5f9; }
+.doc-subbtn--danger {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .doc-foot {
   flex: none;
   padding: 9px 16px;

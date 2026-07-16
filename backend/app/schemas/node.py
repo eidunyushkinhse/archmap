@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.node_doc import NodeDocMeta
+
 # C4-формы узла. Источник правды контракта — этот Literal; фронтовый NodeShape
 # генерируется из него (openapi-typescript). Заодно серверная валидация shape.
 NodeShape = Literal["service", "database", "broker", "person"]
@@ -18,7 +20,8 @@ class NodeCreate(BaseModel):
     role: str | None = None
     technology: str | None = None
     parent_id: uuid.UUID | None = None
-    flowchart: str | None = None
+    # Логика узла (mermaid) в создание не входит: доки — коллекция node_docs,
+    # создаются после узла своим API (POST /nodes/{id}/docs).
     openapi_spec: str | None = None
     is_external: bool = False
     shape: NodeShape = "service"
@@ -36,14 +39,14 @@ class NodeUpdate(BaseModel):
     role: str | None = None
     technology: str | None = None
     parent_id: uuid.UUID | None = None
-    flowchart: str | None = None
     openapi_spec: str | None = None
     is_external: bool | None = None
     shape: NodeShape | None = None
     status: NodeStatus | None = None
     # CAS (этап 0 конкурентности): версия узла, от которой клиент правил. Не
-    # совпала с текущей → 409 (узел изменён другой сессией — критично для текстов
-    # flowchart/openapi_spec). None — без проверки (компенсации undo, совместимость).
+    # совпала с текущей → 409 (узел изменён другой сессией — критично для текста
+    # openapi_spec). None — без проверки (компенсации undo, совместимость).
+    # У доков логики (node_docs) — свой version/base_version в их PATCH.
     base_version: int | None = None
 
 
@@ -54,8 +57,10 @@ class NodeResponse(BaseModel):
     role: str | None
     technology: str | None
     parent_id: uuid.UUID | None
-    flowchart: str | None
     openapi_spec: str | None
+    # Мета доков логики (без content — контент лениво GET /nodes/{id}/docs при
+    # открытии оверлея). Наполняется relationship Node.docs (lazy="selectin").
+    docs: list[NodeDocMeta] = []
     is_external: bool
     shape: NodeShape
     status: NodeStatus

@@ -502,6 +502,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Docs */
+        get: operations["list_docs_api_v1_nodes__node_id__docs_get"];
+        put?: never;
+        /** Create Doc */
+        post: operations["create_doc_api_v1_nodes__node_id__docs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/docs/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Doc */
+        delete: operations["delete_doc_api_v1_nodes__node_id__docs__doc_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Doc */
+        patch: operations["update_doc_api_v1_nodes__node_id__docs__doc_id__patch"];
+        trace?: never;
+    };
     "/api/v1/edges/": {
         parameters: {
             query?: never;
@@ -968,7 +1004,8 @@ export interface components {
         /**
          * DeletionSnapshot
          * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов,
-         *     инцидентные рёбра и строки раскладки. Достаточно для точного восстановления.
+         *     их доки логики, инцидентные рёбра и строки раскладки. Достаточно для
+         *     точного восстановления.
          */
         DeletionSnapshot: {
             /** Nodes */
@@ -980,6 +1017,11 @@ export interface components {
              * @default []
              */
             layout_items: components["schemas"]["ViewLayoutItemSnapshot"][];
+            /**
+             * Node Docs
+             * @default []
+             */
+            node_docs: components["schemas"]["NodeDocSnapshot"][];
         };
         /**
          * DisconnectedNodeAlert
@@ -1517,8 +1559,6 @@ export interface components {
             technology?: string | null;
             /** Parent Id */
             parent_id?: string | null;
-            /** Flowchart */
-            flowchart?: string | null;
             /** Openapi Spec */
             openapi_spec?: string | null;
             /**
@@ -1542,6 +1582,128 @@ export interface components {
             pos_x?: number | null;
             /** Pos Y */
             pos_y?: number | null;
+        };
+        /** NodeDocCreate */
+        NodeDocCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @default overview
+             * @enum {string}
+             */
+            kind: "overview" | "operation" | "worker";
+            /** Operation */
+            operation?: string | null;
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+        };
+        /**
+         * NodeDocMeta
+         * @description Лёгкая мета дока для NodeResponse (без content — контент лениво GET-ом).
+         */
+        NodeDocMeta: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "overview" | "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+        };
+        /** NodeDocResponse */
+        NodeDocResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "overview" | "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * NodeDocSnapshot
+         * @description Док логики узла (node_docs) — умирает БД-каскадом вместе с узлом,
+         *     восстанавливается с исходным id.
+         */
+        NodeDocSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @default overview
+             * @enum {string}
+             */
+            kind: "overview" | "operation" | "worker";
+            /** Operation */
+            operation?: string | null;
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+        };
+        /** NodeDocUpdate */
+        NodeDocUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Kind */
+            kind?: ("overview" | "operation" | "worker") | null;
+            /** Operation */
+            operation?: string | null;
+            /** Content */
+            content?: string | null;
+            /** Base Version */
+            base_version?: number | null;
         };
         /**
          * NodeEdgeInfo
@@ -1587,10 +1749,13 @@ export interface components {
             technology: string | null;
             /** Parent Id */
             parent_id: string | null;
-            /** Flowchart */
-            flowchart: string | null;
             /** Openapi Spec */
             openapi_spec: string | null;
+            /**
+             * Docs
+             * @default []
+             */
+            docs: components["schemas"]["NodeDocMeta"][];
             /** Is External */
             is_external: boolean;
             /**
@@ -1646,8 +1811,6 @@ export interface components {
             technology?: string | null;
             /** Parent Id */
             parent_id?: string | null;
-            /** Flowchart */
-            flowchart?: string | null;
             /** Openapi Spec */
             openapi_spec?: string | null;
             /**
@@ -1680,8 +1843,6 @@ export interface components {
             technology?: string | null;
             /** Parent Id */
             parent_id?: string | null;
-            /** Flowchart */
-            flowchart?: string | null;
             /** Openapi Spec */
             openapi_spec?: string | null;
             /** Is External */
@@ -3022,6 +3183,146 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_docs_api_v1_nodes__node_id__docs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeDocResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_doc_api_v1_nodes__node_id__docs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NodeDocCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeDocResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_doc_api_v1_nodes__node_id__docs__doc_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_doc_api_v1_nodes__node_id__docs__doc_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NodeDocUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeDocResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

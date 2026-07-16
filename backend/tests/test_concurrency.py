@@ -168,10 +168,10 @@ def test_node_patch_cas(db):
     assert updated.version == 2 and updated.name == "N2"
     # Та же (теперь устаревшая) версия второй раз — 409, правка не применяется.
     with pytest.raises(HTTPException) as e:
-        _patch_node(db, n.id, flowchart="graph TD; A-->B", base_version=1)
+        _patch_node(db, n.id, openapi_spec="openapi: 3.0.0", base_version=1)
     assert e.value.status_code == 409
     db.rollback()
-    assert db.get(Node, n.id).flowchart is None
+    assert db.get(Node, n.id).openapi_spec is None
     # Без base_version — совместимость/компенсации undo: пишется без проверки.
     unfenced = _patch_node(db, n.id, name="N3")
     assert unfenced.version == 3

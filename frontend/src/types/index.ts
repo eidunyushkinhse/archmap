@@ -52,6 +52,14 @@ export const withoutPersons = (nodes: Node[]): Node[] =>
 export type NodeCreate = Schemas["NodeCreate"];
 export type NodeUpdate = Schemas["NodeUpdate"];
 
+// Именованные схемы логики узла (node_docs): мета едет в Node.docs, полный док
+// (с контентом) — лениво GET-ом при открытии оверлея «Логика».
+export type NodeDoc = Schemas["NodeDocResponse"];
+export type NodeDocMeta = Schemas["NodeDocMeta"];
+export type NodeDocKind = NodeDocMeta["kind"];
+export type NodeDocCreate = Schemas["NodeDocCreate"];
+export type NodeDocUpdate = Schemas["NodeDocUpdate"];
+
 // Точка ортогональной ломаной стрелки в координатах графа (чисто фронтовое:
 // авто-маршруты роутера; в контракте геометрии стрелок больше нет).
 export type EdgePoint = { x: number; y: number };

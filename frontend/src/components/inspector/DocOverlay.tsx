@@ -1,26 +1,29 @@
-// Оверлей тяжёлых полей меты (Логика / OpenAPI) — тонкий shell: шапка с тегом
-// формата, футер-подсказка и выбор режима. Тело наполняют FlowchartDoc /
-// OpenApiDoc (сплит «код | живое превью»); семантика сохранения прежняя —
-// blur textarea → onCommit → nodesApi.update → история (страховка при
-// размонтировании — в DocEditorColumn). Наблюдателю — сразу рендер, код по кнопке.
+// Оверлей тяжёлой документации узла (Логика / OpenAPI) — тонкий shell: шапка с
+// тегом формата, футер-подсказка и выбор режима. Режим «Логика» наполняет
+// FlowchartDocs (коллекция именованных схем node_docs — свой фетч, CRUD и CAS
+// внутри, мутации репортятся onDocEvent для Undo/меты); режим OpenAPI — прежний
+// OpenApiDoc (blur → onCommitOpenapi → nodesApi.update → история). Наблюдателю —
+// сразу рендер, код по кнопке.
 import { useCallback, useState } from "react";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
-import FlowchartDoc from "./FlowchartDoc";
+import FlowchartDocs from "./FlowchartDocs";
+import type { NodeDocEvent } from "./FlowchartDocs";
 import OpenApiDoc from "./OpenApiDoc";
 import "./docOverlay.css";
 
 interface Props {
   mode: "flowchart" | "openapi";
+  nodeId: string;
   nodeName: string;
-  flowchart: string;
   openapi: string;
   isArchitect: boolean;
-  onCommit: (field: "flowchart" | "openapi_spec", value: string) => void;
+  onCommitOpenapi: (value: string) => void;
+  onDocEvent: (evt: NodeDocEvent) => void;
   onClose: () => void;
-  // Уведомление о конфликте конкурентных сессий (409 CAS от NodeInspector.save):
-  // сохранение из оверлея не применилось — показываем прямо в шапке, панель за
-  // модалкой пользователь не видит.
+  // Уведомление о конфликте конкурентных сессий (409 CAS от NodeInspector.save,
+  // режим OpenAPI): сохранение не применилось — показываем прямо в шапке, панель
+  // за модалкой пользователь не видит. У схем логики свой баннер в FlowchartDocs.
   notice?: string | null;
 }
 
@@ -29,13 +32,12 @@ function shortVersion(v: string): string {
   return v.split(".").slice(0, 2).join(".");
 }
 
-export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchitect, onCommit, onClose, notice }: Props) {
+export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose, notice }: Props) {
   const [showCode, setShowCode] = useState(false);
   // Версия OAS из последнего валидного парса спеки (шлёт OpenApiDoc)
   const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
 
-  const commitFlow = useCallback((v: string) => onCommit("flowchart", v), [onCommit]);
-  const commitApi = useCallback((v: string) => onCommit("openapi_spec", v), [onCommit]);
+  const commitApi = useCallback((v: string) => onCommitOpenapi(v), [onCommitOpenapi]);
 
   const isFlow = mode === "flowchart";
   const foot = !isArchitect
@@ -79,11 +81,11 @@ export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchi
 
         <div className="doc-body">
           {isFlow ? (
-            <FlowchartDoc
-              initial={flowchart}
+            <FlowchartDocs
+              nodeId={nodeId}
               isArchitect={isArchitect}
               showCode={showCode}
-              onCommit={commitFlow}
+              onDocEvent={onDocEvent}
             />
           ) : (
             <OpenApiDoc
