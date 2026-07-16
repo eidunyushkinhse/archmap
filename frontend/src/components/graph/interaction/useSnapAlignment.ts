@@ -1,5 +1,7 @@
 // Магнитное выравнивание узлов по центру при драге + персист позиции по отпусканию.
-import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
+// Плюс клавиатурный сдвиг узлов (стрелки, RF a11y): без снапа, с клампами, серия
+// нажатий персистится дебаунсом одной командой истории.
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
 import type { History } from "./useHistory";
@@ -31,18 +33,77 @@ interface Params {
   commitLayout: (items: Record<string, { x: number; y: number }>) => void;
   // запись действия в историю Undo/Redo (перемещение группы = одна команда)
   push?: History["push"];
+  // открыть «окно жеста» анимаций (drawIn изменившихся стрелок) — зовём на флаше
+  // клавиатурной серии, как dragStop зовёт его на отпускании драга
+  noteGesture?: () => void;
 }
+
+// Дебаунс персиста клавиатурной серии: серия нажатий стрелок = один жест
+// (одна команда Undo, один батч view_layout), пауза длиннее — жест закончен.
+const KB_FLUSH_MS = 500;
 
 export function useSnapAlignment({
   rfNodes, onNodesChange, setGuides, isArchitect, isContext,
-  ancestorIds, ancestorNames, commitLayout, push,
+  ancestorIds, ancestorNames, commitLayout, push, noteGesture,
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
   // Заполняется noteDragStart на onNodeDragStart/onSelectionDragStart (до сдвига).
   // Храним АБСОЛЮТ вида: дети compound-рамок (R4) несут относительные координаты,
   // а undo/redo переигрывают commitLayout — он ждёт абсолюта.
   const startPos = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Идёт ли МЫШИНЫЙ жест: position-изменения драга помечены dragging, но финальное
+  // «оседание» на отпускании приходит с dragging=false — отличить его от клавиатурного
+  // сдвига можно только флагом сессии (ставится на старте жеста и первом dragging-
+  // изменении, снимается в dragStop ПОСЛЕ оседания).
+  const dragLive = useRef(false);
+  // Клавиатурная серия (стрелки, RF a11y): старт — абсолют ДО первого сдвига,
+  // финал перезаписывается каждым нажатием; флаш — дебаунсом KB_FLUSH_MS.
+  const kbStart = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const kbNext = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const kbTimer = useRef<number | null>(null);
+
+  // Флаш клавиатурной серии: один батч персиста + одна команда истории + окно жеста
+  // (изменившиеся стрелки перерисуются drawIn — как после отпускания драга).
+  // У наблюдателя и в контексте сдвиг эфемерен (та же семантика, что у драга).
+  const flushKeyboard = useCallback(() => {
+    if (kbTimer.current != null) { clearTimeout(kbTimer.current); kbTimer.current = null; }
+    const start = kbStart.current;
+    const next = kbNext.current;
+    kbStart.current = new Map();
+    kbNext.current = new Map();
+    if (next.size === 0 || !isArchitect || isContext) return;
+    type Move = { id: string; old: { x: number; y: number }; next: { x: number; y: number } };
+    const moves: Move[] = [];
+    for (const [id, pos] of next) {
+      const old = start.get(id);
+      if (old && (old.x !== pos.x || old.y !== pos.y)) moves.push({ id, old, next: pos });
+    }
+    if (moves.length === 0) return;
+    noteGesture?.();
+    commitLayout(Object.fromEntries(moves.map((m) => [m.id, m.next])));
+    if (push) {
+      const apply = (which: "old" | "next") => {
+        commitLayout(Object.fromEntries(moves.map((m) => [m.id, m[which]])));
+      };
+      push({
+        label: moves.length > 1 ? "Перемещение группы" : "Перемещение",
+        undo: () => apply("old"),
+        redo: () => apply("next"),
+      });
+    }
+  }, [isArchitect, isContext, commitLayout, push, noteGesture]);
+  // Латест-реф: таймер и cleanup зовут свежий флаш (commitLayout меняет идентичность).
+  const flushKeyboardRef = useRef(flushKeyboard);
+  useEffect(() => { flushKeyboardRef.current = flushKeyboard; });
+  // Незакрытая серия не теряется на размонтировании (смена уровня и т.п.).
+  useEffect(() => () => {
+    if (kbTimer.current != null) clearTimeout(kbTimer.current);
+    flushKeyboardRef.current();
+  }, []);
+
   const noteDragStart = useCallback((group: RFNode[]) => {
+    flushKeyboardRef.current(); // мышиный жест закрывает висящую клавиатурную серию
+    dragLive.current = true;
     const byId = new Map(rfNodes.map((n) => [n.id, n]));
     startPos.current = new Map(group.map((n) => [n.id, absPositionOf(n, byId)]));
   }, [rfNodes]);
@@ -247,6 +308,7 @@ export function useSnapAlignment({
   // все перетянутые узлы третьим аргументом — сохраняем их все.
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent, rfNode: RFNode, draggedNodes: RFNode[]) => {
+      dragLive.current = false; // финальное «оседание» уже пришло — сессия жеста закрыта
       setGuides({ x: null, y: null, spacing: [] }); // прячем направляющие
       persistGroup(draggedNodes.length > 0 ? draggedNodes : [rfNode]);
     },
@@ -257,6 +319,7 @@ export function useSnapAlignment({
   // отдельный обработчик. Сохраняем те же узлы.
   const handleSelectionDragStop = useCallback(
     (_event: MouseEvent, draggedNodes: RFNode[]) => {
+      dragLive.current = false;
       setGuides({ x: null, y: null, spacing: [] });
       persistGroup(draggedNodes);
     },
@@ -282,9 +345,48 @@ export function useSnapAlignment({
       // чужих рамок. Считаем по числу одновременных position-изменений драга.
       const multiDrag =
         changes.filter((c) => c.type === "position" && c.dragging).length > 1;
+      // Групповой клавиатурный сдвиг (двигается всё выделение разом): узловой кламп
+      // не применяем — как в мультидраге, иначе члены группы клампились бы друг о
+      // друга и рвали взаимные интервалы.
+      const kbGroup =
+        changes.filter((c) => c.type === "position" && c.position && !c.dragging).length > 1;
       const snapped = changes.map((change) => {
         if (change.type !== "position" || !change.position) return change;
+        if (change.dragging) dragLive.current = true;
         const dragged = rfNodes.find((n) => n.id === change.id);
+        // КЛАВИАТУРНЫЙ сдвиг (стрелки, RF a11y): position-изменение вне мышиного
+        // жеста. БЕЗ магнитного снапа — 1px-шаги точной доводки снап затягивал бы
+        // обратно на линию соседа (узел «прилипал» и не двигался). Клампы — те же,
+        // что у живого драга; серия нажатий копится и персистится флашем.
+        if (!change.dragging && !dragLive.current) {
+          if (!dragged) return change;
+          const byId = new Map(rfNodes.map((n) => [n.id, n]));
+          const parent = dragged.parentId ? byId.get(dragged.parentId) : undefined;
+          const pAbs = parent ? absPositionOf(parent, byId) : null;
+          const { w: kw, h: kh } = nodeSize(dragged);
+          let abs = pAbs
+            ? { x: pAbs.x + change.position.x, y: pAbs.y + change.position.y }
+            : { x: change.position.x, y: change.position.y };
+          if (pAbs || dragged.type === "ghost" || dragged.type === "container") {
+            frames ??= levelFrames();
+            abs = clampOutOfNativeFrames(dragged.id, abs, frames);
+          }
+          abs = clampOutOfCompound(dragged.id, abs, kw, kh);
+          if (!kbGroup) abs = clampOutOfNodes(dragged.id, abs, kw, kh);
+          if (!kbStart.current.has(dragged.id)) {
+            kbStart.current.set(dragged.id, absPositionOf(dragged, byId));
+          }
+          kbNext.current.set(dragged.id, abs);
+          if (kbTimer.current != null) clearTimeout(kbTimer.current);
+          kbTimer.current = window.setTimeout(() => {
+            kbTimer.current = null;
+            flushKeyboardRef.current();
+          }, KB_FLUSH_MS);
+          return {
+            ...change,
+            position: pAbs ? { x: abs.x - pAbs.x, y: abs.y - pAbs.y } : abs,
+          };
+        }
         // Ребёнок compound-рамки (R4): координаты драга — в системе рамки. ЖИВОЙ
         // кламп (2026-07-08, бывший хвост «кламп только на отпускании»): переводим
         // в абсолют, применяем ПОЛНЫЙ набор запретов (родные рамки + чужие раскрытые

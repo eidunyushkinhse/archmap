@@ -501,6 +501,7 @@ function LevelGraphInner({
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
     rfNodes, onNodesChange, setGuides, isArchitect, isContext,
     ancestorIds, ancestorNames, commitLayout: commitLayoutStable, push: history.push,
+    noteGesture, // флаш клавиатурной серии открывает окно жеста, как отпускание драга
   });
 
   // Поток 'dimensions'-изменений RF (замер узлов) → накопление реальных габаритов и
