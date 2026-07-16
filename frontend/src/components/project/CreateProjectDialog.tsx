@@ -24,7 +24,9 @@ interface Props {
   onCreated: (id: string) => void;
 }
 
-type StartMode = "blank" | "template" | "copy" | "import";
+// "repo" — «Из репозитория»: генератор промпта для ИИ-агента пользователя +
+// та же панель импорта (создание идёт как start="import" с import_yamls).
+type StartMode = "blank" | "template" | "copy" | "import" | "repo";
 
 // Линейные SVG-глифы шаблонов (currentColor, без эмодзи), по id из каталога.
 function TemplateGlyph({ id, size = 18 }: { id: string; size?: number }) {
@@ -63,6 +65,12 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [importSummary, setImportSummary] = useState<{ forDocs: string[]; res: ImportPreviewOut } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Параметры промпта «Из репозитория» (имя системы = название проекта).
+  const [promptDepth, setPromptDepth] = useState<2 | 3>(3);
+  const [promptLang, setPromptLang] = useState<"ru" | "en">("ru");
+  const [promptHints, setPromptHints] = useState("");
+  const [promptBusy, setPromptBusy] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
 
   // Загрузка каталога шаблонов (легитимный эффект). По умолчанию выбран webapp,
   // иначе первый из ответа.
@@ -84,7 +92,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // сводку не запрашивают — она скрыта по несовпадению forDocs, синхронного
   // сброса стейта в эффекте нет.
   useEffect(() => {
-    if (mode !== "import") return;
+    if (mode !== "import" && mode !== "repo") return;
     const forDocs = docs;
     const texts = forDocs.filter((d) => d.trim());
     if (texts.length === 0) return;
@@ -110,13 +118,37 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const summary = importSummary && importSummary.forDocs === docs && docs.some((d) => d.trim())
     ? importSummary.res
     : null;
+  const importish = mode === "import" || mode === "repo";
 
   const canSubmit =
     name.trim().length > 0 &&
     !busy &&
     !(mode === "template" && !templateId) &&
     !(mode === "copy" && !sourceId) &&
-    !(mode === "import" && !summary?.ok);
+    !(importish && !summary?.ok);
+
+  // Промпт собирает бэкенд (истина формата — рядом с валидатором импорта);
+  // копирование после fetch — в пределах жеста, Chrome это допускает.
+  function copyPrompt() {
+    if (!name.trim() || promptBusy) return;
+    setPromptBusy(true);
+    projectsApi
+      .importPrompt({
+        systemName: name.trim(),
+        depth: promptDepth,
+        lang: promptLang,
+        hints: promptHints.trim() || undefined,
+      })
+      .then((res) => navigator.clipboard.writeText(res.prompt))
+      .then(() => {
+        setPromptCopied(true);
+        setTimeout(() => setPromptCopied(false), 2500);
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : "Не удалось скопировать промпт");
+      })
+      .finally(() => setPromptBusy(false));
+  }
 
   async function submit() {
     if (!canSubmit) return;
@@ -125,14 +157,14 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     const start =
       mode === "template" ? `template:${templateId}` :
       mode === "copy" ? `copy:${sourceId}` :
-      mode === "import" ? "import" : "blank";
+      importish ? "import" : "blank";
     try {
       const created = await projectsApi.create({
         name: name.trim(),
         description: description.trim() || null,
         start,
         import_yaml: null,
-        import_yamls: mode === "import" ? docs.filter((d) => d.trim()) : null,
+        import_yamls: importish ? docs.filter((d) => d.trim()) : null,
       });
       onCreated(created.id);
     } catch (e: unknown) {
@@ -159,6 +191,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                 onClick={() => projects.length && setMode("copy")}
               />
               <SegBtn label="Импорт" on={mode === "import"} onClick={() => setMode("import")} />
+              <SegBtn label="Репозиторий" on={mode === "repo"} onClick={() => setMode("repo")} />
             </div>
 
             <div style={listArea}>
@@ -210,6 +243,63 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   сольются автоматически, сводка справа покажет склейку,
                   конфликты и подозрения.
                 </p>
+              )}
+
+              {mode === "repo" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
+                    Схему построит ваш ИИ-агент (Claude Code, Cursor…): скопируйте
+                    промпт и запустите его в корне каждого репозитория системы.
+                    Каждый прогон вернёт YAML — вставьте их все справа, файлы
+                    сольются автоматически.
+                  </p>
+                  <div>
+                    <label style={labelStyle}>Глубина модели</label>
+                    <select
+                      style={{ ...input, marginBottom: 0 }}
+                      value={promptDepth}
+                      onChange={(e) => setPromptDepth(e.target.value === "2" ? 2 : 3)}
+                    >
+                      <option value={3}>3 слоя — до компонентов сервисов</option>
+                      <option value={2}>2 слоя — система и контейнеры</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Язык описаний</label>
+                    <select
+                      style={{ ...input, marginBottom: 0 }}
+                      value={promptLang}
+                      onChange={(e) => setPromptLang(e.target.value === "en" ? "en" : "ru")}
+                    >
+                      <option value="ru">Русский</option>
+                      <option value="en">Английский</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>
+                      Подсказки агенту <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span>
+                    </label>
+                    <textarea
+                      style={{ ...input, minHeight: 44, resize: "none", marginBottom: 0 }}
+                      value={promptHints}
+                      onChange={(e) => setPromptHints(e.target.value)}
+                      placeholder="например: монорепо, сервисы в services/*"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    style={{ ...secondaryBtn, opacity: name.trim() ? 1 : 0.55 }}
+                    disabled={!name.trim() || promptBusy}
+                    onClick={copyPrompt}
+                  >
+                    {promptCopied ? "Промпт скопирован ✓" : "Скопировать промпт"}
+                  </button>
+                  {!name.trim() && (
+                    <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                      Название проекта (ниже) станет именем системы в промпте.
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 
@@ -280,7 +370,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
               </>
             )}
 
-            {mode === "import" && (
+            {importish && (
               <ImportPane docs={docs} onDocs={setDocs} summary={summary} />
             )}
           </div>

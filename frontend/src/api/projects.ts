@@ -1,4 +1,4 @@
-import type { ImportPreviewOut, Project, ProjectCreate, ProjectUpdate, TemplateOut } from "../types";
+import type { ImportPreviewOut, ImportPromptOut, Project, ProjectCreate, ProjectUpdate, TemplateOut } from "../types";
 import { api } from "./client";
 
 // Управление проектами. Запросы к /projects скоупом X-Project-Id не оборачиваются
@@ -12,6 +12,13 @@ export const projectsApi = {
   // для живой валидации в модалке, БД не трогает.
   importPreview: (contents: string[]): Promise<ImportPreviewOut> =>
     api.post<ImportPreviewOut>(`/projects/import/preview`, { contents }),
+  // Универсальный промпт «Из репозитория» для ИИ-агента пользователя: один и тот
+  // же промпт запускается в каждом репозитории системы, YAML-ответы импортируются.
+  importPrompt: (p: { systemName: string; depth: 2 | 3; lang: "ru" | "en"; hints?: string }): Promise<ImportPromptOut> => {
+    const q = new URLSearchParams({ system_name: p.systemName, depth: String(p.depth), lang: p.lang });
+    if (p.hints) q.set("hints", p.hints);
+    return api.get<ImportPromptOut>(`/projects/import/prompt?${q.toString()}`);
+  },
   get: (id: string): Promise<Project> => api.get<Project>(`/projects/${id}`),
   create: (payload: ProjectCreate): Promise<Project> =>
     api.post<Project>(`/projects`, payload),
