@@ -18,6 +18,10 @@ interface Props {
   isArchitect: boolean;
   onCommit: (field: "flowchart" | "openapi_spec", value: string) => void;
   onClose: () => void;
+  // Уведомление о конфликте конкурентных сессий (409 CAS от NodeInspector.save):
+  // сохранение из оверлея не применилось — показываем прямо в шапке, панель за
+  // модалкой пользователь не видит.
+  notice?: string | null;
 }
 
 // «3.0.3» → «3.0» для тега «OAS 3.0 · YAML»
@@ -25,7 +29,7 @@ function shortVersion(v: string): string {
   return v.split(".").slice(0, 2).join(".");
 }
 
-export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchitect, onCommit, onClose }: Props) {
+export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchitect, onCommit, onClose, notice }: Props) {
   const [showCode, setShowCode] = useState(false);
   // Версия OAS из последнего валидного парса спеки (шлёт OpenApiDoc)
   const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
@@ -55,6 +59,11 @@ export default function DocOverlay({ mode, nodeName, flowchart, openapi, isArchi
                 ? `OAS ${shortVersion(oasVersion)} · YAML`
                 : "OpenAPI · YAML"}
           </span>
+          {notice && (
+            <span className="doc-tag" style={{ background: "#fef3c7", color: "#92400e", borderColor: "#fcd34d" }}>
+              {notice}
+            </span>
+          )}
           {!isArchitect && (
             <button type="button" className="doc-codebtn" onClick={() => setShowCode((s) => !s)}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">

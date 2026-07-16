@@ -8,6 +8,7 @@ import type { DeletionSnapshot, Node, NodeShape, NodeStatus, NodeUpdate } from "
 import { canHaveChildren, compareByRank, withoutPersons } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
+import { isConflict } from "../../api/client";
 import { ShapeGlyph, Chevron } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import DocOverlay from "./DocOverlay";
@@ -36,6 +37,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const [statusOpen, setStatusOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [doc, setDoc] = useState<"flowchart" | "openapi" | null>(null);
+  // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
+  // обновлены с сервера — пользователь повторяет правку поверх свежего.
+  const [conflict, setConflict] = useState<string | null>(null);
 
   // Узел ДО последней правки — для обратимой записи в историю. Обновляем после
   // успешного коммита (тяжёлые поля правит DocOverlay тем же save → ref не отстаёт).
@@ -60,13 +64,32 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         shape: before.shape,
         status,
         ...over,
+        // CAS (этап 0 конкурентности): правка от версии последнего сохранённого;
+        // узел изменён другой сессией → 409 (ветка conflict ниже), не тихий LWW.
+        base_version: before.version,
       };
       try {
         const saved = await nodesApi.update(node.id, payload);
         onNodeSaved(saved, false, before);
         beforeRef.current = saved;
-      } catch {
-        // Панель не блокирует канву: правка не применилась — молча, как fire-and-forget.
+        setConflict(null);
+      } catch (e: unknown) {
+        if (!isConflict(e)) return; // прочее — молча, как fire-and-forget (было всегда)
+        // 409: подтягиваем свежие данные (правка НЕ применилась — чужая работа цела),
+        // показываем плашку; в историю ничего не кладём (onNodeSaved не зовём).
+        try {
+          const fresh = await nodesApi.get(node.id);
+          beforeRef.current = fresh;
+          setName(fresh.name);
+          setDescription(fresh.description ?? "");
+          setRole(fresh.role ?? "");
+          setTechnology(fresh.technology ?? "");
+          setIsExternal(fresh.is_external);
+          setStatus(fresh.status);
+        } catch {
+          // узел могли удалить — уровень догонит поллинг/ресинк
+        }
+        setConflict("Узел изменён в другой сессии — данные обновлены, повторите правку");
       }
     },
     [name, description, role, technology, isExternal, status, node.id, onNodeSaved],
@@ -114,6 +137,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
   return (
     <div>
+      {conflict && (
+        <p style={{ color: "#92400e", background: "#fef3c7", border: "1px solid #fcd34d",
+          borderRadius: 8, padding: "6px 10px", fontSize: 12.5, margin: "0 0 10px" }}>
+          {conflict}
+        </p>
+      )}
       {/* Шапка-идентификатор: глиф формы + имя + строка типа */}
       <div className="insp-head">
         <span className="insp-headglyph"><ShapeGlyph container={isContainer} shape={shape} /></span>
@@ -299,6 +328,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           isArchitect={isArchitect}
           onCommit={commitDoc}
           onClose={() => setDoc(null)}
+          notice={conflict}
         />
       )}
     </div>

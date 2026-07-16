@@ -79,6 +79,7 @@ export const exportApi = {
 
 export const edgesApi = {
   list: (): Promise<Edge[]> => api.get<Edge[]>("/edges/"),
+  get: (id: string): Promise<Edge> => api.get<Edge>(`/edges/${id}`),
   create: (data: EdgeCreate): Promise<Edge> => api.post<Edge>("/edges/", data),
   update: (id: string, data: EdgeUpdate): Promise<Edge> =>
     api.patch<Edge>(`/edges/${id}`, data),

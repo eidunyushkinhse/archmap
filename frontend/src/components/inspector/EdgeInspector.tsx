@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import type { DeletionSnapshot, Edge, EdgeUpdate, LevelEdge, Node } from "../../types";
 import { canHaveChildren } from "../../types";
 import { edgesApi, nodesApi } from "../../api/nodes";
+import { isConflict } from "../../api/client";
 import NodeSearchPicker from "../NodeSearchPicker";
 import { ShapeGlyph } from "../nodeTree.shared";
 import "./inspector.css";
@@ -39,6 +40,8 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
     source_id: edge.original_source_id,
     target_id: edge.original_target_id,
   });
+  // Версия связи для CAS (этап 0 конкурентности): правка от устаревшей → 409.
+  const versionRef = useRef(edge.version);
 
   // Узлы-концы (read-only) для глифа формы рядом с «Откуда/Куда». Концы off-level,
   // поэтому фетч по id (контракт связи формы концов не несёт).
@@ -81,8 +84,11 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
       && redo.source_id === before.source_id && redo.target_id === before.target_id) return;
     const undo: EdgeUpdate = { ...before };
     try {
-      const updated = await edgesApi.update(edge.id, redo);
+      // CAS: base_version — версия последнего сохранённого; в историю (undo/redo)
+      // уходят payload'ы БЕЗ base_version — компенсации не фенсятся (U24).
+      const updated = await edgesApi.update(edge.id, { ...redo, base_version: versionRef.current });
       onEdgeSaved(updated, undo, redo);
+      versionRef.current = updated.version;
       beforeRef.current = {
         label: updated.label ?? null,
         technology: updated.technology ?? null,
@@ -90,6 +96,34 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
         target_id: updated.target_id,
       };
     } catch (e: unknown) {
+      if (isConflict(e)) {
+        // Связь изменена в другой сессии: правка не применилась — подтягиваем
+        // свежие данные (включая имена концов) и просим повторить поверх них.
+        try {
+          const fresh = await edgesApi.get(edge.id);
+          versionRef.current = fresh.version;
+          beforeRef.current = {
+            label: fresh.label ?? null,
+            technology: fresh.technology ?? null,
+            source_id: fresh.source_id,
+            target_id: fresh.target_id,
+          };
+          setLabelText(fresh.label ?? "");
+          setTechnology(fresh.technology ?? "");
+          setSourceId(fresh.source_id);
+          setTargetId(fresh.target_id);
+          const [s, t] = await Promise.all([
+            nodesApi.get(fresh.source_id).catch(() => null),
+            nodesApi.get(fresh.target_id).catch(() => null),
+          ]);
+          if (s) setSrcLabel(s.name);
+          if (t) setTgtLabel(t.name);
+        } catch {
+          // связь могли удалить — уровень догонит поллинг/ресинк
+        }
+        setError("Связь изменена в другой сессии — данные обновлены, повторите правку");
+        return;
+      }
       setError(e instanceof Error ? e.message : "Ошибка сохранения");
     }
   }
