@@ -12,6 +12,7 @@
 import type { EdgePoint } from "../../../types";
 import { cleanup, pathCrossesRects, segments, type NodeRect, type Segment } from "../edgePath";
 import { routePorts, type PortCandidate, type RouteGridCache, type RouteOptions } from "./orthoRoute";
+import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 
 const EPS = 0.5;
 const DEFAULT_CROSS_COST = 200; // px-эквивалент штрафа за одно пересечение (R3 > R1)
@@ -35,6 +36,12 @@ const ROUTE_STICKINESS = 100;
 // возможен ценой нарушения (деградация вместо отказа). Одноимённая роль (веер
 // out-out / in-in в общем доке) — легальна и не штрафуется.
 const PORT_CONFLICT_COST = 600;
+// Бонуса слияния в оценке готовых ломаных НЕТ (решение Ф1 по полигон-эксперименту):
+// добавленный в routeCost «−gain·слитая длина» протёк в сравнения rip-up и спрямления
+// джогов и ПОКУПАЛ объезды/лишние изломы (метрики: +2 разворота, +8 изломов на живой
+// «Ярмарке»). Выигрыш слияния учитывает только принятие сварки стволов (Ф2) со своей
+// ступенью «грязь не хуже»; сварке не нужен и prev-перевес — она детерминированно
+// пересоздаёт стволы каждый прогон.
 
 // Терминал ребра для глобального роутера: концы (на хэндлах) и СВОИ препятствия — тела
 // ВСЕХ узлов, включая узлы-концы этого ребра (V2.2: порты-стабы лежат снаружи тел,
@@ -126,6 +133,43 @@ interface OwnPorts {
 const nearPt = (a: EdgePoint, bx: number, by: number): boolean =>
   Math.abs(a.x - bx) <= EPS && Math.abs(a.y - by) <= EPS;
 
+// СТВОЛОВОЙ КОНТЕКСТ оценки ГОТОВОЙ ломаной (эпик «общие плечи v2», Ф1; E25 v2).
+// Собратья — маршруты, делящие с оцениваемой ломаной ФАКТИЧЕСКИЙ конец своей роли
+// (p0↔p0 — исходящий веер, pN↔pN — входящий); prefLen/sufLen — длина общего
+// префикса/суффикса с этим собратом. Наложение на собрата бесплатно в пределах
+// куска: дуга наложения в arc-length оцениваемой ломаной обязана лежать в
+// [0, prefLen] (префикс) либо [total − sufLen, total] (суффикс) — по построению
+// куска геометрия там совпадает, а повторное схождение после расхождения (дуга
+// вне куска) честно платит OVERLAP_COST. Кредит действует ОБЪЕДИНЕНИЕМ с
+// кандидатным правилом крайнего сегмента (см. movePenalty): статус-кво сцен без
+// сваренных стволов не меняется (полигон-паритет Ф1), куски за первым изломом
+// (сварка, Ф2) получают легальность.
+interface TrunkEvalCtx {
+  total: number; // манхэттенова длина оцениваемой ломаной
+  fellows: Array<{ p0: EdgePoint; pN: EdgePoint; prefLen: number; sufLen: number }>;
+}
+
+// Контекст оцениваемой ломаной pts против маршрутов-собратьев (вызывающий уже
+// исключил маршрут самого ребра). undefined — собратьев нет, наложения без льгот.
+function buildTrunkCtx(pts: EdgePoint[], fellowRoutes: Iterable<EdgePoint[]>): TrunkEvalCtx | undefined {
+  if (pts.length < 2) return undefined;
+  const a0 = pts[0], aN = pts[pts.length - 1];
+  const fellows: TrunkEvalCtx["fellows"] = [];
+  for (const f of fellowRoutes) {
+    if (f.length < 2 || f === pts) continue;
+    const sharesStart = nearPt(f[0], a0.x, a0.y);
+    const sharesEnd = nearPt(f[f.length - 1], aN.x, aN.y);
+    if (!sharesStart && !sharesEnd) continue;
+    // общий и p0, и pN у пары одного направления невозможен (мастер-слияние E2)
+    const prefLen = sharesStart ? pieceLen(commonPrefix(pts, f)) : 0;
+    const sufLen = sharesEnd ? pieceLen(commonSuffix(pts, f)) : 0;
+    if (prefLen <= EPS && sufLen <= EPS) continue;
+    fellows.push({ p0: f[0], pN: f[f.length - 1], prefLen, sufLen });
+  }
+  if (fellows.length === 0) return undefined;
+  return { total: pieceLen(pts), fellows };
+}
+
 // ИНДЕКС проложенных сегментов (оптимизация 2026-07: movePenalty — самый горячий цикл
 // конвейера, он вызывается на КАЖДЫЙ шаг A* каждого ребра). Вместо скана всех сегментов
 // набора сегменты разложены по ориентации и отсортированы по постоянной координате:
@@ -174,6 +218,7 @@ function lowerBound(arr: IndexedSeg[], val: number): number {
 function movePenalty(
   x1: number, y1: number, x2: number, y2: number,
   placed: PlacedIndex, crossCost: number, own?: OwnPorts,
+  trunk?: TrunkEvalCtx, moveArc0?: number,
 ): number {
   const moveHoriz = Math.abs(y1 - y2) <= EPS;
   const mConst = moveHoriz ? y1 : x1;             // постоянная координата хода
@@ -188,18 +233,41 @@ function movePenalty(
     const e = par[k];
     const lo = Math.max(mLo, e.lo), hi = Math.min(mHi, e.hi);
     if (hi - lo <= EPS) continue;
-    // ИСКЛЮЧЕНИЕ СТВОЛА (Т4: «один хэндл И одно направление» — легитимно): бесплатна езда
-    // по КРАЙНЕМУ сегменту владельца (примыкает к его порту p0/pN), когда та же точка есть
-    // среди НАШИХ портов той же роли (source↔source, target↔target) — это слитый веер из
-    // общего дока. Разные роли (наш target = его source) НЕ исключаются: парковка входа в
-    // чужой выход — то самое нарушение Т4. Сегменты владельца после его первого излома —
-    // обычная чужая линия, штраф.
+    // ИСКЛЮЧЕНИЕ СТВОЛА, кандидатное правило (Т4: «один хэндл И одно направление» —
+    // легитимно): бесплатна езда по КРАЙНЕМУ сегменту владельца (примыкает к его
+    // порту p0/pN), когда та же точка есть среди НАШИХ портов той же роли
+    // (source↔source, target↔target) — это слитый веер из общего дока. Разные роли
+    // (наш target = его source) НЕ исключаются: парковка входа в чужой выход — то
+    // самое нарушение Т4. В A*-поиске own — порты-кандидаты (свой маршрут ещё не
+    // известен), в оценке готовой ломаной — её фактические концы.
     if (own) {
       const s = e.ps.seg;
       const segHasP0 = nearPt(e.ps.p0, s.x1, s.y1) || nearPt(e.ps.p0, s.x2, s.y2);
       if (segHasP0 && own.starts.some((p) => nearPt(p, e.ps.p0.x, e.ps.p0.y))) continue;
       const segHasPN = nearPt(e.ps.pN, s.x1, s.y1) || nearPt(e.ps.pN, s.x2, s.y2);
       if (segHasPN && own.ends.some((p) => nearPt(p, e.ps.pN.x, e.ps.pN.y))) continue;
+    }
+    // ЛЕГАЛЬНЫЙ СТВОЛ (E25 v2, только оценка ГОТОВОЙ ломаной): бесплатна часть
+    // наложения на маршрут СОБРАТА (владелец опознаётся концами p0/pN), чья дуга в
+    // arc-length оцениваемой ломаной лежит внутри общего префикса [0, prefLen] либо
+    // суффикса [total − sufLen, total] — так стволы, сваренные ЧЕРЕЗ изломы (Ф2),
+    // не считаются «грязью» и не дербанятся rip-up-ом. Повторное схождение после
+    // расхождения — вне куска, платит как обычная чужая линия. Кредит — добавка к
+    // кандидатному правилу выше (объединение льгот), не замена.
+    if (trunk !== undefined && moveArc0 !== undefined) {
+      const fel = trunk.fellows.find(
+        (f) => nearPt(f.p0, e.ps.p0.x, e.ps.p0.y) && nearPt(f.pN, e.ps.pN.x, e.ps.pN.y),
+      );
+      let free = 0;
+      if (fel) {
+        // дуга наложения вдоль ХОДА (ход начинается на mStart с дуги moveArc0)
+        const d1 = Math.abs(lo - mStart), d2 = Math.abs(hi - mStart);
+        const oa = moveArc0 + Math.min(d1, d2), ob = moveArc0 + Math.max(d1, d2);
+        if (fel.prefLen > EPS) free += Math.max(0, Math.min(ob, fel.prefLen) - oa);
+        if (fel.sufLen > EPS) free += Math.max(0, ob - Math.max(oa, trunk.total - fel.sufLen));
+      }
+      overlap += Math.max(0, hi - lo - free);
+      continue;
     }
     overlap += hi - lo;
   }
@@ -224,14 +292,20 @@ function movePenalty(
 }
 
 // Чистый штраф ГОТОВОЙ ломаной (пересечения+наложения с чужими сегментами), без длины и
-// изломов. 0 — маршрут «чистый»: второй проход его не трогает.
-function pathPenalty(pts: EdgePoint[], placed: PlacedIndex, crossCost: number, own?: OwnPorts): number {
+// изломов. 0 — маршрут «чистый»: второй проход его не трогает. Легальные стволы (trunk)
+// в штраф не входят — кредит держит сваренные стволы «чистыми» для rip-up.
+function pathPenalty(
+  pts: EdgePoint[], placed: PlacedIndex, crossCost: number,
+  own?: OwnPorts, trunk?: TrunkEvalCtx,
+): number {
   if (placed.count === 0) return 0;
   let n = 0;
+  let arc = 0; // дуга начала текущего хода (для интервалов легальности)
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], b = pts[i];
-    if (Math.abs(b.x - a.x) + Math.abs(b.y - a.y) <= EPS) continue;
-    n += movePenalty(a.x, a.y, b.x, b.y, placed, crossCost, own);
+    const len = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+    if (len > EPS) n += movePenalty(a.x, a.y, b.x, b.y, placed, crossCost, own, trunk, arc);
+    arc += len;
   }
   return n;
 }
@@ -262,9 +336,15 @@ export function straightenJogs(
   bendPenalty: number,
   extra?: (x1: number, y1: number, x2: number, y2: number) => number,
   own?: OwnPorts,
+  // маршруты ОСТАЛЬНЫХ рёбер (без своего): стволовой контекст оценки — спрямление
+  // джога может укоротить общий кусок, поэтому легальность пересчитывается на
+  // каждого кандидата (E25 v2), а не передаётся снаружи константой
+  fellowRoutes?: EdgePoint[][],
 ): EdgePoint[] {
   let cur = cleanup(pts.map((p) => ({ x: p.x, y: p.y })));
   const othersIdx = buildPlacedIndex(others); // чужие фиксированы на весь вызов
+  const evalCost = (p: EdgePoint[]): number =>
+    routeCost(p, othersIdx, crossCost, bendPenalty, extra, own, buildTrunkCtx(p, fellowRoutes ?? []));
   // тела, раздутые на клиренс: кандидат, влезающий в раздутое тело, к которому текущий
   // маршрут НЕ прижат, отвергается (не приклеивать линию к грани узла)
   const inflated = obstacles.map((r) => ({
@@ -287,7 +367,7 @@ export function straightenJogs(
       const dirAB = abH ? Math.sign(B.x - A.x) : Math.sign(B.y - A.y);
       const dirCD = abH ? Math.sign(D.x - C.x) : Math.sign(D.y - C.y);
       if (dirAB === 0 || dirAB !== dirCD) continue; // встречные — это U, не джог
-      if (Number.isNaN(curCost)) curCost = routeCost(cur, othersIdx, crossCost, bendPenalty, extra, own);
+      if (Number.isNaN(curCost)) curCost = evalCost(cur);
       const candidates: EdgePoint[][] = [];
       // вперёд: весь пролёт на линии AB, перескок уезжает в излом за D (D не конец)
       if (i + 4 < n) {
@@ -310,7 +390,7 @@ export function straightenJogs(
           if (!curHugs[r] && pathCrossesRects(cand, [inflated[r]])) hugs = true;
         }
         if (hugs) continue;
-        const c = routeCost(cand, othersIdx, crossCost, bendPenalty, extra, own);
+        const c = evalCost(cand);
         if (c < bestCost) { bestCost = c; best = cand; }
       }
       if (best) { cur = best; applied = true; }
@@ -321,8 +401,9 @@ export function straightenJogs(
 }
 
 // Полная стоимость ГОТОВОЙ ломаной в тех же единицах, что цена A*: длина + изломы +
-// пересечения с уже проложенными + доп. штраф среды. Для честного сравнения свежего
-// маршрута с прошлогодним обе ломаные оцениваются ЭТОЙ функцией (стабы включены в обе).
+// пересечения с уже проложенными (с кредитом легальных стволов) + доп. штраф среды.
+// Для честного сравнения свежего маршрута с прошлогодним обе ломаные оцениваются
+// ЭТОЙ функцией, каждая со СВОИМ стволовым контекстом (стабы включены в обе).
 function routeCost(
   pts: EdgePoint[],
   placed: PlacedIndex,
@@ -330,19 +411,23 @@ function routeCost(
   bendPenalty: number,
   extra?: (x1: number, y1: number, x2: number, y2: number) => number,
   own?: OwnPorts,
+  trunk?: TrunkEvalCtx,
 ): number {
   let cost = 0;
+  let arc = 0; // дуга начала текущего хода
   let prevHoriz: boolean | null = null;
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], b = pts[i];
     const len = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
-    if (len <= EPS) continue;
-    const horiz = Math.abs(b.y - a.y) <= Math.abs(b.x - a.x);
-    if (prevHoriz !== null && horiz !== prevHoriz) cost += bendPenalty;
-    prevHoriz = horiz;
-    cost += len;
-    if (placed.count > 0) cost += movePenalty(a.x, a.y, b.x, b.y, placed, crossCost, own);
-    if (extra) cost += extra(a.x, a.y, b.x, b.y);
+    if (len > EPS) {
+      const horiz = Math.abs(b.y - a.y) <= Math.abs(b.x - a.x);
+      if (prevHoriz !== null && horiz !== prevHoriz) cost += bendPenalty;
+      prevHoriz = horiz;
+      cost += len;
+      if (placed.count > 0) cost += movePenalty(a.x, a.y, b.x, b.y, placed, crossCost, own, trunk, arc);
+      if (extra) cost += extra(a.x, a.y, b.x, b.y);
+    }
+    arc += len;
   }
   return cost;
 }
@@ -455,9 +540,14 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     let route = r?.pts ?? cleanup([{ ...e.start }, { ...e.end }]);
     // Гистерезис: прежний валидный маршрут не хуже свежего больше, чем на порог, —
     // держим прежний (стрелка не перекладывается от чужих микро-сдвигов и ничьих).
+    // Оценка точная (E25 v2): каждая ломаная — со своим стволовым контекстом против
+    // уже проложенных + preplaced (сам e в placed ещё не записан).
     if (e.prev && e.prev.length >= 2) {
-      const cNew = routeCost(route, idx, crossCost, bp, extra, own) + portConflictCost(e.id, route);
-      const cPrev = routeCost(e.prev, idx, crossCost, bp, extra, own) + portConflictCost(e.id, e.prev);
+      const fellowRoutes = [...placed.values(), ...(opts?.preplaced ?? [])];
+      const cNew = routeCost(route, idx, crossCost, bp, extra, own, buildTrunkCtx(route, fellowRoutes)) +
+        portConflictCost(e.id, route);
+      const cPrev = routeCost(e.prev, idx, crossCost, bp, extra, own, buildTrunkCtx(e.prev, fellowRoutes)) +
+        portConflictCost(e.id, e.prev);
       if (cPrev <= cNew + ROUTE_STICKINESS) route = e.prev.map((p) => ({ x: p.x, y: p.y }));
     }
     placed.set(e.id, route);
@@ -484,6 +574,12 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     for (const [id, s] of placedById) if (id !== skipId) others.push(...s);
     return others;
   };
+  // маршруты остальных как ломаные — стволовой контекст точной оценки (E25 v2)
+  const othersRoutesOf = (skipId: string): EdgePoint[][] => {
+    const arr: EdgePoint[][] = [...(opts?.preplaced ?? [])];
+    for (const [id, r] of placed) if (id !== skipId) arr.push(r);
+    return arr;
+  };
   // Версия окружения: растёт при каждой замене маршрута. Ребро перепрокладывается,
   // только если с его ПРОШЛОЙ попытки окружение изменилось: детерминированный A* при
   // тех же входах (чужие маршруты не менялись) вернул бы тот же результат — повторная
@@ -507,17 +603,20 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
       if (lastTried.get(e.id) === envVersion) continue; // окружение прежнее — результат тот же
       const others = buildPlacedIndex(othersOf(e.id));
       const own = ownPortsOf(e);
+      const fellows = othersRoutesOf(e.id);
+      const tCur = buildTrunkCtx(cur, fellows);
       // конфликт порта — тоже «грязь»: без него ребро с нелегальной парковкой считалось
-      // бы чистым и никогда не перепрокладывалось
-      if (pathPenalty(cur, others, crossCost, own) + portConflictCost(e.id, cur) <= 0) continue;
+      // бы чистым и никогда не перепрокладывалось; легальный ствол грязью не считается
+      if (pathPenalty(cur, others, crossCost, own, tCur) + portConflictCost(e.id, cur) <= 0) continue;
       const extra = e.extraMoveCost ?? opts?.extraMoveCost;
       const moveCost = (x1: number, y1: number, x2: number, y2: number): number =>
         movePenalty(x1, y1, x2, y2, others, crossCost, own) + (extra ? extra(x1, y1, x2, y2) : 0);
       const [starts, ends] = conflictPorts(e);
       const r2 = routePorts(starts, ends, e.obstacles, { ...baseOpts, moveCost, cacheKey: e.id });
       if (!r2?.pts || r2.pts.length < 2) { lastTried.set(e.id, envVersion); continue; }
-      const cCur = routeCost(cur, others, crossCost, bp, extra, own) + portConflictCost(e.id, cur);
-      const cNew = routeCost(r2.pts, others, crossCost, bp, extra, own) + portConflictCost(e.id, r2.pts);
+      const cCur = routeCost(cur, others, crossCost, bp, extra, own, tCur) + portConflictCost(e.id, cur);
+      const cNew = routeCost(r2.pts, others, crossCost, bp, extra, own, buildTrunkCtx(r2.pts, fellows)) +
+        portConflictCost(e.id, r2.pts);
       if (cNew + ROUTE_STICKINESS < cCur) {
         replace(e.id, r2.pts);
         improved = true;
@@ -540,7 +639,7 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
     if (!cur || cur.length < 4) continue;
     const extra = e.extraMoveCost ?? opts?.extraMoveCost;
     const str = straightenJogs(
-      cur, e.obstacles, othersOf(e.id), crossCost, bp, extra, ownPortsOf(e),
+      cur, e.obstacles, othersOf(e.id), crossCost, bp, extra, ownPortsOf(e), othersRoutesOf(e.id),
     );
     if (str.length !== cur.length) replace(e.id, str);
   }

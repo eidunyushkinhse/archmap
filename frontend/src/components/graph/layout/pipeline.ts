@@ -564,9 +564,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         const rt = autoRoutes.get(g.id);
         if (!rt || rt.length < 4) continue;
         const others: PlacedSeg[] = [];
-        for (const [id, s] of segsById) if (id !== g.id) others.push(...s);
+        const fellowRoutes: EdgePoint[][] = []; // стволовой контекст оценки (E25 v2)
+        for (const [id, s] of segsById) {
+          if (id === g.id) continue;
+          others.push(...s);
+          const r = polished.get(id) ?? autoRoutes.get(id);
+          if (r) fellowRoutes.push(r);
+        }
         const own = { starts: [rt[0]], ends: [rt[rt.length - 1]] };
-        const str = straightenJogs(rt, jogObstacles, others, 200, 40, undefined, own);
+        const str = straightenJogs(rt, jogObstacles, others, 200, 40, undefined, own, fellowRoutes);
         if (str.length !== rt.length) {
           polished.set(g.id, str);
           segsById.set(g.id, toPlacedSegs(str));
