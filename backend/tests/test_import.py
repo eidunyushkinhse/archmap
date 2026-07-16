@@ -215,6 +215,66 @@ def test_empty_nodes_ok_and_unknown_keys_ignored():
     assert errors == [] and parsed is not None and len(parsed.nodes) == 1
 
 
+def test_edge_ref_resolves_by_path_suffix():
+    """Хвост пути («svc / api») находит узел «Система / svc / api» — ИИ-агенты
+    пишут пути от контейнера, а не от корня. Неоднозначный хвост — ошибка."""
+    content = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: svc\n"
+        "        children:\n"
+        "          - name: api\n"
+        "      - name: gate\n"
+        "edges:\n"
+        "  - from: gate\n"
+        "    to: svc / api\n"
+    )
+    parsed, errors = parse_import(content)
+    assert errors == [] and parsed is not None
+    assert len(parsed.edges) == 1
+    # неоднозначный хвост: два «svc / api» под разными корнями
+    dup = (
+        "nodes:\n"
+        "  - name: A\n"
+        "    children:\n"
+        "      - name: svc\n"
+        "        children:\n"
+        "          - name: api\n"
+        "  - name: B\n"
+        "    children:\n"
+        "      - name: svc\n"
+        "        children:\n"
+        "          - name: api\n"
+        "  - name: x\n"
+        "edges:\n"
+        "  - from: x\n"
+        "    to: svc / api\n"
+    )
+    parsed, errors = parse_import(dup)
+    assert parsed is None and any("неоднозначно" in e for e in errors)
+
+
+def test_parse_tolerates_agent_fenced_output():
+    """Вывод ИИ-агента: преамбула + ```yaml-блок (реальное поведение слабой модели
+    в dogfood-прогоне) — вынимаем содержимое блока. Валидный документ с ``` внутри
+    description фолбэк не задевает (сырой парс успешен)."""
+    fenced = (
+        "Теперь у меня достаточно информации.\n\n"
+        "```yaml\nnodes:\n  - name: A\n  - name: B\nedges:\n  - from: A\n    to: B\n```\n"
+    )
+    parsed, errors = parse_import(fenced)
+    assert errors == [] and parsed is not None
+    assert [n.name for n in parsed.nodes] == ["A", "B"] and len(parsed.edges) == 1
+    # без блока преамбула остаётся ошибкой
+    parsed, errors = parse_import("просто текст без yaml")
+    assert parsed is None and errors
+    # валидный документ, в description которого встречаются ```
+    raw = 'nodes:\n  - name: A\n    description: "пример: ```code``` внутри"\n'
+    parsed, errors = parse_import(raw)
+    assert errors == [] and parsed is not None and parsed.nodes[0].description is not None
+
+
 def test_preview_reports_and_writes_nothing(db):
     user = ensure_architect(db)
     ok = import_preview(

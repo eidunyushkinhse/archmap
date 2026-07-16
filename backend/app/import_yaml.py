@@ -14,6 +14,7 @@ dry-run превью модалки (POST /projects/import/preview) и созд�
 (start="import") пользовались одним валидатором.
 """
 
+import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
@@ -67,17 +68,39 @@ def _yaml_error(e: yaml.YAMLError) -> str:
     return str(e).splitlines()[0] if str(e) else "ошибка разметки"
 
 
-def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
-    """Разбор + валидация YAML импорта. Возвращает (результат, ошибки): при любой
-    ошибке результат None, список — все найденные проблемы (не первая попавшаяся).
-    Неизвестные ключи игнорируются молча (форвард-совместимость формата)."""
-    errors: list[str] = []
+# fenced-блок ```yaml … ``` — ИИ-агенты часто оборачивают вывод в него и/или
+# добавляют строку-преамбулу (проверено dogfood-прогоном слабой моделью).
+_FENCE_RE = re.compile(r"```(?:yaml|yml)?[ \t]*\n(.*?)```", re.DOTALL)
+
+
+def _load_doc(content: str) -> tuple[dict | None, list[str]]:
+    """yaml.safe_load + проверка «словарь с nodes». Ошибки — человеческим списком."""
     try:
         doc = yaml.safe_load(content)
     except yaml.YAMLError as e:
         return None, [f"Некорректный YAML: {_yaml_error(e)}"]
     if not isinstance(doc, dict):
         return None, ["Корень документа должен быть словарём с ключами nodes и edges"]
+    return doc, []
+
+
+def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
+    """Разбор + валидация YAML импорта. Возвращает (результат, ошибки): при любой
+    ошибке результат None, список — все найденные проблемы (не первая попавшаяся).
+    Неизвестные ключи игнорируются молча (форвард-совместимость формата).
+
+    Толерантность к выводу ИИ-агентов: если сырой текст не разбирается в словарь
+    с nodes, но содержит fenced-блок ```yaml — берём содержимое блока (пользователь
+    вставляет финальное сообщение агента целиком, с преамбулой и обёрткой).
+    Валидные документы это не задевает — фолбэк срабатывает только при неудаче."""
+    doc, load_errors = _load_doc(content)
+    if doc is None or "nodes" not in doc:
+        m = _FENCE_RE.search(content)
+        if m is not None:
+            doc, load_errors = _load_doc(m.group(1))
+    if doc is None:
+        return None, load_errors
+    errors: list[str] = []
     raw_nodes = doc.get("nodes")
     if raw_nodes is None:
         return None, ["nodes: обязательный список узлов отсутствует"]
@@ -92,8 +115,12 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     nodes: list[_ImpNode] = []
     # Карты для резолвинга ссылок edges — зеркало ref_name экспорта: голое имя
     # (если уникально) либо полный путь «Корень / … / Имя» (разделитель " / ").
+    # fulls — полный путь каждого узла: по нему же резолвится ОДНОЗНАЧНЫЙ хвост
+    # пути («backend / api» → «Система / backend / api») — ИИ-агенты пишут
+    # частичные пути от контейнера, а не от корня (находка dogfood-прогона).
     by_bare: dict[str, list[int]] = defaultdict(list)
     by_path: dict[str, list[int]] = defaultdict(list)
+    fulls: list[str] = []
     overflow = False  # превысили MAX_NODES — обход остановлен, ошибка уже в списке
 
     def opt_str(raw: dict, key: str, path: str, max_len: int | None) -> str | None:
@@ -157,6 +184,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         full = f"{prefix} / {name}" if prefix else name
         by_bare[name].append(idx)
         by_path[full].append(idx)
+        fulls.append(full)
 
         kids = raw.get("children")
         if kids is None:
@@ -177,10 +205,14 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
 
     def resolve(ref: str, path: str) -> int | None:
         """Ссылка из edges → индекс узла: точный полный путь, иначе голое имя
-        (если уникально). Тексты ошибок — как в ТЗ витрины импорта."""
+        (если уникально), иначе однозначный ХВОСТ пути («backend / api» находит
+        «Система / backend / api»). Тексты ошибок — как в ТЗ витрины импорта."""
         hits = by_path.get(ref)
         if not hits:
             hits = by_bare.get(ref)
+        if not hits and " / " in ref:
+            tail = f" / {ref}"
+            hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
         if not hits:
             errors.append(f'{path}: узел "{ref}" не найден')
             return None

@@ -192,15 +192,19 @@ class _Merger:
                     )
 
     def warn_roots(self, parts: list[ParsedImport]) -> None:
-        """Каждый файл принёс единственный корень, а после слияния корней >1 —
-        скорее всего, агентам задали разные имена системы."""
+        """Ни один корень не склеился из ≥2 файлов — скорее всего, агентам задали
+        разные имена системы (внешние системы и акторы легально живут корнями,
+        поэтому критерий именно «нет ОБЩИХ корней», а не «корней больше одного»)."""
+        if len(parts) < 2:
+            return
         roots = [i for i, n in enumerate(self.nodes) if n.parent_idx is None]
-        if len(roots) > 1 and all(len(p.roots) == 1 for p in parts):
-            names = ", ".join(f"«{self.nodes[i].name}»" for i in roots[:6])
-            self.report.warnings.append(
-                f"корневые узлы файлов не совпали ({names}) — если это одна система, "
-                f"задайте всем файлам одно имя корня и повторите"
-            )
+        if any(len(self.sources[i]) > 1 for i in roots):
+            return
+        names = ", ".join(f"«{self.nodes[i].name}»" for i in roots[:6])
+        self.report.warnings.append(
+            f"файлы не имеют общих корневых узлов ({names}) — если это одна система, "
+            f"задайте всем файлам одно имя корня и повторите"
+        )
 
     def finish(self, parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
         self.warn_similar_edges()

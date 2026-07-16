@@ -187,7 +187,12 @@ def test_roots_mismatch_warns():
     b = _parse("nodes:\n  - name: Система B\n")
     merged, report = merge_imports([a, b])
     assert len(merged.roots) == 2
-    assert any("не совпали" in w for w in report.warnings)
+    assert any("общих корневых" in w for w in report.warnings)
+    # а при общем корне-системе дополнительные корни (SaaS, акторы) — не повод шуметь
+    c = _parse("nodes:\n  - name: Система\n  - name: Stripe\n    external: true\n")
+    d = _parse("nodes:\n  - name: Система\n  - name: Оператор\n    shape: person\n")
+    _, report2 = merge_imports([c, d])
+    assert not any("корнев" in w for w in report2.warnings)
 
 
 def test_single_file_passthrough():
