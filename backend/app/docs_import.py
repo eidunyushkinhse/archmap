@@ -169,7 +169,9 @@ def parse_manifest(content: str) -> tuple[ParsedManifest | None, list[str]]:
 
         openapi: OpenapiIn | None = None
         raw_api = raw_e.get("openapi")
-        if raw_api is not None:
+        # Пустой словарь «openapi: {}» — частый способ слабой модели сказать
+        # «спеки нет» (стресс-тест: 2/8 прогонов); трактуем как отсутствие ключа.
+        if raw_api is not None and raw_api != {}:
             apath = f"{path}.openapi"
             if not isinstance(raw_api, dict):
                 errors.append(f"{apath}: ожидается словарь с file|inline")
@@ -305,6 +307,16 @@ def build_docs_plan(
         if not hits and " / " in ref:
             tail = f" / {ref}"
             hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
+        if not hits and "/" in ref:
+            # Слабые модели пишут путь слэшем без пробелов («microblog/api»,
+            # стресс-тест) — нормализуем в канонический разделитель « / » и
+            # повторяем точный путь + однозначный хвост. Фолбэк последний:
+            # настоящие имена с «/» (редкость) он не задевает — те матчатся выше.
+            norm = " / ".join(part.strip() for part in ref.split("/") if part.strip())
+            hits = by_path.get(norm)
+            if not hits:
+                tail = f" / {norm}"
+                hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
         if not hits:
             plan.errors.append(f'{where}: узел "{ref}" не найден в проекте')
             return None

@@ -120,6 +120,16 @@ def test_parse_errors_collected():
     assert joined.count("ровно одно из file | inline") == 2
 
 
+def test_parse_empty_openapi_dict_means_no_spec():
+    # «openapi: {}» — способ слабой модели сказать «спеки нет» (стресс-тест
+    # 2/8 прогонов): не ошибка, а отсутствие спеки; файл не бракуется.
+    parsed, errors = parse_manifest(
+        'docs:\n  - node: "X"\n    logic: [{name: "Л", mermaid: "graph TD; A"}]\n'
+        "    openapi: {}\n"
+    )
+    assert errors == [] and parsed.entries[0].openapi is None
+
+
 def test_looks_like_manifest_sniff():
     assert looks_like_manifest(MANIFEST)
     # Битый YAML, но со строкой docs: — манифест (должен дать ошибки, не уйти в ресурсы)
@@ -158,6 +168,23 @@ def test_plan_resolve_bare_suffix_ambiguous(db):
     joined = "\n".join(plan.errors)
     assert '"api" неоднозначно' in joined
     assert '"нет-такого" не найден' in joined
+
+
+def test_plan_resolve_slash_without_spaces(db):
+    # Слабые модели пишут путь слэшем без пробелов («microblog/api») —
+    # финальный фолбэк нормализует разделитель и матчит путь/хвост.
+    _tree(db)
+    parsed, _ = parse_manifest(
+        "docs:\n"
+        '  - node: "Ярмарка/billing/api"\n    logic: [{name: "А", mermaid: "graph TD; A"}]\n'
+        '  - node: "shipping/api"\n    logic: [{name: "Б", mermaid: "graph TD; B"}]\n'
+    )
+    plan = build_docs_plan(_nodes(db), [("m.yaml", parsed)], {}, overwrite=False)
+    assert plan.errors == []
+    assert sorted(a.node_path for a in plan.logic) == [
+        "Ярмарка / billing / api",
+        "Ярмарка / shipping / api",
+    ]
 
 
 def test_plan_overwrite_policy(db):
