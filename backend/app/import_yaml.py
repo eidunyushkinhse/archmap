@@ -71,6 +71,9 @@ def _yaml_error(e: yaml.YAMLError) -> str:
 # fenced-блок ```yaml … ``` — ИИ-агенты часто оборачивают вывод в него и/или
 # добавляют строку-преамбулу (проверено dogfood-прогоном слабой моделью).
 _FENCE_RE = re.compile(r"```(?:yaml|yml)?[ \t]*\n(.*?)```", re.DOTALL)
+# Первая строка верхнего уровня «nodes:» — точка среза преамбулы БЕЗ fence
+# (стресс-тест: голая преамбула перед nodes: встречается и без ```-обёртки).
+_NODES_LINE_RE = re.compile(r"^nodes:[ \t]*$", re.MULTILINE)
 
 
 def _load_doc(content: str) -> tuple[dict | None, list[str]]:
@@ -89,15 +92,27 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     ошибке результат None, список — все найденные проблемы (не первая попавшаяся).
     Неизвестные ключи игнорируются молча (форвард-совместимость формата).
 
-    Толерантность к выводу ИИ-агентов: если сырой текст не разбирается в словарь
-    с nodes, но содержит fenced-блок ```yaml — берём содержимое блока (пользователь
-    вставляет финальное сообщение агента целиком, с преамбулой и обёрткой).
-    Валидные документы это не задевает — фолбэк срабатывает только при неудаче."""
+    Толерантность к выводу ИИ-агентов (пользователь вставляет финальное сообщение
+    агента целиком): если сырой текст не разбирается в словарь с nodes, пробуем
+    (1) содержимое fenced-блока ```yaml, затем (2) срез от первой строки «nodes:»
+    (голая преамбула без обёртки). Валидные документы это не задевает — фолбэки
+    срабатывают только при неудаче; ошибки отдаём от последнего кандидата
+    (он ближе всего к полезной нагрузке)."""
     doc, load_errors = _load_doc(content)
     if doc is None or "nodes" not in doc:
+        candidates: list[str] = []
         m = _FENCE_RE.search(content)
         if m is not None:
-            doc, load_errors = _load_doc(m.group(1))
+            candidates.append(m.group(1))
+        n = _NODES_LINE_RE.search(content)
+        if n is not None and n.start() > 0:
+            candidates.append(content[n.start():])
+        for cand in candidates:
+            doc2, errs2 = _load_doc(cand)
+            if doc2 is not None and "nodes" in doc2:
+                doc, load_errors = doc2, errs2
+                break
+            doc, load_errors = doc2, errs2  # запоминаем последнюю попытку для ошибок
     if doc is None:
         return None, load_errors
     errors: list[str] = []

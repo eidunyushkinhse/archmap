@@ -266,7 +266,11 @@ def test_parse_tolerates_agent_fenced_output():
     parsed, errors = parse_import(fenced)
     assert errors == [] and parsed is not None
     assert [n.name for n in parsed.nodes] == ["A", "B"] and len(parsed.edges) == 1
-    # без блока преамбула остаётся ошибкой
+    # преамбула БЕЗ fence (стресс-тест: встречается и такое) — срез от «nodes:»
+    bare = "Now I have enough information.\n\nnodes:\n  - name: A\n  - name: B\nedges:\n  - from: A\n    to: B\n"
+    parsed, errors = parse_import(bare)
+    assert errors == [] and parsed is not None and len(parsed.nodes) == 2
+    # совсем без yaml — ошибка остаётся
     parsed, errors = parse_import("просто текст без yaml")
     assert parsed is None and errors
     # валидный документ, в description которого встречаются ```
