@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -39,6 +39,13 @@ class Node(Base):
     # статус жизненного цикла: existing (as-is, дефолт) | planned (to-be) | deprecated.
     # Версионируемая семантика, не раскладка. Кодируется на схеме цветом тела узла.
     status: Mapped[str] = mapped_column(String(16), default="existing", server_default="existing")
+    # Версия для optimistic CAS (этап 0 конкурентности, docs/plan-concurrency.md):
+    # PATCH с base_version ≠ текущей → 409 — правка от устаревшего состояния не
+    # затирает чужую (критично для текстов flowchart/openapi_spec). Инкремент —
+    # в update_node при каждой успешной правке.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

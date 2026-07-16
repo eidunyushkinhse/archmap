@@ -7,8 +7,14 @@ item_id → payload (null — удалить строку). Заменяет п�
 
 Апсерт — на уровне приложения (SELECT существующих ключей + UPDATE/INSERT в
 одной транзакции): ON CONFLICT с NULL view_id (корневой вид) вёл бы себя
-по-разному в Postgres (NULLS NOT DISTINCT) и SQLite тестов. Редактор один
-(MVP, last-write-wins) — гонки не разруливаем.
+по-разному в Postgres (NULLS NOT DISTINCT) и SQLite тестов.
+
+Конкурентные сессии (этап 0, docs/plan-concurrency.md): строка версии вида
+берётся FOR UPDATE до применения батча — она и fence (устаревший base_version →
+409, клиент ресинкается и переигрывает интент пользователя), и мьютекс
+писателей вида (конкурентные батчи сериализуются, гонка INSERT одного ключа
+view_layout исчезла). Успешная запись бампает версию вида и graph_rev проекта;
+ответ отдаёт оба счётчика (клиент отслеживает их без рефетча).
 """
 
 import uuid
@@ -18,11 +24,12 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_architect
 from app.database import get_db
-from app.deps import get_current_project
+from app.deps import get_current_project, scoped_node
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
-from app.schemas.node import ViewLayoutBatch
+from app.schemas.node import ViewLayoutBatch, ViewLayoutResult
+from app.view_state import bump_graph_rev, lock_view_state
 
 router = APIRouter(prefix="/views", tags=["views"])
 
@@ -37,17 +44,25 @@ def parse_view_id(view_id: str) -> uuid.UUID | None:
         raise HTTPException(status_code=422, detail="Некорректный id вида") from e
 
 
-@router.put("/{view_id}/layout", status_code=204)
+@router.put("/{view_id}/layout", response_model=ViewLayoutResult)
 def save_view_layout(
     view_id: str,
     payload: ViewLayoutBatch,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
-) -> None:
+) -> ViewLayoutResult:
     vid = parse_view_id(view_id)
+    # Вид, чей контейнер уже удалён другой сессией, — 404 (раньше батч доходил до
+    # INSERT с мёртвым view_id и падал 500 на FK).
+    if vid is not None and not scoped_node(db, vid, project):
+        raise HTTPException(status_code=404, detail="Вид не найден")
+    state = lock_view_state(db, project.id, vid)
+    if payload.base_version is not None and payload.base_version != state.version:
+        raise HTTPException(status_code=409, detail="Вид изменён в другой сессии")
     if not payload.items:
-        return
+        # пустой батч: мир вида не менялся — версию не двигаем, отдаём текущее
+        return ViewLayoutResult(version=state.version, graph_rev=project.graph_rev)
     item_ids = list(payload.items.keys())
     q = db.query(ViewLayoutItem).filter(
         ViewLayoutItem.project_id == project.id,
@@ -71,6 +86,9 @@ def save_view_layout(
                     project_id=project.id, view_id=vid, item_id=item_id, payload=data
                 )
             )
-    # раскладка — не смысловая правка: updated_at проекта не трогаем
-    # (то же поведение, что у прежних PUT ghost-positions/edge-waypoints)
+    state.version += 1
+    # раскладка — не смысловая правка: updated_at проекта не трогаем (touch_project
+    # не зовём), но курсор graph_rev двигаем — поллинг этапа 1 должен её увидеть
+    bump_graph_rev(db, project)
     db.commit()
+    return ViewLayoutResult(version=state.version, graph_rev=project.graph_rev)

@@ -116,6 +116,24 @@ class ViewLayoutBatch(BaseModel):
     """Батч-запись раскладки вида: item_id → payload; null — удалить строку
     (сброс объекта в авто-геометрию)."""
     items: dict[str, ViewLayoutPayload | None]
+    # Fence (этап 0 конкурентности): версия вида, от которой клиент делал правку.
+    # Не совпала с текущей → 409 (мир вида изменён другой сессией, клиент делает
+    # ресинк и переигрывает интент пользователя). None — без проверки (совместимость).
+    base_version: int | None = None
+
+
+class ViewLayoutResult(BaseModel):
+    """Ответ записи раскладки: новая версия вида (fence) и курсор изменений
+    проекта (поллинг этапа 1) — клиент отслеживает их без рефетча
+    (echo-suppression: свои записи не выглядят чужими)."""
+    version: int
+    graph_rev: int
+
+
+class ViewStateResponse(BaseModel):
+    """Лёгкий опрос свежести (этап 1): версия вида + курсор проекта."""
+    version: int
+    graph_rev: int
 
 
 class GraphEdgeResponse(BaseModel):
@@ -164,6 +182,10 @@ class GraphResponse(BaseModel):
     # полей (например, пучки "b:") в отдачу не попадают — отфильтрованы.
     # Какая проекция показана — решает фронт; лишние ключи безвредны (F6а).
     layout: dict[str, ViewLayoutPayload] = {}
+    # Версия вида (fence записей раскладки) и курсор изменений проекта (поллинг):
+    # базовая точка отсчёта клиента при загрузке уровня (этапы 0/1 конкурентности).
+    version: int = 0
+    graph_rev: int = 0
 
 
 class NodeContextResponse(BaseModel):

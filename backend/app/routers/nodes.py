@@ -31,6 +31,7 @@ from app.schemas.node import (
     ViewLayoutPayload,
 )
 from app.schemas.restore import DeletionSnapshot
+from app.view_state import bump_graph_rev, bump_view_version, current_version
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
@@ -285,11 +286,18 @@ def get_root_graph(
         .filter(Node.project_id == project.id, Node.parent_id.is_(None))
         .all()
     )
+    # версия вида + курсор проекта — базовая точка отсчёта клиента (этапы 0/1)
+    version = current_version(db, project.id, None)
     if not local_nodes:
-        return GraphResponse(nodes=[], edges=[], endpoints=[])
+        return GraphResponse(
+            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev
+        )
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    return _build_graph(local_nodes, None, all_nodes, all_edges, db)
+    graph = _build_graph(local_nodes, None, all_nodes, all_edges, db)
+    graph.version = version
+    graph.graph_rev = project.graph_rev
+    return graph
 
 
 # Должен быть объявлен до /{node_id}, иначе FastAPI примет "alerts" за node_id
@@ -567,12 +575,19 @@ def get_node_graph(
         raise HTTPException(status_code=404, detail="Узел не найден")
 
     local_nodes = db.query(Node).filter(Node.parent_id == node_id).all()
+    # версия вида + курсор проекта — базовая точка отсчёта клиента (этапы 0/1)
+    version = current_version(db, project.id, node_id)
     if not local_nodes:
-        return GraphResponse(nodes=[], edges=[], endpoints=[])
+        return GraphResponse(
+            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev
+        )
 
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    return _build_graph(local_nodes, node_id, all_nodes, all_edges, db)
+    graph = _build_graph(local_nodes, node_id, all_nodes, all_edges, db)
+    graph.version = version
+    graph.graph_rev = project.graph_rev
+    return graph
 
 
 @router.get("/{node_id}/context", response_model=NodeContextResponse)
@@ -674,6 +689,10 @@ def _clear_level_layout(
     db.query(ViewLayoutItem).filter(
         ViewLayoutItem.project_id == project.id, view_filter
     ).delete(synchronize_session=False)
+    # relayout меняет мир вида: fence должен отсечь отставшие батчи (например,
+    # дроп драга из сессии, не видевшей перераскладку), поллинг — увидеть сброс
+    bump_view_version(db, project.id, container_id)
+    bump_graph_rev(db, project)
     db.commit()
 
 

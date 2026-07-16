@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -36,6 +36,10 @@ class Edge(Base):
     is_synchronous: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # ГЕОМЕТРИИ здесь больше нет (R3): хэндлы/изломы/доля плашки пер-вид,
     # хранятся в view_layout ключом пучка "b:<src>><tgt>".
+    # Версия для optimistic CAS (этап 0 конкурентности): см. Node.version.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

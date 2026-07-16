@@ -24,6 +24,7 @@ from app.models.process_participant import ProcessParticipant  # noqa: F401
 from app.models.project import Project
 from app.models.user import User  # noqa: F401
 from app.models.view_layout import ViewLayoutItem  # noqa: F401
+from app.models.view_state import ViewState  # noqa: F401
 
 
 @pytest.fixture()

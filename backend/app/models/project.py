@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -39,6 +39,13 @@ class Project(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
+    )
+    # Курсор изменений схемы (этап 1 конкурентности, docs/plan-concurrency.md):
+    # инкремент на КАЖДУЮ мутацию узлов/рёбер/раскладки — в отличие от updated_at,
+    # который раскладку сознательно игнорирует. Клиент поллит его и перечитывает
+    # уровень при росте. Инкремент — только через view_state.bump_graph_rev.
+    graph_rev: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
