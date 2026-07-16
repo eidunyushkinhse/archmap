@@ -8,9 +8,10 @@ export const projectsApi = {
     api.get<Project[]>(`/projects?archived=${archived}`),
   // Каталог стартовых шаблонов для витрины создания проекта.
   templates: (): Promise<TemplateOut[]> => api.get<TemplateOut[]>(`/projects/templates`),
-  // Dry-run импорта YAML: сводка/ошибки для живой валидации в модалке, БД не трогает.
-  importPreview: (content: string): Promise<ImportPreviewOut> =>
-    api.post<ImportPreviewOut>(`/projects/import/preview`, { content }),
+  // Dry-run импорта YAML (N документов → слияние): сводка/ошибки/отчёт слияния
+  // для живой валидации в модалке, БД не трогает.
+  importPreview: (contents: string[]): Promise<ImportPreviewOut> =>
+    api.post<ImportPreviewOut>(`/projects/import/preview`, { contents }),
   get: (id: string): Promise<Project> => api.get<Project>(`/projects/${id}`),
   create: (payload: ProjectCreate): Promise<Project> =>
     api.post<Project>(`/projects`, payload),

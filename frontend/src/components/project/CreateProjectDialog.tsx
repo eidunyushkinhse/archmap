@@ -1,18 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ImportPreviewOut, Project, TemplateOut } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import C4Preview from "./C4Preview";
+import ImportPane from "./ImportPane";
 import "./createProject.css";
 
 /**
  * Создание проекта — двухпанельная витрина: слева способ старта (Пустой / Шаблон /
  * Копия / Импорт) со списком вариантов и полями имени/описания, справа живое
- * превью выбранного шаблона (C4Preview 1:1 с холстом) либо textarea импорта YAML
- * с живой сводкой валидации (dry-run на бэке). Открывается из лендинга и из
- * дропдауна шапки — компонент один, без редиректов. Успех → onCreated(id).
+ * превью выбранного шаблона (C4Preview 1:1 с холстом) либо панель импорта YAML
+ * (несколько документов-чипов + живая сводка dry-run с отчётом слияния —
+ * ImportPane). Открывается из лендинга и из дропдауна шапки — компонент один,
+ * без редиректов. Успех → onCreated(id).
  */
 
 interface Props {
@@ -53,13 +55,14 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [templates, setTemplates] = useState<TemplateOut[] | null>(null); // null = грузится
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(projects[0]?.id ?? null);
-  const [importText, setImportText] = useState("");
-  // Сводка dry-run привязана к тексту, для которого получена: устаревший ответ
-  // не показываем и не засчитываем в готовность кнопки.
-  const [importSummary, setImportSummary] = useState<{ forText: string; res: ImportPreviewOut } | null>(null);
+  // Документы импорта (мульти-репо: по YAML на репозиторий). Каждое изменение —
+  // новый массив, поэтому актуальность сводки проверяется по ссылке (forDocs).
+  const [docs, setDocs] = useState<string[]>([""]);
+  // Сводка dry-run привязана к документам, для которых получена: устаревший
+  // ответ не показываем и не засчитываем в готовность кнопки.
+  const [importSummary, setImportSummary] = useState<{ forDocs: string[]; res: ImportPreviewOut } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Загрузка каталога шаблонов (легитимный эффект). По умолчанию выбран webapp,
   // иначе первый из ответа.
@@ -76,33 +79,35 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     );
   }, []);
 
-  // Живая сводка импорта: дебаунс 500мс → dry-run; устаревшие ответы отбрасываются
-  // (alive-флаг в cleanup). Пустой текст сводку не запрашивает — она скрыта по
-  // несовпадению forText, синхронного сброса стейта в эффекте нет.
+  // Живая сводка импорта: дебаунс 500мс → dry-run (все непустые документы);
+  // устаревшие ответы отбрасываются (alive-флаг в cleanup). Пустые документы
+  // сводку не запрашивают — она скрыта по несовпадению forDocs, синхронного
+  // сброса стейта в эффекте нет.
   useEffect(() => {
     if (mode !== "import") return;
-    const text = importText;
-    if (!text.trim()) return;
+    const forDocs = docs;
+    const texts = forDocs.filter((d) => d.trim());
+    if (texts.length === 0) return;
     let alive = true;
     const t = setTimeout(() => {
-      projectsApi.importPreview(text).then(
-        (res) => { if (alive) setImportSummary({ forText: text, res }); },
+      projectsApi.importPreview(texts).then(
+        (res) => { if (alive) setImportSummary({ forDocs, res }); },
         (e: unknown) => {
           if (!alive) return;
           const msg = e instanceof Error ? e.message : "Не удалось проверить YAML";
-          setImportSummary({ forText: text, res: {
+          setImportSummary({ forDocs, res: {
             ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [],
-            files: 1, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
+            files: texts.length, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
           } });
         },
       );
     }, 500);
     return () => { alive = false; clearTimeout(t); };
-  }, [importText, mode]);
+  }, [docs, mode]);
 
   const tpl = templates?.find((t) => t.id === templateId) ?? null;
   const source = projects.find((p) => p.id === sourceId) ?? null;
-  const summary = importSummary && importSummary.forText === importText && importText.trim()
+  const summary = importSummary && importSummary.forDocs === docs && docs.some((d) => d.trim())
     ? importSummary.res
     : null;
 
@@ -126,22 +131,14 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         name: name.trim(),
         description: description.trim() || null,
         start,
-        import_yaml: mode === "import" ? importText : null,
+        import_yaml: null,
+        import_yamls: mode === "import" ? docs.filter((d) => d.trim()) : null,
       });
       onCreated(created.id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Не удалось создать проект");
       setBusy(false);
     }
-  }
-
-  function pickFile(f: File | undefined) {
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") setImportText(reader.result);
-    };
-    reader.readAsText(f);
   }
 
   return (
@@ -207,19 +204,12 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                 ))}
 
               {mode === "import" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".yaml,.yml"
-                    style={{ display: "none" }}
-                    onChange={(e) => { pickFile(e.target.files?.[0]); e.target.value = ""; }}
-                  />
-                  <button type="button" style={secondaryBtn} onClick={() => fileRef.current?.click()}>
-                    Выбрать файл…
-                  </button>
-                  <span style={{ fontSize: 12.5, color: "#94a3b8" }}>или вставьте текст справа</span>
-                </div>
+                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
+                  Формат — тот же YAML, что выдаёт «Экспорт». Файлов может быть
+                  несколько (например, по одному на репозиторий системы) — они
+                  сольются автоматически, сводка справа покажет склейку,
+                  конфликты и подозрения.
+                </p>
               )}
             </div>
 
@@ -291,40 +281,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             )}
 
             {mode === "import" && (
-              <>
-                <textarea
-                  style={importArea}
-                  value={importText}
-                  onChange={(e) => setImportText(e.target.value)}
-                  placeholder="Вставьте YAML — тот же формат, что выдаёт «Экспорт»"
-                  spellCheck={false}
-                />
-                <div style={{ marginTop: 10 }}>
-                  {summary?.ok && (
-                    <>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-                        Готово к импорту: {summary.node_count} объектов · {summary.edge_count} связей
-                      </div>
-                      {summary.roots.length > 0 && (
-                        <div style={{ fontSize: 12.5, color: "#94a3b8", marginTop: 3 }}>
-                          Корневые: {summary.roots.join(", ")}
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {summary && !summary.ok && (
-                    <div style={{ fontSize: 13, color: "#dc2626" }}>
-                      <div style={{ fontWeight: 600, marginBottom: 3 }}>Не получается разобрать YAML:</div>
-                      {summary.errors.slice(0, 5).map((e, i) => (
-                        <div key={i} style={{ marginTop: 2 }}>{e}</div>
-                      ))}
-                      {summary.errors.length > 5 && (
-                        <div style={{ marginTop: 2 }}>…ещё {summary.errors.length - 5}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
+              <ImportPane docs={docs} onDocs={setDocs} summary={summary} />
             )}
           </div>
         </div>
@@ -376,12 +333,6 @@ const emptyFrame: CSSProperties = {
   height: 280, display: "flex", alignItems: "center", justifyContent: "center",
   borderRadius: 10, border: "1px solid #eef2f6",
   background: "radial-gradient(circle, #d8e0ea 1px, transparent 1px) 0 0 / 16px 16px, #f8fafc",
-};
-const importArea: CSSProperties = {
-  width: "100%", height: 280, boxSizing: "border-box", resize: "none",
-  padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 10,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-  fontSize: 12.5, lineHeight: 1.5, color: "#0f172a", background: "#fff",
 };
 const footer: CSSProperties = {
   display: "flex", justifyContent: "flex-end", gap: 8,

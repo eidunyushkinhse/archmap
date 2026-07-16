@@ -39,6 +39,19 @@
 .cp-row--on { border-color: #2563eb; background: #eff6ff; }
 .cp-row--on:hover { background: #eff6ff; }
 
+/* Чип документа импорта (мульти-YAML): те же токены, что у сегментов */
+.cp-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+}
+.cp-chip:hover { background: #f1f5f9; }
+.cp-chip--on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+.cp-chip--on:hover { background: #eff6ff; }
+
 /* Скелетон, пока каталог шаблонов не загрузился */
 .cp-skel {
   border-radius: 10px;
