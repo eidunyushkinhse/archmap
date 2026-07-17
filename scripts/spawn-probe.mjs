@@ -44,6 +44,7 @@ const doPrepare = args.includes("--prepare");
 const sourceName = argOf("--source") ?? "Маркетплейс «Ярмарка»";
 const nodeName = argOf("--node") ?? "Маркетплейс «Ярмарка»";
 const outFile = argOf("--out");
+const runRole = argOf("--role") ?? "viewer"; // architect — засев спавна в клон (Ф3, доставка «Переразложить»)
 const shotFile = argOf("--shot");
 
 function makeToken(role) {
@@ -85,9 +86,14 @@ async function prepare() {
   const projects = await api(arch, "/projects");
   const src = projects.find((p) => p.name === sourceName);
   if (!src) throw new Error(`Источник «${sourceName}» не найден`);
-  const old = projects.find((p) => p.name === CLONE_NAME);
-  if (old) {
-    await api(arch, `/projects/${old.id}`, { method: "DELETE" });
+  // клоны прежних прогонов (включая упавшие посреди prepare) сносим ВСЕ; удаление
+  // гейтится архивом и подтверждением именем (двойная защита) — проходим оба
+  const olds = projects.filter((p) => p.name === CLONE_NAME);
+  const archived = await api(arch, "/projects?archived=true");
+  olds.push(...archived.filter((p) => p.name === CLONE_NAME));
+  for (const old of olds) {
+    if (!old.archived_at) await api(arch, `/projects/${old.id}/archive`, { method: "POST" });
+    await api(arch, `/projects/${old.id}?confirm=${encodeURIComponent(CLONE_NAME)}`, { method: "DELETE" });
     console.log(`Старый клон удалён (${old.id})`);
   }
   const clone = await api(arch, "/projects", {
@@ -326,7 +332,7 @@ export function spawnMetrics(sig, containerId) {
 
 // ── Прогон: раскрыть контейнер вьюером и замерить ────────────────────────────
 async function run() {
-  const viewer = makeToken("viewer");
+  const viewer = makeToken(runRole);
   const projects = await api(viewer, "/projects");
   const clone = projects.find((p) => p.name === CLONE_NAME);
   if (!clone) throw new Error(`Клон «${CLONE_NAME}» не найден — сначала --prepare`);
@@ -354,14 +360,23 @@ async function run() {
   await page.waitForSelector(".react-flow", { timeout: 20000 });
   await settleSignature(page);
 
-  // лупа целевого контейнера (клик по элементу вне вьюпорта молча теряется — fitView)
+  // лупа целевого контейнера (клик по элементу вне вьюпорта молча теряется — fitView);
+  // контейнер уже раскрыт (persist-раскрытие после architect-прогона) → без клика
   await page.locator(".react-flow__controls-fitview").click({ force: true });
   await page.waitForTimeout(150);
   const node = page.locator(`.react-flow__node[data-id="${container.id}"]`);
-  if ((await node.count()) === 0) throw new Error("Контейнер не отображается на корне");
-  await node.hover({ force: true });
-  await node.locator('button[title="Раскрыть содержимое"]').click({ force: true });
-  const sig = await settleSignature(page);
+  const frameSel = page.locator(`.lg-frame[data-frame-id="${container.id}"]`);
+  let sig;
+  if ((await node.count()) > 0 && (await node.locator('button[title="Раскрыть содержимое"]').count()) > 0) {
+    await node.hover({ force: true });
+    await node.locator('button[title="Раскрыть содержимое"]').click({ force: true });
+    sig = await settleSignature(page);
+  } else if ((await frameSel.count()) > 0) {
+    console.log("Контейнер уже раскрыт (persist) — снимаем как есть");
+    sig = await settleSignature(page);
+  } else {
+    throw new Error("Контейнер не отображается на корне ни узлом, ни рамкой");
+  }
   if (shotFile) {
     await page.locator(".react-flow__controls-fitview").click({ force: true });
     await page.waitForTimeout(400);
