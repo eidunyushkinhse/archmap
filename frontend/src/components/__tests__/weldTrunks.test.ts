@@ -13,11 +13,14 @@ const followerCur = (): EdgePoint[] => [P(0, 0), P(0, 140), P(300, 140)];
 const weldedShape = [P(0, 0), P(150, 0), P(150, 140), P(300, 140)];
 
 describe("weldTrunks — сварка исходящих стволов (E78)", () => {
+  // routableIds здесь и ниже сужен до follower-а: с кандидатами-проекциями (E79)
+  // в этих сценах иначе честно сваривается сам лидер к стволу follower-а, а тесты
+  // проверяют именно перенятие через излом.
   it("follower перенимает префикс лидера через излом при строгом выигрыше чернил", () => {
     const routes = new Map([["a", leader()], ["b", followerCur()]]);
     const welded = weldTrunks({
       routes,
-      routableIds: new Set(["a", "b"]),
+      routableIds: new Set(["b"]),
       // чужая линия, которую текущий маршрут b пересекает крестом — сварной путь чище
       preplaced: [[P(80, 100), P(80, 200)]],
       obstacles: [],
@@ -30,7 +33,7 @@ describe("weldTrunks — сварка исходящих стволов (E78)", 
 
   it("сварка ради слияния: принимается и без выигрыша по грязи (чистая сцена)", () => {
     const routes = new Map([["a", leader()], ["b", followerCur()]]);
-    const welded = weldTrunks({ routes, routableIds: new Set(["a", "b"]), obstacles: [] });
+    const welded = weldTrunks({ routes, routableIds: new Set(["b"]), obstacles: [] });
     expect([...welded]).toEqual(["b"]);
     expect(routes.get("b")).toEqual(weldedShape);
   });
@@ -45,11 +48,37 @@ describe("weldTrunks — сварка исходящих стволов (E78)", 
     const before = JSON.parse(JSON.stringify([...routes]));
     const welded = weldTrunks({
       routes,
-      routableIds: new Set(["a", "b"]),
+      routableIds: new Set(["b"]),
       obstacles: [{ x: 100, y: 120, w: 260, h: 40 }],
     });
     expect(welded.size).toBe(0);
     expect(JSON.parse(JSON.stringify([...routes]))).toEqual(before);
+  });
+
+  it("mid-segment: расставание проекцией дока посреди прямого ствола (E79)", () => {
+    // у лидера-прямой изломов нет — изломные кандидаты пусты; проекция дока (250,60)
+    // на ствол даёт расставание (250,0) с поворотом строго напротив дока
+    const routes = new Map<string, EdgePoint[]>([
+      ["a", [P(0, 0), P(400, 0)]],
+      ["b", [P(0, 0), P(0, 60), P(250, 60)]],
+    ]);
+    const welded = weldTrunks({ routes, routableIds: new Set(["b"]), obstacles: [] });
+    expect([...welded]).toEqual(["b"]);
+    expect(routes.get("b")).toEqual([P(0, 0), P(250, 0), P(250, 60)]);
+    expect(routes.get("a")).toEqual([P(0, 0), P(400, 0)]);
+  });
+
+  it("mid-segment зеркально: T-слияние сбоку во входящий ствол (E79)", () => {
+    // вход: общий порт-цель (0,0); follower вливается в прямой ствол лидера посреди
+    // сегмента и доходит до хэндла вместе (в реальном пространстве — T-подход сбоку)
+    const routes = new Map<string, EdgePoint[]>([
+      ["a", [P(400, 0), P(0, 0)]],
+      ["b", [P(250, 60), P(0, 60), P(0, 0)]],
+    ]);
+    const welded = weldTrunks({ routes, routableIds: new Set(["b"]), obstacles: [] });
+    expect([...welded]).toEqual(["b"]);
+    expect(routes.get("b")).toEqual([P(250, 60), P(250, 0), P(0, 0)]);
+    expect(routes.get("a")).toEqual([P(400, 0), P(0, 0)]);
   });
 
   it("ступень «грязь не хуже»: перенятый префикс с нелегальной ездой отвергается", () => {
@@ -96,7 +125,7 @@ describe("weldTrunks — сварка исходящих стволов (E78)", 
     const inLeader = [P(300, 100), P(150, 100), P(150, 0), P(0, 0)];
     const inFollower = [P(300, 140), P(0, 140), P(0, 0)];
     const routes = new Map([["a", inLeader], ["b", inFollower]]);
-    const welded = weldTrunks({ routes, routableIds: new Set(["a", "b"]), obstacles: [] });
+    const welded = weldTrunks({ routes, routableIds: new Set(["b"]), obstacles: [] });
     expect([...welded]).toEqual(["b"]);
     // слился на (150,140)→(150,0) и дошёл до хэндла вместе с лидером
     expect(routes.get("b")).toEqual([P(300, 140), P(150, 140), P(150, 0), P(0, 0)]);

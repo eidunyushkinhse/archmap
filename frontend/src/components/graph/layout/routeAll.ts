@@ -285,6 +285,25 @@ function movePenalty(
     // точка пересечения: вдоль чужого сегмента = mConst, вдоль хода = c
     if (!(e.lo + EPS < mConst && mConst < e.hi - EPS)) continue; // строго внутри чужого
     if (Math.abs(e.c - mStart) <= EPS) continue;                 // начало хода — посчитает прошлый ход
+    // ШОВ СТВОЛА (E79, T-влитие): конец хода упёрся в сегмент СОБРАТА на границе
+    // легального куска (дальше ломаная едет по стволу с кредитом) — это точка
+    // слияния, не крест. Симметричное расставание (старт хода на стволе) уже
+    // покрыто фильтром начала хода выше.
+    if (
+      trunk !== undefined && moveArc0 !== undefined &&
+      Math.abs(e.c - mEnd) <= EPS
+    ) {
+      const fel = trunk.fellows.find(
+        (f) => nearPt(f.p0, e.ps.p0.x, e.ps.p0.y) && nearPt(f.pN, e.ps.pN.x, e.ps.pN.y),
+      );
+      if (fel) {
+        const arcCross = moveArc0 + Math.abs(e.c - mStart);
+        if (
+          (fel.prefLen > EPS && arcCross <= fel.prefLen + EPS) ||
+          (fel.sufLen > EPS && arcCross >= trunk.total - fel.sufLen - EPS)
+        ) continue;
+      }
+    }
     const key = Math.round(e.c * 2); // позиция точки вдоль хода (mConst у всех одна)
     if (key === lastKey) continue;
     lastKey = key;

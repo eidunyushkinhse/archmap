@@ -29,6 +29,12 @@ import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 // сварки (ступень 2): добавленный в routeCost он протекал в сравнения rip-up/джогов
 // и покупал объезды (полигон-эксперимент Ф1, журнал плана).
 export const MERGE_GAIN = 0.5;
+// Кандидат сварки не может удлинить маршрут больше чем в WELD_STRETCH раз (+люфт на
+// мелкие рёбра): при MERGE_GAIN → 1 езда по стволу почти бесплатна, и без капа бонус
+// оплачивал крюки через весь уровень (мутант «вправо 885, чтобы вернуться влево 2200»,
+// журнал плана — донастройка жадности).
+const WELD_STRETCH = 1.25;
+const WELD_STRETCH_SLACK = 40;
 // Изломов собрата перенимается за одну попытку; итерации до фикспойнта добирают глубже.
 const WELD_K = 3;
 const WELD_ITER_CAP = 3;
@@ -163,11 +169,41 @@ export function weldTrunks(params: WeldParams): Set<string> {
             if (matePts.length < 2) continue;
             const diverge = pieceLen(commonPrefix(cur, matePts));
             const verts = vertsWithArc(cleanup(matePts.map((p) => ({ x: p.x, y: p.y }))));
-            // изломы собрата ЗА точкой расхождения (интерьерные вершины), первые WELD_K
-            const qs = verts.slice(1, -1).filter((v) => v.arc > diverge + EPS).slice(0, WELD_K);
-            for (const q of qs) {
-              const qi = verts.indexOf(q);
-              const arrSide = sideAlong(verts[qi - 1].p, q.p);
+            // Кандидаты точки расставания за точкой расхождения, первые WELD_K по дуге:
+            //  • изломы собрата (интерьерные вершины) — классика E78; семя хвоста по
+            //    ходу ствола (разворот на шве запрещён сидом);
+            //  • проекции свободного дока ВНУТРЬ осевых сегментов собрата — расставание
+            //    «напротив дока», где хвост минимален (mid-segment divergence, E79:
+            //    у длинного прямого ствола изломов нет, а отвернуть надо посреди).
+            //    Семя — ПЕРПЕНДИКУЛЯР к стволу в сторону дока: расставание = поворот;
+            //    семя по ходу ствола здесь продавливало стаб вдоль ствола → «поднырок»
+            //    у дока и качели взаимной миграции (журнал плана, донастройка жадности).
+            const cands: Array<{ p: EdgePoint; prev: EdgePoint; arc: number; side?: EdgeSide }> = [];
+            for (let j = 1; j < verts.length; j++) {
+              const a = verts[j - 1], b = verts[j];
+              if (j < verts.length - 1 && b.arc > diverge + EPS)
+                cands.push({ p: b.p, prev: a.p, arc: b.arc });
+              const horiz = Math.abs(b.p.y - a.p.y) <= EPS;
+              const vertical = Math.abs(b.p.x - a.p.x) <= EPS;
+              if (horiz === vertical) continue; // диагональ — не ствол
+              const lo = horiz ? Math.min(a.p.x, b.p.x) : Math.min(a.p.y, b.p.y);
+              const hi = horiz ? Math.max(a.p.x, b.p.x) : Math.max(a.p.y, b.p.y);
+              const c = horiz ? dock.x : dock.y;
+              // у самого конца сегмента проекция дублирует излом — пропускаем
+              if (c <= lo + 2 * EPS || c >= hi - 2 * EPS) continue;
+              // док на оси ствола — дегенерат (некуда поворачивать), кроют изломы
+              const perp = horiz ? dock.y - a.p.y : dock.x - a.p.x;
+              if (Math.abs(perp) <= EPS) continue;
+              const side: EdgeSide = horiz
+                ? (perp > 0 ? "bottom" : "top")
+                : (perp > 0 ? "right" : "left");
+              const p = horiz ? { x: c, y: a.p.y } : { x: a.p.x, y: c };
+              const arc = a.arc + Math.abs(c - (horiz ? a.p.x : a.p.y));
+              if (arc > diverge + EPS) cands.push({ p, prev: a.p, arc, side });
+            }
+            cands.sort((u, v) => u.arc - v.arc);
+            for (const q of cands.slice(0, WELD_K)) {
+              const arrSide = q.side ?? sideAlong(q.prev, q.p);
               if (!arrSide) continue; // диагональный подход — не ствол
               // хвост: от излома собрата до свободного дока. Стаб дефолтный (E9):
               // у дока — полноценный выход из хэндла, у Q — поворот не раньше стаба
@@ -189,16 +225,22 @@ export function weldTrunks(params: WeldParams): Set<string> {
                 },
               );
               if (!tail || tail.pts.length < 2) continue;
-              const adopted = verts.slice(0, qi).map((v) => ({ x: v.p.x, y: v.p.y }));
+              // вершины ствола строго до точки расставания (дуга после cleanup растёт
+              // строго); для проекции хвост стартует с q.p — сегмент-хозяин доклеится
+              const adopted = verts
+                .filter((v) => v.arc < q.arc - EPS)
+                .map((v) => ({ x: v.p.x, y: v.p.y }));
               const fullOriented = cleanup([...adopted, ...tail.pts]);
               if (fullOriented.length < 2) continue;
               const full = orient(fullOriented); // orient — инволюция
               const candParts = evalRouteParts(full, ctx.segs, { extra, fellowRoutes: ctx.routes });
-              // ступень 1: грязь не хуже покомпонентно (допуски — числовой шум)
+              // ступень 1: грязь не хуже покомпонентно (допуски — числовой шум);
+              // + кап удлинения: слияние не покупает крюки (см. WELD_STRETCH)
               if (
                 candParts.crosses > curParts.crosses ||
                 candParts.overlap > curParts.overlap + EPS ||
-                candParts.extra > curParts.extra + 1e-6
+                candParts.extra > curParts.extra + 1e-6 ||
+                candParts.len > curParts.len * WELD_STRETCH + WELD_STRETCH_SLACK
               ) continue;
               // ступень 2: чернила с бонусом слияния строго лучше
               const candInk = ink(candParts, sharedLegal(full, ctx.routes));
