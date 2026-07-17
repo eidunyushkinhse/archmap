@@ -124,6 +124,9 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   const [selectedObject, setSelectedObject] = useState<Selected>(null);
   // выбор связи из «мастер-стрелки» (несколько слитых связей одного направления)
   const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
+  // выбор связи ОБЩЕГО ПЛЕЧА (E80): двойной клик по легальному стволу нескольких
+  // стрелок; kind задаёт формат строк («куда ведёт» у исходящего, «откуда» у входящего)
+  const [trunkChoice, setTrunkChoice] = useState<{ kind: "out" | "in"; edges: LevelEdge[] } | null>(null);
   // узел, для которого открыта контекстная схема (клик по дереву слева)
   const [contextNode, setContextNode] = useState<Node | null>(null);
   // узел, который удаляют с канваса по Backspace/Delete → подтверждение со связями
@@ -1042,6 +1045,12 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
                 if (les.length === 1) inspectEdge(les[0]);
                 else if (les.length > 1) setEdgeChoice(les);
               }}
+              onTrunkChoice={(kind, group) => {
+                const les = group
+                  .map((g) => findLevelEdge(g.id))
+                  .filter((e): e is LevelEdge => e != null);
+                if (les.length >= 2) setTrunkChoice({ kind, edges: les });
+              }}
               onLayoutChanged={handleLayoutChanged}
               onDropNode={handleDropNode}
               refreshChildrenOf={childRefresh}
@@ -1241,6 +1250,20 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
               : undefined
           }
           onClose={() => setEdgeChoice(null)}
+        />
+      )}
+      {trunkChoice && trunkChoice.edges.length > 0 && (
+        <EdgeChoiceModal
+          edges={trunkChoice.edges}
+          title="Связи общего плеча"
+          subtitle={trunkChoice.kind === "out"
+            ? `Исходящий ствол из «${edgeEndLabel(trunkChoice.edges.map((e) => e.original_source_name), trunkChoice.edges[0].source_id)}»`
+            : `Входящий ствол в «${edgeEndLabel(trunkChoice.edges.map((e) => e.original_target_name), trunkChoice.edges[0].target_id)}»`}
+          rowDetail={(e) => trunkChoice.kind === "out"
+            ? `➜ ${e.original_target_name || findNodeLabel(e.target_id)}`
+            : `⬅ ${e.original_source_name || findNodeLabel(e.source_id)}`}
+          onPick={(edge) => { setTrunkChoice(null); inspectEdge(edge); }}
+          onClose={() => setTrunkChoice(null)}
         />
       )}
       {contextNode && (

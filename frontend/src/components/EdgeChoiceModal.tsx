@@ -7,8 +7,13 @@ import { secondaryBtn } from "../ui/styles";
 // (с original_* полями), не теряя их в типе при сужении до базового Edge.
 interface Props<E extends Edge> {
   edges: E[];
-  sourceLabel: string;
-  targetLabel: string;
+  sourceLabel?: string;
+  targetLabel?: string;
+  // Вариант «общее плечо» (E80): свой заголовок/подзаголовок и правая колонка
+  // строки — «куда ведёт» у исходящего ствола, «откуда» у входящего.
+  title?: string;
+  subtitle?: string;
+  rowDetail?: (edge: E) => string;
   onPick: (edge: E) => void;
   // Опционально (только для архитектора): дозаписать новую связь в том же
   // направлении, не протягивая отдельную стрелку. Кнопки нет, если проп не передан.
@@ -25,20 +30,30 @@ export default function EdgeChoiceModal<E extends Edge>({
   edges,
   sourceLabel,
   targetLabel,
+  title,
+  subtitle,
+  rowDetail,
   onPick,
   onAdd,
   onClose,
 }: Props<E>) {
   return (
     <Modal onClose={onClose} boxStyle={{ width: 420, maxHeight: "80vh", overflowY: "auto" }}>
-      <h2 style={{ margin: "0 0 6px", color: "#1e293b" }}>Выберите связь</h2>
+      <h2 style={{ margin: "0 0 6px", color: "#1e293b" }}>{title ?? "Выберите связь"}</h2>
       <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>
-        {sourceLabel} → {targetLabel}
+        {subtitle ?? `${sourceLabel} → ${targetLabel}`}
       </p>
       <div style={list}>
         {edges.map((e) => (
-          <button key={e.id} onClick={() => onPick(e)} style={linkRow}>
-            {edgeText(e)}
+          <button key={e.id} onClick={() => onPick(e)} style={rowDetail ? detailRow : linkRow}>
+            {rowDetail ? (
+              <>
+                <span>{edgeText(e)}</span>
+                <span style={detailCell}>{rowDetail(e)}</span>
+              </>
+            ) : (
+              edgeText(e)
+            )}
           </button>
         ))}
       </div>
@@ -66,4 +81,21 @@ const linkRow: CSSProperties = {
   fontSize: 14,
   fontWeight: 600,
   color: "#2563eb",
+};
+// строка с правой колонкой «куда/откуда ведёт» (вариант общего плеча, E80)
+const detailRow: CSSProperties = {
+  ...linkRow,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "baseline",
+  gap: 12,
+};
+const detailCell: CSSProperties = {
+  color: "#64748b",
+  fontWeight: 400,
+  fontSize: 13,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  maxWidth: 200,
 };

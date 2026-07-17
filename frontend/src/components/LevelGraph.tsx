@@ -38,6 +38,7 @@ import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
+import { trunkHitAt } from "./graph/trunkHit";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
@@ -103,6 +104,9 @@ interface LevelGraphProps {
   // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
   // связь в том же направлении, а не городить отдельную стрелку.
   onEdgesChoice: (edges: AppEdge[]) => void;
+  // ОБЩЕЕ ПЛЕЧО (E80): двойной клик в точке легального ствола ≥2 отрисованных
+  // связей — модалка выбора с направлением ствола (вместо обычной детализации)
+  onTrunkChoice?: (kind: "out" | "in", edges: AppEdge[]) => void;
   // Раскладка вида изменена и сохранена (батч view_layout: позиции узлов и/или
   // геометрия пучков; null — строка удалена) — родитель зеркалит те же значения в
   // свой стейт, чтобы пересчёт раскладки без рефетча их не откатил. ЕДИНСТВЕННЫЙ
@@ -225,6 +229,7 @@ function LevelGraphInner({
   linkedHighlight,
   onClearSelection,
   onEdgesChoice,
+  onTrunkChoice,
   onLayoutChanged,
   onDropNode,
   refreshChildrenOf,
@@ -871,14 +876,28 @@ function LevelGraphInner({
     },
     [edges, onEdgesChoice],
   );
+  // Выбор связи ОБЩЕГО ПЛЕЧА (E80): члены отрисованных участников ствола флаттенятся
+  // до связей БД. Меньше двух связей (вырожденный ствол) — false, вызывающий уходит
+  // в обычную детализацию.
+  const openTrunkMembers = useCallback(
+    (kind: "out" | "in", memberIds: string[]): boolean => {
+      const members = memberIds
+        .map((mid) => edges.find((e) => e.id === mid))
+        .filter((e): e is AppEdge => e != null);
+      if (members.length < 2 || !onTrunkChoice) return false;
+      onTrunkChoice(kind, members);
+      return true;
+    },
+    [edges, onTrunkChoice],
+  );
 
-  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers };
   });
   // Ленивая читалка колбэков для сборки: обработчики в data собранных объектов зовут
   // getCb() в момент клика (не при сборке) — объект может пережить несколько прогонов
@@ -1046,15 +1065,31 @@ function LevelGraphInner({
     },
     [isContext]
   );
-  // По связи: тот же путь, что у плашки (openEdgeMembers → одна связь сразу в панель,
-  // несколько — выбор участника, см. TreePage).
+  // По связи: сперва хит-тест ОБЩЕГО ПЛЕЧА (E80) — клик в точке легального ствола
+  // ≥2 отрисованных связей открывает модалку ствола с направлением; иначе прежний
+  // путь плашки (openEdgeMembers → одна связь сразу в панель, несколько — выбор
+  // участника, см. TreePage). Клик по плашке сюда не попадает — она адресует свою
+  // связь однозначно (E57).
   const handleEdgeDoubleClick = useCallback(
-    (_e: MouseEvent, rfEdge: RFEdge) => {
+    (e: MouseEvent, rfEdge: RFEdge) => {
       if (isContext) return;
-      const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
+      const dataOf = (re: RFEdge): WrappedEdgeData | undefined => re.data as WrappedEdgeData | undefined;
+      const pt = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const ortho = rfEdges
+        .map((re) => ({ id: re.id, pts: dataOf(re)?.autoRoute ?? [] }))
+        .filter((re) => re.pts.length >= 2);
+      const hit = trunkHitAt(ortho, rfEdge.id, pt);
+      if (hit) {
+        const flat = hit.memberIds.flatMap((gid) => {
+          const re = rfEdges.find((x) => x.id === gid);
+          return re ? dataOf(re)?.memberIds ?? [] : [];
+        });
+        if (cbRef.current.openTrunkMembers(hit.kind, flat)) return;
+      }
+      const memberIds = dataOf(rfEdge)?.memberIds ?? [];
       cbRef.current.openEdgeMembers(memberIds);
     },
-    [isContext]
+    [isContext, rfEdges, screenToFlowPosition]
   );
 
   // «Показать на схеме» (locate): центрируем холст на цели и коротко её подсвечиваем.
