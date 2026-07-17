@@ -33,7 +33,6 @@ const BACKEND = process.env.ARCHMAP_BACKEND ?? "http://localhost:8000";
 const CHROME = join(homedir(), ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome");
 const CHROME_LIBS = join(homedir(), ".cache/archmap-chrome-libs/usr/lib/x86_64-linux-gnu");
 const CLONE_NAME = "__spawn-полигон";
-const RUN_PROJECT = undefined; // переопределяется --project в run()
 const PSQL_ENV = { ...process.env, PGPASSWORD: process.env.PGPASSWORD ?? "postgres" };
 
 const args = process.argv.slice(2);
@@ -396,8 +395,15 @@ async function run() {
   await page.goto(`${FRONTEND}/#/p/${clone.id}`);
   await page.reload();
   await page.waitForSelector(".react-flow", { timeout: 20000 });
-  if (!args.includes("--fast-click")) await settleSignature(page);
-  else await page.waitForSelector(`.react-flow__node[data-id="${container.id}"]`, { timeout: 20000 });
+  if (!args.includes("--fast-click")) {
+    // свернуть панели: элемент под панелью не кликается force-кликом (см.
+    // collapsePanels в dump-levels); в fast-click не сворачиваем — там дорога
+    // каждая мс до клика, а целевой контейнер и так в центре холста
+    for (const btn of await page.locator('button[title="Свернуть панель"]').all()) {
+      await btn.click({ force: true }).catch(() => {});
+    }
+    await settleSignature(page);
+  } else await page.waitForSelector(`.react-flow__node[data-id="${container.id}"]`, { timeout: 20000 });
 
   // лупа целевого контейнера (клик по элементу вне вьюпорта молча теряется — fitView);
   // контейнер уже раскрыт (persist-раскрытие после architect-прогона) → без клика

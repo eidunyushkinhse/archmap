@@ -109,7 +109,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
 
 - **V21.** «Владеемая» позиция = строка вида с ОБОИМИ x и y; локалы, гости,
   контейнеры — единообразно. Сохранённая позиция перетирает ELK
-  (elk.layered RIGHT, зазоры 120/60, padding 30). [тест: pipeline.test.ts,
+  (elk.layered RIGHT, спейсинги по N20, padding 30). [тест: pipeline.test.ts,
   levelGraph.test.ts, engine.test.ts]
 - **V22.** Засев: каждая отображаемая ГОСТЕВАЯ сущность и каждый вышедший из
   раскрытия ребёнок БЕЗ строки получает свою ФИНАЛЬНУЮ позицию прогона

@@ -26,6 +26,7 @@
 import { NODE_W, NODE_H } from "../constants";
 import { edgeText, wrapLabel } from "../text";
 import { getElk } from "./engine";
+import { flowSpacing } from "./flowGaps";
 import { wrappedLabelBoxSize } from "./labelBox";
 import type { AncestorRef, LayoutEdge, LevelPos, Node as AppNode } from "../../../types";
 
@@ -35,8 +36,6 @@ import type { AncestorRef, LayoutEdge, LevelPos, Node as AppNode } from "../../.
 // рамку, ей лучше остаться выноской; клампы сверху — жёсткий анти-ватман).
 const SPAWN_LAYER_GAP_MIN = 100; // между слоями без подписей (чуть плотнее уровня)
 const SPAWN_LAYER_GAP_MAX = 220; // кламп: шире не раздвигаем даже ради плашек
-const SPAWN_NODE_GAP_MIN = 60;   // внутри слоя (≈ nodesep уровня)
-const SPAWN_NODE_GAP_MAX = 120;
 const SPAWN_LABEL_CLEAR = 8;     // клиренс плашки вдоль плеча с каждой стороны (как A10)
 const SPAWN_COMPONENT_GAP = 60;  // между компонентами связности (изоляты)
 
@@ -111,22 +110,26 @@ export async function spawnFreshChildren(params: {
     }
     // Спейсинги от фактических wrapped-габаритов плашек внутренних рёбер:
     // межслойный зазор вмещает p75 ширин (горизонтальные плечи потока несут
-    // текст), зазор в слое — максимум высот (плашка сбоку вертикального плеча).
-    const boxes = innerEdges.map((e) => wrappedLabelBoxSize(wrapLabel(edgeText(e))));
-    const widths = boxes.map((b) => b.w).sort((a, b) => a - b);
+    // текст); вертикаль — единый расчёт коридоров flowSpacing (клиренсы
+    // нуджинга + максимум высот плашек + резерв под пачку параллельных плеч;
+    // edgeNode/edgeEdge держат коридоры с пробегающими сквозь слой рёбрами,
+    // которые ELK иначе смыкает до 32px независимо от nodeNode).
+    const widths = innerEdges
+      .map((e) => wrappedLabelBoxSize(wrapLabel(edgeText(e))).w)
+      .sort((a, b) => a - b);
     const p75w = widths.length ? widths[Math.min(widths.length - 1, Math.floor(widths.length * 0.75))] : 0;
-    const maxH = boxes.reduce((m, b) => Math.max(m, b.h), 0);
     const layerGap = Math.min(SPAWN_LAYER_GAP_MAX,
       Math.max(SPAWN_LAYER_GAP_MIN, Math.ceil(p75w) + 2 * SPAWN_LABEL_CLEAR));
-    const nodeGap = Math.min(SPAWN_NODE_GAP_MAX,
-      Math.max(SPAWN_NODE_GAP_MIN, maxH + 2 * SPAWN_LABEL_CLEAR));
+    const sp = flowSpacing(innerEdges);
     const res = await elk.layout({
       id: `spawn-${cid}`,
       layoutOptions: {
         "elk.algorithm": "layered",
         "elk.direction": "RIGHT",
         "elk.layered.spacing.nodeNodeBetweenLayers": String(layerGap),
-        "elk.spacing.nodeNode": String(nodeGap),
+        "elk.spacing.nodeNode": String(sp.nodeGap),
+        "elk.spacing.edgeNode": String(sp.edgeNodeGap),
+        "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
         "elk.separateConnectedComponents": "true",
         "elk.spacing.componentComponent": String(SPAWN_COMPONENT_GAP),
         // Анти-ватман: длинную архитектурную цепочку (лента 6+ слоёв, полигон Ф1:

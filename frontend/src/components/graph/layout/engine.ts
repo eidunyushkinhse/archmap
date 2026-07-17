@@ -8,6 +8,7 @@
 // Promise.resolve) — async-канал готов и проверяется ДО подмены движка на ELK.
 import type ELK from "elkjs/lib/elk.bundled.js";
 import { NODE_W, NODE_H } from "../constants";
+import { flowSpacing } from "./flowGaps";
 import { assignEdgeHandles } from "./level";
 import { computeContextLayout } from "./context";
 import type { DisplayExternal, EdgeShelf, EdgeLoop } from "../types";
@@ -53,6 +54,12 @@ export async function layoutLevel(
   edges: LayoutEdge[],
 ): Promise<LevelLayout> {
   const idSet = new Set(allNodes.map((n) => n.id));
+  const inner = edges.filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id));
+  // вертикаль слоя — коридоры горизонтальных плеч: зазоры под фактический спрос
+  // линий и плашек (flowGaps; были статические 60/10/10 — пачке из 4 плеч с
+  // подписью физически не хватало высоты, а узлы с пробегающими сквозь слой
+  // рёбрами ELK смыкал до 32px независимо от nodeNode)
+  const sp = flowSpacing(inner);
   const elk = await getElk();
   const res = await elk.layout({
     id: "root",
@@ -60,13 +67,13 @@ export async function layoutLevel(
       "elk.algorithm": "layered",
       "elk.direction": "RIGHT",
       "elk.layered.spacing.nodeNodeBetweenLayers": "120", // ≈ dagre ranksep
-      "elk.spacing.nodeNode": "60",                        // ≈ dagre nodesep
+      "elk.spacing.nodeNode": String(sp.nodeGap),
+      "elk.spacing.edgeNode": String(sp.edgeNodeGap),
+      "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
       "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
     },
     children: allNodes.map((n) => ({ id: n.id, width: NODE_W, height: NODE_H })),
-    edges: edges
-      .filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id))
-      .map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),
+    edges: inner.map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),
   });
 
   const positions = new Map<string, { x: number; y: number }>();

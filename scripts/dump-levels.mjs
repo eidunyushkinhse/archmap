@@ -206,11 +206,24 @@ async function drillPath(page, path) {
   return true;
 }
 
+// Свернуть боковые панели: холст на весь экран. Панели лежат ПОВЕРХ холста, и
+// force-клик по элементу, оказавшемуся после fitView под панелью, молча уходит
+// в панель (событие получает верхний элемент под точкой) — с ростом схем это
+// стало стабильно ронять раскрытие луп. На сигнатуру панели не влияют (она в
+// graph-координатах).
+async function collapsePanels(page) {
+  for (const btn of await page.locator('button[title="Свернуть панель"]').all()) {
+    await btn.click({ force: true }).catch(() => {});
+  }
+  await page.waitForTimeout(200);
+}
+
 // Свежая загрузка холста проекта (корень). App читает токен только на монтировании.
 async function freshRoot(page, projectId) {
   await page.goto(`${FRONTEND}/#/p/${projectId}`);
   await page.reload();
   await page.waitForSelector(".react-flow", { timeout: 20000 });
+  await collapsePanels(page);
   return settleSignature(page);
 }
 
