@@ -192,6 +192,14 @@
   line-height: 1.5;
   margin-bottom: 12px;
 }
+/* textarea внутри меты «терм → значение» (описание связи): без нижнего поля блока */
+.insp-value .insp-fieldarea {
+  margin-bottom: 0;
+}
+/* read-режим многострочного значения: уважать переносы автора */
+.insp-value--pre {
+  white-space: pre-wrap;
+}
 
 /* Список меты «терм → значение» */
 .insp-meta {

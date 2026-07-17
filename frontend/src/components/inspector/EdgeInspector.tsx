@@ -182,11 +182,14 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
             <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
               {isArchitect ? (
                 <span className="insp-value">
-                  <input className="insp-field" value={labelText} onChange={(e) => setLabelText(e.target.value)}
+                  {/* многострочное описание: textarea (лимит — модель, String(256));
+                      переносы автора уважает и плашка на схеме (wrapLabel по \n) */}
+                  <textarea className="insp-field insp-fieldarea" value={labelText} maxLength={256}
+                    onChange={(e) => setLabelText(e.target.value)}
                     onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
                 </span>
               ) : (
-                <span className="insp-value">{labelText}</span>
+                <span className="insp-value insp-value--pre">{labelText}</span>
               )}
             </dd>
           </div>
