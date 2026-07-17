@@ -304,7 +304,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // на никем не раскрывавшемся контейнере — его коммит гейтится). Владеемые дети
     // (повторное раскрытие) уже сели savedPos-ом. Засев ниже зафиксирует позиции
     // навсегда.
-    await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions });
+    await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions, localChildren });
 
     const og = placeGhostsOnRings({
       nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,

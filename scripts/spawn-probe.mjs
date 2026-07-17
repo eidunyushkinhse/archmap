@@ -33,6 +33,7 @@ const BACKEND = process.env.ARCHMAP_BACKEND ?? "http://localhost:8000";
 const CHROME = join(homedir(), ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome");
 const CHROME_LIBS = join(homedir(), ".cache/archmap-chrome-libs/usr/lib/x86_64-linux-gnu");
 const CLONE_NAME = "__spawn-полигон";
+const RUN_PROJECT = undefined; // переопределяется --project в run()
 const PSQL_ENV = { ...process.env, PGPASSWORD: process.env.PGPASSWORD ?? "postgres" };
 
 const args = process.argv.slice(2);
@@ -46,6 +47,10 @@ const nodeName = argOf("--node") ?? "Маркетплейс «Ярмарка»";
 const outFile = argOf("--out");
 const runRole = argOf("--role") ?? "viewer"; // architect — засев спавна в клон (Ф3, доставка «Переразложить»)
 const shotFile = argOf("--shot");
+// имя ребёнка, которому prepare вернёт персист-раскрытие (репро каскада догрузки
+// вложенных: вторая волна меняла состав подграфа спавна → дёрганье анимации)
+const expandChildName = argOf("--expand-child");
+const traceN = argOf("--trace") ? Number(argOf("--trace")) : 0;
 
 function makeToken(role) {
   const tokFile = join(tmpdir(), `archmap-spawn-tok-${process.pid}.txt`);
@@ -114,6 +119,15 @@ async function prepare() {
         AND item_id IN (SELECT id::text FROM nodes WHERE parent_id='${container}')
       RETURNING 1) SELECT count(*) FROM gone`);
   console.log(`Фикстура готова: контейнер ${container} свёрнут, строк детей стёрто ${deleted}`);
+  if (expandChildName) {
+    const child = psql(
+      `SELECT id FROM nodes WHERE parent_id='${container}' AND name='${expandChildName.replace(/'/g, "''")}'`,
+    );
+    if (!child) throw new Error(`Ребёнок «${expandChildName}» не найден`);
+    psql(`INSERT INTO view_layout (id, project_id, view_id, item_id, payload)
+          VALUES (gen_random_uuid(), '${clone.id}', NULL, '${child}', '{"expanded": true}')`);
+    console.log(`Ребёнку ${child} возвращено персист-раскрытие (репро каскада)`);
+  }
 }
 
 // ── Сигнатура страницы (как dump-levels) ─────────────────────────────────────
@@ -334,8 +348,9 @@ export function spawnMetrics(sig, containerId) {
 async function run() {
   const viewer = makeToken(runRole);
   const projects = await api(viewer, "/projects");
-  const clone = projects.find((p) => p.name === CLONE_NAME);
-  if (!clone) throw new Error(`Клон «${CLONE_NAME}» не найден — сначала --prepare`);
+  const wantName = argOf("--project") ?? CLONE_NAME;
+  const clone = projects.find((p) => p.name === wantName);
+  if (!clone) throw new Error(`Проект «${wantName}» не найден`);
   const nodesAll = await api(viewer, "/nodes", {}, clone.id);
   const container = nodesAll.find((n) => n.name === nodeName && n.parent_id == null);
   if (!container) throw new Error(`Контейнер «${nodeName}» не найден в клоне`);
@@ -344,9 +359,13 @@ async function run() {
     executablePath: CHROME,
     env: { ...process.env, LD_LIBRARY_PATH: `${CHROME_LIBS}:${process.env.LD_LIBRARY_PATH ?? ""}` },
   });
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  const videoDir = argOf("--video");
+  const ctx = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    ...(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1600, height: 1000 } } } : {}),
+  });
+  const page = await ctx.newPage();
   page.on("pageerror", (e) => console.error("PAGE ERROR:", e.message));
-  page.on("console", (m) => { if (m.text().includes("[dbg-spawn]")) console.log(m.text()); });
   await page.goto(FRONTEND);
   await page.evaluate(
     ([tok, pid]) => {
@@ -370,6 +389,83 @@ async function run() {
   if ((await node.count()) > 0 && (await node.locator('button[title="Раскрыть содержимое"]').count()) > 0) {
     await node.hover({ force: true });
     await node.locator('button[title="Раскрыть содержимое"]').click({ force: true });
+    if (traceN > 0) {
+      // трасса процесса: серия выборок — видно, сколько раз и как скачет раскладка
+      let prevMap = null, prevE = null;
+      for (let i = 0; i < traceN; i++) {
+        await page.waitForTimeout(100);
+        const s = await readSignature(page);
+        const cur = new Map(s.nodes.map((n) => [n.id, n]));
+        const curE = new Map(s.edges.map((e) => [e.id, e.d]));
+        let msg = "";
+        if (prevMap) {
+          const moved = [];
+          for (const [id, n] of cur) {
+            const p0 = prevMap.get(id);
+            if (!p0) { moved.push(`${id.slice(0, 8)}:NEW`); continue; }
+            const d = Math.hypot(n.x - p0.x, n.y - p0.y);
+            if (d > 1) moved.push(`${id.slice(0, 8)}:${Math.round(d)}px`);
+          }
+          for (const id of prevMap.keys()) if (!cur.has(id)) moved.push(`${id.slice(0, 8)}:GONE`);
+          if (moved.length) msg = `  << СМЕНА: ${moved.slice(0, 6).join(" ")}${moved.length > 6 ? ` +${moved.length - 6}` : ""}`;
+        }
+        let edgeMsg = "";
+        if (prevE) {
+          let changed = 0, added = 0, gone = 0;
+          for (const [id, d] of curE) {
+            if (!prevE.has(id)) added++;
+            else if (prevE.get(id) !== d) changed++;
+          }
+          for (const id of prevE.keys()) if (!curE.has(id)) gone++;
+          if (changed + added + gone > 0) edgeMsg = `  рёбра: ~${changed} +${added} -${gone}`;
+        }
+        prevMap = cur; prevE = curE;
+        console.log(`[trace ${String((i * 0.1).toFixed(1)).padStart(4)}s] узлов ${s.nodes.length}, рамок ${s.frames.length}${msg}${edgeMsg}`);
+      }
+    }
+    sig = await settleSignature(page);
+  } else if ((await frameSel.count()) > 0 && args.includes("--recycle")) {
+    // сценарий повторного раскрытия с владеемыми детьми: свернуть → раскрыть
+    console.log("Раскрыт — сворачиваем и раскрываем заново (--recycle)");
+    await frameSel.locator('button[title="Свернуть"]').first().click({ force: true });
+    await settleSignature(page);
+    await page.locator(".react-flow__controls-fitview").click({ force: true });
+    await page.waitForTimeout(150);
+    await node.hover({ force: true });
+    await node.locator('button[title="Раскрыть содержимое"]').click({ force: true });
+    if (traceN > 0) {
+      let prevMap = null, prevE = null;
+      for (let i = 0; i < traceN; i++) {
+        await page.waitForTimeout(100);
+        const s = await readSignature(page);
+        const cur = new Map(s.nodes.map((n) => [n.id, n]));
+        const curE = new Map(s.edges.map((e) => [e.id, e.d]));
+        let msg = "";
+        if (prevMap) {
+          const moved = [];
+          for (const [id, n] of cur) {
+            const p0 = prevMap.get(id);
+            if (!p0) { moved.push(`${id.slice(0, 8)}:NEW`); continue; }
+            const d = Math.hypot(n.x - p0.x, n.y - p0.y);
+            if (d > 1) moved.push(`${id.slice(0, 8)}:${Math.round(d)}px`);
+          }
+          for (const id of prevMap.keys()) if (!cur.has(id)) moved.push(`${id.slice(0, 8)}:GONE`);
+          if (moved.length) msg = `  << СМЕНА: ${moved.slice(0, 6).join(" ")}${moved.length > 6 ? ` +${moved.length - 6}` : ""}`;
+        }
+        let edgeMsg = "";
+        if (prevE) {
+          let changed = 0, added = 0, gone = 0;
+          for (const [id, d] of curE) {
+            if (!prevE.has(id)) added++;
+            else if (prevE.get(id) !== d) changed++;
+          }
+          for (const id of prevE.keys()) if (!curE.has(id)) gone++;
+          if (changed + added + gone > 0) edgeMsg = `  рёбра: ~${changed} +${added} -${gone}`;
+        }
+        prevMap = cur; prevE = curE;
+        console.log(`[trace ${String((i * 0.1).toFixed(1)).padStart(4)}s] узлов ${s.nodes.length}, рамок ${s.frames.length}${msg}${edgeMsg}`);
+      }
+    }
     sig = await settleSignature(page);
   } else if ((await frameSel.count()) > 0) {
     console.log("Контейнер уже раскрыт (persist) — снимаем как есть");

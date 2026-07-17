@@ -201,6 +201,47 @@ describe("computeViewLayout — композиция конвейера уров
     }
   });
 
+  it("каскад догрузки вложенных: волна внуков НЕ двигает уже разложенных детей (стабильность анимации)", async () => {
+    // B раскрыт, его ребёнок B2 тоже раскрыт (персист). Волна А: дети B догружены,
+    // внуки B2 ещё нет (B2 остаётся узлом). Волна Б: внуки пришли, B2 стал рамкой.
+    // До фикса подграф спавна собирался из ЛИСТЬЕВ — состав менялся (B2 → внуки),
+    // мини-ELK перекладывал всё, дети прыгали на сотни px. Теперь подграф — прямые
+    // дети (B2 узлом в обеих волнах): позиции b1/b3 совпадают волна-к-волне, внук
+    // ложится от позиции B2 из группы родителя.
+    const b1 = { ...appNode("B1"), parent_id: "B" } as AppNode;
+    const b2 = { ...appNode("B2"), parent_id: "B", has_children: true, child_count: 1 } as AppNode;
+    const b3 = { ...appNode("B3"), parent_id: "B" } as AppNode;
+    const c1 = { ...appNode("C1"), parent_id: "B2" } as AppNode;
+    const waveA = await computeViewLayout(levelInput({
+      edges: [
+        edge("e12", "B1", "B2", "поток"),
+        edge("e23", "B2", "B3", "дальше"),
+        edge("eAB1", "A", "B1", "внешний зов"),
+      ],
+      endpoints: [],
+      viewLayout: { A: { x: 0, y: 300 }, B: { x: 400, y: 0 } },
+      expanded: new Set(["B", "B2"]),
+      localChildren: { B: [b1, b2, b3] }, // внуки B2 ещё не догружены
+    }));
+    const waveB = await computeViewLayout(levelInput({
+      edges: [
+        edge("e12", "B1", "C1", "поток"),      // реальные концы глубокие
+        edge("e23", "C1", "B3", "дальше"),
+        edge("eAB1", "A", "B1", "внешний зов"),
+      ],
+      endpoints: [],
+      viewLayout: { A: { x: 0, y: 300 }, B: { x: 400, y: 0 } },
+      expanded: new Set(["B", "B2"]),
+      localChildren: { B: [b1, b2, b3], B2: [c1] },
+    }));
+    // дети B стоят там же, где их положила волна А
+    for (const id of ["B1", "B3"]) {
+      expect(waveB.layout.positions.get(id)).toEqual(waveA.layout.positions.get(id));
+    }
+    // внук лёг от позиции своего контейнера (волна А клала туда узел B2)
+    expect(waveB.layout.positions.get("C1")).toEqual(waveA.layout.positions.get("B2"));
+  });
+
   it("конец «в контейнер», раскрытый вложенно на корне, не плодит узел-дубль рядом с рамкой", async () => {
     // Корень: X (лист) и P (контейнер); P раскрыт → [A, C]; C раскрыт → [D];
     // ребро X→C ведёт В САМ контейнер C. На корне C — глубокий конец из реестра:

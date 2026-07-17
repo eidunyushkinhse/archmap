@@ -11,6 +11,14 @@
 // контейнера (own-on-expand, C6) — якорь раскрытия не меняется; единственный
 // ребёнок садится ровно на место контейнера (bbox из одного узла).
 //
+// УСТОЙЧИВОСТЬ К КАСКАДУ ДОГРУЗКИ (фикс дёрганья анимации): подграф группы —
+// ВСЕ ПРЯМЫЕ дети контейнера (по localChildren), раскрытый ребёнок участвует
+// УЗЛОМ, его позиция — якорь группы ЕГО детей (обработка сверху вниз в одном
+// прогоне). Раньше подграф собирался из ЛИСТЬЕВ (localFrames): волна догрузки
+// внуков меняла состав (раскрытый ребёнок заменялся внуками) → мини-ELK решал
+// другую задачу → уже видимые дети прыгали на сотни px (репро: spawn-probe
+// --expand-child + --trace). Состав из прямых детей от волн не зависит.
+//
 // Спейсинги label-aware (Ф2 плана): базы компактны, добавку диктуют wrapped-
 // габариты фактических плашек внутренних рёбер (см. константы ниже). Позиции
 // засеваются вызывающим (own-on-first-render), сюда попадают только СВЕЖИЕ
@@ -19,7 +27,7 @@ import { NODE_W, NODE_H } from "../constants";
 import { edgeText, wrapLabel } from "../text";
 import { getElk } from "./engine";
 import { wrappedLabelBoxSize } from "./labelBox";
-import type { AncestorRef, LayoutEdge, LevelPos } from "../../../types";
+import type { AncestorRef, LayoutEdge, LevelPos, Node as AppNode } from "../../../types";
 
 // Зазоры мини-раскладки подграфа детей (C9 v2) — Label-aware (Ф2 плана): базовые
 // значения компактны, добавку диктуют ФАКТИЧЕСКИЕ плашки внутренних рёбер этого
@@ -37,38 +45,74 @@ const SPAWN_COMPONENT_GAP = 60;  // между компонентами связ
  * прогоном от закреплённой позиции контейнера. `positions` МУТИРУЕТСЯ.
  * Контейнер без владеемой позиции пропускается (наблюдатель на никем не
  * раскрывавшемся контейнере — его own-on-expand гейтится): дети остаются как
- * легли в общий поток уровня.
+ * легли в общий поток уровня. Вложенные раскрытия обрабатываются сверху вниз:
+ * якорь группы внуков — позиция их контейнера из группы его родителя.
  */
 export async function spawnFreshChildren(params: {
   localFrames: { id: string; ancestors: AncestorRef[] }[];
   ownedPositions: Record<string, LevelPos>;
   layoutEdges: LayoutEdge[];
   positions: Map<string, { x: number; y: number }>;
+  /** прямые дети раскрытых локалов (вход конвейера): контейнер → его дети */
+  localChildren: Record<string, AppNode[]>;
 }): Promise<void> {
-  const { localFrames, ownedPositions, layoutEdges, positions } = params;
+  const { localFrames, ownedPositions, layoutEdges, positions, localChildren } = params;
 
-  const freshByContainer = new Map<string, string[]>();
+  // контейнеры со СВЕЖИМИ детьми-листьями (цели спавна) + глубина вложенности
+  const freshDepth = new Map<string, number>();
   for (const lf of localFrames) {
     if (ownedPositions[lf.id]) continue;
     const parent = lf.ancestors[lf.ancestors.length - 1]?.id;
     if (!parent) continue;
-    (freshByContainer.get(parent) ?? freshByContainer.set(parent, []).get(parent)!).push(lf.id);
+    const d = lf.ancestors.length;
+    freshDepth.set(parent, Math.min(freshDepth.get(parent) ?? Infinity, d));
   }
-  if (freshByContainer.size === 0) return;
+  if (freshDepth.size === 0) return;
+  const freshLeaf = new Set(
+    localFrames.filter((lf) => !ownedPositions[lf.id]).map((lf) => lf.id),
+  );
 
+  // подъём конца ребра к прямому ребёнку контейнера (рёбра приходят поднятыми
+  // к ЛИСТЬЯМ — глубоким видимым узлам)
+  const parentOf = new Map<string, string>();
+  for (const [cid, kids] of Object.entries(localChildren)) {
+    for (const k of kids) parentOf.set(k.id, cid);
+  }
+  const liftTo = (id: string, members: ReadonlySet<string>): string | null => {
+    let cur: string | undefined = id;
+    while (cur !== undefined && !members.has(cur)) cur = parentOf.get(cur);
+    return cur ?? null;
+  };
+
+  // сверху вниз (родительский контейнер раньше вложенного): позиция раскрытого
+  // ребёнка из группы родителя становится якорем группы его собственных детей
+  const baseOf = new Map<string, { x: number; y: number }>();
+  const order = [...freshDepth.entries()].sort((a, b) => a[1] - b[1]).map(([cid]) => cid);
   const elk = await getElk();
-  for (const [cid, idsRaw] of freshByContainer) {
-    const base = ownedPositions[cid];
+  for (const cid of order) {
+    const own = ownedPositions[cid];
+    const base = own ? { x: own.pos_x, y: own.pos_y } : baseOf.get(cid);
     if (!base) continue;
-    // порядок детей фиксируем сортировкой — детерминизм раскладки (E17) не должен
-    // зависеть от порядка прихода детей из кэша догрузки
-    const ids = [...idsRaw].sort();
+    // ПОЛНЫЙ состав прямых детей (листья и раскрытые контейнеры — узлами):
+    // состав не зависит от того, догрузились ли внуки — волны каскада дают
+    // одинаковую раскладку группы (стабильность анимации)
+    const direct = (localChildren[cid] ?? []).map((n) => n.id);
+    if (direct.length === 0) continue;
+    const ids = [...direct].sort(); // детерминизм независимо от порядка догрузки
     const idSet = new Set(ids);
-    const inner = layoutEdges.filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id));
+    const innerEdges: LayoutEdge[] = [];
+    const inner: Array<{ id: string; sources: [string]; targets: [string] }> = [];
+    for (const e of layoutEdges) {
+      const s = liftTo(e.source_id, idSet);
+      const t = liftTo(e.target_id, idSet);
+      if (!s || !t || s === t) continue;
+      inner.push({ id: e.id, sources: [s], targets: [t] });
+      innerEdges.push(e);
+    }
     // Спейсинги от фактических wrapped-габаритов плашек внутренних рёбер:
     // межслойный зазор вмещает p75 ширин (горизонтальные плечи потока несут
     // текст), зазор в слое — максимум высот (плашка сбоку вертикального плеча).
-    const boxes = inner.map((e) => wrappedLabelBoxSize(wrapLabel(edgeText(e))));
+    const boxes = innerEdges.map((e) => wrappedLabelBoxSize(wrapLabel(edgeText(e))));
     const widths = boxes.map((b) => b.w).sort((a, b) => a - b);
     const p75w = widths.length ? widths[Math.min(widths.length - 1, Math.floor(widths.length * 0.75))] : 0;
     const maxH = boxes.reduce((m, b) => Math.max(m, b.h), 0);
@@ -92,7 +136,7 @@ export async function spawnFreshChildren(params: {
         "elk.layered.wrapping.strategy": "MULTI_EDGE",
       },
       children: ids.map((id) => ({ id, width: NODE_W, height: NODE_H })),
-      edges: inner.map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),
+      edges: inner,
     });
     // сдвиг bbox результата к якорю раскрытия (C6): левый-верх → позиция контейнера
     const kids = res.children ?? [];
@@ -103,10 +147,11 @@ export async function spawnFreshChildren(params: {
     }
     if (!Number.isFinite(minX)) continue;
     for (const n of kids) {
-      positions.set(n.id, {
-        x: base.pos_x + ((n.x ?? 0) - minX),
-        y: base.pos_y + ((n.y ?? 0) - minY),
-      });
+      const p = { x: base.x + ((n.x ?? 0) - minX), y: base.y + ((n.y ?? 0) - minY) };
+      // раскрытый ребёнок узлом не отображается — его позиция лишь якорь группы
+      // его детей; в positions пишем только свежие ЛИСТЬЯ (владеемые прибиты)
+      if (localChildren[n.id]) baseOf.set(n.id, p);
+      if (freshLeaf.has(n.id)) positions.set(n.id, p);
     }
   }
 }
