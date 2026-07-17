@@ -339,6 +339,14 @@ function LevelGraphInner({
   // выбрасывается — пересчёт конвейера от свежих данных сам родит актуальное.
   // Переигровку исполняет канал TreePage (onPersistConflict → проп retryPatch,
   // см. комментарий к пропу); без канала (не передан) — деградация до ресинка.
+  // ОЧЕРЕДЬ фенсированных записей: батчи одной сессии идут СТРОГО по одному —
+  // base_version читается в момент СТАРТА задачи (после ответа предыдущей), а не
+  // постановки. Без очереди параллельные свои же батчи делили одну версию и
+  // ловили самоконфликт 409 → ресинк («вспышка» исходной картинки посреди
+  // анимации раскрытия; репро: spawn-probe --relayout-first --slow-layout —
+  // после «Переразложить» массовый derived-засев уровня висит в полёте, а клик
+  // раскрытия уезжает с той же версией). Fence остаётся против ЧУЖИХ сессий.
+  const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   const persistFenced = useCallback(
     (
       items: Record<string, ViewLayoutPayload | null>,
@@ -346,22 +354,24 @@ function LevelGraphInner({
       origin: CommitOrigin,
       isRetry: boolean,
     ): void => {
-      viewsApi
-        .saveLayout(containerId, items, viewMeta?.current.version)
-        .then((res) => {
-          if (viewMeta) viewMeta.current = { version: res.version, graphRev: res.graph_rev };
-        })
-        .catch((e: unknown) => {
-          console.error("Запись раскладки не прошла — ресинхронизирую уровень из БД", e);
-          if (
-            planPersistFailure(isConflict(e), origin, isRetry) === "retry-after-resync" &&
-            onPersistConflict
-          ) {
-            onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
-            return;
-          }
-          void onPersistError?.(e);
-        });
+      persistChainRef.current = persistChainRef.current.then(() =>
+        viewsApi
+          .saveLayout(containerId, items, viewMeta?.current.version)
+          .then((res) => {
+            if (viewMeta) viewMeta.current = { version: res.version, graphRev: res.graph_rev };
+          })
+          .catch((e: unknown) => {
+            console.error("Запись раскладки не прошла — ресинхронизирую уровень из БД", e);
+            if (
+              planPersistFailure(isConflict(e), origin, isRetry) === "retry-after-resync" &&
+              onPersistConflict
+            ) {
+              onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
+              return;
+            }
+            void onPersistError?.(e);
+          }),
+      );
     },
     [containerId, onPersistError, onPersistConflict, viewMeta],
   );

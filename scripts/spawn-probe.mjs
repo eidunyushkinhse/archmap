@@ -366,6 +366,10 @@ async function run() {
   });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.error("PAGE ERROR:", e.message));
+  page.on("console", (m) => {
+    const t = m.text();
+    if (t.includes("не прошла") || t.includes("409") || t.includes("Conflict")) console.log("[console]", t.slice(0, 160));
+  });
   await page.goto(FRONTEND);
   await page.evaluate(
     ([tok, pid]) => {
@@ -374,10 +378,26 @@ async function run() {
     },
     [viewer, clone.id],
   );
+  const slowMs = argOf("--slow-layout") ? Number(argOf("--slow-layout")) : 0;
+  if (slowMs > 0) {
+    // имитация медленной сети для записей раскладки: гонка версий воспроизводится
+    // детерминированно (патчи висят, base_version протухает по-настоящему)
+    await page.route("**/api/v1/views/**/layout", async (route) => {
+      await new Promise((r) => setTimeout(r, slowMs));
+      await route.continue();
+    });
+    console.log(`Записи раскладки замедлены на ${slowMs}мс (гонка версий)`);
+  }
+  if (args.includes("--relayout-first")) {
+    const arch = makeToken("architect");
+    await api(arch, "/nodes/relayout", { method: "POST" }, clone.id);
+    console.log("Уровень переразложен (view_layout стёрт) — репро гонки версий");
+  }
   await page.goto(`${FRONTEND}/#/p/${clone.id}`);
   await page.reload();
   await page.waitForSelector(".react-flow", { timeout: 20000 });
-  await settleSignature(page);
+  if (!args.includes("--fast-click")) await settleSignature(page);
+  else await page.waitForSelector(`.react-flow__node[data-id="${container.id}"]`, { timeout: 20000 });
 
   // лупа целевого контейнера (клик по элементу вне вьюпорта молча теряется — fitView);
   // контейнер уже раскрыт (persist-раскрытие после architect-прогона) → без клика

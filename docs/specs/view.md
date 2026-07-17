@@ -243,6 +243,14 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   базовая точка отсчёта клиента; `PUT layout` возвращает оба после записи
   (echo-suppression: свои записи не выглядят чужими).
   [тест: backend/tests/test_concurrency.py]
+- **V47а.** Фенсированные батчи ОДНОЙ сессии сериализованы клиентской очередью
+  (persistFenced, LevelGraph): base_version читается в момент СТАРТА задачи
+  (после ответа предыдущей), не постановки — параллельные свои батчи не делят
+  версию и не ловят самоконфликт 409 → ресинк («вспышка» исходной картинки
+  посреди анимации первого раскрытия после «Переразложить»: derived-засев
+  уровня в полёте + user-патч own-on-expand). Fence и политика 409 (V44,
+  planPersistFailure) остаются против ЧУЖИХ сессий.
+  [репро/контроль: spawn-probe --relayout-first --fast-click --slow-layout]
 - **V48.** `projects.graph_rev` — курсор «в проекте что-то поменялось»:
   инкрементируется ЛЮБОЙ мутацией узлов/рёбер/раскладки (атомарным UPDATE,
   не read-modify-write). В отличие от `updated_at` (V12) двигается и
