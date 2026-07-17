@@ -10,7 +10,7 @@ import type { EdgePoint } from "../../../types";
 import { segments, type NodeRect, type Segment } from "../edgePath";
 import type { EdgeGroup } from "../types";
 import { coincidentLegs } from "./coincidentLegs";
-import { labelBoxSize } from "./labelBox";
+import { metaLabelBox } from "./labelBox";
 import { labelCandidates } from "./labelIntervals";
 import { placeLabels, type LabelInput } from "./placeLabels";
 
@@ -48,7 +48,7 @@ export function buildLabelPlacements(params: {
     if (!path) continue;
     const meta = labelMeta(g);
     if (!meta) continue;
-    const box = labelBoxSize(meta.text, { lines: meta.lines });
+    const box = metaLabelBox(meta);
     const sharedIv = shared.get(g.id) ?? [];
     const cands = labelCandidates(path, sharedIv, nodeRects, box);
     // shared отдаём в placeLabels отдельно: candidates исключают и слитые плечи, И зоны под

@@ -7,6 +7,8 @@
 // Параметры взяты из рендера level-плашки (graph/edges.tsx): fontSize 11, lineHeight 1.4,
 // padding "2px 7px" (одиночная подпись), border 1px.
 
+import { wrapLabel } from "../text";
+
 export const LABEL_FONT_PX = 11;        // размер шрифта плашки
 export const LABEL_CHAR_PX = 6.3;       // средняя ширина символа при 11px (моноширинная оценка)
 const LABEL_PAD_X = 7;                   // горизонтальный padding одиночной плашки
@@ -44,4 +46,33 @@ export function labelBoxSize(
   if (opts?.maxWidth != null) w = Math.min(w, opts.maxWidth);
   const h = lines * LABEL_LINE_PX + LABEL_CHROME_Y;
   return { w, h };
+}
+
+/**
+ * Габариты ОДИНОЧНОЙ level-плашки С УЧЁТОМ ПЕРЕНОСА, как её реально рендерит
+ * WrappedLabelEdge (wrapLabel по ~20 символов на строку): ширина — по самой
+ * длинной строке после переноса, высота — по числу строк. Оценка labelBoxSize
+ * без переноса завышает ширину полного текста в полтора-два раза.
+ */
+export function wrappedLabelBoxSize(textLines: string[]): Size {
+  const longest = textLines.reduce((a, b) => (b.length > a.length ? b : a), "");
+  return {
+    w: estimateTextWidth(longest) + LABEL_CHROME_X,
+    h: Math.max(1, textLines.length) * LABEL_LINE_PX + LABEL_CHROME_Y,
+  };
+}
+
+/**
+ * ЕДИНАЯ оценка габаритов плашки группы по её edgeLabelMeta (Ф2 эпика
+ * «структура и воздух»): одиночная подпись — wrapped-модель (рендер переносит
+ * текст, старая оценка полной строки завышала ширину в 1.5–2 раза → лишние
+ * выносы и лишняя раздвижка A10); мастер (lines > 1) — прежняя модель
+ * (буллет-список рендерится иначе, его уточнение — вне скоупа Ф2).
+ * Все потребители (A10, размещение плашек, живой драг, детуры) обязаны
+ * пользоваться этой функцией, а не labelBoxSize напрямую — иначе оценки
+ * разойдутся между стадиями.
+ */
+export function metaLabelBox(meta: { text: string; lines: number }): Size {
+  if (meta.lines === 1) return wrappedLabelBoxSize(wrapLabel(meta.text));
+  return labelBoxSize(meta.text, { lines: meta.lines });
 }

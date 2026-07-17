@@ -39,11 +39,12 @@ import { computeFrames, type FrameRect } from "./frames";
 import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
+import { spawnFreshChildren } from "./spawnChildren";
 import { buildAutoRoutes } from "./autoRoutes";
 import { nudgeChannels } from "./channelNudge";
 import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
-import { labelBoxSize } from "./labelBox";
+import { metaLabelBox } from "./labelBox";
 import { pathCrossesRects } from "../edgePath";
 import { widenNodesForLabels } from "./widenForLabels";
 
@@ -293,38 +294,17 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // вынесена в ringPlacement под юнит-тесты. МУТИРУЕТ positions
   // (ставит гостей на кольца); их стрелки дальше ведёт глобальный роутер.
   if (!isContext) {
-    // Первый показ детей РАСКРЫТОГО ЛОКАЛА (R5, expand-in-place): свежие дети без
-    // владеемой позиции раскладываются сеткой от сохранённой позиции контейнера —
-    // ELK клал бы их в общий layered-поток, вырывая из места раскрытия. Позицию
-    // контейнера гарантирует own-on-expand (LevelGraph.commitExpanded закрепляет
-    // её в момент клика): без неё ребёнок без видимых рёбер (все его связи ведут
-    // в сам раскрытый контейнер и дропнуты проекцией) улетал изолированной
-    // ELK-компонентой в угол канвы. Если позиции всё же нет (наблюдатель на
-    // никем не раскрывавшемся контейнере — его коммит гейтится) — остаются как
-    // легли. Владеемые дети (повторное раскрытие) уже сели savedPos-ом. Засев
-    // ниже зафиксирует сетку навсегда.
-    {
-      const freshByContainer = new Map<string, string[]>();
-      for (const lf of localFrames) {
-        if (ownedPositions[lf.id]) continue;
-        const parent = lf.ancestors[lf.ancestors.length - 1]?.id;
-        if (!parent) continue;
-        (freshByContainer.get(parent) ?? freshByContainer.set(parent, []).get(parent)!).push(lf.id);
-      }
-      const GRID_GAP_X = 40;
-      const GRID_GAP_Y = 40;
-      for (const [cid, ids] of freshByContainer) {
-        const base = ownedPositions[cid];
-        if (!base) continue;
-        const cols = Math.max(1, Math.ceil(Math.sqrt(ids.length)));
-        ids.forEach((id, i) => {
-          positions.set(id, {
-            x: base.pos_x + (i % cols) * (NODE_W + GRID_GAP_X),
-            y: base.pos_y + Math.floor(i / cols) * (NODE_H + GRID_GAP_Y),
-          });
-        });
-      }
-    }
+    // Первый показ детей РАСКРЫТОГО ЛОКАЛА (R5, expand-in-place; C9 v2): свежие
+    // дети без владеемой позиции раскладываются мини-ELK прогоном ПОДГРАФА
+    // (дети + рёбра между ними) от сохранённой позиции контейнера — общий
+    // layered-поток уровня вырывал бы их из места раскрытия, а слепая сетка
+    // (доэпиковый вариант) игнорировала связи и подписи (docs/plan-spawn-spacing.md).
+    // Позицию контейнера гарантирует own-on-expand (LevelGraph.commitExpanded
+    // закрепляет её в момент клика); без неё дети остаются как легли (наблюдатель
+    // на никем не раскрывавшемся контейнере — его коммит гейтится). Владеемые дети
+    // (повторное раскрытие) уже сели savedPos-ом. Засев ниже зафиксирует позиции
+    // навсегда.
+    await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions });
 
     const og = placeGhostsOnRings({
       nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
@@ -612,7 +592,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         const lp = labelPlacements.get(g.id);
         const meta = edgeLabelMeta(g);
         if (!lp || !meta) continue;
-        const box = labelBoxSize(meta.text, { lines: meta.lines });
+        const box = metaLabelBox(meta);
         labelRectOf.set(g.id, {
           x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h,
         });

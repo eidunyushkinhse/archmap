@@ -13,7 +13,7 @@ import { NODE_W, NODE_H } from "../constants";
 import type { LevelPos } from "../../../types";
 import type { EdgeGroup } from "../types";
 import { separateForLabels, type LabelEdge } from "./separateForLabels";
-import { labelBoxSize } from "./labelBox";
+import { metaLabelBox } from "./labelBox";
 import type { Rect } from "./overlapConstraints";
 import type { LabelMeta } from "./labelLayout";
 
@@ -66,7 +66,7 @@ export function widenNodesForLabels(params: {
     if (weights[si] === Infinity && weights[ti] === Infinity) continue;
     const meta = labelMeta(g);
     if (!meta) continue;
-    const box = labelBoxSize(meta.text, { lines: meta.lines });
+    const box = metaLabelBox(meta);
     // голодное ли ребро: инлайн-зазор по доминантной оси короче плашки + 2·margin?
     const s = rects[si];
     const t = rects[ti];

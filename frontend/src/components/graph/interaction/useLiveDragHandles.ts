@@ -20,7 +20,7 @@ import type { EdgeGroup, WrappedEdgeData } from "../types";
 import { assignEdgeHandles } from "../layout/level";
 import { buildAutoRoutes } from "../layout/autoRoutes";
 import { buildLabelPlacements, type LabelPlacement } from "../layout/labelLayout";
-import { labelBoxSize } from "../layout/labelBox";
+import { metaLabelBox } from "../layout/labelBox";
 import { edgeLabelMeta } from "../layout/pipeline";
 import { NODE_W, NODE_H } from "../constants";
 import { absPositionOf } from "../absPos";
@@ -286,7 +286,7 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
             const lp = s.labels.get(g.id);
             const meta = edgeLabelMeta(g);
             if (!lp || !meta) continue;
-            const box = labelBoxSize(meta.text, { lines: meta.lines });
+            const box = metaLabelBox(meta);
             fixed.push({ x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h });
           }
           s.fixedLabelRects = fixed;

@@ -44,6 +44,7 @@ const doPrepare = args.includes("--prepare");
 const sourceName = argOf("--source") ?? "Маркетплейс «Ярмарка»";
 const nodeName = argOf("--node") ?? "Маркетплейс «Ярмарка»";
 const outFile = argOf("--out");
+const shotFile = argOf("--shot");
 
 function makeToken(role) {
   const tokFile = join(tmpdir(), `archmap-spawn-tok-${process.pid}.txt`);
@@ -157,7 +158,8 @@ async function readSignature(page) {
         };
       })
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    return { nodes, edges, labels, frames };
+    const leaders = document.querySelectorAll(".lg-edge-leader").length;
+    return { nodes, edges, labels, frames, leaders };
   });
 }
 
@@ -304,7 +306,14 @@ export function spawnMetrics(sig, containerId) {
     }
   }
   return {
-    labels: { total: sig.labels.length, inline, leader, inlineShare: sig.labels.length ? +(inline / sig.labels.length).toFixed(3) : 1 },
+    labels: {
+      total: sig.labels.length,
+      // честный счёт выносок — по DOM-поводкам (.lg-edge-leader); прокси по
+      // дистанции оставлен для сравнения со старыми дампами без leaders
+      leadersDom: sig.leaders ?? null,
+      inline, leader,
+      inlineShare: sig.labels.length ? +(inline / sig.labels.length).toFixed(3) : 1,
+    },
     frame: frame && {
       w: frame.w, h: frame.h, areaKpx: Math.round(frame.w * frame.h / 1000),
       nodesInside: inFrame.length,
@@ -331,6 +340,7 @@ async function run() {
   });
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   page.on("pageerror", (e) => console.error("PAGE ERROR:", e.message));
+  page.on("console", (m) => { if (m.text().includes("[dbg-spawn]")) console.log(m.text()); });
   await page.goto(FRONTEND);
   await page.evaluate(
     ([tok, pid]) => {
@@ -352,6 +362,12 @@ async function run() {
   await node.hover({ force: true });
   await node.locator('button[title="Раскрыть содержимое"]').click({ force: true });
   const sig = await settleSignature(page);
+  if (shotFile) {
+    await page.locator(".react-flow__controls-fitview").click({ force: true });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: shotFile });
+    console.log(`Скриншот: ${shotFile}`);
+  }
   await browser.close();
 
   const metrics = spawnMetrics(sig, container.id);
