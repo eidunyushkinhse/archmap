@@ -201,6 +201,11 @@ export function resolveDragEdge(e: RFEdge, f: DragFrame): RFEdge {
 
 export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
   const session = useRef<Session | null>(null);
+  // Адаптивный throttle роутинга по числу затронутых рёбер (оптимизация 2026-07-21):
+  // узлы с большим числом связей (16+) роутятся реже, чтобы не ронять FPS.
+  // Между прогонами — предыдущие маршруты (слегка устаревшие, но визуально разница
+  // минимальна, когда много рёбер двигается одновременно).
+  const frameCounter = useRef(0);
 
   // Старт жеста: фиксируем позиции всех узлов (для неперетаскиваемых они неизменны весь
   // жест), снимок входов раскладки и снимок авто-маршрутов рёбер. Нет снимка раскладки —
@@ -219,6 +224,7 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
       if (d?.labelPlacement) labels.set(e.id, d.labelPlacement); // снимок плашки — база жёсткого сдвига
     }
     session.current = { base, byId, inp, routes, labels, origEdges: new Map(allEdges.map((e) => [e.id, e])) };
+    frameCounter.current = 0; // сброс счётчика на старте жеста
   }, [inputsRef]);
 
   // Кадр драга. Считаем живые входы, затем решение по каждому ребру — в чистой resolveDragEdge:
@@ -228,6 +234,9 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
   //    позициям — тем же движком, что и финал: превью совпадает с будущим маршрутом (A* по
   //    затронутым, прочие — фиксированный контекст prev). Годится и для гостевых/сквозных;
   //  • нет живого маршрута (контекст / не посчиталось) → фолбэк: сторона хэндла для block-рёбер.
+  //
+  // Адаптивный throttle (оптимизация 2026-07-21): узлы с большим числом связей роутятся
+  // реже (каждые 2-3 кадра), чтобы не ронять FPS. Между прогонами — предыдущие маршруты.
   const move = useCallback((dragged: RFNode[]) => {
     const s = session.current;
     if (!s) return;
@@ -255,49 +264,59 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
         if (src !== tgt) { affected.add(g.id); affectedGroups.push(g); } // ровно один конец
       }
       if (affected.size > 0) {
-        const sizeMap = r.sizes ? new Map(Object.entries(r.sizes)) : undefined;
-        const ar = buildAutoRoutes({
-          groups: r.groups, routableIds: affected, positions,
-          displayIds: r.displayIds, sizes: sizeMap, frames: r.frames,
-          prev: { routes: r.routes, handles: r.handles }, // прочие маршруты — фиксированный контекст
-          weld: false, // сварка стволов живьём не гоняется (E62) — доворот прячет drawIn
-        });
-        liveRoutes = ar.routes;
-        liveHandles = ar.handles;
-        // Размещение плашек — тем же движком, что финал, и с тем же ВЗАИМНЫМ ДАВЛЕНИЕМ,
-        // но размещаем ТОЛЬКО затронутые: плашки прочих рёбер за жест не двигаются, их
-        // прямоугольники (снимок старта, кэш на жест) подкладываются как препятствия.
-        // Полный пере-прогон всех ~25 плашек каждый кадр ронял FPS (leader-кандидаты ×
-        // connectorCrossings по всем плечам), а по гриди-порядку размещения даёт ровно
-        // тот же результат: финальное место затронутой плашки не пересекается с чужими,
-        // и все кандидаты ближе него остаются заняты теми же чужими плашками.
-        const rectOf = (id: string): NodeRect | null => {
-          const p = positions.get(id);
-          if (!p) return null;
-          const sz = sizeMap?.get(id);
-          return { x: p.x, y: p.y, w: sz?.w ?? NODE_W, h: sz?.h ?? NODE_H };
-        };
-        const nodeRects = r.displayIds.map(rectOf).filter((x): x is NodeRect => x != null);
-        if (!s.fixedLabelRects) {
-          // прямоугольники НЕзатронутых плашек по снимку старта (жёсткие препятствия)
-          const fixed: NodeRect[] = [];
-          for (const g of r.groups) {
-            if (affected.has(g.id)) continue;
-            const lp = s.labels.get(g.id);
-            const meta = edgeLabelMeta(g);
-            if (!lp || !meta) continue;
-            const box = metaLabelBox(meta);
-            fixed.push({ x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h });
+        // Адаптивный throttle: чем больше затронутых рёбер, тем реже роутим.
+        // 1-5 рёбер: каждый кадр; 6-15: каждые 2 кадра; 16+: каждые 3 кадра.
+        frameCounter.current++;
+        const throttleInterval = affected.size <= 5 ? 1 : affected.size <= 15 ? 2 : 3;
+        const shouldRoute = frameCounter.current % throttleInterval === 0;
+
+        if (shouldRoute) {
+          const sizeMap = r.sizes ? new Map(Object.entries(r.sizes)) : undefined;
+          const ar = buildAutoRoutes({
+            groups: r.groups, routableIds: affected, positions,
+            displayIds: r.displayIds, sizes: sizeMap, frames: r.frames,
+            prev: { routes: r.routes, handles: r.handles }, // прочие маршруты — фиксированный контекст
+            weld: false, // сварка стволов живьём не гоняется (E62) — доворот прячет drawIn
+          });
+          liveRoutes = ar.routes;
+          liveHandles = ar.handles;
+          // Размещение плашек — тем же движком, что финал, и с тем же ВЗАИМНЫМ ДАВЛЕНИЕМ,
+          // но размещаем ТОЛЬКО затронутые: плашки прочих рёбер за жест не двигаются, их
+          // прямоугольники (снимок старта, кэш на жест) подкладываются как препятствия.
+          // Полный пере-прогон всех ~25 плашек каждый кадр ронял FPS (leader-кандидаты ×
+          // connectorCrossings по всем плечам), а по гриди-порядку размещения даёт ровно
+          // тот же результат: финальное место затронутой плашки не пересекается с чужими,
+          // и все кандидаты ближе него остаются заняты теми же чужими плашками.
+          const rectOf = (id: string): NodeRect | null => {
+            const p = positions.get(id);
+            if (!p) return null;
+            const sz = sizeMap?.get(id);
+            return { x: p.x, y: p.y, w: sz?.w ?? NODE_W, h: sz?.h ?? NODE_H };
+          };
+          const nodeRects = r.displayIds.map(rectOf).filter((x): x is NodeRect => x != null);
+          if (!s.fixedLabelRects) {
+            // прямоугольники НЕзатронутых плашек по снимку старта (жёсткие препятствия)
+            const fixed: NodeRect[] = [];
+            for (const g of r.groups) {
+              if (affected.has(g.id)) continue;
+              const lp = s.labels.get(g.id);
+              const meta = edgeLabelMeta(g);
+              if (!lp || !meta) continue;
+              const box = metaLabelBox(meta);
+              fixed.push({ x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h });
+            }
+            s.fixedLabelRects = fixed;
           }
-          s.fixedLabelRects = fixed;
+          const routesForLabels = new Map(r.routes);
+          for (const [id, rt] of liveRoutes) routesForLabels.set(id, rt);
+          liveLabels = buildLabelPlacements({
+            routes: routesForLabels, groups: affectedGroups, labelMeta: edgeLabelMeta,
+            preferredT: () => undefined, nodeRects,
+            obstacleRects: s.fixedLabelRects, // чужие плашки — жёсткие препятствия скоринга
+          });
         }
-        const routesForLabels = new Map(r.routes);
-        for (const [id, rt] of liveRoutes) routesForLabels.set(id, rt);
-        liveLabels = buildLabelPlacements({
-          routes: routesForLabels, groups: affectedGroups, labelMeta: edgeLabelMeta,
-          preferredT: () => undefined, nodeRects,
-          obstacleRects: s.fixedLabelRects, // чужие плашки — жёсткие препятствия скоринга
-        });
+        // Если throttle пропустил кадр — liveRoutes/liveHandles/liveLabels остаются null,
+        // и resolveDragEdge использует предыдущие маршруты из snapRoutes (жёсткий сдвиг).
       }
     }
 
