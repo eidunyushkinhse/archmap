@@ -28,7 +28,7 @@ import type {
 } from "../../../types";
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
 import type { LiveHandleInputs, LiveRouteInputs } from "../interaction/useLiveDragHandles";
-import { NODE_W, NODE_H } from "../constants";
+import { NODE_W, NODE_H, MAX_INLINE_DEPTH } from "../constants";
 import { edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
@@ -179,7 +179,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const bcRefs: AncestorRef[] = ancestorIds.map((id) => ({ id, name: id, is_external: false }));
   const expandLocal = (n: AppNode, path: AncestorRef[]) => {
     const kids = expanded.has(n.id) ? localChildren[n.id] : undefined;
-    if (!isContext && kids && kids.length > 0) {
+    // R5 с пределом глубины (C8): инлайн раскрываем, пока узел НЕ глубже
+    // MAX_INLINE_DEPTH слоёв от уровня (path.length = число раскрытых предков над
+    // узлом). Узел на пределе остаётся свёрнутым, даже если expanded персистно —
+    // рендерер не строит рамки глубже лимита (глубже — только «Войти»).
+    if (!isContext && kids && kids.length > 0 && path.length < MAX_INLINE_DEPTH) {
       absorbed.add(n.id);
       const deeper = [...path, { id: n.id, name: n.name, is_external: n.is_external }];
       for (const k of kids) expandLocal(k, deeper);

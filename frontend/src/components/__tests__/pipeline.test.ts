@@ -242,6 +242,35 @@ describe("computeViewLayout — композиция конвейера уров
     expect(waveB.layout.positions.get("C1")).toEqual(waveA.layout.positions.get("B2"));
   });
 
+  it("R5-предел (C8): инлайн-раскрытие не глубже MAX_INLINE_DEPTH=2 — узел на глубине 2 свёрнут, глубина 3 не видна", async () => {
+    // Цепочка B (локал уровня, глубина 0) → B2 (1) → C1 (2) → D1 (3); ВСЕ раскрыты
+    // персистно и дети догружены. Предел 2: B и B2 раскрываются (дети на глубине 1
+    // и 2 видны), C1 на глубине 2 инлайн НЕ раскрывается — остаётся узлом, хотя
+    // expanded и дети [D1] догружены; D1 (глубина 3) не показывается вовсе.
+    // Рендерер не строит рамки глубже лимита даже на персистно раскрытой сцене.
+    const b2 = { ...appNode("B2"), parent_id: "B", has_children: true, child_count: 1 } as AppNode;
+    const c1 = { ...appNode("C1"), parent_id: "B2", has_children: true, child_count: 1 } as AppNode;
+    const d1 = { ...appNode("D1"), parent_id: "C1" } as AppNode;
+    const out = await computeViewLayout(levelInput({
+      edges: [],
+      endpoints: [],
+      viewLayout: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } },
+      expanded: new Set(["B", "B2", "C1"]),
+      localChildren: { B: [b2], B2: [c1], C1: [d1] },
+    }));
+    // B и B2 поглощены раскрытием (стали рамками); C1 остался УЗЛОМ (предел глубины),
+    // D1 не показан. A — обычный локал.
+    expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "C1"]);
+    // Рамки — только раскрытые B и B2; C1 (глубина 2, не раскрыт) рамкой не стал.
+    expect(out.layout.guestFrames.map((f) => f.id).sort()).toEqual(["B", "B2"]);
+    // C1 — член самой глубокой раскрытой рамки B2.
+    const b2f = out.layout.guestFrames.find((f) => f.id === "B2")!;
+    expect([...b2f.memberIds]).toContain("C1");
+    // D1 нигде не отображён: ни член рамки, ни позиция.
+    for (const f of out.layout.guestFrames) expect([...f.memberIds]).not.toContain("D1");
+    expect(out.layout.positions.has("D1")).toBe(false);
+  });
+
   it("конец «в контейнер», раскрытый вложенно на корне, не плодит узел-дубль рядом с рамкой", async () => {
     // Корень: X (лист) и P (контейнер); P раскрыт → [A, C]; C раскрыт → [D];
     // ребро X→C ведёт В САМ контейнер C. На корне C — глубокий конец из реестра:

@@ -8,7 +8,7 @@
 import { MarkerType, type Node as RFNode, type Edge as RFEdge } from "@xyflow/react";
 import type { Node as AppNode, NodeStatus, AncestorRef } from "../../types";
 import { canHaveChildren } from "../../types";
-import { CTX_LABEL_W } from "./constants";
+import { CTX_LABEL_W, MAX_INLINE_DEPTH } from "./constants";
 import type {
   WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, QuickConnectHandlers,
 } from "./types";
@@ -134,8 +134,11 @@ export function assembleRfGraph(params: {
           // в LevelGraph, внутри только latest-ref'ы), лениво оборачивать нечего
           quickConnect: isArchitect && !isContext ? getCb().quickConnect : undefined,
           // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
-          // В контексте read-only схема — без раскрытий.
+          // В контексте read-only схема — без раскрытий. Глубже MAX_INLINE_DEPTH
+          // слоёв от уровня лупы нет — только «Войти» (C8): pf — объемлющая рамка,
+          // frameNesting(pf) = инлайн-глубина узла (0 = прямо на уровне).
           onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
+            && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandLocalContainer(id)
             : undefined,
         } satisfies BlockData,
@@ -180,7 +183,11 @@ export function assembleRfGraph(params: {
           depth: ent.depth,
           ancestors: ent.ancestors,
           colors: getNodeColors(ent.is_external, ent.depth),
-          onExpand: (id) => getCb().expandContainer(id),
+          // Лупа гостевого контейнера — как у локала, не глубже MAX_INLINE_DEPTH
+          // слоёв от уровня (C8); на пределе глубины — только «Войти к компонентам».
+          onExpand: (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
+            ? (id) => getCb().expandContainer(id)
+            : undefined,
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
           onEnter: isContext
             ? undefined

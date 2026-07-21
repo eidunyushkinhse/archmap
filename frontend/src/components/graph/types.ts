@@ -113,7 +113,10 @@ export interface ContainerData extends Record<string, unknown> {
   depth: number;
   ancestors: AncestorRef[];
   colors: NodeColors;
-  onExpand: (id: string) => void;
+  // раскрыть содержимое ГОСТЕВОГО контейнера инлайн (R5). undefined — кнопки-лупы
+  // нет: контейнер уже на предельной инлайн-глубине MAX_INLINE_DEPTH (C8), глубже
+  // только «Войти к компонентам».
+  onExpand?: (id: string) => void;
   // войти к компонентам контейнера: открыть его слой-схему (колбэк замкнут на его
   // путь). Контейнер всегда промежуточный (содержит спроецированного гостя), поэтому
   // кнопка показывается всегда, когда задан колбэк. undefined (контекст) → кнопки нет.

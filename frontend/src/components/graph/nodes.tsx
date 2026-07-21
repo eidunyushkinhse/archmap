@@ -387,12 +387,16 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
             title="Войти к компонентам"
           ><DrillInIcon /></button>
         )}
-        <button
-          className="nodrag"
-          onClick={(e) => { e.stopPropagation(); data.onExpand(data.id); }}
-          style={btnStyle}
-          title="Раскрыть содержимое"
-        >🔍</button>
+        {/* Лупа — только пока контейнер не на пределе инлайн-глубины (C8):
+            глубже MAX_INLINE_DEPTH onExpand не задаётся и кнопка не рисуется. */}
+        {data.onExpand && (
+          <button
+            className="nodrag"
+            onClick={(e) => { e.stopPropagation(); data.onExpand?.(data.id); }}
+            style={btnStyle}
+            title="Раскрыть содержимое"
+          >🔍</button>
+        )}
       </div>
       <IntoCue />
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", padding: "12px 14px", paddingRight: 40 }}>
