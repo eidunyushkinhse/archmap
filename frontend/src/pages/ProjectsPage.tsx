@@ -335,7 +335,7 @@ function fmtDate(iso: string): string {
 }
 
 // ── Стили ─────────────────────────────────────────────────────────────────────
-const page: CSSProperties = { minHeight: "100vh", background: "#f8fafc" };
+const page: CSSProperties = { height: "100vh", overflowY: "auto", background: "#f8fafc" };
 const topBar: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "space-between",
   padding: "12px 24px", background: "#fff", borderBottom: "1px solid #e2e8f0",
