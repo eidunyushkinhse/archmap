@@ -138,18 +138,117 @@ function shiftPlacement(lp: LabelPlacement, dx: number, dy: number): LabelPlacem
   };
 }
 
+// Интерполяция дельта по позиции на маршруте (оптимизация 2026-07-21, фикс регрессии
+// "плашки сползают со стрелок"). Каждый пункт маршрута сдвигается пропорционально своей
+// позиции: t=0 (источник) → дельта источника, t=1 (цель) → дельта цели, между — линейная
+// интерполяция. Это даёт корректную деформацию маршрута при драге одного конца.
+function interpolateDelta(
+  route: EdgePoint[],
+  ds: { dx: number; dy: number },
+  dt: { dx: number; dy: number },
+): EdgePoint[] {
+  if (route.length === 0) return route;
+  if (route.length === 1) {
+    // Одна точка — сдвиг средним (как раньше)
+    const dx = (ds.dx + dt.dx) / 2, dy = (ds.dy + dt.dy) / 2;
+    return [{ x: route[0].x + dx, y: route[0].y + dy }];
+  }
+  // Вычисляем cumulative length для параметризации
+  const cumLen: number[] = [0];
+  for (let i = 1; i < route.length; i++) {
+    const dx = route[i].x - route[i - 1].x;
+    const dy = route[i].y - route[i - 1].y;
+    cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
+  }
+  const totalLen = cumLen[cumLen.length - 1];
+  if (totalLen === 0) {
+    // Нулевая длина — сдвиг средним
+    const dx = (ds.dx + dt.dx) / 2, dy = (ds.dy + dt.dy) / 2;
+    return route.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  }
+  // Интерполяция дельта по параметру t = cumLen / totalLen
+  return route.map((p, i) => {
+    const t = cumLen[i] / totalLen;
+    const dx = ds.dx * (1 - t) + dt.dx * t;
+    const dy = ds.dy * (1 - t) + dt.dy * t;
+    return { x: p.x + dx, y: p.y + dy };
+  });
+}
+
+// Интерполяция дельта для плашки: находим параметр t якоря плашки на маршруте
+// (проекция на ближайший сегмент) и применяем тот же интерполированный дельта.
+function interpolateLabelDelta(
+  lp: LabelPlacement,
+  route: EdgePoint[],
+  ds: { dx: number; dy: number },
+  dt: { dx: number; dy: number },
+): LabelPlacement {
+  if (route.length === 0) {
+    const dx = (ds.dx + dt.dx) / 2, dy = (ds.dy + dt.dy) / 2;
+    return shiftPlacement(lp, dx, dy);
+  }
+  if (route.length === 1) {
+    const dx = (ds.dx + dt.dx) / 2, dy = (ds.dy + dt.dy) / 2;
+    return shiftPlacement(lp, dx, dy);
+  }
+  // Вычисляем cumulative length для параметризации
+  const cumLen: number[] = [0];
+  for (let i = 1; i < route.length; i++) {
+    const dx = route[i].x - route[i - 1].x;
+    const dy = route[i].y - route[i - 1].y;
+    cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
+  }
+  const totalLen = cumLen[cumLen.length - 1];
+  if (totalLen === 0) {
+    const dx = (ds.dx + dt.dx) / 2, dy = (ds.dy + dt.dy) / 2;
+    return shiftPlacement(lp, dx, dy);
+  }
+  // Находим ближайшую точку на маршруте к якорю плашки (проекция на сегменты)
+  let minDist = Infinity;
+  let closestT = 0.5;
+  for (let i = 0; i < route.length - 1; i++) {
+    const ax = route[i].x, ay = route[i].y;
+    const bx = route[i + 1].x, by = route[i + 1].y;
+    const abx = bx - ax, aby = by - ay;
+    const apx = lp.anchor.x - ax, apy = lp.anchor.y - ay;
+    const abLenSq = abx * abx + aby * aby;
+    if (abLenSq === 0) continue;
+    // Проекция якоря на сегмент [a, b], параметр s ∈ [0, 1]
+    let s = (apx * abx + apy * aby) / abLenSq;
+    s = Math.max(0, Math.min(1, s));
+    // Точка на сегменте
+    const px = ax + s * abx, py = ay + s * aby;
+    const dx = lp.anchor.x - px, dy = lp.anchor.y - py;
+    const dist = dx * dx + dy * dy;
+    if (dist < minDist) {
+      minDist = dist;
+      // Параметр t на всём маршруте: cumLen[i] + s * длина сегмента
+      const segLen = cumLen[i + 1] - cumLen[i];
+      closestT = (cumLen[i] + s * segLen) / totalLen;
+    }
+  }
+  const dx = ds.dx * (1 - closestT) + dt.dx * closestT;
+  const dy = ds.dy * (1 - closestT) + dt.dy * closestT;
+  return shiftPlacement(lp, dx, dy);
+}
+
 // Плашка затронутого ребра на живой позиции. Живое размещение считается тем же движком и с
 // ПОЛНЫМ контекстом (все группы, финальные маршруты прочих) — совпадает с финалом (замер:
 // 0px в покое, ~10px в движении из-за нуджинга финала), поэтому берём его как есть, включая
 // leader. (Раннее правило «leader не брать — прыгает» относилось к УСЕЧЁННОМУ контексту из
 // одних затронутых рёбер: там дискретный поиск места скакал кадр-к-кадру.) Фолбэк, когда
-// размещение не посчиталось: СНИМОК плашки + среднее смещение концов ребра — гладко и близко.
-function liveLabelFor(e: RFEdge, f: DragFrame): LabelPlacement | undefined {
+// размещение не посчиталось: СНИМОК плашки + интерполированное смещение по позиции на
+// маршруте (фикс регрессии "плашки сползают", оптимизация 2026-07-21).
+function liveLabelFor(e: RFEdge, f: DragFrame, route: EdgePoint[] | undefined): LabelPlacement | undefined {
   const live = f.liveLabels?.get(e.id);
   if (live) return live;
   const snap = f.snapLabels.get(e.id);
   if (!snap) return undefined;
   const ds = f.deltaOf(e.source), dt = f.deltaOf(e.target);
+  if (route && route.length > 0) {
+    return interpolateLabelDelta(snap, route, ds, dt);
+  }
+  // Фолбэк без маршрута — сдвиг средним
   return shiftPlacement(snap, (ds.dx + dt.dx) / 2, (ds.dy + dt.dy) / 2);
 }
 
@@ -179,27 +278,27 @@ export function resolveDragEdge(e: RFEdge, f: DragFrame): RFEdge {
   const lr = f.liveRoutes?.get(e.id);
   if (lr) {
     const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: lr };
-    const lp = liveLabelFor(e, f);
+    const lp = liveLabelFor(e, f, lr);
     if (lp) data.labelPlacement = lp;
     const lh = f.liveHandles?.get(e.id);
     return lh
       ? { ...e, data, sourceHandle: lh.sourceHandle, targetHandle: lh.targetHandle }
       : { ...e, data };
   }
-  // Фолбэк 1 (throttle пропустил кадр): жёсткий сдвиг из snapRoutes + среднее смещение
-  // концов (как для "оба конца тащим", но только для затронутого конца). Это даёт плавное
-  // движение даже когда роутинг не гонялся (оптимизация 2026-07-21).
-  // ВАЖНО: хэндлы обновляем из fallbackHandles (assignEdgeHandles гоняется каждый кадр,
-  // независимо от throttle) — иначе хэндлы залипают на старых значениях и разные стрелки
-  // могут оказаться на одном хэндле (функциональная регрессия).
+  // Фолбэк 1 (A* роутинг не гоняется во время драга, оптимизация 2026-07-21): жёсткий сдвиг
+  // из snapRoutes с ИНТЕРПОЛЯЦИЕЙ дельта по позиции на маршруте (фикс регрессии "плашки
+  // сползают со стрелок"). Каждый пункт маршрута сдвигается пропорционально своей позиции:
+  // t=0 (источник) → дельта источника, t=1 (цель) → дельта цели. Плашка едет со своей
+  // точкой маршрута. Хэндлы обновляем из fallbackHandles (assignEdgeHandles гоняется каждый
+  // кадр) — иначе хэндлы залипают на старых значениях и разные стрелки могут оказаться на
+  // одном хэндле (функциональная регрессия).
   const orig = f.snapRoutes.get(e.id);
   if (orig) {
     const ds = f.deltaOf(e.source), dt = f.deltaOf(e.target);
-    const dx = (ds.dx + dt.dx) / 2, dy = (ds.dy + dt.dy) / 2;
-    const moved = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+    const moved = interpolateDelta(orig, ds, dt);
     const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: moved };
     const lp0 = f.snapLabels.get(e.id);
-    if (lp0) data.labelPlacement = shiftPlacement(lp0, dx, dy);
+    if (lp0) data.labelPlacement = interpolateLabelDelta(lp0, orig, ds, dt);
     const h = f.fallbackHandles.get(e.id);
     return h
       ? { ...e, data, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle }
