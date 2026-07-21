@@ -307,7 +307,19 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
       liveRoutes, liveHandles, liveLabels,
       localIds: s.inp.localIds, fallbackHandles: handles,
     };
-    setRfEdges((prev) => prev.map((e) => resolveDragEdge(e, frame)));
+    // Точечный патч (оптимизация 2026-07-21): собираем только изменённые рёбра в Map,
+    // затем патчим. Если ни одно ребро не изменилось — возвращаем ту же ссылку на массив
+    // (React не перерисует). Раньше: prev.map(...) на каждый кадр — аллокация нового
+    // массива из N элементов, даже если большинство рёбер не изменились.
+    setRfEdges((prev) => {
+      const changed = new Map<string, RFEdge>();
+      for (const e of prev) {
+        const resolved = resolveDragEdge(e, frame);
+        if (resolved !== e) changed.set(e.id, resolved);
+      }
+      if (changed.size === 0) return prev; // ни одно ребро не изменилось
+      return prev.map((e) => changed.get(e.id) ?? e);
+    });
   }, [setRfEdges]);
 
   // Откат живого превью к состоянию старта жеста. Зовётся ПЕРЕД end(), когда отпускание

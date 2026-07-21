@@ -113,9 +113,9 @@ export function useSnapAlignment({
   // относящийся к рамке, не лежит внутри неё). Раскрытые рамки — frame-узлы
   // канвы (их rect известен); субъект — узел ЛЮБОГО типа или целая рамка.
   // Свои рамки (предки субъекта) и вложенные в субъект — пропускаются.
+  // Оптимизация (2026-07-21): byId передаётся извне (один раз на кадр).
   const clampOutOfCompound = useCallback(
-    (subjectId: string, pos: { x: number; y: number }, w: number, h: number): { x: number; y: number } => {
-      const byId = new Map(rfNodes.map((n) => [n.id, n]));
+    (subjectId: string, pos: { x: number; y: number }, w: number, h: number, byId: Map<string, RFNode>): { x: number; y: number } => {
       const isOwn = (frameId: string): boolean => {
         let p = byId.get(subjectId)?.parentId;
         while (p) { if (p === frameId) return true; p = byId.get(p)?.parentId; }
@@ -144,15 +144,16 @@ export function useSnapAlignment({
   // рамок. Соседи собираются в АБСОЛЮТНЫХ координатах (дети compound-рамок в
   // rfNodes относительны); exclude — группа текущего жеста (потомки рамки при её
   // драге и т.п.), рамки и распорки соседями не считаются (у рамок свой кламп).
+  // Оптимизация (2026-07-21): byId передаётся извне (один раз на кадр).
   const clampOutOfNodes = useCallback(
     (
       subjectId: string,
       pos: { x: number; y: number },
       w: number,
       h: number,
+      byId: Map<string, RFNode>,
       exclude?: Set<string>,
     ): { x: number; y: number } => {
-      const byId = new Map(rfNodes.map((n) => [n.id, n]));
       const others: Rect[] = [];
       for (const o of rfNodes) {
         if (o.id === subjectId || exclude?.has(o.id)) continue;
@@ -170,14 +171,14 @@ export function useSnapAlignment({
   // (живой clamp при драге и clamp при отпускании). Запретная рамка гостя не включает
   // его членом, поэтому от его собственной позиции не зависит. Позиции — абсолютные
   // (дети compound-рамок в rfNodes относительны, R4).
-  const levelFrames = useCallback((): FrameRect[] => {
+  // Оптимизация (2026-07-21): byId передаётся извне (один раз на кадр).
+  const levelFrames = useCallback((byId: Map<string, RFNode>): FrameRect[] => {
     const blocks = rfNodes.filter((n) => n.type === "block");
     const externals = rfNodes.filter((n) => n.type === "ghost" || n.type === "container");
     const extAncestors = (n: RFNode): AncestorRef[] =>
       n.type === "ghost"
         ? (n.data as GhostData).appNode.ancestors ?? []
         : ((n.data as ContainerData).ancestors ?? []);
-    const byId = new Map(rfNodes.map((n) => [n.id, n]));
     // Дети РАСКРЫТЫХ РАМОК (compound): без синтеза цепочек модель нативной рамки не
     // видит колец раскрытых локалов и живой кламп держит гостей от МЕНЬШЕЙ рамки,
     // чем нарисована (см. frameChains.ts — единый источник, общий с LevelBoundary).
@@ -197,24 +198,25 @@ export function useSnapAlignment({
   // каждого к своим соседям и исказил бы взаимные интервалы перемещаемой группы.
   // R3: локалы, гости и контейнеры пишутся ЕДИНООБРАЗНО — батчем view_layout.
   // Возвращает, записан ли батч (false — пересчёта раскладки после жеста не будет).
+  // Оптимизация (2026-07-21): byId создаётся один раз на группу.
   const persistGroup = useCallback(
     (group: RFNode[]): boolean => {
       if (isContext) return false; // контекст read-only — перетаскивания не сохраняем
       if (!isArchitect) return false;
       const single = group.length === 1;
+      const byId = new Map(rfNodes.map((n) => [n.id, n]));
       // нативные рамки считаем один раз на группу — нужны гостям/контейнерам/
       // раскрытым рамкам И детям compound-рамок (их персист-ветка гоняет тот же
       // кламп, что и живой драг); топ-уровневым локалам кламп не нужен
       const frames =
         group.some((n) => n.type === "ghost" || n.type === "container" || n.type === "frame" || n.parentId)
-          ? levelFrames()
+          ? levelFrames(byId)
           : [];
       // Перемещения, реально изменившие позицию (для записи в историю Undo/Redo).
       type Move = { id: string; old: { x: number; y: number }; next: { x: number; y: number } };
       const moves: Move[] = [];
       const patch: Record<string, { x: number; y: number }> = {};
 
-      const byId = new Map(rfNodes.map((n) => [n.id, n]));
       for (const n of group) {
         // Рамки не таскаются (запрет движения рамок, 2026-07-08) — прежний батч-персист
         // потомков при драге рамки (R4.2) умер вместе с draggable.
@@ -234,15 +236,15 @@ export function useSnapAlignment({
           // «выровненным», после пере-раскладки съезжал на пиксели притяжки.
           // Снап — в АБСОЛЮТЕ (соседи в snapNode считаются абсолютными центрами).
           if (single) {
-            const s = snapNode(raw.x + cw / 2, raw.y + ch / 2, cw, ch, rfNodes, n.id);
+            const s = snapNode(raw.x + cw / 2, raw.y + ch / 2, cw, ch, rfNodes, n.id, byId);
             raw = { x: s.snapCx - cw / 2, y: s.snapCy - ch / 2 };
           }
           const abs = clampOutOfNodes(
             n.id,
             clampOutOfCompound(
-              n.id, clampOutOfNativeFrames(n.id, raw, frames), cw, ch,
+              n.id, clampOutOfNativeFrames(n.id, raw, frames), cw, ch, byId,
             ),
-            cw, ch,
+            cw, ch, byId,
           );
           patch[n.id] = abs;
           const start = startPos.current.get(n.id);
@@ -259,7 +261,7 @@ export function useSnapAlignment({
           // из onNodesChange меняют ОТРИСОВАННЫЙ стейт (rfNodes), но внутренний трекер
           // драга RF их не видит — координата без притяжки. Пересчитываем тот же снап,
           // чтобы СОХРАНИТЬ ровно то, что показывала направляющая.
-          const { snapCx, snapCy } = snapNode(px + dw / 2, py + dh / 2, dw, dh, rfNodes, n.id);
+          const { snapCx, snapCy } = snapNode(px + dw / 2, py + dh / 2, dw, dh, rfNodes, n.id, byId);
           px = snapCx - dw / 2;
           py = snapCy - dh / 2;
         }
@@ -275,8 +277,8 @@ export function useSnapAlignment({
         // конвейер разведёт и персистнет после отпускания)
         {
           const groupIds = new Set(group.map((m) => m.id));
-          let cc = clampOutOfCompound(n.id, { x: px, y: py }, dw, dh);
-          if (single) cc = clampOutOfNodes(n.id, cc, dw, dh, groupIds);
+          let cc = clampOutOfCompound(n.id, { x: px, y: py }, dw, dh, byId);
+          if (single) cc = clampOutOfNodes(n.id, cc, dw, dh, byId, groupIds);
           if (cc.x !== px || cc.y !== py) {
             onNodesChange([{ id: n.id, type: "position", position: cc }]);
             px = cc.x; py = cc.y;
@@ -337,6 +339,10 @@ export function useSnapAlignment({
   // независимо — X может «прилипнуть» к одному соседу, Y к другому. Снапим и
   // финальное изменение (отпускание), чтобы узел остался ровно на магнитной
   // координате. Пока идёт драг — публикуем координаты центральных направляющих.
+  // Живой снап и клампы при драге (onNodesChange от RF). Оптимизация (2026-07-21):
+  // byId создаётся ОДИН РАЗ на кадр и передаётся в snapNode/clampOutOfCompound/
+  // clampOutOfNodes/levelFrames — раньше каждая функция создавала свою Map, что
+  // давало 4-5 аллокаций на узел на кадр (критично при мультидраге 10+ узлов).
   const handleNodesChange = useCallback(
     (changes: NodeChange<RFNode>[]) => {
       let guideX: number | null = null;
@@ -355,6 +361,8 @@ export function useSnapAlignment({
       // друга и рвали взаимные интервалы.
       const kbGroup =
         changes.filter((c) => c.type === "position" && c.position && !c.dragging).length > 1;
+      // byId создаётся ОДИН РАЗ на кадр (оптимизация 2026-07-21)
+      const byId = new Map(rfNodes.map((n) => [n.id, n]));
       const snapped = changes.map((change) => {
         if (change.type !== "position" || !change.position) return change;
         if (change.dragging) dragLive.current = true;
@@ -365,7 +373,6 @@ export function useSnapAlignment({
         // что у живого драга; серия нажатий копится и персистится флашем.
         if (!change.dragging && !dragLive.current) {
           if (!dragged) return change;
-          const byId = new Map(rfNodes.map((n) => [n.id, n]));
           const parent = dragged.parentId ? byId.get(dragged.parentId) : undefined;
           const pAbs = parent ? absPositionOf(parent, byId) : null;
           const { w: kw, h: kh } = nodeSize(dragged);
@@ -373,11 +380,11 @@ export function useSnapAlignment({
             ? { x: pAbs.x + change.position.x, y: pAbs.y + change.position.y }
             : { x: change.position.x, y: change.position.y };
           if (pAbs || dragged.type === "ghost" || dragged.type === "container") {
-            frames ??= levelFrames();
+            frames ??= levelFrames(byId);
             abs = clampOutOfNativeFrames(dragged.id, abs, frames);
           }
-          abs = clampOutOfCompound(dragged.id, abs, kw, kh);
-          if (!kbGroup) abs = clampOutOfNodes(dragged.id, abs, kw, kh);
+          abs = clampOutOfCompound(dragged.id, abs, kw, kh, byId);
+          if (!kbGroup) abs = clampOutOfNodes(dragged.id, abs, kw, kh, byId);
           if (!kbStart.current.has(dragged.id)) {
             kbStart.current.set(dragged.id, absPositionOf(dragged, byId));
           }
@@ -398,12 +405,11 @@ export function useSnapAlignment({
         // рамки + все чужие узлы — те же клампы, что и персист на отпускании) и
         // возвращаем в rel. Соседи внутри клампов сами считаются в абсолюте.
         if (dragged?.parentId) {
-          const byId = new Map(rfNodes.map((n) => [n.id, n]));
           const parent = byId.get(dragged.parentId);
           if (!parent) return change;
           const pAbs = absPositionOf(parent, byId);
           const { w: cw, h: ch } = nodeSize(dragged);
-          frames ??= levelFrames();
+          frames ??= levelFrames(byId);
           let abs = { x: pAbs.x + change.position.x, y: pAbs.y + change.position.y };
           // магнитное выравнивание (2026-07-08, бывший пробел «дети не выравниваются»):
           // снап считает соседей в абсолюте — ребёнку он доступен так же, как топ-узлу
@@ -411,15 +417,15 @@ export function useSnapAlignment({
           let childSpacing: SpacingGuide[] = [];
           let snapCx = 0, snapCy = 0;
           if (!multiDrag) {
-            const s = snapNode(abs.x + cw / 2, abs.y + ch / 2, cw, ch, rfNodes, dragged.id);
+            const s = snapNode(abs.x + cw / 2, abs.y + ch / 2, cw, ch, rfNodes, dragged.id, byId);
             snapCx = s.snapCx; snapCy = s.snapCy;
             baseX = s.snapCx - cw / 2; baseY = s.snapCy - ch / 2;
             abs = { x: baseX, y: baseY };
             hitX = s.hitX; hitY = s.hitY; childSpacing = s.spacing;
           }
           abs = clampOutOfNativeFrames(dragged.id, abs, frames);
-          abs = clampOutOfCompound(dragged.id, abs, cw, ch);
-          abs = clampOutOfNodes(dragged.id, abs, cw, ch);
+          abs = clampOutOfCompound(dragged.id, abs, cw, ch, byId);
+          abs = clampOutOfNodes(dragged.id, abs, cw, ch, byId);
           if (change.dragging && !multiDrag) {
             if (hitX && abs.x === baseX) guideX = snapCx;
             if (hitY && abs.y === baseY) guideY = snapCy;
@@ -435,31 +441,31 @@ export function useSnapAlignment({
         if (multiDrag) {
           // Без снапа; гостям/контейнерам только запрет проникновения в чужие рамки.
           if (isExternal) {
-            frames ??= levelFrames();
+            frames ??= levelFrames(byId);
             const c = clampOutOfNativeFrames(change.id, { x, y }, frames);
             x = c.x; y = c.y;
           }
-          ({ x, y } = clampOutOfCompound(change.id, { x, y }, dw, dh));
+          ({ x, y } = clampOutOfCompound(change.id, { x, y }, dw, dh, byId));
           return { ...change, position: { x, y } };
         }
         // Центр узла в текущей (перетаскиваемой) позиции
         const cx = x + dw / 2;
         const cy = y + dh / 2;
-        const { snapCx, snapCy, hitX, hitY, spacing } = snapNode(cx, cy, dw, dh, rfNodes, change.id);
+        const { snapCx, snapCy, hitX, hitY, spacing } = snapNode(cx, cy, dw, dh, rfNodes, change.id, byId);
         // Координата угла после притяжки (позиция узла = левый-верхний угол)
         const baseX = snapCx - dw / 2, baseY = snapCy - dh / 2;
         x = baseX; y = baseY;
         // Строгий запрет проникновения: гостя/контейнер НЕ пускаем внутрь чужой родной
         // рамки прямо во время драга — он скользит вдоль её края (clamp к ближайшей грани).
         if (isExternal) {
-          frames ??= levelFrames();
+          frames ??= levelFrames(byId);
           const c = clampOutOfNativeFrames(change.id, { x, y }, frames);
           x = c.x; y = c.y;
         }
         // R5: узел любого типа (и локал!) не въезжает в чужую раскрытую рамку
-        ({ x, y } = clampOutOfCompound(change.id, { x, y }, dw, dh));
+        ({ x, y } = clampOutOfCompound(change.id, { x, y }, dw, dh, byId));
         // и не накладывается на другие узлы (скольжение вдоль)
-        ({ x, y } = clampOutOfNodes(change.id, { x, y }, dw, dh));
+        ({ x, y } = clampOutOfNodes(change.id, { x, y }, dw, dh, byId));
         // Направляющие — только при активном драге и только по оси, которую clamp не двигал
         // (иначе линия показывала бы притяжку там, где узел уже оттолкнут рамкой).
         if (change.dragging) {

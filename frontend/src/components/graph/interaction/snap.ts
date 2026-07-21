@@ -23,17 +23,20 @@ const isSnapPeer = (n: RFNode): boolean => n.type !== "frame" && n.type !== "spa
 // Оси независимы. Возвращаем притянутый центр и флаги попадания (для направляющих).
 // Используется и при перетаскивании существующего узла (excludeId — он сам), и при
 // перетаскивании превью нового узла из палитры (excludeId не задан).
+// Оптимизация (2026-07-21): byId передаётся извне (один раз на кадр), чтобы не
+// создавать Map многократно при мультидраге.
 export function snapCenter(
   cx: number, cy: number, rfNodes: RFNode[], excludeId?: string,
+  byId?: Map<string, RFNode>,
 ): { snapCx: number; snapCy: number; hitX: boolean; hitY: boolean } {
   let snapCx = cx, snapCy = cy;
   let bestDx = SNAP_THRESHOLD, bestDy = SNAP_THRESHOLD;
   let hitX = false, hitY = false;
-  const byId = new Map(rfNodes.map((n) => [n.id, n]));
+  const nodeById = byId ?? new Map(rfNodes.map((n) => [n.id, n]));
   for (const other of rfNodes) {
     if ((excludeId && other.id === excludeId) || !isSnapPeer(other)) continue;
     const { w: ow, h: oh } = nodeSize(other);
-    const op = absPositionOf(other, byId);
+    const op = absPositionOf(other, nodeById);
     const ocx = op.x + ow / 2;
     const ocy = op.y + oh / 2;
     const dx = Math.abs(ocx - cx);
@@ -57,18 +60,20 @@ export interface SnapResult {
 // X (зазоры вдоль X, линия общая по Y → cross = snapCy после центр-снапа), вертикальный
 // ряд — Y (cross = snapCx). Центр-выравнивание приоритетнее: distribution применяем
 // только там, где центр свободен (главная ось ряда обычно как раз свободна).
+// Оптимизация (2026-07-21): byId передаётся извне (один раз на кадр).
 export function snapNode(
   cx: number, cy: number, w: number, h: number, rfNodes: RFNode[], excludeId?: string,
+  byId?: Map<string, RFNode>,
 ): SnapResult {
-  const { snapCx, snapCy, hitX, hitY } = snapCenter(cx, cy, rfNodes, excludeId);
+  const nodeById = byId ?? new Map(rfNodes.map((n) => [n.id, n]));
+  const { snapCx, snapCy, hitX, hitY } = snapCenter(cx, cy, rfNodes, excludeId, nodeById);
 
   // Боксы соседей (без самого узла) в АБСОЛЮТНЫХ координатах графа
-  const byId = new Map(rfNodes.map((n) => [n.id, n]));
   const boxes: { cx: number; cy: number; w: number; h: number }[] = [];
   for (const n of rfNodes) {
     if ((excludeId && n.id === excludeId) || !isSnapPeer(n)) continue;
     const { w: ow, h: oh } = nodeSize(n);
-    const p = absPositionOf(n, byId);
+    const p = absPositionOf(n, nodeById);
     boxes.push({ cx: p.x + ow / 2, cy: p.y + oh / 2, w: ow, h: oh });
   }
 

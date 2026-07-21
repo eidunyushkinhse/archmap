@@ -16,6 +16,11 @@ import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
 
+// Кэш подобранных размеров шрифта (оптимизация 2026-07-21): одинаковые имена/роли
+// при одинаковой ширине узла не пересчитываются. Ключ: `${text}|${width}`.
+// Для 80 узлов с повторяющимися ролями («сервис», «БД») экономия существенна.
+const fontSizeCache = new Map<string, number>();
+
 // Бейдж статуса в левом-верхнем углу узла (правые углы заняты кнопками действий).
 // У existing бейджа нет — кодируем только проектируемое/выводимое. Цвет фона —
 // бордер статусной заливки тела (STATUS_FILL.border приходит как c.border).
@@ -145,14 +150,24 @@ function RoleTechChip({
     const el = ref.current;
     const parent = el?.parentElement;
     if (!el || !parent) return;
-    // Уменьшаем шрифт от MAX до MIN, пока чип не впишется в ширину родителя
+    // Уменьшаем шрифт от MAX до MIN, пока чип не впишется в ширину родителя.
+    // Кэш по (текст, ширина): одинаковые роли при одинаковой ширине не пересчитываются.
     const fit = () => {
+      const width = parent.clientWidth;
+      const cacheKey = `${label}|${width}`;
+      const cached = fontSizeCache.get(cacheKey);
+      if (cached !== undefined) {
+        el.style.fontSize = `${cached}px`;
+        setFontSize(cached);
+        return;
+      }
       let size = MAX_TAG_FONT;
       el.style.fontSize = `${size}px`;
-      while (size > MIN_TAG_FONT && el.scrollWidth > parent.clientWidth) {
+      while (size > MIN_TAG_FONT && el.scrollWidth > width) {
         size -= 0.5;
         el.style.fontSize = `${size}px`;
       }
+      fontSizeCache.set(cacheKey, size);
       setFontSize(size);
     };
     fit();
@@ -203,7 +218,16 @@ function NodeName({ name }: { name: string }) {
     // с бюджетом «лимит строк × высота строки» текущего шрифта. Плюс ширина: scrollWidth
     // > clientWidth означает, что самое длинное слово не влезает в колонку (слова не
     // рвём — см. wordBreak: normal), поэтому ужимаем шрифт, пока слово не уместится целиком.
+    // Кэш по (текст, ширина): одинаковые имена при одинаковой ширине не пересчитываются.
     const fit = () => {
+      const width = parent.clientWidth;
+      const cacheKey = `${name}|${width}`;
+      const cached = fontSizeCache.get(cacheKey);
+      if (cached !== undefined) {
+        el.style.fontSize = `${cached}px`;
+        setFontSize(cached);
+        return;
+      }
       let size = MAX_NAME_FONT;
       el.style.fontSize = `${size}px`;
       const fits = () =>
@@ -213,6 +237,7 @@ function NodeName({ name }: { name: string }) {
         size -= 0.5;
         el.style.fontSize = `${size}px`;
       }
+      fontSizeCache.set(cacheKey, size);
       setFontSize(size);
     };
     fit();
