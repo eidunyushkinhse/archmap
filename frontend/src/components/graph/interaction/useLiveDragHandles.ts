@@ -284,9 +284,10 @@ export function useLiveDragHandles({ inputsRef, setRfEdges }: Params) {
       }
       if (affected.size > 0) {
         // Адаптивный throttle: чем больше затронутых рёбер, тем реже роутим.
-        // 1-5 рёбер: каждый кадр; 6-15: каждые 2 кадра; 16+: каждые 3 кадра.
+        // Профилирование показало: даже 5 рёбер дают 5ms на A* роутинг (80-90% кадра).
+        // 1-3 ребра: каждый кадр (полная плавность); 4-10: каждые 2 кадра; 11+: каждые 3.
         frameCounter.current++;
-        const throttleInterval = affected.size <= 5 ? 1 : affected.size <= 15 ? 2 : 3;
+        const throttleInterval = affected.size <= 3 ? 1 : affected.size <= 10 ? 2 : 3;
         const shouldRoute = frameCounter.current % throttleInterval === 0;
 
         if (shouldRoute) {
