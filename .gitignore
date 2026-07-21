@@ -24,6 +24,10 @@ frontend/dist-ssr/
 # Личный allow-list разрешений и дев-токены — у каждого свои (в любом каталоге)
 **/settings.local.json
 
+# ===== Локальные настройки Qwen =====
+# Память/настройки/ворктри агента — локальное состояние, в репозиторий не тащим
+.qwen/
+
 # Тяжёлые рантаймы MCP-LSP серверов (исходники server.py/server.js коммитим)
 .claude/mcp-servers/python-lsp/venv/
 .claude/mcp-servers/typescript-lsp/node_modules/
