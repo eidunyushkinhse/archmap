@@ -12,7 +12,8 @@ import { secondaryBtn } from "../../ui/styles";
  */
 
 // Зеркало MAX_IMPORT_FILES бэка (schemas/project.py) — клиентский предохранитель.
-export const MAX_IMPORT_FILES = 16;
+// 256 — с запасом под крупные мульти-репо системы (80+ сервисов, файл на репозиторий).
+export const MAX_IMPORT_FILES = 256;
 
 interface Props {
   docs: string[];
@@ -197,6 +198,9 @@ function ReportList({ title, items }: { title: string; items: string[] }) {
 
 const chipsRow: CSSProperties = {
   display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 8,
+  // В крупных мульти-репо системах десятки файлов — ряд чипов ограничен по высоте и
+  // прокручивается, чтобы не выдавливать textarea и сводку из модалки создания.
+  maxHeight: 92, overflowY: "auto",
 };
 const chipBtn: CSSProperties = {
   border: "none", background: "none", cursor: "pointer", font: "inherit",

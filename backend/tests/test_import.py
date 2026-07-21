@@ -13,6 +13,7 @@ import pytest
 import yaml
 from conftest import ensure_architect
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.export import build_export
 from app.import_yaml import MAX_DEPTH, parse_import, seed_import
@@ -20,7 +21,7 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.routers.projects import create_project, import_preview
-from app.schemas.project import ImportPreviewIn, ProjectCreate
+from app.schemas.project import MAX_IMPORT_FILES, ImportPreviewIn, ProjectCreate
 
 
 def _project(db, name="Проект") -> Project:
@@ -354,3 +355,22 @@ def test_create_project_with_import_yamls(db):
     assert (p.object_count, p.edge_count) == (3, 1)
     tech = {n.name: n.technology for n in db.query(Node).filter(Node.project_id == p.id)}
     assert tech == {"Система": None, "payments": "Python", "orders": "Go"}
+
+
+# ── Лимит числа файлов (MAX_IMPORT_FILES) ─────────────────────────────────────
+def test_preview_many_files_merges(db):
+    """Лимит поднят под крупные мульти-репо: десятки файлов (здесь 20) сливаются."""
+    user = ensure_architect(db)
+    files = [
+        f"nodes:\n  - name: Система\n    children:\n      - name: svc{i}\n"
+        for i in range(20)
+    ]
+    out = import_preview(ImportPreviewIn(contents=files), _user=user)
+    assert out.ok and out.files == 20
+    assert out.node_count == 21  # общий корень «Система» + 20 сервисов
+
+
+def test_import_over_file_limit_rejected():
+    """Больше MAX_IMPORT_FILES документов — ошибка валидации контракта."""
+    with pytest.raises(ValidationError):
+        ImportPreviewIn(contents=["nodes: []"] * (MAX_IMPORT_FILES + 1))
