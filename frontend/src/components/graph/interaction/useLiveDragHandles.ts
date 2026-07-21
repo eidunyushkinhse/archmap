@@ -190,7 +190,20 @@ export function resolveDragEdge(e: RFEdge, f: DragFrame): RFEdge {
       ? { ...e, data, sourceHandle: lh.sourceHandle, targetHandle: lh.targetHandle }
       : { ...e, data };
   }
-  // Фолбэк (живого маршрута нет: контекст-схема или ребро не посчиталось). assignEdgeHandles
+  // Фолбэк 1 (throttle пропустил кадр): жёсткий сдвиг из snapRoutes + среднее смещение
+  // концов (как для "оба конца тащим", но только для затронутого конца). Это даёт плавное
+  // движение даже когда роутинг не гонялся (оптимизация 2026-07-21).
+  const orig = f.snapRoutes.get(e.id);
+  if (orig) {
+    const ds = f.deltaOf(e.source), dt = f.deltaOf(e.target);
+    const dx = (ds.dx + dt.dx) / 2, dy = (ds.dy + dt.dy) / 2;
+    const moved = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+    const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: moved };
+    const lp0 = f.snapLabels.get(e.id);
+    if (lp0) data.labelPlacement = shiftPlacement(lp0, dx, dy);
+    return { ...e, data };
+  }
+  // Фолбэк 2 (живого маршрута нет: контекст-схема или ребро не посчиталось). assignEdgeHandles
   // надёжен только для локально-локальных block-рёбер — гостевые/контекстные оставляем как
   // есть (их сторону старый движок мог бы поставить неверно).
   if (!f.localIds.has(e.source) || !f.localIds.has(e.target)) return e;
