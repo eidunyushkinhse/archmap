@@ -6,6 +6,11 @@
 //
 // Шаг 4.0: функции пока делегируют существующим синхронным движкам (обёрнуты в
 // Promise.resolve) — async-канал готов и проверяется ДО подмены движка на ELK.
+//
+// Оптимизация (2026-07-21): кэш ELK-результатов по сигнатуре входов (nodes + edges
+// структура). Если структура графа не менялась (только позиции из viewLayout) —
+// ELK не пересчитывается, берётся из кэша. Сохранённые позиции всё равно
+// перезаписывают ELK-результат, но сам прогон ELK пропускается.
 import type ELK from "elkjs/lib/elk.bundled.js";
 import { NODE_W, NODE_H } from "../constants";
 import { flowSpacing } from "./flowGaps";
@@ -31,6 +36,26 @@ export function getElk(): Promise<ElkInstance> {
   return elkPromise;
 }
 
+// Кэш ELK-результатов (оптимизация 2026-07-21). Ключ: сигнатура структуры графа
+// (node IDs + edge source/target pairs). Значение: позиции от ELK (до перезаписи
+// сохранёнными координатами). Размер кэша ограничен 50 записями (LRU-подобный:
+// при переполнении удаляем самую старую).
+const elkCache = new Map<string, Map<string, { x: number; y: number }>>();
+const ELK_CACHE_MAX = 50;
+
+// Сигнатура структуры графа для кэша ELK: node IDs (sorted) + edge pairs (sorted).
+// Не включает savedPos — он только перезаписывает финал, не влияет на ELK-прогон.
+function elkSignature(
+  allNodes: Array<{ id: string }>,
+  edges: LayoutEdge[],
+): string {
+  const nodeIds = allNodes.map((n) => n.id).sort();
+  const edgePairs = edges
+    .map((e) => `${e.source_id}->${e.target_id}`)
+    .sort();
+  return `nodes:${nodeIds.join(",")}|edges:${edgePairs.join(",")}`;
+}
+
 export type LevelLayout = {
   positions: Map<string, { x: number; y: number }>;
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
@@ -48,6 +73,9 @@ export type ContextLayout = LevelLayout & {
  * верхнего-левого угла узла — это ровно то, что ждёт React Flow. Поверх ELK
  * накладываем сохранённые координаты (ручной drag архитектора перетирает дефолт),
  * затем общей с computeLayout логикой назначаем хэндлы (autoHandles от позиций).
+ *
+ * Оптимизация (2026-07-21): кэш ELK-результатов по сигнатуре структуры графа.
+ * Если структура не менялась (только savedPos из viewLayout) — ELK не пересчитывается.
  */
 export async function layoutLevel(
   allNodes: Array<{ id: string; savedPos?: { x: number; y: number } | null }>,
@@ -55,31 +83,49 @@ export async function layoutLevel(
 ): Promise<LevelLayout> {
   const idSet = new Set(allNodes.map((n) => n.id));
   const inner = edges.filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id));
-  // вертикаль слоя — коридоры горизонтальных плеч: зазоры под фактический спрос
-  // линий и плашек (flowGaps; были статические 60/10/10 — пачке из 4 плеч с
-  // подписью физически не хватало высоты, а узлы с пробегающими сквозь слой
-  // рёбрами ELK смыкал до 32px независимо от nodeNode)
-  const sp = flowSpacing(inner);
-  const elk = await getElk();
-  const res = await elk.layout({
-    id: "root",
-    layoutOptions: {
-      "elk.algorithm": "layered",
-      "elk.direction": "RIGHT",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "120", // ≈ dagre ranksep
-      "elk.spacing.nodeNode": String(sp.nodeGap),
-      "elk.spacing.edgeNode": String(sp.edgeNodeGap),
-      "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
-      "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
-    },
-    children: allNodes.map((n) => ({ id: n.id, width: NODE_W, height: NODE_H })),
-    edges: inner.map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),
-  });
 
-  const positions = new Map<string, { x: number; y: number }>();
-  for (const n of res.children ?? []) {
-    positions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+  // Проверяем кэш ELK (оптимизация 2026-07-21)
+  const sig = elkSignature(allNodes, inner);
+  let elkPositions = elkCache.get(sig);
+
+  if (!elkPositions) {
+    // Кэш-мисс: гоняем ELK
+    // вертикаль слоя — коридоры горизонтальных плеч: зазоры под фактический спрос
+    // линий и плашек (flowGaps; были статические 60/10/10 — пачке из 4 плеч с
+    // подписью физически не хватало высоты, а узлы с пробегающими сквозь слой
+    // рёбрами ELK смыкал до 32px независимо от nodeNode)
+    const sp = flowSpacing(inner);
+    const elk = await getElk();
+    const res = await elk.layout({
+      id: "root",
+      layoutOptions: {
+        "elk.algorithm": "layered",
+        "elk.direction": "RIGHT",
+        "elk.layered.spacing.nodeNodeBetweenLayers": "120", // ≈ dagre ranksep
+        "elk.spacing.nodeNode": String(sp.nodeGap),
+        "elk.spacing.edgeNode": String(sp.edgeNodeGap),
+        "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
+        "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
+      },
+      children: allNodes.map((n) => ({ id: n.id, width: NODE_W, height: NODE_H })),
+      edges: inner.map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),
+    });
+
+    elkPositions = new Map<string, { x: number; y: number }>();
+    for (const n of res.children ?? []) {
+      elkPositions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 });
+    }
+
+    // Сохраняем в кэш (LRU-подобный: при переполнении удаляем самую старую)
+    if (elkCache.size >= ELK_CACHE_MAX) {
+      const firstKey = elkCache.keys().next().value;
+      if (firstKey) elkCache.delete(firstKey);
+    }
+    elkCache.set(sig, elkPositions);
   }
+
+  // Копируем позиции из кэша (чтобы не мутировать кэшированную Map)
+  const positions = new Map(elkPositions);
 
   // Переопределяем позиции сохранёнными значениями из БД (ручной drag перетирает ELK)
   for (const node of allNodes) {
