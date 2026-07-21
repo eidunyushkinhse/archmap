@@ -16,41 +16,11 @@
 //    не-функции — различие.
 // Класс риска «залипший рендер» покрыт юнитами (чувствительность к каждому полю
 // сборки) и headless-гейтом «финал == перезагрузка».
-//
-// Оптимизация (2026-07-21): быстрый FNV-1a хэш перед глубоким сравнением.
-// Хэш-мисматч → точно различны (skip deep compare). Хэш-матч → может быть равны
-// (нужен deep compare для подтверждения). Ложное «равен» невозможно (deep compare
-// подтверждает), ложное «различен» безопасно (лишний re-render).
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 
 // Поля, которыми владеет сам React Flow (пишутся через onNodesChange/onEdgesChange
 // в контролируемый стейт): для сравнения «изменила ли СБОРКА объект» они шум.
 const RF_PRIVATE = new Set(["selected", "dragging", "measured"]);
-
-// FNV-1a: быстрый не-криптографический хэш (32-bit) для ускорения реконсиляции.
-function fnv1a(str: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-// Быстрый хэш объекта для предварительной проверки (до глубокого сравнения).
-// Сериализуем только ключевые поля (position, data, style, type), пропускаем RF_PRIVATE.
-function quickHash(obj: RFNode | RFEdge): number {
-  const rec = obj as unknown as Record<string, unknown>;
-  const parts: string[] = [];
-  for (const k of Object.keys(rec).sort()) {
-    if (RF_PRIVATE.has(k)) continue;
-    const v = rec[k];
-    // Функции не хэшируем (они всегда «равны» по правилам contentEqual)
-    if (typeof v === "function") continue;
-    parts.push(k + ":" + String(JSON.stringify(v)));
-  }
-  return fnv1a(parts.join("|"));
-}
 
 // Структурное равенство JSON-подобных значений; функции считаются равными между
 // собой (ленивые обёртки над latest-ref — их идентичность не смысл).
@@ -74,9 +44,6 @@ export function contentEqual(a: unknown, b: unknown): boolean {
 }
 
 const sameItem = (prev: RFNode | RFEdge, next: RFNode | RFEdge): boolean => {
-  // Быстрый хэш-чек (оптимизация 2026-07-21): мисматч → точно различны, skip deep compare.
-  if (quickHash(prev) !== quickHash(next)) return false;
-  // Хэш совпал → может быть равны, нужен deep compare для подтверждения.
   const rp = prev as unknown as Record<string, unknown>;
   const rn = next as unknown as Record<string, unknown>;
   for (const k of new Set([...Object.keys(rp), ...Object.keys(rn)])) {
