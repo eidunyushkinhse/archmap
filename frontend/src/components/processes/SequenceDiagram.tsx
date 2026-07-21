@@ -2,14 +2,14 @@
 // плеч задокументированных каналов (вызов/ответ/событие), полосы активации, фрагмент
 // alt. Цвет = статус жизненного цикла узла (единообразно с C4), тип плеча = форма
 // (линия + наконечник). Чистый презентационный компонент: раскладка выводится из пропсов.
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { FragmentKind, NodeStatus } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { viewShows, type SchemaView } from "../schemaView";
 import { C4Glyph, IcoBrokenLink, IcoClose, IcoPlus, IcoSelf } from "./icons";
 import { legMeta } from "./legMeta";
-import { strongestStatus } from "./sequence/layout";
+import { arrayMove, strongestStatus } from "./sequence/layout";
 import type { SeqActivation, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
 import { BPT, BROKEN, SQ, STATUS_LEG, withAlpha } from "./tokens";
 
@@ -38,6 +38,9 @@ interface Props {
   // Удаление участника со схемы (крестик по ховеру на шапке). id = node_id.
   // Передаётся только в режиме редактирования — в read-only окне крестика нет.
   onDeleteParticipant?: (nodeId: string) => void;
+  // Перестановка участников перетаскиванием шапки (живой reorder). nodeIds — новый
+  // порядок линий жизни слева-направо (id = node_id). Только в режиме редактирования.
+  onReorderParticipants?: (nodeIds: string[]) => void;
   // Режим выбора диапазона под новый фрагмент: курсором протягиваем по строкам
   // сообщений, на отпускании отдаём [fromRow, toRow]. null — обычный режим.
   selectMode?: FragmentKind | null;
@@ -57,6 +60,7 @@ export default function SequenceDiagram({
   onSelfConnect,
   onMessageClick,
   onDeleteParticipant,
+  onReorderParticipants,
   selectMode = null,
   onSelectRange,
   onFragmentClick,
@@ -71,6 +75,25 @@ export default function SequenceDiagram({
   const [selfHover, setSelfHover] = useState(false);
   // Диапазон строк, выделяемый протягиванием в режиме selectMode (a — якорь, b — текущий).
   const [selRange, setSelRange] = useState<{ a: number; b: number } | null>(null);
+  // Живой reorder участников: fromK — исходная колонка тянущейся шапки, px — текущий
+  // x курсора (в координатах контейнера). Шапка следует за курсором, остальные
+  // разъезжаются; отпускание фиксирует новый порядок (onReorderParticipants).
+  const [reorder, setReorder] = useState<{ fromK: number; px: number } | null>(null);
+  // «Липкость» шапок: в самом верху диаграммы разделительная грань скрыта, появляется
+  // при прилипании. Следим за невидимой sentinel-точкой на верху диаграммы: как только
+  // она заклиппилась скролл-контейнером (ушла из виду) — шапки прилипли к верху.
+  const [stuck, setStuck] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => setStuck(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   // Подписи сообщений переносятся по словам, поэтому их высота заранее неизвестна.
   // Замеряем реальную высоту каждой подписи (ResizeObserver — переживает и смену
@@ -107,6 +130,28 @@ export default function SequenceDiagram({
   const n = participants.length;
   const PX = (k: number) => SQ.MARGIN + k * SQ.COL_W;
   const lifeTop = SQ.TOP + SQ.PHEAD_H;
+
+  // Живой reorder: целевая колонка под курсором (обратное к PX: k=(x−MARGIN)/COL_W).
+  const reorderToK = reorder
+    ? Math.max(0, Math.min(n - 1, Math.round((reorder.px - SQ.MARGIN) / SQ.COL_W)))
+    : -1;
+  // Дисплейный x центра колонки участника с учётом живого reorder — ЕДИНЫЙ источник x
+  // для шапок, линий жизни, стрелок, активаций и рамок: вся диаграмма перестраивается
+  // синхронно во время драга (стрелки динамически меняют положение и направление).
+  // Тянущийся участник следует за курсором (непрерывно); участники между исходной и
+  // целевой колонкой сдвигаются на COL_W. Без reorder — обычный PX по индексу.
+  const colX = (id: string): number => {
+    const k = idx[id];
+    if (!reorder) return PX(k);
+    if (k === reorder.fromK) return reorder.px;
+    const from = reorder.fromK;
+    if (from < reorderToK && k > from && k <= reorderToK) return PX(k - 1);
+    if (from > reorderToK && k >= reorderToK && k < from) return PX(k + 1);
+    return PX(k);
+  };
+  // Затронут ли элемент тянущимся участником (тогда без transition — следует за
+  // курсором); иначе плавный сдвиг на новую колонку.
+  const isDraggedK = (k: number) => reorder?.fromK === k;
 
   // Приглушение по виду схемы: участник со статусом вне вида гаснет (см. ТЗ статусов).
   const statusOf = (id: string): NodeStatus => pById[id]?.status ?? "existing";
@@ -158,7 +203,7 @@ export default function SequenceDiagram({
     .map((f) => {
       const inner = messages.filter((m) => m.r >= f.fromRow && m.r <= f.toRow);
       if (!inner.length) return null;
-      const ks = inner.flatMap((m) => [idx[m.from], idx[m.to]]);
+      const xs = inner.flatMap((m) => [colX(m.from), colX(m.to)]);
       // depth = сколько ДРУГИХ фрагментов строго охватывают диапазон этого (вложенность).
       const span = f.toRow - f.fromRow;
       const depth = fragments.filter(
@@ -167,8 +212,8 @@ export default function SequenceDiagram({
       const inset = depth * NEST_INSET;
       return {
         f,
-        left: PX(Math.min(...ks)) - 38 + inset,
-        right: PX(Math.max(...ks)) + 38 - inset,
+        left: Math.min(...xs) - 38 + inset,
+        right: Math.max(...xs) + 38 - inset,
         top: rowY(f.fromRow) - 26,
         bottom: rowY(f.toRow) + 18,
         elseY: f.elseRow != null ? rowY(f.elseRow) - 16 : null,
@@ -176,6 +221,15 @@ export default function SequenceDiagram({
     })
     .filter((b): b is NonNullable<typeof b> => b !== null);
 
+  // Начало перетаскивания шапки участника (живой reorder): захват указателя, как у
+  // drag-to-connect. Крестик удаления гасит свой pointerdown (stopPropagation), чтобы
+  // клик по нему не начинал драг. В режиме выбора фрагмента reorder не стартует.
+  function onHeaderDown(e: ReactPointerEvent<HTMLDivElement>, k: number) {
+    if (!onReorderParticipants || selectMode) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setReorder({ fromK: k, px: PX(k) });
+  }
   // Начало драга из кружка участника k: захватываем указатель (чтобы движения шли
   // даже за пределами кружка) и фиксируем источник.
   function onCircleDown(e: ReactPointerEvent<HTMLButtonElement>, id: string, k: number) {
@@ -188,13 +242,19 @@ export default function SequenceDiagram({
   // приоритетная цель при попадании курсора; иначе подсвечиваем ближайший ДРУГОЙ участник
   // (источник из колонок-целей исключён — у него своя цель «себе»).
   function onRootMove(e: ReactPointerEvent<HTMLDivElement>) {
+    // Живой reorder: шапка следует за курсором (целевая колонка — в onRootUp/colX).
+    if (reorder && rootRef.current) {
+      const r = rootRef.current.getBoundingClientRect();
+      setReorder((d) => (d ? { ...d, px: e.clientX - r.left } : d));
+      return;
+    }
     if (!drag || !rootRef.current) return;
     const r = rootRef.current.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
     // хэндл «себе»: ниже кружка-источника, в пределах радиуса попадания
     const overSelf =
-      !!onSelfConnect && Math.hypot(x - PX(idx[drag.from]), y - (ghostY + SELF_OFF)) <= SELF_HIT;
+      !!onSelfConnect && Math.hypot(x - colX(drag.from), y - (ghostY + SELF_OFF)) <= SELF_HIT;
     if (overSelf) {
       setSelfHover(true);
       setHover(null);
@@ -212,8 +272,17 @@ export default function SequenceDiagram({
     setHover(bestD <= SQ.COL_W / 2 ? best : null);
     setDrag((d) => (d ? { ...d, px: x, py: y } : d));
   }
-  // Отпускание: на хэндле «себе» — рефлексивное сообщение, над другим участником — связь.
+  // Отпускание: reorder — фиксируем новый порядок, если шапка ушла в другую колонку;
+  // drag-to-connect — на хэндле «себе» рефлексивное сообщение, над другим участником — связь.
   function onRootUp() {
+    if (reorder) {
+      const to = Math.max(0, Math.min(n - 1, Math.round((reorder.px - SQ.MARGIN) / SQ.COL_W)));
+      if (to !== reorder.fromK) {
+        onReorderParticipants?.(arrayMove(participants.map((p) => p.id), reorder.fromK, to));
+      }
+      setReorder(null);
+      return;
+    }
     if (drag) {
       if (selfHover) onSelfConnect?.(drag.from);
       else if (hover) onConnect?.(drag.from, hover);
@@ -340,8 +409,14 @@ export default function SequenceDiagram({
           const dimmed = dimP(p.id);
           const stroke = st === "existing" ? "#94a3b8" : STATUS_LEG[st];
           const op = dimmed ? 0.12 : st === "existing" ? 0.85 : 0.7;
+          const x = colX(p.id);
           return (
-            <line key={p.id} x1={PX(k)} y1={lifeTop} x2={PX(k)} y2={H - 16} stroke={stroke} strokeWidth="1.5" strokeDasharray="5 5" opacity={op} />
+            <line
+              key={p.id}
+              x1={x} y1={lifeTop} x2={x} y2={H - 16}
+              stroke={stroke} strokeWidth="1.5" strokeDasharray="5 5" opacity={op}
+              style={{ transition: isDraggedK(k) ? undefined : "x1 .15s ease, x2 .15s ease" }}
+            />
           );
         })}
         {/* полосы активации — тинт по статусу дорожки */}
@@ -353,7 +428,7 @@ export default function SequenceDiagram({
           return (
             <rect
               key={i}
-              x={PX(idx[a.lane]) - SQ.ACT_W / 2}
+              x={colX(a.lane) - SQ.ACT_W / 2}
               y={rowY(a.from) - 7}
               width={SQ.ACT_W}
               height={rowY(a.to) - rowY(a.from) + 14}
@@ -362,22 +437,26 @@ export default function SequenceDiagram({
               stroke={stroke}
               strokeWidth="1"
               opacity={dimP(a.lane) ? 0.12 : 1}
+              style={{ transition: isDraggedK(idx[a.lane]) ? undefined : "x .15s ease" }}
             />
           );
         })}
         {/* стрелки сообщений — цвет по «сильнейшему» статусу концов, форма по типу плеча */}
         {messages.map((m) => {
-          const k1 = idx[m.from];
-          const k2 = idx[m.to];
           const y = rowY(m.r);
           const shape = legMeta(m.kind);
           const st = strongestStatus(statusOf(m.from), statusOf(m.to));
           const color = m.valid ? STATUS_LEG[st] : BROKEN.ln;
           const dash = m.valid ? shape.dash : "2 5";
           const marker = m.valid ? `url(#sqcap-${shape.cap}-${st})` : "url(#sqcap-open-broken)";
+          const xFrom = colX(m.from);
+          const xTo = colX(m.to);
+          // Стрелка затронута драгом, если тянущийся участник — один из её концов
+          // (тогда без transition — следует за курсором; иначе плавный сдвиг).
+          const dragged = isDraggedK(idx[m.from]) || isDraggedK(idx[m.to]);
           // Самосообщение (from==to): петля сбоку линии жизни вместо стрелки нулевой длины.
           if (m.from === m.to) {
-            const x = PX(k1) + SQ.ACT_W / 2;
+            const x = xFrom + SQ.ACT_W / 2;
             const loopW = 30;
             const loopH = 15;
             const d = `M ${x} ${y - loopH / 2} h ${loopW} v ${loopH} h ${-loopW}`;
@@ -394,9 +473,11 @@ export default function SequenceDiagram({
               />
             );
           }
-          const dir = k2 > k1 ? 1 : -1;
-          const x1 = PX(k1) + dir * (SQ.ACT_W / 2);
-          const x2 = PX(k2) - dir * (SQ.ACT_W / 2);
+          // Направление — по дисплейным колонкам: при перетаскивании конец может
+          // пересечь начало, и стрелка динамически разворачивается.
+          const dir = xTo > xFrom ? 1 : -1;
+          const x1 = xFrom + dir * (SQ.ACT_W / 2);
+          const x2 = xTo - dir * (SQ.ACT_W / 2);
           return (
             <line
               key={m.id}
@@ -409,6 +490,7 @@ export default function SequenceDiagram({
               strokeDasharray={dash}
               markerEnd={marker}
               opacity={dimMsg(m) ? 0.12 : 1}
+              style={{ transition: dragged ? undefined : "x1 .15s ease, x2 .15s ease" }}
             />
           );
         })}
@@ -416,14 +498,18 @@ export default function SequenceDiagram({
 
       {/* подписи сообщений (над стрелкой) */}
       {messages.map((m) => {
-        const k1 = idx[m.from];
-        const k2 = idx[m.to];
-        const xa = PX(k1);
-        const xb = PX(k2);
+        const xa = colX(m.from);
+        const xb = colX(m.to);
         // Самосообщение: подпись справа от петли (стрелка нулевой ширины не годится).
         const isSelf = m.from === m.to;
-        const left = isSelf ? PX(k1) + SQ.ACT_W / 2 + 34 : Math.min(xa, xb);
-        const w = isSelf ? 168 : Math.abs(xb - xa);
+        // Ширина плашки во время драга ЗАМОРОЖЕНА на базе исходных колонок (иначе
+        // текст сжимается до буквы в строке на пограничных ширинах) — плашка лишь
+        // центруется по живому центру стрелки; новая ширина (и переносы) применятся
+        // только после отпускания, при пересчёте на reload.
+        const baseSpan = Math.abs(PX(idx[m.to]) - PX(idx[m.from]));
+        const w = isSelf ? 168 : baseSpan;
+        const left = isSelf ? xa + SQ.ACT_W / 2 + 34 : (xa + xb) / 2 - (w - 16) / 2 - 8;
+        const dragged = isDraggedK(idx[m.from]) || isDraggedK(idx[m.to]);
         const shape = legMeta(m.kind);
         const st = strongestStatus(statusOf(m.from), statusOf(m.to));
         const sc = getNodeColors(false, 0, st);
@@ -450,6 +536,7 @@ export default function SequenceDiagram({
               opacity: dimMsg(m) ? 0.12 : 1,
               pointerEvents: dimMsg(m) ? "none" : onMessageClick ? "auto" : "none",
               cursor: onMessageClick ? "pointer" : "default",
+              transition: dragged ? undefined : "left .15s ease, width .15s ease",
             }}
           >
             <span
@@ -533,35 +620,61 @@ export default function SequenceDiagram({
         );
       })}
 
-      {/* шапки участников (линии жизни) */}
+      {/* Шапки участников (линии жизни) — «липкая» полоса: при вертикальном скролле
+          длинной диаграммы остаются на виду (position: sticky), диаграмма
+          прокручивается под сплошным фоном полосы и не просвечивает. Горизонтально
+          полоса скроллится вместе с диаграммой (единая ширина W), поэтому шапки
+          всегда стоят над своими колонками. */}
+      {/* sentinel: невидимая точка на верху диаграммы — индикатор прилипания шапок
+          (IntersectionObserver в stuck). Вне потока, на раскладку не влияет. */}
+      <div ref={sentinelRef} style={{ position: "absolute", top: 0, left: 0, width: 1, height: 1, pointerEvents: "none" }} />
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          height: SQ.TOP + SQ.PHEAD_H,
+          background: BPT.canvas,
+          // Грань видна только когда шапки прилипли (диаграмма прокручена); в самом
+          // верху она растворена — шапки сливаются с холстом. Проявляется плавно.
+          borderBottom: "1px solid " + (stuck ? BPT.line : "transparent"),
+          transition: "border-color .15s ease",
+          zIndex: 7,
+        }}
+      >
       {participants.map((p, k) => {
         const st = p.status;
         const isStatus = st !== "existing";
         const sc = getNodeColors(false, 0, st);
         const badge = STATUS_META[st].badge;
         const dimmed = dimP(p.id);
+        const isDragged = reorder?.fromK === k;
         return (
           <div
             key={p.id}
             className="bp-phead"
+            onPointerDown={(e) => onHeaderDown(e, k)}
             style={{
               position: "absolute",
-              left: PX(k) - 78,
+              left: colX(p.id) - 78,
               top: SQ.TOP,
               width: 156,
               height: SQ.PHEAD_H,
               background: isStatus ? withAlpha(sc.bg, 0.1) : "#fff",
               border: "1px solid " + (isStatus ? sc.border : p.external ? BPT.line : "#d6dee8"),
               borderRadius: 9,
-              boxShadow: "0 1px 3px rgba(15,23,42,.06)",
+              boxShadow: isDragged ? "0 6px 18px rgba(15,23,42,.22)" : "0 1px 3px rgba(15,23,42,.06)",
               display: "flex",
               alignItems: "center",
               gap: 8,
               padding: "0 11px",
               boxSizing: "border-box",
-              zIndex: 4,
+              zIndex: isDragged ? 7 : 4,
               opacity: dimmed ? 0.12 : 1,
               pointerEvents: dimmed ? "none" : undefined,
+              // Тянемая шапка следует за курсором без задержки; остальные плавно
+              // разъезжаются (transition left), освобождая целевую колонку.
+              transition: isDragged ? undefined : "left .15s ease",
+              cursor: onReorderParticipants && !selectMode ? (isDragged ? "grabbing" : "grab") : undefined,
             }}
           >
             {/* плавающий статус-бейдж «новый»/«выводится» (как на C4-узле) */}
@@ -596,6 +709,7 @@ export default function SequenceDiagram({
               <button
                 className="bp-phead-del"
                 title={`Удалить «${p.name}» из процесса`}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onDeleteParticipant(p.id); }}
                 style={pheadDel}
               >
@@ -629,6 +743,7 @@ export default function SequenceDiagram({
           </div>
         );
       })}
+      </div>
 
       {/* Уровень создания сообщения (режим редактирования): кружок «+» под каждым
           участником. Из кружка тянут стрелку к нужному участнику — при драге кружки
@@ -649,7 +764,7 @@ export default function SequenceDiagram({
           {drag && (
             <svg style={{ position: "absolute", inset: 0, width: W, height: H, pointerEvents: "none", overflow: "visible", zIndex: 5 }}>
               <line
-                x1={PX(idx[drag.from])}
+                x1={colX(drag.from)}
                 y1={ghostY}
                 x2={drag.px}
                 y2={drag.py}
@@ -671,7 +786,10 @@ export default function SequenceDiagram({
                 onPointerDown={(e) => onCircleDown(e, p.id, k)}
                 style={{
                   ...circleBase,
-                  left: PX(k),
+                  left: colX(p.id),
+                  transition: isDraggedK(k)
+                    ? "background .12s, transform .08s"
+                    : "left .15s ease, background .12s, transform .08s",
                   top: ghostY,
                   transform: isHover ? "translate(-50%,-50%) scale(1.12)" : "translate(-50%,-50%)",
                   cursor: drag ? "grabbing" : "grab",
@@ -695,7 +813,7 @@ export default function SequenceDiagram({
               <div
                 style={{
                   position: "absolute",
-                  left: PX(idx[drag.from]) - 1,
+                  left: colX(drag.from) - 1,
                   top: ghostY + 16,
                   width: 2,
                   height: SELF_OFF - 32,
@@ -710,7 +828,7 @@ export default function SequenceDiagram({
                 title="Рефлексивное сообщение (себе)"
                 style={{
                   ...circleBase,
-                  left: PX(idx[drag.from]),
+                  left: colX(drag.from),
                   top: ghostY + SELF_OFF,
                   pointerEvents: "none",
                   transform: selfHover ? "translate(-50%,-50%) scale(1.12)" : "translate(-50%,-50%)",

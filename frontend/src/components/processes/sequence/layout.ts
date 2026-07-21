@@ -58,6 +58,18 @@ export function strongestStatus(a: NodeStatus, b: NodeStatus): NodeStatus {
   return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
 }
 
+/**
+ * Перестановка одного элемента из позиции `from` в позицию `to` (чистая функция).
+ * Основа reorder участников: новый порядок колонок = arrayMove(текущий, откуда, куда);
+ * порядок линий жизни полностью определяет раскладку диаграммы (ТЗ §4.2).
+ */
+export function arrayMove<T>(arr: readonly T[], from: number, to: number): T[] {
+  const res = arr.slice();
+  const [moved] = res.splice(from, 1);
+  res.splice(to, 0, moved);
+  return res;
+}
+
 export function deriveActivations(messages: SeqMessage[]): SeqActivation[] {
   const open: Record<string, number[]> = {}; // дорожка → стек строк-начал
   const acts: SeqActivation[] = [];

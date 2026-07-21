@@ -22,8 +22,9 @@ from app.routers.processes import (
     delete_message,
     get_process,
     list_channels,
+    reorder_participants,
 )
-from app.schemas.process import MessageCreate, ParticipantCreate
+from app.schemas.process import MessageCreate, ParticipantCreate, ReorderPayload
 
 
 # ── Хелперы ───────────────────────────────────────────────────────────────────
@@ -313,6 +314,49 @@ def test_self_message_rejects_explicit_edge(db):
             proc.id,
             MessageCreate(edge_id=edge.id, leg="forward",
                           from_participant_id=parts[a.id], to_participant_id=parts[a.id], order=0),
+            db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
+        )
+    assert exc.value.status_code == 422
+
+
+# ── reorder участников: новый порядок → order=index, GET отражает перестановку ─
+def test_reorder_participants_changes_order(db):
+    a, b, c = _node(db, "A"), _node(db, "B"), _node(db, "C")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b, c])  # исходный порядок A(0), B(1), C(2)
+
+    out = reorder_participants(
+        proc.id,
+        ReorderPayload(ids=[parts[c.id], parts[a.id], parts[b.id]]),  # новый: C, A, B
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+    # Возвращается список, отсортированный по новому order: C, A, B
+    assert [p.node_id for p in out] == [c.id, a.id, b.id]
+    assert [p.order for p in out] == [0, 1, 2]
+
+    # GET процесса отражает новый порядок линий жизни
+    detail = get_process(proc.id, db=db, project=ensure_project(db))
+    assert [p.node_id for p in detail.participants] == [c.id, a.id, b.id]
+
+
+def test_reorder_rejects_foreign_participant(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    proc = _process(db, name="P1")
+    other = _process(db, name="P2")
+    db.commit()
+    parts = _participants(db, proc, [a])
+    other_parts = _participants(db, other, [b])
+
+    # id участника из ЧУЖОГО процесса в списке → 422
+    with pytest.raises(HTTPException) as exc:
+        reorder_participants(
+            proc.id,
+            ReorderPayload(ids=[parts[a.id], other_parts[b.id]]),
             db=db,
             project=ensure_project(db),
             user=ensure_architect(db),

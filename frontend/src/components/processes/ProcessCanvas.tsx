@@ -173,6 +173,43 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setError(e instanceof Error ? e.message : "Не удалось добавить участника");
     }
   }
+  // Перестановка участников (живой reorder в SequenceDiagram): новый порядок node_id
+  // маппим на participant.id и персистим существующим reorder-эндпоинтом. id участников
+  // стабильны (reorder меняет только поле order), поэтому undo/redo бьют по тем же id.
+  async function reorderParticipants(nodeIds: string[]) {
+    if (!detail) return;
+    const prevIds = [...detail.participants].sort((a, b) => a.order - b.order).map((p) => p.id);
+    const idByNode = new Map(detail.participants.map((p) => [p.node_id, p.id]));
+    const newIds = nodeIds.flatMap((nid) => {
+      const pid = idByNode.get(nid);
+      return pid ? [pid] : [];
+    });
+    if (newIds.length !== detail.participants.length) return; // страховка неполного порядка
+    // Оптимистично: сразу пересобираем order в detail, чтобы диаграмма показала новый
+    // порядок БЕЗ отката на старый (onRootUp синхронно сбрасывает reorder-состояние,
+    // и без этого шапки мигнули бы на прежние места до прихода ответа). reload() после
+    // API подтвердит порядок; ошибка — перечитает истинное состояние (БД не менялась).
+    const orderByNode = new Map(nodeIds.map((nid, i) => [nid, i]));
+    setDetail({
+      ...detail,
+      participants: detail.participants.map((p) => ({
+        ...p,
+        order: orderByNode.get(p.node_id) ?? p.order,
+      })),
+    });
+    try {
+      await processesApi.reorderParticipants(id, newIds);
+      hist.push({
+        label: "Перестановка участников",
+        undo: async () => { await processesApi.reorderParticipants(id, prevIds); },
+        redo: async () => { await processesApi.reorderParticipants(id, newIds); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload(); // откат оптимистичного порядка к истинному (БД не изменилась)
+      setError(e instanceof Error ? e.message : "Не удалось переставить участников");
+    }
+  }
   function captureMessages(nodeId: string): MessageSnapshot[] {
     return messagesThrough(nodeId).map((m) => ({
       edge_id: m.edge_id, leg: m.leg, from_id: m.from_id, to_id: m.to_id, caption: m.caption, order: m.order,
@@ -467,6 +504,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 const p = detail.participants.find((pp) => pp.node_id === nodeId);
                 if (p) requestRemoveParticipant(p);
               } : undefined}
+              onReorderParticipants={editing ? (nodeIds) => void reorderParticipants(nodeIds) : undefined}
             />
           </div>
         )}

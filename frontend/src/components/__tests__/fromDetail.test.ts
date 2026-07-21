@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ProcessFragment, ProcessMessage } from "../../types";
-import { toSeqFragments } from "../processes/sequence/fromDetail";
+import type { ProcessFragment, ProcessMessage, ProcessParticipant } from "../../types";
+import { toSeqFragments, toSeqParticipants } from "../processes/sequence/fromDetail";
+import { arrayMove } from "../processes/sequence/layout";
 
 // Минимальные фикстуры: toSeqFragments читает у сообщения только order, у фрагмента —
 // kind/диапазон/else. Остальные поля контракта не нужны (каст через unknown).
@@ -43,5 +44,44 @@ describe("toSeqFragments — проекция order→строка и множе
 
   it("пустой список фрагментов → пустой массив", () => {
     expect(toSeqFragments([], messages)).toEqual([]);
+  });
+});
+
+// Фикстура участника: toSeqParticipants читает order/node_id/имя/форму/статус.
+const part = (id: string, node_id: string, order: number): ProcessParticipant =>
+  ({
+    id, node_id, order, name: node_id, role: null, shape: "service",
+    is_external: false, status: "existing",
+  } as ProcessParticipant);
+
+describe("toSeqParticipants — порядок линий жизни из поля order", () => {
+  it("сортирует по order независимо от порядка в ответе API", () => {
+    const out = toSeqParticipants([part("p2", "B", 1), part("p1", "A", 0), part("p3", "C", 2)]);
+    expect(out.map((p) => p.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("id линии жизни = node_id узла (не id сущности-участника)", () => {
+    const [p] = toSeqParticipants([part("participant-uuid", "node-uuid", 0)]);
+    expect(p.id).toBe("node-uuid");
+  });
+});
+
+describe("arrayMove — перестановка одного элемента (основа reorder)", () => {
+  it("сдвиг вправо", () => {
+    expect(arrayMove(["A", "B", "C", "D"], 0, 2)).toEqual(["B", "C", "A", "D"]);
+  });
+
+  it("сдвиг влево", () => {
+    expect(arrayMove(["A", "B", "C", "D"], 3, 1)).toEqual(["A", "D", "B", "C"]);
+  });
+
+  it("на ту же позицию — порядок не меняется", () => {
+    expect(arrayMove(["A", "B", "C"], 1, 1)).toEqual(["A", "B", "C"]);
+  });
+
+  it("не мутирует исходный массив", () => {
+    const src = ["A", "B", "C"];
+    arrayMove(src, 0, 2);
+    expect(src).toEqual(["A", "B", "C"]);
   });
 });
