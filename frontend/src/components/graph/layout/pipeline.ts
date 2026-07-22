@@ -121,6 +121,13 @@ export interface PipelineInput {
   // фолбэке NODE_W×NODE_H не должны «прилипать» после прихода настоящих замеров.
   prevRoutes?: Map<string, EdgePoint[]>;
   prevEdgeHandles?: Map<string, { sourceHandle: string; targetHandle: string }>;
+  // СКОУП ПЕРЕСЧЁТА ПОСЛЕ ДРАГА (фикс дрейфа 2026-07-22): id узлов, которые только что
+  // перетащили. Когда задан (и есть prevRoutes), роутятся ТОЛЬКО рёбра, инцидентные этим
+  // узлам; остальные берутся из prevRoutes как preplaced (фиксированный контекст). Это
+  // обрывает каскад rip-up, из-за которого полный пересчёт на каждый дроп «дышал» — менял
+  // 18–26 из 32 маршрутов и не сходил к фикспойнту (дрейф гистерезисных прогонов). Полный
+  // пересчёт всех рёбер остаётся на открытие уровня и «Переразложить» (scopeNodeIds не задан).
+  scopeNodeIds?: string[];
 }
 
 export interface PipelineOutput {
@@ -148,7 +155,7 @@ export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | n
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
-    expanded, localChildren, isContext, sizes, prevRoutes, prevEdgeHandles,
+    expanded, localChildren, isContext, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
   } = input;
   const intents: PersistIntent[] = [];
 
@@ -477,9 +484,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     };
 
     // Все рёбра с позиционированными концами маршрутизирует роутер (ручного слоя нет).
+    // СКОУП ПОСЛЕ ДРАГА: когда задан scopeNodeIds и есть prevRoutes, роутим только рёбра,
+    // инцидентные перетащенным узлам; остальные buildAutoRoutes возьмёт из prevRoutes как
+    // preplaced (фиксированный контекст) — это обрывает каскад rip-up и дрейф (см. вход).
+    const scopeSet = scopeNodeIds && scopeNodeIds.length > 0 && prevRoutes
+      ? new Set(scopeNodeIds)
+      : null;
     const routableIds = new Set<string>();
     for (const g of groupArr) {
       if (!positions.get(g.source) || !positions.get(g.target)) continue;
+      if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
       routableIds.add(g.id);
     }
     // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
@@ -519,8 +533,44 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
     });
     autoRoutes = ar.routes;
+    // СКОУП: buildAutoRoutes вернул маршруты только заскоупленных рёбер; незаскоупленные
+    // (инцидентные прочим узлам) берём из prevRoutes — они зафиксированы как preplaced и
+    // сохраняют прежнюю геометрию (иначе потеряли бы маршрут и отвалились на smoothstep).
+    if (scopeSet && prevRoutes) {
+      for (const g of groupArr) {
+        if (routableIds.has(g.id) || autoRoutes.has(g.id)) continue;
+        const pr = prevRoutes.get(g.id);
+        if (pr && pr.length >= 2) autoRoutes.set(g.id, pr.map((p) => ({ x: p.x, y: p.y })));
+      }
+    }
     // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там).
     for (const [id, hh] of ar.handles) edgeHandles.set(id, hh);
+    // хэндлы незаскоупленных рёбер — из прошлого прогона (их маршрут не менялся)
+    if (scopeSet && prevEdgeHandles) {
+      for (const g of groupArr) {
+        if (routableIds.has(g.id) || edgeHandles.has(g.id)) continue;
+        const ph = prevEdgeHandles.get(g.id);
+        if (ph) edgeHandles.set(g.id, ph);
+      }
+    }
+    // СКОУП: фиксируем геометрию незаскоупленных рёбер — пост-обработка (нуджинг, полировка
+    // джогов, T4) не должна её двигать, иначе дрейф возвращается (зонд: чурн ~6/поколение).
+    // Восстанавливаем после каждого прохода, который переписывает autoRoutes.
+    const frozenRoutes = new Map<string, EdgePoint[]>();
+    if (scopeSet) {
+      for (const g of groupArr) {
+        if (routableIds.has(g.id)) continue;
+        const rt = autoRoutes.get(g.id);
+        if (rt) frozenRoutes.set(g.id, rt.map((p) => ({ x: p.x, y: p.y })));
+      }
+    }
+    const restoreFrozen = (): void => {
+      // autoRoutes всегда определён к этому месту (присвоен ar.routes выше и далее
+      // только переприсваивается в Map); tsc не видит этого сквозь замыкание.
+      const target = autoRoutes;
+      if (!target) return;
+      for (const [id, rt] of frozenRoutes) target.set(id, rt.map((p) => ({ x: p.x, y: p.y })));
+    };
 
     const nodeRects = displayIds
       .map(realRectOf)
@@ -534,6 +584,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // маршрутах.
     const nu = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
     if (nu.nudged.size > 0) autoRoutes = nu.routes;
+    restoreFrozen(); // нуджинг мог сдвинуть незаскоупленные плечи — вернуть
 
     // ПОЛИРОВКА ДЖОГОВ ПОСЛЕ НУДЖИНГА (T2 «читаемые пучки»): и роутер (перескок из-за
     // штрафа езды), и канальная разводка умеют оставить короткую «ступеньку» посреди
@@ -566,6 +617,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         autoRoutes = new Map(autoRoutes);
         for (const [id, rt] of polished) autoRoutes.set(id, rt);
       }
+      restoreFrozen(); // полировка могла изменить незаскоупленные маршруты — вернуть
     }
 
     // Плашки подписей (эпик стрелок A7.2, R2+R4) — один проход по ФИНАЛЬНЫМ маршрутам:
@@ -603,6 +655,8 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       }
       const dirty = new Set<string>();
       for (const g of groupArr) {
+        // СКОУП: незаскоупленные рёбра заморожены — не перепрокладываем (иначе дрейф)
+        if (scopeSet && !routableIds.has(g.id)) continue;
         const rt = autoRoutes.get(g.id);
         if (!rt) continue;
         for (const [gid, r] of labelRectOf) {
@@ -633,6 +687,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           // nudgeChannels идемпотентен для уже разведённых каналов и дешёв.
           const nu2 = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
           if (nu2.nudged.size > 0) autoRoutes = nu2.routes;
+          restoreFrozen(); // доводка нуджинга могла сдвинуть незаскоупленные — вернуть
           // пере-размещение по финальной геометрии (маршруты грязных изменились)
           labelPlacements = buildLabelPlacements({
             routes: autoRoutes,

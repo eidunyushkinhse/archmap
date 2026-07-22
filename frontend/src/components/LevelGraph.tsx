@@ -719,6 +719,7 @@ function LevelGraphInner({
         // рёбер откатывается к состоянию старта (иначе висело бы насовсем)
         const committed = handleNodeDragStop(e, n, ns);
         if (!committed) liveDragHandles.restore();
+        else dragScopeRef.current = [n.id]; // пересчёт заскоуплен на перетащенный узел
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");
@@ -736,6 +737,7 @@ function LevelGraphInner({
       try {
         const committed = handleSelectionDragStop(e, ns);
         if (!committed) liveDragHandles.restore();
+        else dragScopeRef.current = ns.map((x) => x.id); // скоуп на всю перетащенную группу
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");
@@ -940,6 +942,10 @@ function LevelGraphInner({
     handles: Map<string, { sourceHandle: string; targetHandle: string }>;
     version: number;
   } | null>(null);
+  // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
+  // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
+  // обнуляет — следующий прогон (не дроп) считает всё целиком.
+  const dragScopeRef = useRef<string[] | null>(null);
   useEffect(() => { prevRoutesRef.current = null; lastSigRef.current = null; }, [containerId, isContext]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
@@ -988,6 +994,10 @@ function LevelGraphInner({
     try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
+      // скоуп после драга: роутим только рёбра перетащенных узлов (обрывает каскад rip-up
+      // и дрейф). Обнуляем СРАЗУ: прогон берёт скоуп ровно один раз, следующий — полный.
+      const scopeNodeIds = dragScopeRef.current ?? undefined;
+      dragScopeRef.current = null;
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
       const { layout: next, liveInputs, intents } = await computeViewLayoutOffThread({
@@ -996,6 +1006,7 @@ function LevelGraphInner({
         sizes: nodeSizesRef.current,
         prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
         prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
+        scopeNodeIds: sameSizes ? scopeNodeIds : undefined,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
       if (next.autoRoutes) {
