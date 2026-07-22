@@ -32,20 +32,6 @@ function leader(ax: number, ay: number, ox: number, oy: number): LabelPlacement 
   };
 }
 
-// Расстояние от точки до ломаной (минимум по сегментам) — инвариант «плашка на линии».
-function distToRoute(p: { x: number; y: number }, route: EdgePoint[]): number {
-  let best = Infinity;
-  for (let i = 0; i < route.length - 1; i++) {
-    const a = route[i], b = route[i + 1];
-    const abx = b.x - a.x, aby = b.y - a.y;
-    const lenSq = abx * abx + aby * aby;
-    const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq));
-    const qx = a.x + t * abx, qy = a.y + t * aby;
-    best = Math.min(best, Math.hypot(p.x - qx, p.y - qy));
-  }
-  return best;
-}
-
 function edge(id: string, source: string, target: string, data: Partial<WrappedEdgeData> = {}): RFEdge {
   return { id, source, target, data } as unknown as RFEdge;
 }
@@ -171,79 +157,6 @@ describe("resolveDragEdge", () => {
     }));
     expect(out.sourceHandle).toBe("a__b__1");
     expect(out.targetHandle).toBe("b__t__1");
-  });
-
-  // Фикс 2026-07-22: плашки сползали со стрелок при драге. Корень — интерполяция дельты
-  // делает концевые сегменты диагональными, а рендер «ШВОМ V2.2b» выпрямляет их до оси по
-  // живым хэндлам; плашка считалась по диагональному маршруту и отставала от нарисованной
-  // (выпрямленной) линии у конца. Особенно на ортогональных стрелках с изломами. Фикс:
-  // straightenEnds выпрямляет концы как рендер + reprojectOntoRoute кладёт плашку на линию.
-  describe("фолбэк 1: плашка не сползает со стрелки (фикс 2026-07-22)", () => {
-    it("L-маршрут, драг источника перпендикулярно: конец выпрямляется, online-плашка на линии", () => {
-      const route: EdgePoint[] = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }];
-      const out = resolveDragEdge(edge("e1", "a", "b", { autoRoute: route, labelPlacement: place(50, 0) }), frame({
-        dragged: ["a"],
-        deltas: { a: { dx: 0, dy: 40 }, b: { dx: 0, dy: 0 } },
-        snapRoutes: new Map([["e1", route]]),
-        snapLabels: new Map([["e1", place(50, 0)]]),
-      }));
-      const d = out.data as WrappedEdgeData;
-      // концевой сегмент выпрямлен до горизонтали y=40 (как шов рендера — он станет no-op)
-      expect(d.autoRoute).toEqual([{ x: 0, y: 40 }, { x: 100, y: 40 }, { x: 100, y: 80 }]);
-      // плашка легла на выпрямленную линию (y=40), а не на диагональ интерполяции (y≈28.9)
-      expect(d.labelPlacement?.center).toEqual({ x: 50, y: 40 });
-    });
-
-    it("leader-плашка у конца: якорь на выпрямленной линии, вынос сохранён", () => {
-      const route: EdgePoint[] = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }];
-      const out = resolveDragEdge(edge("e1", "a", "b", { autoRoute: route, labelPlacement: leader(50, 0, 0, -30) }), frame({
-        dragged: ["a"],
-        deltas: { a: { dx: 0, dy: 40 }, b: { dx: 0, dy: 0 } },
-        snapRoutes: new Map([["e1", route]]),
-        snapLabels: new Map([["e1", leader(50, 0, 0, -30)]]),
-      }));
-      const lp = (out.data as WrappedEdgeData).labelPlacement!;
-      expect(lp.mode).toBe("leader");
-      expect(lp.anchor).toEqual({ x: 50, y: 40 }); // якорь на выпрямленной линии
-      expect(lp.center).toEqual({ x: 50, y: 10 }); // вынос (0,-30) сохранён
-    });
-
-    it("инвариант: опорная точка плашки лежит на маршруте при разных направлениях драга", () => {
-      const route: EdgePoint[] = [{ x: 0, y: 0 }, { x: 120, y: 0 }, { x: 120, y: 90 }, { x: 240, y: 90 }];
-      const dirs = [
-        { dx: 0, dy: 50 }, { dx: 0, dy: -50 }, { dx: 60, dy: 0 },
-        { dx: 40, dy: 70 }, { dx: -30, dy: 20 }, { dx: 80, dy: -60 },
-      ];
-      for (const dd of dirs) {
-        // online: опорная точка — центр
-        const onl = resolveDragEdge(edge("e1", "a", "b", { autoRoute: route, labelPlacement: place(60, 0) }), frame({
-          dragged: ["a"], deltas: { a: dd, b: { dx: 0, dy: 0 } },
-          snapRoutes: new Map([["e1", route]]), snapLabels: new Map([["e1", place(60, 0)]]),
-        }));
-        const donl = onl.data as WrappedEdgeData;
-        expect(distToRoute(donl.labelPlacement!.center, donl.autoRoute!)).toBeLessThan(1e-6);
-        // leader: опорная точка — якорь (центр вынесен и на линии не лежит)
-        const led = resolveDragEdge(edge("e1", "a", "b", { autoRoute: route, labelPlacement: leader(60, 0, 0, -25) }), frame({
-          dragged: ["a"], deltas: { a: dd, b: { dx: 0, dy: 0 } },
-          snapRoutes: new Map([["e1", route]]), snapLabels: new Map([["e1", leader(60, 0, 0, -25)]]),
-        }));
-        const dled = led.data as WrappedEdgeData;
-        expect(distToRoute(dled.labelPlacement!.anchor, dled.autoRoute!)).toBeLessThan(1e-6);
-      }
-    });
-
-    it("двухточечный маршрут (прямая) не ломается: straightenEnds не применяется (<3 точек)", () => {
-      const route: EdgePoint[] = [{ x: 0, y: 0 }, { x: 100, y: 0 }];
-      const out = resolveDragEdge(edge("e1", "a", "b", { autoRoute: route, labelPlacement: place(50, 0) }), frame({
-        dragged: ["a"],
-        deltas: { a: { dx: 0, dy: 40 }, b: { dx: 0, dy: 0 } },
-        snapRoutes: new Map([["e1", route]]),
-        snapLabels: new Map([["e1", place(50, 0)]]),
-      }));
-      const d = out.data as WrappedEdgeData;
-      // прямая стала диагональю (интерполяция), плашка — на ней
-      expect(distToRoute(d.labelPlacement!.center, d.autoRoute!)).toBeLessThan(1e-6);
-    });
   });
 });
 

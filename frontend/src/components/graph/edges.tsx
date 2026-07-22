@@ -13,6 +13,7 @@ import {
 import { wrapLabel } from "./text";
 import type { WrappedEdgeData } from "./types";
 import type { EdgePoint } from "../../types";
+import type { LabelPlacement } from "./layout/labelLayout";
 import { ensureOutwardStubs, cleanup, segments, type EdgeSide } from "./edgePath";
 import { buildPathWithJumps } from "./edgeJumps";
 import { useEdgeJumps } from "./EdgeJumpContext";
@@ -51,6 +52,49 @@ function pathMidpoint(pts: EdgePoint[]): { x: number; y: number } {
   if (segs.length === 0) return pts[0] ?? { x: 0, y: 0 };
   const m = segs[Math.floor(segs.length / 2)];
   return { x: (m.x1 + m.x2) / 2, y: (m.y1 + m.y2) / 2 };
+}
+
+// Ближайшая точка ломаной к заданной точке (ортогональная проекция на сегменты). Чистая.
+function nearestOnPolyline(p: EdgePoint, route: EdgePoint[]): EdgePoint {
+  let best: EdgePoint = route[0];
+  let bestDist = Infinity;
+  for (let i = 0; i < route.length - 1; i++) {
+    const a = route[i], b = route[i + 1];
+    const abx = b.x - a.x, aby = b.y - a.y;
+    const lenSq = abx * abx + aby * aby;
+    const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq));
+    const qx = a.x + t * abx, qy = a.y + t * aby;
+    const d = (p.x - qx) * (p.x - qx) + (p.y - qy) * (p.y - qy);
+    if (d < bestDist) { bestDist = d; best = { x: qx, y: qy }; }
+  }
+  return best;
+}
+
+// Привязка плашки к НАРИСОВАННОЙ ломаной: опорная точка (якорь у выноски, центр у online)
+// проецируется на ближайшую точку фактического маршрута, вся плашка (центр/якорь/конец поводка)
+// едет на ту же дельту. Чистая — тестируется без React/RF.
+//
+// Фикс сползания плашек при драге (2026-07-22): драг-хук кладёт плашку на ИНТЕРПОЛИРОВАННЫЙ
+// маршрут (дельта по позиции на снимке), а рендер рисует линию по ЖИВЫМ хэндлам — «ШОВ V2.2b»
+// выпрямляет концевые сегменты до оси, а ensureOutwardStubs ВСТАВЛЯЕТ изломы, когда концы не
+// выходят из узлов перпендикулярно стороне хэндла (диагональ из 2 точек превращается в 3-плечую
+// ортогональ; у маршрутов с изломами выпрямляются концы). Нарисованная линия расходится с
+// интерполированным маршрутом, и без привязки плашка сползает со стрелки (жалоба: ортогональные
+// стрелки при драге, в т.ч. одноплечая в покое → 3-плечая при драге). Здесь плашка ОКОНЧАТЕЛЬНО
+// ложится на видимую линию (WYSIWYG). В покое — no-op: раскладка и так ставит опорную точку на
+// маршрут, и проекция возвращает её же (расстояние ~0).
+export function projectLabelOntoRoute(lp: LabelPlacement, route: EdgePoint[]): LabelPlacement {
+  if (route.length < 2) return lp;
+  const ref = lp.mode === "leader" ? lp.anchor : lp.center;
+  const q = nearestOnPolyline(ref, route);
+  const dx = q.x - ref.x, dy = q.y - ref.y;
+  if (dx === 0 && dy === 0) return lp;
+  return {
+    mode: lp.mode,
+    center: { x: lp.center.x + dx, y: lp.center.y + dy },
+    anchor: { x: lp.anchor.x + dx, y: lp.anchor.y + dy },
+    leaderEnd: { x: lp.leaderEnd.x + dx, y: lp.leaderEnd.y + dy },
+  };
 }
 
 function WrappedLabelEdge({
@@ -174,9 +218,16 @@ function WrappedLabelEdge({
 
   // Позиция плашки: авто-размещение (R2+R4, labelPlacement — посчитано на раскладке
   // без наложений), иначе центр из веток выше. Руками плашка не двигается.
-  if (d?.labelPlacement) {
-    labelX = d.labelPlacement.center.x;
-    labelY = d.labelPlacement.center.y;
+  // Привязка к НАРИСОВАННОЙ линии (jumpPoly): фикс сползания при драге — драг-хук кладёт
+  // плашку на интерполированный маршрут, а линия рисуется по живым хэндлам (шов V2.2b +
+  // ensureOutwardStubs меняют форму, вплоть до смены числа плеч), поэтому окончательно плашка
+  // ложится на видимую ломаную (WYSIWYG). В покое проекция — no-op (раскладка и так ставит
+  // плашку на маршрут). leader-поводок ниже ведётся от уже привязанного якоря.
+  let labelPlacement = d?.labelPlacement;
+  if (labelPlacement && jumpPoly) labelPlacement = projectLabelOntoRoute(labelPlacement, jumpPoly);
+  if (labelPlacement) {
+    labelX = labelPlacement.center.x;
+    labelY = labelPlacement.center.y;
   }
 
   // Публикуем ломаную этого ребра в реестр «мостиков» (пересчёт пересечений) и
@@ -225,7 +276,7 @@ function WrappedLabelEdge({
     // T5: вынесенная плашка получает лёгкий halo — белая кайма отделяет текст от линий
     // под ним, и выноска не сливается с «паутиной» (online-плашка лежит на своей линии,
     // ей halo не нужен)
-    ...(d?.labelPlacement?.mode === "leader"
+    ...(labelPlacement?.mode === "leader"
       ? { boxShadow: "0 0 0 2px rgba(255,255,255,0.9), 0 1px 4px rgba(15,23,42,0.18)" }
       : null),
     // Плашка ВЫДЕЛЕННОЙ стрелки — над соседними плашками (в тесноте они ложатся друг
@@ -256,10 +307,10 @@ function WrappedLabelEdge({
           плашки сам прячет хвост. Прежний leaderEnd (обрезка до края бокса, A15) резал
           по ОЦЕНЁННОМУ labelBoxSize-боксу — при других шрифтах реальная плашка уже
           оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). */}
-      {d?.labelPlacement?.mode === "leader" && !drawing && (
+      {labelPlacement?.mode === "leader" && !drawing && (
         <path
           className="lg-edge-leader"
-          d={`M ${d.labelPlacement.anchor.x},${d.labelPlacement.anchor.y} L ${d.labelPlacement.center.x},${d.labelPlacement.center.y}`}
+          d={`M ${labelPlacement.anchor.x},${labelPlacement.anchor.y} L ${labelPlacement.center.x},${labelPlacement.center.y}`}
           // T5 «читаемые пучки»: поводок заметнее (1.5px, темнее) — тонкий 1px-пунктир
           // в гуще линий терялся, и вынесенная плашка читалась как «текст ни о чём»
           style={{ stroke: "#6b7280", strokeWidth: 1.5, strokeDasharray: "4 3", fill: "none", pointerEvents: "none" }}

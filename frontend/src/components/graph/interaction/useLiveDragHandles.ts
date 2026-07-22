@@ -232,52 +232,6 @@ function interpolateLabelDelta(
   return shiftPlacement(lp, dx, dy);
 }
 
-// Выпрямление концевых сегментов маршрута до оси (мьютирует route). ТОЧНО повторяет «ШОВ
-// V2.2b» рендера (edges.tsx): первый/последний сегмент приводится к горизонтали/вертикали
-// по живому хэндлу. Без этого интерполяция дельты делает концевые сегменты диагональными,
-// рендер их выпрямляет, и нарисованная линия расходится с маршрутом, по которому посчитана
-// плашка, — плашка сползает со стрелки у конца (жалоба: ортогональные стрелки при драге).
-// Решение headHoriz/tailHoriz берётся из ТЕКУЩЕЙ (интерполированной) геометрии — как у рендера,
-// поэтому после выпрямления шов рендера становится no-op и линия совпадает с маршрутом.
-function straightenEnds(route: EdgePoint[]): void {
-  const n = route.length;
-  if (n < 3) return;
-  const headHoriz = Math.abs(route[1].y - route[0].y) <= Math.abs(route[1].x - route[0].x);
-  const tailHoriz = Math.abs(route[n - 2].y - route[n - 1].y) <= Math.abs(route[n - 2].x - route[n - 1].x);
-  if (headHoriz) route[1].y = route[0].y; else route[1].x = route[0].x;
-  if (tailHoriz) route[n - 2].y = route[n - 1].y; else route[n - 2].x = route[n - 1].x;
-}
-
-// Ближайшая точка ломаной к заданной точке (ортогональная проекция на сегменты).
-function nearestOnPolyline(p: EdgePoint, route: EdgePoint[]): EdgePoint {
-  let best: EdgePoint = route[0];
-  let bestDist = Infinity;
-  for (let i = 0; i < route.length - 1; i++) {
-    const a = route[i], b = route[i + 1];
-    const abx = b.x - a.x, aby = b.y - a.y;
-    const lenSq = abx * abx + aby * aby;
-    const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq));
-    const qx = a.x + t * abx, qy = a.y + t * aby;
-    const d = (p.x - qx) * (p.x - qx) + (p.y - qy) * (p.y - qy);
-    if (d < bestDist) { bestDist = d; best = { x: qx, y: qy }; }
-  }
-  return best;
-}
-
-// Перепривязка плашки к готовому (выпрямленному) маршруту: опорная точка (якорь у выноски,
-// центр у online) проецируется на ближайшую точку маршрута, вся плашка (центр/якорь/конец
-// поводка) едет на ту же дельту. Так плашка ложится ровно на линию, которую нарисует рендер, — фикс
-// сползания: интерполяция ставит плашку на диагональный маршрут, а шов рендера выпрямляет
-// концевые сегменты, и без перепривязки плашка у конца отстаёт от линии на величину шва.
-function reprojectOntoRoute(lp: LabelPlacement, route: EdgePoint[]): LabelPlacement {
-  if (route.length < 2) return lp;
-  const ref = lp.mode === "leader" ? lp.anchor : lp.center;
-  const q = nearestOnPolyline(ref, route);
-  const dx = q.x - ref.x, dy = q.y - ref.y;
-  if (dx === 0 && dy === 0) return lp;
-  return shiftPlacement(lp, dx, dy);
-}
-
 // Плашка затронутого ребра на живой позиции. Живое размещение считается тем же движком и с
 // ПОЛНЫМ контекстом (все группы, финальные маршруты прочих) — совпадает с финалом (замер:
 // 0px в покое, ~10px в движении из-за нуджинга финала), поэтому берём его как есть, включая
@@ -339,21 +293,19 @@ export function resolveDragEdge(e: RFEdge, f: DragFrame): RFEdge {
   // кадр) — иначе хэндлы залипают на старых значениях и разные стрелки могут оказаться на
   // одном хэндле (функциональная регрессия).
   //
-  // ФИКС СПОЛЗАНИЯ ПЛАШЕК (2026-07-22): интерполяция делает концевые сегменты диагональными,
-  // а рендер «ШВОМ V2.2b» выпрямляет их до оси по живым хэндлам — нарисованная линия
-  // расходится с маршрутом, по которому посчитана плашка, и плашка сползает у конца стрелки
-  // (особенно на ортогональных маршрутах с изломами). Поэтому: (1) выпрямляем концевые
-  // сегменты ТОЧНО как рендер (straightenEnds — шов рендера становится no-op, концы стрелок
-  // остаются ортогональными и при драге); (2) перепривязываем плашку к выпрямленному
-  // маршруту (reprojectOntoRoute) — она ложится ровно на линию, которую нарисует рендер.
+  // ВАЖНО: интерполяция даёт лишь ПРИБЛИЖЕНИЕ будущего маршрута. Рендер (edges.tsx) дорисовывает
+  // линию по живым хэндлам: «ШОВ V2.2b» выпрямляет концевые сегменты до оси, а ensureOutwardStubs
+  // ВСТАВЛЯЕТ изломы, если концы не выходят из узлов перпендикулярно стороне хэндла (например,
+  // диагональ из 2 точек превращается в 3-плечую ортогональ). Поэтому нарисованная линия может
+  // отличаться от интерполированного маршрута — ОКОНЧАТЕЛЬНО плашку привязывает к нарисованной
+  // линии рендер (projectLabelOntoRoute в edges.tsx), а не эта интерполяция.
   const orig = f.snapRoutes.get(e.id);
   if (orig) {
     const ds = f.deltaOf(e.source), dt = f.deltaOf(e.target);
     const moved = interpolateDelta(orig, ds, dt);
-    straightenEnds(moved);
     const data: WrappedEdgeData = { ...(e.data as WrappedEdgeData), autoRoute: moved };
     const lp0 = f.snapLabels.get(e.id);
-    if (lp0) data.labelPlacement = reprojectOntoRoute(interpolateLabelDelta(lp0, orig, ds, dt), moved);
+    if (lp0) data.labelPlacement = interpolateLabelDelta(lp0, orig, ds, dt);
     const h = f.fallbackHandles.get(e.id);
     return h
       ? { ...e, data, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle }
