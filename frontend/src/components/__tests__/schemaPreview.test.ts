@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePoints } from "../project/schemaPreviewLayout";
+import { resolvePoints, resolvePointsElk } from "../project/schemaPreviewLayout";
 import type { ProjectPreview } from "../../types";
 
 // Узел-хелпер: координаты null = нет сохранённой позиции (на холсте кладёт ELK).
@@ -46,5 +46,60 @@ describe("resolvePoints — раскладка превью", () => {
     const pts = resolvePoints(raw, edges);
     expect(pts[1]).toEqual({ x: 0, y: 0 }); // b у единственного соседа a
     expect(pts[2]).toEqual({ x: 0, y: 0 }); // c у уже размещённого b
+  });
+});
+
+// Основной путь превью (с 2026-07-22) — ELK layered через layoutLevel, тот же движок,
+// что и холст. resolvePoints выше — синхронный фолбэк на случай недоступности ELK.
+describe("resolvePointsElk — раскладка превью движком холста (ELK)", () => {
+  it("цепочка без сохранённых позиций раскладывается ELK слева-направо (не окружность)", async () => {
+    const raw = [node("a", null, null), node("b", null, null), node("c", null, null)];
+    const edges: ProjectPreview["edges"] = [
+      { source: "a", target: "b" },
+      { source: "b", target: "c" },
+    ];
+    const pts = await resolvePointsElk(raw, edges);
+    // ELK layered RIGHT: ранги слева-направо → x растёт вдоль цепочки (кейс HelixMon:
+    // раньше при отсутствии позиций была декоративная окружность).
+    expect(pts[0].x).toBeLessThan(pts[1].x);
+    expect(pts[1].x).toBeLessThan(pts[2].x);
+    const uniq = new Set(pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`));
+    expect(uniq.size).toBe(3);
+  });
+
+  it("один владеемый узел: связанные без позиций НЕ схлопываются в его точку (кейс «Ярмарки»)", async () => {
+    const raw = [
+      node("owned", 500, 500),
+      node("n1", null, null),
+      node("n2", null, null),
+      node("n3", null, null),
+    ];
+    const edges: ProjectPreview["edges"] = [
+      { source: "owned", target: "n1" },
+      { source: "owned", target: "n2" },
+      { source: "n1", target: "n3" },
+    ];
+    const pts = await resolvePointsElk(raw, edges);
+    // Владеемый узел — на сохранённой позиции (ELK перезаписан).
+    expect(pts[0]).toEqual({ x: 500, y: 500 });
+    // Остальные НЕ в точке владеемого (центроид-фолбэк схлопывал их в (500,500)).
+    for (let i = 1; i < pts.length; i++) {
+      const collapsed = Math.abs(pts[i].x - 500) < 1 && Math.abs(pts[i].y - 500) < 1;
+      expect(collapsed).toBe(false);
+    }
+    const uniq = new Set(pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`));
+    expect(uniq.size).toBe(4);
+  });
+
+  it("сохранённые позиции всех узлов перезаписывают ELK", async () => {
+    const raw = [node("a", 10, 20), node("b", 300, 40)];
+    const edges: ProjectPreview["edges"] = [{ source: "a", target: "b" }];
+    const pts = await resolvePointsElk(raw, edges);
+    expect(pts[0]).toEqual({ x: 10, y: 20 });
+    expect(pts[1]).toEqual({ x: 300, y: 40 });
+  });
+
+  it("пустой список узлов — пустой результат", async () => {
+    expect(await resolvePointsElk([], [])).toEqual([]);
   });
 });

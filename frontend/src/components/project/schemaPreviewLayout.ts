@@ -1,14 +1,52 @@
-import type { ProjectPreview } from "../../types";
+import type { LayoutEdge, ProjectPreview } from "../../types";
+import { layoutLevel } from "../graph/layout/engine";
 
 /**
- * Раскладка узлов превью в координатах холста. Координаты сохраняются в БД только
- * при ручном перетаскивании, поэтому часть корней приходит без позиции (их на
- * холсте кладёт ELK). Чтобы превью всё равно отражало реальное расположение:
+ * Раскладка узлов превью в координатах холста.
+ *
+ * ОСНОВНОЙ путь (resolvePointsElk) — тот же движок, что и холст: ELK layered через
+ * layoutLevel. Узлы без сохранённых координат кладёт ELK (как на холсте), сохранённые
+ * позиции перезаписывают ELK (ручной drag архитектора). Поэтому превью схематично отражает
+ * РЕАЛЬНУЮ раскладку корневого уровня. Async из-за ELK (ленивый чанк); при сбое ELK —
+ * фолбэк на resolvePoints.
+ *
+ * resolvePoints (синхронный фолбэк) — координаты сохраняются в БД только при ручном
+ * перетаскивании, поэтому часть корней приходит без позиции. Чтобы превью всё равно
+ * хоть что-то показало, если ELK недоступен:
  * - узлы с сохранёнными координатами берём как есть;
- * - узел без координат ставим в ЦЕНТРОИД связанных уже-размещённых соседей (узел в
- *   ряду попадает между своими соседями — как на холсте), за несколько проходов;
+ * - узел без координат ставим в ЦЕНТРОИД связанных уже-размещённых соседей, за несколько
+ *   проходов;
  * - если размещённых координат нет вообще (схему не раскладывали) — окружность.
  */
+
+/** Раскладка превью тем же движком, что и холст (ELK layered). См. шапку модуля. */
+export async function resolvePointsElk(
+  raw: ProjectPreview["nodes"],
+  edges: ProjectPreview["edges"],
+): Promise<{ x: number; y: number }[]> {
+  if (raw.length === 0) return [];
+  try {
+    const nodes = raw.map((n) => ({
+      id: n.id,
+      savedPos: n.x !== null && n.y !== null ? { x: n.x, y: n.y } : null,
+    }));
+    // Рёбра превью — без текстов/технологий: flowSpacing посчитает минимальные зазоры
+    // (подписей нет), для схематичного превью этого достаточно. id синтезируем по индексу.
+    const layoutEdges: LayoutEdge[] = edges.map((e, i) => ({
+      id: `pv${i}`,
+      source_id: e.source,
+      target_id: e.target,
+      label: null,
+      technology: null,
+    }) as LayoutEdge);
+    const { positions } = await layoutLevel(nodes, layoutEdges);
+    return raw.map((n) => positions.get(n.id) ?? { x: 0, y: 0 });
+  } catch {
+    // ELK недоступен (сбой загрузки ленивого чанка) — декоративный фолбэк.
+    return resolvePoints(raw, edges);
+  }
+}
+
 export function resolvePoints(
   raw: ProjectPreview["nodes"],
   edges: ProjectPreview["edges"],

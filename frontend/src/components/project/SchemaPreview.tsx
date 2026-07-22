@@ -1,17 +1,18 @@
 import type { CSSProperties } from "react";
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import type { ProjectPreview } from "../../types";
-import { resolvePoints } from "./schemaPreviewLayout";
+import { resolvePointsElk } from "./schemaPreviewLayout";
 
 /**
  * Мини-превью схемы для карточки проекта: РЕАЛЬНАЯ топология корневого уровня
  * (узлы-корни + связи между ними, спроецированные на корневых предков — как
  * ghost-проекция на холсте). Бэкенд отдаёт preview в ответе /projects.
  *
- * Раскладка: если у всех узлов есть сохранённые координаты холста — берём их
- * (вписываем bbox во вьюпорт). Иначе раскладываем сами по окружности (порядок
- * узлов детерминированный — бэкенд сортирует по связности). Цвет блока — как на
- * холсте корневого уровня (depth 0): внутренний синий, внешний серый.
+ * Раскладка — тот же движок, что и холст (ELK layered через resolvePointsElk):
+ * узлы без сохранённых координат кладёт ELK, сохранённые позиции перезаписывают.
+ * Поэтому превью схематично отражает РЕАЛЬНУЮ раскладку (а не декоративный круг).
+ * ELK асинхронный (ленивый чанк) — на время раскладки показываем каркас-заглушку.
+ * Цвет блока — как на холсте корневого уровня (depth 0): внутренний синий, внешний серый.
  */
 
 interface Props {
@@ -33,6 +34,8 @@ interface Placed {
   cy: number;
 }
 
+type LayoutResult = { nodes: Placed[]; edges: { source: string; target: string }[] } | null;
+
 // Размер блока подбираем под число узлов, чтобы миниатюра не «забивалась».
 function nodeSize(count: number): { w: number; h: number } {
   if (count <= 4) return { w: 46, h: 24 };
@@ -41,7 +44,20 @@ function nodeSize(count: number): { w: number; h: number } {
 }
 
 export default function SchemaPreview({ preview }: Props) {
-  const layout = useMemo(() => computeLayout(preview), [preview]);
+  // undefined = раскладка ещё считается (ELK async), null = пустая схема.
+  const [layout, setLayout] = useState<LayoutResult | undefined>(
+    preview.nodes.length === 0 ? null : undefined,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void computeLayout(preview).then((r) => {
+      if (!cancelled) setLayout(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [preview]);
 
   if (layout === null) {
     return (
@@ -49,6 +65,12 @@ export default function SchemaPreview({ preview }: Props) {
         <span style={{ color: "#94a3b8", fontSize: 12 }}>Пустая схема</span>
       </div>
     );
+  }
+
+  // Раскладка ещё считается — каркас-заглушка (фон в точку, без текста, чтобы не
+  // мелькало «Пустая схема» на долю секунды до готовности ELK).
+  if (layout === undefined) {
+    return <div style={frame} />;
   }
 
   const { nodes, edges } = layout;
@@ -94,10 +116,9 @@ export default function SchemaPreview({ preview }: Props) {
   );
 }
 
-// Считает центры узлов в координатах вьюпорта (или null для пустой схемы).
-function computeLayout(
-  preview: ProjectPreview,
-): { nodes: Placed[]; edges: { source: string; target: string }[] } | null {
+// Считает центры узлов в координатах вьюпорта (или null для пустой схемы). Async:
+// позиции берёт из ELK (resolvePointsElk), затем вписывает bbox во вьюпорт.
+async function computeLayout(preview: ProjectPreview): Promise<LayoutResult> {
   const raw = preview.nodes;
   if (raw.length === 0) return null;
 
@@ -105,8 +126,8 @@ function computeLayout(
   const padX = NODE_W / 2 + 8;
   const padY = NODE_H / 2 + 8;
 
-  // Базовые точки в координатном пространстве холста.
-  const pts = resolvePoints(raw, preview.edges);
+  // Базовые точки в координатном пространстве холста (ELK + сохранённые позиции).
+  const pts = await resolvePointsElk(raw, preview.edges);
 
   // Вписываем bbox точек в безопасную область вьюпорта, сохраняя пропорции.
   const xs = pts.map((p) => p.x);
