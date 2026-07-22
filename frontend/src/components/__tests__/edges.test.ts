@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { projectLabelOntoRoute } from "../graph/edges";
+import { projectLabelOntoRoute, seamRoute } from "../graph/edges";
 import { cleanup, ensureOutwardStubs } from "../graph/edgePath";
 import type { LabelPlacement } from "../graph/layout/labelLayout";
 import type { EdgePoint } from "../../types";
@@ -102,5 +102,66 @@ describe("projectLabelOntoRoute (привязка плашки к нарисов
       expect(led.center.x - led.anchor.x).toBe(12);
       expect(led.center.y - led.anchor.y).toBe(-18);
     }
+  });
+});
+
+// «ШОВ V2.2b» (seamRoute): концы маршрута по живым хэндлам + выпрямление концевых сегментов
+// по ОСИ ХЭНДЛА. Фикс петель при драге (2026-07-22): интерполяция ставит первый сегмент
+// «боком» к хэндлу; выпрямление по оси хэндла (а не по ориентации сегмента) даёт чистый выход
+// наружу → ensureOutwardStubs no-op, крюк-петля не вставляется.
+describe("seamRoute (шов по оси хэндла, фикс петель)", () => {
+  // Та же обработка, что в рендере: seamRoute → cleanup → ensureOutwardStubs(minAlong=2).
+  const drawn = (route: EdgePoint[], s: EdgePoint, t: EdgePoint, sSide: "left" | "right" | "top" | "bottom", tSide: "left" | "right" | "top" | "bottom") =>
+    ensureOutwardStubs(cleanup(seamRoute(route.map((p) => ({ ...p })), s, t, sSide, tSide)), sSide, tSide, undefined, 2);
+
+  it("перпендикулярный драг (источник далеко вниз): чистая ортогональ без петель", () => {
+    // Интерполированный маршрут: источник уехал вниз, первый сегмент стал «более вертикальным».
+    // s — живой хэндл источника (правый), t — хэндл цели (левый).
+    const interp: EdgePoint[] = [{ x: 0, y: 300 }, { x: 50, y: 225 }, { x: 50, y: 175 }, { x: 100, y: 100 }];
+    const out = drawn(interp, { x: 0, y: 300 }, { x: 100, y: 100 }, "right", "left");
+    // Шов по оси хэндла: первый сегмент горизонтален (right), последний горизонтален (left).
+    // ensureOutwardStubs — no-op (чистый выход наружу), крюки НЕ вставляются → 4 точки.
+    expect(out).toEqual([
+      { x: 0, y: 300 }, { x: 50, y: 300 }, { x: 50, y: 100 }, { x: 100, y: 100 },
+    ]);
+  });
+
+  it("регрессия: шов по ориентации сегмента (старое решение) вставлял крюки-петли", () => {
+    // Тот же интерполированный маршрут, но ось выпрямления — по ориентации сегмента (как было):
+    // первый сегмент «более вертикальный» → выпрямляется ВЕРТИКАЛЬНО → идёт вдоль края узла,
+    // ensureOutwardStubs вставляет крюки с обоих концов (точки лишние — это и есть петли).
+    const interp: EdgePoint[] = [{ x: 0, y: 300 }, { x: 50, y: 225 }, { x: 50, y: 175 }, { x: 100, y: 100 }];
+    const raw = interp.map((p) => ({ ...p }));
+    const headHoriz = Math.abs(raw[1].y - raw[0].y) <= Math.abs(raw[1].x - raw[0].x); // 75<=50 → false
+    const tailHoriz = Math.abs(raw[2].y - raw[3].y) <= Math.abs(raw[2].x - raw[3].x); // 75<=50 → false
+    if (headHoriz) raw[1].y = 300; else raw[1].x = 0;
+    if (tailHoriz) raw[2].y = 100; else raw[2].x = 100;
+    raw[0] = { x: 0, y: 300 };
+    raw[3] = { x: 100, y: 100 };
+    const oldOut = ensureOutwardStubs(cleanup(raw), "right", "left", undefined, 2);
+    // Крюки вставились: точек больше, чем 4 (чистая ортогональ).
+    expect(oldOut.length).toBeGreaterThan(4);
+  });
+
+  it("покой: маршрут роутера (сегмент по оси хэндла) не меняется", () => {
+    const route: EdgePoint[] = [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 100 }, { x: 100, y: 100 }];
+    const out = drawn(route, { x: 0, y: 0 }, { x: 100, y: 100 }, "right", "left");
+    expect(out).toEqual([
+      { x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 100 }, { x: 100, y: 100 },
+    ]);
+  });
+
+  it("вертикальный хэндл (bottom): первый сегмент выпрямляется вертикально", () => {
+    // Хэндл источника снизу (нормаль +y) → первый сегмент вертикальный (headHoriz=false).
+    const interp: EdgePoint[] = [{ x: 0, y: 0 }, { x: 30, y: 50 }, { x: 100, y: 50 }];
+    const out = seamRoute(interp.map((p) => ({ ...p })), { x: 0, y: 0 }, { x: 100, y: 50 }, "bottom", "left");
+    // raw[1].x = s.x = 0 (вертикальный выход вниз из источника)
+    expect(out[1]).toEqual({ x: 0, y: 50 });
+    expect(out[0]).toEqual({ x: 0, y: 0 });
+  });
+
+  it("короткий маршрут (<3 точек): только пересъём концов", () => {
+    const out = seamRoute([{ x: 5, y: 5 }, { x: 90, y: 95 }], { x: 0, y: 0 }, { x: 100, y: 100 }, "right", "left");
+    expect(out).toEqual([{ x: 0, y: 0 }, { x: 100, y: 100 }]);
   });
 });

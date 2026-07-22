@@ -97,6 +97,31 @@ export function projectLabelOntoRoute(lp: LabelPlacement, route: EdgePoint[]): L
   };
 }
 
+// «ШОВ V2.2b»: концы маршрута переснимаются с ЖИВЫХ хэндлов (s/t), концевые сегменты
+// выпрямляются по ОСИ ХЭНДЛА (внешней нормали стороны), крайний излом наследует
+// перпендикулярную координату живого конца. Мьютирует и возвращает raw (свежая копия).
+//
+// Фикс петель при драге (2026-07-22): ось выпрямления берётся из СТОРОНЫ ХЭНДЛА, а НЕ из
+// ориентации интерполированного сегмента. При драге интерполяция может поставить первый
+// сегмент «боком» к хэндлу (напр. вертикальным при правом хэндле); выпрямление по его же
+// ориентации направило бы сегмент ВНУТРЬ/вдоль края узла, и ensureOutwardStubs вставил бы
+// крюк-петлю, чтобы вывести наружу (жалоба: петли на изломах перед диагональными плечами).
+// Выпрямление по оси хэндла гарантирует чистый выход наружу → ensureOutwardStubs no-op,
+// петли нет. В покое роутер и так кладёт концевой сегмент по оси хэндла — поведение то же.
+export function seamRoute(
+  raw: EdgePoint[], s: EdgePoint, t: EdgePoint, sSide: EdgeSide, tSide: EdgeSide,
+): EdgePoint[] {
+  if (raw.length >= 3) {
+    const headHoriz = sSide === "left" || sSide === "right";
+    const tailHoriz = tSide === "left" || tSide === "right";
+    if (headHoriz) raw[1].y = s.y; else raw[1].x = s.x;
+    if (tailHoriz) raw[raw.length - 2].y = t.y; else raw[raw.length - 2].x = t.x;
+  }
+  raw[0] = s;
+  raw[raw.length - 1] = t;
+  return raw;
+}
+
 function WrappedLabelEdge({
   id,
   sourceX, sourceY, targetX, targetY,
@@ -183,25 +208,16 @@ function WrappedLabelEdge({
       // Авто-маршрут (эпик стрелок A7.1, R1+R3): ортоломаная посчитана на раскладке
       // глобальным роутером (минимум пересечений с другими стрелками + жёсткий обход узлов).
       // Концы переснимаем с ЖИВЫХ хэндлов (s/t) — линия держится узла при его сдвиге;
-      // интерьерные изломы берём из снимка. ШОВ (V2.2b): живой хэндл может отличаться от
-      // порта снимка на доли пикселя/пиксели (замер vs CSS-процент высоты) — сосед конца
-      // наследует перпендикулярную координату живого конца, крайний сегмент остаётся
-      // осевым. Без этого микро-сдвиг лечился стаб-патчем и давал шпильку 1-2px у узла.
-      const raw = d.autoRoute.map((p) => ({ x: p.x, y: p.y }));
-      if (raw.length >= 3) {
-        const headHoriz = Math.abs(raw[1].y - raw[0].y) <= Math.abs(raw[1].x - raw[0].x);
-        const tailHoriz =
-          Math.abs(raw[raw.length - 2].y - raw[raw.length - 1].y) <=
-          Math.abs(raw[raw.length - 2].x - raw[raw.length - 1].x);
-        if (headHoriz) raw[1].y = s.y; else raw[1].x = s.x;
-        if (tailHoriz) raw[raw.length - 2].y = t.y; else raw[raw.length - 2].x = t.x;
-      }
-      raw[0] = s;
-      raw[raw.length - 1] = t;
+      // интерьерные изломы берём из снимка. ШОВ (V2.2b, seamRoute): концевые сегменты
+      // выпрямляются по оси живого хэндла — без этого микро-сдвиг хэндла лечился стаб-патчем
+      // и давал шпильку 1-2px у узла, а при драге — петли (см. seamRoute).
+      const sSide = sideOf(sourcePosition);
+      const tSide = sideOf(targetPosition);
+      const raw = seamRoute(d.autoRoute.map((p) => ({ x: p.x, y: p.y })), s, t, sSide, tSide);
       // страховка направления выхода: minAlong=2, НЕ полный стаб — авто-маршрут кладёт
       // стабы по построению и легально укорачивает их в тесноте (clampStub); пере-стаб
       // полной длиной ломал разведённые плечи (см. комментарий у ensureOutwardStubs)
-      const pts = ensureOutwardStubs(cleanup(raw), sideOf(sourcePosition), sideOf(targetPosition), undefined, 2);
+      const pts = ensureOutwardStubs(cleanup(raw), sSide, tSide, undefined, 2);
       edgePath = orthoPath(pts);
       const mid = pathMidpoint(pts);
       labelX = mid.x;
