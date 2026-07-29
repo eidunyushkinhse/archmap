@@ -1,10 +1,12 @@
 // Фиче-флаги клиента (localStorage). Пивот «Страницы объектов» gated флагом
 // pages_pivot: старое поведение (TreePage-холст) остаётся доступным, пока флаг
-// не включён. Снятие флага = удаление старого кода (Фаза 6).
+// не выключен. Снятие флага = удаление старого кода.
 const PAGES_PIVOT_KEY = "archmap_pages_pivot";
 
 export function isPagesPivot(): boolean {
-  return localStorage.getItem(PAGES_PIVOT_KEY) === "1";
+  // Дефолт: включён (пивот активен). Для отката: localStorage.setItem("archmap_pages_pivot", "0")
+  const v = localStorage.getItem(PAGES_PIVOT_KEY);
+  return v === null ? true : v === "1";
 }
 
 export function setPagesPivot(on: boolean): void {

@@ -79,6 +79,8 @@
 .esb-canvas {
   position: absolute;
   inset: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Убираем рамку LevelGraph внутри блока (рамка у самого блока) */

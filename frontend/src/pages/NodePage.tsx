@@ -337,6 +337,7 @@ function NodePageInner({
               ancestors={ancestors}
               isArchitect={isArchitect}
               onNavigateNode={onNavigateNode}
+              onNavigateMap={onNavigateMap}
             />
           </div>
         )}
@@ -596,12 +597,14 @@ function ComponentsSection({
   ancestors,
   isArchitect,
   onNavigateNode,
+  onNavigateMap,
 }: {
   nodeId: string;
   nodeName: string;
   ancestors: AncestorRef[];
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
+  onNavigateMap?: (nodeId: string | null) => void;
 }) {
   const [graphNodes, setGraphNodes] = useState<Node[]>([]);
   const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
@@ -664,13 +667,13 @@ function ComponentsSection({
         hasNodes ? undefined : (
           <span>
             Внутренний состав не описан
-            {isArchitect && (
+            {isArchitect && onNavigateMap && (
               <>
                 <br />
                 <button
                   className="esb-edit"
                   style={{ marginTop: 10 }}
-                  onClick={() => onNavigateNode(nodeId)}
+                  onClick={() => onNavigateMap(nodeId)}
                 >
                   Добавить компонент
                 </button>
