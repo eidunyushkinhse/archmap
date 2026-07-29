@@ -757,7 +757,6 @@ function ContextSection({
       onNavigateNode={onNavigateNode}
       height={height}
       showViewFilter={false}
-      mode="context"
       empty={
         noNeighbors ? (
           <span>

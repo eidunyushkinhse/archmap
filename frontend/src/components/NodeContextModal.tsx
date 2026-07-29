@@ -110,7 +110,6 @@ export default function NodeContextModal({ node, onClose }: Props) {
             // гейтятся isContext) — колбэк номинальный, мёртвый путь модалок
             // деталей удалён 2026-07-16
             onEdgesChoice={() => {}}
-            mode="context"
           />
         ) : null}
       </div>
