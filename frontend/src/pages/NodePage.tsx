@@ -660,9 +660,11 @@ function ComponentsSection({
       schemaView={schemaView}
       onSchemaViewChange={setSchemaView}
       onNavigateNode={onNavigateNode}
+      onEdit={onNavigateMap ? () => onNavigateMap(nodeId) : undefined}
       height={height}
       toolbarHint={hasNodes ? `${graphNodes.length} комп.` : undefined}
       showViewFilter={hasStatusInfo}
+      nodesDraggable
       empty={
         hasNodes ? undefined : (
           <span>

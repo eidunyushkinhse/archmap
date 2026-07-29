@@ -111,6 +111,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             height={height}
             toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} объектов` : undefined}
             showViewFilter={hasStatusInfo}
+            nodesDraggable
             empty={
               hasNodes ? undefined : (
                 <span>

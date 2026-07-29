@@ -37,6 +37,8 @@ interface Props {
   empty?: React.ReactNode;
   // Режим LevelGraph: "level" (по умолчанию) или "context" (звёздная раскладка)
   mode?: "level" | "context";
+  // Драг узлов (по умолчанию false для readOnly-блоков)
+  nodesDraggable?: boolean;
 }
 
 export default function EmbeddedSchemaBlock({
@@ -44,6 +46,7 @@ export default function EmbeddedSchemaBlock({
   ancestorNames, ancestorIds, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit,
   height, toolbarHint, showViewFilter, empty, mode = "level",
+  nodesDraggable = false,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -124,6 +127,7 @@ export default function EmbeddedSchemaBlock({
                 depth={depth}
                 isArchitect={isArchitect}
                 readOnly
+                nodesDraggable={nodesDraggable}
                 mode={mode}
                 schemaView={schemaView}
                 onDrillDown={handleNavigate}

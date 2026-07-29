@@ -188,6 +188,10 @@ interface LevelGraphProps {
   // раскладки), но рендер уровня и навигация (двойной клик, выделение) сохраняются.
   // Для встроенных блоков схемы на страницах (pages_pivot).
   readOnly?: boolean;
+  // Переопределение draggable-узлов: true — узлы можно таскать даже в readOnly
+  // (персист раскладки при этом НЕ идёт — только визуальный драг в рамках сессии).
+  // По умолчанию: !readOnly.
+  nodesDraggable?: boolean;
   // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
@@ -253,12 +257,15 @@ function LevelGraphInner({
   gestureActiveRef,
   mode = "level",
   readOnly = false,
+  nodesDraggable: nodesDraggableProp,
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
   const isContext = mode === "context";
   // readOnly гейтит все жесты правки (как isContext), но не влияет на рендер уровня
   const isReadOnly = readOnly || isContext;
+  // Драг узлов: по умолчанию !isReadOnly, но можно включить отдельно (embedded-блоки)
+  const dragNodes = nodesDraggableProp ?? !isReadOnly;
   const { screenToFlowPosition, setCenter, fitBounds, getInternalNode, getNodes, getEdges } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
@@ -1454,7 +1461,8 @@ function LevelGraphInner({
         // Контекст-схема и readOnly — без правки: раскладка предписана, drag
         // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
         // уровне узлы таскаем (персист координат архитектором).
-        nodesDraggable={!isReadOnly}
+        // dragNodes позволяет включить драг узлов в readOnly (embedded-блоки).
+        nodesDraggable={dragNodes}
         // nodesConnectable=true нужен для протягивания связи от хэндла (рендер
         // connection line гейтится этим флагом). Начать связь можно только с
         // хэндла, у которого isConnectableStart (его выставляем лишь архитектору
@@ -1464,10 +1472,9 @@ function LevelGraphInner({
         // ЛЕВАЯ кнопка тянет рамку прямоугольного выделения нескольких узлов
         // (selectionOnDrag). Ctrl/⌘ добавляет/убирает узлы из выделения кликом.
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
-        // частично. В read-only (контекст/встроенный блок) выделять нечего — там
-        // оставляем привычное панорамирование левой кнопкой и выключаем рамку.
-        panOnDrag={isReadOnly ? true : [2]}
-        selectionOnDrag={!isReadOnly}
+        // частично. В read-only без драга узлов — панорамирование левой кнопкой.
+        panOnDrag={dragNodes ? [2] : (isReadOnly ? true : [2])}
+        selectionOnDrag={dragNodes && !isReadOnly}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={["Control", "Meta"]}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
