@@ -2,12 +2,14 @@
 // Фаза 1: шапка (breadcrumb, имя, статус, чип), свойства (inline CAS), связи (таблица).
 // Схемы (контекст, компоненты) добавляются в Фазе 2.
 import { useCallback, useEffect, useState } from "react";
-import type { AncestorRef, Node, NodeEdgeInfo, NodeShape, NodeStatus } from "../types";
+import type { AncestorRef, Node, NodeEdgeInfo, NodeShape, NodeStatus, GhostNode, ViewLayout, Edge } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
+import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
+import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import "./NodePage.css";
 
 interface Props {
@@ -306,6 +308,20 @@ function NodePageInner({
           </div>
         </div>
 
+        {/* ── Схема компонентов (только у узлов с детьми) ──────── */}
+        {canHaveChildren(node.shape) && (
+          <div className="np-card">
+            <h3 className="np-card-title">Схема компонентов</h3>
+            <ComponentsSection
+              nodeId={node.id}
+              nodeName={node.name}
+              ancestors={ancestors}
+              isArchitect={isArchitect}
+              onNavigateNode={onNavigateNode}
+            />
+          </div>
+        )}
+
         {/* ── Связи ─────────────────────────────────────────────── */}
         <div className="np-card">
           <h3 className="np-card-title">Связи</h3>
@@ -485,5 +501,100 @@ function ChevronDown() {
       strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}>
       <path d="M6 9 L12 15 L18 9" />
     </svg>
+  );
+}
+
+// ── Секция «Схема компонентов» ──────────────────────────────────────
+// Загружает граф уровня узла и рендерит EmbeddedSchemaBlock (read-only).
+function ComponentsSection({
+  nodeId,
+  nodeName,
+  ancestors,
+  isArchitect,
+  onNavigateNode,
+}: {
+  nodeId: string;
+  nodeName: string;
+  ancestors: AncestorRef[];
+  isArchitect: boolean;
+  onNavigateNode: (id: string) => void;
+}) {
+  const [graphNodes, setGraphNodes] = useState<Node[]>([]);
+  const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const [viewLayout, setViewLayout] = useState<ViewLayout>({});
+  const [loading, setLoading] = useState(true);
+  const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
+
+  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка графа уровня при маунте
+  useEffect(() => {
+    let alive = true;
+    nodesApi.getGraph(nodeId).then((g) => {
+      if (!alive) return;
+      setGraphNodes(g.nodes);
+      setEndpoints(g.endpoints);
+      // GraphEdge → Edge: добавляем отсутствующие поля (created_at, is_synchronous)
+      setEdges(g.edges.map((ge) => ({ ...ge, created_at: "", is_synchronous: null })));
+      setViewLayout(g.layout ?? {});
+      setLoading(false);
+    }).catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [nodeId]);
+
+  if (loading) {
+    return <p className="np-empty">Загрузка схемы…</p>;
+  }
+
+  const hasNodes = graphNodes.length + endpoints.length > 0;
+  const hasStatusInfo =
+    graphNodes.some((n) => n.status !== "existing") ||
+    endpoints.some((g) => g.status !== "existing");
+
+  // Высота блока: min(430, max(280, nodes*62))
+  const height = Math.min(430, Math.max(280, graphNodes.length * 62));
+
+  // Имена/id предков для рамок (breadcrumb страницы + сам узел)
+  const ancestorNames = [...ancestors.map((a) => a.name), nodeName];
+  const ancestorIds = [...ancestors.map((a) => a.id), nodeId];
+
+  return (
+    <EmbeddedSchemaBlock
+      nodes={graphNodes}
+      endpoints={endpoints}
+      edges={edges}
+      viewLayout={viewLayout}
+      containerId={nodeId}
+      ancestorNames={ancestorNames}
+      ancestorIds={ancestorIds}
+      depth={ancestors.length + 1}
+      isArchitect={isArchitect}
+      schemaView={schemaView}
+      onSchemaViewChange={setSchemaView}
+      onNavigateNode={onNavigateNode}
+      height={height}
+      toolbarHint={hasNodes ? `${graphNodes.length} комп.` : undefined}
+      showViewFilter={hasStatusInfo}
+      empty={
+        hasNodes ? undefined : (
+          <span>
+            Внутренний состав не описан
+            {isArchitect && (
+              <>
+                <br />
+                <button
+                  className="esb-edit"
+                  style={{ marginTop: 10 }}
+                  onClick={() => onNavigateNode(nodeId)}
+                >
+                  Добавить компонент
+                </button>
+              </>
+            )}
+          </span>
+        )
+      }
+    />
   );
 }

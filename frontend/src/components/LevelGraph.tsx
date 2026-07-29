@@ -184,6 +184,10 @@ interface LevelGraphProps {
   // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
   // из дерева: фокус-блок без кнопок, координаты не сохраняются.
   mode?: "level" | "context";
+  // Read-only: все жесты правки отключены (драг, связи, удаление, дроп, персист
+  // раскладки), но рендер уровня и навигация (двойной клик, выделение) сохраняются.
+  // Для встроенных блоков схемы на страницах (pages_pivot).
+  readOnly?: boolean;
   // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
@@ -248,10 +252,13 @@ function LevelGraphInner({
   viewMeta,
   gestureActiveRef,
   mode = "level",
+  readOnly = false,
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
   const isContext = mode === "context";
+  // readOnly гейтит все жесты правки (как isContext), но не влияет на рендер уровня
+  const isReadOnly = readOnly || isContext;
   const { screenToFlowPosition, setCenter, fitBounds, getInternalNode, getNodes, getEdges } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
@@ -381,7 +388,7 @@ function LevelGraphInner({
       origin: CommitOrigin = "user",
       isRetry = false,
     ): boolean => {
-      if (!isArchitect || isContext) return false;
+      if (!isArchitect || isReadOnly) return false;
       // Нормализация payload для сравнения с зеркалом: null-поля эквивалентны
       // отсутствию (сервер выкидывает их exclude_none).
       const norm = (v: ViewLayoutPayload | null | undefined): string => {
@@ -404,7 +411,7 @@ function LevelGraphInner({
       onLayoutChanged?.(items);
       return true;
     },
-    [isArchitect, isContext, viewLayout, persistFenced, onLayoutChanged],
+    [isArchitect, isReadOnly, viewLayout, persistFenced, onLayoutChanged],
   );
   // Исполнитель переигровки 409 (проп retryPatch из TreePage): одноразово (token)
   // коммитит исходный патч заново — commitLayout здесь из deps, т.е. замкнут на
@@ -517,7 +524,7 @@ function LevelGraphInner({
   // в кэше, — раскрытых потомков цепочкой). Гостевых в known нет — им детей
   // даёт проекция. Повторный сет во время полёта гасится guard'ом cur[id].
   useEffect(() => {
-    if (isContext) return;
+    if (isReadOnly) return;
     const known = new Set([
       ...nodes.map((n) => n.id),
       ...Object.values(localChildren).flat().map((n) => n.id),
@@ -528,21 +535,21 @@ function LevelGraphInner({
         setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: kids }));
       });
     }
-  }, [expanded, nodes, localChildren, isContext]);
+  }, [expanded, nodes, localChildren, isReadOnly]);
 
   // Таргетный рефреш кэша детей одного контейнера (дроп нового узла в его раскрытую рамку /
   // откат такого дропа): перечитываем список и ПЕРЕЗАПИСЫВАЕМ (в отличие от ленивой догрузки
   // выше — та не трогает уже заполненный ключ). token гарантирует срабатывание на повтор.
   const refreshTokenRef = useRef(0);
   useEffect(() => {
-    if (isContext || !refreshChildrenOf) return;
+    if (isReadOnly || !refreshChildrenOf) return;
     if (refreshChildrenOf.token === refreshTokenRef.current) return;
     refreshTokenRef.current = refreshChildrenOf.token;
     const { id } = refreshChildrenOf;
     void nodesApi.list(id).then((kids) => {
       setLocalChildren((cur) => ({ ...cur, [id]: kids }));
     });
-  }, [refreshChildrenOf, isContext]);
+  }, [refreshChildrenOf, isReadOnly]);
 
   // Состояние центральных направляющих магнитного выравнивания (общее для snap-драга
   // и drop-шаблона).
@@ -581,7 +588,7 @@ function LevelGraphInner({
   // Ctrl+Z жмут и без выбранного узла (фокус на body). Только архитектор и не контекст
   // (read-only). В полях ввода не перехватываем — там нативная отмена текста.
   useEffect(() => {
-    if (!isArchitect || isContext) return;
+    if (!isArchitect || isReadOnly) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const t = document.activeElement as HTMLElement | null;
@@ -592,13 +599,13 @@ function LevelGraphInner({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isArchitect, isContext, runUndo, runRedo]);
+  }, [isArchitect, isReadOnly, runUndo, runRedo]);
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
   // кладёт в историю, обязаны коммитить через СВЕЖЕЕ зеркало (см. commitLayoutStable).
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, isContext,
+    rfNodes, onNodesChange, setGuides, isArchitect, isContext: isReadOnly,
     ancestorIds, ancestorNames, commitLayout: commitLayoutStable, push: history.push,
     noteGesture, // флаш клавиатурной серии открывает окно жеста, как отпускание драга
   });
@@ -749,7 +756,7 @@ function LevelGraphInner({
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
   const { handleKeyDown } = useCanvasDelete({
-    rfNodes, isArchitect, isContext, onRequestDeleteNode, onRequestDeleteNodes,
+    rfNodes, isArchitect, isContext: isReadOnly, onRequestDeleteNode, onRequestDeleteNodes,
   });
 
 
@@ -794,7 +801,7 @@ function LevelGraphInner({
   // стрелок (2026-07-09) — поток создания единственный.
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
-      isArchitect, isContext, resolveTarget,
+      isArchitect, isContext: isReadOnly, resolveTarget,
       onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
       onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
       onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
@@ -1066,12 +1073,13 @@ function LevelGraphInner({
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
     rfNodes, screenToFlowPosition, setGuides, clearGuides,
-    isArchitect, isContext, onDropNode, dragShape, expandedFrames,
+    isArchitect, isContext: isReadOnly, onDropNode, dragShape, expandedFrames,
   });
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
-  // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим,
-  // контекст read-only).
+  // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим).
+  // readOnly: двойной клик вызывает onEditNode/onInspectGhost для навигации на страницу
+  // (родитель решает, что делать). Контекст-модалка: гейт isContext (read-only без навигации).
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
       if (isContext) return;
@@ -1093,7 +1101,7 @@ function LevelGraphInner({
   // связь однозначно (E57).
   const handleEdgeDoubleClick = useCallback(
     (e: MouseEvent, rfEdge: RFEdge) => {
-      if (isContext) return;
+      if (isReadOnly) return;
       const dataOf = (re: RFEdge): WrappedEdgeData | undefined => re.data as WrappedEdgeData | undefined;
       const pt = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const ortho = rfEdges
@@ -1110,7 +1118,7 @@ function LevelGraphInner({
       const memberIds = dataOf(rfEdge)?.memberIds ?? [];
       cbRef.current.openEdgeMembers(memberIds);
     },
-    [isContext, rfEdges, screenToFlowPosition]
+    [isReadOnly, rfEdges, screenToFlowPosition]
   );
 
   // «Показать на схеме» (locate): центрируем холст на цели и коротко её подсвечиваем.
@@ -1300,7 +1308,7 @@ function LevelGraphInner({
       // протягивания новой связи.
       className={
         "lg-canvas" +
-        (isArchitect && !isContext ? " lg-canvas--editable" : "") +
+        (isArchitect && !isReadOnly ? " lg-canvas--editable" : "") +
         (connecting ? " lg-canvas--connecting" : "") +
         // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
         (animActive ? " lg-canvas--anim" : "")
@@ -1345,7 +1353,7 @@ function LevelGraphInner({
       </svg>
       {/* Тулбар Undo/Redo (архитектор, не контекст). Кнопка надёжнее клавиш — не зависит
           от фокуса. Обе зовут дисптчеры из TreePage (кросс-уровневый редирект). */}
-      {isArchitect && !isContext && (
+      {isArchitect && !isReadOnly && (
         <div style={{ position: "absolute", top: 14, left: 14, zIndex: 5 }}>
           <div className="lg-seg">
             <button
@@ -1443,10 +1451,10 @@ function LevelGraphInner({
         // Пустой уровень (fitView выключен) открывается слегка отдалённым — комфортно
         // бросить первый узел, не отъезжая вручную.
         defaultViewport={{ x: 60, y: 60, zoom: 0.85 }}
-        // Контекст-схема — read-only: раскладка предписана (фокус+звезда), drag
+        // Контекст-схема и readOnly — без правки: раскладка предписана, drag
         // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
         // уровне узлы таскаем (персист координат архитектором).
-        nodesDraggable={!isContext}
+        nodesDraggable={!isReadOnly}
         // nodesConnectable=true нужен для протягивания связи от хэндла (рендер
         // connection line гейтится этим флагом). Начать связь можно только с
         // хэндла, у которого isConnectableStart (его выставляем лишь архитектору
@@ -1456,10 +1464,10 @@ function LevelGraphInner({
         // ЛЕВАЯ кнопка тянет рамку прямоугольного выделения нескольких узлов
         // (selectionOnDrag). Ctrl/⌘ добавляет/убирает узлы из выделения кликом.
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
-        // частично. В контекст-схеме (read-only) выделять нечего — там оставляем
-        // привычное панорамирование левой кнопкой и выключаем рамку.
-        panOnDrag={isContext ? true : [2]}
-        selectionOnDrag={!isContext}
+        // частично. В read-only (контекст/встроенный блок) выделять нечего — там
+        // оставляем привычное панорамирование левой кнопкой и выключаем рамку.
+        panOnDrag={isReadOnly ? true : [2]}
+        selectionOnDrag={!isReadOnly}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={["Control", "Meta"]}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —

@@ -8,6 +8,7 @@ import type { Node } from "../types";
 import { exportApi } from "../api/nodes";
 import NodeTreePanel from "../components/NodeTreePanel";
 import NodePage from "./NodePage";
+import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import { processesApi } from "../api/processes";
 import { detailToMermaid } from "../components/processes/sequence/toMermaid";
@@ -138,7 +139,11 @@ export default function ProjectShell({
                 }}
               />
             ) : (
-              <ProjectHomePlaceholder />
+              <ProjectHomePage
+                projectId={projectId}
+                isArchitect={isArchitect}
+                onNavigateNode={onNavigateNode}
+              />
             )}
           </>
         )}
@@ -152,20 +157,6 @@ export default function ProjectShell({
           onClose={() => setExportScope(null)}
         />
       )}
-    </div>
-  );
-}
-
-// Заглушка страницы проекта (Фаза 2).
-function ProjectHomePlaceholder() {
-  return (
-    <div style={{
-      flex: 1, minWidth: 0, overflowY: "auto", background: "#f8fafc",
-      display: "flex", alignItems: "center", justifyContent: "center",
-    }}>
-      <p style={{ color: "#94a3b8", fontSize: 14 }}>
-        Выберите объект в дереве слева
-      </p>
     </div>
   );
 }
