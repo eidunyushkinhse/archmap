@@ -2,7 +2,7 @@
 // Фаза 1: шапка (breadcrumb, имя, статус, чип), свойства (inline CAS), связи (таблица).
 // Схемы (контекст, компоненты) добавляются в Фазе 2.
 import { useCallback, useEffect, useState } from "react";
-import type { AncestorRef, Node, NodeEdgeInfo, NodeShape, NodeStatus, GhostNode, ViewLayout, Edge } from "../types";
+import type { AncestorRef, Node, NodeEdgeInfo, NodeShape, NodeStatus, GhostNode, ViewLayout, Edge, NodeContext, LevelEdge } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
@@ -308,6 +308,16 @@ function NodePageInner({
           </div>
         </div>
 
+        {/* ── Схема контекста ──────────────────────────────────── */}
+        <div className="np-card">
+          <h3 className="np-card-title">Схема контекста</h3>
+          <ContextSection
+            nodeId={node.id}
+            isArchitect={isArchitect}
+            onNavigateNode={onNavigateNode}
+          />
+        </div>
+
         {/* ── Схема компонентов (только у узлов с детьми) ──────── */}
         {canHaveChildren(node.shape) && (
           <div className="np-card">
@@ -594,6 +604,93 @@ function ComponentsSection({
             )}
           </span>
         )
+      }
+    />
+  );
+}
+
+// ── Секция «Схема контекста» ────────────────────────────────────────
+// Загружает контекст узла (фокус + внешние соседи поддерева) и рендерит
+// EmbeddedSchemaBlock в режиме context (звёздная раскладка, read-only).
+function ContextSection({
+  nodeId,
+  isArchitect,
+  onNavigateNode,
+}: {
+  nodeId: string;
+  isArchitect: boolean;
+  onNavigateNode: (id: string) => void;
+}) {
+  const [ctx, setCtx] = useState<NodeContext | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
+
+  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка контекста при маунте
+  useEffect(() => {
+    let alive = true;
+    nodesApi.getContext(nodeId).then((c) => {
+      if (!alive) return;
+      setCtx(c);
+      setLoading(false);
+    }).catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [nodeId]);
+
+  if (loading) {
+    return <p className="np-empty">Загрузка контекста…</p>;
+  }
+
+  if (!ctx) return null;
+
+  const noNeighbors = ctx.neighbors.length === 0;
+
+  // Рёбра контекста → LevelEdge (концы уже спроецированы сервером)
+  const edges: LevelEdge[] = ctx.edges.map((ge) => ({
+    id: ge.id,
+    label: ge.label,
+    technology: ge.technology,
+    source_id: ge.source_id,
+    target_id: ge.target_id,
+    original_source_id: ge.original_source_id,
+    original_target_id: ge.original_target_id,
+    original_source_name: ge.original_source_name,
+    original_target_name: ge.original_target_name,
+    version: ge.version,
+    created_at: "",
+  }));
+
+  // Высота: max(240, min(380, neighbors*80))
+  const height = Math.max(240, Math.min(380, ctx.neighbors.length * 80));
+
+  return (
+    <EmbeddedSchemaBlock
+      nodes={[ctx.focus]}
+      endpoints={ctx.neighbors}
+      edges={edges}
+      viewLayout={{}}
+      containerId={ctx.focus.parent_id}
+      ancestorNames={ctx.focus_ancestors.map((a) => a.name)}
+      ancestorIds={ctx.focus_ancestors.map((a) => a.id)}
+      depth={ctx.focus_ancestors.length}
+      isArchitect={isArchitect}
+      schemaView={schemaView}
+      onSchemaViewChange={setSchemaView}
+      onNavigateNode={onNavigateNode}
+      height={height}
+      showViewFilter={false}
+      mode="context"
+      empty={
+        noNeighbors ? (
+          <span>
+            Внешних связей нет
+            <br />
+            <span style={{ fontSize: 12, color: "#b0bec5" }}>
+              Связи создаются в редакторе-карте
+            </span>
+          </span>
+        ) : undefined
       }
     />
   );

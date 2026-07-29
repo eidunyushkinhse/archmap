@@ -35,13 +35,15 @@ interface Props {
   showViewFilter: boolean;
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
+  // Режим LevelGraph: "level" (по умолчанию) или "context" (звёздная раскладка)
+  mode?: "level" | "context";
 }
 
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId,
   ancestorNames, ancestorIds, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit,
-  height, toolbarHint, showViewFilter, empty,
+  height, toolbarHint, showViewFilter, empty, mode = "level",
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -122,6 +124,7 @@ export default function EmbeddedSchemaBlock({
                 depth={depth}
                 isArchitect={isArchitect}
                 readOnly
+                mode={mode}
                 schemaView={schemaView}
                 onDrillDown={handleNavigate}
                 onEditNode={handleNavigate}

@@ -1078,16 +1078,16 @@ function LevelGraphInner({
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
   // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим).
-  // readOnly: двойной клик вызывает onEditNode/onInspectGhost для навигации на страницу
-  // (родитель решает, что делать). Контекст-модалка: гейт isContext (read-only без навигации).
+  // readOnly: двойной клик вызывает onEditNode/onInspectGhost для навигации на страницу.
+  // Контекст: фокус (block) — без навигации, соседи (ghost) — навигация на страницу.
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
-      if (isContext) return;
       if (rfNode.type === "block") {
+        if (isContext) return; // фокус контекста — не навигируем
         const appNode = (rfNode.data as BlockData | undefined)?.appNode;
         if (appNode) cbRef.current.onEditNode(appNode);
       } else if (rfNode.type === "ghost") {
-        // Гость — проекция чужого узла: детализация read-only (GhostInspector), без правок.
+        // Гость/сосед — навигация на страницу (в контексте и в readOnly).
         const ghost = (rfNode.data as GhostData | undefined)?.appNode;
         if (ghost) cbRef.current.onInspectGhost?.(ghost);
       }
