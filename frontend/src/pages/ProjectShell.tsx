@@ -7,6 +7,7 @@ import { getUserRole } from "../api/auth";
 import type { Node } from "../types";
 import { exportApi } from "../api/nodes";
 import NodeTreePanel from "../components/NodeTreePanel";
+import NodeModal from "../components/NodeModal";
 import NodePage from "./NodePage";
 import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
@@ -58,6 +59,8 @@ export default function ProjectShell({
 
   // Сигнал перезагрузки дерева (после создания/удаления узла)
   const [treeReload, setTreeReload] = useState(0);
+  // Модалка создания дочернего объекта («+» в дереве)
+  const [createFor, setCreateFor] = useState<string | null>(null);
 
   const openExport = () => {
     if (mode === "proc") {
@@ -125,6 +128,7 @@ export default function ProjectShell({
               isArchitect={isArchitect}
               reloadToken={treeReload}
               onNodePage={(node: Node) => onNavigateNode(node.id)}
+              onCreateChild={(parentId) => setCreateFor(parentId)}
             />
             {nodeId ? (
               <NodePage
@@ -148,6 +152,18 @@ export default function ProjectShell({
           </>
         )}
       </div>
+
+      {createFor && (
+        <NodeModal
+          parentId={createFor}
+          onClose={() => setCreateFor(null)}
+          onSaved={(saved) => {
+            setCreateFor(null);
+            setTreeReload((t) => t + 1);
+            onNavigateNode(saved.id);
+          }}
+        />
+      )}
 
       {exportScope && (
         <ExportModal

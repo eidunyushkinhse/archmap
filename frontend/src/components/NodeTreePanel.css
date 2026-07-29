@@ -215,3 +215,34 @@
   background: #f1f5f9;
   color: #334155;
 }
+
+/* «+» на строке дерева (pages_pivot) — виден только при hover строки */
+.nt-add-child {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  margin-left: auto;
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+}
+.nt-row:hover .nt-add-child {
+  display: inline-flex;
+}
+.nt-add-child:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+/* Поиск: фокус-кольцо */
+.nt-search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}

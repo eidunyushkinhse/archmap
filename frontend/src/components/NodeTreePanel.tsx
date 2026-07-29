@@ -43,6 +43,8 @@ interface Props {
   onNodeContext?: (node: Node) => void;
   // pages_pivot: клик по ЛЮБОМУ узлу → его страница (перекрывает onDrillTo/onNodeContext)
   onNodePage?: (node: Node) => void;
+  // pages_pivot: «+» на строке → создать дочерний объект (модалка, авто-позиция)
+  onCreateChild?: (parentId: string) => void;
   // секция «Добавить узел» показывается только архитектору
   isArchitect: boolean;
   // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
@@ -190,7 +192,10 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, isArchitect, onTemplateDrag, reloadToken }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, onCreateChild, isArchitect, onTemplateDrag, reloadToken }: Props) {
+  // pages_pivot: плоское дерево без секций/палитры, с поиском, «+» и персонами
+  const pagesMode = !!onNodePage;
+
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
@@ -218,6 +223,14 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, is
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
+
+  // ── Поиск (pages_pivot) ──────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Node[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  // Персоны (pages_pivot): отдельная группа «Действующие лица»
+  const [persons, setPersons] = useState<Node[]>([]);
 
   // Все загруженные узлы по id (корни + подгруженные дети). Чтобы узел был виден и
   // кликабелен в дереве, все его предки раскрыты → их Node-объекты уже здесь.
@@ -281,6 +294,31 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, is
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken]);
+
+  // Поиск (pages_pivot): debounce 250ms, результат — плоский список совпадений.
+  useEffect(() => {
+    if (!pagesMode) return;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) { setSearchResults(null); return; }
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      nodesApi.search(searchQuery.trim())
+        .then((ns) => setSearchResults(ns))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery, pagesMode]);
+
+  // Персоны (pages_pivot): грузим один раз при маунте + по reloadToken.
+  useEffect(() => {
+    if (!pagesMode) return;
+    let alive = true;
+    nodesApi.list(null)
+      .then((ns) => { if (alive) setPersons(ns.filter((n) => n.shape === "person").sort(compareByRank)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [pagesMode, reloadToken]);
 
   async function toggle(node: Node) {
     const id = node.id;
@@ -362,6 +400,16 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, is
             {node.name}
           </span>
           {handler && <ActionLabel container={isIntermediate} pagesMode={!!onNodePage} />}
+          {/* «+» — создать дочерний объект (pages_pivot, архитектор, только сервисы) */}
+          {pagesMode && isArchitect && onCreateChild && node.shape === "service" && (
+            <button
+              className="nt-add-child"
+              onClick={(e) => { e.stopPropagation(); onCreateChild(node.id); }}
+              title={`Создать объект внутри «${node.name}»`}
+            >
+              <PlusIcon />
+            </button>
+          )}
         </div>
         {/* Дети раскрытого узла — с направляющей вложенности (border-left). */}
         {isExpanded && kids.length > 0 && (
@@ -440,49 +488,118 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, is
         </div>
       ) : (
       <div style={content}>
-        {/* Секция 1: дерево объектов */}
-        <Section
-          title="Дерево объектов"
-          grow
-          open={openSections.has("tree")}
-          onToggle={() => toggleSection("tree")}
-        >
-          <div style={treeList}>
-            {loadingRoots ? (
-              <div style={hint}>Загрузка…</div>
-            ) : roots.length === 0 ? (
-              <div style={hint}>Нет объектов</div>
-            ) : (
-              roots.map((n) => <Row key={n.id} node={n} />)
-            )}
-          </div>
-        </Section>
-
-        {/* Секция 2: палитра шаблонов для создания объекта (только архитектор) */}
-        {isArchitect && (
-          <Section
-            title="Добавить объект"
-            open={openSections.has("add")}
-            onToggle={() => toggleSection("add")}
-          >
-            <div style={paletteHint}>Перетащите форму на схему</div>
-            <div style={palette}>
-              {NODE_TEMPLATES.map((t) => (
-                <div
-                  key={t.shape}
-                  className="template-card"
-                  draggable
-                  onDragStart={(e) => onTemplateDragStart(e, t.shape)}
-                  onDragEnd={onTemplateDragEnd}
-                  style={templateCard}
-                  title={`Перетащить «${t.label}» на схему`}
-                >
-                  <ShapeIcon shape={t.shape} />
-                  <span style={templateLabel}>{t.label}</span>
-                </div>
-              ))}
+        {pagesMode ? (
+          /* ── pages_pivot: поиск + плоское дерево + персоны ─────── */
+          <>
+            {/* Поиск */}
+            <div style={searchWrap}>
+              <input
+                style={searchInput}
+                type="text"
+                placeholder="Поиск по имени…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button style={searchClear} onClick={() => setSearchQuery("")} title="Очистить">×</button>
+              )}
             </div>
-          </Section>
+
+            {/* Результаты поиска или дерево */}
+            <div style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {searchResults !== null ? (
+                searching ? (
+                  <div style={hint}>Поиск…</div>
+                ) : searchResults.length === 0 ? (
+                  <div style={hint}>Ничего не найдено</div>
+                ) : (
+                  searchResults.map((n) => (
+                    <div
+                      key={n.id}
+                      className="nt-row nt-row--clickable"
+                      onClick={() => onNodePage?.(n)}
+                      title={`Страница: ${n.name}`}
+                    >
+                      <span className="nt-chevspacer" />
+                      <ShapeGlyph container={canHaveChildren(n.shape) && n.has_children} shape={n.shape} />
+                      <span className="nt-name">{n.name}</span>
+                    </div>
+                  ))
+                )
+              ) : loadingRoots ? (
+                <div style={hint}>Загрузка…</div>
+              ) : roots.length === 0 ? (
+                <div style={hint}>Нет объектов</div>
+              ) : (
+                roots.map((n) => <Row key={n.id} node={n} />)
+              )}
+            </div>
+
+            {/* Действующие лица (персоны) */}
+            {persons.length > 0 && searchResults === null && (
+              <div style={{ borderTop: "1px solid #eef2f6", padding: "8px 0 6px" }}>
+                <div style={personsTitle}>Действующие лица</div>
+                {persons.map((p) => (
+                  <div
+                    key={p.id}
+                    className="nt-row nt-row--clickable"
+                    onClick={() => onNodePage?.(p)}
+                    title={`Страница: ${p.name}`}
+                  >
+                    <span className="nt-chevspacer" />
+                    <ShapeGlyph container={false} shape={p.shape} />
+                    <span className="nt-name">{p.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          /* ── Старое поведение: секции + палитра ────────────────── */
+          <>
+            <Section
+              title="Дерево объектов"
+              grow
+              open={openSections.has("tree")}
+              onToggle={() => toggleSection("tree")}
+            >
+              <div style={treeList}>
+                {loadingRoots ? (
+                  <div style={hint}>Загрузка…</div>
+                ) : roots.length === 0 ? (
+                  <div style={hint}>Нет объектов</div>
+                ) : (
+                  roots.map((n) => <Row key={n.id} node={n} />)
+                )}
+              </div>
+            </Section>
+
+            {isArchitect && (
+              <Section
+                title="Добавить объект"
+                open={openSections.has("add")}
+                onToggle={() => toggleSection("add")}
+              >
+                <div style={paletteHint}>Перетащите форму на схему</div>
+                <div style={palette}>
+                  {NODE_TEMPLATES.map((t) => (
+                    <div
+                      key={t.shape}
+                      className="template-card"
+                      draggable
+                      onDragStart={(e) => onTemplateDragStart(e, t.shape)}
+                      onDragEnd={onTemplateDragEnd}
+                      style={templateCard}
+                      title={`Перетащить «${t.label}» на схему`}
+                    >
+                      <ShapeIcon shape={t.shape} />
+                      <span style={templateLabel}>{t.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+          </>
         )}
       </div>
       )}
@@ -633,4 +750,45 @@ const trashInner: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   pointerEvents: "none",
+};
+
+// ── Стили pages_pivot (поиск, персоны, «+») ────────────────────────
+const searchWrap: CSSProperties = {
+  position: "relative",
+  padding: "10px 12px 6px",
+  flexShrink: 0,
+};
+const searchInput: CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "7px 28px 7px 10px",
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
+  fontSize: 13,
+  color: "#0f172a",
+  background: "#fff",
+  outline: "none",
+  boxSizing: "border-box",
+  fontFamily: "inherit",
+};
+const searchClear: CSSProperties = {
+  position: "absolute",
+  right: 18,
+  top: "50%",
+  transform: "translateY(-50%)",
+  background: "none",
+  border: "none",
+  fontSize: 16,
+  color: "#94a3b8",
+  cursor: "pointer",
+  padding: "2px 4px",
+  lineHeight: 1,
+};
+const personsTitle: CSSProperties = {
+  fontSize: 10.5,
+  fontWeight: 700,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: "#94a3b8",
+  padding: "4px 14px 6px",
 };
