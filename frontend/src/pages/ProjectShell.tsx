@@ -33,6 +33,7 @@ interface Props {
   // Навигация внутри проекта
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
+  onNavigateMap: (nodeId: string | null) => void;
 }
 
 export default function ProjectShell({
@@ -43,6 +44,7 @@ export default function ProjectShell({
   onSwitchProject,
   onNavigateNode,
   onNavigateProject,
+  onNavigateMap,
 }: Props) {
   const isArchitect = getUserRole() === "architect";
   const [mode, setMode] = useState<WorkMode>(
@@ -104,6 +106,20 @@ export default function ProjectShell({
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <ModeSwitch mode={mode} onChange={setMode} />
+          {/* Кнопка «Карта» — вход в редактор-карту (архитектор) */}
+          {isArchitect && mode === "schema" && (
+            <button
+              style={mapBtn}
+              onClick={() => onNavigateMap(nodeId)}
+              title="Открыть редактор-карту"
+            >
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 3 3.5 5.5v15L9 18l6 3 5.5-2.5v-15L15 6 9 3Z" />
+                <path d="M9 3v15" /><path d="M15 6v15" />
+              </svg>
+              Карта
+            </button>
+          )}
           <button
             className="icon-btn"
             onClick={openExport}
@@ -136,6 +152,7 @@ export default function ProjectShell({
                 isArchitect={isArchitect}
                 onNavigateNode={onNavigateNode}
                 onNavigateProject={onNavigateProject}
+                onNavigateMap={onNavigateMap}
                 onNodeDeleted={(parentId) => {
                   setTreeReload((t) => t + 1);
                   if (parentId) onNavigateNode(parentId);
@@ -267,4 +284,18 @@ const iconBtn: CSSProperties = {
   border: "1px solid #e2e8f0",
   borderRadius: 8,
   cursor: "pointer",
+};
+const mapBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "7px 16px",
+  fontSize: 13.5,
+  fontWeight: 600,
+  color: "#fff",
+  background: "#2563eb",
+  border: "none",
+  borderRadius: 8,
+  cursor: "pointer",
+  fontFamily: "inherit",
 };

@@ -106,6 +106,7 @@ export default function App() {
         onSwitchProject={(id) => navigate(`/p/${id}`)}
         onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
         onNavigateProject={() => navigate(`/p/${pid}`)}
+        onNavigateMap={(nodeId) => navigate(nodeId ? `/p/${pid}/map/${nodeId}` : `/p/${pid}/map`)}
       />
     );
   }

@@ -9,6 +9,7 @@ import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
+import DocOverlay from "../components/inspector/DocOverlay";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import "./NodePage.css";
 
@@ -18,11 +19,13 @@ interface Props {
   // Навигация: страница другого узла / страница проекта
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
+  // Навигация в редактор-карту
+  onNavigateMap?: (nodeId: string | null) => void;
   // Удаление узла со страницы → редирект на родителя
   onNodeDeleted?: (parentId: string | null) => void;
 }
 
-export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNodeDeleted }: Props) {
+export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNodeDeleted }: Props) {
   const [node, setNode] = useState<Node | null>(null);
   const [ancestors, setAncestors] = useState<AncestorRef[]>([]);
   const [edges, setEdges] = useState<NodeEdgeInfo[]>([]);
@@ -70,6 +73,7 @@ export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNaviga
       isArchitect={isArchitect}
       onNavigateNode={onNavigateNode}
       onNavigateProject={onNavigateProject}
+      onNavigateMap={onNavigateMap}
       onNodeDeleted={onNodeDeleted}
       confirming={confirming}
       setConfirming={setConfirming}
@@ -89,6 +93,7 @@ function NodePageInner({
   isArchitect,
   onNavigateNode,
   onNavigateProject,
+  onNavigateMap,
   onNodeDeleted,
   confirming,
   setConfirming,
@@ -100,6 +105,7 @@ function NodePageInner({
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onNavigateProject: () => void;
+  onNavigateMap?: (nodeId: string | null) => void;
   onNodeDeleted?: (parentId: string | null) => void;
   confirming: boolean;
   setConfirming: (v: boolean) => void;
@@ -112,6 +118,7 @@ function NodePageInner({
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string } | null>(null);
 
   const statusMeta = STATUS_META[node.status];
 
@@ -174,9 +181,11 @@ function NodePageInner({
                   <>
                     <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
                     <div className="np-dropdown">
-                      <button onClick={() => { setMenuOpen(false); onNavigateNode(node.id); }}>
-                        Открыть в карте
-                      </button>
+                      {onNavigateMap && (
+                        <button onClick={() => { setMenuOpen(false); onNavigateMap(node.id); }}>
+                          Открыть в карте
+                        </button>
+                      )}
                       <button className="np-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
                         Удалить объект
                       </button>
@@ -361,6 +370,48 @@ function NodePageInner({
             </table>
           )}
         </div>
+
+        {/* ── Логика (node_docs) ────────────────────────────────── */}
+        {node.shape !== "person" && (isArchitect || node.docs.length > 0) && (
+          <div className="np-card">
+            <h3 className="np-card-title">Логика</h3>
+            {node.docs.length === 0 ? (
+              <p className="np-empty">Схемы логики не заданы</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {node.docs.map((d) => (
+                  <button
+                    key={d.id}
+                    className="np-doc-row"
+                    onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
+                    <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
+                      {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
+                    </span>
+                    {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
+                    <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── OpenAPI ───────────────────────────────────────────── */}
+        {node.shape !== "person" && (isArchitect || node.openapi_spec) && (
+          <div className="np-card">
+            <h3 className="np-card-title">OpenAPI</h3>
+            {node.openapi_spec ? (
+              <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+                <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+              </button>
+            ) : (
+              <p className="np-empty">Спецификация не задана</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Подтверждение удаления */}
@@ -372,6 +423,29 @@ function NodePageInner({
             setConfirming(false);
             onNodeDeleted?.(node.parent_id);
           }}
+        />
+      )}
+
+      {/* Оверлей документации (Логика / OpenAPI) */}
+      {doc && (
+        <DocOverlay
+          mode={doc.mode}
+          nodeId={node.id}
+          nodeName={node.name}
+          openapi={node.openapi_spec ?? ""}
+          isArchitect={isArchitect}
+          onCommitOpenapi={(value) => {
+            // CAS-правка openapi_spec через useNodePatch
+            void patch.commitOpenapi(value);
+          }}
+          onDocEvent={() => {
+            // После мутации доков — перезагружаем узел для обновления мета
+            nodesApi.get(node.id).then(() => {
+              // TODO: обновить node.docs в стейте
+            }).catch(() => {});
+          }}
+          onClose={() => setDoc(null)}
+          notice={patch.conflict}
         />
       )}
     </div>

@@ -27,6 +27,7 @@ interface NodePatch {
   commitDesc: () => void;
   commitRole: () => void;
   commitTech: () => void;
+  commitOpenapi: (value: string) => void;
   toggleExternal: () => void;
   pickStatus: (st: Node["status"]) => void;
   // Конфликт CAS
@@ -113,6 +114,11 @@ export function useNodePatch(
     void save({ technology: technology || null });
   }, [technology, save]);
 
+  const commitOpenapi = useCallback((value: string) => {
+    if (value === (beforeRef.current.openapi_spec ?? "")) return;
+    void save({ openapi_spec: value || null });
+  }, [save]);
+
   const toggleExternal = useCallback(() => {
     const next = !isExternal;
     setIsExternal(next);
@@ -128,7 +134,7 @@ export function useNodePatch(
   return {
     name, description, role, technology, isExternal, status,
     setName, setDescription, setRole, setTechnology, setIsExternal, setStatus,
-    commitName, commitDesc, commitRole, commitTech, toggleExternal, pickStatus,
+    commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal, pickStatus,
     conflict, node,
   };
 }
