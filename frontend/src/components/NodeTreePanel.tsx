@@ -41,6 +41,8 @@ interface Props {
   onDrillTo?: (path: Node[]) => void;
   // клик по листу (детей нет) → открыть контекстную схему узла
   onNodeContext?: (node: Node) => void;
+  // pages_pivot: клик по ЛЮБОМУ узлу → его страница (перекрывает onDrillTo/onNodeContext)
+  onNodePage?: (node: Node) => void;
   // секция «Добавить узел» показывается только архитектору
   isArchitect: boolean;
   // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
@@ -110,7 +112,19 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
 
 // Подпись действия справа в строке (видна только на hover). Контейнер → стрелка
 // вправо + «компоненты» (drill на слой); лист → кольцо с точкой + «контекст».
-function ActionLabel({ container }: { container: boolean }) {
+function ActionLabel({ container, pagesMode }: { container: boolean; pagesMode?: boolean }) {
+  if (pagesMode) {
+    return (
+      <span className="nt-action">
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+        </svg>
+        страница
+      </span>
+    );
+  }
   return (
     <span className="nt-action">
       {container ? (
@@ -176,7 +190,7 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag, reloadToken }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, isArchitect, onTemplateDrag, reloadToken }: Props) {
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
@@ -303,16 +317,19 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     const drillable = canHaveChildren(node.shape);
     // шеврон скрываем, если все дети узла оказались персонами (узел стал листом)
     const hasChildren = drillable && node.has_children && !leaves.has(id);
-    // промежуточный узел (есть дети в системе) → редирект на его слой; иначе → контекст.
-    // Опираемся на has_children, а не на скрытие шеврона: узел с детьми-персонами в дереве
-    // выглядит листом, но на основной схеме его дети (персоны) есть — туда и проваливаемся.
+    // pages_pivot: клик по любому узлу → его страница (единообразно).
+    // Старое поведение: промежуточный → слой, лист → контекст.
     const isIntermediate = drillable && node.has_children;
-    const handler = isIntermediate
-      ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
-      : (onNodeContext ? () => onNodeContext(node) : undefined);
+    const handler = onNodePage
+      ? () => onNodePage(node)
+      : isIntermediate
+        ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
+        : (onNodeContext ? () => onNodeContext(node) : undefined);
     const title = !handler
       ? node.name
-      : isIntermediate ? `Открыть слой: ${node.name}` : `Контекст: ${node.name}`;
+      : onNodePage
+        ? `Страница: ${node.name}`
+        : isIntermediate ? `Открыть слой: ${node.name}` : `Контекст: ${node.name}`;
     return (
       <>
         <div
@@ -344,7 +361,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
           <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
             {node.name}
           </span>
-          {handler && <ActionLabel container={isIntermediate} />}
+          {handler && <ActionLabel container={isIntermediate} pagesMode={!!onNodePage} />}
         </div>
         {/* Дети раскрытого узла — с направляющей вложенности (border-left). */}
         {isExpanded && kids.length > 0 && (

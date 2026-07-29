@@ -1,17 +1,34 @@
 import { useEffect, useState } from "react";
 import { clearToken, getToken } from "./api/auth";
 import { setCurrentProjectId } from "./api/projectScope";
+import { isPagesPivot } from "./featureFlags";
 import LoginPage from "./pages/LoginPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import TreePage from "./pages/TreePage";
+import ProjectShell from "./pages/ProjectShell";
 
-// Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — схема проекта.
-// react-router не тянем: маршрутов всего два.
-type Route = { name: "projects" } | { name: "tree"; projectId: string };
+// Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — схема проекта,
+// #/p/<id>/nodes/<nodeId> — страница объекта (pages_pivot).
+type Route =
+  | { name: "projects" }
+  | { name: "tree"; projectId: string }
+  | { name: "node"; projectId: string; nodeId: string }
+  | { name: "project-home"; projectId: string };
 
 function parseHash(): Route {
-  const m = window.location.hash.replace(/^#/, "").match(/^\/p\/([0-9a-fA-F-]+)/);
-  return m ? { name: "tree", projectId: m[1] } : { name: "projects" };
+  const hash = window.location.hash.replace(/^#/, "");
+  // #/p/<pid>/nodes/<nodeId>
+  const nodeMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)\/nodes\/([0-9a-fA-F-]+)/);
+  if (nodeMatch) return { name: "node", projectId: nodeMatch[1], nodeId: nodeMatch[2] };
+  // #/p/<pid>
+  const projMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)/);
+  if (projMatch) {
+    // pages_pivot: индекс проекта → страница проекта; иначе → старый TreePage
+    return isPagesPivot()
+      ? { name: "project-home", projectId: projMatch[1] }
+      : { name: "tree", projectId: projMatch[1] };
+  }
+  return { name: "projects" };
 }
 
 // Скоуп проекта (X-Project-Id) обязан быть выставлен ДО маунта TreePage: его
@@ -22,7 +39,9 @@ function parseHash(): Route {
 // СИНХРОННО при каждом разборе маршрута; setCurrentProjectId идемпотентен.
 function routeFromHash(): Route {
   const route = parseHash();
-  setCurrentProjectId(route.name === "tree" ? route.projectId : null);
+  // Скоуп проекта нужен всем маршрутам внутри проекта (tree, node, project-home)
+  const pid = route.name === "projects" ? null : route.projectId;
+  setCurrentProjectId(pid);
   return route;
 }
 
@@ -49,6 +68,23 @@ export default function App() {
 
   if (!authenticated) {
     return <LoginPage onLogin={() => setAuthenticated(true)} />;
+  }
+
+  // pages_pivot: страница узла или страница проекта (ProjectShell)
+  if (route.name === "node" || route.name === "project-home") {
+    const pid = route.projectId;
+    return (
+      <ProjectShell
+        key={pid}
+        projectId={pid}
+        nodeId={route.name === "node" ? route.nodeId : null}
+        onLogout={handleLogout}
+        onAllProjects={() => navigate("/projects")}
+        onSwitchProject={(id) => navigate(`/p/${id}`)}
+        onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
+        onNavigateProject={() => navigate(`/p/${pid}`)}
+      />
+    );
   }
 
   if (route.name === "tree") {
