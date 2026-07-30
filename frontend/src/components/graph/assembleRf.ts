@@ -44,11 +44,8 @@ export function assembleRfGraph(params: {
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
-  // Лупа «раскрыть компоненты» на фокус-узле (single-schema, Ф10): задаёт data.loupe
-  // блоку с focusId. undefined — лупы нет.
-  focusLoupe?: { focusId: string; count: number; title: string; onExpand: () => void };
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb, focusLoupe } = params;
+  const { layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
@@ -135,23 +132,18 @@ export function assembleRfGraph(params: {
           // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
           // к глубине уровня прибавляется вложенность рамки относительно уровня
           colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
-          hideActions: isContext || isReadOnly,
+          hideActions: isContext,
           connectable: isArchitect && !isContext && !isReadOnly,
           // quickConnect — объект-снимок: он стабилен по построению (useMemo []
           // в LevelGraph, внутри только latest-ref'ы), лениво оборачивать нечего
           quickConnect: isArchitect && !isContext && !isReadOnly ? getCb().quickConnect : undefined,
           // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
-          // В read-only блоке (контекст на странице) R5 скрыта: инлайн-раскрытие
-          // персистит позиции детей не в тот view_layout — там раскрытие идёт
-          // отдельной лупой (focusLoupe) через переключение на level-вид.
-          // Глубже MAX_INLINE_DEPTH слоёв от уровня лупы нет — только «Войти» (C8).
-          onExpand: !isContext && !isReadOnly && n.has_children && canHaveChildren(n.shape)
+          // Работает и в read-only блоке (контекст на странице) — это просмотр,
+          // не правка; расстановка компонентов — только в карте. Глубже
+          // MAX_INLINE_DEPTH слоёв от уровня лупы нет — только «Войти» (C8).
+          onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
             && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandLocalContainer(id)
-            : undefined,
-          // Лупа single-schema на фокус-узле (Ф10): работает и в контекст-режиме.
-          loupe: focusLoupe && n.id === focusLoupe.focusId
-            ? { count: focusLoupe.count, title: focusLoupe.title, onExpand: focusLoupe.onExpand }
             : undefined,
         } satisfies BlockData,
       };
@@ -197,8 +189,7 @@ export function assembleRfGraph(params: {
           colors: getNodeColors(ent.is_external, ent.depth),
           // Лупа гостевого контейнера — как у локала, не глубже MAX_INLINE_DEPTH
           // слоёв от уровня (C8); на пределе глубины — только «Войти к компонентам».
-          // В read-only блоке (контекст на странице) R5 скрыта (см. блок выше).
-          onExpand: !isReadOnly && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
+          onExpand: (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandContainer(id)
             : undefined,
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
