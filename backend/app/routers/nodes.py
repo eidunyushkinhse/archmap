@@ -53,6 +53,61 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
         n.has_children = n.child_count > 0
 
 
+def _read_view_layout(
+    db: Session, project_id: uuid.UUID, container_id: uuid.UUID | None
+) -> dict[str, ViewLayoutPayload]:
+    """Раскладка вида как есть: ВСЕ строки view_layout этого вида (у корня view IS
+    NULL — позиции корневых узлов теперь тоже здесь). Строки «не показанных
+    сейчас» проекций безвредны (какая проекция видна — решает фронт) и живут
+    намеренно: при возврате проекции геометрия воскресает. Инвариант F6а —
+    ЧТЕНИЕ НЕ ПИШЕТ В БД; реальных сирот чистят каскад view_id и delete_node."""
+    layout: dict[str, ViewLayoutPayload] = {}
+    view_filter = (
+        ViewLayoutItem.view_id.is_(None)
+        if container_id is None
+        else ViewLayoutItem.view_id == container_id
+    )
+    for r in (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id == project_id, view_filter)
+        .all()
+    ):
+        payload = ViewLayoutPayload(**r.payload)
+        # легаси-строки пучков (ручной слой стрелок, удалён 2026-07-09): все живые
+        # поля пусты — не отдаём мусор
+        if payload.x is None and payload.y is None and payload.expanded is None:
+            continue
+        layout[r.item_id] = payload
+    return layout
+
+
+def _ghost_registry(
+    all_nodes: dict[uuid.UUID, Node],
+    endpoint_ids: set[uuid.UUID],
+    child_counts: Counter,
+) -> list[GhostNodeResponse]:
+    """Реестр не-локальных концов рёбер с цепочками предков (сортировка по id —
+    детерминизм ответа). По нему фронтовая проекция поднимает конец к ближайшему
+    видимому представителю и строит рамки/раскрытия."""
+    return [
+        GhostNodeResponse(
+            id=all_nodes[nid].id,
+            name=all_nodes[nid].name,
+            role=all_nodes[nid].role,
+            technology=all_nodes[nid].technology,
+            is_external=all_nodes[nid].is_external,
+            shape=all_nodes[nid].shape,
+            status=all_nodes[nid].status,
+            node_depth=tree.node_depth(all_nodes, nid),
+            has_children=child_counts.get(nid, 0) > 0,
+            child_count=child_counts.get(nid, 0),
+            ancestors=tree.ancestors(all_nodes, nid),
+        )
+        for nid in sorted(endpoint_ids, key=str)
+        if nid in all_nodes
+    ]
+
+
 def _build_graph(
     local_nodes: list[Node],
     container_id: uuid.UUID | None,
@@ -95,51 +150,14 @@ def _build_graph(
             if nid not in local_ids:
                 endpoint_ids.add(nid)
 
-    # Раскладка вида как есть: ВСЕ строки view_layout этого вида (у корня view IS
-    # NULL — позиции корневых узлов теперь тоже здесь). Строки «не показанных
-    # сейчас» проекций безвредны (какая проекция видна — решает фронт) и живут
-    # намеренно: при возврате проекции геометрия воскресает. Инвариант F6а —
-    # ЧТЕНИЕ НЕ ПИШЕТ В БД; реальных сирот чистят каскад view_id и delete_node.
-    layout: dict[str, ViewLayoutPayload] = {}
-    project_id = local_nodes[0].project_id
-    view_filter = (
-        ViewLayoutItem.view_id.is_(None)
-        if container_id is None
-        else ViewLayoutItem.view_id == container_id
-    )
-    for r in (
-        db.query(ViewLayoutItem)
-        .filter(ViewLayoutItem.project_id == project_id, view_filter)
-        .all()
-    ):
-        payload = ViewLayoutPayload(**r.payload)
-        # легаси-строки пучков (ручной слой стрелок, удалён 2026-07-09): все живые
-        # поля пусты — не отдаём мусор
-        if payload.x is None and payload.y is None and payload.expanded is None:
-            continue
-        layout[r.item_id] = payload
+    # Раскладка вида как есть (единый читатель _read_view_layout).
+    layout = _read_view_layout(db, local_nodes[0].project_id, container_id)
 
     # Число прямых детей у каждого родителя — одним проходом по всем узлам.
     # Питает бейдж «есть дети (N)» и кнопку «Войти» и у концов-реестра, и у локалов.
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
-    # Реестр не-локальных концов рёбер (сортировка по id — детерминизм ответа).
-    endpoints = [
-        GhostNodeResponse(
-            id=all_nodes[nid].id,
-            name=all_nodes[nid].name,
-            role=all_nodes[nid].role,
-            technology=all_nodes[nid].technology,
-            is_external=all_nodes[nid].is_external,
-            shape=all_nodes[nid].shape,
-            status=all_nodes[nid].status,
-            node_depth=tree.node_depth(all_nodes, nid),
-            has_children=child_counts.get(nid, 0) > 0,
-            child_count=child_counts.get(nid, 0),
-            ancestors=tree.ancestors(all_nodes, nid),
-        )
-        for nid in sorted(endpoint_ids, key=str)
-        if nid in all_nodes
-    ]
+    # Реестр не-локальных концов рёбер (единый строитель _ghost_registry).
+    endpoints = _ghost_registry(all_nodes, endpoint_ids, child_counts)
     # child_count/has_children локальных узлов — из того же Counter
     # (карта всех узлов уже в памяти; отдельный SQL _mark_has_children здесь лишний).
     for n in local_nodes:
@@ -738,6 +756,95 @@ def get_node_context(
         neighbors=neighbors,
         edges=result_edges,
         inner_endpoints=inner_endpoints,
+    )
+
+
+@router.get("/{node_id}/context-graph", response_model=GraphResponse)
+def get_node_context_graph(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> GraphResponse:
+    """Контекст объекта в формате СЫРОГО графа уровня — «Схема» страницы объекта
+    (single-schema): виртуальный корневой уровень, который фронт рендерит тем же
+    level-конвейером, что и обычный уровень. Форма ответа — GraphResponse:
+
+    - nodes (локалы) = фокус + ПРЕДСТАВИТЕЛИ соседей: сиблинги фокуса (дети того
+      же родителя; на корне — корневые узлы), в чьём поддереве лежит хотя бы один
+      сосед. Несвязанные сиблинги уровня в контекст не попадают.
+    - edges — СЫРЫЕ рёбра контекста (реальные концы, проекция — на фронте):
+      внутренние поддерева фокуса (питают раскрытие R5), граничные (ровно один
+      конец в поддереве — сам контекст) и сосед↔сосед (связи между соседями —
+      как в «отдельном проекте», куда положили объект и его соседей).
+    - endpoints — реестр не-локальных концов этих рёбер с цепочками предков.
+    - layout — раскладка КОРНЕВОГО вида (view IS NULL): узлы, присутствующие в
+      ней (корневые), встают в сохранённые позиции — страница корневого узла
+      совпадает с корневым холстом пиксель-в-пиксель; остальные раскладываются
+      свежим ELK — как корень отдельного проекта без сохранённых позиций.
+    """
+    focus = scoped_node(db, node_id, project)
+    if not focus:
+        raise HTTPException(status_code=404, detail="Узел не найден")
+
+    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
+    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
+    subtree = tree.subtree_ids(all_nodes, focus.id)
+
+    # Соседи — внешние сырые концы граничных рёбер поддерева фокуса.
+    neighbor_ids: set[uuid.UUID] = set()
+    for e in all_edges:
+        s_in = e.source_id in subtree
+        t_in = e.target_id in subtree
+        if s_in != t_in:
+            neighbor_ids.add(e.target_id if s_in else e.source_id)
+
+    # Представители соседей среди сиблингов фокуса: контекст — это уровень
+    # родителя, обрезанный до связанной с фокусом части, поэтому сосед из
+    # поддерева сиблинга показывается этим сиблингом (глубокий конец поднимет
+    # фронтовая проекция), а сосед вне родителя останется гостем реестра.
+    reps = [
+        n
+        for n in all_nodes.values()
+        if n.parent_id == focus.parent_id
+        and n.id != focus.id
+        and tree.subtree_ids(all_nodes, n.id) & neighbor_ids
+    ]
+    local_nodes = [focus, *sorted(reps, key=lambda n: str(n.id))]
+    local_ids = {n.id for n in local_nodes}
+
+    result_edges: list[GraphEdgeResponse] = []
+    endpoint_ids: set[uuid.UUID] = set()
+    for e in all_edges:
+        touches_subtree = e.source_id in subtree or e.target_id in subtree
+        both_neighbors = e.source_id in neighbor_ids and e.target_id in neighbor_ids
+        if not (touches_subtree or both_neighbors):
+            continue
+        result_edges.append(
+            GraphEdgeResponse(
+                id=e.id,
+                label=e.label,
+                technology=e.technology,
+                source_id=e.source_id,
+                target_id=e.target_id,
+                version=e.version,
+            )
+        )
+        for nid in (e.source_id, e.target_id):
+            if nid not in local_ids:
+                endpoint_ids.add(nid)
+
+    child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
+    for n in local_nodes:
+        n.child_count = child_counts.get(n.id, 0)
+        n.has_children = n.child_count > 0
+    return GraphResponse(
+        nodes=local_nodes,
+        edges=result_edges,
+        endpoints=_ghost_registry(all_nodes, endpoint_ids, child_counts),
+        layout=_read_view_layout(db, project.id, None),
+        version=current_version(db, project.id, None),
+        graph_rev=project.graph_rev,
     )
 
 
