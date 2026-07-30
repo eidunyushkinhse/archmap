@@ -3,7 +3,7 @@
 // драг=пан (жесты ReactFlow), рамка подсвечена акцентом; Esc/клик-мимо деактивирует.
 // Одинарный клик по узлу — выделение + индиго-подсветка инцидентных связей.
 // Двойной клик по узлу — переход на его страницу (onNavigateNode).
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GhostNode, Node, ViewLayout, Edge } from "../types";
 import LevelGraph from "./LevelGraph";
 import { SchemaViewFilter } from "./SchemaViewFilter";
@@ -50,6 +50,25 @@ export default function EmbeddedSchemaBlock({
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Ширина блока → пропорциональная высота схемы (страница во всю ширину,
+  // схемы масштабируются вместе с доступным пространством).
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setMeasuredWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Высота = ширина × коэффициент, с ограничениями. До первого замера — height из пропсов.
+  const responsiveHeight = useMemo(() => {
+    if (measuredWidth <= 0) return height;
+    return Math.max(320, Math.min(680, Math.round(measuredWidth * 0.52)));
+  }, [measuredWidth, height]);
 
   // Esc — деактивация
   useEffect(() => {
@@ -99,7 +118,7 @@ export default function EmbeddedSchemaBlock({
       <div
         ref={wrapRef}
         className={"esb-wrap" + (active ? " esb-wrap--active" : "")}
-        style={{ height }}
+        style={{ height: responsiveHeight }}
       >
         {empty ? (
           <div className="esb-empty">{empty}</div>
