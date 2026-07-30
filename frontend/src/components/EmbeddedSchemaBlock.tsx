@@ -174,6 +174,10 @@ export default function EmbeddedSchemaBlock({
                 isArchitect={isArchitect}
                 readOnly={!editing}
                 arrangeOnly={!!editing}
+                // Страничные схемы (проекта и объекта) стартуют СВЁРНУТЫМИ:
+                // персистные раскрытия вида не применяются, раскрытие — лупой
+                // (решение 2026-07-30; редактор-карта восстанавливает как прежде).
+                ignorePersistedExpanded
                 nodesDraggable={nodesDraggable}
                 schemaView={schemaView}
                 onDrillDown={handleNavigate}

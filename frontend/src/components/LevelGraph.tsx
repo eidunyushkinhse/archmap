@@ -193,6 +193,12 @@ interface LevelGraphProps {
   // персист раскладки и undo/redo перемещений ВКЛЮЧЕНЫ, но создание/удаление
   // связей и узлов, дроп шаблонов — ВЫКЛЮЧЕНЫ (это зона редактора-карты).
   arrangeOnly?: boolean;
+  // Стартовать свёрнутым: персистные раскрытия вида (payload.expanded) НЕ
+  // применяются — раскрытия только эфемерными кликами лупы этой сессии.
+  // Страничные схемы (проекта и объекта) стартуют свёрнутыми единообразно
+  // (решение 2026-07-30); редактор-карта флаг не передаёт и восстанавливает
+  // персистные раскрытия как прежде (container.md C7).
+  ignorePersistedExpanded?: boolean;
   // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
@@ -259,6 +265,7 @@ function LevelGraphInner({
   readOnly = false,
   nodesDraggable: nodesDraggableProp,
   arrangeOnly = false,
+  ignorePersistedExpanded = false,
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
@@ -466,13 +473,17 @@ function LevelGraphInner({
   }, [containerId]);
   const expanded = useMemo(() => {
     const s = new Set<string>();
-    for (const [id, p] of Object.entries(viewLayout)) if (p.expanded) s.add(id);
+    // Страничные схемы стартуют свёрнутыми: сохранённые раскрытия вида не
+    // применяются (ignorePersistedExpanded), живут только клики этой сессии.
+    if (!ignorePersistedExpanded) {
+      for (const [id, p] of Object.entries(viewLayout)) if (p.expanded) s.add(id);
+    }
     for (const [id, v] of expandOverrides) {
       if (v) s.add(id);
       else s.delete(id);
     }
     return s;
-  }, [viewLayout, expandOverrides]);
+  }, [viewLayout, expandOverrides, ignorePersistedExpanded]);
 
   // Догруженные дети раскрытых ЛОКАЛЬНЫХ контейнеров (R5): id → прямые дети.
   // Кэш живёт до смены уровня; сворачивание кэш не чистит (повторное раскрытие
