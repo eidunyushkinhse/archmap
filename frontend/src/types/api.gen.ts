@@ -1708,6 +1708,12 @@ export interface components {
          *     фокуса (сам узел или любой его потомок). Рёбра спроецированы: конец внутри
          *     поддерева свёрнут на фокус, внешний конец указывает на узел-соседа.
          *     Соседи отдаются как «гости» (пунктир), focus_ancestors — для рамок предков.
+         *
+         *     inner_endpoints — реестр глубоких концов внутри поддерева фокуса (реальные
+         *     узлы-концы связей, не сам фокус) с цепочками предков: тот же реестр концов,
+         *     что отдаёт getGraph для уровня. По нему фронтовая проекция поднимает конец к
+         *     видимому представителю (фокус / его ребёнок при раскрытии R5) — рендер контекста
+         *     как виртуального корневого уровня работает той же логикой, что и уровень.
          */
         NodeContextResponse: {
             focus: components["schemas"]["NodeResponse"];
@@ -1726,6 +1732,11 @@ export interface components {
              * @default []
              */
             edges: components["schemas"]["ContextEdgeResponse"][];
+            /**
+             * Inner Endpoints
+             * @default []
+             */
+            inner_endpoints: components["schemas"]["GhostNodeResponse"][];
         };
         /** NodeCreate */
         NodeCreate: {
