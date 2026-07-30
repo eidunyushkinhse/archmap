@@ -986,7 +986,7 @@ function LevelGraphInner({
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
     const { nextNodes, nextEdges } = assembleRfGraph({
-      layout, isArchitect, isContext, depth, schemaView, getCb, focusLoupe,
+      layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb, focusLoupe,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -1001,7 +1001,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout, getCb, getNodes, getEdges, focusLoupe]);
+  }, [layout, isArchitect, depth, isContext, isReadOnly, schemaView, applyLayout, getCb, getNodes, getEdges, focusLoupe]);
 
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).

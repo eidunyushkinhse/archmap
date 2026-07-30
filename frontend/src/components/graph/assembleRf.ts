@@ -37,6 +37,10 @@ export function assembleRfGraph(params: {
   layout: LayoutResult;
   isArchitect: boolean;
   isContext: boolean;
+  // read-only блок (встроенные схемы на страницах): без структурной правки —
+  // хэндлы/быстрая связь/R5-лупа скрыты (инлайн-раскрытие в контекст-блоке
+  // персистит позиции не в тот view_layout; раскрытие там — отдельной лупой).
+  isReadOnly: boolean;
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
@@ -44,7 +48,7 @@ export function assembleRfGraph(params: {
   // блоку с focusId. undefined — лупы нет.
   focusLoupe?: { focusId: string; count: number; title: string; onExpand: () => void };
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isContext, depth, schemaView, getCb, focusLoupe } = params;
+  const { layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb, focusLoupe } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
@@ -131,16 +135,17 @@ export function assembleRfGraph(params: {
           // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
           // к глубине уровня прибавляется вложенность рамки относительно уровня
           colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
-          hideActions: isContext,
-          connectable: isArchitect && !isContext,
+          hideActions: isContext || isReadOnly,
+          connectable: isArchitect && !isContext && !isReadOnly,
           // quickConnect — объект-снимок: он стабилен по построению (useMemo []
           // в LevelGraph, внутри только latest-ref'ы), лениво оборачивать нечего
-          quickConnect: isArchitect && !isContext ? getCb().quickConnect : undefined,
+          quickConnect: isArchitect && !isContext && !isReadOnly ? getCb().quickConnect : undefined,
           // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
-          // В контексте read-only схема — без раскрытий. Глубже MAX_INLINE_DEPTH
-          // слоёв от уровня лупы нет — только «Войти» (C8): pf — объемлющая рамка,
-          // frameNesting(pf) = инлайн-глубина узла (0 = прямо на уровне).
-          onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
+          // В read-only блоке (контекст на странице) R5 скрыта: инлайн-раскрытие
+          // персистит позиции детей не в тот view_layout — там раскрытие идёт
+          // отдельной лупой (focusLoupe) через переключение на level-вид.
+          // Глубже MAX_INLINE_DEPTH слоёв от уровня лупы нет — только «Войти» (C8).
+          onExpand: !isContext && !isReadOnly && n.has_children && canHaveChildren(n.shape)
             && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandLocalContainer(id)
             : undefined,
@@ -170,8 +175,8 @@ export function assembleRfGraph(params: {
           data: {
             appNode: ent.ghost,
             colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth, ent.ghost.status),
-            connectable: isArchitect && !isContext,
-            quickConnect: isArchitect && !isContext ? getCb().quickConnect : undefined,
+            connectable: isArchitect && !isContext && !isReadOnly,
+            quickConnect: isArchitect && !isContext && !isReadOnly ? getCb().quickConnect : undefined,
             // в контекст-режиме навигация по слоям отключена (схема — внутри модалки).
             // Путь гостя = его предки + он сам (другая ветка дерева).
             onEnter: isContext
@@ -192,15 +197,16 @@ export function assembleRfGraph(params: {
           colors: getNodeColors(ent.is_external, ent.depth),
           // Лупа гостевого контейнера — как у локала, не глубже MAX_INLINE_DEPTH
           // слоёв от уровня (C8); на пределе глубины — только «Войти к компонентам».
-          onExpand: (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
+          // В read-only блоке (контекст на странице) R5 скрыта (см. блок выше).
+          onExpand: !isReadOnly && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandContainer(id)
             : undefined,
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
           onEnter: isContext
             ? undefined
             : () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
-          connectable: isArchitect && !isContext,
-          quickConnect: isArchitect && !isContext ? getCb().quickConnect : undefined,
+          connectable: isArchitect && !isContext && !isReadOnly,
+          quickConnect: isArchitect && !isContext && !isReadOnly ? getCb().quickConnect : undefined,
         } satisfies ContainerData,
       };
     }),

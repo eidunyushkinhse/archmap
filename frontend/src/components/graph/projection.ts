@@ -55,9 +55,16 @@ export function liftEdgesToLevel<E extends { source_id: string; target_id: strin
   for (const e of edges) {
     const s = lift(e.source_id);
     const t = lift(e.target_id);
-    if (!s || !t) continue;
+    if (!s || !t) {
+      // Ребро отброшено (конец — контейнер уровня/раскрытый контейнер/неизвестно).
+      // Гостевой конец всё равно собираем: внешний узел, связанный с контейнером,
+      // не должен исчезать со схемы при его раскрытии/сворачивании (single-schema).
+      if (s?.ghost) ghostIds.add(s.id);
+      if (t?.ghost) ghostIds.add(t.id);
+      continue;
+    }
     if (s.id === t.id) continue; // оба конца в одной сущности — внутреннее ребро
-    if (s.ghost && t.ghost) continue; // ни один конец не локален
+    if (s.ghost && t.ghost) continue; // ни один конец не локален (защита; не собираем)
     out.push({ ...e, source_id: s.id, target_id: t.id });
     if (s.ghost) ghostIds.add(s.id);
     if (t.ghost) ghostIds.add(t.id);
