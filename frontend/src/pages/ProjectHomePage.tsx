@@ -2,12 +2,12 @@
 // Шапка: имя, описание, счётчики. Секция «Схема системы» = корневой уровень.
 // Секция «Бизнес-процессы» — список со счётчиком участников.
 import { useEffect, useState } from "react";
-import type { GhostNode, Node, Project, ViewLayout, Edge, ProcessListItem } from "../types";
-import { nodesApi } from "../api/nodes";
+import type { Project, ProcessListItem } from "../types";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
+import { useEditableLevel } from "./useEditableLevel";
 import "./NodePage.css";
 
 interface Props {
@@ -18,45 +18,39 @@ interface Props {
 
 export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode }: Props) {
   const [project, setProject] = useState<Project | null>(null);
-  const [graphNodes, setGraphNodes] = useState<Node[]>([]);
-  const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [viewLayout, setViewLayout] = useState<ViewLayout>({});
   const [processes, setProcesses] = useState<ProcessListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [metaLoading, setMetaLoading] = useState(true);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
+  const lvl = useEditableLevel({ containerId: null, isArchitect });
 
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
+  // Мета проекта + процессы (граф уровня грузит useEditableLevel)
   // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка при маунте
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [proj, graph, procs] = await Promise.all([
+        const [proj, procs] = await Promise.all([
           projectsApi.get(projectId),
-          nodesApi.getGraph(null),
           processesApi.list(),
         ]);
         if (!alive) return;
         setProject(proj);
-        setGraphNodes(graph.nodes);
-        setEndpoints(graph.endpoints);
-        // GraphEdge → Edge: добавляем отсутствующие поля
-        setEdges(graph.edges.map((ge) => ({ ...ge, created_at: "", is_synchronous: null })));
-        setViewLayout(graph.layout ?? {});
         setProcesses(procs);
       } finally {
-        if (alive) setLoading(false);
+        if (alive) setMetaLoading(false);
       }
     })();
     return () => { alive = false; };
   }, [projectId]);
 
-  if (loading || !project) {
+  if (metaLoading || lvl.loading || !project) {
     return <div className="np-loading">Загрузка…</div>;
   }
 
+  const graphNodes = lvl.nodes;
+  const endpoints = lvl.endpoints;
   const hasNodes = graphNodes.length + endpoints.length > 0;
   const hasStatusInfo =
     graphNodes.some((n) => n.status !== "existing") ||
@@ -98,8 +92,8 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
           <EmbeddedSchemaBlock
             nodes={graphNodes}
             endpoints={endpoints}
-            edges={edges}
-            viewLayout={viewLayout}
+            edges={lvl.edges}
+            viewLayout={lvl.viewLayout}
             containerId={null}
             ancestorNames={[]}
             ancestorIds={[]}
@@ -112,6 +106,20 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} объектов` : undefined}
             showViewFilter={hasStatusInfo}
             nodesDraggable
+            editing={{
+              history: lvl.history,
+              onLayoutChanged: lvl.handleLayoutChanged,
+              viewMeta: lvl.viewMetaRef,
+              gestureActiveRef: lvl.gestureActiveRef,
+              onPersistError: lvl.onPersistError,
+              onPersistConflict: lvl.onPersistConflict,
+              retryPatch: lvl.retryPatch,
+            }}
+            onUndo={lvl.undo}
+            onRedo={lvl.redo}
+            canUndo={lvl.canUndo}
+            canRedo={lvl.canRedo}
+            onRelayout={() => { void lvl.relayout(); }}
             empty={
               hasNodes ? undefined : (
                 <span>

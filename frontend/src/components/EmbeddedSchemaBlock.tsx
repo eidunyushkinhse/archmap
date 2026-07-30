@@ -4,11 +4,25 @@
 // Одинарный клик по узлу — выделение + индиго-подсветка инцидентных связей.
 // Двойной клик по узлу — переход на его страницу (onNavigateNode).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GhostNode, Node, ViewLayout, Edge } from "../types";
+import type { GhostNode, Node, ViewLayout, Edge, ViewLayoutPayload } from "../types";
 import LevelGraph from "./LevelGraph";
+import type { ViewMetaState } from "./LevelGraph";
+import type { History } from "./graph/interaction/useHistory";
 import { SchemaViewFilter } from "./SchemaViewFilter";
 import type { SchemaView } from "./schemaView";
 import "./EmbeddedSchemaBlock.css";
+
+// Инфраструктура редактирования раскладки (из useEditableLevel) — передаётся
+// в LevelGraph для персиста перемещений и undo/redo.
+export interface SchemaEditing {
+  history: History;
+  onLayoutChanged: (items: Record<string, ViewLayoutPayload | null>) => void;
+  viewMeta: { current: ViewMetaState };
+  gestureActiveRef: { current: boolean };
+  onPersistError: (e: unknown) => void | Promise<void>;
+  onPersistConflict: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
+  retryPatch: { patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number } | null;
+}
 
 interface Props {
   nodes: Node[];
@@ -39,6 +53,15 @@ interface Props {
   mode?: "level" | "context";
   // Драг узлов (по умолчанию false для readOnly-блоков)
   nodesDraggable?: boolean;
+  // Контролы расстановки (undo/redo перемещений + перераскладка) — рисуются
+  // поверх холста: undo/redo слева вверху, перераскладка справа вверху.
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onRelayout?: () => void;
+  // Инфраструктура персиста/undo (из useEditableLevel). Без неё блок view-only.
+  editing?: SchemaEditing;
 }
 
 export default function EmbeddedSchemaBlock({
@@ -47,6 +70,8 @@ export default function EmbeddedSchemaBlock({
   schemaView, onSchemaViewChange, onNavigateNode, onEdit,
   height, toolbarHint, showViewFilter, empty, mode = "level",
   nodesDraggable = false,
+  onUndo, onRedo, canUndo = false, canRedo = false, onRelayout,
+  editing,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -145,7 +170,8 @@ export default function EmbeddedSchemaBlock({
                 ancestorIds={ancestorIds}
                 depth={depth}
                 isArchitect={isArchitect}
-                readOnly
+                readOnly={!editing}
+                arrangeOnly={!!editing}
                 nodesDraggable={nodesDraggable}
                 mode={mode}
                 schemaView={schemaView}
@@ -153,8 +179,49 @@ export default function EmbeddedSchemaBlock({
                 onEditNode={handleNavigate}
                 onInspectGhost={handleGhostNavigate}
                 onEdgesChoice={() => {}}
+                history={editing?.history}
+                onUndo={onUndo}
+                onRedo={onRedo}
+                onLayoutChanged={editing?.onLayoutChanged}
+                viewMeta={editing?.viewMeta}
+                gestureActiveRef={editing?.gestureActiveRef}
+                onPersistError={editing?.onPersistError}
+                onPersistConflict={editing?.onPersistConflict}
+                retryPatch={editing?.retryPatch}
               />
             </div>
+            {/* Контролы расстановки: undo/redo слева, перераскладка справа */}
+            {active && editing && (onUndo || onRelayout) && (
+              <div className="esb-controls">
+                <div className="esb-controls-left">
+                  <button
+                    className="esb-ctl"
+                    onClick={onUndo}
+                    disabled={!canUndo}
+                    title="Отменить перемещение · Ctrl+Z"
+                  >
+                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h13a4 4 0 0 1 0 8H7" /><path d="M3 10 7 6" /><path d="M3 10 7 14" /></svg>
+                  </button>
+                  <button
+                    className="esb-ctl"
+                    onClick={onRedo}
+                    disabled={!canRedo}
+                    title="Повторить перемещение · Ctrl+Shift+Z"
+                  >
+                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 10H8a4 4 0 0 0 0 8h9" /><path d="m21 10-4-4" /><path d="m21 10-4 4" /></svg>
+                  </button>
+                </div>
+                {isArchitect && onRelayout && (
+                  <button
+                    className="esb-ctl"
+                    onClick={onRelayout}
+                    title="Переразложить уровень (сбросить расстановку)"
+                  >
+                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 21v-5h5" /></svg>
+                  </button>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

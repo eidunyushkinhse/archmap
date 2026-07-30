@@ -117,3 +117,44 @@
   color: #94a3b8;
   line-height: 1.4;
 }
+
+/* ── Контролы расстановки (undo/redo + перераскладка) ────────────── */
+.esb-controls {
+  position: absolute;
+  inset: 10px 10px auto 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.esb-controls-left {
+  display: flex;
+  gap: 6px;
+}
+
+.esb-ctl {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.10);
+  transition: border-color 0.12s, color 0.12s, background 0.12s, opacity 0.12s;
+}
+.esb-ctl:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #fff;
+}
+.esb-ctl:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

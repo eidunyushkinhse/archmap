@@ -2,11 +2,12 @@
 // Фаза 1: шапка (breadcrumb, имя, статус, чип), свойства (inline CAS), связи (таблица).
 // Схемы (контекст, компоненты) добавляются в Фазе 2.
 import { useCallback, useEffect, useState } from "react";
-import type { AncestorRef, Node, NodeEdgeInfo, NodeShape, NodeStatus, GhostNode, ViewLayout, Edge, NodeContext, LevelEdge } from "../types";
+import type { AncestorRef, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
+import { useEditableLevel } from "./useEditableLevel";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
@@ -606,34 +607,17 @@ function ComponentsSection({
   onNavigateNode: (id: string) => void;
   onNavigateMap?: (nodeId: string | null) => void;
 }) {
-  const [graphNodes, setGraphNodes] = useState<Node[]>([]);
-  const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [viewLayout, setViewLayout] = useState<ViewLayout>({});
-  const [loading, setLoading] = useState(true);
+  const lvl = useEditableLevel({ containerId: nodeId, isArchitect });
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
 
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка графа уровня при маунте
-  useEffect(() => {
-    let alive = true;
-    nodesApi.getGraph(nodeId).then((g) => {
-      if (!alive) return;
-      setGraphNodes(g.nodes);
-      setEndpoints(g.endpoints);
-      // GraphEdge → Edge: добавляем отсутствующие поля (created_at, is_synchronous)
-      setEdges(g.edges.map((ge) => ({ ...ge, created_at: "", is_synchronous: null })));
-      setViewLayout(g.layout ?? {});
-      setLoading(false);
-    }).catch(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [nodeId]);
-
-  if (loading) {
+  if (lvl.loading) {
     return <p className="np-empty">Загрузка схемы…</p>;
   }
 
+  const graphNodes = lvl.nodes;
+  const endpoints = lvl.endpoints;
   const hasNodes = graphNodes.length + endpoints.length > 0;
   const hasStatusInfo =
     graphNodes.some((n) => n.status !== "existing") ||
@@ -650,8 +634,8 @@ function ComponentsSection({
     <EmbeddedSchemaBlock
       nodes={graphNodes}
       endpoints={endpoints}
-      edges={edges}
-      viewLayout={viewLayout}
+      edges={lvl.edges}
+      viewLayout={lvl.viewLayout}
       containerId={nodeId}
       ancestorNames={ancestorNames}
       ancestorIds={ancestorIds}
@@ -665,6 +649,20 @@ function ComponentsSection({
       toolbarHint={hasNodes ? `${graphNodes.length} комп.` : undefined}
       showViewFilter={hasStatusInfo}
       nodesDraggable
+      editing={{
+        history: lvl.history,
+        onLayoutChanged: lvl.handleLayoutChanged,
+        viewMeta: lvl.viewMetaRef,
+        gestureActiveRef: lvl.gestureActiveRef,
+        onPersistError: lvl.onPersistError,
+        onPersistConflict: lvl.onPersistConflict,
+        retryPatch: lvl.retryPatch,
+      }}
+      onUndo={lvl.undo}
+      onRedo={lvl.redo}
+      canUndo={lvl.canUndo}
+      canRedo={lvl.canRedo}
+      onRelayout={() => { void lvl.relayout(); }}
       empty={
         hasNodes ? undefined : (
           <span>

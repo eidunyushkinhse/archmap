@@ -192,6 +192,10 @@ interface LevelGraphProps {
   // (персист раскладки при этом НЕ идёт — только визуальный драг в рамках сессии).
   // По умолчанию: !readOnly.
   nodesDraggable?: boolean;
+  // Режим «только расстановка» (встроенные блоки на страницах): драг узлов,
+  // персист раскладки и undo/redo перемещений ВКЛЮЧЕНЫ, но создание/удаление
+  // связей и узлов, дроп шаблонов — ВЫКЛЮЧЕНЫ (это зона редактора-карты).
+  arrangeOnly?: boolean;
   // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
@@ -258,6 +262,7 @@ function LevelGraphInner({
   mode = "level",
   readOnly = false,
   nodesDraggable: nodesDraggableProp,
+  arrangeOnly = false,
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
@@ -265,7 +270,12 @@ function LevelGraphInner({
   // readOnly гейтит все жесты правки (как isContext), но не влияет на рендер уровня
   const isReadOnly = readOnly || isContext;
   // Драг узлов: по умолчанию !isReadOnly, но можно включить отдельно (embedded-блоки)
-  const dragNodes = nodesDraggableProp ?? !isReadOnly;
+  const dragNodes = nodesDraggableProp ?? (arrangeOnly || !isReadOnly);
+  // «Только расстановка»: драг/персист/undo доступны, структурная правка — нет.
+  // canArrange — персист раскладки, снапы, undo/redo перемещений.
+  // canStructure — создание/удаление связей и узлов, дроп шаблонов.
+  const canArrange = arrangeOnly || !isReadOnly;
+  const canStructure = !isReadOnly;
   const { screenToFlowPosition, setCenter, fitBounds, getInternalNode, getNodes, getEdges } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
@@ -395,7 +405,7 @@ function LevelGraphInner({
       origin: CommitOrigin = "user",
       isRetry = false,
     ): boolean => {
-      if (!isArchitect || isReadOnly) return false;
+      if (!isArchitect || !canArrange) return false;
       // Нормализация payload для сравнения с зеркалом: null-поля эквивалентны
       // отсутствию (сервер выкидывает их exclude_none).
       const norm = (v: ViewLayoutPayload | null | undefined): string => {
@@ -418,7 +428,7 @@ function LevelGraphInner({
       onLayoutChanged?.(items);
       return true;
     },
-    [isArchitect, isReadOnly, viewLayout, persistFenced, onLayoutChanged],
+    [isArchitect, canArrange, viewLayout, persistFenced, onLayoutChanged],
   );
   // Исполнитель переигровки 409 (проп retryPatch из TreePage): одноразово (token)
   // коммитит исходный патч заново — commitLayout здесь из deps, т.е. замкнут на
@@ -595,7 +605,7 @@ function LevelGraphInner({
   // Ctrl+Z жмут и без выбранного узла (фокус на body). Только архитектор и не контекст
   // (read-only). В полях ввода не перехватываем — там нативная отмена текста.
   useEffect(() => {
-    if (!isArchitect || isReadOnly) return;
+    if (!isArchitect || !canArrange) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const t = document.activeElement as HTMLElement | null;
@@ -606,13 +616,13 @@ function LevelGraphInner({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isArchitect, isReadOnly, runUndo, runRedo]);
+  }, [isArchitect, canArrange, runUndo, runRedo]);
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
   // кладёт в историю, обязаны коммитить через СВЕЖЕЕ зеркало (см. commitLayoutStable).
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, isContext: isReadOnly,
+    rfNodes, onNodesChange, setGuides, isArchitect, isContext: !canArrange,
     ancestorIds, ancestorNames, commitLayout: commitLayoutStable, push: history.push,
     noteGesture, // флаш клавиатурной серии открывает окно жеста, как отпускание драга
   });
@@ -763,7 +773,7 @@ function LevelGraphInner({
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
   const { handleKeyDown } = useCanvasDelete({
-    rfNodes, isArchitect, isContext: isReadOnly, onRequestDeleteNode, onRequestDeleteNodes,
+    rfNodes, isArchitect, isContext: !canStructure, onRequestDeleteNode, onRequestDeleteNodes,
   });
 
 
@@ -808,7 +818,7 @@ function LevelGraphInner({
   // стрелок (2026-07-09) — поток создания единственный.
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
-      isArchitect, isContext: isReadOnly, resolveTarget,
+      isArchitect, isContext: !canStructure, resolveTarget,
       onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
       onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
       onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
@@ -1080,7 +1090,7 @@ function LevelGraphInner({
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
     rfNodes, screenToFlowPosition, setGuides, clearGuides,
-    isArchitect, isContext: isReadOnly, onDropNode, dragShape, expandedFrames,
+    isArchitect, isContext: !canStructure, onDropNode, dragShape, expandedFrames,
   });
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
