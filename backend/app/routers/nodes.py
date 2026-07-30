@@ -678,7 +678,6 @@ def get_node_context(
 
     result_edges: list[ContextEdgeResponse] = []
     neighbor_ids: set[uuid.UUID] = set()
-    inner_ids: set[uuid.UUID] = set()
     for e in all_edges:
         s_in = e.source_id in subtree
         t_in = e.target_id in subtree
@@ -687,19 +686,13 @@ def get_node_context(
             continue
         if s_in:
             neigh = e.target_id
-            inner = e.source_id
             src, tgt = focus.id, neigh
         else:
             neigh = e.source_id
-            inner = e.target_id
             src, tgt = neigh, focus.id
         if neigh not in all_nodes:
             continue
         neighbor_ids.add(neigh)
-        # Глубокий конец внутри поддерева (не сам фокус) — в реестр концов: по его
-        # цепочке предков фронт поднимает конец к фокусу/ребёнку (рендер уровня).
-        if inner != focus.id:
-            inner_ids.add(inner)
         # Контекст остаётся серверной проекцией (Д5 аудита): концы уже свёрнуты на
         # фокус/соседа. Геометрия сознательно НЕ отдаётся — раскладка звезды
         # эфемерна и живёт в своей системе координат.
@@ -732,21 +725,6 @@ def get_node_context(
         )
         for nid in sorted(neighbor_ids, key=str)
     ]
-    # Реестр глубоких концов внутри поддерева (для проекции уровня).
-    inner_endpoints = [
-        GhostNodeResponse(
-            id=all_nodes[iid].id,
-            name=all_nodes[iid].name,
-            role=all_nodes[iid].role,
-            technology=all_nodes[iid].technology,
-            is_external=all_nodes[iid].is_external,
-            shape=all_nodes[iid].shape,
-            status=all_nodes[iid].status,
-            node_depth=tree.node_depth(all_nodes, iid),
-            ancestors=tree.ancestors(all_nodes, iid),
-        )
-        for iid in sorted(inner_ids, key=str)
-    ]
     # has_children фокуса — по карте всех узлов, без отдельного SQL.
     focus.child_count = sum(1 for n in all_nodes.values() if n.parent_id == focus.id)
     focus.has_children = focus.child_count > 0
@@ -755,7 +733,6 @@ def get_node_context(
         focus_ancestors=tree.ancestors(all_nodes, focus.id),
         neighbors=neighbors,
         edges=result_edges,
-        inner_endpoints=inner_endpoints,
     )
 
 
@@ -803,14 +780,19 @@ def get_node_context_graph(
     # родителя, обрезанный до связанной с фокусом части, поэтому сосед из
     # поддерева сиблинга показывается этим сиблингом (глубокий конец поднимет
     # фронтовая проекция), а сосед вне родителя останется гостем реестра.
-    reps = [
+    # ПОРЯДОК локалов — порядок ЗАПРОСА УРОВНЯ (как у get_root_graph/get_node_graph):
+    # ELK чувствителен к порядку входа, и узлы без сохранённых позиций обязаны
+    # лечь так же, как на холсте уровня (критерий A — пиксель-в-пиксель).
+    siblings = (
+        db.query(Node)
+        .filter(Node.project_id == project.id, Node.parent_id == focus.parent_id)
+        .all()
+    )
+    local_nodes = [
         n
-        for n in all_nodes.values()
-        if n.parent_id == focus.parent_id
-        and n.id != focus.id
-        and tree.subtree_ids(all_nodes, n.id) & neighbor_ids
+        for n in siblings
+        if n.id == focus.id or tree.subtree_ids(all_nodes, n.id) & neighbor_ids
     ]
-    local_nodes = [focus, *sorted(reps, key=lambda n: str(n.id))]
     local_ids = {n.id for n in local_nodes}
 
     result_edges: list[GraphEdgeResponse] = []

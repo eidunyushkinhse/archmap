@@ -211,17 +211,13 @@ class NodeContextResponse(BaseModel):
     поддерева свёрнут на фокус, внешний конец указывает на узел-соседа.
     Соседи отдаются как «гости» (пунктир), focus_ancestors — для рамок предков.
 
-    inner_endpoints — реестр глубоких концов внутри поддерева фокуса (реальные
-    узлы-концы связей, не сам фокус) с цепочками предков: тот же реестр концов,
-    что отдаёт getGraph для уровня. По нему фронтовая проекция поднимает конец к
-    видимому представителю (фокус / его ребёнок при раскрытии R5) — рендер контекста
-    как виртуального корневого уровня работает той же логикой, что и уровень.
+    «Схема» страницы объекта (single-schema) этим ответом НЕ пользуется — ей
+    сервер отдаёт контекст в формате сырого графа уровня (context-graph).
     """
     focus: NodeResponse
     focus_ancestors: list[AncestorRef] = []
     neighbors: list[GhostNodeResponse] = []
     edges: list[ContextEdgeResponse] = []
-    inner_endpoints: list[GhostNodeResponse] = []
 
 
 class NodeEdgeInfo(BaseModel):

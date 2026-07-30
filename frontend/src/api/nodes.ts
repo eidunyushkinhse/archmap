@@ -28,6 +28,12 @@ export const nodesApi = {
   // Контекстная схема узла: фокус + прямые соседи + спроецированные рёбра
   getContext: (id: string): Promise<NodeContext> =>
     api.get<NodeContext>(`/nodes/${id}/context`),
+  // «Схема» страницы объекта (single-schema): контекст в формате СЫРОГО графа
+  // уровня — виртуальный корневой уровень (фокус + представители соседей +
+  // сырые рёбра + реестр концов + раскладка корневого вида). Рендерится тем же
+  // level-конвейером, что и обычный уровень.
+  getContextGraph: (id: string): Promise<GraphResponse> =>
+    api.get<GraphResponse>(`/nodes/${id}/context-graph`),
   // Глобальные алерты незавершённости схемы (только архитектор)
   getAlerts: (): Promise<SchemaAlerts> =>
     api.get<SchemaAlerts>(`/nodes/alerts`),

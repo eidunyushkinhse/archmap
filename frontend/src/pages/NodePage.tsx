@@ -2,7 +2,7 @@
 // Фаза 1: шапка (breadcrumb, имя, статус, чип), свойства (inline CAS), связи (таблица).
 // Схемы (контекст, компоненты) добавляются в Фазе 2.
 import { useCallback, useEffect, useState } from "react";
-import type { AncestorRef, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge } from "../types";
+import type { AncestorRef, GhostNode, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
@@ -794,14 +794,15 @@ function ContextSection({
 
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
-// Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ: объект (локал) + его соседи
-// (гости) + сырые рёбра + реестр глубоких концов — рендерится тем же level-конвейером
-// (ELK, ортогональный роутер, рамки), что и корень отдельного проекта с теми же
-// детьми/соседями/связями. Единственное отличие от отдельного проекта: объект и
-// соседи-сиблинги (дети того же родителя) обёрнуты в рамку родителя (ancestorIds),
-// а цвета соответствуют реальному уровню вложенности в проекте (depth). Раскрытие
-// любого узла (R5) работает той же логикой проекции, что и в редакторе-карте.
-// Просмотр read-only; драг и правка связей — в редакторе-карте.
+// Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
+// отдаёт его в формате СЫРОГО графа уровня: локалы = фокус + представители
+// соседей (связанные сиблинги), рёбра сырые, реестр концов с цепочками предков,
+// раскладка — КОРНЕВОГО вида (корневые узлы встают в сохранённые позиции —
+// страница корневого узла совпадает с корневым холстом; вложенные — свежий ELK,
+// как корень отдельного проекта). Рендерит штатный level-конвейер без единой
+// контекстной ветки; отличия от «отдельного проекта» — только рамки реальных
+// предков (ancestorIds) и цвета по реальной глубине (depth). Просмотр
+// read-only: персиста раскладки нет, драг и правка связей — в редакторе-карте.
 function SchemaSection({
   node,
   ancestors,
@@ -818,61 +819,89 @@ function SchemaSection({
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
-  // Контекст объекта (фокус + соседи + реестр глубоких концов).
-  const [ctx, setCtx] = useState<NodeContext | null>(null);
+  const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
-    nodesApi.getContext(node.id)
-      .then((c) => { if (alive) { setCtx(c); setLoading(false); } })
+    nodesApi.getContextGraph(node.id)
+      .then((g) => { if (alive) { setGraph(g); setLoading(false); } })
       .catch(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [node.id]);
 
   if (loading) return <p className="np-empty">Загрузка схемы…</p>;
-  if (!ctx) return null;
+  if (!graph) return null;
 
-  const noNeighbors = ctx.neighbors.length === 0;
-  const canKids = canHaveChildren(node.shape) || node.has_children;
-  if (noNeighbors && !canKids) {
-    return <p className="np-empty">Внешних связей нет — объект пока не взаимодействует с соседями.</p>;
+  // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
+  // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).
+  const localIds = new Set(graph.nodes.map((n) => n.id));
+  const isInner = (ep: GhostNode) => (ep.ancestors ?? []).some((a) => a.id === node.id);
+  const outerGuests = graph.endpoints.filter((ep) => !isInner(ep));
+  const noNeighbors = graph.nodes.length <= 1 && outerGuests.length === 0;
+  if (noNeighbors && !node.has_children) {
+    // Пустое состояние: секцию не прячем; архитектору — CTA в редактор-карту
+    // (наполнить состав / создать связи — правка живёт только там).
+    return (
+      <div className="np-empty" style={{ textAlign: "center" }}>
+        Внешних связей нет — объект пока не взаимодействует с соседями.
+        <br />
+        <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
+        {isArchitect && onNavigateMap && (
+          <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
+            {canHaveChildren(node.shape) && (
+              <button className="esb-edit" onClick={() => onNavigateMap(node.id)}>
+                Добавить компонент
+              </button>
+            )}
+            <button
+              className="esb-edit"
+              onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
+            >
+              Открыть в карте
+            </button>
+          </div>
+        )}
+      </div>
+    );
   }
 
-  // Рёбра — СЫРЫЕ (original_*): реальные концы, по ним проекция поднимает конец
-  // к фокусу (свёрнуто) или его ребёнку (раскрыто R5) — логика уровня.
-  const rawEdges: LevelEdge[] = ctx.edges.map((ge) => ({
+  // Рёбра уровня из GraphResponse — как в useEditableLevel.load (сырые концы,
+  // имена концов для панелей из локалов + реестра).
+  const nameById = new Map<string, string>([
+    ...graph.nodes.map((n) => [n.id, n.name] as const),
+    ...graph.endpoints.map((ep) => [ep.id, ep.name] as const),
+  ]);
+  const edges: LevelEdge[] = graph.edges.map((ge) => ({
     id: ge.id, label: ge.label, technology: ge.technology,
-    source_id: ge.original_source_id, target_id: ge.original_target_id,
-    original_source_id: ge.original_source_id, original_target_id: ge.original_target_id,
-    original_source_name: ge.original_source_name, original_target_name: ge.original_target_name,
+    source_id: ge.source_id, target_id: ge.target_id,
+    original_source_id: ge.source_id, original_target_id: ge.target_id,
+    original_source_name: nameById.get(ge.source_id) ?? "",
+    original_target_name: nameById.get(ge.target_id) ?? "",
     version: ge.version, created_at: "",
   }));
-  // Реестр концов: внешние соседи + глубокие концы внутри поддерева (с предками).
-  const registry = [...ctx.neighbors, ...(ctx.inner_endpoints ?? [])];
-  const height = Math.max(300, Math.min(560, (ctx.neighbors.length + 1) * 90));
+
+  // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
+  const visibleGuess = graph.nodes.length + outerGuests.filter((ep) =>
+    !(ep.ancestors ?? []).some((a) => localIds.has(a.id))).length;
+  const height = Math.max(300, Math.min(560, visibleGuess * 90));
   const hasStatusInfo =
-    ctx.focus.status !== "existing" || ctx.neighbors.some((n) => n.status !== "existing");
+    graph.nodes.some((n) => n.status !== "existing") ||
+    graph.endpoints.some((ep) => ep.status !== "existing");
 
-  // Рамка родителя: объект + соседи-сиблинги обёрнуты в рамку родителя (если он
-  // есть); внешние соседи — снаружи (computeFrames расселяет по цепочкам предков).
-  const parent = node.parent_id ? ancestors[ancestors.length - 1] : null;
-  const ancestorIds = parent ? [parent.id] : [];
-  const ancestorNames = parent ? [parent.name] : [];
-
-  // «Редактировать» / «Открыть в карте» → слой объекта + подсветка + возврат (Ф11/Ф12).
+  // «Редактировать» / «Открыть в карте» → родительский слой + подсветка + возврат (Ф11/Ф12).
   const onEdit = onNavigateMap
     ? () => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })
     : undefined;
 
   return (
     <EmbeddedSchemaBlock
-      nodes={[ctx.focus]}
-      endpoints={registry}
-      edges={rawEdges}
-      viewLayout={{}}
-      containerId={null}
-      ancestorNames={ancestorNames}
-      ancestorIds={ancestorIds}
+      nodes={graph.nodes}
+      endpoints={graph.endpoints}
+      edges={edges}
+      viewLayout={graph.layout ?? {}}
+      containerId={node.parent_id ?? null}
+      ancestorNames={ancestors.map((a) => a.name)}
+      ancestorIds={ancestors.map((a) => a.id)}
       depth={ancestors.length}
       isArchitect={isArchitect}
       schemaView={schemaView}
@@ -881,15 +910,7 @@ function SchemaSection({
       onEdit={onEdit}
       height={height}
       showViewFilter={hasStatusInfo}
-      empty={
-        noNeighbors ? (
-          <span>
-            Внешних связей нет
-            <br />
-            <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
-          </span>
-        ) : undefined
-      }
+      showCaption={false}
     />
   );
 }

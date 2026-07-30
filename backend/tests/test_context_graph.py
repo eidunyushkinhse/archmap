@@ -78,8 +78,9 @@ def test_root_focus_locals_are_connected_roots_with_root_layout(db, project):
 
     g = get_node_context_graph(a.id, db=db, project=project, _=None)
 
-    # Локалы: фокус первым + связанные корневые соседи; D исключён.
-    assert g.nodes[0].id == a.id
+    # Локалы: фокус + связанные корневые соседи (в порядке запроса уровня —
+    # ELK чувствителен к порядку, критерий A требует совпадения с холстом);
+    # несвязанный D исключён.
     assert {n.id for n in g.nodes} == {a.id, b.id, c.id}
     # Рёбра сырые: концы реальные (a1, не a); сосед↔сосед включён, c→d — нет.
     assert {e.id for e in g.edges} == {e_deep.id, e_direct.id, e_nn.id}
@@ -112,7 +113,6 @@ def test_nested_focus_reps_are_connected_siblings_layout_still_root(db, project)
 
     g = get_node_context_graph(f.id, db=db, project=project, _=None)
 
-    assert g.nodes[0].id == f.id
     assert {n.id for n in g.nodes} == {f.id, s.id}
     # У представителя досчитаны дети (лупа R5 и бейдж на странице).
     rep = next(n for n in g.nodes if n.id == s.id)

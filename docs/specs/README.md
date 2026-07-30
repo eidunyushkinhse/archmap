@@ -59,7 +59,7 @@ LevelGraph/TreePage-машинерия, бэк-эндпоинты графа/в�
 
 | Спека | Сущность | Модули |
 |---|---|---|
-| [edge.md](edge.md) | Связь (ребро) | graph/layout/{orthoRoute,routeAll,autoRoutes,channelNudge,coincidentLegs,railPairs,labelBox,labelIntervals,labelLayout,placeLabels,widenForLabels,separateForLabels,context}.ts, graph/{edgePath,edgeJumps}.ts, graph/{EdgeJumpContext,edges,ConnectionLine,QuickConnectPreview}.tsx, graph/interaction/{useEdgeConnect,quickConnect,useLiveDragHandles}.ts |
+| [edge.md](edge.md) | Связь (ребро) | graph/layout/{orthoRoute,routeAll,autoRoutes,channelNudge,coincidentLegs,railPairs,labelBox,labelIntervals,labelLayout,placeLabels,widenForLabels,separateForLabels}.ts, graph/{edgePath,edgeJumps}.ts, graph/{EdgeJumpContext,edges,ConnectionLine,QuickConnectPreview}.tsx, graph/interaction/{useEdgeConnect,quickConnect,useLiveDragHandles}.ts |
 | [node.md](node.md) | Атомарный узел | graph/{nodes,shapes}.tsx, graph/colors.ts, graph/layout/{separateNodes,separateRects,overlapConstraints,level}.ts, graph/interaction/{snap,useSnapAlignment,distribute}.ts, graph/{absPos,assembleRf,reconcileRf}.ts |
 | [container.md](container.md) | Контейнер и рамка | graph/layout/{pipeline,projectGhosts,frames,ringPlacement,keepGhostsOut,separateGuests,separateContainment}.ts, graph/{projection,frameChains}.ts, graph/boundaries.tsx, graph/nodes.tsx (Container/Frame), graph/interaction/{layoutAnimation,useLayoutAnimation}.ts, graph/interaction/useFrameFollowOverlay.tsx |
 | [guest.md](guest.md) | Гость | graph/layout/{projectGhosts,ringPlacement,keepGhostsOut,separateGuests}.ts, graph/projection.ts, graph/nodes.tsx (Ghost/Container), graph/assembleRf.ts, inspector/GhostInspector.tsx; бэк: routers/nodes.py (_build_graph), tree.py |
@@ -67,7 +67,7 @@ LevelGraph/TreePage-машинерия, бэк-эндпоинты графа/в�
 | [history.md](history.md) | История Undo/Redo | graph/interaction/{useHistory,persistGuard}.ts, graph/interaction/useSnapAlignment.ts (persistGroup), LevelGraph.tsx (клавиши/кнопки/адаптер), ../pages/TreePage.tsx (структурные команды, диспетчеры) |
 | [view.md](view.md) | Уровень и вид | ../pages/TreePage.tsx, LevelGraph.tsx (commitLayout/expanded), graph/layout/{pipeline,engine}.ts, ../api/{client,projectScope,nodes}.ts; бэк: models/view_layout.py, routers/{views,nodes}.py, projects.py, restore.py, tree.py |
 | [alerts.md](alerts.md) | Алерты схемы | SchemaAlerts.tsx + schemaAlerts.css, ../pages/TreePage.tsx (loadAlerts/handleLocate), LevelGraph.tsx (locate); бэк: routers/nodes.py (get_alerts) |
-| [context.md](context.md) | Контекст-схема | NodeContextModal.tsx, LevelGraph.tsx (ветки isContext), graph/layout/{context,pipeline}.ts, NodeTreePanel.tsx (точка входа); бэк: routers/nodes.py (get_node_context) |
+| [context.md](context.md) | Контекст-схема (страница объекта) | ../pages/NodePage.tsx (SchemaSection), EmbeddedSchemaBlock.tsx, дальше штатные LevelGraph.tsx и graph/layout/pipeline.ts; бэк: routers/nodes.py (get_node_context_graph, _read_view_layout, _ghost_registry) |
 | [transitions.md](transitions.md) | Анимации переходов | graph/interaction/{layoutAnimation,useLayoutAnimation}.ts, graph/layout/{pipeline.worker,pipelineClient,layoutSig}.ts, graph/EdgeJumpContext.tsx, graph/edges.tsx (drawIn), LevelGraph.tsx (gate/тихое окно), graph/reconcileRf.ts, scripts/dump-levels.mjs |
 
 Модули, живущие сразу в нескольких спеках (pipeline.ts, assembleRf.ts,

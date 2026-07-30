@@ -26,7 +26,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
   // Мета проекта + процессы (граф уровня грузит useEditableLevel)
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка при маунте
   useEffect(() => {
     let alive = true;
     (async () => {

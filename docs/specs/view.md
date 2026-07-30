@@ -125,8 +125,10 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   видит сохранённое, интент не повторяется, позиции не дрейфуют.
   [тест: pipeline.test.ts]
 - **V25.** Гейт «наблюдатель не пишет» — фронт: ВСЕ записи канваса идут через
-  commitLayout, начинающийся с `if (!isArchitect || isContext) return`;
-  дублирующий гейт в persistGroup; бэк — require_architect (V11). Наблюдатель
+  commitLayout, начинающийся с `if (!isArchitect || !canArrange) return`
+  (canArrange=false и у read-only блоков страниц — они не пишут даже у
+  архитектора, context.md X13); дублирующий гейт в persistGroup; бэк —
+  require_architect (V11). Наблюдатель
   раскрывает контейнеры ЭФЕМЕРНО (локальные override поверх сохранённого,
   живут до смены уровня). [код]
 - **V26.** Own-on-expand: контейнер без владеемой позиции закрепляет текущую

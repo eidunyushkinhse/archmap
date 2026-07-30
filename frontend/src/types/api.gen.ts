@@ -462,6 +462,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/context-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Node Context Graph
+         * @description Контекст объекта в формате СЫРОГО графа уровня — «Схема» страницы объекта
+         *     (single-schema): виртуальный корневой уровень, который фронт рендерит тем же
+         *     level-конвейером, что и обычный уровень. Форма ответа — GraphResponse:
+         *
+         *     - nodes (локалы) = фокус + ПРЕДСТАВИТЕЛИ соседей: сиблинги фокуса (дети того
+         *       же родителя; на корне — корневые узлы), в чьём поддереве лежит хотя бы один
+         *       сосед. Несвязанные сиблинги уровня в контекст не попадают.
+         *     - edges — СЫРЫЕ рёбра контекста (реальные концы, проекция — на фронте):
+         *       внутренние поддерева фокуса (питают раскрытие R5), граничные (ровно один
+         *       конец в поддереве — сам контекст) и сосед↔сосед (связи между соседями —
+         *       как в «отдельном проекте», куда положили объект и его соседей).
+         *     - endpoints — реестр не-локальных концов этих рёбер с цепочками предков.
+         *     - layout — раскладка КОРНЕВОГО вида (view IS NULL): узлы, присутствующие в
+         *       ней (корневые), встают в сохранённые позиции — страница корневого узла
+         *       совпадает с корневым холстом пиксель-в-пиксель; остальные раскладываются
+         *       свежим ELK — как корень отдельного проекта без сохранённых позиций.
+         */
+        get: operations["get_node_context_graph_api_v1_nodes__node_id__context_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/relayout": {
         parameters: {
             query?: never;
@@ -1709,11 +1744,8 @@ export interface components {
          *     поддерева свёрнут на фокус, внешний конец указывает на узел-соседа.
          *     Соседи отдаются как «гости» (пунктир), focus_ancestors — для рамок предков.
          *
-         *     inner_endpoints — реестр глубоких концов внутри поддерева фокуса (реальные
-         *     узлы-концы связей, не сам фокус) с цепочками предков: тот же реестр концов,
-         *     что отдаёт getGraph для уровня. По нему фронтовая проекция поднимает конец к
-         *     видимому представителю (фокус / его ребёнок при раскрытии R5) — рендер контекста
-         *     как виртуального корневого уровня работает той же логикой, что и уровень.
+         *     «Схема» страницы объекта (single-schema) этим ответом НЕ пользуется — ей
+         *     сервер отдаёт контекст в формате сырого графа уровня (context-graph).
          */
         NodeContextResponse: {
             focus: components["schemas"]["NodeResponse"];
@@ -1732,11 +1764,6 @@ export interface components {
              * @default []
              */
             edges: components["schemas"]["ContextEdgeResponse"][];
-            /**
-             * Inner Endpoints
-             * @default []
-             */
-            inner_endpoints: components["schemas"]["GhostNodeResponse"][];
         };
         /** NodeCreate */
         NodeCreate: {
@@ -3313,6 +3340,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeContextResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_node_context_graph_api_v1_nodes__node_id__context_graph_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphResponse"];
                 };
             };
             /** @description Validation Error */

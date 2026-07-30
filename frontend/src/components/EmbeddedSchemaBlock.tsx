@@ -49,6 +49,9 @@ interface Props {
   showViewFilter: boolean;
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
+  // Подпись-легенда под холстом («Гости — пунктиром…»). Секция «Схема» страницы
+  // объекта (single-schema) рисуется без неё (ТЗ §3.1).
+  showCaption?: boolean;
   // Драг узлов (по умолчанию false для readOnly-блоков)
   nodesDraggable?: boolean;
   // Контролы расстановки (undo/redo перемещений + перераскладка) — рисуются
@@ -67,6 +70,7 @@ export default function EmbeddedSchemaBlock({
   ancestorNames, ancestorIds, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit,
   height, toolbarHint, showViewFilter, empty,
+  showCaption = true,
   nodesDraggable = false,
   onUndo, onRedo, canUndo = false, canRedo = false, onRelayout,
   editing,
@@ -224,7 +228,7 @@ export default function EmbeddedSchemaBlock({
       </div>
 
       {/* Подпись */}
-      {!empty && (
+      {!empty && showCaption && (
         <p className="esb-caption">
           Гости с других уровней — пунктиром. Двойной клик по объекту — его страница.
         </p>
