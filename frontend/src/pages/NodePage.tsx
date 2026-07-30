@@ -329,7 +329,6 @@ function NodePageInner({
             <h3 className="np-card-title">Схема</h3>
             <SchemaSection
               node={node}
-              ancestors={ancestors}
               isArchitect={isArchitect}
               onNavigateNode={onNavigateNode}
               onNavigateMap={onNavigateMap}
@@ -794,20 +793,19 @@ function ContextSection({
 
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
-// Схема страницы = УРОВЕНЬ, в котором живёт объект (containerId = parent_id),
-// отрисованный тем же level-рендерером, что и основная схема проекта: весь
-// контекст объекта (уровень целиком, не только прямые соседи), R5-раскрытие
-// любого контейнера и drill-down работают штатно, рамки предков показывают
-// вложенность. Просмотр read-only; драг и правка связей — в редакторе-карте.
+// Контекст объекта: сам объект + узлы, с которыми он связан (соседи), — как
+// если бы это был отдельный проект объекта и мы видим его верхний слой. Рендер
+// тем же level-конвейером: объект и соседи-сиблинги (дети того же родителя)
+// оказываются внутри рамки родителя (ancestorIds = предки объекта), внешние
+// соседи — снаружи; цвета по реальной глубине узла. Просмотр read-only;
+// драг и правка связей — в редакторе-карте.
 function SchemaSection({
   node,
-  ancestors,
   isArchitect,
   onNavigateNode,
   onNavigateMap,
 }: {
   node: Node;
-  ancestors: AncestorRef[];
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
@@ -815,20 +813,37 @@ function SchemaSection({
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
-  // Уровень объекта: контейнер = родитель узла (null = корень проекта).
-  const lvl = useEditableLevel({ containerId: node.parent_id, isArchitect });
+  // Контекст объекта (фокус + соседи). Секция ремаунтится по key=node.id родителя.
+  const [ctx, setCtx] = useState<NodeContext | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    nodesApi.getContext(node.id)
+      .then((c) => { if (alive) { setCtx(c); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [node.id]);
 
-  if (lvl.loading) return <p className="np-empty">Загрузка схемы…</p>;
+  if (loading) return <p className="np-empty">Загрузка схемы…</p>;
+  if (!ctx) return null;
 
-  const hasNodes = lvl.nodes.length + lvl.endpoints.length > 0;
+  const noNeighbors = ctx.neighbors.length === 0;
+  const canKids = canHaveChildren(node.shape) || node.has_children;
+  if (noNeighbors && !canKids) {
+    return <p className="np-empty">Внешних связей нет — объект пока не взаимодействует с соседями.</p>;
+  }
+
+  // Рёбра контекста (концы спроецированы сервером на фокус/соседей) → LevelEdge.
+  const ctxEdges: LevelEdge[] = ctx.edges.map((ge) => ({
+    id: ge.id, label: ge.label, technology: ge.technology,
+    source_id: ge.source_id, target_id: ge.target_id,
+    original_source_id: ge.original_source_id, original_target_id: ge.original_target_id,
+    original_source_name: ge.original_source_name, original_target_name: ge.original_target_name,
+    version: ge.version, created_at: "",
+  }));
+  const height = Math.max(280, Math.min(520, (ctx.neighbors.length + 1) * 90));
   const hasStatusInfo =
-    lvl.nodes.some((n) => n.status !== "existing") ||
-    lvl.endpoints.some((g) => g.status !== "existing");
-  const height = Math.min(560, Math.max(360, lvl.nodes.length * 62));
-
-  // Рамки предков: контейнер уровня — node.parent_id, его предки — это предки
-  // узла без последнего элемента (самого parent_id).
-  const levelAncestors = ancestors.slice(0, -1);
+    ctx.focus.status !== "existing" || ctx.neighbors.some((n) => n.status !== "existing");
 
   // «Редактировать» / «Открыть в карте» → слой объекта + подсветка + возврат (Ф11/Ф12).
   const onEdit = onNavigateMap
@@ -837,23 +852,30 @@ function SchemaSection({
 
   return (
     <EmbeddedSchemaBlock
-      nodes={lvl.nodes}
-      endpoints={lvl.endpoints}
-      edges={lvl.edges}
-      viewLayout={lvl.viewLayout}
+      nodes={[ctx.focus]}
+      endpoints={ctx.neighbors}
+      edges={ctxEdges}
+      viewLayout={{}}
       containerId={node.parent_id}
-      ancestorNames={levelAncestors.map((a) => a.name)}
-      ancestorIds={levelAncestors.map((a) => a.id)}
-      depth={levelAncestors.length}
+      ancestorNames={ctx.focus_ancestors.map((a) => a.name)}
+      ancestorIds={ctx.focus_ancestors.map((a) => a.id)}
+      depth={ctx.focus_ancestors.length}
       isArchitect={isArchitect}
       schemaView={schemaView}
       onSchemaViewChange={setSchemaView}
       onNavigateNode={onNavigateNode}
       onEdit={onEdit}
       height={height}
-      toolbarHint={hasNodes ? `${lvl.nodes.length} объектов` : undefined}
       showViewFilter={hasStatusInfo}
-      empty={hasNodes ? undefined : <span>На этом уровне нет объектов.</span>}
+      empty={
+        noNeighbors ? (
+          <span>
+            Внешних связей нет
+            <br />
+            <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
+          </span>
+        ) : undefined
+      }
     />
   );
 }
