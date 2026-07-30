@@ -22,7 +22,7 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
   // Навигация в редактор-карту
-  onNavigateMap?: (nodeId: string | null) => void;
+  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
   // Удаление узла со страницы → редирект на родителя
   onNodeDeleted?: (parentId: string | null) => void;
 }
@@ -107,7 +107,7 @@ function NodePageInner({
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onNavigateProject: () => void;
-  onNavigateMap?: (nodeId: string | null) => void;
+  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
   onNodeDeleted?: (parentId: string | null) => void;
   confirming: boolean;
   setConfirming: (v: boolean) => void;
@@ -184,7 +184,11 @@ function NodePageInner({
                     <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
                     <div className="np-dropdown">
                       {onNavigateMap && (
-                        <button onClick={() => { setMenuOpen(false); onNavigateMap(node.id); }}>
+                        <button onClick={() => {
+                          setMenuOpen(false);
+                          // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
+                          onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
+                        }}>
                           Открыть в карте
                         </button>
                       )}
@@ -622,7 +626,7 @@ function ComponentsSection({
   ancestors: AncestorRef[];
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
-  onNavigateMap?: (nodeId: string | null) => void;
+  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
 }) {
   const lvl = useEditableLevel({ containerId: nodeId, isArchitect });
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
@@ -805,7 +809,7 @@ function SchemaSection({
   ancestors: AncestorRef[];
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
-  onNavigateMap?: (nodeId: string | null) => void;
+  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
@@ -841,8 +845,11 @@ function SchemaSection({
     );
   }
 
-  // «Редактировать» / «Открыть в карте» → родительский слой (Ф11; locate — в Инкременте B)
-  const onEdit = onNavigateMap ? () => onNavigateMap(node.parent_id ?? null) : undefined;
+  // «Редактировать» / «Открыть в карте» → родительский слой + locate-подсветка
+  // объекта + возврат на эту страницу (Ф11/Ф12).
+  const onEdit = onNavigateMap
+    ? () => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })
+    : undefined;
 
   // ── Раскрыто: level-вид фокус-контейнера ──
   if (expanded && canKids) {

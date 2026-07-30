@@ -33,7 +33,7 @@ interface Props {
   // Навигация внутри проекта
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
-  onNavigateMap: (nodeId: string | null) => void;
+  onNavigateMap: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
 }
 
 export default function ProjectShell({
@@ -106,11 +106,15 @@ export default function ProjectShell({
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <ModeSwitch mode={mode} onChange={setMode} />
-          {/* Кнопка «Карта» — вход в редактор-карту (архитектор) */}
+          {/* Кнопка «Карта» — вход в редактор-карту (архитектор). Открывает карту на
+              текущем уровне и возвращает на текущую страницу (Ф12). */}
           {isArchitect && mode === "schema" && (
             <button
               style={mapBtn}
-              onClick={() => onNavigateMap(nodeId)}
+              onClick={() => onNavigateMap(nodeId, {
+                locate: nodeId ?? undefined,
+                ret: nodeId ? `node:${nodeId}` : "project",
+              })}
               title="Открыть редактор-карту"
             >
               <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">

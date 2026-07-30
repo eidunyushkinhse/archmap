@@ -21,7 +21,7 @@ import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
-import LevelGraph, { type ViewMetaState } from "../components/LevelGraph";
+import LevelGraph, { type ViewMetaState, type LocateRequest } from "../components/LevelGraph";
 import { useRemoteSync } from "./useRemoteSync";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
@@ -45,13 +45,15 @@ interface Props {
   projectId: string;
   // null = корневой уровень, иначе — уровень узла
   nodeId: string | null;
-  // «Готово» → возврат на страницу текущего уровня
-  onDone: (levelId: string | null) => void;
+  // Узел для временной подсветки (locate, Ф11) — пульс ~2.5с при открытии
+  locateNodeId?: string | null;
+  // «Готово»/Esc → возврат туда, откуда открыли (роут не меняется, Ф12)
+  onDone: () => void;
   // Двойной клик по гостю → его страница
   onNavigateNode: (nodeId: string) => void;
 }
 
-export default function MapEditorPage({ projectId: _projectId, nodeId, onDone, onNavigateNode }: Props) {
+export default function MapEditorPage({ projectId: _projectId, nodeId, locateNodeId, onDone, onNavigateNode }: Props) {
   // ── Стейт уровня (адаптация TreePage) ────────────────────────────
   const [nodes, setNodes] = useState<Node[]>([]);
   const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
@@ -102,6 +104,16 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, onDone, o
   const [layoutRetry, setLayoutRetry] = useState<{
     patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
   } | null>(null);
+
+  // Locate-подсветка узла (Ф11): пульс ~2.5с при открытии редактора со страницы.
+  const [locate, setLocate] = useState<LocateRequest | null>(
+    () => (locateNodeId ? { kind: "node", ids: [locateNodeId], token: 1 } : null),
+  );
+  useEffect(() => {
+    if (!locate) return;
+    const t = window.setTimeout(() => setLocate(null), 2600);
+    return () => window.clearTimeout(t);
+  }, [locate]);
 
   // ── Загрузка уровня ──────────────────────────────────────────────
   async function load(parentId: string | null) {
@@ -229,11 +241,11 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, onDone, o
   // Esc = «Готово»
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDone(currentParentId);
+      if (e.key === "Escape") onDone();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [currentParentId, onDone]);
+  }, [onDone]);
 
   // ── Обработчики (порты из TreePage) ──────────────────────────────
   const refetchLevel = (level: string | null) => () => { load(level); };
@@ -439,7 +451,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, onDone, o
             </button>
           )}
           {hasStatusInfo && <SchemaViewFilter view={schemaView} onChange={setSchemaView} />}
-          <button style={doneBtn} onClick={() => onDone(currentParentId)}>Готово</button>
+          <button style={doneBtn} onClick={() => onDone()}>Готово</button>
         </div>
       </div>
 
@@ -511,7 +523,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, onDone, o
               history={history} onUndo={dispatchUndo} onRedo={dispatchRedo}
               onPersistError={resyncOnPersistError} onPersistConflict={handlePersistConflict}
               retryPatch={layoutRetry} viewMeta={viewMetaRef} gestureActiveRef={gestureActiveRef}
-              schemaView={schemaView}
+              schemaView={schemaView} locate={locate}
             />
           )}
         </div>

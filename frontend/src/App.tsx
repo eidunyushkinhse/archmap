@@ -15,13 +15,22 @@ type Route =
   | { name: "tree"; projectId: string }
   | { name: "node"; projectId: string; nodeId: string }
   | { name: "project-home"; projectId: string }
-  | { name: "map"; projectId: string; nodeId: string | null };
+  | { name: "map"; projectId: string; nodeId: string | null; locate: string | null; ret: string | null };
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#/, "");
-  // #/p/<pid>/map/<nodeId> или #/p/<pid>/map
-  const mapMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)\/map(?:\/([0-9a-fA-F-]+))?/);
-  if (mapMatch) return { name: "map", projectId: mapMatch[1], nodeId: mapMatch[2] ?? null };
+  // #/p/<pid>/map/<levelId>?locate=<nodeId>&ret=<return> (или #/p/<pid>/map?…)
+  const mapMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)\/map(?:\/([0-9a-fA-F-]+))?(?:\?(.*))?/);
+  if (mapMatch) {
+    const q = new URLSearchParams(mapMatch[3] ?? "");
+    return {
+      name: "map",
+      projectId: mapMatch[1],
+      nodeId: mapMatch[2] ?? null,
+      locate: q.get("locate"),
+      ret: q.get("ret"),
+    };
+  }
   // #/p/<pid>/nodes/<nodeId>
   const nodeMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)\/nodes\/([0-9a-fA-F-]+)/);
   if (nodeMatch) return { name: "node", projectId: nodeMatch[1], nodeId: nodeMatch[2] };
@@ -80,12 +89,16 @@ export default function App() {
     const pid = route.projectId;
     return (
       <MapEditorPage
-        key={`${pid}:${route.nodeId ?? "root"}`}
+        key={`${pid}:${route.nodeId ?? "root"}:${route.locate ?? ""}`}
         projectId={pid}
         nodeId={route.nodeId}
-        onDone={(levelId) => {
-          // «Готово» → страница текущего уровня
-          if (levelId) navigate(`/p/${pid}/nodes/${levelId}`);
+        locateNodeId={route.locate}
+        onDone={() => {
+          // Ф12: возврат туда, откуда открыли (роут при закрытии не меняется).
+          // ret = "node:<id>" | "project" | null (по умолчанию — страница уровня).
+          const ret = route.ret;
+          if (ret?.startsWith("node:")) navigate(`/p/${pid}/nodes/${ret.slice(5)}`);
+          else if (ret === "project") navigate(`/p/${pid}`);
           else navigate(`/p/${pid}`);
         }}
         onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
@@ -106,7 +119,13 @@ export default function App() {
         onSwitchProject={(id) => navigate(`/p/${id}`)}
         onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
         onNavigateProject={() => navigate(`/p/${pid}`)}
-        onNavigateMap={(nodeId) => navigate(nodeId ? `/p/${pid}/map/${nodeId}` : `/p/${pid}/map`)}
+        onNavigateMap={(level, opts) => {
+          const q = new URLSearchParams();
+          if (opts?.locate) q.set("locate", opts.locate);
+          if (opts?.ret) q.set("ret", opts.ret);
+          const qs = q.toString();
+          navigate(level ? `/p/${pid}/map/${level}${qs ? `?${qs}` : ""}` : `/p/${pid}/map${qs ? `?${qs}` : ""}`);
+        }}
       />
     );
   }
