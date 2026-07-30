@@ -365,23 +365,4 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "B"]);
     expect(out.layout.guestFrames).toEqual([]);
   });
-
-  it("контекст-режим: раскладка есть, интентов нет (эфемерная звезда)", async () => {
-    const out = await computeViewLayout({
-      nodes: [appNode("F")],
-      endpoints: [ghost("N", [])],
-      edges: [edge("eNF", "N", "F")], // контекст: концы уже спроецированы сервером
-      containerId: "P",
-      viewLayout: {}, // контекст-схема раскладку не хранит
-      ancestorIds: ["P"],
-      expanded: new Set(),
-      localChildren: {},
-      isContext: true,
-    });
-    expect(out.intents).toEqual([]);
-    expect(out.layout.positions.get("F")).toBeTruthy();
-    expect(out.layout.positions.get("N")).toBeTruthy();
-    // маршруты глобального роутера в контексте не считаются
-    expect(out.layout.autoRoutes).toBeUndefined();
-  });
 });

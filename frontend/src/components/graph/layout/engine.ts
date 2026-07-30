@@ -15,9 +15,7 @@ import type ELK from "elkjs/lib/elk.bundled.js";
 import { NODE_W, NODE_H } from "../constants";
 import { flowSpacing } from "./flowGaps";
 import { assignEdgeHandles } from "./level";
-import { computeContextLayout } from "./context";
-import type { DisplayExternal, EdgeShelf, EdgeLoop } from "../types";
-import type { Edge as AppEdge, LayoutEdge } from "../../../types";
+import type { LayoutEdge } from "../../../types";
 
 // Общий ELK-инстанс. Берём bundled-сборку (elk.bundled.js) — она работает в main-thread
 // БЕЗ Web Worker, поэтому одинаково поднимается и в браузере (Vite), и в тестах (jsdom).
@@ -59,11 +57,6 @@ function elkSignature(
 export type LevelLayout = {
   positions: Map<string, { x: number; y: number }>;
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
-};
-
-export type ContextLayout = LevelLayout & {
-  edgeShelves: Map<string, EdgeShelf>;
-  edgeLoops: Map<string, EdgeLoop>;
 };
 
 /**
@@ -133,18 +126,4 @@ export async function layoutLevel(
   }
 
   return { positions, edgeHandles: assignEdgeHandles(allNodes, edges, positions) };
-}
-
-/** Раскладка контекстной схемы (async-канал; реализация — см. шаг 4.3). */
-export function layoutContext(
-  focusId: string,
-  focusHeight: number,
-  entities: DisplayExternal[],
-  edges: AppEdge[],
-  ancestorIds: string[],
-  expanded: Set<string>,
-): Promise<ContextLayout> {
-  return Promise.resolve(
-    computeContextLayout(focusId, focusHeight, entities, edges, ancestorIds, expanded),
-  );
 }

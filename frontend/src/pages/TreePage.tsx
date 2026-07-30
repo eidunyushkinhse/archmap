@@ -13,7 +13,6 @@ import EdgeChoiceModal from "../components/EdgeChoiceModal";
 import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
-import NodeContextModal from "../components/NodeContextModal";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph, { type LocateRequest, type ViewMetaState } from "../components/LevelGraph";
 import { useRemoteSync } from "./useRemoteSync";
@@ -127,8 +126,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // выбор связи ОБЩЕГО ПЛЕЧА (E80): двойной клик по легальному стволу нескольких
   // стрелок; kind задаёт формат строк («куда ведёт» у исходящего, «откуда» у входящего)
   const [trunkChoice, setTrunkChoice] = useState<{ kind: "out" | "in"; edges: LevelEdge[] } | null>(null);
-  // узел, для которого открыта контекстная схема (клик по дереву слева)
-  const [contextNode, setContextNode] = useState<Node | null>(null);
   // узел, который удаляют с канваса по Backspace/Delete → подтверждение со связями
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   // Несколько выбранных узлов под удаление (мультиудаление с канваса). null — нет.
@@ -329,7 +326,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // уже загруженные данные нужного уровня.
   async function navigateToLevel(level: string | null): Promise<void> {
     if (level === currentParentId) return;
-    setContextNode(null);
     setSelectedObject(null);
     if (level === null) {
       setBreadcrumb([]);
@@ -445,7 +441,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // path — полный путь от корня до узла включительно (последний элемент = открываемый слой).
   function drillToPath(path: AncestorRef[]) {
     if (path.length === 0) return;
-    setContextNode(null); // если была открыта контекст-модалка — закрываем
     setSelectedObject(null);
     setBreadcrumb(path);
     load(path[path.length - 1].id);
@@ -456,7 +451,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   // где узел показан как локал; пустой путь предков → узел живёт на корневом уровне.
   function goToGhostSource(ghost: GhostNode) {
     if (ghost.ancestors.length > 0) { drillToPath(ghost.ancestors); return; }
-    setContextNode(null);
     setSelectedObject(null);
     setBreadcrumb([]);
     load(null);
@@ -992,7 +986,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
         <>
         <NodeTreePanel
           onDrillTo={drillToPath}
-          onNodeContext={setContextNode}
           isArchitect={isArchitect}
           onTemplateDrag={setDragShape}
           reloadToken={treeReload}
@@ -1266,13 +1259,6 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
           onClose={() => setTrunkChoice(null)}
         />
       )}
-      {contextNode && (
-        <NodeContextModal
-          node={contextNode}
-          onClose={() => setContextNode(null)}
-        />
-      )}
-
       {exportScope && (
         <ExportModal
           title={exportScope.title}

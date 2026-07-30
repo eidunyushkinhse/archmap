@@ -49,8 +49,6 @@ interface Props {
   showViewFilter: boolean;
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
-  // Режим LevelGraph: "level" (по умолчанию) или "context" (звёздная раскладка)
-  mode?: "level" | "context";
   // Драг узлов (по умолчанию false для readOnly-блоков)
   nodesDraggable?: boolean;
   // Контролы расстановки (undo/redo перемещений + перераскладка) — рисуются
@@ -72,7 +70,7 @@ export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId,
   ancestorNames, ancestorIds, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit,
-  height, toolbarHint, showViewFilter, empty, mode = "level",
+  height, toolbarHint, showViewFilter, empty,
   nodesDraggable = false,
   onUndo, onRedo, canUndo = false, canRedo = false, onRelayout,
   editing, focusLoupe, onCollapse,
@@ -185,7 +183,6 @@ export default function EmbeddedSchemaBlock({
                 readOnly={!editing}
                 arrangeOnly={!!editing}
                 nodesDraggable={nodesDraggable}
-                mode={mode}
                 schemaView={schemaView}
                 onDrillDown={handleNavigate}
                 onEditNode={handleNavigate}

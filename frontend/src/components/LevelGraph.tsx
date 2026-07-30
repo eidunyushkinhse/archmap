@@ -181,9 +181,6 @@ interface LevelGraphProps {
   // ним (ретрай терялся, найдено e2e-зондом).
   onPersistConflict?: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
   retryPatch?: { patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number } | null;
-  // "level" (по умолчанию) — обычный уровень; "context" — контекстная схема узла
-  // из дерева: фокус-блок без кнопок, координаты не сохраняются.
-  mode?: "level" | "context";
   // Read-only: все жесты правки отключены (драг, связи, удаление, дроп, персист
   // раскладки), но рендер уровня и навигация (двойной клик, выделение) сохраняются.
   // Для встроенных блоков схемы на страницах (pages_pivot).
@@ -262,7 +259,6 @@ function LevelGraphInner({
   retryPatch,
   viewMeta,
   gestureActiveRef,
-  mode = "level",
   readOnly = false,
   nodesDraggable: nodesDraggableProp,
   arrangeOnly = false,
@@ -270,7 +266,7 @@ function LevelGraphInner({
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
-  const isContext = mode === "context";
+  const isContext = false; // контекстный движок удалён (2026-07-30): все схемы рендерит level-конвейер
   // readOnly гейтит все жесты правки (как isContext), но не влияет на рендер уровня
   const isReadOnly = readOnly || isContext;
   // Драг узлов: по умолчанию !isReadOnly, но можно включить отдельно (embedded-блоки)

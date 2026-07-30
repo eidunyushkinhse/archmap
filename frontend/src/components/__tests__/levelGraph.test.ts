@@ -2,8 +2,6 @@ import { describe, it, expect } from "vitest";
 import { projectGhosts } from "../graph/layout/projectGhosts";
 import { autoHandles, assignEdgeHandles } from "../graph/layout/level";
 import { layoutLevel } from "../graph/layout/engine";
-import { computeContextLayout } from "../graph/layout/context";
-import { NODE_H } from "../graph/constants";
 import type { LayoutEdge, GhostNode, AncestorRef } from "../../types";
 
 // Характеризационные тесты: фиксируют ТЕКУЩЕЕ поведение чистых функций
@@ -41,13 +39,6 @@ function edge(id: string, source_id: string, target_id: string, over: Partial<La
     created_at: "2026-06-08T00:00:00Z",
     ...over,
   };
-}
-
-function noNaN(positions: Map<string, { x: number; y: number }>): boolean {
-  for (const p of positions.values()) {
-    if (Number.isNaN(p.x) || Number.isNaN(p.y)) return false;
-  }
-  return true;
 }
 
 // =================== autoHandles ===================
@@ -206,80 +197,5 @@ describe("projectGhosts", () => {
     expect(r.entities).toHaveLength(1);
     expect(r.ghostToEffective.get("g1")).toBe("A");
     expect(r.ghostToEffective.get("g2")).toBe("A");
-  });
-});
-
-// =================== computeContextLayout ===================
-
-describe("computeContextLayout", () => {
-  const leaf = (id: string) => ({ kind: "leaf" as const, id, ghost: ghost(id, []) });
-
-  it("фокус стоит ровно в центре (0, -h/2), без NaN", () => {
-    const entities = [leaf("out"), leaf("in")];
-    const edges = [edge("e1", "f", "out"), edge("e2", "in", "f")];
-    const r = computeContextLayout("f", 100, entities, edges, [], new Set());
-    expect(r.positions.get("f")).toEqual({ x: 0, y: -50 });
-    expect(noNaN(r.positions)).toBe(true);
-  });
-
-  it("исходящий сосед уходит вправо (x>0), входящий — влево (x<0)", () => {
-    const entities = [leaf("out"), leaf("in")];
-    const edges = [edge("e1", "f", "out"), edge("e2", "in", "f")];
-    const r = computeContextLayout("f", 100, entities, edges, [], new Set());
-    expect(r.positions.get("out")!.x).toBeGreaterThan(0);
-    expect(r.positions.get("in")!.x).toBeLessThan(0);
-  });
-
-  it("двунаправленный сосед при равенстве чистых колонок встаёт справа", () => {
-    const entities = [leaf("out"), leaf("in"), leaf("bi")];
-    const edges = [
-      edge("e1", "f", "out"),
-      edge("e2", "in", "f"),
-      edge("e3", "f", "bi"),
-      edge("e4", "bi", "f"),
-    ];
-    const r = computeContextLayout("f", 100, entities, edges, [], new Set());
-    // pureRight=[out], pureLeft=[in] → равны → bidi справа
-    expect(r.positions.get("bi")!.x).toBeGreaterThan(0);
-  });
-
-  // Регрессия: раскрытие промежуточного контейнера не должно «угонять» его детей в
-  // другую часть колонки. Сценарий Account Synchronizer: фокус f (предки HelixMon→UM),
-  // все связи исходящие → правая колонка. Соседи umk/selfiam делят с f рамку UM (lcaIdx=1),
-  // ObsCore — только HelixMon (lcaIdx=0), потому стоит снаружи (выше центрированного соседа).
-  it("раскрытие промежуточного контейнера держит детей на той же стороне, соседи не прыгают", () => {
-    const anc = ["I", "UM"];
-    const I: AncestorRef = { id: "I", name: "I", is_external: false };
-    const UM: AncestorRef = { id: "UM", name: "UM", is_external: false };
-    const Mon: AncestorRef = { id: "ObsCore", name: "ObsCore", is_external: false };
-    const leafA = (id: string, a: AncestorRef[]) => ({ kind: "leaf" as const, id, ghost: ghost(id, a) });
-    const container = (id: string, a: AncestorRef[]) =>
-      ({ kind: "container" as const, id, name: id, depth: a.length, ancestors: a, is_external: false });
-    const cy = (m: Map<string, { x: number; y: number }>, id: string) => m.get(id)!.y + NODE_H / 2;
-
-    const baseEdges = [edge("e1", "f", "umk"), edge("e2", "f", "selfiam")];
-    // свёрнуто: umk, selfiam и контейнер ObsCore
-    const r1 = computeContextLayout(
-      "f", NODE_H,
-      [leafA("umk", [I, UM]), leafA("selfiam", [I, UM]), container("ObsCore", [I])],
-      [...baseEdges, edge("e3", "f", "ObsCore")], anc, new Set(),
-    );
-    const cUmk = cy(r1.positions, "umk");
-    const cSelf = cy(r1.positions, "selfiam");
-    const cMon = cy(r1.positions, "ObsCore");
-    expect(cMon).toBeLessThan(0); // свёрнутый ObsCore — выше фокуса
-
-    // раскрыто: дети grafana/zabbix вместо контейнера
-    const r2 = computeContextLayout(
-      "f", NODE_H,
-      [leafA("umk", [I, UM]), leafA("selfiam", [I, UM]), leafA("grafana", [I, Mon]), leafA("zabbix", [I, Mon])],
-      [...baseEdges, edge("e4", "f", "grafana"), edge("e5", "f", "zabbix")], anc, new Set(["ObsCore"]),
-    );
-    // соседи не из ObsCore стоят ровно там же, где и были
-    expect(cy(r2.positions, "umk")).toBe(cUmk);
-    expect(cy(r2.positions, "selfiam")).toBe(cSelf);
-    // дети остались ВЫШЕ фокуса (на стороне свёрнутого ObsCore), а не уехали вниз колонки
-    expect(cy(r2.positions, "grafana")).toBeLessThan(0);
-    expect(cy(r2.positions, "zabbix")).toBeLessThan(0);
   });
 });

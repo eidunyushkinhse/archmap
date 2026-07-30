@@ -948,7 +948,6 @@ function SchemaSection({
       onEdit={onEdit}
       height={ctxHeight}
       showViewFilter={ctxHasNonExisting}
-      mode="context"
       focusLoupe={
         canKids
           ? {

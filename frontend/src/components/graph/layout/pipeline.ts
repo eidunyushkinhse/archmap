@@ -32,7 +32,7 @@ import { NODE_W, NODE_H, MAX_INLINE_DEPTH } from "../constants";
 import { edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
-import { layoutLevel, layoutContext } from "./engine";
+import { layoutLevel } from "./engine";
 import { assignEdgeHandles } from "./level";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
 import { computeFrames, type FrameRect } from "./frames";
@@ -281,25 +281,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     };
   });
 
-  // Контекст — звезда: своя детерминированная frame-aware раскладка (фокус в центре,
-  // соседи в две колонки, колонки за вылетом рамок фокуса). Обычный уровень — ELK.
-  const ctxLayout =
-    isContext && nodes[0]
-      ? await layoutContext(
-          nodes[0].id,
-          NODE_H,
-          entities,
-          layoutEdges,
-          ancestorIds,
-          expanded,
-        )
-      : null;
-  const baseLayout = ctxLayout ?? (await layoutLevel(allNodeInfos, layoutEdges));
+  // Раскладка позиций/хэндлов — всегда ELK level-конвейер. Контекстный движок
+  // (звезда) удалён 2026-07-30: все схемы рендерит один level-конвейер.
+  const baseLayout = await layoutLevel(allNodeInfos, layoutEdges);
   const positions = baseLayout.positions;
   let edgeHandles = baseLayout.edgeHandles;
-  // полки подписей и обходы не родных стрелок считаются только в контекст-раскладке
-  const edgeShelves = ctxLayout?.edgeShelves;
-  const edgeLoops = ctxLayout?.edgeLoops;
+  // Полки подписей и обходы не родных стрелок считались только в контекст-звезде
+  // (удалена) — на level-конвейере их нет.
+  const edgeShelves: Map<string, EdgeShelf> | undefined = undefined;
+  const edgeLoops: Map<string, EdgeLoop> | undefined = undefined;
 
   // Дефолтная раскладка гостей на кольца запретных рамок (boundary labeling) —
   // вынесена в ringPlacement под юнит-тесты. МУТИРУЕТ positions
@@ -713,26 +703,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     };
   }
 
-  // Распорки: обходы не родных стрелок выходят за bbox узлов → крайними точками
-  // контента (loopX/clearY обходов + запас под полку с подписью) расширяем область,
-  // которую увидит fitView. Только контекст и только если есть обходы.
+  // Распорки (fitView-экстендер) считались только для контекст-звезды с обходами
+  // не родных стрелок (loopX/clearY). Контекстный движок удалён (2026-07-30) —
+  // распорок нет.
   const spacers: RFNode[] = [];
-  if (isContext && edgeLoops && edgeLoops.size > 0) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of positions.values()) {
-      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
-    }
-    const PAD = 130; // запас под дальнюю полку/подпись не родной стрелки
-    for (const lp of edgeLoops.values()) {
-      minX = Math.min(minX, lp.loopX - PAD); maxX = Math.max(maxX, lp.loopX + PAD);
-      minY = Math.min(minY, lp.clearY - 20); maxY = Math.max(maxY, lp.clearY + 20);
-    }
-    spacers.push(
-      { id: "__spacer_min", type: "spacer", position: { x: minX, y: minY }, data: {}, draggable: false, selectable: false },
-      { id: "__spacer_max", type: "spacer", position: { x: maxX, y: maxY }, data: {}, draggable: false, selectable: false },
-    );
-  }
 
   // РАСКРЫТЫЕ рамки на финальных позициях (R4/R5): их rect'ы становятся
   // compound-узлами RF в сборке. Гостевые рамки строятся по предкам гостей,
