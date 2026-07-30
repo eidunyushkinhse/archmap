@@ -62,6 +62,10 @@ interface Props {
   onRelayout?: () => void;
   // Инфраструктура персиста/undo (из useEditableLevel). Без неё блок view-only.
   editing?: SchemaEditing;
+  // Лупа «раскрыть компоненты» на фокус-узле (single-schema, Ф10)
+  focusLoupe?: { focusId: string; count: number; title: string; onExpand: () => void };
+  // Кнопка «Свернуть» в тулбаре (раскрытый вид single-schema → обратно к контексту)
+  onCollapse?: () => void;
 }
 
 export default function EmbeddedSchemaBlock({
@@ -71,7 +75,7 @@ export default function EmbeddedSchemaBlock({
   height, toolbarHint, showViewFilter, empty, mode = "level",
   nodesDraggable = false,
   onUndo, onRedo, canUndo = false, canRedo = false, onRelayout,
-  editing,
+  editing, focusLoupe, onCollapse,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -131,6 +135,14 @@ export default function EmbeddedSchemaBlock({
       <div className="esb-toolbar">
         {toolbarHint && <span className="esb-hint">{toolbarHint}</span>}
         <span style={{ flex: 1 }} />
+        {onCollapse && (
+          <button className="esb-collapse" onClick={onCollapse} title="Свернуть до контекста">
+            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="6.4" /><path d="M15.8 15.8 L21 21" /><path d="M8.6 11 H13.4" />
+            </svg>
+            Свернуть
+          </button>
+        )}
         {showViewFilter && (
           <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} />
         )}
@@ -188,6 +200,7 @@ export default function EmbeddedSchemaBlock({
                 onPersistError={editing?.onPersistError}
                 onPersistConflict={editing?.onPersistConflict}
                 retryPatch={editing?.retryPatch}
+                focusLoupe={focusLoupe}
               />
             </div>
             {/* Контролы расстановки: undo/redo слева, перераскладка справа */}

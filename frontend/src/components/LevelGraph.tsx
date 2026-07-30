@@ -196,6 +196,9 @@ interface LevelGraphProps {
   // персист раскладки и undo/redo перемещений ВКЛЮЧЕНЫ, но создание/удаление
   // связей и узлов, дроп шаблонов — ВЫКЛЮЧЕНЫ (это зона редактора-карты).
   arrangeOnly?: boolean;
+  // Лупа «раскрыть компоненты» на фокус-узле (single-schema, Ф10): пилюля на блоке
+  // с focusId. Используется секцией «Схема» на странице объекта.
+  focusLoupe?: { focusId: string; count: number; title: string; onExpand: () => void };
   // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
@@ -263,6 +266,7 @@ function LevelGraphInner({
   readOnly = false,
   nodesDraggable: nodesDraggableProp,
   arrangeOnly = false,
+  focusLoupe,
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
@@ -986,7 +990,7 @@ function LevelGraphInner({
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
     const { nextNodes, nextEdges } = assembleRfGraph({
-      layout, isArchitect, isContext, depth, schemaView, getCb,
+      layout, isArchitect, isContext, depth, schemaView, getCb, focusLoupe,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -1001,7 +1005,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout, getCb, getNodes, getEdges]);
+  }, [layout, isArchitect, depth, isContext, schemaView, applyLayout, getCb, getNodes, getEdges, focusLoupe]);
 
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).

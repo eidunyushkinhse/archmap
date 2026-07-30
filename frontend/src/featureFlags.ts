@@ -12,3 +12,17 @@ export function isPagesPivot(): boolean {
 export function setPagesPivot(on: boolean): void {
   localStorage.setItem(PAGES_PIVOT_KEY, on ? "1" : "0");
 }
+
+// «Одна схема на странице объекта» (лупа-раскрытие компонентов). При включённом
+// флаге на странице объекта одна секция «Схема» (контекст + лупа) вместо двух
+// («Схема контекста» + «Схема компонентов»). Требует включённого pages_pivot.
+const SINGLE_SCHEMA_KEY = "archmap_single_object_schema";
+
+export function isSingleObjectSchema(): boolean {
+  const v = localStorage.getItem(SINGLE_SCHEMA_KEY);
+  return v === null ? true : v === "1";
+}
+
+export function setSingleObjectSchema(on: boolean): void {
+  localStorage.setItem(SINGLE_SCHEMA_KEY, on ? "1" : "0");
+}

@@ -67,6 +67,35 @@ function ChildrenBadge({ count, color }: { count: number; color: string }) {
   );
 }
 
+// Лупа «раскрыть компоненты» на фокус-узле (single-schema, Ф10): кликабельная пилюля
+// с лупой и счётчиком компонентов в правом нижнем углу (заменяет ChildrenBadge).
+function LoupeBadge({ count, title, onExpand, color }: { count: number; title: string; onExpand: () => void; color: string }) {
+  return (
+    <button
+      className="nodrag"
+      onClick={(e) => { e.stopPropagation(); onExpand(); }}
+      title={title}
+      style={{
+        position: "absolute", right: 8, bottom: 8, zIndex: 2,
+        display: "inline-flex", alignItems: "center", gap: 4,
+        fontSize: 11, fontWeight: 700, lineHeight: 1,
+        color, padding: "3px 7px", borderRadius: 8,
+        background: "rgba(255,255,255,0.22)", border: "1px solid rgba(255,255,255,0.32)",
+        cursor: "pointer", backdropFilter: "blur(2px)",
+      }}
+    >
+      <svg width={12} height={12} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+        style={{ display: "block" }} aria-hidden>
+        <circle cx="11" cy="11" r="6.4" />
+        <path d="M15.8 15.8 L21 21" />
+        <path d="M11 8.6 V13.4 M8.6 11 H13.4" />
+      </svg>
+      {count > 0 ? count : null}
+    </button>
+  );
+}
+
 // Оверлей «зоны входа»: во время протягивания связи (CSS .lg-canvas--connecting)
 // контент узла-контейнера прячется, а по центру показывается «стрелка вниз в лунку» —
 // явный сигнал «отпусти здесь, чтобы выбрать узел внутри». pointer-events:none —
@@ -309,8 +338,13 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
           В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
       {intoZone && <IntoCue />}
-      {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
-      {intoZone && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
+      {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. Лупа (single-schema)
+          заменяет его на фокус-узле: та же позиция, но кликабельна (раскрыть компоненты). */}
+      {data.loupe ? (
+        <LoupeBadge count={data.loupe.count} title={data.loupe.title} onExpand={data.loupe.onExpand} color={c.text} />
+      ) : (
+        intoZone && <ChildrenBadge count={data.appNode.child_count} color={c.text} />
+      )}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
           кнопки «Подробнее» больше нет — «Войти» у сервисов и лупа «Раскрыть
           содержимое» (R5, инлайн-раскрытие локального контейнера) у сервисов с детьми. */}

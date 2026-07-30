@@ -40,8 +40,11 @@ export function assembleRfGraph(params: {
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
+  // Лупа «раскрыть компоненты» на фокус-узле (single-schema, Ф10): задаёт data.loupe
+  // блоку с focusId. undefined — лупы нет.
+  focusLoupe?: { focusId: string; count: number; title: string; onExpand: () => void };
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isContext, depth, schemaView, getCb } = params;
+  const { layout, isArchitect, isContext, depth, schemaView, getCb, focusLoupe } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
@@ -140,6 +143,10 @@ export function assembleRfGraph(params: {
           onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
             && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandLocalContainer(id)
+            : undefined,
+          // Лупа single-schema на фокус-узле (Ф10): работает и в контекст-режиме.
+          loupe: focusLoupe && n.id === focusLoupe.focusId
+            ? { count: focusLoupe.count, title: focusLoupe.title, onExpand: focusLoupe.onExpand }
             : undefined,
         } satisfies BlockData,
       };

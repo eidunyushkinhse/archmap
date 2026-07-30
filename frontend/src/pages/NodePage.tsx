@@ -8,6 +8,7 @@ import { nodesApi, edgesApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useEditableLevel } from "./useEditableLevel";
+import { isSingleObjectSchema } from "../featureFlags";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
@@ -318,29 +319,45 @@ function NodePageInner({
           </div>
         </div>
 
-        {/* ── Схема контекста ──────────────────────────────────── */}
-        <div className="np-card">
-          <h3 className="np-card-title">Схема контекста</h3>
-          <ContextSection
-            nodeId={node.id}
-            isArchitect={isArchitect}
-            onNavigateNode={onNavigateNode}
-          />
-        </div>
-
-        {/* ── Схема компонентов (только у узлов с детьми) ──────── */}
-        {canHaveChildren(node.shape) && (
+        {/* ── Схема (single-schema: одна секция с лупой) ИЛИ две секции (старое) ── */}
+        {isSingleObjectSchema() ? (
           <div className="np-card">
-            <h3 className="np-card-title">Схема компонентов</h3>
-            <ComponentsSection
-              nodeId={node.id}
-              nodeName={node.name}
+            <h3 className="np-card-title">Схема</h3>
+            <SchemaSection
+              node={node}
               ancestors={ancestors}
               isArchitect={isArchitect}
               onNavigateNode={onNavigateNode}
               onNavigateMap={onNavigateMap}
             />
           </div>
+        ) : (
+          <>
+            {/* ── Схема контекста ──────────────────────────────────── */}
+            <div className="np-card">
+              <h3 className="np-card-title">Схема контекста</h3>
+              <ContextSection
+                nodeId={node.id}
+                isArchitect={isArchitect}
+                onNavigateNode={onNavigateNode}
+              />
+            </div>
+
+            {/* ── Схема компонентов (только у узлов с детьми) ──────── */}
+            {canHaveChildren(node.shape) && (
+              <div className="np-card">
+                <h3 className="np-card-title">Схема компонентов</h3>
+                <ComponentsSection
+                  nodeId={node.id}
+                  nodeName={node.name}
+                  ancestors={ancestors}
+                  isArchitect={isArchitect}
+                  onNavigateNode={onNavigateNode}
+                  onNavigateMap={onNavigateMap}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* ── Связи ─────────────────────────────────────────────── */}
@@ -704,7 +721,6 @@ function ContextSection({
 
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка контекста при маунте
   useEffect(() => {
     let alive = true;
     nodesApi.getContext(nodeId).then((c) => {
@@ -765,6 +781,183 @@ function ContextSection({
             <span style={{ fontSize: 12, color: "#b0bec5" }}>
               Связи создаются в редакторе-карте
             </span>
+          </span>
+        ) : undefined
+      }
+    />
+  );
+}
+
+// ── Секция «Схема» (single-schema, Ф10) ─────────────────────────────
+// Одна схема вместо двух: свёрнутый контекст с лупой на фокусе; лупа/даблклик
+// раскрывает компоненты на месте (level-вид фокус-контейнера: дети + соседи-гости
+// + рамка + drag/undo/relayout через useEditableLevel). Инкремент A: раскрытие
+// переиспользует level-рендер; колонки соседей, акцентная рамка и рёбра в рамку —
+// в Инкременте B (новый режим движка context-expanded).
+function SchemaSection({
+  node,
+  ancestors,
+  isArchitect,
+  onNavigateNode,
+  onNavigateMap,
+}: {
+  node: Node;
+  ancestors: AncestorRef[];
+  isArchitect: boolean;
+  onNavigateNode: (id: string) => void;
+  onNavigateMap?: (nodeId: string | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
+  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+
+  const canKids = canHaveChildren(node.shape) || node.has_children;
+  const kidCount = node.child_count ?? 0;
+
+  // Контекст (свёрнутое состояние + детектор соседей). Секция ремаунтится по
+  // key=node.id родителя, поэтому начальное ctxLoading=true покрывает первый рендер.
+  const [ctx, setCtx] = useState<NodeContext | null>(null);
+  const [ctxLoading, setCtxLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    nodesApi.getContext(node.id)
+      .then((c) => { if (alive) { setCtx(c); setCtxLoading(false); } })
+      .catch(() => { if (alive) setCtxLoading(false); });
+    return () => { alive = false; };
+  }, [node.id]);
+
+  // Уровень (раскрытое состояние): дети + соседи-гости + drag/undo/relayout
+  const lvl = useEditableLevel({ containerId: node.id, isArchitect });
+
+  if (ctxLoading) return <p className="np-empty">Загрузка схемы…</p>;
+
+  const noNeighbors = !ctx || ctx.neighbors.length === 0;
+  // Пустой объект: нет связей и не может иметь компонентов
+  if (noNeighbors && !canKids) {
+    return (
+      <p className="np-empty">
+        Внешних связей нет — объект пока не взаимодействует с соседями.
+      </p>
+    );
+  }
+
+  // «Редактировать» / «Открыть в карте» → родительский слой (Ф11; locate — в Инкременте B)
+  const onEdit = onNavigateMap ? () => onNavigateMap(node.parent_id ?? null) : undefined;
+
+  // ── Раскрыто: level-вид фокус-контейнера ──
+  if (expanded && canKids) {
+    if (lvl.loading) return <p className="np-empty">Загрузка компонентов…</p>;
+    const graphNodes = lvl.nodes;
+    const endpoints = lvl.endpoints;
+    const hasNodes = graphNodes.length + endpoints.length > 0;
+    const hasStatusInfo =
+      graphNodes.some((n) => n.status !== "existing") ||
+      endpoints.some((g) => g.status !== "existing");
+    const height = Math.min(560, Math.max(360, graphNodes.length * 62));
+    const ancestorNames = [...ancestors.map((a) => a.name), node.name];
+    const ancestorIds = [...ancestors.map((a) => a.id), node.id];
+    return (
+      <EmbeddedSchemaBlock
+        nodes={graphNodes}
+        endpoints={endpoints}
+        edges={lvl.edges}
+        viewLayout={lvl.viewLayout}
+        containerId={node.id}
+        ancestorNames={ancestorNames}
+        ancestorIds={ancestorIds}
+        depth={ancestors.length + 1}
+        isArchitect={isArchitect}
+        schemaView={schemaView}
+        onSchemaViewChange={setSchemaView}
+        onNavigateNode={onNavigateNode}
+        onEdit={onEdit}
+        onCollapse={() => setExpanded(false)}
+        height={height}
+        toolbarHint={`${node.name} · компоненты${hasNodes ? ` · ${graphNodes.length}` : ""}`}
+        showViewFilter={hasStatusInfo}
+        nodesDraggable
+        editing={{
+          history: lvl.history,
+          onLayoutChanged: lvl.handleLayoutChanged,
+          viewMeta: lvl.viewMetaRef,
+          gestureActiveRef: lvl.gestureActiveRef,
+          onPersistError: lvl.onPersistError,
+          onPersistConflict: lvl.onPersistConflict,
+          retryPatch: lvl.retryPatch,
+        }}
+        onUndo={lvl.undo}
+        onRedo={lvl.redo}
+        canUndo={lvl.canUndo}
+        canRedo={lvl.canRedo}
+        onRelayout={() => { void lvl.relayout(); }}
+        empty={
+          hasNodes ? undefined : (
+            <span>
+              Внутренний состав не описан.
+              {isArchitect && onNavigateMap && (
+                <>
+                  <br />
+                  <button className="esb-edit" style={{ marginTop: 10 }} onClick={() => onNavigateMap(node.id)}>
+                    Открыть в карте
+                  </button>
+                </>
+              )}
+            </span>
+          )
+        }
+      />
+    );
+  }
+
+  // ── Свёрнуто: контекст + лупа на фокусе ──
+  const ctxEdges: LevelEdge[] = ctx
+    ? ctx.edges.map((ge) => ({
+        id: ge.id, label: ge.label, technology: ge.technology,
+        source_id: ge.source_id, target_id: ge.target_id,
+        original_source_id: ge.original_source_id, original_target_id: ge.original_target_id,
+        original_source_name: ge.original_source_name, original_target_name: ge.original_target_name,
+        version: ge.version, created_at: "",
+      }))
+    : [];
+  const ctxHeight = Math.max(240, Math.min(380, (ctx?.neighbors.length ?? 0) * 80));
+  const ctxHasNonExisting = ctx
+    ? ctx.focus.status !== "existing" || ctx.neighbors.some((n) => n.status !== "existing")
+    : false;
+
+  return (
+    <EmbeddedSchemaBlock
+      nodes={ctx ? [ctx.focus] : []}
+      endpoints={ctx?.neighbors ?? []}
+      edges={ctxEdges}
+      viewLayout={{}}
+      containerId={node.parent_id}
+      ancestorNames={ctx ? ctx.focus_ancestors.map((a) => a.name) : ancestors.map((a) => a.name)}
+      ancestorIds={ctx ? ctx.focus_ancestors.map((a) => a.id) : ancestors.map((a) => a.id)}
+      depth={ctx ? ctx.focus_ancestors.length : ancestors.length}
+      isArchitect={isArchitect}
+      schemaView={schemaView}
+      onSchemaViewChange={setSchemaView}
+      onNavigateNode={onNavigateNode}
+      onEdit={onEdit}
+      height={ctxHeight}
+      showViewFilter={ctxHasNonExisting}
+      mode="context"
+      focusLoupe={
+        canKids
+          ? {
+              focusId: node.id,
+              count: kidCount,
+              title: kidCount ? `Раскрыть компоненты (${kidCount})` : "Раскрыть — состав не описан",
+              onExpand: () => setExpanded(true),
+            }
+          : undefined
+      }
+      empty={
+        noNeighbors ? (
+          <span>
+            Внешних связей нет
+            <br />
+            <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
           </span>
         ) : undefined
       }

@@ -93,6 +93,10 @@ export interface BlockData extends Record<string, unknown> {
   // раскрыть содержимое ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с
   // детьми — узел заменяется рамкой со всеми детьми. undefined — кнопки нет.
   onExpand?: (id: string) => void;
+  // Лупа «раскрыть компоненты» на фокус-узле (single-schema, Ф10): пилюля с лупой
+  // и счётчиком компонентов в правом нижнем углу, заменяет бейдж детей. Показывается
+  // и в контекст-режиме (hideActions) — это аффорданс раскрытия, а не правки.
+  loupe?: { count: number; title: string; onExpand: () => void };
 }
 
 export interface GhostData extends Record<string, unknown> {
