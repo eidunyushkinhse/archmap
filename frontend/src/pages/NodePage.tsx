@@ -795,8 +795,11 @@ function ContextSection({
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
 // Контекст узла (фокус + внешние соседи поддерева), рендерится основным
-// level-конвейером. Раскрытие компонентов — штатной R5-лупой LevelGraph
-// (инлайн, read-only просмотр); расстановка компонентов — только в карте.
+// level-конвейером. Раскрытие компонентов — штатной R5-лупой: по клику секция
+// переключается на level-вид фокуса (дети + соседи-гости + КОРРЕКТНЫЕ связи —
+// сырые концы поднимаются к видимым детям; инлайн-раскрытие в контексте связи
+// теряет, т.к. в контекстных данных нет сырых концов). Просмотр read-only;
+// расстановка компонентов — только в редакторе-карте.
 function SchemaSection({
   node,
   ancestors,
@@ -810,13 +813,13 @@ function SchemaSection({
   onNavigateNode: (id: string) => void;
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
   const canKids = canHaveChildren(node.shape) || node.has_children;
 
-  // Контекст (фокус + соседи). Секция ремаунтится по key=node.id родителя,
-  // поэтому начальное ctxLoading=true покрывает первый рендер.
+  // Контекст (свёрнутое состояние). Секция ремаунтится по key=node.id родителя.
   const [ctx, setCtx] = useState<NodeContext | null>(null);
   const [ctxLoading, setCtxLoading] = useState(true);
   useEffect(() => {
@@ -826,6 +829,9 @@ function SchemaSection({
       .catch(() => { if (alive) setCtxLoading(false); });
     return () => { alive = false; };
   }, [node.id]);
+
+  // Level-вид фокуса (раскрытое состояние): дети + соседи-гости + связи.
+  const lvl = useEditableLevel({ containerId: node.id, isArchitect });
 
   if (ctxLoading) return <p className="np-empty">Загрузка схемы…</p>;
 
@@ -841,6 +847,57 @@ function SchemaSection({
     ? () => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })
     : undefined;
 
+  // ── Раскрыто: level-вид фокус-контейнера (дети + соседи + связи), read-only ──
+  if (expanded && canKids) {
+    if (lvl.loading) return <p className="np-empty">Загрузка компонентов…</p>;
+    const graphNodes = lvl.nodes;
+    const endpoints = lvl.endpoints;
+    const hasNodes = graphNodes.length + endpoints.length > 0;
+    const hasStatusInfo =
+      graphNodes.some((n) => n.status !== "existing") ||
+      endpoints.some((g) => g.status !== "existing");
+    const height = Math.min(560, Math.max(360, graphNodes.length * 62));
+    const ancestorNames = [...ancestors.map((a) => a.name), node.name];
+    const ancestorIds = [...ancestors.map((a) => a.id), node.id];
+    return (
+      <EmbeddedSchemaBlock
+        nodes={graphNodes}
+        endpoints={endpoints}
+        edges={lvl.edges}
+        viewLayout={lvl.viewLayout}
+        containerId={node.id}
+        ancestorNames={ancestorNames}
+        ancestorIds={ancestorIds}
+        depth={ancestors.length + 1}
+        isArchitect={isArchitect}
+        schemaView={schemaView}
+        onSchemaViewChange={setSchemaView}
+        onNavigateNode={onNavigateNode}
+        onEdit={onEdit}
+        onCollapse={() => setExpanded(false)}
+        height={height}
+        toolbarHint={`${node.name} · компоненты${hasNodes ? ` · ${graphNodes.length}` : ""}`}
+        showViewFilter={hasStatusInfo}
+        empty={
+          hasNodes ? undefined : (
+            <span>
+              Внутренний состав не описан.
+              {isArchitect && onNavigateMap && (
+                <>
+                  <br />
+                  <button className="esb-edit" style={{ marginTop: 10 }} onClick={() => onNavigateMap(node.id)}>
+                    Открыть в карте
+                  </button>
+                </>
+              )}
+            </span>
+          )
+        }
+      />
+    );
+  }
+
+  // ── Свёрнуто: контекст + R5-лупа на фокусе (переключает на level-вид) ──
   const ctxEdges: LevelEdge[] = ctx
     ? ctx.edges.map((ge) => ({
         id: ge.id, label: ge.label, technology: ge.technology,
@@ -872,6 +929,9 @@ function SchemaSection({
       onEdit={onEdit}
       height={ctxHeight}
       showViewFilter={ctxHasNonExisting}
+      focusExpand={
+        canKids ? { focusId: node.id, onExpand: () => setExpanded(true) } : undefined
+      }
       empty={
         noNeighbors ? (
           <span>

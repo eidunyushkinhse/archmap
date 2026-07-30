@@ -44,8 +44,13 @@ export function assembleRfGraph(params: {
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
+  // Переопределение раскрытия для фокус-узла (single-schema): R5-лупа визуально
+  // остаётся, но по клику зовёт onExpand вместо штатного инлайн-раскрытия —
+  // контекст-блок переключается на level-вид фокуса (там сырые рёбра и связи
+  // корректно поднимаются к детям; инлайн в контексте рёбра теряет).
+  focusExpand?: { focusId: string; onExpand: () => void };
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb } = params;
+  const { layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb, focusExpand } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
@@ -141,9 +146,13 @@ export function assembleRfGraph(params: {
           // Работает и в read-only блоке (контекст на странице) — это просмотр,
           // не правка; расстановка компонентов — только в карте. Глубже
           // MAX_INLINE_DEPTH слоёв от уровня лупы нет — только «Войти» (C8).
+          // Для фокус-узла (focusExpand) лупа переопределяется: переключает
+          // контекст-блок на level-вид (инлайн в контексте теряет связи).
           onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
             && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
-            ? (id) => getCb().expandLocalContainer(id)
+            ? (focusExpand && n.id === focusExpand.focusId
+                ? () => focusExpand.onExpand()
+                : (id) => getCb().expandLocalContainer(id))
             : undefined,
         } satisfies BlockData,
       };
