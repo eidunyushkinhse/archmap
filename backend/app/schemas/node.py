@@ -210,11 +210,17 @@ class NodeContextResponse(BaseModel):
     фокуса (сам узел или любой его потомок). Рёбра спроецированы: конец внутри
     поддерева свёрнут на фокус, внешний конец указывает на узел-соседа.
     Соседи отдаются как «гости» (пунктир), focus_ancestors — для рамок предков.
+
+    inner_endpoints — глубокие концы внутри поддерева фокуса (реальные узлы-концы
+    связей, не сам фокус) с цепочками предков: по ним фронтовая проекция поднимает
+    конец к видимому представителю при инлайн-раскрытии фокуса (R5) — та же логика,
+    что для графа уровня (getGraph), чтобы стрелки не пропадали при раскрытии.
     """
     focus: NodeResponse
     focus_ancestors: list[AncestorRef] = []
     neighbors: list[GhostNodeResponse] = []
     edges: list[ContextEdgeResponse] = []
+    inner_endpoints: list[GhostNodeResponse] = []
 
 
 class NodeEdgeInfo(BaseModel):

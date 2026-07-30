@@ -660,6 +660,7 @@ def get_node_context(
 
     result_edges: list[ContextEdgeResponse] = []
     neighbor_ids: set[uuid.UUID] = set()
+    inner_ids: set[uuid.UUID] = set()
     for e in all_edges:
         s_in = e.source_id in subtree
         t_in = e.target_id in subtree
@@ -668,13 +669,19 @@ def get_node_context(
             continue
         if s_in:
             neigh = e.target_id
+            inner = e.source_id
             src, tgt = focus.id, neigh
         else:
             neigh = e.source_id
+            inner = e.target_id
             src, tgt = neigh, focus.id
         if neigh not in all_nodes:
             continue
         neighbor_ids.add(neigh)
+        # Глубокий конец внутри поддерева (не сам фокус) — в реестр для проекции:
+        # при инлайн-раскрытии фокуса фронт поднимет его к видимому ребёнку.
+        if inner != focus.id:
+            inner_ids.add(inner)
         # Контекст остаётся серверной проекцией (Д5 аудита): концы уже свёрнуты на
         # фокус/соседа. Геометрия сознательно НЕ отдаётся — раскладка звезды
         # эфемерна и живёт в своей системе координат.
@@ -707,6 +714,22 @@ def get_node_context(
         )
         for nid in sorted(neighbor_ids, key=str)
     ]
+    # Глубокие концы внутри поддерева фокуса — реестр для фронтовой проекции
+    # (цепочка предков позволяет поднять конец к видимому ребёнку при раскрытии).
+    inner_endpoints = [
+        GhostNodeResponse(
+            id=all_nodes[iid].id,
+            name=all_nodes[iid].name,
+            role=all_nodes[iid].role,
+            technology=all_nodes[iid].technology,
+            is_external=all_nodes[iid].is_external,
+            shape=all_nodes[iid].shape,
+            status=all_nodes[iid].status,
+            node_depth=tree.node_depth(all_nodes, iid),
+            ancestors=tree.ancestors(all_nodes, iid),
+        )
+        for iid in sorted(inner_ids, key=str)
+    ]
     # has_children фокуса — по карте всех узлов, без отдельного SQL.
     focus.child_count = sum(1 for n in all_nodes.values() if n.parent_id == focus.id)
     focus.has_children = focus.child_count > 0
@@ -715,6 +738,7 @@ def get_node_context(
         focus_ancestors=tree.ancestors(all_nodes, focus.id),
         neighbors=neighbors,
         edges=result_edges,
+        inner_endpoints=inner_endpoints,
     )
 
 

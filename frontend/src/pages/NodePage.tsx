@@ -833,14 +833,20 @@ function SchemaSection({
     return <p className="np-empty">Внешних связей нет — объект пока не взаимодействует с соседями.</p>;
   }
 
-  // Рёбра контекста (концы спроецированы сервером на фокус/соседей) → LevelEdge.
+  // Рёбра контекста → LevelEdge. Концы — СЫРЫЕ (original_*): реальные узлы,
+  // а не проекция на фокус. По ним фронтовая проекция поднимает конец к видимому
+  // представителю (фокус в свёрнутом виде, его ребёнок при раскрытии R5) — та же
+  // логика, что для графа уровня, поэтому стрелки не пропадают при раскрытии.
   const ctxEdges: LevelEdge[] = ctx.edges.map((ge) => ({
     id: ge.id, label: ge.label, technology: ge.technology,
-    source_id: ge.source_id, target_id: ge.target_id,
+    source_id: ge.original_source_id, target_id: ge.original_target_id,
     original_source_id: ge.original_source_id, original_target_id: ge.original_target_id,
     original_source_name: ge.original_source_name, original_target_name: ge.original_target_name,
     version: ge.version, created_at: "",
   }));
+  // Реестр концов для проекции: внешние соседи + глубокие концы внутри поддерева
+  // фокуса (с цепочками предков) — по ним lift поднимает конец к фокусу/ребёнку.
+  const ctxEndpoints = [...ctx.neighbors, ...(ctx.inner_endpoints ?? [])];
   const height = Math.max(280, Math.min(520, (ctx.neighbors.length + 1) * 90));
   const hasStatusInfo =
     ctx.focus.status !== "existing" || ctx.neighbors.some((n) => n.status !== "existing");
@@ -853,7 +859,7 @@ function SchemaSection({
   return (
     <EmbeddedSchemaBlock
       nodes={[ctx.focus]}
-      endpoints={ctx.neighbors}
+      endpoints={ctxEndpoints}
       edges={ctxEdges}
       viewLayout={{}}
       containerId={node.parent_id}
