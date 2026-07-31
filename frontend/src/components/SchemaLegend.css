@@ -1,0 +1,37 @@
+/* SchemaLegend — кнопка «Легенда» и всплывающая панель (окно просмотра схемы). */
+
+.sleg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.10);
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.sleg-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #fff;
+}
+
+/* Появление панели — лёгкий выезд снизу-справа (от кнопки). */
+.sleg-panel {
+  transform-origin: bottom right;
+  animation: slegPanelIn 0.13s ease-out;
+}
+@keyframes slegPanelIn {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sleg-panel { animation: none; }
+  .sleg-btn svg { transition: none; }
+}

@@ -16,7 +16,7 @@ import { guardPersist } from "../components/graph/interaction/persistGuard";
 import { liftEdgesToLevel } from "../components/graph/projection";
 import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
-import EdgeChoiceModal from "../components/EdgeChoiceModal";
+import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
 import NodeModal from "../components/NodeModal";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
@@ -81,8 +81,6 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     sourceHandle: string | null; targetHandle: string | null;
     sourceName?: string; targetName?: string;
   } | null>(null);
-  const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
-  const [trunkChoice, setTrunkChoice] = useState<{ kind: "out" | "in"; edges: LevelEdge[] } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
   const [relayoutOpen, setRelayoutOpen] = useState(false);
@@ -406,10 +404,17 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   }, [nodes, levelGhosts]);
 
   const inspectEdge = (edge: LevelEdge) => { setSelectedObject({ kind: "edge", edge }); };
-  const edgeEndLabel = (originalNames: string[], projectedId: string): string => {
-    const uniq = new Set(originalNames);
-    return uniq.size === 1 ? originalNames[0] : findNodeLabel(projectedId);
-  };
+  // Выбор связи (общая оркестрация с просмотром — useEdgeChoice): модалки выбора
+  // и резолв группы рёбер там; семантика «выбрать» здесь — открыть инспектор
+  // (inspectEdge), «дозаписать связь» (архитектор) — EdgeQuickCreate.
+  const { onEdgesChoice, onTrunkChoice, choiceModal } = useEdgeChoice({
+    resolveEdge: findLevelEdge,
+    labelOf: findNodeLabel,
+    onPick: inspectEdge,
+    onAddFromChoice: isArchitect
+      ? (rep) => setEdgeQuick({ sourceId: rep.source_id, targetId: rep.target_id, sourceHandle: null, targetHandle: null })
+      : undefined,
+  });
 
   // ── Рендер ───────────────────────────────────────────────────────
   return (
@@ -499,15 +504,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
               onInspectGhost={(ghost) => { onNavigateNode(ghost.id); }}
               linkedHighlight={linkedHighlight}
               onClearSelection={() => setSelectedObject(null)}
-              onEdgesChoice={(group) => {
-                const les = group.map((g) => findLevelEdge(g.id)).filter((e): e is LevelEdge => e != null);
-                if (les.length === 1) inspectEdge(les[0]);
-                else if (les.length > 1) setEdgeChoice(les);
-              }}
-              onTrunkChoice={(kind, group) => {
-                const les = group.map((g) => findLevelEdge(g.id)).filter((e): e is LevelEdge => e != null);
-                if (les.length >= 2) setTrunkChoice({ kind, edges: les });
-              }}
+              onEdgesChoice={onEdgesChoice}
+              onTrunkChoice={onTrunkChoice}
               onLayoutChanged={handleLayoutChanged}
               onDropNode={(shape, pos, dropParentId) => {
                 if (dropParentId) setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
@@ -586,23 +584,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
           onClose={() => setOutPicker(null)}
           onCreated={(created) => { setOutPicker(null); load(currentParentId); pushEdgeCreate(created); }} />
       )}
-      {edgeChoice && edgeChoice.length > 0 && (
-        <EdgeChoiceModal edges={edgeChoice}
-          sourceLabel={edgeEndLabel(edgeChoice.map((e) => e.original_source_name), edgeChoice[0].source_id)}
-          targetLabel={edgeEndLabel(edgeChoice.map((e) => e.original_target_name), edgeChoice[0].target_id)}
-          onPick={(edge) => { setEdgeChoice(null); inspectEdge(edge); }}
-          onAdd={isArchitect ? () => { const dir = edgeChoice[0]; setEdgeChoice(null); setEdgeQuick({ sourceId: dir.source_id, targetId: dir.target_id, sourceHandle: null, targetHandle: null }); } : undefined}
-          onClose={() => setEdgeChoice(null)} />
-      )}
-      {trunkChoice && trunkChoice.edges.length > 0 && (
-        <EdgeChoiceModal edges={trunkChoice.edges} title="Связи общего плеча"
-          subtitle={trunkChoice.kind === "out"
-            ? `Исходящий ствол из «${edgeEndLabel(trunkChoice.edges.map((e) => e.original_source_name), trunkChoice.edges[0].source_id)}»`
-            : `Входящий ствол в «${edgeEndLabel(trunkChoice.edges.map((e) => e.original_target_name), trunkChoice.edges[0].target_id)}»`}
-          rowDetail={(e) => trunkChoice.kind === "out" ? `➜ ${e.original_target_name || findNodeLabel(e.target_id)}` : `⬅ ${e.original_source_name || findNodeLabel(e.source_id)}`}
-          onPick={(edge) => { setTrunkChoice(null); inspectEdge(edge); }}
-          onClose={() => setTrunkChoice(null)} />
-      )}
+      {/* Выбор связи (обычный / общее плечо) — рендерит useEdgeChoice */}
+      {choiceModal}
     </div>
   );
 }

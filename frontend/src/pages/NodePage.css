@@ -224,16 +224,16 @@
   background: #fef2f2;
 }
 
-/* ── Свойства (def-list) ─────────────────────────────────────────── */
+/* ── Свойства (таблица «термин — значение», п.3) ─────────────────── */
+/* Две колонки, поля строго друг под другом; ширина ограничена 2/3 страницы,
+   выравнивание по левому краю (grid слева по умолчанию). */
 .np-props {
   display: grid;
-  grid-template-columns: 110px 1fr 110px 1fr;
+  grid-template-columns: 110px 1fr;
   gap: 10px 16px;
   align-items: baseline;
-}
-
-.np-props--full {
-  grid-template-columns: 110px 1fr;
+  max-width: 66%;
+  min-width: 300px;
 }
 
 .np-term {
@@ -241,6 +241,12 @@
   color: #64748b;
   font-weight: 500;
   margin: 0;
+}
+/* Термин многострочного значения (Описание): к верхней грани textarea, а не по
+   базовой линии (иначе метка «уезжала» бы на первую строку текста). */
+.np-term--top {
+  align-self: start;
+  padding-top: 6px;
 }
 
 .np-value {
@@ -422,19 +428,20 @@
   border-bottom: none;
 }
 
-.np-dir {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
+/* Узкая колонка-стрелка «→» между «Вызывающий» и «Вызываемый» (п.8): направление
+   читается из порядка колонок + тонкая стрелка. Прежние цветные метки
+   «входящая/исходящая» (.np-dir) упразднены. */
+.np-edge-arrowcol {
+  width: 24px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+  user-select: none;
+}
+/* Текущий узел в колонке связей (не ссылка — переход на самого себя бессмыслен). */
+.np-edge-self {
+  color: #1e293b;
   font-weight: 600;
-  white-space: nowrap;
-}
-.np-dir--out {
-  color: #7c3aed;
-}
-.np-dir--in {
-  color: #0e7490;
 }
 
 .np-edge-link {

@@ -4,11 +4,13 @@
 // Одинарный клик по узлу — выделение + индиго-подсветка инцидентных связей.
 // Двойной клик по узлу — переход на его страницу (onNavigateNode).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GhostNode, Node, ViewLayout, Edge, ViewLayoutPayload } from "../types";
+import type { GhostNode, Node, ViewLayout, Edge, LevelEdge, ViewLayoutPayload } from "../types";
 import LevelGraph from "./LevelGraph";
 import type { ViewMetaState } from "./LevelGraph";
 import type { History } from "./graph/interaction/useHistory";
+import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
+import SchemaLegend from "./SchemaLegend";
 import type { SchemaView } from "./schemaView";
 import "./EmbeddedSchemaBlock.css";
 
@@ -27,6 +29,10 @@ export interface SchemaEditing {
 interface Props {
   nodes: Node[];
   endpoints: GhostNode[];
+  // Рёбра уровня. Тип базовый Edge: useEditableLevel (ProjectHomePage, легаси-
+  // секции) отдаёт EdgeResponse без original_* имён, а SchemaSection — LevelEdge
+  // (с именами концов для модалки выбора). Хук useEdgeChoice приводит к LevelEdge
+  // и терпит отсутствующие original_* (подписи концов фолбэчатся на labelOf).
   edges: Edge[];
   viewLayout: ViewLayout;
   containerId: string | null;
@@ -127,6 +133,30 @@ export default function EmbeddedSchemaBlock({
     onNavigateNode(ghost.id);
   }, [onNavigateNode]);
 
+  // Выбор связи в окне просмотра (переиспользование логики редактора): двойной
+  // клик по стрелке/общему плечу → подсветка полного пути (linkedHighlight),
+  // несколько связей на плече → модалка выбора. Выделение живёт здесь (не в
+  // LevelGraph); onPick его ставит, onClearSelection (дабл-клик по пустому) — снимает.
+  const [selectedEdge, setSelectedEdge] = useState<LevelEdge | null>(null);
+  const resolveEdge = useCallback(
+    (id: string): LevelEdge | null =>
+      (edges.find((e) => e.id === id) as LevelEdge | undefined) ?? null,
+    [edges],
+  );
+  const labelOf = useCallback(
+    (id: string): string =>
+      nodes.find((n) => n.id === id)?.name ?? endpoints.find((ep) => ep.id === id)?.name ?? id,
+    [nodes, endpoints],
+  );
+  const linkedHighlight = useMemo(
+    (): { kind: "node" | "edge"; id: string } | null =>
+      selectedEdge ? { kind: "edge", id: selectedEdge.id } : null,
+    [selectedEdge],
+  );
+  const { onEdgesChoice, onTrunkChoice, choiceModal } = useEdgeChoice({
+    resolveEdge, labelOf, onPick: setSelectedEdge,
+  });
+
   return (
     <div>
       {/* Тулбар секции */}
@@ -178,12 +208,23 @@ export default function EmbeddedSchemaBlock({
                 // персистные раскрытия вида не применяются, раскрытие — лупой
                 // (решение 2026-07-30; редактор-карта восстанавливает как прежде).
                 ignorePersistedExpanded
+                // Авто-центрирование окна просмотра: вписать контент по оседании
+                // раскладки (иначе «вверху и мелко») + анимированно центрировать
+                // при каждом раскрытии узла лупой (контент не уезжает за край).
+                fitOnLoad
+                fitOnExpand
                 nodesDraggable={nodesDraggable}
                 schemaView={schemaView}
                 onDrillDown={handleNavigate}
                 onEditNode={handleNavigate}
                 onInspectGhost={handleGhostNavigate}
-                onEdgesChoice={() => {}}
+                // Инспекция связей в read-only просмотре (двойной клик по стрелке):
+                // подсветка полного пути + модалка выбора при общем плече.
+                edgesInspectable
+                linkedHighlight={linkedHighlight}
+                onClearSelection={() => setSelectedEdge(null)}
+                onEdgesChoice={onEdgesChoice}
+                onTrunkChoice={onTrunkChoice}
                 history={editing?.history}
                 onUndo={onUndo}
                 onRedo={onRedo}
@@ -227,6 +268,8 @@ export default function EmbeddedSchemaBlock({
                 )}
               </div>
             )}
+            {/* Легенда — правый нижний угол, доступна всегда (в т.ч. неактивный блок) */}
+            <SchemaLegend />
           </>
         )}
       </div>
@@ -237,6 +280,9 @@ export default function EmbeddedSchemaBlock({
           Гости с других уровней — пунктиром. Двойной клик по объекту — его страница.
         </p>
       )}
+
+      {/* Модалка выбора связи (общее плечо / несколько связей) */}
+      {choiceModal}
     </div>
   );
 }

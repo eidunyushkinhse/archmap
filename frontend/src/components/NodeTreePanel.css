@@ -94,6 +94,19 @@
   display: inline-flex;
 }
 
+/* Текущая открытая страница (п.1): устойчивая подсветка строки — голубой фон,
+   синие имя/глиф, левый акцент. Сильнее hover, чтобы текущий узел читался всегда. */
+.nt-row--current,
+.nt-row--current:hover {
+  background: #dbeafe;
+  box-shadow: inset 2px 0 0 #2563eb;
+}
+.nt-row--current .nt-name,
+.nt-row--current .nt-glyph {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
 /* Имя узла — усечение в узкой панели. Контейнеры выделены жирнее и темнее. */
 .nt-name {
   flex: 1;

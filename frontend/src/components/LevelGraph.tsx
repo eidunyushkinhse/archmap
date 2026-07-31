@@ -53,6 +53,7 @@ import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeC
 import { findQuickConnectTarget, type QcNode } from "./graph/interaction/quickConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
+import { ANIM_MOVE_MS } from "./graph/interaction/layoutAnimation";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { planPersistFailure, type CommitOrigin } from "./graph/interaction/persistGuard";
@@ -64,6 +65,12 @@ import { isConflict } from "../api/client";
 // НОВЫЙ объект на каждый рендер, а он — зависимость async-эффекта раскладки → лишний
 // перезапуск ELK и мигание. Один модульный объект держит ссылку стабильной.
 const EMPTY_VIEW_LAYOUT: ViewLayout = {};
+
+// Опции центрирования страничных схем (fitOnLoad/fitOnExpand и кнопка «Центрировать»
+// встроенных блоков): единый источник, чтобы авто-фит и ручное центрирование давали
+// идентичный вид. maxZoom 1.0 — не раздувать разреженные схемы (1–2 узла) крупнее
+// натурального размера, но и не мельчить (прежние 0.85 оставляли схемы «мелко»).
+const SCHEMA_FIT_OPTIONS = { padding: 0.1, maxZoom: 1.0 };
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -185,6 +192,11 @@ interface LevelGraphProps {
   // раскладки), но рендер уровня и навигация (двойной клик, выделение) сохраняются.
   // Для встроенных блоков схемы на страницах (pages_pivot).
   readOnly?: boolean;
+  // Инспекция связей (двойной клик по стрелке/общему плечу → подсветка полного
+  // пути, модалка выбора) доступна и в read-only: это просмотр, не правка.
+  // По умолчанию гейтится readOnly (?? !readOnly) — редактор не передаёт и ведёт
+  // себя как прежде; встроенные блоки просмотра передают true.
+  edgesInspectable?: boolean;
   // Переопределение draggable-узлов: true — узлы можно таскать даже в readOnly
   // (персист раскладки при этом НЕ идёт — только визуальный драг в рамках сессии).
   // По умолчанию: !readOnly.
@@ -199,6 +211,15 @@ interface LevelGraphProps {
   // (решение 2026-07-30); редактор-карта флаг не передаёт и восстанавливает
   // персистные раскрытия как прежде (container.md C7).
   ignorePersistedExpanded?: boolean;
+  // Авто-центрирование вида (встроенные блоки на страницах). fitOnLoad — вписать
+  // контент ПОСЛЕ оседания раскладки (двухфазная: фолбэк-габариты → замер →
+  // пере-прогон; декларативный fitView снимает лишь первый проход и «сползает»).
+  // fitOnExpand — анимированно центрировать при каждом раскрытии узла лупой
+  // (контент может уехать за край окна). Оба используют SCHEMA_FIT_OPTIONS — те же
+  // опции, что кнопка «Центрировать» (Controls), чтобы вид совпадал с ручным.
+  // Редактор-карта флаги не передаёт — его центрирование не меняется.
+  fitOnLoad?: boolean;
+  fitOnExpand?: boolean;
   // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
@@ -263,9 +284,12 @@ function LevelGraphInner({
   viewMeta,
   gestureActiveRef,
   readOnly = false,
+  edgesInspectable,
   nodesDraggable: nodesDraggableProp,
   arrangeOnly = false,
   ignorePersistedExpanded = false,
+  fitOnLoad = false,
+  fitOnExpand = false,
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
@@ -278,7 +302,10 @@ function LevelGraphInner({
   // canStructure — создание/удаление связей и узлов, дроп шаблонов.
   const canArrange = arrangeOnly || !isReadOnly;
   const canStructure = !isReadOnly;
-  const { screenToFlowPosition, setCenter, fitBounds, getInternalNode, getNodes, getEdges } = useReactFlow();
+  // Инспекция связей — просмотр, не правка: доступна и в read-only, если явно
+  // включена (встроенные блоки). Дефолт — прежнее поведение (гейт readOnly).
+  const canInspectEdges = edgesInspectable ?? !isReadOnly;
+  const { screenToFlowPosition, setCenter, fitBounds, fitView, getInternalNode, getNodes, getEdges } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
   // РЕАЛЬНЫЕ габариты узлов (node.measured — v12 пишет их в контролируемый стейт через
@@ -348,6 +375,14 @@ function LevelGraphInner({
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
   // (свежую раскладку нового уровня применит сборщик).
   useEffect(() => { resetAnim(); }, [containerId, resetAnim]);
+
+  // Авто-центрирование (fitOnLoad/fitOnExpand): expandFitRef взводится при раскрытии
+  // (commitExpanded), didLoadFitRef — одноразовый фит загрузки (на маунт; холст
+  // ремаунтится по key=node.id, поэтому «один раз» == «один раз на страницу»).
+  // Таймер — дебаунс оседания раскладки (двухфазная: замер может прийти вторым
+  // прогоном, фитим по последнему в окне).
+  const expandFitRef = useRef(false);
+  const didLoadFitRef = useRef(false);
 
   // ЕДИНАЯ запись раскладки вида (R3): merge-патч поверх зеркала viewLayout →
   // батч-PUT view_layout + зеркало родителю (onLayoutChanged). Сервер заменяет
@@ -494,6 +529,10 @@ function LevelGraphInner({
   }, [containerId]);
   const commitExpanded = useCallback(
     (id: string, value: boolean) => {
+      // Раскрытие (value=true) в режиме fitOnExpand — запрос на анимированное
+      // центрирование после оседания раскладки (см. эффект авто-центрирования).
+      // Сворачивание (value=false) центрирование не запрашивает.
+      if (value && fitOnExpand) expandFitRef.current = true;
       setExpandOverrides((prev) => new Map(prev).set(id, value));
       // персист (архитектор, не контекст — гейтит commitLayout): true — раскрыт,
       // null-поле — сброс (exclude_none выкинет его из payload строки).
@@ -508,7 +547,7 @@ function LevelGraphInner({
       const cur = value && !owned ? layoutLatestRef.current?.positions.get(id) : undefined;
       commitLayout({ [id]: { expanded: value ? true : null, ...(cur ? { x: cur.x, y: cur.y } : null) } });
     },
-    [commitLayout, viewLayout],
+    [commitLayout, viewLayout, fitOnExpand],
   );
   // Раскрытие ГОСТЕВОГО контейнера: детей даёт проекция (реестр endpoints).
   const expandContainer = useCallback(
@@ -1122,7 +1161,7 @@ function LevelGraphInner({
   // связь однозначно (E57).
   const handleEdgeDoubleClick = useCallback(
     (e: MouseEvent, rfEdge: RFEdge) => {
-      if (isReadOnly) return;
+      if (!canInspectEdges) return;
       const dataOf = (re: RFEdge): WrappedEdgeData | undefined => re.data as WrappedEdgeData | undefined;
       const pt = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const ortho = rfEdges
@@ -1139,7 +1178,7 @@ function LevelGraphInner({
       const memberIds = dataOf(rfEdge)?.memberIds ?? [];
       cbRef.current.openEdgeMembers(memberIds);
     },
-    [isReadOnly, rfEdges, screenToFlowPosition]
+    [canInspectEdges, rfEdges, screenToFlowPosition]
   );
 
   // «Показать на схеме» (locate): центрируем холст на цели и коротко её подсвечиваем.
@@ -1320,6 +1359,32 @@ function LevelGraphInner({
   // без скачка к гигантскому fitView на единственном узле.
   const hasGraphContent = nodes.length + endpoints.length > 0;
 
+  // Авто-центрирование страничных схем (fitOnLoad/fitOnExpand). Раскладка двухфазная
+  // (фолбэк-габариты → замер → пере-прогон), поэтому фитим НЕ на первом проходе, а по
+  // оседании: дебаунс на смене layout/sizesVersion ловит последний прогон в окне.
+  //  - Загрузка (fitOnLoad): одноразово (didLoadFitRef), после первого замера
+  //    (sizesVersion ≥ 1), БЕЗ анимации — правит «спозание» декларативного fitView,
+  //    который сгорает на первом проходе и оставляет схему «вверху и мелко».
+  //  - Раскрытие (fitOnExpand): по флагу expandFitRef (взведён в commitExpanded),
+  //    С анимацией (duration = ANIM_MOVE_MS) — идёт параллельно разъезду узлов.
+  // Оба — через SCHEMA_FIT_OPTIONS (== кнопка «Центрировать»). Не fitOnLoad/Expand
+  // (редактор-карта) — эффект no-op, центрирование редактора не меняется.
+  useEffect(() => {
+    if ((!fitOnLoad && !fitOnExpand) || !hasGraphContent) return;
+    const t = window.setTimeout(() => {
+      if (!didLoadFitRef.current && fitOnLoad && sizesVersion >= 1) {
+        didLoadFitRef.current = true;
+        fitView(SCHEMA_FIT_OPTIONS);
+        return;
+      }
+      if (expandFitRef.current && fitOnExpand) {
+        expandFitRef.current = false;
+        fitView({ ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS });
+      }
+    }, 140);
+    return () => window.clearTimeout(t);
+  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView]);
+
   return (
     <div
       // lg-canvas--editable — раскрытие хэндлов по ховеру (архитектор, не контекст);
@@ -1463,10 +1528,12 @@ function LevelGraphInner({
         // Своё удаление через подтверждение (handleKeyDown) — встроенное отключаем,
         // иначе Backspace сносил бы узел и связи без предупреждения.
         deleteKeyCode={null}
-        // На непустом уровне фитим контент, но не зумим ближе 0.85 — иначе вход на
-        // разреженный уровень (1–2 узла) подлетал вплотную, мешая добавлять объекты.
+        // На непустом уровне фитим контент. Редактор-карта: не зумим ближе 0.85 —
+        // иначе вход на разреженный уровень (1–2 узла) подлетал вплотную, мешая
+        // добавлять объекты. Страничные схемы (fitOnLoad): SCHEMA_FIT_OPTIONS — тот
+        // же вид, что даст авто-фит по оседании и кнопка «Центрировать» (без скачка).
         fitView={hasGraphContent}
-        fitViewOptions={{ padding: 0.2, maxZoom: 0.85 }}
+        fitViewOptions={fitOnLoad ? SCHEMA_FIT_OPTIONS : { padding: 0.2, maxZoom: 0.85 }}
         // Пустой уровень (fitView выключен) открывается слегка отдалённым — комфортно
         // бросить первый узел, не отъезжая вручную.
         defaultViewport={{ x: 60, y: 60, zoom: 0.85 }}
@@ -1498,7 +1565,10 @@ function LevelGraphInner({
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
-        <Controls />
+        {/* Кнопка «Центрировать» (fit-view). Страничные схемы: SCHEMA_FIT_OPTIONS —
+            идентично авто-фиту (fitOnLoad/fitOnExpand), «как будто кнопка нажата».
+            Редактор-карта: undefined → прежнее поведение (дефолт RF, без cap). */}
+        <Controls fitViewOptions={(fitOnLoad || fitOnExpand) ? SCHEMA_FIT_OPTIONS : undefined} />
         {/* Границы уровней: вложенные рамки вокруг локальных узлов — по одной на
             каждого родителя из breadcrumb. Только на не-корневых уровнях. */}
         {containerId && ancestorIds.length > 0 && (

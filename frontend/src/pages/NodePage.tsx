@@ -122,8 +122,6 @@ function NodePageInner({
   const [statusOpen, setStatusOpen] = useState(false);
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string } | null>(null);
 
-  const statusMeta = STATUS_META[node.status];
-
   return (
     <div className="np-page">
       <div className="np-inner">
@@ -157,12 +155,6 @@ function NodePageInner({
             ) : (
               <span className="np-name">{node.name}</span>
             )}
-
-            {/* Бейдж статуса */}
-            <span className={`np-status-badge np-status-badge--${node.status}`}>
-              <span className="np-dot" style={{ background: statusDotColor(node.status, node.is_external) }} />
-              {statusMeta.label}
-            </span>
 
             {/* Чип «внешний» */}
             {node.is_external && (
@@ -301,25 +293,24 @@ function NodePageInner({
                 </span>
               </>
             )}
-          </div>
 
-          {/* Описание — во всю ширину */}
-          <div style={{ marginTop: 12 }}>
-            <span className="np-term" style={{ display: "block", marginBottom: 6 }}>Описание</span>
-            {isArchitect ? (
-              <textarea
-                className="np-field np-fieldarea"
-                value={patch.description}
-                onChange={(e) => patch.setDescription(e.target.value)}
-                onBlur={patch.commitDesc}
-                placeholder="Описание объекта"
-                style={{ width: "100%" }}
-              />
-            ) : (
-              <p className="np-value" style={{ margin: 0, lineHeight: 1.55 }}>
-                {node.description || <span className="np-value--empty">нет описания</span>}
-              </p>
-            )}
+            {/* Описание — последняя строка таблицы свойств */}
+            <span className="np-term np-term--top">Описание</span>
+            <span className="np-value">
+              {isArchitect ? (
+                <textarea
+                  className="np-field np-fieldarea"
+                  value={patch.description}
+                  onChange={(e) => patch.setDescription(e.target.value)}
+                  onBlur={patch.commitDesc}
+                  placeholder="Описание объекта"
+                />
+              ) : (
+                <span style={{ lineHeight: 1.55 }}>
+                  {node.description || <span className="np-value--empty">нет описания</span>}
+                </span>
+              )}
+            </span>
           </div>
         </div>
 
@@ -373,8 +364,9 @@ function NodePageInner({
             <table className="np-edges-table">
               <thead>
                 <tr>
-                  <th style={{ width: 100 }}>Направление</th>
-                  <th>Объект</th>
+                  <th>Вызывающий</th>
+                  <th className="np-edge-arrowcol" aria-hidden="true" />
+                  <th>Вызываемый</th>
                   <th>Описание</th>
                   <th style={{ width: 140 }}>Технология</th>
                 </tr>
@@ -384,6 +376,7 @@ function NodePageInner({
                   <EdgeRow
                     key={e.id}
                     edge={e}
+                    nodeName={node.name}
                     isArchitect={isArchitect}
                     onNavigateNode={onNavigateNode}
                     onReload={onEdgesReload}
@@ -476,13 +469,18 @@ function NodePageInner({
 }
 
 // Строка таблицы связей с inline-правкой описания/технологии (архитектор).
+// Колонки «Вызывающий»/«Вызываемый» (вместо «Направление»/«Объект»): источник и
+// цель связи. Выводятся из direction + other_node: outgoing → текущий узел источник,
+// incoming → текущий узел цель. Чужой узел — ссылка (переход), текущий — текст.
 function EdgeRow({
   edge,
+  nodeName,
   isArchitect,
   onNavigateNode,
   onReload,
 }: {
   edge: NodeEdgeInfo;
+  nodeName: string;
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onReload: () => void;
@@ -500,18 +498,21 @@ function EdgeRow({
     edgesApi.update(edge.id, { technology: tech || null }).then(onReload).catch(() => {});
   };
 
+  // Чужой узел — ссылка; текущий — текст (ссылка на самого себя бессмысленна).
+  const otherLink = (
+    <button className="np-edge-link" onClick={() => onNavigateNode(edge.other_node_id)}>
+      {edge.other_node_name}
+    </button>
+  );
+  const selfName = <span className="np-edge-self">{nodeName}</span>;
+  const caller = isOut ? selfName : otherLink;
+  const callee = isOut ? otherLink : selfName;
+
   return (
     <tr>
-      <td>
-        <span className={`np-dir ${isOut ? "np-dir--out" : "np-dir--in"}`}>
-          {isOut ? "→ исходящая" : "← входящая"}
-        </span>
-      </td>
-      <td>
-        <button className="np-edge-link" onClick={() => onNavigateNode(edge.other_node_id)}>
-          {edge.other_node_name}
-        </button>
-      </td>
+      <td>{caller}</td>
+      <td className="np-edge-arrowcol">→</td>
+      <td>{callee}</td>
       <td>
         {isArchitect ? (
           <input

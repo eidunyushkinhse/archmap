@@ -147,6 +147,7 @@ export default function ProjectShell({
             <NodeTreePanel
               isArchitect={isArchitect}
               reloadToken={treeReload}
+              currentNodeId={nodeId}
               onNodePage={(node: Node) => onNavigateNode(node.id)}
               onCreateChild={(parentId) => setCreateFor(parentId)}
             />

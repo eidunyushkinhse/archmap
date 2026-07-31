@@ -53,6 +53,10 @@ interface Props {
   // сигнал внешней перезагрузки дерева (инкремент после создания/удаления узла в
   // TreePage): дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
   reloadToken?: number;
+  // pages_pivot: id узла, чья страница СЕЙЧАС открыта (из ProjectShell.nodeId;
+  // null — домашняя страница проекта). Дерево подсвечивает его строку и при смене
+  // автоматически раскрывает ветку до этого узла (переход двойным кликом со схемы).
+  currentNodeId?: string | null;
 }
 
 // Прозрачная 1×1 картинка вместо стандартного drag-image: прячем «снимок» плитки —
@@ -192,7 +196,7 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, onCreateChild, isArchitect, onTemplateDrag, reloadToken }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, onCreateChild, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
   // pages_pivot: плоское дерево без секций/палитры, с поиском, «+» и персонами
   const pagesMode = !!onNodePage;
 
@@ -320,6 +324,67 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     return () => { alive = false; };
   }, [pagesMode, reloadToken]);
 
+  // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
+  // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+  // id узла, к которому уже скроллили (не дёргаем скролл повторно при каждом
+  // изменении expanded/childrenById в ходе автораскрытия).
+  const scrolledToRef = useRef<string | null>(null);
+
+  // При смене открытой страницы раскрываем ветку до этого узла: обход вверх через
+  // nodesApi.get (parent_id) собирает цепочку предков, затем сверху вниз догружаем
+  // детей каждого предка (тем же путём, что и toggle) и раскрываем их. Ленивая
+  // загрузка дерева при этом сохраняется — тянем только нужную ветку.
+  useEffect(() => {
+    if (!pagesMode || !currentNodeId) return;
+    let alive = true;
+    void (async () => {
+      // 1. Цепочка id от корня до текущего узла (включительно).
+      const chain: string[] = [];
+      const guard = new Set<string>();
+      let curId: string | null = currentNodeId;
+      while (curId && !guard.has(curId)) {
+        guard.add(curId);
+        chain.unshift(curId);
+        const n: Node = allById.get(curId) ?? (await nodesApi.get(curId));
+        if (!alive) return;
+        curId = n.parent_id;
+      }
+      // 2. Предки (все, кроме самого узла) — раскрыть сверху вниз.
+      for (const id of chain.slice(0, -1)) {
+        if (!alive) return;
+        let kids = childrenById[id];
+        if (kids === undefined) {
+          kids = withoutPersons(await nodesApi.getChildren(id)).sort(compareByRank);
+          if (!alive) return;
+          setChildrenById((p) => ({ ...p, [id]: kids! }));
+        }
+        if (kids.length > 0) setExpanded((p) => new Set(p).add(id));
+        else setLeaves((p) => new Set(p).add(id));
+      }
+    })();
+    return () => { alive = false; };
+    // allById/childrenById читаются снимком на момент смены страницы (свежесть не
+    // критична: промах по кэшу = лишний fetch, не некорректность) — как в reload-эффекте.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentNodeId, pagesMode]);
+
+  // Скролл к подсвеченной строке — когда узел стал видим (после автораскрытия).
+  // Повторяем на изменениях expanded/childrenById, пока строка не появится; скроллим
+  // один раз на узел (scrolledToRef).
+  useEffect(() => {
+    if (!currentNodeId) { scrolledToRef.current = null; return; }
+    if (scrolledToRef.current === currentNodeId) return;
+    const raf = requestAnimationFrame(() => {
+      const el = treeScrollRef.current?.querySelector(".nt-row--current");
+      if (el) {
+        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        scrolledToRef.current = currentNodeId;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [currentNodeId, expanded, childrenById]);
+
   async function toggle(node: Node) {
     const id = node.id;
     if (expanded.has(id)) {
@@ -368,10 +433,15 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
       : onNodePage
         ? `Страница: ${node.name}`
         : isIntermediate ? `Открыть слой: ${node.name}` : `Контекст: ${node.name}`;
+    // Текущая открытая страница — подсветка строки (п.1).
+    const isCurrent = node.id === currentNodeId;
     return (
       <>
         <div
-          className={handler ? "nt-row nt-row--clickable" : "nt-row"}
+          className={
+            (handler ? "nt-row nt-row--clickable" : "nt-row") +
+            (isCurrent ? " nt-row--current" : "")
+          }
           onClick={handler}
           title={title}
         >
@@ -506,7 +576,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
             </div>
 
             {/* Результаты поиска или дерево */}
-            <div style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <div ref={treeScrollRef} style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
               {searchResults !== null ? (
                 searching ? (
                   <div style={hint}>Поиск…</div>
