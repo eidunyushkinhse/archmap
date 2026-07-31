@@ -167,8 +167,8 @@ interface LevelGraphProps {
   // Версия вида (fence записей раскладки) + курсор проекта (поллинг) — живой
   // снимок, шарится с TreePage мутируемым ref'ом: TreePage наполняет его из
   // GraphResponse при load(), LevelGraph читает версию при каждой записи и
-  // обновляет из ответов PUT. Не передан (контекст-модалка, read-only) — записи
-  // всё равно не идут (гейт isContext); на уровне ОБЯЗАТЕЛЕН для fence.
+  // обновляет из ответов PUT. Не передан (read-only блок) — записи всё равно не
+  // идут (гейт readOnly); на уровне ОБЯЗАТЕЛЕН для fence.
   viewMeta?: { current: ViewMetaState };
   // Флаг «идёт жест драга» для поллинга этапа 1: TreePage пропускает рефетч,
   // пока пользователь тащит узлы (перезагрузка уровня посреди жеста снесла бы
@@ -269,9 +269,8 @@ function LevelGraphInner({
   schemaView = "all",
   locate,
 }: LevelGraphProps) {
-  const isContext = false; // контекстный движок удалён (2026-07-30): все схемы рендерит level-конвейер
-  // readOnly гейтит все жесты правки (как isContext), но не влияет на рендер уровня
-  const isReadOnly = readOnly || isContext;
+  // readOnly гейтит все жесты правки, но не влияет на рендер уровня
+  const isReadOnly = readOnly;
   // Драг узлов: по умолчанию !isReadOnly, но можно включить отдельно (embedded-блоки)
   const dragNodes = nodesDraggableProp ?? (arrangeOnly || !isReadOnly);
   // «Только расстановка»: драг/персист/undo доступны, структурная правка — нет.
@@ -348,7 +347,7 @@ function LevelGraphInner({
   } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges, gate });
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
   // (свежую раскладку нового уровня применит сборщик).
-  useEffect(() => { resetAnim(); }, [containerId, isContext, resetAnim]);
+  useEffect(() => { resetAnim(); }, [containerId, resetAnim]);
 
   // ЕДИНАЯ запись раскладки вида (R3): merge-патч поверх зеркала viewLayout →
   // батч-PUT view_layout + зеркало родителю (onLayoutChanged). Сервер заменяет
@@ -629,7 +628,7 @@ function LevelGraphInner({
   // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
   // кладёт в историю, обязаны коммитить через СВЕЖЕЕ зеркало (см. commitLayoutStable).
   const { handleNodesChange, handleNodeDragStop, handleSelectionDragStop, noteDragStart } = useSnapAlignment({
-    rfNodes, onNodesChange, setGuides, isArchitect, isContext: !canArrange,
+    rfNodes, onNodesChange, setGuides, isArchitect, disabled: !canArrange,
     ancestorIds, ancestorNames, commitLayout: commitLayoutStable, push: history.push,
     noteGesture, // флаш клавиатурной серии открывает окно жеста, как отпускание драга
   });
@@ -780,7 +779,7 @@ function LevelGraphInner({
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
   const { handleKeyDown } = useCanvasDelete({
-    rfNodes, isArchitect, isContext: !canStructure, onRequestDeleteNode, onRequestDeleteNodes,
+    rfNodes, isArchitect, disabled: !canStructure, onRequestDeleteNode, onRequestDeleteNodes,
   });
 
 
@@ -825,7 +824,7 @@ function LevelGraphInner({
   // стрелок (2026-07-09) — поток создания единственный.
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
-      isArchitect, isContext: !canStructure, resolveTarget,
+      isArchitect, disabled: !canStructure, resolveTarget,
       onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
       onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
       onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
@@ -977,7 +976,7 @@ function LevelGraphInner({
   // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
   // обнуляет — следующий прогон (не дроп) считает всё целиком.
   const dragScopeRef = useRef<string[] | null>(null);
-  useEffect(() => { prevRoutesRef.current = null; lastSigRef.current = null; }, [containerId, isContext]);
+  useEffect(() => { prevRoutesRef.current = null; lastSigRef.current = null; }, [containerId]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -993,7 +992,7 @@ function LevelGraphInner({
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
     const { nextNodes, nextEdges } = assembleRfGraph({
-      layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb,
+      layout, isArchitect, isReadOnly, depth, schemaView, getCb,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -1008,7 +1007,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isContext, isReadOnly, schemaView, applyLayout, getCb, getNodes, getEdges]);
+  }, [layout, isArchitect, depth, isReadOnly, schemaView, applyLayout, getCb, getNodes, getEdges]);
 
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).
@@ -1033,7 +1032,7 @@ function LevelGraphInner({
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
       const { layout: next, liveInputs, intents } = await computeViewLayoutOffThread({
         nodes, endpoints, edges, containerId, viewLayout,
-        ancestorIds: stableAncestorIds, expanded, localChildren, isContext,
+        ancestorIds: stableAncestorIds, expanded, localChildren,
         sizes: nodeSizesRef.current,
         prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
         prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
@@ -1073,7 +1072,7 @@ function LevelGraphInner({
     // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
-  }, [nodes, endpoints, containerId, viewLayout, edges, isContext, expanded, localChildren, stableAncestorIds, sizesVersion]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
   // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).
@@ -1097,26 +1096,24 @@ function LevelGraphInner({
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
     rfNodes, screenToFlowPosition, setGuides, clearGuides,
-    isArchitect, isContext: !canStructure, onDropNode, dragShape, expandedFrames,
+    isArchitect, disabled: !canStructure, onDropNode, dragShape, expandedFrames,
   });
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
   // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим).
   // readOnly: двойной клик вызывает onEditNode/onInspectGhost для навигации на страницу.
-  // Контекст: фокус (block) — без навигации, соседи (ghost) — навигация на страницу.
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
       if (rfNode.type === "block") {
-        if (isContext) return; // фокус контекста — не навигируем
         const appNode = (rfNode.data as BlockData | undefined)?.appNode;
         if (appNode) cbRef.current.onEditNode(appNode);
       } else if (rfNode.type === "ghost") {
-        // Гость/сосед — навигация на страницу (в контексте и в readOnly).
+        // Гость/сосед — навигация на страницу (в том числе в readOnly).
         const ghost = (rfNode.data as GhostData | undefined)?.appNode;
         if (ghost) cbRef.current.onInspectGhost?.(ghost);
       }
     },
-    [isContext]
+    []
   );
   // По связи: сперва хит-тест ОБЩЕГО ПЛЕЧА (E80) — клик в точке легального ствола
   // ≥2 отрисованных связей открывает модалку ствола с направлением; иначе прежний
@@ -1236,7 +1233,7 @@ function LevelGraphInner({
   // отличие: держим до смены выделения (класс снимаем в cleanup, а не по таймеру). Зависимость
   // от rfNodes/rfEdges — переналожение после пере-раскладки/ремаунта холста.
   useEffect(() => {
-    if (!linkedHighlight || isContext) return;
+    if (!linkedHighlight) return;
     const nodeIds = new Set<string>();
     const edgeIds = new Set<string>();
     if (linkedHighlight.kind === "node") {
@@ -1300,7 +1297,7 @@ function LevelGraphInner({
       applied = [];
       restore = [];
     };
-  }, [linkedHighlight, rfNodes, rfEdges, isContext]);
+  }, [linkedHighlight, rfNodes, rfEdges]);
 
   // АДАПТИВНАЯ ТОЛЩИНА РАМОК ПОД ЗУМ: рамки (нативные C4-boundary и compound-рамки
   // раскрытий) рисуются 1px-пунктиром в координатах графа — на сильном отдалении
@@ -1318,12 +1315,10 @@ function LevelGraphInner({
     canvasRef.current?.style.setProperty("--lg-frame-bw", `${bw}px`);
   }, []);
 
-  // Контекст-схема без фокус-узла не бывает — защитно ничего не рисуем. Обычный
-  // уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
+  // Уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
   // дропнуть первый узел, а зум остаётся «отдалённым» (defaultViewport ниже),
   // без скачка к гигантскому fitView на единственном узле.
   const hasGraphContent = nodes.length + endpoints.length > 0;
-  if (isContext && !hasGraphContent) return null;
 
   return (
     <div
@@ -1430,10 +1425,10 @@ function LevelGraphInner({
         </div>
       )}
       {/* Реестр «мостиков»: рёбра внутри ReactFlow публикуют сюда геометрию и читают
-          точки прыжков. Выключен в контекст-схеме (read-only звезда). Пауза — на драг
-          И на фазу move анимации (иначе пересчёт реестра даёт второй проход рендера
-          всех рёбер посреди окна); снятие — на unmask/свопе, батчем с проявлением. */}
-      <EdgeJumpProvider enabled={!isContext} paused={dragging || jumpsPaused}>
+          точки прыжков. Пауза — на драг И на фазу move анимации (иначе пересчёт реестра
+          даёт второй проход рендера всех рёбер посреди окна); снятие — на unmask/свопе,
+          батчем с проявлением. */}
+      <EdgeJumpProvider enabled paused={dragging || jumpsPaused}>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}

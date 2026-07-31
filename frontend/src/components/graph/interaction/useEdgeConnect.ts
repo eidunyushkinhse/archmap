@@ -1,6 +1,6 @@
 // Создание связи протягиванием новой стрелки от хэндла узла A.
 //
-// Жест (только архитектор, не контекст-режим). Куда отпустил конец:
+// Жест (только архитектор, при разрешённой правке). Куда отпустил конец:
 //   • на ХЭНДЛ любого узла (защёлка в радиусе connectionRadius — onConnect) → прямая
 //       связь к ЭТОМУ узлу, даже если у него есть дети (явно целились в его хэндл);
 //   • на ТЕЛО узла С ДЕТЬМИ (мимо хэндлов — onConnectEnd) — это «зона входа»:
@@ -23,7 +23,7 @@ export type ConnectTarget =
 
 interface Params {
   isArchitect: boolean;
-  isContext: boolean;
+  disabled: boolean;
   // классификация узла-цели по его id (строит вызывающий по rfNodes)
   resolveTarget: (nodeId: string) => ConnectTarget;
   // лист/хэндл: создать связь sourceId→targetId. Хэндлы берём из жеста: при дропе
@@ -55,9 +55,9 @@ function endPoint(event: MouseEvent | TouchEvent): { x: number; y: number } | nu
 }
 
 export function useEdgeConnect({
-  isArchitect, isContext, resolveTarget, onCreate, onInto, onExitUp,
+  isArchitect, disabled, resolveTarget, onCreate, onInto, onExitUp,
 }: Params) {
-  const enabled = isArchitect && !isContext;
+  const enabled = isArchitect && !disabled;
   // id узла, от которого начато протягивание (null — протягивания нет)
   const sourceRef = useRef<string | null>(null);
   // хэндл, из которого начато протягивание (для дропа на тело/в зону входа, где

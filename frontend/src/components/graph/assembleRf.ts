@@ -8,7 +8,7 @@
 import { MarkerType, type Node as RFNode, type Edge as RFEdge } from "@xyflow/react";
 import type { Node as AppNode, NodeStatus, AncestorRef } from "../../types";
 import { canHaveChildren } from "../../types";
-import { CTX_LABEL_W, MAX_INLINE_DEPTH } from "./constants";
+import { MAX_INLINE_DEPTH } from "./constants";
 import type {
   WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, QuickConnectHandlers,
 } from "./types";
@@ -36,18 +36,16 @@ export interface AssembleCallbacks {
 export function assembleRfGraph(params: {
   layout: LayoutResult;
   isArchitect: boolean;
-  isContext: boolean;
   // read-only блок (встроенные схемы на страницах): без структурной правки —
-  // хэндлы/быстрая связь/R5-лупа скрыты (инлайн-раскрытие в контекст-блоке
-  // персистит позиции не в тот view_layout; раскрытие там — отдельной лупой).
+  // хэндлы/быстрая связь/R5-лупа скрыты.
   isReadOnly: boolean;
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isContext, isReadOnly, depth, schemaView, getCb } = params;
+  const { layout, isArchitect, isReadOnly, depth, schemaView, getCb } = params;
   const {
-    nodes: layoutNodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
+    nodes: layoutNodes, entities, positions, edgeHandles,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
   } = layout;
 
@@ -83,9 +81,9 @@ export function assembleRfGraph(params: {
     if (a === "planned" || b === "planned") return "planned";
     return "existing";
   };
-  // Приглушён ли узел статуса st фильтром вида (в контексте фильтра нет). Скрытый
-  // узел НЕ удаляем — гасим opacity, сохраняя пространственную память раскладки.
-  const dimNode = (st: NodeStatus): boolean => !isContext && !viewShows(schemaView, st);
+  // Приглушён ли узел статуса st фильтром вида. Скрытый узел НЕ удаляем — гасим
+  // opacity, сохраняя пространственную память раскладки.
+  const dimNode = (st: NodeStatus): boolean => !viewShows(schemaView, st);
 
   const nextNodes: RFNode[] = [
     // Рамки — первыми (RF требует родителя в массиве раньше детей; guestFrames
@@ -132,16 +130,16 @@ export function assembleRfGraph(params: {
           // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
           // к глубине уровня прибавляется вложенность рамки относительно уровня
           colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
-          hideActions: isContext,
-          connectable: isArchitect && !isContext && !isReadOnly,
+          hideActions: false,
+          connectable: isArchitect && !isReadOnly,
           // quickConnect — объект-снимок: он стабилен по построению (useMemo []
           // в LevelGraph, внутри только latest-ref'ы), лениво оборачивать нечего
-          quickConnect: isArchitect && !isContext && !isReadOnly ? getCb().quickConnect : undefined,
+          quickConnect: isArchitect && !isReadOnly ? getCb().quickConnect : undefined,
           // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
           // Работает и в read-only блоке (схема на странице) — это просмотр,
           // не правка; расстановка компонентов — только в карте. Глубже
           // MAX_INLINE_DEPTH слоёв от уровня лупы нет — только «Войти» (C8).
-          onExpand: !isContext && n.has_children && canHaveChildren(n.shape)
+          onExpand: n.has_children && canHaveChildren(n.shape)
             && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandLocalContainer(id)
             : undefined,
@@ -167,13 +165,10 @@ export function assembleRfGraph(params: {
           data: {
             appNode: ent.ghost,
             colors: getNodeColors(ent.ghost.is_external, ent.ghost.node_depth, ent.ghost.status),
-            connectable: isArchitect && !isContext && !isReadOnly,
-            quickConnect: isArchitect && !isContext && !isReadOnly ? getCb().quickConnect : undefined,
-            // в контекст-режиме навигация по слоям отключена (схема — внутри модалки).
+            connectable: isArchitect && !isReadOnly,
+            quickConnect: isArchitect && !isReadOnly ? getCb().quickConnect : undefined,
             // Путь гостя = его предки + он сам (другая ветка дерева).
-            onEnter: isContext
-              ? undefined
-              : () => getCb().onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }]),
+            onEnter: () => getCb().onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }]),
           } satisfies GhostData,
         };
       }
@@ -193,11 +188,9 @@ export function assembleRfGraph(params: {
             ? (id) => getCb().expandContainer(id)
             : undefined,
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
-          onEnter: isContext
-            ? undefined
-            : () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
-          connectable: isArchitect && !isContext && !isReadOnly,
-          quickConnect: isArchitect && !isContext && !isReadOnly ? getCb().quickConnect : undefined,
+          onEnter: () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
+          connectable: isArchitect && !isReadOnly,
+          quickConnect: isArchitect && !isReadOnly ? getCb().quickConnect : undefined,
         } satisfies ContainerData,
       };
     }),
@@ -214,28 +207,16 @@ export function assembleRfGraph(params: {
       : { label: singleText, memberIds: [single.id] };
     // Признак архитекторского канваса: плейсхолдер-плашка «•••» у безымянных
     // связей (см. edges.tsx). Ручной правки геометрии стрелок больше нет.
-    if (isArchitect && !isContext) data.editable = true;
-    // Триггер детализации связи на плашке с описанием. В контексте схема только
-    // для просмотра — не вешаем.
-    if (!isContext) data.onOpenDetails = () => getCb().openEdgeMembers(data.memberIds);
-    if (!isContext) {
-      // Авто-маршрут (R1+R3): edges.tsx рисует его ортоломаной с минимумом пересечений.
-      const ar = autoRoutes?.get(g.id);
-      if (ar) data.autoRoute = ar;
-      // Авто-размещение плашки (R2+R4): центр/якорь/режим. edges.tsx ставит плашку в
-      // center, а в режиме leader рисует поводок center↔anchor.
-      const lp = labelPlacements?.get(g.id);
-      if (lp) data.labelPlacement = lp;
-    }
-    // в контекст-схеме ограничиваем ширину плашки — зазор колонок рассчитан под неё —
-    // и кладём подпись на приузловую полку (shelf), если раскладка её посчитала
-    if (isContext) {
-      data.maxWidth = CTX_LABEL_W;
-      const lp = edgeLoops?.get(g.id);
-      const sh = edgeShelves?.get(g.id);
-      if (lp) data.loop = lp;       // не родная стрелка bidi — обход
-      else if (sh) data.shelf = sh; // родная/обычная — приузловая полка
-    }
+    if (isArchitect) data.editable = true;
+    // Триггер детализации связи на плашке с описанием.
+    data.onOpenDetails = () => getCb().openEdgeMembers(data.memberIds);
+    // Авто-маршрут (R1+R3): edges.tsx рисует его ортоломаной с минимумом пересечений.
+    const ar = autoRoutes?.get(g.id);
+    if (ar) data.autoRoute = ar;
+    // Авто-размещение плашки (R2+R4): центр/якорь/режим. edges.tsx ставит плашку в
+    // center, а в режиме leader рисует поводок center↔anchor.
+    const lp = labelPlacements?.get(g.id);
+    if (lp) data.labelPlacement = lp;
     // Цвет ребра по статусу сильнейшего конца; deprecated — пунктир («связь уходит»).
     const est = edgeStatus(g.source, g.target);
     const eColor = STATUS_META[est].edge;

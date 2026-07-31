@@ -8,13 +8,13 @@ import type { BlockData } from "../types";
 interface Params {
   rfNodes: RFNode[];
   isArchitect: boolean;
-  isContext: boolean;
+  disabled: boolean;
   onRequestDeleteNode?: (node: AppNode) => void;
   onRequestDeleteNodes?: (nodes: AppNode[]) => void;
 }
 
 export function useCanvasDelete({
-  rfNodes, isArchitect, isContext, onRequestDeleteNode, onRequestDeleteNodes,
+  rfNodes, isArchitect, disabled, onRequestDeleteNode, onRequestDeleteNodes,
 }: Params) {
   // По Backspace/Delete находим выбранные локальные узлы и просим открыть
   // подтверждение удаления. Один узел → та же модалка со списком связей, что и
@@ -24,7 +24,7 @@ export function useCanvasDelete({
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if (e.key !== "Backspace" && e.key !== "Delete") return;
-      if (isContext || !isArchitect) return;
+      if (disabled || !isArchitect) return;
       // не перехватываем удаление, когда правят текст в поле
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
@@ -46,7 +46,7 @@ export function useCanvasDelete({
       e.preventDefault();
       onRequestDeleteNodes(appNodes);
     },
-    [rfNodes, isArchitect, isContext, onRequestDeleteNode, onRequestDeleteNodes],
+    [rfNodes, isArchitect, disabled, onRequestDeleteNode, onRequestDeleteNodes],
   );
 
   return { handleKeyDown };

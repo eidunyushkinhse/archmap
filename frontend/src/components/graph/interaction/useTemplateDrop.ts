@@ -23,7 +23,7 @@ interface Params {
   setGuides: Dispatch<SetStateAction<Guides>>;
   clearGuides: () => void;
   isArchitect: boolean;
-  isContext: boolean;
+  disabled: boolean;
   // parentId — контейнер раскрытой рамки под курсором (узел станет его ребёнком) либо
   // null (текущий уровень). Позицию в текущий вид пишет вызывающий (см. TreePage).
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }, parentId: string | null) => void;
@@ -47,7 +47,7 @@ function frameAt(x: number, y: number, frames: DropFrame[]): DropFrame | null {
 
 export function useTemplateDrop({
   rfNodes, screenToFlowPosition, setGuides, clearGuides,
-  isArchitect, isContext, onDropNode, dragShape, expandedFrames,
+  isArchitect, disabled, onDropNode, dragShape, expandedFrames,
 }: Params) {
   // Рамка-цель под курсором во время перетаскивания — для индикации («рамка раскрывается
   // шире под новый узел»). null — узел ляжет на текущий уровень.
@@ -73,7 +73,7 @@ export function useTemplateDrop({
   // preventDefault разрешает дроп; на drop читаем форму из dataTransfer, переводим
   // экранные координаты курсора в координаты графа и центрируем узел под курсором.
   const handleDragOver = useCallback((e: DragEvent) => {
-    if (!isArchitect || isContext || !onDropNode) return;
+    if (!isArchitect || disabled || !onDropNode) return;
     if (!e.dataTransfer.types.includes(NODE_DRAG_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
@@ -93,7 +93,7 @@ export function useTemplateDrop({
         ? prev
         : { x: gx, y: gy, spacing },
     );
-  }, [isArchitect, isContext, onDropNode, dragShape, rfNodes, screenToFlowPosition, setGuides, expandedFrames]);
+  }, [isArchitect, disabled, onDropNode, dragShape, rfNodes, screenToFlowPosition, setGuides, expandedFrames]);
 
   // Курсор ушёл с канваса (а не на его дочерний элемент) — убираем превью/направляющие,
   // чтобы рамка не «зависала» на краю.
@@ -105,7 +105,7 @@ export function useTemplateDrop({
   }, [clearGuides]);
 
   const handleDrop = useCallback((e: DragEvent) => {
-    if (!isArchitect || isContext || !onDropNode) return;
+    if (!isArchitect || disabled || !onDropNode) return;
     const shape = e.dataTransfer.getData(NODE_DRAG_MIME);
     if (!shape) return;
     e.preventDefault();
@@ -119,7 +119,7 @@ export function useTemplateDrop({
     setDropPreview(null);
     setDropTargetFrame(null);
     clearGuides();
-  }, [isArchitect, isContext, onDropNode, rfNodes, screenToFlowPosition, clearGuides, expandedFrames]);
+  }, [isArchitect, disabled, onDropNode, rfNodes, screenToFlowPosition, clearGuides, expandedFrames]);
 
   return { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop };
 }

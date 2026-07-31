@@ -46,7 +46,6 @@ function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
     ancestorIds: ["P"],
     expanded: new Set(),
     localChildren: {},
-    isContext: false,
     ...overrides,
   };
 }
@@ -293,7 +292,6 @@ describe("computeViewLayout — композиция конвейера уров
         ],
         C: [{ ...appNode("D"), parent_id: "C" } as AppNode],
       },
-      isContext: false,
     });
     // C отображается ТОЛЬКО рамкой: сущности-узла с его id нет
     expect(out.layout.entities.map((e) => e.id)).not.toContain("C");
