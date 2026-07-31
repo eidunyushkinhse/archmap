@@ -693,9 +693,9 @@ def get_node_context(
         if neigh not in all_nodes:
             continue
         neighbor_ids.add(neigh)
-        # Контекст остаётся серверной проекцией (Д5 аудита): концы уже свёрнуты на
-        # фокус/соседа. Геометрия сознательно НЕ отдаётся — раскладка звезды
-        # эфемерна и живёт в своей системе координат.
+        # Контекст отдаётся серверной проекцией: концы свёрнуты на фокус/соседа
+        # (реальные концы — в original_*). LEGACY-путь (archmap_single_object_schema=0);
+        # при включённом флаге страница использует context-graph (сырой граф уровня).
         result_edges.append(
             ContextEdgeResponse(
                 id=e.id,
