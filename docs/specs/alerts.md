@@ -12,7 +12,7 @@ isolated_groups[]}` — все три поля обязательные масс
 фронт `components/SchemaAlerts.tsx` + `schemaAlerts.css`, `pages/useSchemaAlerts.ts`
 (хук загрузки + resolveAlertLocate), `pages/MapEditorPage.tsx` (рейл холста +
 handleLocate) и `pages/ProjectShell.tsx` (знак в шапке), `components/LevelGraph.tsx`
-(LocateRequest), `LevelGraph.css` (lg-locate-flash). Легаси: `pages/TreePage.tsx`.
+(LocateRequest), `LevelGraph.css` (lg-locate-flash).
 
 ## 1. Расчёт (бэкенд)
 

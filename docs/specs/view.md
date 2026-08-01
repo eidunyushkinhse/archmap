@@ -10,7 +10,7 @@ own-on-expand и раскрытия — [container.md](container.md) §2; гос
 
 Код: бэк `app/models/view_layout.py`, `app/routers/{views,nodes}.py`,
 `app/projects.py`, `app/restore.py`, `app/tree.py`, `app/schemas/node.py`;
-фронт `pages/TreePage.tsx`, `components/LevelGraph.tsx` (commitLayout,
+фронт `pages/MapEditorPage.tsx`, `components/LevelGraph.tsx` (commitLayout,
 expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}.ts`.
 
 ## 1. Модель данных
@@ -92,7 +92,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   endpoints, viewLayout, edges с обогащёнными именами), следом fire-and-forget
   загрузка алертов (alerts.md AL9). Ошибка load не ловится — уровень остаётся
   пустым, спиннер снимается. [код]
-- **V18.** viewLayout в TreePage — «зеркало БД»; правки приходят ТОЛЬКО из
+- **V18.** viewLayout в MapEditorPage — «зеркало БД»; правки приходят ТОЛЬКО из
   onLayoutChanged (единственный канал): null — удалить ключ, иначе заменить.
   [код]
 - **V19.** Отказ фонового персиста → resyncOnPersistError: уровень
@@ -100,7 +100,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   отказов. [тест: persistGuard.test.ts]
 - **V20.** X-Project-Id ставится клиентом из модульного синглтона projectScope
   для всех путей, кроме /projects и /auth. Скоуп выставляется СИНХРОННО при
-  разборе маршрута в App — ДО маунта TreePage, чей mount-эффект шлёт первые
+  разборе маршрута в App — ДО маунта MapEditorPage, чей mount-эффект шлёт первые
   запросы уровня (фикс гонки 2026-07-16: установка эффектом опаздывала —
   эффекты родителя исполняются после эффектов ребёнка); дублируется в
   localStorage — рефреш не теряет место. [код; headless-гейт при фиксе]
@@ -192,7 +192,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
 - **V35.** URL кодирует ТОЛЬКО проект (#/p/<id>): уровень в URL не попадает,
   перезагрузка страницы всегда открывает корень проекта; сам проект
   переживает перезагрузку (hash + localStorage). [код]
-- **V36.** Смена проекта = полный ремаунт TreePage (key=projectId): свежий
+- **V36.** Смена проекта = полный ремаунт MapEditorPage (key=projectId): свежий
   корень, сброс breadcrumb и undo-истории. [код]
 
 ## 10. Смена уровня: что сбрасывается, что переживает
@@ -204,7 +204,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   раскрытия, кэш детей раскрытых локалов (сворачивание кэш НЕ чистит —
   повторное раскрытие мгновенно), анимация, гистерезис маршрутов, сигнатура
   скипа, тихое окно. Замеры узлов копятся (устаревшие безвредны). [код]
-- **V39.** В TreePage при навигации сбрасываются панель детализации и
+- **V39.** В MapEditorPage при навигации сбрасываются панель детализации и
   контекст-модалка; переживают: undo-история (U12), фильтр «Вид схемы» и
   режим (localStorage), viewLayout/nodes/endpoints/edges заменяются данными
   нового уровня. [код]
@@ -275,12 +275,12 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   проверяет (версия 0): арбитр существования — рефетч графа (404).
   [тест: backend/tests/test_concurrency.py]
 - **V51.** Фронт: каждый батч commitLayout несёт base_version из живого снимка
-  viewMeta (TreePage наполняет его из GraphResponse при load(), LevelGraph
+  viewMeta (MapEditorPage наполняет его из GraphResponse при load(), LevelGraph
   обновляет из ответов PUT — свои записи не выглядят чужими). Политика отказа —
   planPersistFailure: 409 у user-интента (драг/клавиатура/undo перемещений/
   expanded) → ресинк уровня → ОДНА переигровка исходного патча; 409 у
   derived-интента (сиды конвейера) → только ресинк; прочие ошибки — прежний
-  resync (V19/U20). Канал переигровки ЖИВЁТ В TreePage (onPersistConflict →
+  resync (V19/U20). Канал переигровки ЖИВЁТ В MapEditorPage (onPersistConflict →
   ресинк → проп retryPatch → эффект-потребитель LevelGraph коммитит от свежего
   зеркала): ресинк показывает «Загрузка…» и РАЗМОНТИРУЕТ холст — локальный
   канал терял ретрай (найдено e2e-зондом); незавершённая переигровка протухает
@@ -288,7 +288,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   различает статусы через ApiError. [тест: persistGuard.test.ts;
   e2e-гейт: scratchpad concurrency_probe.mjs — обе правки конфликта выживают]
 - **V52.** Поллинг (этап 1): каждые `POLL_MS = 10000` мс и немедленно на focus
-  окна TreePage сверяет graph_rev через `GET /views/{id}/state`; вырос
+  окна MapEditorPage сверяет graph_rev через `GET /views/{id}/state`; вырос
   относительно viewMeta → полный load() уровня + тост «Схема обновлена в другой
   сессии». Тик пропускается: фоновая вкладка (document.hidden), жест драга
   (gestureActiveRef из LevelGraph), открытая модалка (все модалки — нативные
