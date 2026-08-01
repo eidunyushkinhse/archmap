@@ -1,5 +1,4 @@
 import uuid
-from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, or_
@@ -8,9 +7,10 @@ from sqlalchemy.orm import Session
 from app import restore, tree
 from app.alerts import compute_alerts
 from app.auth import get_current_user, require_architect
+from app.context_graph import build_context_graph
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
-from app.graph_queries import build_graph, ghost_registry
+from app.graph_queries import build_graph
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -21,7 +21,6 @@ from app.models.view_layout import ViewLayoutItem
 from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
-    GraphEdgeResponse,
     GraphResponse,
     NodeCreate,
     NodeEdgeInfo,
@@ -479,91 +478,13 @@ def get_node_context_graph(
     _: User = Depends(get_current_user),
 ) -> GraphResponse:
     """Контекст объекта в формате СЫРОГО графа уровня — «Схема» страницы объекта
-    (single-schema): виртуальный корневой уровень, который фронт рендерит тем же
-    level-конвейером, что и обычный уровень. Форма ответа — GraphResponse:
-
-    - nodes (локалы) = фокус + ПРЕДСТАВИТЕЛИ соседей: сиблинги фокуса (дети того
-      же родителя; на корне — корневые узлы), в чьём поддереве лежит хотя бы один
-      сосед. Несвязанные сиблинги уровня в контекст не попадают.
-    - edges — СЫРЫЕ рёбра контекста (реальные концы, проекция — на фронте):
-      внутренние поддерева фокуса (питают раскрытие R5), граничные (ровно один
-      конец в поддереве — сам контекст) и сосед↔сосед (связи между соседями —
-      как в «отдельном проекте», куда положили объект и его соседей).
-    - endpoints — реестр не-локальных концов этих рёбер с цепочками предков.
-    - layout — НЕ отдаётся (пустой по умолчанию): виртуальный корень всегда
-      раскладывается свежим ELK, как корень отдельного проекта без сохранённых
-      позиций. Сохранённые координаты общего холста на страницу не переносятся:
-      гибрид «представители по сохранённым местам + фокус по свежему ELK» рождал
-      тесноту и «рогалики» стрелок (решение 2026-08-01; критерий X11-A переписан:
-      тождество состава/связей/рамок при СВОЕЙ раскладке).
-    """
+    (single-schema): виртуальный корневой уровень «фокус + представители соседей»,
+    который фронт рендерит тем же level-конвейером, что и обычный уровень.
+    Доменный алгоритм сборки — в app/context_graph.build_context_graph."""
     focus = scoped_node(db, node_id, project)
     if not focus:
         raise HTTPException(status_code=404, detail="Узел не найден")
-
-    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
-    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    subtree = tree.subtree_ids(all_nodes, focus.id)
-
-    # Соседи — внешние сырые концы граничных рёбер поддерева фокуса.
-    neighbor_ids: set[uuid.UUID] = set()
-    for e in all_edges:
-        s_in = e.source_id in subtree
-        t_in = e.target_id in subtree
-        if s_in != t_in:
-            neighbor_ids.add(e.target_id if s_in else e.source_id)
-
-    # Представители соседей среди сиблингов фокуса: контекст — это уровень
-    # родителя, обрезанный до связанной с фокусом части, поэтому сосед из
-    # поддерева сиблинга показывается этим сиблингом (глубокий конец поднимет
-    # фронтовая проекция), а сосед вне родителя останется гостем реестра.
-    # ПОРЯДОК локалов — порядок ЗАПРОСА УРОВНЯ (как у get_root_graph/get_node_graph):
-    # ELK чувствителен к порядку входа — детерминированная раскладка страницы.
-    siblings = (
-        db.query(Node)
-        .filter(Node.project_id == project.id, Node.parent_id == focus.parent_id)
-        .all()
-    )
-    local_nodes = [
-        n
-        for n in siblings
-        if n.id == focus.id or tree.subtree_ids(all_nodes, n.id) & neighbor_ids
-    ]
-    local_ids = {n.id for n in local_nodes}
-
-    result_edges: list[GraphEdgeResponse] = []
-    endpoint_ids: set[uuid.UUID] = set()
-    for e in all_edges:
-        touches_subtree = e.source_id in subtree or e.target_id in subtree
-        both_neighbors = e.source_id in neighbor_ids and e.target_id in neighbor_ids
-        if not (touches_subtree or both_neighbors):
-            continue
-        result_edges.append(
-            GraphEdgeResponse(
-                id=e.id,
-                label=e.label,
-                technology=e.technology,
-                source_id=e.source_id,
-                target_id=e.target_id,
-                version=e.version,
-            )
-        )
-        for nid in (e.source_id, e.target_id):
-            if nid not in local_ids:
-                endpoint_ids.add(nid)
-
-    child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
-    for n in local_nodes:
-        n.child_count = child_counts.get(n.id, 0)
-        n.has_children = n.child_count > 0
-    return GraphResponse(
-        nodes=local_nodes,
-        edges=result_edges,
-        endpoints=ghost_registry(all_nodes, endpoint_ids, child_counts),
-        version=current_version(db, project.id, None),
-        graph_rev=project.graph_rev,
-        meta_rev=project.meta_rev,
-    )
+    return build_context_graph(db, project, focus)
 
 
 @router.get("/{node_id}/processes", response_model=list[ProcessListItem])
