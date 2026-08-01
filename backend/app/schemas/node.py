@@ -168,26 +168,6 @@ class GraphEdgeResponse(BaseModel):
     version: int = 1
 
 
-class ContextEdgeResponse(BaseModel):
-    """Ребро контекст-схемы: концы СПРОЕЦИРОВАНЫ сервером (внутренний конец →
-    фокус), original_* — реальные узлы для деталей связи. Контекст сознательно
-    остаётся серверной проекцией (Д5 аудита); геометрия не отдаётся — раскладка
-    звезды эфемерна и живёт в своей системе координат.
-    """
-    id: uuid.UUID
-    label: str | None
-    technology: str | None
-    source_id: uuid.UUID
-    target_id: uuid.UUID
-    original_source_id: uuid.UUID
-    original_target_id: uuid.UUID
-    original_source_name: str
-    original_target_name: str
-    # Версия связи (единообразно с GraphEdgeResponse; контекст read-only, но
-    # LevelEdge на фронте один для уровня и контекста).
-    version: int = 1
-
-
 class GraphResponse(BaseModel):
     nodes: list[NodeResponse]
     edges: list[GraphEdgeResponse]
@@ -206,22 +186,6 @@ class GraphResponse(BaseModel):
     version: int = 0
     graph_rev: int = 0
     meta_rev: int = 0
-
-
-class NodeContextResponse(BaseModel):
-    """«Контекстная схема» узла: сам узел + его прямые соседи.
-    Сосед — другой конец любой связи, у которой ровно один конец лежит в поддереве
-    фокуса (сам узел или любой его потомок). Рёбра спроецированы: конец внутри
-    поддерева свёрнут на фокус, внешний конец указывает на узел-соседа.
-    Соседи отдаются как «гости» (пунктир), focus_ancestors — для рамок предков.
-
-    «Схема» страницы объекта (single-schema) этим ответом НЕ пользуется — ей
-    сервер отдаёт контекст в формате сырого графа уровня (context-graph).
-    """
-    focus: NodeResponse
-    focus_ancestors: list[AncestorRef] = []
-    neighbors: list[GhostNodeResponse] = []
-    edges: list[ContextEdgeResponse] = []
 
 
 class NodeEdgeInfo(BaseModel):

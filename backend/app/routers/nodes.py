@@ -19,14 +19,12 @@ from app.models.view_layout import ViewLayoutItem
 from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
-    ContextEdgeResponse,
     DisconnectedNodeAlert,
     GhostNodeResponse,
     GraphEdgeResponse,
     GraphResponse,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
-    NodeContextResponse,
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
@@ -678,88 +676,6 @@ def get_node_graph(
     graph.graph_rev = project.graph_rev
     graph.meta_rev = project.meta_rev
     return graph
-
-
-@router.get("/{node_id}/context", response_model=NodeContextResponse)
-def get_node_context(
-    node_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    _: User = Depends(get_current_user),
-) -> NodeContextResponse:
-    """Контекстная схема узла: сам узел + его прямые соседи.
-    Сосед — другой конец связи, у которой ровно один конец лежит в поддереве
-    фокуса (сам узел ИЛИ любой его потомок на любой глубине). Конец внутри
-    поддерева проецируется на фокус, внешний конец — это узел-сосед.
-    """
-    focus = scoped_node(db, node_id, project)
-    if not focus:
-        raise HTTPException(status_code=404, detail="Узел не найден")
-
-    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
-    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-
-    # Поддерево фокуса = он сам + все потомки (карта всех узлов уже на руках).
-    subtree = tree.subtree_ids(all_nodes, focus.id)
-
-    result_edges: list[ContextEdgeResponse] = []
-    neighbor_ids: set[uuid.UUID] = set()
-    for e in all_edges:
-        s_in = e.source_id in subtree
-        t_in = e.target_id in subtree
-        # Оба внутри (внутренняя связь ветки) или оба снаружи — не наш случай
-        if s_in == t_in:
-            continue
-        if s_in:
-            neigh = e.target_id
-            src, tgt = focus.id, neigh
-        else:
-            neigh = e.source_id
-            src, tgt = neigh, focus.id
-        if neigh not in all_nodes:
-            continue
-        neighbor_ids.add(neigh)
-        # Контекст отдаётся серверной проекцией: концы свёрнуты на фокус/соседа
-        # (реальные концы — в original_*). LEGACY-путь (archmap_single_object_schema=0);
-        # при включённом флаге страница использует context-graph (сырой граф уровня).
-        result_edges.append(
-            ContextEdgeResponse(
-                id=e.id,
-                label=e.label,
-                technology=e.technology,
-                source_id=src,
-                target_id=tgt,
-                original_source_id=e.source_id,
-                original_target_id=e.target_id,
-                original_source_name=all_nodes[e.source_id].name,
-                original_target_name=all_nodes[e.target_id].name,
-                version=e.version,
-            )
-        )
-
-    neighbors = [
-        GhostNodeResponse(
-            id=all_nodes[nid].id,
-            name=all_nodes[nid].name,
-            role=all_nodes[nid].role,
-            technology=all_nodes[nid].technology,
-            is_external=all_nodes[nid].is_external,
-            shape=all_nodes[nid].shape,
-            status=all_nodes[nid].status,
-            node_depth=tree.node_depth(all_nodes, nid),
-            ancestors=tree.ancestors(all_nodes, nid),
-        )
-        for nid in sorted(neighbor_ids, key=str)
-    ]
-    # has_children фокуса — по карте всех узлов, без отдельного SQL.
-    focus.child_count = sum(1 for n in all_nodes.values() if n.parent_id == focus.id)
-    focus.has_children = focus.child_count > 0
-    return NodeContextResponse(
-        focus=focus,
-        focus_ancestors=tree.ancestors(all_nodes, focus.id),
-        neighbors=neighbors,
-        edges=result_edges,
-    )
 
 
 @router.get("/{node_id}/context-graph", response_model=GraphResponse)

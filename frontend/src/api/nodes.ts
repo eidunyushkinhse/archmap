@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -25,9 +25,6 @@ export const nodesApi = {
       : api.get<GraphResponse>(`/nodes/graph`),
   search: (q: string): Promise<Node[]> =>
     api.get<Node[]>(`/nodes/search?q=${encodeURIComponent(q)}`),
-  // Контекстная схема узла: фокус + прямые соседи + спроецированные рёбра
-  getContext: (id: string): Promise<NodeContext> =>
-    api.get<NodeContext>(`/nodes/${id}/context`),
   // «Схема» страницы объекта (single-schema): контекст в формате СЫРОГО графа
   // уровня — виртуальный корневой уровень (фокус + представители соседей +
   // сырые рёбра + реестр концов + раскладка корневого вида). Рендерится тем же

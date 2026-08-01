@@ -106,14 +106,11 @@ export type GhostNode = Schemas["GhostNodeResponse"];
 // СЫРОЕ ребро графа уровня (R2): source_id/target_id — реальные концы; проекцию
 // на видимые сущности делает graph/projection.ts на фронте.
 export type GraphEdge = Schemas["GraphEdgeResponse"];
-// Ребро контекст-схемы: концы спроецированы сервером + original_* (реальные).
-export type ContextEdge = Schemas["ContextEdgeResponse"];
 
-// Ребро в стейте уровня/контекста: EdgeResponse-подобное (source_id/target_id —
-// РЕАЛЬНЫЕ концы, R2) плюс синтезируемые original_* — те же реальные концы с
-// именами для деталей связи. Поля original_* остаются в типе ради панели
-// EdgeInspector; на уровне их заполняет TreePage.load из реестра endpoints,
-// в контексте — сервер (ContextEdgeResponse), но там детализации нет.
+// Ребро в стейте уровня: EdgeResponse-подобное (source_id/target_id — РЕАЛЬНЫЕ
+// концы, R2) плюс синтезируемые original_* — те же реальные концы с именами для
+// деталей связи. Поля original_* остаются в типе ради панели EdgeInspector;
+// заполняются из реестра endpoints (toLevelEdges в pageSchema.ts).
 export type LevelEdge = Edge & {
   original_source_id: string;
   original_target_id: string;
@@ -121,7 +118,6 @@ export type LevelEdge = Edge & {
   original_target_name: string;
 };
 export type GraphResponse = Schemas["GraphResponse"];
-export type NodeContext = Schemas["NodeContextResponse"];
 export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];
 
 export type DisconnectedNodeAlert = Schemas["DisconnectedNodeAlert"];
