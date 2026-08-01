@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
-import { canHaveChildren, compareByRank, withoutPersons } from "../types";
+import { canHaveChildren, compareByRank } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
@@ -27,14 +27,13 @@ import "./NodeTreePanel.css";
 export const NODE_DRAG_MIME = "application/archmap-node-shape";
 
 /**
- * Дерево узлов отражает иерархию по parent_id. По умолчанию видны только корни;
- * дети подгружаются лениво по клику на шеврон. Клик по строке зависит от режима:
- * плоский — navigateFlat (страница объекта / дрилл / показать на холсте) плюс
- * авто-раскрытие ветки; legacy — дрилл на слой промежуточного узла (onDrillTo).
- * Узлы-«пользователи» (shape: person) отсеиваются только в legacy-аккордеоне
- * (withoutPersons): то дерево — навигатор детализации, «провалиться» внутрь
- * пользователя нечего. В плоском дереве персоны стоят в общей иерархии наравне
- * с прочими объектами.
+ * Дерево объектов отражает иерархию по parent_id. По умолчанию видны только
+ * корни; дети подгружаются лениво по клику на шеврон. Клик по строке ведёт на
+ * страницу объекта (onNodePage) либо навигирует внутри редактора-карты
+ * (контейнер → onDrillTo, лист → onPickLeaf); выбор узла с детьми попутно
+ * раскрывает его ветку. Персоны стоят в общей иерархии наравне с прочими.
+ * В редакторе внизу добавляется секция-палитра «Добавить объект» (единственное
+ * отличие от дерева страниц).
  */
 
 interface Props {
@@ -167,7 +166,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   const pagesMode = !!onNodePage;
   // редактор-карта: тот же плоский дизайн, но клик — навигация внутри редактора
   const editorMode = !!onPickLeaf;
-  const flatMode = pagesMode || editorMode;
 
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
@@ -234,7 +232,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
 
   // Персоны отсеиваются только в legacy-аккордеоне (дерево про детализацию);
   // в плоском дереве (страницы/редактор) стоят в общей иерархии наравне с прочими.
-  const fitNodes = (ns: Node[]): Node[] => (flatMode ? ns : withoutPersons(ns)).sort(compareByRank);
+  const fitNodes = (ns: Node[]): Node[] => ns.sort(compareByRank);
 
   useEffect(() => {
     let alive = true;
@@ -243,9 +241,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
       .then((ns) => { if (alive) setRoots(fitNodes(ns)); })
       .finally(() => { if (alive) setLoadingRoots(false); });
     return () => { alive = false; };
-    // flatMode стабилен на время жизни компонента (определяется колбэками вызывающей
-    // стороны); смена режима = перемонтаж, эффект перечитывает корни под новый режим.
-  }, [flatMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Перезагрузка по внешнему сигналу (создан/удалён узел): перечитываем корни и
   // детей УЖЕ раскрытых веток, чтобы новый узел появился без сворачивания дерева.
@@ -281,7 +277,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
 
   // Поиск (pages_pivot / редактор): debounce 250ms, результат — плоский список совпадений.
   useEffect(() => {
-    if (!flatMode) return;
     const q = searchQuery.trim().toLowerCase();
     if (!q) { setSearchResults(null); return; }
     setSearching(true);
@@ -292,7 +287,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
         .finally(() => setSearching(false));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [searchQuery, flatMode]);
+  }, [searchQuery]);
 
   // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
   // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
@@ -306,7 +301,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   // детей каждого предка (тем же путём, что и toggle) и раскрываем их. Ленивая
   // загрузка дерева при этом сохраняется — тянем только нужную ветку.
   useEffect(() => {
-    if (!flatMode || !currentNodeId) return;
+    if (!currentNodeId) return;
     let alive = true;
     void (async () => {
       // 1. Цепочка id от корня до текущего узла (включительно).
@@ -337,7 +332,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     // allById/childrenById читаются снимком на момент смены страницы (свежесть не
     // критична: промах по кэшу = лишний fetch, не некорректность) — как в reload-эффекте.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentNodeId, flatMode]);
+  }, [currentNodeId]);
 
   // Скролл к подсвеченной строке — когда узел стал видим (после автораскрытия).
   // Повторяем на изменениях expanded/childrenById, пока строка не появится; скроллим
@@ -403,14 +398,8 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     // сразу, без отдельного клика по шеврону).
     // Старое поведение: промежуточный → слой, лист → контекст.
     const isIntermediate = drillable && node.has_children;
-    const handler = flatMode
-      ? () => { navigateFlat(node); if (isIntermediate) void expandBranch(node); }
-      : isIntermediate
-        ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
-        : undefined;
-    const title = !handler
-      ? node.name
-      : pagesMode
+    const handler = () => { navigateFlat(node); if (isIntermediate) void expandBranch(node); };
+    const title = pagesMode
         ? `Страница: ${node.name}`
         : isIntermediate
           ? `Открыть слой: ${node.name}`
@@ -420,10 +409,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     return (
       <>
         <div
-          className={
-            (handler ? "nt-row nt-row--clickable" : "nt-row") +
-            (isCurrent ? " nt-row--current" : "")
-          }
+          className={"nt-row nt-row--clickable" + (isCurrent ? " nt-row--current" : "")}
           onClick={handler}
           title={title}
         >
@@ -452,7 +438,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
             {node.name}
           </span>
           {/* «+» — создать дочерний объект (pages_pivot / редактор, архитектор, только сервисы) */}
-          {flatMode && isArchitect && onCreateChild && node.shape === "service" && (
+          {isArchitect && onCreateChild && node.shape === "service" && (
             <button
               className="nt-add-child"
               onClick={(e) => { e.stopPropagation(); onCreateChild(node.id); }}
@@ -539,8 +525,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
         </div>
       ) : (
       <div style={content}>
-        {flatMode ? (
-          /* ── pages_pivot / редактор: поиск + плоское дерево + персоны ─── */
           <>
             {/* Поиск */}
             <div style={searchWrap}>
@@ -614,53 +598,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
               </Section>
             )}
           </>
-        ) : (
-          /* ── Старое поведение: секции + палитра ────────────────── */
-          <>
-            <Section
-              title="Дерево объектов"
-              grow
-              open={openSections.has("tree")}
-              onToggle={() => toggleSection("tree")}
-            >
-              <div style={treeList}>
-                {loadingRoots ? (
-                  <div style={hint}>Загрузка…</div>
-                ) : roots.length === 0 ? (
-                  <div style={hint}>Нет объектов</div>
-                ) : (
-                  roots.map((n) => <Row key={n.id} node={n} />)
-                )}
-              </div>
-            </Section>
-
-            {isArchitect && (
-              <Section
-                title="Добавить объект"
-                open={openSections.has("add")}
-                onToggle={() => toggleSection("add")}
-              >
-                <div style={paletteHint}>Перетащите форму на схему</div>
-                <div style={palette}>
-                  {NODE_TEMPLATES.map((t) => (
-                    <div
-                      key={t.shape}
-                      className="template-card"
-                      draggable
-                      onDragStart={(e) => onTemplateDragStart(e, t.shape)}
-                      onDragEnd={onTemplateDragEnd}
-                      style={templateCard}
-                      title={`Перетащить «${t.label}» на схему`}
-                    >
-                      <ShapeIcon shape={t.shape} />
-                      <span style={templateLabel}>{t.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-          </>
-        )}
       </div>
       )}
 
