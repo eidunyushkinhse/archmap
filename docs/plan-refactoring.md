@@ -112,6 +112,18 @@ god-компонентами без тестов; легаси — извест�
    onDrillTo-путь) — удалить после TreePage.
 
 ### Фаза 2 — Тестовая инфраструктура UI (разблокирует фазы 3 и 5)
+
+**Статус 2026-08-01: инфраструктура + первая волна тестов — СДЕЛАНО.**
+Coverage baseline: **41.33% statements** (замер `vitest run --coverage`).
+Тестов: 553 (было 521; +32 рендер/поведенческих).
+Готово: coverage-v8 + конфиг в vite.config.ts; @testing-library/react +
+jest-dom + user-event; test-setup.ts (полифилы matchMedia/ResizeObserver/
+dialog/scrollTo); тесты useNodePatch (8), useEditableLevel (6), NodeTreePanel
+(6), FlowchartDocs (6), NodePage (6, канвас замокан).
+Осталось (следующие волны): ProjectShell (свитчер/экспорт/навигация),
+MapEditorPage (breadcrumb/undo-диспетчеры), DocOverlay, useRemoteSync-хук
+(ядро тика уже покрыто), coverage-ratchet-гейт, зонды как e2e-шаг CI.
+
 1. @vitest/coverage-v8 + конфиг coverage в vite.config.ts; pytest-cov в
    requirements.txt. Замерить базовое покрытие, зафиксировать.
 2. @testing-library/react + setup-файл + моки @xyflow/react и fetch/api.
