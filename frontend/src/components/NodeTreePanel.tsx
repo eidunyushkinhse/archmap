@@ -30,9 +30,10 @@ export const NODE_DRAG_MIME = "application/archmap-node-shape";
  *  - промежуточный узел (has_children) → провалиться на его слой ОСНОВНОЙ схемы
  *    (onDrillTo получает полный путь от корня до узла);
  *  - лист (детей нет) → открыть контекстную схему узла (onNodeContext).
- * Узлы-«пользователи» (shape: person) в дереве не показываем (общий отсев
- * withoutPersons в nodeTree.shared): дерево — навигатор детализации, «провалиться»
- * внутрь пользователя нечего.
+ * Узлы-«пользователи» (shape: person) отсеиваются только в legacy-аккордеоне
+ * (withoutPersons в nodeTree.shared): то дерево — навигатор детализации,
+ * «провалиться» внутрь пользователя нечего. В плоском дереве (страницы/редактор)
+ * персоны стоят в общей иерархии наравне с прочими объектами.
  */
 
 interface Props {
@@ -253,9 +254,6 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
   const [searchResults, setSearchResults] = useState<Node[] | null>(null);
   const [searching, setSearching] = useState(false);
 
-  // Персоны (pages_pivot): отдельная группа «Действующие лица»
-  const [persons, setPersons] = useState<Node[]>([]);
-
   // Все загруженные узлы по id (корни + подгруженные дети). Чтобы узел был виден и
   // кликабелен в дереве, все его предки раскрыты → их Node-объекты уже здесь.
   const allById = useMemo(() => {
@@ -286,14 +284,20 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     else onPickLeaf?.(node);
   };
 
+  // Персоны отсеиваются только в legacy-аккордеоне (дерево про детализацию);
+  // в плоском дереве (страницы/редактор) стоят в общей иерархии наравне с прочими.
+  const fitNodes = (ns: Node[]): Node[] => (flatMode ? ns : withoutPersons(ns)).sort(compareByRank);
+
   useEffect(() => {
     let alive = true;
     nodesApi
       .list(null)
-      .then((ns) => { if (alive) setRoots(withoutPersons(ns).sort(compareByRank)); })
+      .then((ns) => { if (alive) setRoots(fitNodes(ns)); })
       .finally(() => { if (alive) setLoadingRoots(false); });
     return () => { alive = false; };
-  }, []);
+    // flatMode стабилен на время жизни компонента (определяется колбэками вызывающей
+    // стороны); смена режима = перемонтаж, эффект перечитывает корни под новый режим.
+  }, [flatMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Перезагрузка по внешнему сигналу (создан/удалён узел): перечитываем корни и
   // детей УЖЕ раскрытых веток, чтобы новый узел появился без сворачивания дерева.
@@ -305,14 +309,14 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     if (!reloadSkipRef.current) { reloadSkipRef.current = true; return; }
     let alive = true;
     (async () => {
-      const ns = withoutPersons(await nodesApi.list(null)).sort(compareByRank);
+      const ns = fitNodes(await nodesApi.list(null));
       if (!alive) return;
       setRoots(ns);
       const ids = [...expanded];
       const fetched = await Promise.all(
         ids.map((id) =>
           nodesApi.getChildren(id)
-            .then((k) => [id, withoutPersons(k).sort(compareByRank)] as const)
+            .then((k) => [id, fitNodes(k)] as const)
             .catch(() => [id, [] as Node[]] as const),
         ),
       );
@@ -341,16 +345,6 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     }, 250);
     return () => window.clearTimeout(timer);
   }, [searchQuery, flatMode]);
-
-  // Персоны (pages_pivot / редактор): грузим один раз при маунте + по reloadToken.
-  useEffect(() => {
-    if (!flatMode) return;
-    let alive = true;
-    nodesApi.list(null)
-      .then((ns) => { if (alive) setPersons(ns.filter((n) => n.shape === "person").sort(compareByRank)); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [flatMode, reloadToken]);
 
   // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
   // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
@@ -383,7 +377,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
         if (!alive) return;
         let kids = childrenById[id];
         if (kids === undefined) {
-          kids = withoutPersons(await nodesApi.getChildren(id)).sort(compareByRank);
+          kids = fitNodes(await nodesApi.getChildren(id));
           if (!alive) return;
           setChildrenById((p) => ({ ...p, [id]: kids! }));
         }
@@ -419,12 +413,12 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
       setExpanded((p) => { const n = new Set(p); n.delete(id); return n; });
       return;
     }
-    // Дети ещё не загружены — тянем с бэка и сразу отсеиваем персон
+    // Дети ещё не загружены — тянем с бэка (персоны отсеиваются только в legacy)
     let kids = childrenById[id];
     if (kids === undefined) {
       setLoadingId((p) => new Set(p).add(id));
       try {
-        kids = withoutPersons(await nodesApi.getChildren(id)).sort(compareByRank);
+        kids = fitNodes(await nodesApi.getChildren(id));
         setChildrenById((p) => ({ ...p, [id]: kids! }));
       } finally {
         setLoadingId((p) => { const n = new Set(p); n.delete(id); return n; });
@@ -636,23 +630,32 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
               )}
             </div>
 
-            {/* Действующие лица (персоны) */}
-            {persons.length > 0 && searchResults === null && (
-              <div style={{ borderTop: "1px solid #eef2f6", padding: "8px 0 6px" }}>
-                <div style={personsTitle}>Действующие лица</div>
-                {persons.map((p) => (
-                  <div
-                    key={p.id}
-                    className="nt-row nt-row--clickable"
-                    onClick={() => navigateFlat(p)}
-                    title={pagesMode ? `Страница: ${p.name}` : `Показать на схеме: ${p.name}`}
-                  >
-                    <span className="nt-chevspacer" />
-                    <ShapeGlyph container={false} shape={p.shape} />
-                    <span className="nt-name">{p.name}</span>
-                  </div>
-                ))}
-              </div>
+            {/* Палитра «Добавить объект» — только в редакторе; ЕДИНСТВЕННОЕ
+                отличие плоского дерева редактора от дерева страниц. */}
+            {editorMode && isArchitect && (
+              <Section
+                title="Добавить объект"
+                open={openSections.has("add")}
+                onToggle={() => toggleSection("add")}
+              >
+                <div style={paletteHint}>Перетащите форму на схему</div>
+                <div style={palette}>
+                  {NODE_TEMPLATES.map((t) => (
+                    <div
+                      key={t.shape}
+                      className="template-card"
+                      draggable
+                      onDragStart={(e) => onTemplateDragStart(e, t.shape)}
+                      onDragEnd={onTemplateDragEnd}
+                      style={templateCard}
+                      title={`Перетащить «${t.label}» на схему`}
+                    >
+                      <ShapeIcon shape={t.shape} />
+                      <span style={templateLabel}>{t.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
             )}
           </>
         ) : (
@@ -884,12 +887,4 @@ const searchClear: CSSProperties = {
   cursor: "pointer",
   padding: "2px 4px",
   lineHeight: 1,
-};
-const personsTitle: CSSProperties = {
-  fontSize: 10.5,
-  fontWeight: 700,
-  letterSpacing: "0.06em",
-  textTransform: "uppercase",
-  color: "#94a3b8",
-  padding: "4px 14px 6px",
 };

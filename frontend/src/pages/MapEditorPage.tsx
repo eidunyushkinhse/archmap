@@ -1,9 +1,9 @@
 // Редактор-карта (MapEditorPage) — полноэкранный редактор схем (pages_pivot, Фаза 4).
 // Роут: #/p/<pid>/map/<nodeId?>. Топбар: breadcrumb + undo/redo + «Готово».
-// Слева: дерево объектов (тот же дизайн, что на страницах) + палитра форм (148px).
+// Слева: дерево объектов (дизайн страниц + секция «Добавить объект» внизу).
 // Центр: LevelGraph со всеми жестами. Справа: ObjectInspector (272px).
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, DragEvent } from "react";
+import type { CSSProperties } from "react";
 import { nodesApi, nodeDocsApi, edgesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type {
@@ -31,17 +31,6 @@ import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import { LogoMark, RelayoutIcon, ChevronIcon } from "../ui/icons";
 import "../ui/chrome.css";
-import "./MapEditorPage.css";
-
-// MIME-тип драга шаблона из палитры (тот же, что в NodeTreePanel)
-const NODE_DRAG_MIME = "application/archmap-node-shape";
-
-const PALETTE: Array<{ shape: NodeShape; label: string }> = [
-  { shape: "service", label: "Сервис" },
-  { shape: "database", label: "База данных" },
-  { shape: "broker", label: "Брокер" },
-  { shape: "person", label: "Пользователь" },
-];
 
 interface Props {
   projectId: string;
@@ -492,11 +481,12 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
         </div>
       </div>
 
-      {/* Тело: дерево + палитра + холст + инспектор */}
+      {/* Тело: дерево + холст + инспектор */}
       <div style={bodyRow}>
         {/* Дерево объектов: тот же плоский дизайн, что на страницах (ProjectShell),
-            но клик навигирует внутри редактора: контейнер → дрилл на слой,
-            лист → прыжок на слой родителя + выделение + пульс. */}
+            но клик навигирует внутри редактора (контейнер → дрилл на слой,
+            лист → прыжок на слой родителя + выделение + пульс) и внизу есть
+            секция «Добавить объект» — единственное отличие от дерева страниц. */}
         <NodeTreePanel
           isArchitect={isArchitect}
           reloadToken={treeReload}
@@ -504,32 +494,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
           onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
+          onTemplateDrag={setDragShape}
         />
-        {/* Палитра форм */}
-        {isArchitect && (
-          <div style={palette}>
-            <div style={paletteTitle}>Добавить</div>
-            {PALETTE.map((t) => (
-              <div
-                key={t.shape}
-                className="mp-tpl"
-                draggable
-                onDragStart={(e: DragEvent) => {
-                  e.dataTransfer.setData(NODE_DRAG_MIME, t.shape);
-                  e.dataTransfer.effectAllowed = "copy";
-                  setDragShape(t.shape);
-                }}
-                onDragEnd={() => setDragShape(null)}
-              >
-                <PaletteIcon shape={t.shape} />
-                <span>{t.label}</span>
-              </div>
-            ))}
-            <p style={{ fontSize: 11, color: "#94a3b8", margin: "12px 0 0", lineHeight: 1.4 }}>
-              Перетащите форму на холст
-            </p>
-          </div>
-        )}
 
         {/* Холст */}
         <div style={graphArea}>
@@ -633,16 +599,6 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   );
 }
 
-// ── Вспомогательные компоненты ──────────────────────────────────────
-
-function PaletteIcon({ shape }: { shape: NodeShape }) {
-  const c = { fill: "none", stroke: "#475569", strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  if (shape === "database") return <svg width={26} height={20} viewBox="0 0 26 20"><path d="M3 3v10a10 3.5 0 0 0 20 0V3" {...c} /><ellipse cx={13} cy={3.5} rx={10} ry={3} {...c} /></svg>;
-  if (shape === "broker") return <svg width={26} height={20} viewBox="0 0 26 20"><path d="M7 2h12a5 8 0 0 1 0 16H7a5 8 0 0 1 0-16Z" {...c} /><path d="M7 2a5 8 0 0 1 0 16" {...c} /></svg>;
-  if (shape === "person") return <svg width={26} height={20} viewBox="0 0 26 20"><rect x={3} y={2} width={20} height={16} rx={3} {...c} /><circle cx={10} cy={8} r={2.5} {...c} /><path d="M5.5 15a4.5 4 0 0 1 9 0" {...c} /></svg>;
-  return <svg width={26} height={20} viewBox="0 0 26 20"><rect x={3} y={2} width={20} height={16} rx={3} {...c} /></svg>;
-}
-
 // ── Стили ───────────────────────────────────────────────────────────
 
 const page: CSSProperties = { display: "flex", flexDirection: "column", height: "100vh", fontFamily: "system-ui, -apple-system, sans-serif", overflow: "hidden", background: "#f8fafc" };
@@ -650,8 +606,6 @@ const topBar: CSSProperties = { display: "flex", justifyContent: "space-between"
 const topLeft: CSSProperties = { display: "flex", alignItems: "center", gap: 4, fontSize: 14, flexWrap: "wrap", flex: 1, minWidth: 0 };
 const divider: CSSProperties = { width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" };
 const bodyRow: CSSProperties = { flex: 1, display: "flex", minHeight: 0, overflow: "hidden" };
-const palette: CSSProperties = { width: 148, flexShrink: 0, borderRight: "1px solid #e2e8f0", background: "#fff", padding: "14px 12px", display: "flex", flexDirection: "column", gap: 6, overflowY: "auto" };
-const paletteTitle: CSSProperties = { fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", marginBottom: 4 };
 const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", padding: 12, display: "flex", flexDirection: "column", position: "relative" };
 const rightPanel: CSSProperties = { width: 272, flexShrink: 0, borderLeft: "1px solid #e2e8f0", background: "#fbfcfd", overflowY: "auto", padding: "14px 14px", scrollbarGutter: "stable" };
 const doneBtn: CSSProperties = { padding: "7px 20px", fontSize: 13.5, fontWeight: 600, color: "#fff", background: "#2563eb", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" };
