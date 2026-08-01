@@ -154,6 +154,10 @@ export function weldTrunks(params: WeldParams): Set<string> {
           if (curReal.length < 2) continue;
           const cur = orient(curReal);
           const ctx = contextOf(follower);
+          // Фактические порты follower-а: «грязный» всадник на собрате — связь,
+          // не делящая с follower-ом НИ источника, НИ цели (см. границу тройника).
+          const fStartKey = portKey(curReal[0]);
+          const fEndKey = portKey(curReal[curReal.length - 1]);
           const extra = extraOf?.(follower);
           const curParts = evalRouteParts(curReal, ctx.segs, { extra, fellowRoutes: ctx.routes });
           const curInk = ink(curParts, sharedLegal(curReal, ctx.routes));
@@ -169,6 +173,45 @@ export function weldTrunks(params: WeldParams): Set<string> {
             if (matePts.length < 2) continue;
             const diverge = pieceLen(commonPrefix(cur, matePts));
             const verts = vertsWithArc(cleanup(matePts.map((p) => ({ x: p.x, y: p.y }))));
+            const totalMate = verts[verts.length - 1]?.arc ?? 0;
+            // ГРАНИЦА ТРОЙНИКА (E25 v2): перенятый кусок не должен заходить в зону,
+            // где по собрату едет связь, НЕ делящая с follower-ом ни источника, ни
+            // цели. Иначе сварка строит нелегальный тройник: F едет с M, M едет с O,
+            // но F и O общего плеча иметь не могут (общее плечо — только попарно, от
+            // общего порта одной роли). Граница — начало ближайшей по дуге собрата
+            // «грязной зоны» (коллинеарное перекрытие собрата с таким O, допуск оси
+            // E28); кандидаты за ней отметаются, сама она — дополнительный кандидат
+            // (максимально длинный легальный кусок). in-проход зеркалится ориентацией.
+            let limit = Infinity;
+            for (let j = 1; j < verts.length; j++) {
+              const a = verts[j - 1], b = verts[j];
+              const horiz = Math.abs(b.p.y - a.p.y) <= EPS;
+              const vertical = Math.abs(b.p.x - a.p.x) <= EPS;
+              if (horiz === vertical) continue; // диагональ — не ствол
+              const cM = horiz ? a.p.y : a.p.x;
+              const startM = horiz ? a.p.x : a.p.y; // варь-координата в начале (arc0)
+              const loM = horiz ? Math.min(a.p.x, b.p.x) : Math.min(a.p.y, b.p.y);
+              const hiM = horiz ? Math.max(a.p.x, b.p.x) : Math.max(a.p.y, b.p.y);
+              for (const ps of ctx.segs) {
+                const s = ps.seg;
+                const oH = Math.abs(s.y1 - s.y2) <= EPS;
+                const oV = Math.abs(s.x1 - s.x2) <= EPS;
+                if (oH === oV || horiz !== oH) continue;
+                if (Math.abs((horiz ? s.y1 : s.x1) - cM) > 0.75) continue;
+                const loO = horiz ? Math.min(s.x1, s.x2) : Math.min(s.y1, s.y2);
+                const hiO = horiz ? Math.max(s.x1, s.x2) : Math.max(s.y1, s.y2);
+                const lo = Math.max(loM, loO), hi = Math.min(hiM, hiO);
+                if (hi - lo <= EPS) continue;
+                // всадник легален относительно follower-а, если делит с ним порт
+                // (свой префикс/суффикс пары покроет перекрытие) — иначе грязь
+                if (portKey(ps.p0) === fStartKey || portKey(ps.pN) === fEndKey) continue;
+                // начало зоны ПО ХОДУ собрата: ближайший к старту сегмента конец
+                // интервала (сегмент может быть направлен в отрицательную сторону)
+                const arcStart = a.arc + Math.min(Math.abs(lo - startM), Math.abs(hi - startM));
+                if (arcStart < limit) limit = arcStart;
+              }
+            }
+            if (limit < diverge) limit = diverge; // зона до расхождения — места нет
             // Кандидаты точки расставания за точкой расхождения, первые WELD_K по дуге:
             //  • изломы собрата (интерьерные вершины) — классика E78; семя хвоста по
             //    ходу ствола (разворот на шве запрещён сидом);
@@ -202,7 +245,34 @@ export function weldTrunks(params: WeldParams): Set<string> {
               if (arc > diverge + EPS) cands.push({ p, prev: a.p, arc, side });
             }
             cands.sort((u, v) => u.arc - v.arc);
-            for (const q of cands.slice(0, WELD_K)) {
+            // Граница тройника: кандидаты за началом грязной зоны нелегальны.
+            // Точная точка границы — дополнительный кандидат (максимальный кусок).
+            const picked = cands.filter((q) => q.arc <= limit + EPS).slice(0, WELD_K);
+            if (
+              limit > diverge + EPS && limit < totalMate - EPS &&
+              !picked.some((q) => Math.abs(q.arc - limit) <= EPS)
+            ) {
+              let k = 1;
+              while (k < verts.length - 1 && verts[k].arc < limit - EPS) k++;
+              const a = verts[k - 1], b = verts[k];
+              const horiz = Math.abs(b.p.y - a.p.y) <= EPS;
+              const vertical = Math.abs(b.p.x - a.p.x) <= EPS;
+              if (horiz !== vertical) {
+                const t = (limit - a.arc) / Math.max(b.arc - a.arc, EPS);
+                const p = horiz
+                  ? { x: a.p.x + (b.p.x - a.p.x) * t, y: a.p.y }
+                  : { x: a.p.x, y: a.p.y + (b.p.y - a.p.y) * t };
+                // семя хвоста — ПЕРПЕНДИКУЛЯРНО стволу в сторону дока (как у
+                // проекционного кандидата): семя по ходу ствола погнало бы хвост
+                // вдоль собрата — прямо в грязную зону, от которой отсекаемся
+                const perp = horiz ? dock.y - a.p.y : dock.x - a.p.x;
+                const side: EdgeSide | undefined = Math.abs(perp) > EPS
+                  ? (horiz ? (perp > 0 ? "bottom" : "top") : (perp > 0 ? "right" : "left"))
+                  : undefined;
+                picked.push({ p, prev: a.p, arc: limit, side });
+              }
+            }
+            for (const q of picked) {
               const arrSide = q.side ?? sideAlong(q.prev, q.p);
               if (!arrSide) continue; // диагональный подход — не ствол
               // хвост: от излома собрата до свободного дока. Стаб дефолтный (E9):
@@ -232,6 +302,16 @@ export function weldTrunks(params: WeldParams): Set<string> {
                 .map((v) => ({ x: v.p.x, y: v.p.y }));
               const fullOriented = cleanup([...adopted, ...tail.pts]);
               if (fullOriented.length < 2) continue;
+              // НОЛЬ нелегальной езды на ПЕРЕНЯТОМ КУСКЕ (страховка границы тройника:
+              // случайный коллинеарный всадник, не учтённый грязными зонами). Хвост
+              // остаётся на мягкой ступени 1 («грязь не хуже текущего»). Кусок — в
+              // РЕАЛЬНОЙ ориентации: ролевое правило кандидата и кредит стволов
+              // (own-порты, prefLen/sufLen) опознают общий порт своей роли.
+              const piecePts = orient(cleanup([...adopted, { x: q.p.x, y: q.p.y }]));
+              if (
+                piecePts.length >= 2 &&
+                evalRouteParts(piecePts, ctx.segs, { fellowRoutes: ctx.routes }).overlap > EPS
+              ) continue;
               const full = orient(fullOriented); // orient — инволюция
               const candParts = evalRouteParts(full, ctx.segs, { extra, fellowRoutes: ctx.routes });
               // ступень 1: грязь не хуже покомпонентно (допуски — числовой шум);
