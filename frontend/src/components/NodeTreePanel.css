@@ -90,9 +90,6 @@
 .nt-row--clickable:hover .nt-glyph {
   color: #1d4ed8;
 }
-.nt-row--clickable:hover .nt-action {
-  display: inline-flex;
-}
 
 /* Текущая открытая страница (п.1): устойчивая подсветка строки — голубой фон,
    синие имя/глиф, левый акцент. Сильнее hover, чтобы текущий узел читался всегда. */
@@ -166,18 +163,6 @@
 .nt-chevspacer {
   width: 26px;
   flex: none;
-}
-
-/* Подпись действия справа в строке — видна только на hover (см. .nt-row--clickable:hover). */
-.nt-action {
-  display: none;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex: none;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #2563eb;
 }
 
 /* Направляющая вложенности: дети раскрытого узла со сдвигом и левой линией. */

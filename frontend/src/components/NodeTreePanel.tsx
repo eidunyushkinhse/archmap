@@ -122,57 +122,6 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
-// Подпись действия справа в строке (видна только на hover). Контейнер → стрелка
-// вправо + «компоненты» (drill на слой); лист → кольцо с точкой + «контекст»
-// (legacy) или «показать» (редактор-карта: locate на холсте).
-function ActionLabel({ container, pagesMode, editorMode }: { container: boolean; pagesMode?: boolean; editorMode?: boolean }) {
-  if (pagesMode) {
-    return (
-      <span className="nt-action">
-        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <path d="M14 2v6h6" />
-        </svg>
-        страница
-      </span>
-    );
-  }
-  if (editorMode && !container) {
-    return (
-      <span className="nt-action">
-        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-          <circle cx="12" cy="12" r="8" />
-          <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
-        </svg>
-        показать
-      </span>
-    );
-  }
-  return (
-    <span className="nt-action">
-      {container ? (
-        <>
-          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 12 H20" />
-            <path d="M14 6 L20 12 L14 18" />
-          </svg>
-          компоненты
-        </>
-      ) : (
-        <>
-          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <circle cx={12} cy={12} r={8} />
-            <circle cx={12} cy={12} r={2.4} fill="currentColor" stroke="none" />
-          </svg>
-          контекст
-        </>
-      )}
-    </span>
-  );
-}
-
 // Иконка корзины для оверлея отмены драга. Темнеет при наведении (drop = отмена).
 function TrashIcon({ active }: { active: boolean }) {
   const c = active ? "#475569" : "#94a3b8";
@@ -407,13 +356,11 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     return () => cancelAnimationFrame(raf);
   }, [currentNodeId, expanded, childrenById]);
 
-  async function toggle(node: Node) {
+  // Раскрыть ветку (дети подгружаются лениво). Идемпотентна: уже раскрытую ветку
+  // не сворачивает (сворачивание — только шевроном).
+  async function expandBranch(node: Node) {
     const id = node.id;
-    if (expanded.has(id)) {
-      setExpanded((p) => { const n = new Set(p); n.delete(id); return n; });
-      return;
-    }
-    // Дети ещё не загружены — тянем с бэка (персоны отсеиваются только в legacy)
+    if (expanded.has(id)) return;
     let kids = childrenById[id];
     if (kids === undefined) {
       setLoadingId((p) => new Set(p).add(id));
@@ -424,12 +371,21 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
         setLoadingId((p) => { const n = new Set(p); n.delete(id); return n; });
       }
     }
-    // После отсева персон показывать нечего — помечаем узел как лист, не раскрываем
+    // После отсева персон показывать нечего (legacy) — помечаем узел листом
     if (kids.length === 0) {
       setLeaves((p) => new Set(p).add(id));
       return;
     }
     setExpanded((p) => new Set(p).add(id));
+  }
+
+  // Клик по шеврону: раскрыть/свернуть.
+  async function toggle(node: Node) {
+    if (expanded.has(node.id)) {
+      setExpanded((p) => { const n = new Set(p); n.delete(node.id); return n; });
+      return;
+    }
+    await expandBranch(node);
   }
 
   function Row({ node }: { node: Node }) {
@@ -444,10 +400,12 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     const hasChildren = drillable && node.has_children && !leaves.has(id);
     // pages_pivot: клик по любому узлу → его страница (единообразно).
     // редактор: контейнер → дрилл на слой, лист → показать на холсте.
+    // В обоих режимах выбор узла с детьми РАСКРЫВАЕТ его ветку (дети видны
+    // сразу, без отдельного клика по шеврону).
     // Старое поведение: промежуточный → слой, лист → контекст.
     const isIntermediate = drillable && node.has_children;
     const handler = flatMode
-      ? () => navigateFlat(node)
+      ? () => { navigateFlat(node); if (isIntermediate) void expandBranch(node); }
       : isIntermediate
         ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
         : (onNodeContext ? () => onNodeContext(node) : undefined);
@@ -494,7 +452,6 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
           <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
             {node.name}
           </span>
-          {handler && <ActionLabel container={isIntermediate} pagesMode={pagesMode} editorMode={editorMode} />}
           {/* «+» — создать дочерний объект (pages_pivot / редактор, архитектор, только сервисы) */}
           {flatMode && isArchitect && onCreateChild && node.shape === "service" && (
             <button
