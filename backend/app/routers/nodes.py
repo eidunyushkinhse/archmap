@@ -481,6 +481,13 @@ def update_node(
         raise HTTPException(status_code=409, detail="Узел изменён в другой сессии")
     if data:
         old_parent = node.parent_id
+        # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:
+        # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
+        # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост
+        # схемы в той же сессии, V48/V53).
+        structural = {"parent_id", "name", "shape"}
+        struct_changed = any(data[f] != getattr(node, f) for f in data.keys() & structural)
+        meta_changed = any(data[f] != getattr(node, f) for f in data.keys() - structural)
         for field, value in data.items():
             setattr(node, field, value)
         node.version += 1
@@ -489,13 +496,11 @@ def update_node(
             bump_view_version(db, project.id, old_parent)
             bump_view_version(db, project.id, data["parent_id"])
         # Структурные поля двигают СХЕМУ (имя/форма/иерархия видны на холсте);
-        # остальные — МЕТА узла (страница: роль/технология/статус/описание/
-        # внешность/openapi). Смешанный payload двигает оба курсора — поллинг
-        # страницы отличает «данные изменились» от «схема изменилась».
-        structural = {"parent_id", "name", "shape"}
-        if structural & data.keys():
+        # мета (роль/технология/статус/описание/внешность/openapi) — курсор меты:
+        # поллинг страницы отличает «данные обновлены» от «схема обновлена».
+        if struct_changed:
             bump_graph_rev(db, project)
-        if data.keys() - structural:
+        if meta_changed:
             bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()

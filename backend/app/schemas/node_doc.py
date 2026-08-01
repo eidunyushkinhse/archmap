@@ -30,12 +30,15 @@ class NodeDocUpdate(BaseModel):
 
 
 class NodeDocMeta(BaseModel):
-    """Лёгкая мета дока для NodeResponse (без content — контент лениво GET-ом)."""
+    """Лёгкая мета дока для NodeResponse (без content — контент лениво GET-ом).
+    version — для сигнатуры меты поллинга страницы: правка КОНТЕНТА доков
+    (без смены имени/вида) тоже видна как изменение данных (V53)."""
 
     id: uuid.UUID
     name: str
     kind: NodeDocKind
     operation: str | None
+    version: int = 1
 
     model_config = {"from_attributes": True}
 

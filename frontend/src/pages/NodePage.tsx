@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge, ProcessListItem } from "../types";
 import { canHaveChildren } from "../types";
-import { nodesApi, edgesApi, exportApi } from "../api/nodes";
+import { nodesApi, edgesApi, exportApi, viewsApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useEditableLevel } from "./useEditableLevel";
@@ -15,6 +15,7 @@ import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import ExportModal from "../components/ExportModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
+import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import type { ViewMetaState } from "../components/LevelGraph";
 import { componentsSectionHeight, hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
@@ -26,7 +27,7 @@ import "./NodePage.css";
 // тост не нужен; отличается → чужая сессия, освежить и показать тост.
 const metaSig = (n: Node): string => JSON.stringify([
   n.name, n.role, n.technology, n.status, n.description, n.is_external, n.openapi_spec,
-  [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation]),
+  [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation, d.version]),
 ]);
 
 // Тост «Данные изменены в другой сессии» — поверх страницы (fixed).
@@ -140,7 +141,16 @@ function NodePageInner({
   setConfirming: (v: boolean) => void;
   onEdgesReload: () => void;
 }) {
-  const patch = useNodePatch(initialNode);
+  // Общий с секцией «Схема» курсор конкурентности (viewMeta): СОБСТВЕННЫЕ
+  // записи страницы (свойства/доки/спеки) тихо обновляют его после коммита,
+  // чтобы тик поллинга не принял своё изменение за чужое (echo-suppression, V53).
+  const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0, metaRev: undefined });
+  const syncCursors = useCallback(() => {
+    viewsApi.state(null)
+      .then((s) => { viewMetaRef.current = { version: s.version, graphRev: s.graph_rev, metaRev: s.meta_rev }; })
+      .catch(() => {});
+  }, []);
+  const patch = useNodePatch(initialNode, syncCursors);
   const node = patch.node;
   const shape = node.shape;
   const isContainer = canHaveChildren(shape) && node.has_children;
@@ -150,9 +160,9 @@ function NodePageInner({
   const [statusOpen, setStatusOpen] = useState(false);
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean } | null>(null);
 
-  // Мета узла изменилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
+  // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
-  // отличается → применяем + тост «Данные изменены в другой сессии».
+  // отличается → применяем + тост «Данные обновлены в другой сессии».
   const [metaToast, setMetaToast] = useState(false);
   const metaToastTimer = useRef<number | null>(null);
   useEffect(() => () => { if (metaToastTimer.current) window.clearTimeout(metaToastTimer.current); }, []);
@@ -168,9 +178,15 @@ function NodePageInner({
       .catch(() => { /* узел могли удалить — догонит навигация */ });
   }, [node.id, patch]);
 
+  // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
+  const handleDocEvent = useCallback((evt: NodeDocEvent) => {
+    patch.applyDocEvent(evt);
+    syncCursors();
+  }, [patch, syncCursors]);
+
   return (
     <div className="np-page">
-      {metaToast && <div style={metaToastStyle}>Данные изменены в другой сессии</div>}
+      {metaToast && <div style={metaToastStyle}>Данные обновлены в другой сессии</div>}
       <div className="np-inner">
         {/* ── Шапка ─────────────────────────────────────────────── */}
         <div className="np-header">
@@ -370,6 +386,7 @@ function NodePageInner({
               onNavigateNode={onNavigateNode}
               onNavigateMap={onNavigateMap}
               onMetaChange={handleMetaChange}
+              viewMeta={viewMetaRef}
             />
           </div>
         ) : (
@@ -526,7 +543,7 @@ function NodePageInner({
             // CAS-правка openapi_spec через useNodePatch
             void patch.commitOpenapi(value);
           }}
-          onDocEvent={patch.applyDocEvent}
+          onDocEvent={handleDocEvent}
           onClose={() => setDoc(null)}
           notice={patch.conflict}
         />
@@ -929,6 +946,7 @@ function SchemaSection({
   onNavigateNode,
   onNavigateMap,
   onMetaChange,
+  viewMeta,
 }: {
   node: Node;
   ancestors: AncestorRef[];
@@ -936,8 +954,11 @@ function SchemaSection({
   onNavigateNode: (id: string) => void;
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
   // Рост meta_rev (мета узла изменилась в другой сессии) — страница освежает
-  // данные узла и показывает тост «Данные изменены в другой сессии».
+  // данные узла и показывает тост «Данные обновлены в другой сессии».
   onMetaChange?: () => void;
+  // Общий с страницей курсор конкурентности (страница тихо обновляет его после
+  // СВОИХ записей — echo-suppression, V53).
+  viewMeta: { current: ViewMetaState };
 }) {
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
@@ -948,7 +969,7 @@ function SchemaSection({
   // meta_rev; рефетч обновляет курсоры. Схема read-only (сама не пишет) — ложных
   // срабатываний тоста схемы на собственные записи нет; свои правки меты
   // подавляются сверкой содержимого в onMetaChange страницы.
-  const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0, metaRev: undefined });
+  const metaCursorRef = viewMeta; // алиас: eslint разрешает писать только в *Ref
   const gestureActiveRef = useRef(false); // жестов правки на странице нет
   const [remoteToast, setRemoteToast] = useState(false);
   const remoteToastTimer = useRef<number | null>(null);
@@ -957,12 +978,12 @@ function SchemaSection({
   const refetch = useCallback(() => {
     nodesApi.getContextGraph(node.id)
       .then((g) => {
-        viewMetaRef.current = { version: g.version, graphRev: g.graph_rev, metaRev: g.meta_rev };
+        metaCursorRef.current = { version: g.version, graphRev: g.graph_rev, metaRev: g.meta_rev };
         setGraph(g);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [node.id]);
+  }, [node.id, metaCursorRef]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка данных схемы
@@ -972,10 +993,10 @@ function SchemaSection({
 
   // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
   // тихий рефетч контекста + тост «Схема обновлена в другой сессии»; meta_rev
-  // вырос → onMetaChange (тост «Данные изменены» — хозяин страница).
+  // вырос → onMetaChange (тост «Данные обновлены» — хозяин страница).
   useRemoteSync({
     currentParentId: null,
-    viewMeta: viewMetaRef,
+    viewMeta: metaCursorRef,
     gestureActiveRef,
     onRemoteChange: () => {
       refetch();
@@ -985,7 +1006,7 @@ function SchemaSection({
     },
     onMetaChange: onMetaChange
       ? (rev) => {
-          viewMetaRef.current = { ...viewMetaRef.current, metaRev: rev };
+          metaCursorRef.current = { ...metaCursorRef.current, metaRev: rev };
           onMetaChange();
         }
       : undefined,

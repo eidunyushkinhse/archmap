@@ -1852,6 +1852,8 @@ export interface components {
         /**
          * NodeDocMeta
          * @description Лёгкая мета дока для NodeResponse (без content — контент лениво GET-ом).
+         *     version — для сигнатуры меты поллинга страницы: правка КОНТЕНТА доков
+         *     (без смены имени/вида) тоже видна как изменение данных (V53).
          */
         NodeDocMeta: {
             /**
@@ -1868,6 +1870,11 @@ export interface components {
             kind: "overview" | "operation" | "worker";
             /** Operation */
             operation: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
         };
         /** NodeDocResponse */
         NodeDocResponse: {

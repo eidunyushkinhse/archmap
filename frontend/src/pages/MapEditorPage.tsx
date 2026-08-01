@@ -298,7 +298,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   }
 
   function handleDocEvent(evt: NodeDocEvent) {
-    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation });
+    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation, version: d.version });
     const fields = (d: NodeDoc) => ({ name: d.name, kind: d.kind, operation: d.operation, content: d.content });
     const level = currentParentId;
     if (evt.type === "edit") {

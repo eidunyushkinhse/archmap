@@ -95,3 +95,22 @@ def test_update_node_mixed_bumps_both(db):
     db.refresh(project)
     assert project.graph_rev == g0 + 1
     assert project.meta_rev == m0 + 1
+
+
+def test_update_node_full_payload_unchanged_structural_bumps_meta_only(db):
+    # Клиент шлёт ПОЛНЫЙ payload (name/shape присутствуют и не изменились):
+    # курсор двигает фактическое изменение значения, а не наличие ключа —
+    # иначе любая мета-правка bump-ала бы graph_rev (ложный тост схемы).
+    node = _node(db, "A")
+    project = ensure_project(db)
+    db.commit()
+    g0, m0 = project.graph_rev, project.meta_rev
+
+    update_node(
+        node.id,
+        NodeUpdate(name="A", shape="service", role="ядро"),
+        db=db, project=project, user=ensure_architect(db),
+    )
+    db.refresh(project)
+    assert project.graph_rev == g0
+    assert project.meta_rev == m0 + 1

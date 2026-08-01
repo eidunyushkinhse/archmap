@@ -144,7 +144,9 @@ export function useNodePatch(
   }, [status, save]);
 
   const applyDocEvent = useCallback((evt: NodeDocEvent) => {
-    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation });
+    // version — в сигнатуру меты поллинга (V53): правка КОНТЕНТА доков видна
+    // странице как изменение данных даже без смены имени/вида.
+    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation, version: d.version });
     const patchDocs = (mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) => {
       setNode((n) => ({ ...n, docs: mut(n.docs) }));
       beforeRef.current = { ...beforeRef.current, docs: mut(beforeRef.current.docs) };

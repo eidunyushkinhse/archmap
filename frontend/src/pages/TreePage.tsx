@@ -550,7 +550,7 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
   }
 
   function handleDocEvent(evt: NodeDocEvent) {
-    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation });
+    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation, version: d.version });
     const fields = (d: NodeDoc) => ({ name: d.name, kind: d.kind, operation: d.operation, content: d.content });
     const level = currentParentId;
 
