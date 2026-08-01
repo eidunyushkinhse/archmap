@@ -146,7 +146,7 @@
   color: #991b1b;
 }
 
-/* Чип «внешний» */
+/* Чип-пилюля (счётчики на домашней странице проекта) */
 .np-external-chip {
   display: inline-flex;
   align-items: center;

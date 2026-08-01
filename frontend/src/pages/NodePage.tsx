@@ -156,11 +156,6 @@ function NodePageInner({
               <span className="np-name">{node.name}</span>
             )}
 
-            {/* Чип «внешний» */}
-            {node.is_external && (
-              <span className="np-external-chip">внешний</span>
-            )}
-
             {/* ⋯-меню (архитектор) */}
             {isArchitect && (
               <div className="np-menu-wrap">
