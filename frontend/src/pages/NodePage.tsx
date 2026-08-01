@@ -1,16 +1,14 @@
-// Страница объекта (NodePage) — скролл-документ с фиксированным шаблоном секций.
-// Фаза 1: шапка (breadcrumb, имя, статус, чип), свойства (inline CAS), связи (таблица).
-// Схемы (контекст, компоненты) добавляются в Фазе 2.
+// Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
+// (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
+// связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge, ProcessListItem } from "../types";
+import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, ProcessListItem } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi, exportApi, viewsApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
-import { useEditableLevel } from "./useEditableLevel";
 import { useRemoteSync } from "./useRemoteSync";
-import { isSingleObjectSchema } from "../featureFlags";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import ExportModal from "../components/ExportModal";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
@@ -19,7 +17,7 @@ import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import type { ViewMetaState } from "../components/LevelGraph";
-import { componentsSectionHeight, hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
+import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";
 
@@ -379,48 +377,19 @@ function NodePageInner({
           </div>
         </div>
 
-        {/* ── Схема (single-schema: одна секция с лупой) ИЛИ две секции (старое) ── */}
-        {isSingleObjectSchema() ? (
-          <div className="np-card">
-            <h3 className="np-card-title">Схема</h3>
-            <SchemaSection
-              node={node}
-              ancestors={ancestors}
-              isArchitect={isArchitect}
-              onNavigateNode={onNavigateNode}
-              onNavigateMap={onNavigateMap}
-              onMetaChange={handleMetaChange}
-              viewMeta={viewMetaRef}
-            />
-          </div>
-        ) : (
-          <>
-            {/* ── Схема контекста ──────────────────────────────────── */}
-            <div className="np-card">
-              <h3 className="np-card-title">Схема контекста</h3>
-              <ContextSection
-                nodeId={node.id}
-                isArchitect={isArchitect}
-                onNavigateNode={onNavigateNode}
-              />
-            </div>
-
-            {/* ── Схема компонентов (только у узлов с детьми) ──────── */}
-            {canHaveChildren(node.shape) && (
-              <div className="np-card">
-                <h3 className="np-card-title">Схема компонентов</h3>
-                <ComponentsSection
-                  nodeId={node.id}
-                  nodeName={node.name}
-                  ancestors={ancestors}
-                  isArchitect={isArchitect}
-                  onNavigateNode={onNavigateNode}
-                  onNavigateMap={onNavigateMap}
-                />
-              </div>
-            )}
-          </>
-        )}
+        {/* ── Схема (single-schema: контекст объекта виртуальным корневым уровнем) ── */}
+        <div className="np-card">
+          <h3 className="np-card-title">Схема</h3>
+          <SchemaSection
+            node={node}
+            ancestors={ancestors}
+            isArchitect={isArchitect}
+            onNavigateNode={onNavigateNode}
+            onNavigateMap={onNavigateMap}
+            onMetaChange={handleMetaChange}
+            viewMeta={viewMetaRef}
+          />
+        </div>
 
         {/* ── Связи ─────────────────────────────────────────────── */}
         <div className="np-card">
@@ -745,192 +714,6 @@ function ChevronDown() {
     </svg>
   );
 }
-
-// ── Секция «Схема компонентов» (LEGACY, путь при archmap_single_object_schema=0) ──
-// Старый двухсекционный вид; оставлена как откат. Загружает граф уровня узла
-// и рендерит EmbeddedSchemaBlock (read-only). При включённом флаге (дефолт)
-// вместо неё + ContextSection используется единая SchemaSection.
-function ComponentsSection({
-  nodeId,
-  nodeName,
-  ancestors,
-  isArchitect,
-  onNavigateNode,
-  onNavigateMap,
-}: {
-  nodeId: string;
-  nodeName: string;
-  ancestors: AncestorRef[];
-  isArchitect: boolean;
-  onNavigateNode: (id: string) => void;
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
-}) {
-  const lvl = useEditableLevel({ containerId: nodeId, isArchitect });
-  const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
-
-  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
-
-  if (lvl.loading) {
-    return <p className="np-empty">Загрузка схемы…</p>;
-  }
-
-  const graphNodes = lvl.nodes;
-  const endpoints = lvl.endpoints;
-  const hasNodes = graphNodes.length + endpoints.length > 0;
-  const hasStatusInfo =
-    graphNodes.some((n) => n.status !== "existing") ||
-    endpoints.some((g) => g.status !== "existing");
-
-  // Высота блока: 62px на узел, коридор 280–430 (pageSchema.componentsSectionHeight)
-  const height = componentsSectionHeight(graphNodes.length);
-
-  // Имена/id предков для рамок (breadcrumb страницы + сам узел)
-  const ancestorNames = [...ancestors.map((a) => a.name), nodeName];
-  const ancestorIds = [...ancestors.map((a) => a.id), nodeId];
-
-  return (
-    <EmbeddedSchemaBlock
-      nodes={graphNodes}
-      endpoints={endpoints}
-      edges={lvl.edges}
-      viewLayout={lvl.viewLayout}
-      containerId={nodeId}
-      ancestorNames={ancestorNames}
-      ancestorIds={ancestorIds}
-      depth={ancestors.length + 1}
-      isArchitect={isArchitect}
-      schemaView={schemaView}
-      onSchemaViewChange={setSchemaView}
-      onNavigateNode={onNavigateNode}
-      onEdit={onNavigateMap ? () => onNavigateMap(nodeId) : undefined}
-      height={height}
-      toolbarHint={hasNodes ? `${graphNodes.length} комп.` : undefined}
-      showViewFilter={hasStatusInfo}
-      nodesDraggable
-      editing={{
-        history: lvl.history,
-        onLayoutChanged: lvl.handleLayoutChanged,
-        viewMeta: lvl.viewMetaRef,
-        gestureActiveRef: lvl.gestureActiveRef,
-        onPersistError: lvl.onPersistError,
-        onPersistConflict: lvl.onPersistConflict,
-        retryPatch: lvl.retryPatch,
-      }}
-      onUndo={lvl.undo}
-      onRedo={lvl.redo}
-      canUndo={lvl.canUndo}
-      canRedo={lvl.canRedo}
-      onRelayout={() => { void lvl.relayout(); }}
-      empty={
-        hasNodes ? undefined : (
-          <span>
-            Внутренний состав не описан
-            {isArchitect && onNavigateMap && (
-              <>
-                <br />
-                <button
-                  className="esb-edit"
-                  style={{ marginTop: 10 }}
-                  onClick={() => onNavigateMap(nodeId)}
-                >
-                  Добавить компонент
-                </button>
-              </>
-            )}
-          </span>
-        )
-      }
-    />
-  );
-}
-
-// ── Секция «Схема контекста» (LEGACY, путь при archmap_single_object_schema=0) ──
-// Старый двухсекционный вид (контекст + компоненты отдельно), оставлен как откат.
-// Контекст узла (фокус + внешние соседи поддерева) рендерится штатным level-конвейером
-// (звёздный контекстный движок удалён — все схемы идут одним конвейером), read-only.
-// При включённом флаге (дефолт) вместо неё + ComponentsSection используется SchemaSection.
-function ContextSection({
-  nodeId,
-  isArchitect,
-  onNavigateNode,
-}: {
-  nodeId: string;
-  isArchitect: boolean;
-  onNavigateNode: (id: string) => void;
-}) {
-  const [ctx, setCtx] = useState<NodeContext | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
-
-  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
-
-  useEffect(() => {
-    let alive = true;
-    nodesApi.getContext(nodeId).then((c) => {
-      if (!alive) return;
-      setCtx(c);
-      setLoading(false);
-    }).catch(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [nodeId]);
-
-  if (loading) {
-    return <p className="np-empty">Загрузка контекста…</p>;
-  }
-
-  if (!ctx) return null;
-
-  const noNeighbors = ctx.neighbors.length === 0;
-
-  // Рёбра контекста → LevelEdge (концы уже спроецированы сервером)
-  const edges: LevelEdge[] = ctx.edges.map((ge) => ({
-    id: ge.id,
-    label: ge.label,
-    technology: ge.technology,
-    source_id: ge.source_id,
-    target_id: ge.target_id,
-    original_source_id: ge.original_source_id,
-    original_target_id: ge.original_target_id,
-    original_source_name: ge.original_source_name,
-    original_target_name: ge.original_target_name,
-    version: ge.version,
-    created_at: "",
-  }));
-
-  // Высота: max(240, min(380, neighbors*80))
-  const height = Math.max(240, Math.min(380, ctx.neighbors.length * 80));
-
-  return (
-    <EmbeddedSchemaBlock
-      nodes={[ctx.focus]}
-      endpoints={ctx.neighbors}
-      edges={edges}
-      viewLayout={{}}
-      containerId={ctx.focus.parent_id}
-      ancestorNames={ctx.focus_ancestors.map((a) => a.name)}
-      ancestorIds={ctx.focus_ancestors.map((a) => a.id)}
-      depth={ctx.focus_ancestors.length}
-      isArchitect={isArchitect}
-      schemaView={schemaView}
-      onSchemaViewChange={setSchemaView}
-      onNavigateNode={onNavigateNode}
-      height={height}
-      showViewFilter={false}
-      empty={
-        noNeighbors ? (
-          <span>
-            Внешних связей нет
-            <br />
-            <span style={{ fontSize: 12, color: "#b0bec5" }}>
-              Связи создаются в редакторе-карте
-            </span>
-          </span>
-        ) : undefined
-      }
-    />
-  );
-}
-
 
 // ── Секция «Участвует в процессах» ─────────────────────────────────
 // Процессы, в которых участвует узел или его поддерево (GET /nodes/{id}/processes).
