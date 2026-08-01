@@ -28,6 +28,14 @@ export default defineConfig({
         'src/**/*.{test,spec}.{ts,tsx}',
         'src/test-setup.ts',
       ],
+      // Coverage-ratchet (замер 2026-08-01: 45.49/37.14/32.97/45.75). Пороги чуть
+      // ниже фактических — гейт гарантирует, что покрытие не откатится назад.
+      thresholds: {
+        statements: 45,
+        branches: 37,
+        functions: 32,
+        lines: 45,
+      },
     },
   },
 })
