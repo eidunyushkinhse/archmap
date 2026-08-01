@@ -305,6 +305,9 @@ function LevelGraphInner({
   // Инспекция связей — просмотр, не правка: доступна и в read-only, если явно
   // включена (встроенные блоки). Дефолт — прежнее поведение (гейт readOnly).
   const canInspectEdges = edgesInspectable ?? !isReadOnly;
+  // drill-навигация (кнопки «Войти» на узлах): редактор передаёт onEnterNode,
+  // страница объекта — нет (навигация двойным кликом + лупа).
+  const drillNav = !!onEnterNode;
   const { screenToFlowPosition, setCenter, fitBounds, fitView, getInternalNode, getNodes, getEdges } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
@@ -1031,7 +1034,7 @@ function LevelGraphInner({
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
     const { nextNodes, nextEdges } = assembleRfGraph({
-      layout, isArchitect, isReadOnly, depth, schemaView, getCb,
+      layout, isArchitect, isReadOnly, drillNav, depth, schemaView, getCb,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -1046,7 +1049,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isReadOnly, schemaView, applyLayout, getCb, getNodes, getEdges]);
+  }, [layout, isArchitect, depth, isReadOnly, drillNav, schemaView, applyLayout, getCb, getNodes, getEdges]);
 
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).

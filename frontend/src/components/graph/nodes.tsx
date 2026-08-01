@@ -279,6 +279,9 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   // у БД/брокера/пользователя детей нет — кнопку «Войти» им не показываем.
   const drillable = canHaveChildren(shape);
   const intoZone = drillable && data.appNode.has_children;
+  // Кнопки действий: «Войти» (onDrillDown) — только в редакторе, лупа (onExpand) —
+  // и на странице объекта (инлайн-раскрытие — просмотрная механика).
+  const hasActions = !data.hideActions && drillable && !!(data.onDrillDown || data.onExpand);
   const btnStyle: CSSProperties = {
     ...nodeBtn,
     background: "rgba(255,255,255,0.18)",
@@ -306,22 +309,23 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       <StatusBadge status={data.appNode.status} border={c.border} />
       <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
 
-      {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента.
-          В контекст-режиме (hideActions) их нет — схема только для просмотра. */}
+      {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
       {intoZone && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
-          кнопки «Подробнее» больше нет — «Войти» у сервисов и лупа «Раскрыть
-          содержимое» (R5, инлайн-раскрытие локального контейнера) у сервисов с детьми. */}
-      {!data.hideActions && drillable && (
+          кнопки «Подробнее» больше нет — «Войти» у сервисов (только редактор) и
+          лупа «Раскрыть содержимое» (R5, инлайн-раскрытие; и редактор, и страница). */}
+      {hasActions && (
         <div style={nodeActions}>
-          <button
-            className="nodrag"
-            onClick={(e) => { e.stopPropagation(); data.onDrillDown(data.appNode); }}
-            style={btnStyle}
-            title="Войти"
-          ><DrillInIcon /></button>
+          {data.onDrillDown && (
+            <button
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); data.onDrillDown?.(data.appNode); }}
+              style={btnStyle}
+              title="Войти"
+            ><DrillInIcon /></button>
+          )}
           {data.onExpand && (
             <button
               className="nodrag"
@@ -333,7 +337,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
         </div>
       )}
 
-      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, !data.hideActions && drillable) }}>
+      <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, hasActions) }}>
         <NodeName name={data.appNode.name} />
         <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
@@ -347,7 +351,8 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
   // «Войти» к компонентам гостя — только для промежуточного гостя (есть дети): у
-  // атомарного проваливаться некуда. В контекст-режиме onEnter не задаётся → кнопки нет.
+  // атомарного проваливаться некуда. На странице объекта (read-only) onEnter не
+  // задаётся → кнопки нет.
   const onEnter = data.onEnter;
   const hasChildren = data.appNode.has_children;
   const canEnter = hasChildren && onEnter != null;
@@ -401,28 +406,31 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
         <rect x={1} y={1} width={NODE_W - 2} height={NODE_H - 2} rx={8} fill={c.bg} stroke={c.border} strokeWidth={1.5} strokeDasharray="5 3" />
       </svg>
       <NodeHandles nodeId={data.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
-      <div style={nodeActions}>
-        {/* «Войти» — навигация на собственный слой контейнера (его компоненты), в
-            отличие от лупы, раскрывающей содержимое инлайн на текущем уровне. */}
-        {data.onEnter && (
-          <button
-            className="nodrag"
-            onClick={(e) => { e.stopPropagation(); data.onEnter?.(); }}
-            style={btnStyle}
-            title="Войти к компонентам"
-          ><DrillInIcon /></button>
-        )}
-        {/* Лупа — только пока контейнер не на пределе инлайн-глубины (C8):
-            глубже MAX_INLINE_DEPTH onExpand не задаётся и кнопка не рисуется. */}
-        {data.onExpand && (
-          <button
-            className="nodrag"
-            onClick={(e) => { e.stopPropagation(); data.onExpand?.(data.id); }}
-            style={btnStyle}
-            title="Раскрыть содержимое"
-          >🔍</button>
-        )}
-      </div>
+      {(data.onEnter || data.onExpand) && (
+        <div style={nodeActions}>
+          {/* «Войти» — навигация на собственный слой контейнера (его компоненты), в
+              отличие от лупы, раскрывающей содержимое инлайн на текущем уровне.
+              Только редактор: на странице объекта onEnter не задаётся. */}
+          {data.onEnter && (
+            <button
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); data.onEnter?.(); }}
+              style={btnStyle}
+              title="Войти к компонентам"
+            ><DrillInIcon /></button>
+          )}
+          {/* Лупа — только пока контейнер не на пределе инлайн-глубины (C8):
+              глубже MAX_INLINE_DEPTH onExpand не задаётся и кнопка не рисуется. */}
+          {data.onExpand && (
+            <button
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); data.onExpand?.(data.id); }}
+              style={btnStyle}
+              title="Раскрыть содержимое"
+            >🔍</button>
+          )}
+        </div>
+      )}
       <IntoCue />
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", padding: "12px 14px", paddingRight: 40 }}>
         <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginBottom: 2 }}>контейнер</div>

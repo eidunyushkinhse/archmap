@@ -80,10 +80,14 @@ export interface QuickConnectHandlers {
 
 export interface BlockData extends Record<string, unknown> {
   appNode: AppNode;
-  onDrillDown: (node: AppNode) => void;
+  // «Войти» — дрилл на слой узла. Задаётся только в редакторе (drill-навигация);
+  // на странице объекта (read-only блок) undefined → кнопки нет, навигация —
+  // двойной клик на страницу объекта + лупа инлайн-раскрытия (onExpand).
+  onDrillDown?: (node: AppNode) => void;
   isArchitect: boolean;
   colors: NodeColors;
-  // в контекст-режиме у фокусного блока нет кнопок «Войти»/правки (схема — только просмотр)
+  // прячет ВСЕ кнопки действий (включая лупу); сейчас всегда false — страничный
+  // read-only режим гейтится отсутствием самих колбэков (onDrillDown/onEnter)
   hideActions?: boolean;
   // можно ли НАЧАТЬ связь с хэндлов узла (архитектор, не контекст-режим) — раскрытие
   // хэндлов по ховеру для протягивания новой стрелки
@@ -101,8 +105,9 @@ export interface GhostData extends Record<string, unknown> {
   connectable?: boolean;
   quickConnect?: QuickConnectHandlers;
   // войти к компонентам гостя: открыть его слой-схему (колбэк уже замкнут на путь
-  // гостя). Задаётся только в основной схеме; undefined (контекст-режим) → кнопки нет.
-  // Показ кнопки дополнительно гейтится appNode.has_children (атомарному некуда входить).
+  // гостя). Задаётся только в редакторе (drill-навигация); undefined (read-only
+  // блок на странице) → кнопки нет. Показ кнопки дополнительно гейтится
+  // appNode.has_children (атомарному некуда входить).
   onEnter?: () => void;
 }
 
@@ -119,7 +124,8 @@ export interface ContainerData extends Record<string, unknown> {
   onExpand?: (id: string) => void;
   // войти к компонентам контейнера: открыть его слой-схему (колбэк замкнут на его
   // путь). Контейнер всегда промежуточный (содержит спроецированного гостя), поэтому
-  // кнопка показывается всегда, когда задан колбэк. undefined (контекст) → кнопки нет.
+  // кнопка показывается всегда, когда задан колбэк. Задаётся только в редакторе;
+  // undefined (read-only блок на странице) → кнопки нет.
   onEnter?: () => void;
   connectable?: boolean;
   quickConnect?: QuickConnectHandlers;

@@ -37,13 +37,17 @@ export function assembleRfGraph(params: {
   layout: LayoutResult;
   isArchitect: boolean;
   // read-only блок (встроенные схемы на страницах): без структурной правки —
-  // хэндлы/быстрая связь/R5-лупа скрыты.
+  // хэндлы/быстрая связь скрыты (лупа и просмотрные механики остаются).
   isReadOnly: boolean;
+  // drill-навигация (кнопки «Войти» на узлах/гостях/контейнерах): редактор
+  // передаёт onEnterNode, страница объекта — нет (там навигация двойным кликом
+  // на страницу объекта + лупа). Гейтит все кнопки «Войти».
+  drillNav: boolean;
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isReadOnly, depth, schemaView, getCb } = params;
+  const { layout, isArchitect, isReadOnly, drillNav, depth, schemaView, getCb } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
@@ -125,7 +129,8 @@ export function assembleRfGraph(params: {
         ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
         data: {
           appNode: n,
-          onDrillDown: (node) => getCb().drillWithPath(node),
+          // «Войти» — только в редакторе (drillNav); на странице кнопки нет
+          onDrillDown: drillNav ? (node) => getCb().drillWithPath(node) : undefined,
           isArchitect,
           // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
           // к глубине уровня прибавляется вложенность рамки относительно уровня
@@ -168,7 +173,10 @@ export function assembleRfGraph(params: {
             connectable: isArchitect && !isReadOnly,
             quickConnect: isArchitect && !isReadOnly ? getCb().quickConnect : undefined,
             // Путь гостя = его предки + он сам (другая ветка дерева).
-            onEnter: () => getCb().onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }]),
+            // «Войти к компонентам» — только в редакторе (drillNav).
+            onEnter: drillNav
+              ? () => getCb().onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }])
+              : undefined,
           } satisfies GhostData,
         };
       }
@@ -188,7 +196,10 @@ export function assembleRfGraph(params: {
             ? (id) => getCb().expandContainer(id)
             : undefined,
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
-          onEnter: () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }]),
+          // «Войти к компонентам» — только в редакторе (drillNav).
+          onEnter: drillNav
+            ? () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }])
+            : undefined,
           connectable: isArchitect && !isReadOnly,
           quickConnect: isArchitect && !isReadOnly ? getCb().quickConnect : undefined,
         } satisfies ContainerData,
