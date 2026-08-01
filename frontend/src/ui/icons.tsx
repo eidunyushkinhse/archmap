@@ -56,10 +56,6 @@ export const TreeIcon = ({ size = 17 }: IcoProps) => (
 export const PlusIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M12 5 V19 M5 12 H19" /></svg>);
-export const FlowIcon = ({ size = 17 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.7} aria-hidden>
-    <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" />
-    <path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" /></svg>);
 
 // Логомарк: синяя плитка с мини-графом (узел + объект-контейнер + ребро).
 export function LogoMark({ size = 30 }: IcoProps) {

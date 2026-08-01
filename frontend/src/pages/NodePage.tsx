@@ -106,6 +106,7 @@ export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNaviga
       confirming={confirming}
       setConfirming={setConfirming}
       onEdgesReload={() => {
+        // Сбой загрузки связей: список останется прежним, догонит поллинг/перезаход
         nodesApi.getEdges(nodeId).then(setEdges).catch(() => {});
       }}
     />
@@ -148,7 +149,7 @@ function NodePageInner({
   const syncCursors = useCallback(() => {
     viewsApi.state(null)
       .then((s) => { viewMetaRef.current = { version: s.version, graphRev: s.graph_rev, metaRev: s.meta_rev }; })
-      .catch(() => {});
+      .catch(() => { /* best-effort: сбой синхронизации курсора молчалив, следующий тик догонит */ });
   }, []);
   const patch = useNodePatch(initialNode, syncCursors);
   const node = patch.node;
@@ -585,11 +586,22 @@ function EdgeRow({
 
   const commitLabel = () => {
     if (label === (edge.label ?? "")) return;
-    edgesApi.update(edge.id, { label: label || null }).then(onReload).catch(() => {});
+    edgesApi.update(edge.id, { label: label || null })
+      .then(onReload)
+      .catch(() => {
+        // Запись не прошла (409 чужой правки / сеть): откат черновика и рефетч
+        setLabel(edge.label ?? "");
+        onReload();
+      });
   };
   const commitTech = () => {
     if (tech === (edge.technology ?? "")) return;
-    edgesApi.update(edge.id, { technology: tech || null }).then(onReload).catch(() => {});
+    edgesApi.update(edge.id, { technology: tech || null })
+      .then(onReload)
+      .catch(() => {
+        setTech(edge.technology ?? "");
+        onReload();
+      });
   };
 
   // Чужой узел — ссылка; текущий — текст (ссылка на самого себя бессмысленна).

@@ -4,10 +4,8 @@ import { CloseIcon } from "./icons";
 import "./modal.css";
 
 interface ModalProps {
-  // Единственный канал закрытия: Escape, крестик и (если включён) клик по подложке
+  // Единственный канал закрытия: Escape и крестик (клик по подложке не закрывает).
   onClose: () => void;
-  // Закрывать по клику мимо бокса. Дефолт false; true только у NodeContextModal.
-  closeOnBackdrop?: boolean;
   // Показывать крестик ✕. Дефолт true; false только у NodeDeleteConfirm.
   closeButton?: boolean;
   // Переопределения геометрии бокса: width/maxHeight/overflowY уходят на <dialog>,
@@ -34,7 +32,6 @@ const WRAPPER_KEYS = ["padding", "display", "flexDirection"] as const;
  */
 export default function Modal({
   onClose,
-  closeOnBackdrop = false,
   closeButton = true,
   boxStyle,
   children,
@@ -56,8 +53,7 @@ export default function Modal({
 
   // Делим boxStyle: размер бокса (width/maxHeight/overflowY…) — на <dialog>,
   // отступы и раскладку — на обёртку. Padding обязан жить на обёртке: клик по
-  // padding-зоне иначе таргетился бы в сам <dialog> и (при closeOnBackdrop)
-  // ложно закрывал бы модалку.
+  // padding-зоне иначе таргетился бы в сам <dialog>.
   const dialogOverrides: CSSProperties = {};
   const wrapperOverrides: CSSProperties = {};
   for (const [k, v] of Object.entries(boxStyle ?? {})) {
@@ -78,10 +74,6 @@ export default function Modal({
       onCancel={(e) => { e.preventDefault(); onClose(); }}
       // Страховка: если диалог всё же закрылся нативно (повторный Escape в Chrome)
       onClose={() => onClose()}
-      // Клик по настоящей подложке — это клик ровно по <dialog> (padding на обёртке)
-      onClick={(e) => {
-        if (closeOnBackdrop && e.target === dialogRef.current) onClose();
-      }}
     >
       {closeButton && (
         <button onClick={onClose} className="app-close" style={closeBtn} aria-label="Закрыть">
