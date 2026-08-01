@@ -1,4 +1,4 @@
-"""Доменное ядро бизнес-процессов: канал → плечи и проекция концов.
+"""Доменное ядро бизнес-процессов: канал → плечи, проекция концов, сериализация.
 
 Связь C4 (Edge) — не одна стрелка, а «канал с плечами»: синхронный канал отдаёт
 два плеча (вызов forward + ответ return), асинхронный — одно (forward, рисуется как
@@ -6,6 +6,11 @@
 дефолт — синхронный). Это «запертый
 слой» из ТЗ §0: сообщение процесса может ссылаться только на легальное плечо
 существующего канала, концы которого проецируются на участников процесса.
+
+Здесь же — доменные строители ответа (сборка ProcessDetail, сериализация
+участников/сообщений, стиль стрелки) и запросы (карта узлов проекта, множество
+узлов области), которые раньше жили прямо в HTTP-слое routers/processes.py.
+HTTP-слой лишь валидирует вход, зовёт домен и отдаёт response_model.
 """
 
 import uuid
@@ -19,8 +24,14 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
-from app.schemas.process import ProcessListItem
-from app.tree import ancestors
+from app.schemas.process import (
+    FragmentOut,
+    MessageOut,
+    ParticipantOut,
+    ProcessDetail,
+    ProcessListItem,
+)
+from app.tree import ancestors, subtree_ids
 
 
 def edge_is_synchronous(edge: Edge) -> bool:
@@ -139,3 +150,124 @@ def process_list_items(
             )
         )
     return out
+
+
+# ── Запросы и сериализация (питали HTTP-слой routers/processes.py) ────────────
+def load_nodes(db: Session, project_id: uuid.UUID) -> dict[uuid.UUID, Node]:
+    """Карта узлов проекта — для проекции концов и проверки области."""
+    return {n.id: n for n in db.query(Node).filter(Node.project_id == project_id).all()}
+
+
+def scope_node_ids(
+    all_nodes: dict[uuid.UUID, Node], scope_node_id: uuid.UUID | None
+) -> set[uuid.UUID]:
+    """Множество узлов, из которых можно брать участников: поддерево scope или вся схема."""
+    if scope_node_id is None:
+        return set(all_nodes.keys())
+    return subtree_ids(all_nodes, scope_node_id)
+
+
+def _message_kind(leg: str, edge: Edge | None) -> str:
+    """Стиль стрелки: return → return; forward на async-канале → async; иначе forward."""
+    if leg == "return":
+        return "return"
+    if edge is not None and not edge_is_synchronous(edge):
+        return "async"
+    return "forward"
+
+
+def _default_caption(leg: str, edge: Edge | None) -> str | None:
+    if leg == "return":
+        return "ответ"
+    return edge.label if edge is not None else None
+
+
+def participant_out(p: ProcessParticipant, node: Node) -> ParticipantOut:
+    """Сериализация участника процесса (линия жизни) из пары участник + узел."""
+    return ParticipantOut(
+        id=p.id,
+        node_id=p.node_id,
+        name=node.name,
+        role=node.role,
+        shape=node.shape,  # type: ignore[arg-type]
+        is_external=node.is_external,
+        status=node.status,  # type: ignore[arg-type]
+        order=p.order,
+    )
+
+
+def message_out(
+    msg: ProcessMessage, edge: Edge | None, part_by_id: dict[uuid.UUID, ProcessParticipant]
+) -> MessageOut:
+    """Сериализация сообщения процесса.
+
+    Самосообщение (внутренняя операция участника): концы совпадают, связи C4 нет.
+    kind="self", подпись — свободный текст (дефолта из плеча нет), valid всегда true
+    (это не повисшая связь — её тут и не было).
+    """
+    is_self = msg.from_participant_id == msg.to_participant_id
+    if is_self:
+        kind = "self"
+        caption = msg.caption
+        valid = True
+    else:
+        kind = _message_kind(msg.leg, edge)
+        caption = msg.caption if msg.caption is not None else _default_caption(msg.leg, edge)
+        valid = msg.edge_id is not None
+    return MessageOut(
+        id=msg.id,
+        order=msg.order,
+        edge_id=msg.edge_id,
+        leg=msg.leg,  # type: ignore[arg-type]
+        kind=kind,  # type: ignore[arg-type]
+        caption=caption,
+        technology=edge.technology if edge is not None else None,
+        from_id=part_by_id[msg.from_participant_id].node_id,
+        to_id=part_by_id[msg.to_participant_id].node_id,
+        valid=valid,
+    )
+
+
+def build_process_detail(
+    db: Session, proc: BusinessProcess, all_nodes: dict[uuid.UUID, Node]
+) -> ProcessDetail:
+    """Полная сборка процесса: участники (по order), сообщения (по order, с плечами
+    и валидностью), фрагменты (по from_order). Связь сообщения подгружается лениво
+    с кэшем (одна и та же связь у многих сообщений не грузится повторно)."""
+    parts = sorted(proc.participants, key=lambda p: p.order)
+    part_by_id = {p.id: p for p in parts}
+    edge_cache: dict[uuid.UUID, Edge | None] = {}
+
+    def edge_of(eid: uuid.UUID | None) -> Edge | None:
+        if eid is None:
+            return None
+        if eid not in edge_cache:
+            edge_cache[eid] = db.get(Edge, eid)
+        return edge_cache[eid]
+
+    messages = [
+        message_out(m, edge_of(m.edge_id), part_by_id)
+        for m in sorted(proc.messages, key=lambda m: m.order)
+    ]
+    fragments = [
+        FragmentOut(
+            id=f.id,
+            kind=f.kind,  # type: ignore[arg-type]
+            from_order=f.from_order,
+            to_order=f.to_order,
+            guard=f.guard,
+            else_guard=f.else_guard,
+            else_order=f.else_order,
+        )
+        for f in sorted(proc.fragments, key=lambda f: f.from_order)
+    ]
+    scope_node = all_nodes.get(proc.scope_node_id) if proc.scope_node_id else None
+    return ProcessDetail(
+        id=proc.id,
+        name=proc.name,
+        scope_node_id=proc.scope_node_id,
+        scope_name=scope_node.name if scope_node else None,
+        participants=[participant_out(p, all_nodes[p.node_id]) for p in parts],
+        messages=messages,
+        fragments=fragments,
+    )
