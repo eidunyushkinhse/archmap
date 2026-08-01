@@ -1,7 +1,7 @@
 // Редактор-карта (MapEditorPage) — полноэкранный редактор схем (pages_pivot, Фаза 4).
 // Роут: #/p/<pid>/map/<nodeId?>. Топбар: breadcrumb + undo/redo + «Готово».
-// Слева: палитра форм (148px). Центр: LevelGraph со всеми жестами.
-// Справа: ObjectInspector (272px). Undo/Redo в скоупе редактора.
+// Слева: дерево объектов (тот же дизайн, что на страницах) + палитра форм (148px).
+// Центр: LevelGraph со всеми жестами. Справа: ObjectInspector (272px).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import { nodesApi, nodeDocsApi, edgesApi } from "../api/nodes";
@@ -18,6 +18,8 @@ import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
 import NodeModal from "../components/NodeModal";
+import NodeTreePanel from "../components/NodeTreePanel";
+import "../components/NodeTreePanel.css";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
@@ -85,6 +87,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
   const [relayoutOpen, setRelayoutOpen] = useState(false);
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
+  // Сигнал перезагрузки дерева (создание/удаление узла, undo/redo)
+  const [treeReload, setTreeReload] = useState(0);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
   const [remoteToast, setRemoteToast] = useState(false);
@@ -114,7 +118,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   }, [locate]);
 
   // ── Загрузка уровня ──────────────────────────────────────────────
-  async function load(parentId: string | null) {
+  // Возвращает загруженные узлы уровня (дерево выбирает свежий объект после прыжка).
+  async function load(parentId: string | null): Promise<Node[]> {
     setLoading(true);
     setLayoutRetry(null);
     try {
@@ -135,6 +140,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
         original_target_name: nameById.get(ge.target_id) ?? "",
         version: ge.version, created_at: "",
       })));
+      return graph.nodes;
     } finally {
       setLoading(false);
     }
@@ -175,7 +181,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   const resyncingRef = useRef<Promise<void> | null>(null);
   function resyncOnPersistError(): Promise<void> {
     if (resyncingRef.current) return resyncingRef.current;
-    const p = load(currentParentId).finally(() => { resyncingRef.current = null; });
+    const p = load(currentParentId).then(() => undefined).finally(() => { resyncingRef.current = null; });
     resyncingRef.current = p;
     return p;
   }
@@ -186,10 +192,11 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   }
 
   // ── Навигация по уровням (внутри редактора) ──────────────────────
-  async function navigateToLevel(level: string | null): Promise<void> {
+  // Возвращает узлы загруженного уровня (undefined — переход не состоялся).
+  async function navigateToLevel(level: string | null): Promise<Node[] | undefined> {
     if (level === currentParentId) return;
     setSelectedObject(null);
-    if (level === null) { setBreadcrumb([]); await load(null); return; }
+    if (level === null) { setBreadcrumb([]); return load(null); }
     const all = await nodesApi.getAll();
     const byId = new Map(all.map((n) => [n.id, n]));
     const path: AncestorRef[] = [];
@@ -199,7 +206,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
       cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
     }
     setBreadcrumb(path);
-    await load(level);
+    return load(level);
   }
 
   function drillDown(node: Node) {
@@ -222,18 +229,40 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     load(next[next.length - 1].id);
   }
 
+  // ── Навигация из дерева объектов ─────────────────────────────────
+  // Счётчик токенов locate: пульс пере-триггерится на каждый новый запрос.
+  const locateSeq = useRef(1);
+
+  // Клик по контейнеру → дрилл на его слой (путь собран деревом).
+  function drillFromTree(path: Node[]) {
+    drillToPath(path.map((n) => ({ id: n.id, name: n.name, is_external: n.is_external })));
+  }
+
+  // Клик по листу → прыжок на его слой (слой родителя), выделение и пульс.
+  async function pickFromTree(node: Node) {
+    let pool = nodes;
+    if (node.parent_id !== currentParentId) {
+      pool = (await navigateToLevel(node.parent_id)) ?? pool;
+    }
+    const fresh = pool.find((n) => n.id === node.id) ?? node;
+    setSelectedObject({ kind: "node", node: fresh });
+    setLocate({ kind: "node", ids: [node.id], token: ++locateSeq.current });
+  }
+
   // ── Undo/Redo ────────────────────────────────────────────────────
   async function dispatchUndo() {
     const cmd = history.peekUndo();
     if (!cmd) return;
     if (cmd.level !== undefined && cmd.level !== currentParentId) await navigateToLevel(cmd.level);
     history.undo();
+    setTreeReload((t) => t + 1);
   }
   async function dispatchRedo() {
     const cmd = history.peekRedo();
     if (!cmd) return;
     if (cmd.level !== undefined && cmd.level !== currentParentId) await navigateToLevel(cmd.level);
     history.redo();
+    setTreeReload((t) => t + 1);
   }
 
   // Esc = «Готово»
@@ -265,6 +294,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     setSelectedObject((sel) => sel?.kind === "node" && sel.node.id === saved.id ? { kind: "node", node: saved } : sel);
     if (!isArchitect) return;
     if (isCreate) {
+      setTreeReload((t) => t + 1);
       const levelAtCreate = currentParentId;
       const frameParent = intoFrame ? saved.parent_id : null;
       const refetch = () => { refetchLevel(levelAtCreate)(); if (frameParent) { childRefreshTok.current += 1; setChildRefresh({ id: frameParent, token: childRefreshTok.current }); } };
@@ -317,6 +347,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   function handleNodeDeleted(id: string, snapshot?: DeletionSnapshot) {
     setNodeModal({ open: false, node: null });
     setSelectedObject(null);
+    setTreeReload((t) => t + 1);
     load(currentParentId);
     if (!snapshot) return;
     const levelAtDelete = currentParentId;
@@ -328,6 +359,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   }
 
   function handleNodesDeleted(ids: string[], snapshots: DeletionSnapshot[]) {
+    setTreeReload((t) => t + 1);
     load(currentParentId);
     if (snapshots.length === 0) return;
     const levelAtDelete = currentParentId;
@@ -460,8 +492,19 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
         </div>
       </div>
 
-      {/* Тело: палитра + холст + инспектор */}
+      {/* Тело: дерево + палитра + холст + инспектор */}
       <div style={bodyRow}>
+        {/* Дерево объектов: тот же плоский дизайн, что на страницах (ProjectShell),
+            но клик навигирует внутри редактора: контейнер → дрилл на слой,
+            лист → прыжок на слой родителя + выделение + пульс. */}
+        <NodeTreePanel
+          isArchitect={isArchitect}
+          reloadToken={treeReload}
+          currentNodeId={currentParentId}
+          onDrillTo={drillFromTree}
+          onPickLeaf={(node) => { void pickFromTree(node); }}
+          onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
+        />
         {/* Палитра форм */}
         {isArchitect && (
           <div style={palette}>

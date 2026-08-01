@@ -43,6 +43,11 @@ interface Props {
   onNodeContext?: (node: Node) => void;
   // pages_pivot: клик по ЛЮБОМУ узлу → его страница (перекрывает onDrillTo/onNodeContext)
   onNodePage?: (node: Node) => void;
+  // редактор-карта: клик по листу → показать на холсте (прыжок на слой узла,
+  // выделение, locate). Включает тот же плоский дизайн, что и страничный режим
+  // (поиск, «+», персоны, подсветка текущего узла), но клик навигирует внутри
+  // редактора: контейнер → onDrillTo(path), лист → onPickLeaf(node).
+  onPickLeaf?: (node: Node) => void;
   // pages_pivot: «+» на строке → создать дочерний объект (модалка, авто-позиция)
   onCreateChild?: (parentId: string) => void;
   // секция «Добавить узел» показывается только архитектору
@@ -117,8 +122,9 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
 }
 
 // Подпись действия справа в строке (видна только на hover). Контейнер → стрелка
-// вправо + «компоненты» (drill на слой); лист → кольцо с точкой + «контекст».
-function ActionLabel({ container, pagesMode }: { container: boolean; pagesMode?: boolean }) {
+// вправо + «компоненты» (drill на слой); лист → кольцо с точкой + «контекст»
+// (legacy) или «показать» (редактор-карта: locate на холсте).
+function ActionLabel({ container, pagesMode, editorMode }: { container: boolean; pagesMode?: boolean; editorMode?: boolean }) {
   if (pagesMode) {
     return (
       <span className="nt-action">
@@ -128,6 +134,17 @@ function ActionLabel({ container, pagesMode }: { container: boolean; pagesMode?:
           <path d="M14 2v6h6" />
         </svg>
         страница
+      </span>
+    );
+  }
+  if (editorMode && !container) {
+    return (
+      <span className="nt-action">
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
+        </svg>
+        показать
       </span>
     );
   }
@@ -196,9 +213,12 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, onCreateChild, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, onPickLeaf, onCreateChild, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
   // pages_pivot: плоское дерево без секций/палитры, с поиском, «+» и персонами
   const pagesMode = !!onNodePage;
+  // редактор-карта: тот же плоский дизайн, но клик — навигация внутри редактора
+  const editorMode = !!onPickLeaf;
+  const flatMode = pagesMode || editorMode;
 
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
@@ -258,6 +278,14 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     return path;
   };
 
+  // Единый клик строки в плоском дизайне: страница → переход на страницу объекта;
+  // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
+  const navigateFlat = (node: Node) => {
+    if (onNodePage) { onNodePage(node); return; }
+    if (canHaveChildren(node.shape) && node.has_children) onDrillTo?.(pathTo(node));
+    else onPickLeaf?.(node);
+  };
+
   useEffect(() => {
     let alive = true;
     nodesApi
@@ -299,9 +327,9 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken]);
 
-  // Поиск (pages_pivot): debounce 250ms, результат — плоский список совпадений.
+  // Поиск (pages_pivot / редактор): debounce 250ms, результат — плоский список совпадений.
   useEffect(() => {
-    if (!pagesMode) return;
+    if (!flatMode) return;
     const q = searchQuery.trim().toLowerCase();
     if (!q) { setSearchResults(null); return; }
     setSearching(true);
@@ -312,17 +340,17 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
         .finally(() => setSearching(false));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [searchQuery, pagesMode]);
+  }, [searchQuery, flatMode]);
 
-  // Персоны (pages_pivot): грузим один раз при маунте + по reloadToken.
+  // Персоны (pages_pivot / редактор): грузим один раз при маунте + по reloadToken.
   useEffect(() => {
-    if (!pagesMode) return;
+    if (!flatMode) return;
     let alive = true;
     nodesApi.list(null)
       .then((ns) => { if (alive) setPersons(ns.filter((n) => n.shape === "person").sort(compareByRank)); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [pagesMode, reloadToken]);
+  }, [flatMode, reloadToken]);
 
   // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
   // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
@@ -336,7 +364,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
   // детей каждого предка (тем же путём, что и toggle) и раскрываем их. Ленивая
   // загрузка дерева при этом сохраняется — тянем только нужную ветку.
   useEffect(() => {
-    if (!pagesMode || !currentNodeId) return;
+    if (!flatMode || !currentNodeId) return;
     let alive = true;
     void (async () => {
       // 1. Цепочка id от корня до текущего узла (включительно).
@@ -367,7 +395,7 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     // allById/childrenById читаются снимком на момент смены страницы (свежесть не
     // критична: промах по кэшу = лишний fetch, не некорректность) — как в reload-эффекте.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentNodeId, pagesMode]);
+  }, [currentNodeId, flatMode]);
 
   // Скролл к подсвеченной строке — когда узел стал видим (после автораскрытия).
   // Повторяем на изменениях expanded/childrenById, пока строка не появится; скроллим
@@ -421,18 +449,21 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
     // шеврон скрываем, если все дети узла оказались персонами (узел стал листом)
     const hasChildren = drillable && node.has_children && !leaves.has(id);
     // pages_pivot: клик по любому узлу → его страница (единообразно).
+    // редактор: контейнер → дрилл на слой, лист → показать на холсте.
     // Старое поведение: промежуточный → слой, лист → контекст.
     const isIntermediate = drillable && node.has_children;
-    const handler = onNodePage
-      ? () => onNodePage(node)
+    const handler = flatMode
+      ? () => navigateFlat(node)
       : isIntermediate
         ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
         : (onNodeContext ? () => onNodeContext(node) : undefined);
     const title = !handler
       ? node.name
-      : onNodePage
+      : pagesMode
         ? `Страница: ${node.name}`
-        : isIntermediate ? `Открыть слой: ${node.name}` : `Контекст: ${node.name}`;
+        : isIntermediate
+          ? `Открыть слой: ${node.name}`
+          : editorMode ? `Показать на схеме: ${node.name}` : `Контекст: ${node.name}`;
     // Текущая открытая страница — подсветка строки (п.1).
     const isCurrent = node.id === currentNodeId;
     return (
@@ -469,9 +500,9 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
           <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
             {node.name}
           </span>
-          {handler && <ActionLabel container={isIntermediate} pagesMode={!!onNodePage} />}
-          {/* «+» — создать дочерний объект (pages_pivot, архитектор, только сервисы) */}
-          {pagesMode && isArchitect && onCreateChild && node.shape === "service" && (
+          {handler && <ActionLabel container={isIntermediate} pagesMode={pagesMode} editorMode={editorMode} />}
+          {/* «+» — создать дочерний объект (pages_pivot / редактор, архитектор, только сервисы) */}
+          {flatMode && isArchitect && onCreateChild && node.shape === "service" && (
             <button
               className="nt-add-child"
               onClick={(e) => { e.stopPropagation(); onCreateChild(node.id); }}
@@ -558,8 +589,8 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
         </div>
       ) : (
       <div style={content}>
-        {pagesMode ? (
-          /* ── pages_pivot: поиск + плоское дерево + персоны ─────── */
+        {flatMode ? (
+          /* ── pages_pivot / редактор: поиск + плоское дерево + персоны ─── */
           <>
             {/* Поиск */}
             <div style={searchWrap}>
@@ -587,8 +618,8 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
                     <div
                       key={n.id}
                       className="nt-row nt-row--clickable"
-                      onClick={() => onNodePage?.(n)}
-                      title={`Страница: ${n.name}`}
+                      onClick={() => navigateFlat(n)}
+                      title={pagesMode ? `Страница: ${n.name}` : canHaveChildren(n.shape) && n.has_children ? `Открыть слой: ${n.name}` : `Показать на схеме: ${n.name}`}
                     >
                       <span className="nt-chevspacer" />
                       <ShapeGlyph container={canHaveChildren(n.shape) && n.has_children} shape={n.shape} />
@@ -613,8 +644,8 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, onNodePage, on
                   <div
                     key={p.id}
                     className="nt-row nt-row--clickable"
-                    onClick={() => onNodePage?.(p)}
-                    title={`Страница: ${p.name}`}
+                    onClick={() => navigateFlat(p)}
+                    title={pagesMode ? `Страница: ${p.name}` : `Показать на схеме: ${p.name}`}
                   >
                     <span className="nt-chevspacer" />
                     <ShapeGlyph container={false} shape={p.shape} />
