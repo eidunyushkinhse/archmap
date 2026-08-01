@@ -1,4 +1,4 @@
-// Ф2 эпика «общие плечи v2» (docs/plan-arrow-trunks.md): сварка исходящих стволов.
+// Ф2 эпика «общие плечи v2» (docs/archive/plan-arrow-trunks.md): сварка исходящих стволов.
 import { describe, expect, it } from "vitest";
 import { weldTrunks } from "../graph/layout/weldTrunks";
 import type { EdgePoint } from "../../types";

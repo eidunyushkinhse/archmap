@@ -1,4 +1,4 @@
-// Ф0 эпика «общие плечи v2» (docs/plan-arrow-trunks.md): геометрия легальных стволов.
+// Ф0 эпика «общие плечи v2» (docs/archive/plan-arrow-trunks.md): геометрия легальных стволов.
 import { describe, expect, it } from "vitest";
 import { commonPrefix, commonSuffix, pieceLen, trunkPieces } from "../graph/layout/trunks";
 import type { EdgePoint } from "../../types";

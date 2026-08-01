@@ -228,7 +228,7 @@ def import_prompt(
 ) -> ImportPromptOut:
     """Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
-    сливает merge_imports. Параметры вшиваются в текст (docs/plan-repo-import.md)."""
+    сливает merge_imports. Параметры вшиваются в текст (docs/archive/plan-repo-import.md)."""
     return ImportPromptOut(
         prompt=build_import_prompt(system_name, depth=depth, lang=lang, hints=hints)
     )

@@ -41,7 +41,7 @@ class Node(Base):
     # статус жизненного цикла: existing (as-is, дефолт) | planned (to-be) | deprecated.
     # Версионируемая семантика, не раскладка. Кодируется на схеме цветом тела узла.
     status: Mapped[str] = mapped_column(String(16), default="existing", server_default="existing")
-    # Версия для optimistic CAS (этап 0 конкурентности, docs/plan-concurrency.md):
+    # Версия для optimistic CAS (этап 0 конкурентности, docs/archive/plan-concurrency.md):
     # PATCH с base_version ≠ текущей → 409 — правка от устаревшего состояния не
     # затирает чужую (критично для текстов flowchart/openapi_spec). Инкремент —
     # в update_node при каждой успешной правке.

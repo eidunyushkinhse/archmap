@@ -224,7 +224,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   воссоздаёт с исходными ключами. Снимок ребра слой раскладки не несёт.
   [тест: backend/tests/test_delete_node.py, test_restore.py]
 
-## 12. Конкурентные сессии (этап 0/1, docs/plan-concurrency.md)
+## 12. Конкурентные сессии (этап 0/1, docs/archive/plan-concurrency.md)
 
 - **V44.** Fence версии вида: у каждого вида есть счётчик `view_state.version`
   (строка отсутствует = 0). Батч с `base_version`, не равным текущей версии, —

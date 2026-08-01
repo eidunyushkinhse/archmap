@@ -16,7 +16,7 @@ export function guardPersist(
   });
 }
 
-// Происхождение батча раскладки (этап 0 конкурентности, docs/plan-concurrency.md):
+// Происхождение батча раскладки (этап 0 конкурентности, docs/archive/plan-concurrency.md):
 // "user" — прямой интент пользователя (драг/клавиатура/undo перемещений/раскрытие);
 // "derived" — производный интент конвейера (сиды own-on-first-render, keep-out).
 export type CommitOrigin = "user" | "derived";

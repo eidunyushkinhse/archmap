@@ -1,4 +1,4 @@
-// Поллинг курсора изменений проекта (этап 1 конкурентности, docs/plan-concurrency.md).
+// Поллинг курсора изменений проекта (этап 1 конкурентности, docs/archive/plan-concurrency.md).
 // Раз в POLL_MS (и сразу при возврате фокуса окна) сверяем graph_rev лёгким
 // GET /views/{id}/state; вырос относительно известного (viewMeta — echo-suppression:
 // собственные записи уже обновили его из ответов PUT/load) → onRemoteChange

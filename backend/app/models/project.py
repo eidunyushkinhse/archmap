@@ -40,7 +40,7 @@ class Project(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
-    # Курсор изменений схемы (этап 1 конкурентности, docs/plan-concurrency.md):
+    # Курсор изменений схемы (этап 1 конкурентности, docs/archive/plan-concurrency.md):
     # инкремент на КАЖДУЮ мутацию узлов/рёбер/раскладки — в отличие от updated_at,
     # который раскладку сознательно игнорирует. Клиент поллит его и перечитывает
     # уровень при росте. Инкремент — только через view_state.bump_graph_rev.

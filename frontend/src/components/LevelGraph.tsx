@@ -233,7 +233,7 @@ interface LevelGraphProps {
   locate?: LocateRequest | null;
 }
 
-// Живой снимок версий конкурентности (этап 0/1, docs/plan-concurrency.md):
+// Живой снимок версий конкурентности (этап 0/1, docs/archive/plan-concurrency.md):
 // version — fence вида, graphRev — курсор изменений проекта.
 export type ViewMetaState = { version: number; graphRev: number; metaRev?: number };
 

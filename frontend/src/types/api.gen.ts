@@ -93,7 +93,7 @@ export interface paths {
          * Import Prompt
          * @description Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
          *     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
-         *     сливает merge_imports. Параметры вшиваются в текст (docs/plan-repo-import.md).
+         *     сливает merge_imports. Параметры вшиваются в текст (docs/archive/plan-repo-import.md).
          */
         get: operations["import_prompt_api_v1_projects_import_prompt_get"];
         put?: never;

@@ -1,4 +1,4 @@
-"""Тесты конкурентных сессий, этап 0 (docs/plan-concurrency.md).
+"""Тесты конкурентных сессий, этап 0 (docs/archive/plan-concurrency.md).
 
 Fence версии вида на PUT /views/{id}/layout: устаревший base_version → 409,
 совпавший — применяется и бампает версию; без base_version — совместимость
