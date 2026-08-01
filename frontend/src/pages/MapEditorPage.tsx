@@ -26,10 +26,12 @@ import RelayoutConfirm from "../components/RelayoutConfirm";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import LevelGraph, { type ViewMetaState, type LocateRequest } from "../components/LevelGraph";
 import { useRemoteSync } from "./useRemoteSync";
+import { useToast } from "./useToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
 import { toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
+import { docToMeta } from "../components/inspector/docMeta";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
@@ -86,9 +88,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   const [docsAgentOpen, setDocsAgentOpen] = useState(false);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
-  const [remoteToast, setRemoteToast] = useState(false);
-  const remoteToastTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current); }, []);
+  const [remoteToast, showRemoteToast] = useToast();
 
   const history = useHistory();
   const isArchitect = getUserRole() === "architect";
@@ -157,9 +157,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     gestureActiveRef,
     onRemoteChange: () => {
       void load(currentParentId);
-      setRemoteToast(true);
-      if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
-      remoteToastTimer.current = window.setTimeout(() => setRemoteToast(false), 4000);
+      showRemoteToast();
     },
   });
 
@@ -330,7 +328,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   }
 
   function handleDocEvent(evt: NodeDocEvent) {
-    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation, version: d.version });
+    const meta = docToMeta;
     const fields = (d: NodeDoc) => ({ name: d.name, kind: d.kind, operation: d.operation, content: d.content });
     const level = currentParentId;
     if (evt.type === "edit") {

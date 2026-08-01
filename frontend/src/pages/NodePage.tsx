@@ -9,6 +9,7 @@ import { nodesApi, edgesApi, exportApi, viewsApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
+import { useToast } from "./useToast";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import ExportModal from "../components/ExportModal";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
@@ -165,20 +166,16 @@ function NodePageInner({
   // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
   // отличается → применяем + тост «Данные обновлены в другой сессии».
-  const [metaToast, setMetaToast] = useState(false);
-  const metaToastTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (metaToastTimer.current) window.clearTimeout(metaToastTimer.current); }, []);
+  const [metaToast, showMetaToast] = useToast();
   const handleMetaChange = useCallback(() => {
     nodesApi.get(node.id)
       .then((fresh) => {
         if (metaSig(fresh) === metaSig(patch.node)) return;
         patch.refresh(fresh);
-        setMetaToast(true);
-        if (metaToastTimer.current) window.clearTimeout(metaToastTimer.current);
-        metaToastTimer.current = window.setTimeout(() => setMetaToast(false), 4000);
+        showMetaToast();
       })
       .catch(() => { /* узел могли удалить — догонит навигация */ });
-  }, [node.id, patch]);
+  }, [node.id, patch, showMetaToast]);
 
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
   const handleDocEvent = useCallback((evt: NodeDocEvent) => {
@@ -794,9 +791,7 @@ function SchemaSection({
   // подавляются сверкой содержимого в onMetaChange страницы.
   const metaCursorRef = viewMeta; // алиас: eslint разрешает писать только в *Ref
   const gestureActiveRef = useRef(false); // жестов правки на странице нет
-  const [remoteToast, setRemoteToast] = useState(false);
-  const remoteToastTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current); }, []);
+  const [remoteToast, showRemoteToast] = useToast();
 
   const refetch = useCallback(() => {
     nodesApi.getContextGraph(node.id)
@@ -823,9 +818,7 @@ function SchemaSection({
     gestureActiveRef,
     onRemoteChange: () => {
       refetch();
-      setRemoteToast(true);
-      if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
-      remoteToastTimer.current = window.setTimeout(() => setRemoteToast(false), 4000);
+      showRemoteToast();
     },
     onMetaChange: onMetaChange
       ? (rev) => {

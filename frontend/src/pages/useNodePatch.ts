@@ -3,10 +3,11 @@
 // свежие данные и показывает конфликт-баннер. БЕЗ undo (правки на страницах в историю
 // редактора не попадают — ТЗ, решение Ф8-Б).
 import { useCallback, useRef, useState } from "react";
-import type { Node, NodeDoc, NodeDocMeta, NodeUpdate } from "../types";
+import type { Node, NodeDocMeta, NodeUpdate } from "../types";
 import { nodesApi } from "../api/nodes";
 import { isConflict } from "../api/client";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
+import { docToMeta } from "../components/inspector/docMeta";
 
 interface NodePatch {
   // Живые значения полей (для контролируемых инпутов)
@@ -144,15 +145,12 @@ export function useNodePatch(
   }, [status, save]);
 
   const applyDocEvent = useCallback((evt: NodeDocEvent) => {
-    // version — в сигнатуру меты поллинга (V53): правка КОНТЕНТА доков видна
-    // странице как изменение данных даже без смены имени/вида.
-    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation, version: d.version });
     const patchDocs = (mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) => {
       setNode((n) => ({ ...n, docs: mut(n.docs) }));
       beforeRef.current = { ...beforeRef.current, docs: mut(beforeRef.current.docs) };
     };
-    if (evt.type === "edit") patchDocs((ds) => ds.map((m) => (m.id === evt.after.id ? meta(evt.after) : m)));
-    else if (evt.type === "create") patchDocs((ds) => [...ds, meta(evt.doc)]);
+    if (evt.type === "edit") patchDocs((ds) => ds.map((m) => (m.id === evt.after.id ? docToMeta(evt.after) : m)));
+    else if (evt.type === "create") patchDocs((ds) => [...ds, docToMeta(evt.doc)]);
     else patchDocs((ds) => ds.filter((m) => m.id !== evt.doc.id));
   }, []);
 

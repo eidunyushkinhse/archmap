@@ -1,7 +1,7 @@
 // Страница проекта (корень) — вход в проект открывает её (pages_pivot).
 // Шапка: имя, описание, счётчики. Секция «Схема системы» = корневой уровень.
 // Секция «Бизнес-процессы» — список со счётчиком участников.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Project, ProcessListItem } from "../types";
 import { projectsApi } from "../api/projects";
@@ -9,6 +9,7 @@ import { processesApi } from "../api/processes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { useEditableLevel } from "./useEditableLevel";
+import { useToast } from "./useToast";
 import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
 import { plural } from "../ui/plural";
@@ -34,18 +35,14 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
   // перезагрузка уровня + тост. Собственные записи (драг архитектора) курсор
   // обновляют из ответов PUT — echo-suppression, ложных тостов нет.
-  const [remoteToast, setRemoteToast] = useState(false);
-  const remoteToastTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current); }, []);
+  const [remoteToast, showRemoteToast] = useToast();
   useRemoteSync({
     currentParentId: null,
     viewMeta: lvl.viewMetaRef,
     gestureActiveRef: lvl.gestureActiveRef,
     onRemoteChange: () => {
       lvl.reload();
-      setRemoteToast(true);
-      if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
-      remoteToastTimer.current = window.setTimeout(() => setRemoteToast(false), 4000);
+      showRemoteToast();
     },
   });
 
