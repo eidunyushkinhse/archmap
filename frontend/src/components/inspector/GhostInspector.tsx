@@ -10,7 +10,7 @@ import "./inspector.css";
 
 interface Props {
   ghost: GhostNode;
-  // Навигация к источнику: TreePage грузит уровень-родитель, где гость — видимый узел.
+  // Навигация к источнику: MapEditorPage грузит уровень-родитель, где гость — видимый узел.
   onGoToSource: (ghost: GhostNode) => void;
 }
 

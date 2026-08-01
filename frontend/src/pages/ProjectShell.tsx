@@ -1,6 +1,5 @@
-// Оболочка проекта (pages_pivot): шапка приложения + дерево слева + контент справа.
-// Заменяет TreePage при включённом фиче-флаге. Фаза 1: шапка (лого, свитчер, режим,
-// экспорт, профиль), дерево с навигацией на страницы, NodePage / ProcessWorkspace.
+// Оболочка проекта (pages_pivot): шапка (лого, свитчер, режим, экспорт, профиль,
+// индикатор алертов), дерево с навигацией на страницы, NodePage / ProcessWorkspace.
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { getUserRole } from "../api/auth";

@@ -13,7 +13,7 @@ import GhostInspector from "./GhostInspector";
 import "./inspector.css";
 
 // Что показано в панели: узел-локал, связь, ГОСТЬ (проекция чужого узла, read-only) или
-// ничего. Источник правды — TreePage (двойной клик по объекту наполняет панель).
+// ничего. Источник правды — MapEditorPage (двойной клик по объекту наполняет панель).
 export type Selected =
   | { kind: "node"; node: Node }
   | { kind: "edge"; edge: LevelEdge }

@@ -41,7 +41,7 @@ spec.md ↔ specs/* нормативен specs/*, spec.md подтягивает
 
 ## Процедура регрессионного прохода (для Claude)
 При любой правке модулей из карты ниже (движок `frontend/src/components/graph/**`,
-LevelGraph/TreePage-машинерия, бэк-эндпоинты графа/вида/алертов/контекста):
+LevelGraph/MapEditorPage-машинерия, бэк-эндпоинты графа/вида/алертов/контекста):
 1. По карте ниже определи затронутые спеки (модуль → спека).
 2. Пройди инварианты затронутых секций: каждый пункт — вопрос «моя правка могла
    это сломать?». Сомневаешься — проверь.
@@ -63,15 +63,15 @@ LevelGraph/TreePage-машинерия, бэк-эндпоинты графа/в�
 | [node.md](node.md) | Атомарный узел | graph/{nodes,shapes}.tsx, graph/colors.ts, graph/layout/{separateNodes,separateRects,overlapConstraints,level}.ts, graph/interaction/{snap,useSnapAlignment,distribute}.ts, graph/{absPos,assembleRf,reconcileRf}.ts |
 | [container.md](container.md) | Контейнер и рамка | graph/layout/{pipeline,projectGhosts,frames,ringPlacement,keepGhostsOut,separateGuests,separateContainment}.ts, graph/{projection,frameChains}.ts, graph/boundaries.tsx, graph/nodes.tsx (Container/Frame), graph/interaction/{layoutAnimation,useLayoutAnimation}.ts, graph/interaction/useFrameFollowOverlay.tsx |
 | [guest.md](guest.md) | Гость | graph/layout/{projectGhosts,ringPlacement,keepGhostsOut,separateGuests}.ts, graph/projection.ts, graph/nodes.tsx (Ghost/Container), graph/assembleRf.ts, inspector/GhostInspector.tsx; бэк: routers/nodes.py (_build_graph), tree.py |
-| [canvas.md](canvas.md) | Холст и выделение | LevelGraph.tsx + LevelGraph.css, ../pages/{MapEditorPage,TreePage}.tsx (рейл тостов, панель-выделение; TreePage — легаси за фиче-флагом), graph/{assembleRf.ts,shapes.tsx,boundaries.tsx}, graph/interaction/{useAlignmentGuides,useSnapAlignment,useCanvasDelete,useEdgeConnect,useTemplateDrop}.ts, EmptyLevelHint.tsx |
-| [history.md](history.md) | История Undo/Redo | graph/interaction/{useHistory,persistGuard}.ts, graph/interaction/useSnapAlignment.ts (persistGroup), LevelGraph.tsx (клавиши/кнопки/адаптер), ../pages/{MapEditorPage,TreePage}.tsx (структурные команды, диспетчеры) |
-| [view.md](view.md) | Уровень и вид | ../pages/{MapEditorPage,NodePage,ProjectHomePage,TreePage}.tsx, LevelGraph.tsx (commitLayout/expanded), graph/layout/{pipeline,engine}.ts, ../api/{client,projectScope,nodes}.ts; бэк: models/view_layout.py, routers/{views,nodes}.py, projects.py, restore.py, tree.py |
-| [alerts.md](alerts.md) | Алерты схемы | SchemaAlerts.tsx + schemaAlerts.css, ../pages/TreePage.tsx (loadAlerts/handleLocate — фронт-поверхность пока только в легаси; перенос — хвост (б) пивота), LevelGraph.tsx (locate); бэк: routers/nodes.py (get_alerts) |
+| [canvas.md](canvas.md) | Холст и выделение | LevelGraph.tsx + LevelGraph.css, ../pages/MapEditorPage.tsx (рейл тостов, панель-выделение), graph/{assembleRf.ts,shapes.tsx,boundaries.tsx}, graph/interaction/{useAlignmentGuides,useSnapAlignment,useCanvasDelete,useEdgeConnect,useTemplateDrop}.ts |
+| [history.md](history.md) | История Undo/Redo | graph/interaction/{useHistory,persistGuard}.ts, graph/interaction/useSnapAlignment.ts (persistGroup), LevelGraph.tsx (клавиши/кнопки/адаптер), ../pages/MapEditorPage.tsx (структурные команды, диспетчеры) |
+| [view.md](view.md) | Уровень и вид | ../pages/{MapEditorPage,NodePage,ProjectHomePage}.tsx, LevelGraph.tsx (commitLayout/expanded), graph/layout/{pipeline,engine}.ts, ../api/{client,projectScope,nodes}.ts; бэк: models/view_layout.py, routers/{views,nodes}.py, projects.py, restore.py, tree.py |
+| [alerts.md](alerts.md) | Алерты схемы | SchemaAlerts.tsx + schemaAlerts.css, ../pages/{MapEditorPage,ProjectShell}.tsx + useSchemaAlerts.ts (знак в шапке + рейл в холсте, locate), LevelGraph.tsx (locate); бэк: routers/nodes.py (get_alerts) |
 | [context.md](context.md) | Контекст-схема (страница объекта) | ../pages/NodePage.tsx (SchemaSection), EmbeddedSchemaBlock.tsx, дальше штатные LevelGraph.tsx и graph/layout/pipeline.ts; бэк: routers/nodes.py (get_node_context_graph, _ghost_registry) |
 | [transitions.md](transitions.md) | Анимации переходов | graph/interaction/{layoutAnimation,useLayoutAnimation}.ts, graph/layout/{pipeline.worker,pipelineClient,layoutSig}.ts, graph/EdgeJumpContext.tsx, graph/edges.tsx (drawIn), LevelGraph.tsx (gate/тихое окно), graph/reconcileRf.ts, scripts/dump-levels.mjs |
 
 Модули, живущие сразу в нескольких спеках (pipeline.ts, assembleRf.ts,
-LevelGraph.tsx, TreePage.tsx, constants.ts, interaction/layoutAnimation.ts,
+LevelGraph.tsx, MapEditorPage.tsx, constants.ts, interaction/layoutAnimation.ts,
 бэк routers/nodes.py), при правке требуют прохода по всем задетым спекам.
 Продуктовые сущности (дерево узлов, инспекторы/детализация, оверлей доков,
 бизнес-процессы, экспорт/импорт, проекты, роли/аутентификация) реестром

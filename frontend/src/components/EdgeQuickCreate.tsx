@@ -7,13 +7,13 @@ import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 interface Props {
   // Концы связи уже определены жестом: стрелку протянули от source к target (хэндл).
   // Хэндлы из жеста связь больше не несёт (R3): геометрия живёт на пучке display-пары
-  // в view_layout — их сохраняет TreePage (persistGestureHandles) после onCreated.
+  // в view_layout — их сохраняет MapEditorPage (persistGestureHandles) после onCreated.
   sourceId: string;
   targetId: string;
   sourceLabel: string;
   targetLabel: string;
   onClose: () => void;
-  // created — созданная связь (для отката создания через Undo в TreePage).
+  // created — созданная связь (для отката создания через Undo в MapEditorPage).
   onCreated: (created: Edge) => void;
 }
 

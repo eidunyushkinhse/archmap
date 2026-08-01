@@ -23,7 +23,7 @@ interface Props {
   // Тот же обработчик, что у модалки: кладёт правку в Undo/Redo. before — узел ДО правки.
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
-  // Мутации схем логики (node_docs) из оверлея: TreePage кладёт компенсации в
+  // Мутации схем логики (node_docs) из оверлея: MapEditorPage кладёт компенсации в
   // Undo/Redo и освежает мету node.docs в стейте уровня.
   onDocEvent: (evt: NodeDocEvent) => void;
 }

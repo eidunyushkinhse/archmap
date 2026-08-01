@@ -25,7 +25,7 @@ interface Params {
   isArchitect: boolean;
   disabled: boolean;
   // parentId — контейнер раскрытой рамки под курсором (узел станет его ребёнком) либо
-  // null (текущий уровень). Позицию в текущий вид пишет вызывающий (см. TreePage).
+  // null (текущий уровень). Позицию в текущий вид пишет вызывающий (см. MapEditorPage).
   onDropNode?: (shape: NodeShape, pos: { x: number; y: number }, parentId: string | null) => void;
   dragShape?: NodeShape | null;
   // Раскрытые рамки текущего уровня (из layout.guestFrames) — цели дропа для хит-теста.
@@ -58,7 +58,7 @@ export function useTemplateDrop({
   // размером узлов на схеме. null — превью не показываем.
   const [dropPreview, setDropPreview] = useState<{ shape: NodeShape; x: number; y: number } | null>(null);
 
-  // Драг шаблона завершился (drop или отмена) — TreePage обнулил dragShape.
+  // Драг шаблона завершился (drop или отмена) — MapEditorPage обнулил dragShape.
   // Убираем превью и направляющие.
   useEffect(() => {
     if (!dragShape) {

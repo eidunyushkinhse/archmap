@@ -103,7 +103,7 @@ interface LevelGraphProps {
   // Двойной клик по ГОСТЮ (проекция чужого узла) — детализация read-only в правой панели.
   onInspectGhost?: (ghost: GhostNode) => void;
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
-  // стрелка+оба узла). Гость сводится к kind:"node". Считается в TreePage из selectedObject.
+  // стрелка+оба узла). Гость сводится к kind:"node". Считается в MapEditorPage из selectedObject.
   linkedHighlight?: { kind: "node" | "edge"; id: string } | null;
   // Двойной клик по пустому холсту — сбросить выделение (подсветку связанного) и очистить
   // правую панель. Вызывается только для клика по пустому pane, не по узлу/ребру.
@@ -130,7 +130,7 @@ interface LevelGraphProps {
   // протянули стрелку от узла sourceId на ЛИСТОВОЙ узел/хэндл targetId — создать связь.
   // Хэндлы из жеста: при дропе на хэндл известны оба, на тело листа — только исходный.
   // Имена концов едут С ЖЕСТОМ: дети раскрытых ЛОКАЛЬНЫХ контейнеров известны только
-  // холсту (кэш localChildren) — TreePage разрешить их id в имя не может.
+  // холсту (кэш localChildren) — MapEditorPage разрешить их id в имя не может.
   onCreateEdge?: (
     sourceId: string, targetId: string,
     sourceHandle: string | null, targetHandle: string | null,
@@ -155,9 +155,9 @@ interface LevelGraphProps {
   // форма шаблона, который СЕЙЧАС перетаскивают из палитры (null — драга нет).
   // Нужна, чтобы во время dragover показать на схеме превью-рамку будущего узла:
   // dataTransfer.getData в dragover недоступен (только на drop), поэтому форму
-  // прокидываем через состояние из TreePage.
+  // прокидываем через состояние из MapEditorPage.
   dragShape?: NodeShape | null;
-  // Общая история Undo/Redo, поднятая в страницу-хозяин (TreePage/MapEditorPage):
+  // Общая история Undo/Redo, поднятая в страницу-хозяин (MapEditorPage):
   // команды перемещений кладёт сам LevelGraph, а команду удаления — страница
   // (удаление инициируется там, в NodeDeleteConfirm). Если не передана (страницы
   // объекта/проекта — EmbeddedSchemaBlock) — заводим свою локальную.
@@ -174,18 +174,18 @@ interface LevelGraphProps {
   // завершения перезагрузки уровня.
   onPersistError?: (e: unknown) => void | Promise<void>;
   // Версия вида (fence записей раскладки) + курсор проекта (поллинг) — живой
-  // снимок, шарится с TreePage мутируемым ref'ом: TreePage наполняет его из
+  // снимок, шарится с MapEditorPage мутируемым ref'ом: MapEditorPage наполняет его из
   // GraphResponse при load(), LevelGraph читает версию при каждой записи и
   // обновляет из ответов PUT. Не передан (read-only блок) — записи всё равно не
   // идут (гейт readOnly); на уровне ОБЯЗАТЕЛЕН для fence.
   viewMeta?: { current: ViewMetaState };
-  // Флаг «идёт жест драга» для поллинга этапа 1: TreePage пропускает рефетч,
+  // Флаг «идёт жест драга» для поллинга этапа 1: MapEditorPage пропускает рефетч,
   // пока пользователь тащит узлы (перезагрузка уровня посреди жеста снесла бы
   // RF-стейт под рукой). Реф, не колбэк — ноль ре-рендеров на жест.
   gestureActiveRef?: { current: boolean };
   // Канал переигровки 409 user-батча (этап 0): persistFenced отдаёт исходный
-  // патч НАВЕРХ (onPersistConflict), TreePage делает ресинк и возвращает патч
-  // пропом retryPatch. Канал живёт в TreePage сознательно: ресинк показывает
+  // патч НАВЕРХ (onPersistConflict), MapEditorPage делает ресинк и возвращает патч
+  // пропом retryPatch. Канал живёт в MapEditorPage сознательно: ресинк показывает
   // «Загрузка…» и РАЗМОНТИРУЕТ холст — локальный стейт канала умер бы вместе с
   // ним (ретрай терялся, найдено e2e-зондом).
   onPersistConflict?: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
@@ -222,12 +222,12 @@ interface LevelGraphProps {
   // Редактор-карта флаги не передаёт — его центрирование не меняется.
   fitOnLoad?: boolean;
   fitOnExpand?: boolean;
-  // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в TreePage (живёт в правой
+  // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в MapEditorPage (живёт в правой
   // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
   // (дефолт «переход» — ничего не гасит).
   schemaView?: SchemaView;
-  // Запрос «показать на схеме» из индикатора незавершённости (SchemaAlerts → TreePage).
-  // TreePage сперва приводит holст к нужному уровню (navigateToLevel), затем кладёт сюда
+  // Запрос «показать на схеме» из индикатора незавершённости (SchemaAlerts → MapEditorPage).
+  // MapEditorPage сперва приводит holст к нужному уровню (navigateToLevel), затем кладёт сюда
   // запрос. Холст центрируется на цели и коротко её подсвечивает. token меняется на
   // КАЖДЫЙ клик — повторный клик по тому же объекту снова сфокусирует. Раскладка async,
   // поэтому фокус срабатывает отложенно — как только цель появится в rfNodes/rfEdges.
@@ -239,7 +239,7 @@ interface LevelGraphProps {
 export type ViewMetaState = { version: number; graphRev: number; metaRev?: number };
 
 // Запрос фокуса на объекте/связи/группе. ids: для node — [nodeId]; для edge — [edgeId];
-// для group — id всех узлов кластера. token — монотонный счётчик из TreePage.
+// для group — id всех узлов кластера. token — монотонный счётчик из MapEditorPage.
 export type LocateRequest = {
   kind: "node" | "edge" | "group";
   ids: string[];
@@ -403,7 +403,7 @@ function LevelGraphInner({
   // planPersistFailure: user-интент после ресинка переигрывается ОДИН раз
   // исходным патчем (merge заново, уже от свежего зеркала), derived-интент
   // выбрасывается — пересчёт конвейера от свежих данных сам родит актуальное.
-  // Переигровку исполняет канал TreePage (onPersistConflict → проп retryPatch,
+  // Переигровку исполняет канал MapEditorPage (onPersistConflict → проп retryPatch,
   // см. комментарий к пропу); без канала (не передан) — деградация до ресинка.
   // ОЧЕРЕДЬ фенсированных записей: батчи одной сессии идут СТРОГО по одному —
   // base_version читается в момент СТАРТА задачи (после ответа предыдущей), а не
@@ -472,7 +472,7 @@ function LevelGraphInner({
     },
     [isArchitect, canArrange, viewLayout, persistFenced, onLayoutChanged],
   );
-  // Исполнитель переигровки 409 (проп retryPatch из TreePage): одноразово (token)
+  // Исполнитель переигровки 409 (проп retryPatch из MapEditorPage): одноразово (token)
   // коммитит исходный патч заново — commitLayout здесь из deps, т.е. замкнут на
   // СВЕЖЕЕ зеркало после ресинка (типично это уже НОВЫЙ маунт холста — ресинк
   // показывает «Загрузка…»); isRetry=true — второй 409 уже не переигрывается.
@@ -654,7 +654,7 @@ function LevelGraphInner({
     }),
     [baseHistory, containerId],
   );
-  // Клавиши/кнопки зовут дисптчеры из TreePage (кросс-уровневый редирект). В контекст-
+  // Клавиши/кнопки зовут дисптчеры из MapEditorPage (кросс-уровневый редирект). В контекст-
   // модалке дисптчеров нет — там Undo/Redo и так не показываются. Мемоизируем, чтобы не
   // пересоздавать слушатель клавиш на каждый рендер. Undo/Redo — ручной жест: изменённые
   // пересчётом стрелки перерисовываются анимированно (noteGesture).
@@ -867,7 +867,7 @@ function LevelGraphInner({
 
   // Имя ОТОБРАЖАЕМОГО узла по id — для заголовков модалок создания связи. Дети
   // раскрытых локальных контейнеров известны только холсту (кэш localChildren),
-  // поэтому имена концов уезжают вместе с жестом, а не разрешаются в TreePage.
+  // поэтому имена концов уезжают вместе с жестом, а не разрешаются в MapEditorPage.
   const displayNameOf = useCallback(
     (id: string): string | undefined => {
       const n = rfNodes.find((x) => x.id === id);
@@ -1179,7 +1179,7 @@ function LevelGraphInner({
   // По связи: сперва хит-тест ОБЩЕГО ПЛЕЧА (E80) — клик в точке легального ствола
   // ≥2 отрисованных связей открывает модалку ствола с направлением; иначе прежний
   // путь плашки (openEdgeMembers → одна связь сразу в панель, несколько — выбор
-  // участника, см. TreePage). Клик по плашке сюда не попадает — она адресует свою
+  // участника, см. MapEditorPage). Клик по плашке сюда не попадает — она адресует свою
   // связь однозначно (E57).
   const handleEdgeDoubleClick = useCallback(
     (e: MouseEvent, rfEdge: RFEdge) => {
@@ -1458,7 +1458,7 @@ function LevelGraphInner({
         </defs>
       </svg>
       {/* Тулбар Undo/Redo (архитектор, не контекст). Кнопка надёжнее клавиш — не зависит
-          от фокуса. Обе зовут дисптчеры из TreePage (кросс-уровневый редирект). */}
+          от фокуса. Обе зовут дисптчеры из MapEditorPage (кросс-уровневый редирект). */}
       {isArchitect && !isReadOnly && (
         <div style={{ position: "absolute", top: 14, left: 14, zIndex: 5 }}>
           <div className="lg-seg">
@@ -1484,7 +1484,7 @@ function LevelGraphInner({
         </div>
       )}
       {/* Легенда статусов и переключатель «Вид схемы» живут в правой панели схемы
-          (TreePage → ObjectInspector); оверлея на холсте больше нет. */}
+          (MapEditorPage → ObjectInspector); оверлея на холсте больше нет. */}
       {/* Плитка «вне уровня»: полоса у верхнего края холста, видна только при
           протягивании НОВОЙ связи на не-корневом уровне. Отпустил на неё конец
           стрелки → выбор дальнего конца из всей схемы (useEdgeConnect ловит дроп по

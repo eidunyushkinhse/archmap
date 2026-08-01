@@ -3,7 +3,7 @@
 // при открытии (в Node.docs едет только мета), держит активный док и панель
 // управления (переключатель, имя, вид, операция, создать/удалить); тело —
 // прежний FlowchartDoc активного дока. Мутации уходят в API сразу (PATCH — под
-// optimistic CAS) и репортятся наверх событием NodeDocEvent: TreePage кладёт
+// optimistic CAS) и репортятся наверх событием NodeDocEvent: MapEditorPage кладёт
 // компенсации в Undo/Redo и освежает мету узла в стейте уровня.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeDoc, NodeDocKind } from "../../types";

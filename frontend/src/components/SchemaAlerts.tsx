@@ -31,7 +31,7 @@ export type LocateTarget =
 interface Props {
   alerts: Alerts;
   // Переход к проблемному объекту/связи на схеме (pan + подсветка) — реализуется
-  // вызывающей стороной (TreePage). Если не передан — пункты не кликабельны.
+  // вызывающей стороной (MapEditorPage). Если не передан — пункты не кликабельны.
   onLocate?: (target: LocateTarget) => void;
 }
 
@@ -208,7 +208,7 @@ function Item({ children, onClick }: { children: ReactNode; onClick?: (() => voi
 }
 
 /* --------------------------------- стили --------------------------------- */
-// Позиционирует рейл тостов холста (TreePage.toastRail); relative — якорь для
+// Позиционирует рейл тостов холста (MapEditorPage.toastRail); relative — якорь для
 // выпадающей панели. pointerEvents возвращаем: рейл прозрачен для мыши, а знак
 // и панель — интерактивные.
 const wrap: CSSProperties = { position: "relative", pointerEvents: "auto" };

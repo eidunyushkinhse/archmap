@@ -10,7 +10,7 @@ interface Props {
   title: string;
   subtitle: string;
   // Узел, от которого протянули стрелку (ближний конец связи). Хэндл жеста связь
-  // больше не несёт (R3): геометрию пучка display-пары сохраняет TreePage после
+  // больше не несёт (R3): геометрию пучка display-пары сохраняет MapEditorPage после
   // onCreated (направление выводит из created.source_id).
   sourceId: string;
   sourceLabel: string;
@@ -26,7 +26,7 @@ interface Props {
   // подпись пустого слота цели (различает жесты: «вне уровня» / «внутрь контейнера»)
   slotPlaceholder: string;
   onClose: () => void;
-  // created — созданная связь (для отката создания через Undo в TreePage).
+  // created — созданная связь (для отката создания через Undo в MapEditorPage).
   onCreated: (created: Edge) => void;
 }
 
