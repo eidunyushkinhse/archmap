@@ -1,0 +1,220 @@
+// Рендер/поведенческие тесты ProjectShell: свитч «Объекты/Процессы» (с сохранением
+// режима в localStorage), открытие экспорта (схема/поддерево/процесс), навигация
+// (переход в процессы со страницы узла, удаление узла), locate из алертов шапки.
+// Тяжёлые потомки (дерево, страницы, ProcessWorkspace, модалки) замоканы —
+// тестируем оркестрацию оболочки, а не внутренности детей.
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import ProjectShell from "../ProjectShell";
+import { getUserRole } from "../../api/auth";
+import { exportApi } from "../../api/nodes";
+import { processesApi } from "../../api/processes";
+
+vi.mock("../../api/auth", () => ({ getUserRole: vi.fn(() => "architect") }));
+vi.mock("../../api/nodes", () => ({
+  exportApi: { all: vi.fn(), subtree: vi.fn() },
+}));
+vi.mock("../../api/processes", () => ({ processesApi: { get: vi.fn() } }));
+vi.mock("../../components/processes/sequence/toMermaid", () => ({
+  detailToMermaid: vi.fn(() => "graph TD"),
+}));
+
+// Алерты шапки: хук отдаёт пустой набор, ключ sessionStorage — настоящая константа.
+vi.mock("../useSchemaAlerts", () => ({
+  useSchemaAlerts: () => ({
+    alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [] },
+    loaded: true,
+    reload: vi.fn(),
+  }),
+  PENDING_ALERT_LOCATE_KEY: "archmap.pendingAlertLocate",
+}));
+
+// Знак алертов: кнопка, дёргающая onLocate (как клик по пункту в реальном меню).
+vi.mock("../../components/SchemaAlerts", () => ({
+  default: ({ onLocate }: { onLocate: (t: { kind: string; id: string }) => void }) => (
+    <button data-testid="alert-locate" onClick={() => onLocate({ kind: "node", id: "n1" })}>
+      алерт
+    </button>
+  ),
+}));
+
+vi.mock("../../components/NodeTreePanel", () => ({
+  default: ({ currentNodeId }: { currentNodeId?: string | null }) => (
+    <div data-testid="tree-panel">{currentNodeId ?? "root"}</div>
+  ),
+}));
+vi.mock("../../components/NodeModal", () => ({
+  default: () => <div data-testid="node-modal" />,
+}));
+vi.mock("../ProjectHomePage", () => ({
+  default: () => <div data-testid="project-home" />,
+}));
+// Страница узла: кнопки-триггеры навигационных колбэков оболочки.
+vi.mock("../NodePage", () => ({
+  default: ({
+    onNavigateProcesses,
+    onNodeDeleted,
+  }: {
+    onNavigateProcesses: (id: string) => void;
+    onNodeDeleted: (parentId: string | null) => void;
+  }) => (
+    <div data-testid="node-page">
+      <button onClick={() => onNavigateProcesses("p1")}>to-proc</button>
+      <button onClick={() => onNodeDeleted(null)}>del-root</button>
+    </div>
+  ),
+}));
+// ProcessWorkspace: показывает стартовый процесс и умеет «выбрать» процесс.
+vi.mock("../../components/processes/ProcessWorkspace", () => ({
+  default: ({
+    initialProcessId,
+    onSelectedChange,
+  }: {
+    initialProcessId?: string;
+    onSelectedChange: (s: { id: string; name: string } | null) => void;
+  }) => (
+    <div data-testid="process-workspace">
+      <span data-testid="proc-initial">{initialProcessId ?? "none"}</span>
+      <button onClick={() => onSelectedChange({ id: "p9", name: "Процесс X" })}>select-proc</button>
+    </div>
+  ),
+}));
+// Экспорт-модалка: показывает заголовок и запускает load (как реальный fetch контента).
+vi.mock("../../components/ExportModal", () => ({
+  default: ({ title, load }: { title: string; load: () => Promise<{ content: string }> }) => (
+    <div data-testid="export-modal">
+      <span>{title}</span>
+      <button onClick={() => void load()}>run-load</button>
+    </div>
+  ),
+}));
+vi.mock("../../ui/ProfileMenu", () => ({ default: () => <div data-testid="profile-menu" /> }));
+vi.mock("../../components/ProjectSwitcher", () => ({
+  default: () => <div data-testid="project-switcher" />,
+}));
+
+const nav = {
+  onLogout: vi.fn(),
+  onAllProjects: vi.fn(),
+  onSwitchProject: vi.fn(),
+  onNavigateNode: vi.fn(),
+  onNavigateProject: vi.fn(),
+  onNavigateMap: vi.fn(),
+};
+
+describe("ProjectShell", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+    vi.mocked(getUserRole).mockReturnValue("architect");
+  });
+
+  function setup(nodeId: string | null = null) {
+    return render(<ProjectShell projectId="proj1" nodeId={nodeId} {...nav} />);
+  }
+
+  it("режим «Объекты» (по умолчанию): дерево + домашняя страница при nodeId=null", () => {
+    setup(null);
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("project-home")).toBeInTheDocument();
+    expect(screen.queryByTestId("node-page")).not.toBeInTheDocument();
+  });
+
+  it("при выбранном узле рендерит NodePage вместо домашней страницы", () => {
+    setup("n1");
+    expect(screen.getByTestId("node-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("project-home")).not.toBeInTheDocument();
+  });
+
+  it("переключение в «Процессы» показывает ProcessWorkspace и прячет дерево", async () => {
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
+    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
+    expect(screen.queryByTestId("tree-panel")).not.toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("proc");
+  });
+
+  it("режим восстанавливается из localStorage при монтировании", () => {
+    localStorage.setItem("archmap_mode", "proc");
+    setup(null);
+    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
+    expect(screen.queryByTestId("tree-panel")).not.toBeInTheDocument();
+  });
+
+  it("возврат в «Объекты» снова показывает дерево", async () => {
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
+    await userEvent.click(screen.getByRole("button", { name: "Объекты" }));
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("schema");
+  });
+
+  it("экспорт из корня: заголовок «Экспорт схемы», load зовёт exportApi.all", async () => {
+    vi.mocked(exportApi.all).mockResolvedValue({ format: "yaml", content: "yaml" });
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Экспорт" }));
+    expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт схемы");
+    await userEvent.click(screen.getByRole("button", { name: "run-load" }));
+    expect(exportApi.all).toHaveBeenCalledOnce();
+  });
+
+  it("экспорт при выбранном узле: load зовёт exportApi.subtree(nodeId)", async () => {
+    vi.mocked(exportApi.subtree).mockResolvedValue({ format: "yaml", content: "yaml" });
+    setup("n1");
+    await userEvent.click(screen.getByRole("button", { name: "Экспорт" }));
+    expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт поддерева");
+    await userEvent.click(screen.getByRole("button", { name: "run-load" }));
+    expect(exportApi.subtree).toHaveBeenCalledWith("n1");
+  });
+
+  it("в «Процессы» без выбранного процесса кнопка экспорта заблокирована", async () => {
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
+    expect(screen.getByRole("button", { name: "Экспорт" })).toBeDisabled();
+  });
+
+  it("в «Процессы» с выбранным процессом экспорт грузит Mermaid процесса", async () => {
+    vi.mocked(processesApi.get).mockResolvedValue({ id: "p9" } as never);
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
+    await userEvent.click(screen.getByRole("button", { name: "select-proc" }));
+    const exportBtn = screen.getByRole("button", { name: "Экспорт" });
+    expect(exportBtn).toBeEnabled();
+    await userEvent.click(exportBtn);
+    expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт процесса «Процесс X»");
+    await userEvent.click(screen.getByRole("button", { name: "run-load" }));
+    expect(processesApi.get).toHaveBeenCalledWith("p9");
+  });
+
+  it("переход в процессы со страницы узла: режим «Процессы» со стартовым процессом", async () => {
+    setup("n1");
+    await userEvent.click(screen.getByRole("button", { name: "to-proc" }));
+    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
+    expect(screen.getByTestId("proc-initial")).toHaveTextContent("p1");
+  });
+
+  it("удаление узла без родителя ведёт на страницу проекта", async () => {
+    setup("n1");
+    await userEvent.click(screen.getByRole("button", { name: "del-root" }));
+    expect(nav.onNavigateProject).toHaveBeenCalledOnce();
+  });
+
+  it("клик по алерту шапки пишет цель в sessionStorage и открывает карту в корне", async () => {
+    setup(null);
+    await userEvent.click(screen.getByTestId("alert-locate"));
+    const raw = sessionStorage.getItem("archmap.pendingAlertLocate");
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw!)).toEqual({ kind: "node", id: "n1" });
+    expect(nav.onNavigateMap).toHaveBeenCalledWith(null);
+  });
+
+  it("наблюдателю не виден знак алертов в шапке", async () => {
+    vi.mocked(getUserRole).mockReturnValue("viewer");
+    setup(null);
+    await waitFor(() => expect(screen.getByTestId("tree-panel")).toBeInTheDocument());
+    expect(screen.queryByTestId("alert-locate")).not.toBeInTheDocument();
+  });
+});
