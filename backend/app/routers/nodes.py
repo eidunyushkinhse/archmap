@@ -6,6 +6,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app import restore, tree
+from app.alerts import compute_alerts
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
@@ -20,11 +21,8 @@ from app.models.view_layout import ViewLayoutItem
 from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
-    DisconnectedNodeAlert,
     GraphEdgeResponse,
     GraphResponse,
-    IntermediateEdgeAlert,
-    IsolatedGroupAlert,
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
@@ -236,96 +234,10 @@ def get_alerts(
     """Глобальные алерты незавершённости схемы (только архитектор):
     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
     2) связи, у которых хотя бы один конец упирается в промежуточный
-       (контейнерный) узел, а не в атомарный.
-    Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
-    (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
-    """
-    all_nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    name_by_id = {n.id: n.name for n in all_nodes}
-
-    # Промежуточные узлы = те, что являются чьим-то родителем (есть дети)
-    intermediate_ids = {
-        pid
-        for (pid,) in db.query(Node.parent_id)
-        .filter(Node.project_id == project.id, Node.parent_id.isnot(None))
-        .distinct()
-        .all()
-    }
-
-    # Узлы, у которых есть хоть одна связь (по сырым концам рёбер)
-    connected_ids: set[uuid.UUID] = set()
-    for e in all_edges:
-        connected_ids.add(e.source_id)
-        connected_ids.add(e.target_id)
-
-    disconnected = [
-        DisconnectedNodeAlert(node_id=n.id, node_name=n.name)
-        for n in all_nodes
-        if n.id not in intermediate_ids and n.id not in connected_ids
-    ]
-
-    intermediate_edges: list[IntermediateEdgeAlert] = []
-    for e in all_edges:
-        src_inter = e.source_id in intermediate_ids
-        tgt_inter = e.target_id in intermediate_ids
-        if src_inter or tgt_inter:
-            intermediate_edges.append(
-                IntermediateEdgeAlert(
-                    edge_id=e.id,
-                    label=e.label,
-                    source_id=e.source_id,
-                    source_name=name_by_id.get(e.source_id, "?"),
-                    target_id=e.target_id,
-                    target_name=name_by_id.get(e.target_id, "?"),
-                    source_is_intermediate=src_inter,
-                    target_is_intermediate=tgt_inter,
-                )
-            )
-
-    # 3) Изолированные группы — связные компоненты графа РЁБЕР (иерархию
-    #    parent_id игнорируем: иначе всё связано через дерево). Узлы без
-    #    единой связи сюда не попадают (их ловит проверка 1). Алерт зажигаем,
-    #    только если связных групп (≥2 узла) больше одной — иначе это просто
-    #    единственный кластер плюс висячие узлы, и фрагментации нет.
-    adjacency: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for e in all_edges:
-        adjacency.setdefault(e.source_id, set()).add(e.target_id)
-        adjacency.setdefault(e.target_id, set()).add(e.source_id)
-
-    visited: set[uuid.UUID] = set()
-    components: list[list[uuid.UUID]] = []
-    for start in adjacency:
-        if start in visited:
-            continue
-        stack = [start]
-        visited.add(start)
-        comp: list[uuid.UUID] = []
-        while stack:
-            cur = stack.pop()
-            comp.append(cur)
-            for nxt in adjacency[cur]:
-                if nxt not in visited:
-                    visited.add(nxt)
-                    stack.append(nxt)
-        if len(comp) >= 2:
-            components.append(comp)
-
-    isolated_groups: list[IsolatedGroupAlert] = []
-    if len(components) >= 2:
-        for comp in components:
-            isolated_groups.append(
-                IsolatedGroupAlert(
-                    node_ids=comp,
-                    node_names=[name_by_id.get(nid, "?") for nid in comp],
-                )
-            )
-
-    return AlertsResponse(
-        disconnected_nodes=disconnected,
-        intermediate_edges=intermediate_edges,
-        isolated_groups=isolated_groups,
-    )
+       (контейнерный) узел, а не в атомарный;
+    3) изолированные группы — связные компоненты графа рёбер.
+    Доменный алгоритм — в app/alerts.compute_alerts."""
+    return compute_alerts(db, project.id)
 
 
 @router.get("/{node_id}", response_model=NodeResponse)
