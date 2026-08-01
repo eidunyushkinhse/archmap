@@ -744,18 +744,16 @@
            procInitial ProjectShell). Тесты: test_node_processes.py (4: участие
            поддерева, форма/счётчики/статусы, пустой список, 404). spec.md
            дополнен.
-        е) Тесты на новые компоненты (NodePage, EmbeddedSchemaBlock,
-           MapEditorPage, ProjectShell). УТОЧНЕНО: @testing-library/react в
-           проекте НЕТ — рендер-тесты страниц = отдельная инфра-задача
-           (зависимость + setup-файл + моки RF/fetch). Приоритет 1 (без инфра,
-           чистые юниты): вынести toLevelEdges() — маппинг GraphResponse→LevelEdge
-           дублируется в 4 местах (useEditableLevel:46, NodePage:750/908,
-           MapEditorPage:127, TreePage:278); clamp-формулы высот блоков (3 штуки:
-           EmbeddedSchemaBlock:101, NodePage:649/920, ProjectHomePage:77);
-           предикаты пустых состояний SchemaSection (NodePage:871-875,918);
-           featureFlags (дефолты при null/«0»/«1»). Приоритет 2: вынос чистых
-           фабрик из useNodePatch/useEditableLevel (по образцу createHistory/
-           createRemoteSyncTick).
+        е) [ЗАКРЫТО 2026-08-01, приоритет 1] Тесты на новые компоненты — чистые
+           юниты без инфра: вынесены в components/pageSchema.ts — toLevelEdges()
+           (маппинг GraphResponse→LevelEdge, был 4 копии: useEditableLevel,
+           NodePage, MapEditorPage, TreePage), предикаты пустого состояния
+           SchemaSection (outerGuests/hasNoNeighbors/visibleEntityGuess) и формулы
+           высот блоков (schemaSection/componentsSection/projectSchema/
+           responsiveCanvas). Тесты: pageSchema.test.ts (9) + featureFlags.test.ts
+           (3: дефолты, «1»/«0»/мусор, сеттеры). Приоритет 2 (вынос фабрик из
+           useNodePatch/useEditableLevel) и рендер-тесты страниц (нужен
+           @testing-library/react — отдельная инфра-задача) — ОТЛОЖЕНЫ.
         ж) Пустой сервис на странице (репро: «Веб-витрина»): у сервиса БЕЗ детей,
            но со связями нет ни лупы, ни CTA «Добавить компонент» — только общая
            кнопка «Редактировать». Фикс релевантных детей (и) НЕ закрыл этот кейс

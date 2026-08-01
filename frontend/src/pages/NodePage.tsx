@@ -3,7 +3,7 @@
 // Схемы (контекст, компоненты) добавляются в Фазе 2.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GhostNode, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge, ProcessListItem } from "../types";
+import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge, ProcessListItem } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
@@ -17,6 +17,7 @@ import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import type { ViewMetaState } from "../components/LevelGraph";
+import { componentsSectionHeight, hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
 import "./NodePage.css";
 
 interface Props {
@@ -663,8 +664,8 @@ function ComponentsSection({
     graphNodes.some((n) => n.status !== "existing") ||
     endpoints.some((g) => g.status !== "existing");
 
-  // Высота блока: min(430, max(280, nodes*62))
-  const height = Math.min(430, Math.max(280, graphNodes.length * 62));
+  // Высота блока: 62px на узел, коридор 280–430 (pageSchema.componentsSectionHeight)
+  const height = componentsSectionHeight(graphNodes.length);
 
   // Имена/id предков для рамок (breadcrumb страницы + сам узел)
   const ancestorNames = [...ancestors.map((a) => a.name), nodeName];
@@ -923,11 +924,7 @@ function SchemaSection({
 
   // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
   // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).
-  const localIds = new Set(graph.nodes.map((n) => n.id));
-  const isInner = (ep: GhostNode) => (ep.ancestors ?? []).some((a) => a.id === node.id);
-  const outerGuests = graph.endpoints.filter((ep) => !isInner(ep));
-  const noNeighbors = graph.nodes.length <= 1 && outerGuests.length === 0;
-  if (noNeighbors && !node.has_children) {
+  if (hasNoNeighbors(graph, node.id) && !node.has_children) {
     // Пустое состояние: секцию не прячем; архитектору — CTA в редактор-карту
     // (наполнить состав / создать связи — правка живёт только там).
     return (
@@ -954,25 +951,12 @@ function SchemaSection({
     );
   }
 
-  // Рёбра уровня из GraphResponse — как в useEditableLevel.load (сырые концы,
-  // имена концов для панелей из локалов + реестра).
-  const nameById = new Map<string, string>([
-    ...graph.nodes.map((n) => [n.id, n.name] as const),
-    ...graph.endpoints.map((ep) => [ep.id, ep.name] as const),
-  ]);
-  const edges: LevelEdge[] = graph.edges.map((ge) => ({
-    id: ge.id, label: ge.label, technology: ge.technology,
-    source_id: ge.source_id, target_id: ge.target_id,
-    original_source_id: ge.source_id, original_target_id: ge.target_id,
-    original_source_name: nameById.get(ge.source_id) ?? "",
-    original_target_name: nameById.get(ge.target_id) ?? "",
-    version: ge.version, created_at: "",
-  }));
+  // Рёбра уровня из GraphResponse (тот же маппинг, что у остальных потребителей
+  // графа уровня — pageSchema.toLevelEdges).
+  const edges = toLevelEdges(graph);
 
   // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
-  const visibleGuess = graph.nodes.length + outerGuests.filter((ep) =>
-    !(ep.ancestors ?? []).some((a) => localIds.has(a.id))).length;
-  const height = Math.max(300, Math.min(560, visibleGuess * 90));
+  const height = schemaSectionHeight(visibleEntityGuess(graph));
   const hasStatusInfo =
     graph.nodes.some((n) => n.status !== "existing") ||
     graph.endpoints.some((ep) => ep.status !== "existing");

@@ -8,6 +8,7 @@ import type { GhostNode, Node, Edge, ViewLayout, ViewLayoutPayload } from "../ty
 import { nodesApi } from "../api/nodes";
 import { useHistory } from "../components/graph/interaction/useHistory";
 import type { ViewMetaState } from "../components/LevelGraph";
+import { toLevelEdges } from "../components/pageSchema";
 
 interface Args {
   containerId: string | null;
@@ -39,18 +40,7 @@ export function useEditableLevel({ containerId, isArchitect }: Args) {
       setNodes(graph.nodes);
       setEndpoints(graph.endpoints);
       setViewLayout(graph.layout ?? {});
-      const nameById = new Map<string, string>([
-        ...graph.nodes.map((n) => [n.id, n.name] as const),
-        ...graph.endpoints.map((ep) => [ep.id, ep.name] as const),
-      ]);
-      setEdges(graph.edges.map((ge) => ({
-        id: ge.id, label: ge.label, technology: ge.technology,
-        source_id: ge.source_id, target_id: ge.target_id,
-        original_source_id: ge.source_id, original_target_id: ge.target_id,
-        original_source_name: nameById.get(ge.source_id) ?? "",
-        original_target_name: nameById.get(ge.target_id) ?? "",
-        version: ge.version, created_at: "",
-      })));
+      setEdges(toLevelEdges(graph));
     } finally {
       setLoading(false);
     }

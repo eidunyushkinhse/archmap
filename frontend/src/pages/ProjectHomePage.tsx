@@ -10,6 +10,7 @@ import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { useEditableLevel } from "./useEditableLevel";
 import { useRemoteSync } from "./useRemoteSync";
+import { projectSchemaHeight } from "../components/pageSchema";
 import "./NodePage.css";
 
 interface Props {
@@ -74,7 +75,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const hasStatusInfo =
     graphNodes.some((n) => n.status !== "existing") ||
     endpoints.some((g) => g.status !== "existing");
-  const height = Math.min(440, Math.max(300, graphNodes.length * 62));
+  const height = projectSchemaHeight(graphNodes.length);
 
   return (
     <div className="np-page">

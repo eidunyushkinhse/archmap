@@ -16,6 +16,7 @@ import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph, { type LocateRequest, type ViewMetaState } from "../components/LevelGraph";
 import { useRemoteSync } from "./useRemoteSync";
+import { toLevelEdges } from "../components/pageSchema";
 import EmptyLevelHint from "../components/EmptyLevelHint";
 import NodeTreePanel from "../components/NodeTreePanel";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
@@ -262,27 +263,8 @@ export default function TreePage({ projectId, onLogout, onAllProjects, onSwitchP
       setEndpoints(graph.endpoints);
       // раскладка вида как есть (R3): геометрию по ней раздаёт конвейер LevelGraph
       setViewLayout(graph.layout ?? {});
-      // Имена для original_* — из локалов и реестра концов (R2: source_id/target_id
-      // ребра и ЕСТЬ реальные концы, original_* синтезируются для модалок деталей).
-      const nameById = new Map<string, string>([
-        ...graph.nodes.map((n) => [n.id, n.name] as const),
-        ...graph.endpoints.map((ep) => [ep.id, ep.name] as const),
-      ]);
-      setEdges(
-        graph.edges.map((ge) => ({
-          id: ge.id,
-          label: ge.label,
-          technology: ge.technology,
-          source_id: ge.source_id,
-          target_id: ge.target_id,
-          original_source_id: ge.source_id,
-          original_target_id: ge.target_id,
-          original_source_name: nameById.get(ge.source_id) ?? "",
-          original_target_name: nameById.get(ge.target_id) ?? "",
-          version: ge.version,
-          created_at: "",
-        }))
-      );
+      // Рёбра уровня: сырые концы + синтез original_* (pageSchema.toLevelEdges)
+      setEdges(toLevelEdges(graph));
     } finally {
       setLoading(false);
     }

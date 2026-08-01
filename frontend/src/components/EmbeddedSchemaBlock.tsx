@@ -12,6 +12,7 @@ import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
 import SchemaLegend from "./SchemaLegend";
 import type { SchemaView } from "./schemaView";
+import { responsiveCanvasHeight } from "./pageSchema";
 import "./EmbeddedSchemaBlock.css";
 
 // Инфраструктура редактирования раскладки (из useEditableLevel) — передаётся
@@ -100,7 +101,7 @@ export default function EmbeddedSchemaBlock({
   // Высота = ширина × коэффициент, с ограничениями. До первого замера — height из пропсов.
   const responsiveHeight = useMemo(() => {
     if (measuredWidth <= 0) return height;
-    return Math.max(320, Math.min(680, Math.round(measuredWidth * 0.52)));
+    return responsiveCanvasHeight(measuredWidth);
   }, [measuredWidth, height]);
 
   // Esc — деактивация
