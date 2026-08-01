@@ -16,6 +16,8 @@ import { detailToMermaid } from "../components/processes/sequence/toMermaid";
 import ExportModal from "../components/ExportModal";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
+import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
+import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
 import { LogoMark, ExportIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
@@ -67,6 +69,19 @@ export default function ProjectShell({
   // Модалка создания дочернего объекта («+» в дереве)
   const [createFor, setCreateFor] = useState<string | null>(null);
 
+  // Алерты незавершённости схемы: знак в шапке (глобальная видимость, архитектор).
+  // In-context рейл с locate живёт в редакторе-карте (MapEditorPage).
+  const { alerts } = useSchemaAlerts(isArchitect);
+
+  // Клик по пункту алерта в шапке → переход в редактор-карту к проблемному месту.
+  // Цель (узел/связь/группа) передаём через sessionStorage: URL-locate умеет только
+  // узел, а алерты ведут ещё к связям и группам. Карту открываем в корне —
+  // MapEditorPage сам перейдёт на нужный уровень, применив цель после загрузки.
+  function handleAlertLocate(target: LocateTarget) {
+    sessionStorage.setItem(PENDING_ALERT_LOCATE_KEY, JSON.stringify(target));
+    onNavigateMap(null);
+  }
+
   const openExport = () => {
     if (mode === "proc") {
       if (!procSelection) return;
@@ -109,6 +124,9 @@ export default function ProjectShell({
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <ModeSwitch mode={mode} onChange={(m) => { setMode(m); setProcInitial(null); }} />
+          {/* Индикатор незавершённости схемы (архитектор): знак в шапке для
+              глобальной видимости; клик по пункту ведёт в редактор-карту. */}
+          {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleAlertLocate} />}
           <button
             className="icon-btn"
             onClick={openExport}

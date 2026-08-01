@@ -26,7 +26,9 @@ import RelayoutConfirm from "../components/RelayoutConfirm";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import LevelGraph, { type ViewMetaState, type LocateRequest } from "../components/LevelGraph";
 import { useRemoteSync } from "./useRemoteSync";
+import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
 import { toLevelEdges } from "../components/pageSchema";
+import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
@@ -122,6 +124,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
       setEndpoints(graph.endpoints);
       setViewLayout(graph.layout ?? {});
       setEdges(toLevelEdges(graph));
+      reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
       return graph.nodes;
     } finally {
       setLoading(false);
@@ -214,6 +217,32 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   // ── Навигация из дерева объектов ─────────────────────────────────
   // Счётчик токенов locate: пульс пере-триггерится на каждый новый запрос.
   const locateSeq = useRef(1);
+
+  // Алерты незавершённости схемы (индикатор «!» в рейле холста, архитектор).
+  const { alerts, loaded: alertsLoaded, reload: reloadAlerts } = useSchemaAlerts(isArchitect);
+
+  // Переход к проблемному объекту/связи/группе из алертов: общий предок → уровень,
+  // затем центрирование + вспышка (портировано из TreePage.handleLocate).
+  async function handleLocate(target: LocateTarget) {
+    const all = await nodesApi.getAll();
+    const { level, request } = resolveAlertLocate(all, target, alerts, ++locateSeq.current);
+    if (level !== currentParentId) await navigateToLevel(level);
+    setLocate(request);
+  }
+
+  // Цель алерта из шапки ProjectShell (переход «знак → карта»): применяется после
+  // загрузки алертов (нужны концы связей), затем ключ очищается.
+  useEffect(() => {
+    if (!alertsLoaded) return;
+    const raw = sessionStorage.getItem(PENDING_ALERT_LOCATE_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(PENDING_ALERT_LOCATE_KEY);
+    try {
+      void handleLocate(JSON.parse(raw) as LocateTarget);
+    } catch { /* повреждённые данные цели — игнорируем */ }
+    // handleLocate намеренно вне зависимостей: эффект срабатывает раз на загрузку алертов
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alertsLoaded]);
 
   // Клик по контейнеру → дрилл на его слой (путь собран деревом).
   function drillFromTree(path: Node[]) {
@@ -511,7 +540,13 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
 
         {/* Холст */}
         <div style={graphArea}>
-          {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+          {/* Рейл тостов холста (правый верхний угол, спека AL10): индикатор
+              незавершённости схемы + тост чужой сессии. Прозрачен для мыши,
+              интерактивны только знак и панель (pointerEvents у них auto). */}
+          <div style={toastRail}>
+            {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleLocate} />}
+            {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+          </div>
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
           ) : (
@@ -633,4 +668,7 @@ const crumbLink: CSSProperties = { display: "inline-flex", alignItems: "center",
 const crumbCurrent: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", fontSize: 13.5, color: "#1e293b", fontWeight: 600, background: "none", border: "none", cursor: "default" };
 const crumbSep: CSSProperties = { color: "#cbd5e1", display: "inline-flex", alignItems: "center", margin: "0 1px" };
 const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, flex: "none", background: "#fff", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer" };
-const remoteToastStyle: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)" };
+// Рейл тостов холста (правый верхний угол): колонка, прозрачна для мыши —
+// интерактивны только вложенные знак/панель алертов и тост (у них pointerEvents auto).
+const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
+const remoteToastStyle: CSSProperties = { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

@@ -9,9 +9,10 @@ edge.md E2; рейл тостов и палитра подсветок холс�
 Данные (контракт): `AlertsResponse {disconnected_nodes[], intermediate_edges[],
 isolated_groups[]}` — все три поля обязательные массивы.
 Код: бэк `app/routers/nodes.py` (GET /nodes/alerts), `app/schemas/node.py`;
-фронт `components/SchemaAlerts.tsx` + `schemaAlerts.css`, `pages/TreePage.tsx`
-(loadAlerts, handleLocate), `components/LevelGraph.tsx` (LocateRequest),
-`LevelGraph.css` (lg-locate-flash).
+фронт `components/SchemaAlerts.tsx` + `schemaAlerts.css`, `pages/useSchemaAlerts.ts`
+(хук загрузки + resolveAlertLocate), `pages/MapEditorPage.tsx` (рейл холста +
+handleLocate) и `pages/ProjectShell.tsx` (знак в шапке), `components/LevelGraph.tsx`
+(LocateRequest), `LevelGraph.css` (lg-locate-flash). Легаси: `pages/TreePage.tsx`.
 
 ## 1. Расчёт (бэкенд)
 
@@ -51,9 +52,16 @@ isolated_groups[]}` — все три поля обязательные масс
 
 ## 3. Панель SchemaAlerts
 
-- **AL10.** Панель живёт в рейле тостов правого верхнего угла ОБЛАСТИ ХОЛСТА
-  (не вьюпорта; canvas.md §6); видна только в режиме «схема» и только
-  архитектору. В контекст-схеме ни алертов, ни locate нет. [код]
+- **AL10.** (v2, 2026-08-01) ДВЕ точки размещения (решение «вариант 3»):
+  (1) знак в ШАПКЕ ProjectShell — глобальная видимость незавершённости с любой
+  страницы; клик по пункту ведёт в редактор-карту к проблемному месту (цель
+  передаётся через sessionStorage `archmap.pendingAlertLocate`, т.к. URL-locate
+  умеет только узел, а алерты ведут ещё к связям и группам);
+  (2) рейл тостов правого верхнего угла ОБЛАСТИ ХОЛСТА редактора-карты
+  (MapEditorPage; не вьюпорта; canvas.md §6) — in-context locate + тост «Схема
+  завершена» при обнулении. Обе точки только для архитектора. Данные общими
+  хуком `useSchemaAlerts` + разрешение цели `resolveAlertLocate` (pages/
+  useSchemaAlerts.ts). В легаси TreePage панель жила только в рейле холста. [код]
 - **AL11.** Общий счётчик `total = disconnected + intermediate + max(0,
   groups − 1)`: изолированные группы дают «число недостающих связей», при этом
   счётчик СЕКЦИИ показывает фактическое число групп (2 группы → в сумме 1).
