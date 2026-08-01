@@ -38,6 +38,14 @@ export function ShapeGlyph({ container, shape }: { container: boolean; shape: No
         <path d="M4.5 1.5 a3 4.5 0 0 1 0 9" {...common} />
       </>
     );
+  } else if (shape === "person") {
+    // «человечек»: голова + плечи, в духе аватара на узле холста
+    body = (
+      <>
+        <circle cx={7} cy={3.6} r={2.3} {...common} />
+        <path d="M2.6 10.5 a4.4 3.6 0 0 1 8.8 0" {...common} />
+      </>
+    );
   } else {
     body = <rect x={1.5} y={1.5} width={11} height={9} rx={2} {...common} />;
   }

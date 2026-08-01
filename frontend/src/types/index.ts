@@ -33,14 +33,20 @@ export type ImportPromptOut = Schemas["ImportPromptOut"];
 
 export type Node = Schemas["NodeResponse"];
 
-// Порядок узлов-сиблингов в дереве: сначала ВНУТРЕННИЕ, потом внешние (по
-// собственному is_external узла, не его детей — пограничный «внешний с внутренними
-// детьми» допустим, но на него не ориентируемся). Внутри каждой группы «главное»
-// (с бОльшим числом прямых детей) — выше; при равенстве — по алфавиту. child_count
-// считает бэкенд (_mark_has_children). Наследуется на всех уровнях дерева.
+// Порядок узлов-сиблингов в дереве: РАНГ ФОРМЫ — сервисы с детьми (ядро системы),
+// затем атомарные сервисы, затем БД, брокеры и персоны (без разделов — одним
+// списком). Внутри ранга — ВНУТРЕННИЕ раньше внешних (по собственному is_external
+// узла), при равенстве — по алфавиту. child_count считает бэкенд
+// (_mark_has_children). Наследуется на всех уровнях дерева.
+const siblingRank = (n: Node): number =>
+  n.shape === "service" ? (n.child_count > 0 ? 0 : 1)
+  : n.shape === "database" ? 2
+  : n.shape === "broker" ? 3
+  : 4; // person
+
 export const compareByRank = (a: Node, b: Node): number =>
+  siblingRank(a) - siblingRank(b) ||
   Number(a.is_external) - Number(b.is_external) ||
-  b.child_count - a.child_count ||
   a.name.localeCompare(b.name);
 
 // Узлы-«пользователи» (shape: person) в дереве-навигаторе не показываем: дерево —
