@@ -342,7 +342,8 @@ def test_endpoint_preview_does_not_write(db):
 def test_endpoint_apply_writes_and_bumps(db):
     _tree(db)
     project = ensure_project(db)
-    rev0 = project.graph_rev
+    rev0 = project.meta_rev
+    graph0 = project.graph_rev
     report = docs_import_apply(
         _payload(("manifest.yaml", MANIFEST), ("orders-api.yaml", SPEC)),
         db=db, project=project, user=ensure_architect(db),
@@ -351,9 +352,11 @@ def test_endpoint_apply_writes_and_bumps(db):
     assert (report.created_docs, report.updated_docs, report.specs_written) == (1, 0, 1)
     assert db.query(NodeDoc).count() == 1
     db.refresh(project)
-    assert project.graph_rev == rev0 + 1
+    # Доки/спеки — мета узла: двигают meta_rev, НЕ graph_rev (тост страницы, не схемы)
+    assert project.meta_rev == rev0 + 1
+    assert project.graph_rev == graph0
 
-    # Идемпотентный повтор: applied=True, но нули и БЕЗ бампа graph_rev
+    # Идемпотентный повтор: applied=True, но нули и БЕЗ бампа курсоров
     again = docs_import_apply(
         _payload(("manifest.yaml", MANIFEST), ("orders-api.yaml", SPEC)),
         db=db, project=project, user=ensure_architect(db),
@@ -361,7 +364,7 @@ def test_endpoint_apply_writes_and_bumps(db):
     assert again.applied is True
     assert (again.created_docs, again.updated_docs, again.specs_written) == (0, 0, 0)
     db.refresh(project)
-    assert project.graph_rev == rev0 + 1
+    assert project.meta_rev == rev0 + 1
 
 
 def test_endpoint_apply_blocked_by_errors(db):

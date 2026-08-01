@@ -39,7 +39,7 @@ from app.schemas.docs_import import (
     DocsPromptOut,
     DocsSpecItem,
 )
-from app.view_state import bump_graph_rev
+from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/docs-import", tags=["docs-import"])
 
@@ -153,7 +153,7 @@ def docs_import_apply(
         return report  # applied=False — фронт показывает ошибки
     created, updated, specs = apply_docs_plan(db, plan)
     if created or updated or specs:
-        bump_graph_rev(db, project)  # мета доков едет в graph-выдаче — поллинг увидит
+        bump_meta_rev(db, project)  # доки/спеки — мета узла: поллинг страницы увидит
     touch_project(db, project, user.id)
     db.commit()
     report.applied = True

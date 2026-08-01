@@ -73,3 +73,13 @@ def bump_graph_rev(db: Session, project: Project) -> None:
         {Project.graph_rev: Project.graph_rev + 1}, synchronize_session=False
     )
     db.expire(project, ["graph_rev"])
+
+
+def bump_meta_rev(db: Session, project: Project) -> None:
+    """Инкремент курсора изменений МЕТЫ (атрибуты узла, доки, openapi) — тем же
+    атомарным UPDATE. Поллинг страницы объекта отличает мету от схемы: мета
+    двигает meta_rev, схема (узлы/рёбра/раскладка) — graph_rev."""
+    db.query(Project).filter(Project.id == project.id).update(
+        {Project.meta_rev: Project.meta_rev + 1}, synchronize_session=False
+    )
+    db.expire(project, ["meta_rev"])

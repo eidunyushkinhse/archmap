@@ -35,7 +35,12 @@ from app.schemas.node import (
 )
 from app.schemas.process import ProcessListItem
 from app.schemas.restore import DeletionSnapshot
-from app.view_state import bump_graph_rev, bump_view_version, current_version
+from app.view_state import (
+    bump_graph_rev,
+    bump_meta_rev,
+    bump_view_version,
+    current_version,
+)
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
@@ -330,13 +335,15 @@ def get_root_graph(
     version = current_version(db, project.id, None)
     if not local_nodes:
         return GraphResponse(
-            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev
+            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev,
+            meta_rev=project.meta_rev,
         )
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     graph = _build_graph(local_nodes, None, all_nodes, all_edges, db)
     graph.version = version
     graph.graph_rev = project.graph_rev
+    graph.meta_rev = project.meta_rev
     return graph
 
 
@@ -481,7 +488,15 @@ def update_node(
             # перенос между уровнями меняет членство ОБОИХ видов — fence обоим
             bump_view_version(db, project.id, old_parent)
             bump_view_version(db, project.id, data["parent_id"])
-        bump_graph_rev(db, project)
+        # Структурные поля двигают СХЕМУ (имя/форма/иерархия видны на холсте);
+        # остальные — МЕТА узла (страница: роль/технология/статус/описание/
+        # внешность/openapi). Смешанный payload двигает оба курсора — поллинг
+        # страницы отличает «данные изменились» от «схема изменилась».
+        structural = {"parent_id", "name", "shape"}
+        if structural & data.keys():
+            bump_graph_rev(db, project)
+        if data.keys() - structural:
+            bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(node)
@@ -647,7 +662,8 @@ def get_node_graph(
     version = current_version(db, project.id, node_id)
     if not local_nodes:
         return GraphResponse(
-            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev
+            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev,
+            meta_rev=project.meta_rev,
         )
 
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
@@ -655,6 +671,7 @@ def get_node_graph(
     graph = _build_graph(local_nodes, node_id, all_nodes, all_edges, db)
     graph.version = version
     graph.graph_rev = project.graph_rev
+    graph.meta_rev = project.meta_rev
     return graph
 
 
@@ -831,6 +848,7 @@ def get_node_context_graph(
         endpoints=_ghost_registry(all_nodes, endpoint_ids, child_counts),
         version=current_version(db, project.id, None),
         graph_rev=project.graph_rev,
+        meta_rev=project.meta_rev,
     )
 
 

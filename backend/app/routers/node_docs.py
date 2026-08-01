@@ -1,10 +1,10 @@
 """CRUD именованных схем логики узла (node_docs, этап 1 plan-agent-docs.md).
 
 Мутации — только архитектору; чтение — обеим ролям (наблюдатель смотрит доки в
-оверлее). Каждая мутация бампает graph_rev: мета доков едет в graph-выдаче
-(NodeResponse.docs), поллинг конкурентных сессий должен увидеть изменение.
-PATCH под optimistic CAS — паттерн update_node (устаревший base_version → 409,
-None = компенсация undo без проверки).
+оверлее). Каждая мутация бампает meta_rev: доки — МЕТА узла (видны на странице
+объекта, не на схеме), поллинг страницы отличает их от изменений схемы
+(graph_rev). PATCH под optimistic CAS — паттерн update_node (устаревший
+base_version → 409, None = компенсация undo без проверки).
 """
 
 import uuid
@@ -20,7 +20,7 @@ from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.node_doc import NodeDocCreate, NodeDocResponse, NodeDocUpdate
-from app.view_state import bump_graph_rev
+from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/nodes/{node_id}/docs", tags=["node-docs"])
 
@@ -79,7 +79,7 @@ def create_doc(
         content=payload.content,
     )
     db.add(doc)
-    bump_graph_rev(db, project)
+    bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(doc)
@@ -109,7 +109,7 @@ def update_doc(
         for field, value in data.items():
             setattr(doc, field, value)
         doc.version += 1
-        bump_graph_rev(db, project)
+        bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(doc)
@@ -127,6 +127,6 @@ def delete_doc(
     node = _get_node(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id)
     db.delete(doc)
-    bump_graph_rev(db, project)
+    bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()

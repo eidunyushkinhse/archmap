@@ -59,7 +59,9 @@ def get_view_state(
     """
     vid = parse_view_id(view_id)
     return ViewStateResponse(
-        version=current_version(db, project.id, vid), graph_rev=project.graph_rev
+        version=current_version(db, project.id, vid),
+        graph_rev=project.graph_rev,
+        meta_rev=project.meta_rev,
     )
 
 
