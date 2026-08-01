@@ -10,10 +10,10 @@ import uuid
 
 from conftest import ensure_project
 
+from app.graph_queries import build_graph as _build_graph
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.view_layout import ViewLayoutItem
-from app.routers.nodes import _build_graph
 from app.tree import collect_subtree_ids_db
 
 
