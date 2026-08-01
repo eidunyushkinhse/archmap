@@ -17,9 +17,6 @@ export const UndoIcon = ({ size = 17 }: IcoProps) => (
 export const RedoIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M15 7 L20 12 L15 17" /><path d="M20 12 H10 a5 5 0 0 0 0 10 H13" /></svg>);
-export const UpIcon = ({ size = 16 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
-    <path d="M12 19 V5" /><path d="M6 11 L12 5 L18 11" /></svg>);
 export const ExportIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M12 3 V14" /><path d="M8 10 L12 14 L16 10" /><path d="M4 17 V20 H20 V17" /></svg>);

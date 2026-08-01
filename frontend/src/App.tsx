@@ -1,18 +1,15 @@
 import { useEffect, useState } from "react";
 import { clearToken, getToken } from "./api/auth";
 import { setCurrentProjectId } from "./api/projectScope";
-import { isPagesPivot } from "./featureFlags";
 import LoginPage from "./pages/LoginPage";
 import ProjectsPage from "./pages/ProjectsPage";
-import TreePage from "./pages/TreePage";
 import ProjectShell from "./pages/ProjectShell";
 import MapEditorPage from "./pages/MapEditorPage";
 
-// Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — схема проекта,
+// Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — страница проекта,
 // #/p/<id>/nodes/<nodeId> — страница объекта, #/p/<id>/map/<nodeId?> — редактор-карта.
 type Route =
   | { name: "projects" }
-  | { name: "tree"; projectId: string }
   | { name: "node"; projectId: string; nodeId: string }
   | { name: "project-home"; projectId: string }
   | { name: "map"; projectId: string; nodeId: string | null; locate: string | null; ret: string | null };
@@ -36,16 +33,11 @@ function parseHash(): Route {
   if (nodeMatch) return { name: "node", projectId: nodeMatch[1], nodeId: nodeMatch[2] };
   // #/p/<pid>
   const projMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)/);
-  if (projMatch) {
-    // pages_pivot: индекс проекта → страница проекта; иначе → старый TreePage
-    return isPagesPivot()
-      ? { name: "project-home", projectId: projMatch[1] }
-      : { name: "tree", projectId: projMatch[1] };
-  }
+  if (projMatch) return { name: "project-home", projectId: projMatch[1] };
   return { name: "projects" };
 }
 
-// Скоуп проекта (X-Project-Id) обязан быть выставлен ДО маунта TreePage: его
+// Скоуп проекта (X-Project-Id) обязан быть выставлен ДО маунта страниц: их
 // mount-эффект грузит уровень РАНЬШЕ эффектов App (эффекты родителя исполняются
 // после эффектов ребёнка), и установка скоупа эффектом опаздывала — первые
 // запросы уровня уходили со старым/пустым заголовком (гонка X-Project-Id,
@@ -53,7 +45,7 @@ function parseHash(): Route {
 // СИНХРОННО при каждом разборе маршрута; setCurrentProjectId идемпотентен.
 function routeFromHash(): Route {
   const route = parseHash();
-  // Скоуп проекта нужен всем маршрутам внутри проекта (tree, node, project-home)
+  // Скоуп проекта нужен всем маршрутам внутри проекта (node, project-home, map)
   const pid = route.name === "projects" ? null : route.projectId;
   setCurrentProjectId(pid);
   return route;
@@ -126,20 +118,6 @@ export default function App() {
           const qs = q.toString();
           navigate(level ? `/p/${pid}/map/${level}${qs ? `?${qs}` : ""}` : `/p/${pid}/map${qs ? `?${qs}` : ""}`);
         }}
-      />
-    );
-  }
-
-  if (route.name === "tree") {
-    // key по projectId: смена проекта = полный ремаунт TreePage → свежая загрузка
-    // корня нового проекта, сброс breadcrumb и истории Undo/Redo.
-    return (
-      <TreePage
-        key={route.projectId}
-        projectId={route.projectId}
-        onLogout={handleLogout}
-        onAllProjects={() => navigate("/projects")}
-        onSwitchProject={(id) => navigate(`/p/${id}`)}
       />
     );
   }
