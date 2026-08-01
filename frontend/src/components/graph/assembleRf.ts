@@ -43,11 +43,15 @@ export function assembleRfGraph(params: {
   // передаёт onEnterNode, страница объекта — нет (там навигация двойным кликом
   // на страницу объекта + лупа). Гейтит все кнопки «Войти».
   drillNav: boolean;
+  // read-only (страница): число РЕЛЕВАНТНЫХ детей по id узла (X16 v2: ребёнок
+  // видим, только если у его поддерева есть граничное ребро на схеме). Гейтит
+  // лупу и бейдж локалов; undefined (редактор) — все дети по child_count (Д3).
+  relevantCounts?: Map<string, number>;
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
-  const { layout, isArchitect, isReadOnly, drillNav, depth, schemaView, getCb } = params;
+  const { layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles,
     autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
@@ -122,6 +126,9 @@ export function assembleRfGraph(params: {
       const compound = pf
         ? { parentId: pf.id, position: { x: abs.x - pf.rect.x, y: abs.y - pf.rect.y } }
         : { position: abs };
+      // Дети для бейджа/лупы: read-only (страница) — РЕЛЕВАНТНЫЕ (с границей
+      // поддерева по рёбрам, X16 v2); редактор — все по child_count (Д3).
+      const childCount = relevantCounts ? (relevantCounts.get(n.id) ?? 0) : n.child_count;
       return {
         id: n.id,
         type: "block" as const,
@@ -144,10 +151,13 @@ export function assembleRfGraph(params: {
           // Работает и в read-only блоке (схема на странице) — это просмотр,
           // не правка; расстановка компонентов — только в карте. Глубже
           // MAX_INLINE_DEPTH слоёв от уровня лупы нет — только «Войти» (C8).
-          onExpand: n.has_children && canHaveChildren(n.shape)
+          // На странице лупа — только при РЕЛЕВАНТНЫХ детях (childCount, X16 v2):
+          // узел без связанных детей ведёт себя как лист.
+          onExpand: (relevantCounts ? childCount > 0 : n.has_children) && canHaveChildren(n.shape)
             && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
             ? (id) => getCb().expandLocalContainer(id)
             : undefined,
+          badgeCount: childCount,
         } satisfies BlockData,
       };
     }),

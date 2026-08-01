@@ -34,6 +34,7 @@ import type { LayoutResult } from "./graph/layout/pipeline";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
+import { relevantChildren, relevantChildCounts } from "./graph/relevantChildren";
 import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
@@ -522,6 +523,14 @@ function LevelGraphInner({
     return s;
   }, [viewLayout, expandOverrides, ignorePersistedExpanded]);
 
+  // read-only (страница): дети, релевантные схеме, — «отображаемое = связанное
+  // рёбрами» (тот же принцип, что у гостей, X16 v2). counts гейтит лупу и бейдж
+  // без фетча списков детей; фильтр собирает состав кэша при раскрытии.
+  const relevantCounts = useMemo(
+    () => (isReadOnly ? relevantChildCounts(edges, endpoints, expanded) : undefined),
+    [isReadOnly, edges, endpoints, expanded],
+  );
+
   // Догруженные дети раскрытых ЛОКАЛЬНЫХ контейнеров (R5): id → прямые дети.
   // Кэш живёт до смены уровня; сворачивание кэш не чистит (повторное раскрытие
   // мгновенно). Конвейер держит контейнер свёрнутым, пока детей нет в карте.
@@ -572,12 +581,21 @@ function LevelGraphInner({
         return;
       }
       void nodesApi.list(id).then((kids) => {
+        // read-only (страница): только дети, релевантные текущей схеме, —
+        // «отображаемое = связанное рёбрами» (как у гостей, X16 v2). Раскрываемый
+        // контейнер — в наборе раскрытых: рёбра «в его рамку» границу не образуют.
+        const fit = isReadOnly
+          ? relevantChildren(kids, edges, endpoints, new Set([...expanded, id]))
+          : kids;
+        // Пустое раскрытие (все дети нерелевантны): не раскрываем; лупа у узла
+        // уже погашена счётчиком relevantCounts.
+        if (fit.length === 0) return;
         noteExpand(id);
         commitExpanded(id, true);
-        setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: kids }));
+        setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: fit }));
       });
     },
-    [localChildren, commitExpanded, noteExpand],
+    [localChildren, commitExpanded, noteExpand, isReadOnly, edges, endpoints, expanded],
   );
   const collapseContainer = useCallback(
     (id: string) => { noteCollapse(id); commitExpanded(id, false); },
@@ -1034,7 +1052,7 @@ function LevelGraphInner({
   useEffect(() => {
     if (!layout) return; // первый рендер до резолва async-раскладки
     const { nextNodes, nextEdges } = assembleRfGraph({
-      layout, isArchitect, isReadOnly, drillNav, depth, schemaView, getCb,
+      layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -1049,7 +1067,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isReadOnly, drillNav, schemaView, applyLayout, getCb, getNodes, getEdges]);
+  }, [layout, isArchitect, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges]);
 
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).

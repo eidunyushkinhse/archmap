@@ -80,6 +80,10 @@ export interface QuickConnectHandlers {
 
 export interface BlockData extends Record<string, unknown> {
   appNode: AppNode;
+  // Число детей для бейджа «есть дети (N)» и гейта лупы: read-only (страница) —
+  // РЕЛЕВАНТНЫЕ дети (с граничным ребром на схеме, X16 v2); редактор — все дети
+  // по child_count (Д3).
+  badgeCount: number;
   // «Войти» — дрилл на слой узла. Задаётся только в редакторе (drill-навигация);
   // на странице объекта (read-only блок) undefined → кнопки нет, навигация —
   // двойной клик на страницу объекта + лупа инлайн-раскрытия (onExpand).

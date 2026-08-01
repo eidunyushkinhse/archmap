@@ -278,7 +278,10 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   // «Провалиться внутрь»/быть зоной входа может только сервис (см. canHaveChildren):
   // у БД/брокера/пользователя детей нет — кнопку «Войти» им не показываем.
   const drillable = canHaveChildren(shape);
-  const intoZone = drillable && data.appNode.has_children;
+  // Дети для бейджа/зоны входа: read-only (страница) — релевантные (badgeCount),
+  // редактор — все (badgeCount == child_count по построению assembleRf).
+  const childCount = data.badgeCount;
+  const intoZone = drillable && childCount > 0;
   // Кнопки действий: «Войти» (onDrillDown) — только в редакторе, лупа (onExpand) —
   // и на странице объекта (инлайн-раскрытие — просмотрная механика).
   const hasActions = !data.hideActions && drillable && !!(data.onDrillDown || data.onExpand);
@@ -312,7 +315,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
-      {intoZone && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
+      {intoZone && <ChildrenBadge count={childCount} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
           кнопки «Подробнее» больше нет — «Войти» у сервисов (только редактор) и
           лупа «Раскрыть содержимое» (R5, инлайн-раскрытие; и редактор, и страница). */}
