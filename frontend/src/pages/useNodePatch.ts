@@ -3,9 +3,10 @@
 // свежие данные и показывает конфликт-баннер. БЕЗ undo (правки на страницах в историю
 // редактора не попадают — ТЗ, решение Ф8-Б).
 import { useCallback, useRef, useState } from "react";
-import type { Node, NodeUpdate } from "../types";
+import type { Node, NodeDoc, NodeDocMeta, NodeUpdate } from "../types";
 import { nodesApi } from "../api/nodes";
 import { isConflict } from "../api/client";
+import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 
 interface NodePatch {
   // Живые значения полей (для контролируемых инпутов)
@@ -34,6 +35,10 @@ interface NodePatch {
   conflict: string | null;
   // Свежий узел (после последнего успешного коммита или 409-рефреша)
   node: Node;
+  // Мутация меты доков (секция «Логика»): событие FlowchartDocs несёт полные
+  // доки — мета (имя/вид/операция) применяется в стейт узла БЕЗ запроса и БЕЗ
+  // undo (истории на страницах нет).
+  applyDocEvent: (evt: NodeDocEvent) => void;
 }
 
 export function useNodePatch(
@@ -131,10 +136,21 @@ export function useNodePatch(
     void save({ status: st });
   }, [status, save]);
 
+  const applyDocEvent = useCallback((evt: NodeDocEvent) => {
+    const meta = (d: NodeDoc): NodeDocMeta => ({ id: d.id, name: d.name, kind: d.kind, operation: d.operation });
+    const patchDocs = (mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) => {
+      setNode((n) => ({ ...n, docs: mut(n.docs) }));
+      beforeRef.current = { ...beforeRef.current, docs: mut(beforeRef.current.docs) };
+    };
+    if (evt.type === "edit") patchDocs((ds) => ds.map((m) => (m.id === evt.after.id ? meta(evt.after) : m)));
+    else if (evt.type === "create") patchDocs((ds) => [...ds, meta(evt.doc)]);
+    else patchDocs((ds) => ds.filter((m) => m.id !== evt.doc.id));
+  }, []);
+
   return {
     name, description, role, technology, isExternal, status,
     setName, setDescription, setRole, setTechnology, setIsExternal, setStatus,
     commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal, pickStatus,
-    conflict, node,
+    conflict, node, applyDocEvent,
   };
 }

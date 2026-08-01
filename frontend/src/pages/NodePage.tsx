@@ -5,13 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, GhostNode, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge } from "../types";
 import { canHaveChildren } from "../types";
-import { nodesApi, edgesApi } from "../api/nodes";
+import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useEditableLevel } from "./useEditableLevel";
 import { useRemoteSync } from "./useRemoteSync";
 import { isSingleObjectSchema } from "../featureFlags";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
+import ExportModal from "../components/ExportModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
@@ -122,6 +123,7 @@ function NodePageInner({
   const isContainer = canHaveChildren(shape) && node.has_children;
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string } | null>(null);
 
@@ -182,6 +184,9 @@ function NodePageInner({
                           Открыть в карте
                         </button>
                       )}
+                      <button onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
+                        Экспорт поддерева
+                      </button>
                       <button className="np-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
                         Удалить объект
                       </button>
@@ -452,14 +457,19 @@ function NodePageInner({
             // CAS-правка openapi_spec через useNodePatch
             void patch.commitOpenapi(value);
           }}
-          onDocEvent={() => {
-            // После мутации доков — перезагружаем узел для обновления мета
-            nodesApi.get(node.id).then(() => {
-              // TODO: обновить node.docs в стейте
-            }).catch(() => {});
-          }}
+          onDocEvent={patch.applyDocEvent}
           onClose={() => setDoc(null)}
           notice={patch.conflict}
+        />
+      )}
+
+      {/* Экспорт поддерева (⋯-меню) */}
+      {exportOpen && (
+        <ExportModal
+          title="Экспорт поддерева"
+          loadKey={node.id}
+          load={() => exportApi.subtree(node.id)}
+          onClose={() => setExportOpen(false)}
         />
       )}
     </div>

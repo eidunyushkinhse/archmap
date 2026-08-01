@@ -99,9 +99,9 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             </p>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-            <span className="np-external-chip">{project.object_count} объектов</span>
-            <span className="np-external-chip">{project.edge_count} связей</span>
-            <span className="np-external-chip">{processes.length} процессов</span>
+            <span className="np-count-chip">{project.object_count} объектов</span>
+            <span className="np-count-chip">{project.edge_count} связей</span>
+            <span className="np-count-chip">{processes.length} процессов</span>
           </div>
         </div>
 

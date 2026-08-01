@@ -238,9 +238,3 @@
   color: #2563eb;
   background: #eff6ff;
 }
-
-/* Поиск: фокус-кольцо */
-.nt-search-input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
-}
