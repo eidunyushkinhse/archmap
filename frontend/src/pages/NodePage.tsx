@@ -1,18 +1,21 @@
 // Страница объекта (NodePage) — скролл-документ с фиксированным шаблоном секций.
 // Фаза 1: шапка (breadcrumb, имя, статус, чип), свойства (inline CAS), связи (таблица).
 // Схемы (контекст, компоненты) добавляются в Фазе 2.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { AncestorRef, GhostNode, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useEditableLevel } from "./useEditableLevel";
+import { useRemoteSync } from "./useRemoteSync";
 import { isSingleObjectSchema } from "../featureFlags";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
+import type { ViewMetaState } from "../components/LevelGraph";
 import "./NodePage.css";
 
 interface Props {
@@ -796,13 +799,13 @@ function ContextSection({
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
 // Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
 // отдаёт его в формате СЫРОГО графа уровня: локалы = фокус + представители
-// соседей (связанные сиблинги), рёбра сырые, реестр концов с цепочками предков,
-// раскладка — КОРНЕВОГО вида (корневые узлы встают в сохранённые позиции —
-// страница корневого узла совпадает с корневым холстом; вложенные — свежий ELK,
-// как корень отдельного проекта). Рендерит штатный level-конвейер без единой
-// контекстной ветки; отличия от «отдельного проекта» — только рамки реальных
-// предков (ancestorIds) и цвета по реальной глубине (depth). Просмотр
-// read-only: персиста раскладки нет, драг и правка связей — в редакторе-карте.
+// соседей (связанные сиблинги), рёбра сырые, реестр концов с цепочками предков.
+// Раскладка — ВСЕГДА свежий ELK (сохранённые координаты общего холста бэк не
+// отдаёт: их гибрид со свежей раскладкой фокуса рождал тесноту и «рогалики»).
+// Рендерит штатный level-конвейер без единой контекстной ветки; отличия от
+// «отдельного проекта» — только рамки реальных предков (ancestorIds) и цвета по
+// реальной глубине (depth). Просмотр read-only: персиста раскладки нет, драг и
+// правка связей — в редакторе-карте.
 function SchemaSection({
   node,
   ancestors,
@@ -821,13 +824,44 @@ function SchemaSection({
 
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    let alive = true;
+  // Курсор изменений для remote-sync: context-graph несёт version/graph_rev;
+  // рефетч обновляет курсор. Страница read-only (сама не пишет) — ложных
+  // срабатываний на собственные записи нет.
+  const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
+  const gestureActiveRef = useRef(false); // жестов правки на странице нет
+  const [remoteToast, setRemoteToast] = useState(false);
+  const remoteToastTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current); }, []);
+
+  const refetch = useCallback(() => {
     nodesApi.getContextGraph(node.id)
-      .then((g) => { if (alive) { setGraph(g); setLoading(false); } })
-      .catch(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
+      .then((g) => {
+        viewMetaRef.current = { version: g.version, graphRev: g.graph_rev };
+        setGraph(g);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [node.id]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка данных схемы
+    setLoading(true);
+    refetch();
+  }, [refetch]);
+
+  // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
+  // тихий рефетч контекста + тост «обновлено в другой сессии».
+  useRemoteSync({
+    currentParentId: null,
+    viewMeta: viewMetaRef,
+    gestureActiveRef,
+    onRemoteChange: () => {
+      refetch();
+      setRemoteToast(true);
+      if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
+      remoteToastTimer.current = window.setTimeout(() => setRemoteToast(false), 4000);
+    },
+  });
 
   if (loading) return <p className="np-empty">Загрузка схемы…</p>;
   if (!graph) return null;
@@ -894,23 +928,29 @@ function SchemaSection({
     : undefined;
 
   return (
-    <EmbeddedSchemaBlock
-      nodes={graph.nodes}
-      endpoints={graph.endpoints}
-      edges={edges}
-      viewLayout={graph.layout ?? {}}
-      containerId={node.parent_id ?? null}
-      ancestorNames={ancestors.map((a) => a.name)}
-      ancestorIds={ancestors.map((a) => a.id)}
-      depth={ancestors.length}
-      isArchitect={isArchitect}
-      schemaView={schemaView}
-      onSchemaViewChange={setSchemaView}
-      onNavigateNode={onNavigateNode}
-      onEdit={onEdit}
-      height={height}
-      showViewFilter={hasStatusInfo}
-      showCaption={false}
-    />
+    <div style={{ position: "relative" }}>
+      {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+      <EmbeddedSchemaBlock
+        nodes={graph.nodes}
+        endpoints={graph.endpoints}
+        edges={edges}
+        viewLayout={{}}
+        containerId={node.parent_id ?? null}
+        ancestorNames={ancestors.map((a) => a.name)}
+        ancestorIds={ancestors.map((a) => a.id)}
+        depth={ancestors.length}
+        isArchitect={isArchitect}
+        schemaView={schemaView}
+        onSchemaViewChange={setSchemaView}
+        onNavigateNode={onNavigateNode}
+        onEdit={onEdit}
+        height={height}
+        showViewFilter={hasStatusInfo}
+        showCaption={false}
+      />
+    </div>
   );
 }
+
+// Тост «схема обновлена в другой сессии» (remote-sync) — поверх окна схемы.
+const remoteToastStyle: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)" };

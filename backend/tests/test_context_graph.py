@@ -60,7 +60,7 @@ def _layout_row(db, view, item, x=None, y=None, expanded=None):
     )
 
 
-def test_root_focus_locals_are_connected_roots_with_root_layout(db, project):
+def test_root_focus_locals_are_connected_roots_layout_empty(db, project):
     # Корневой фокус A (⊃ A1), корневые B (сосед через глубокое ребро A1→B),
     # C (сосед по прямому ребру C→A) и D (НЕ связан — не должен попасть).
     a = _node(db, "A")
@@ -79,8 +79,7 @@ def test_root_focus_locals_are_connected_roots_with_root_layout(db, project):
     g = get_node_context_graph(a.id, db=db, project=project, _=None)
 
     # Локалы: фокус + связанные корневые соседи (в порядке запроса уровня —
-    # ELK чувствителен к порядку, критерий A требует совпадения с холстом);
-    # несвязанный D исключён.
+    # ELK чувствителен к порядку); несвязанный D исключён.
     assert {n.id for n in g.nodes} == {a.id, b.id, c.id}
     # Рёбра сырые: концы реальные (a1, не a); сосед↔сосед включён, c→d — нет.
     assert {e.id for e in g.edges} == {e_deep.id, e_direct.id, e_nn.id}
@@ -89,16 +88,16 @@ def test_root_focus_locals_are_connected_roots_with_root_layout(db, project):
     # Реестр — глубокий конец a1 с цепочкой предков (для проекции/R5).
     assert {ep.id for ep in g.endpoints} == {a1.id}
     assert [x.id for x in g.endpoints[0].ancestors] == [a.id]
-    # Раскладка — строки корневого вида.
-    assert set(g.layout) == {str(a.id), str(b.id)}
-    assert g.layout[str(a.id)].x == 10
+    # Раскладка НЕ отдаётся (X11-A v2): виртуальный корень — всегда свежий ELK,
+    # сохранённые позиции общего холста на страницу не переносятся.
+    assert g.layout == {}
 
 
-def test_nested_focus_reps_are_connected_siblings_layout_still_root(db, project):
+def test_nested_focus_reps_are_connected_siblings_layout_empty(db, project):
     # P ⊃ {F(фокус) ⊃ F1, S ⊃ S1, T}; сосед — S1 (глубокий, через F1→S1):
     # представитель S (сиблинг), несвязанный сиблинг T исключён. Внутреннее
-    # ребро F→F1 включено (питает раскрытие R5). Раскладка — корневого вида,
-    # строки вида P (сохранённые позиции уровня родителя) НЕ отдаются.
+    # ребро F→F1 включено (питает раскрытие R5). Раскладка не отдаётся вовсе
+    # (X11-A v2): строки ни корневого вида, ни вида родителя не попадают.
     p = _node(db, "P")
     f = _node(db, "F", p)
     f1 = _node(db, "F1", f)
@@ -122,8 +121,8 @@ def test_nested_focus_reps_are_connected_siblings_layout_still_root(db, project)
     assert {ep.id for ep in g.endpoints} == {f1.id, s1.id}
     s1_entry = next(ep for ep in g.endpoints if ep.id == s1.id)
     assert [x.id for x in s1_entry.ancestors] == [p.id, s.id]
-    # Раскладка — только корневой вид (свежий ELK для узлов контекста).
-    assert set(g.layout) == {str(p.id)}
+    # Раскладка пустая: виртуальный корень — всегда свежий ELK (X11-A v2).
+    assert g.layout == {}
 
 
 def test_edge_between_rep_subtree_and_neighbor_only_is_excluded(db, project):

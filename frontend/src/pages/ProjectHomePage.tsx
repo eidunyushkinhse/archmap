@@ -1,13 +1,15 @@
 // Страница проекта (корень) — вход в проект открывает её (pages_pivot).
 // Шапка: имя, описание, счётчики. Секция «Схема системы» = корневой уровень.
 // Секция «Бизнес-процессы» — список со счётчиком участников.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { Project, ProcessListItem } from "../types";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { useEditableLevel } from "./useEditableLevel";
+import { useRemoteSync } from "./useRemoteSync";
 import "./NodePage.css";
 
 interface Props {
@@ -24,6 +26,24 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const lvl = useEditableLevel({ containerId: null, isArchitect });
 
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+
+  // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
+  // перезагрузка уровня + тост. Собственные записи (драг архитектора) курсор
+  // обновляют из ответов PUT — echo-suppression, ложных тостов нет.
+  const [remoteToast, setRemoteToast] = useState(false);
+  const remoteToastTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current); }, []);
+  useRemoteSync({
+    currentParentId: null,
+    viewMeta: lvl.viewMetaRef,
+    gestureActiveRef: lvl.gestureActiveRef,
+    onRemoteChange: () => {
+      lvl.reload();
+      setRemoteToast(true);
+      if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
+      remoteToastTimer.current = window.setTimeout(() => setRemoteToast(false), 4000);
+    },
+  });
 
   // Мета проекта + процессы (граф уровня грузит useEditableLevel)
   useEffect(() => {
@@ -88,7 +108,9 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
         {/* ── Схема системы ─────────────────────────────────────── */}
         <div className="np-card">
           <h3 className="np-card-title">Схема системы</h3>
-          <EmbeddedSchemaBlock
+          <div style={{ position: "relative" }}>
+            {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+            <EmbeddedSchemaBlock
             nodes={graphNodes}
             endpoints={endpoints}
             edges={lvl.edges}
@@ -134,7 +156,8 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
                 </span>
               )
             }
-          />
+            />
+          </div>
         </div>
 
         {/* ── Бизнес-процессы ───────────────────────────────────── */}
@@ -168,3 +191,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     </div>
   );
 }
+
+// Тост «схема обновлена в другой сессии» (remote-sync) — поверх окна схемы.
+const remoteToastStyle: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)" };
