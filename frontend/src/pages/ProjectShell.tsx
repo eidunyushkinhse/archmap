@@ -53,6 +53,9 @@ export default function ProjectShell({
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
   const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
+  // Процесс, выбранный извне (клик по процессу на странице узла) — стартовый
+  // выбор ProcessWorkspace при входе в режим «Процессы».
+  const [procInitial, setProcInitial] = useState<string | null>(null);
   const [exportScope, setExportScope] = useState<{
     key: string;
     title: string;
@@ -105,7 +108,7 @@ export default function ProjectShell({
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <ModeSwitch mode={mode} onChange={setMode} />
+          <ModeSwitch mode={mode} onChange={(m) => { setMode(m); setProcInitial(null); }} />
           {/* Кнопка «Карта» — вход в редактор-карту (архитектор). Открывает карту на
               текущем уровне и возвращает на текущую страницу (Ф12). */}
           {isArchitect && mode === "schema" && (
@@ -141,7 +144,11 @@ export default function ProjectShell({
       {/* ── Тело ──────────────────────────────────────────────── */}
       <div style={bodyRow}>
         {mode === "proc" ? (
-          <ProcessWorkspace isArchitect={isArchitect} onSelectedChange={setProcSelection} />
+          <ProcessWorkspace
+            isArchitect={isArchitect}
+            initialProcessId={procInitial ?? undefined}
+            onSelectedChange={setProcSelection}
+          />
         ) : (
           <>
             <NodeTreePanel
@@ -158,6 +165,10 @@ export default function ProjectShell({
                 onNavigateNode={onNavigateNode}
                 onNavigateProject={onNavigateProject}
                 onNavigateMap={onNavigateMap}
+                onNavigateProcesses={(processId) => {
+                  setProcInitial(processId);
+                  setMode("proc");
+                }}
                 onNodeDeleted={(parentId) => {
                   setTreeReload((t) => t + 1);
                   if (parentId) onNavigateNode(parentId);

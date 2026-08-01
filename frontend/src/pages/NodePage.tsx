@@ -3,7 +3,7 @@
 // Схемы (контекст, компоненты) добавляются в Фазе 2.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GhostNode, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge } from "../types";
+import type { AncestorRef, GhostNode, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeContext, LevelEdge, ProcessListItem } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
@@ -27,11 +27,13 @@ interface Props {
   onNavigateProject: () => void;
   // Навигация в редактор-карту
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  // Навигация в режим «Процессы» с выбором процесса (секция «Участвует в процессах»)
+  onNavigateProcesses?: (processId: string) => void;
   // Удаление узла со страницы → редирект на родителя
   onNodeDeleted?: (parentId: string | null) => void;
 }
 
-export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNodeDeleted }: Props) {
+export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNavigateProcesses, onNodeDeleted }: Props) {
   const [node, setNode] = useState<Node | null>(null);
   const [ancestors, setAncestors] = useState<AncestorRef[]>([]);
   const [edges, setEdges] = useState<NodeEdgeInfo[]>([]);
@@ -80,6 +82,7 @@ export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNaviga
       onNavigateNode={onNavigateNode}
       onNavigateProject={onNavigateProject}
       onNavigateMap={onNavigateMap}
+      onNavigateProcesses={onNavigateProcesses}
       onNodeDeleted={onNodeDeleted}
       confirming={confirming}
       setConfirming={setConfirming}
@@ -100,6 +103,7 @@ function NodePageInner({
   onNavigateNode,
   onNavigateProject,
   onNavigateMap,
+  onNavigateProcesses,
   onNodeDeleted,
   confirming,
   setConfirming,
@@ -112,6 +116,7 @@ function NodePageInner({
   onNavigateNode: (id: string) => void;
   onNavigateProject: () => void;
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateProcesses?: (processId: string) => void;
   onNodeDeleted?: (parentId: string | null) => void;
   confirming: boolean;
   setConfirming: (v: boolean) => void;
@@ -389,6 +394,9 @@ function NodePageInner({
             </table>
           )}
         </div>
+
+        {/* ── Участвует в процессах ─────────────────────────────── */}
+        <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}
         {node.shape !== "person" && (isArchitect || node.docs.length > 0) && (
@@ -805,6 +813,43 @@ function ContextSection({
   );
 }
 
+
+// ── Секция «Участвует в процессах» ─────────────────────────────────
+// Процессы, в которых участвует узел или его поддерево (GET /nodes/{id}/processes).
+// Пустая секция скрывается вовсе: участие в процессах — не обязательная мета.
+function ProcessesSection({ nodeId, onNavigateProcess }: {
+  nodeId: string;
+  onNavigateProcess?: (processId: string) => void;
+}) {
+  const [items, setItems] = useState<ProcessListItem[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    nodesApi.getNodeProcesses(nodeId)
+      .then((ps) => { if (alive) setItems(ps); })
+      .catch(() => { if (alive) setItems([]); });
+    return () => { alive = false; };
+  }, [nodeId]);
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="np-card">
+      <h3 className="np-card-title">Участвует в процессах</h3>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {items.map((p) => (
+          <button
+            key={p.id}
+            className="np-doc-row"
+            onClick={() => onNavigateProcess?.(p.id)}
+            title={`Открыть процесс «${p.name}»`}
+          >
+            <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>{p.message_count} сообщ.</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
 // Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)

@@ -483,12 +483,37 @@ export interface paths {
          *       конец в поддереве — сам контекст) и сосед↔сосед (связи между соседями —
          *       как в «отдельном проекте», куда положили объект и его соседей).
          *     - endpoints — реестр не-локальных концов этих рёбер с цепочками предков.
-         *     - layout — раскладка КОРНЕВОГО вида (view IS NULL): узлы, присутствующие в
-         *       ней (корневые), встают в сохранённые позиции — страница корневого узла
-         *       совпадает с корневым холстом пиксель-в-пиксель; остальные раскладываются
-         *       свежим ELK — как корень отдельного проекта без сохранённых позиций.
+         *     - layout — НЕ отдаётся (пустой по умолчанию): виртуальный корень всегда
+         *       раскладывается свежим ELK, как корень отдельного проекта без сохранённых
+         *       позиций. Сохранённые координаты общего холста на страницу не переносятся:
+         *       гибрид «представители по сохранённым местам + фокус по свежему ELK» рождал
+         *       тесноту и «рогалики» стрелок (решение 2026-08-01; критерий X11-A переписан:
+         *       тождество состава/связей/рамок при СВОЕЙ раскладке).
          */
         get: operations["get_node_context_graph_api_v1_nodes__node_id__context_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Node Processes
+         * @description Процессы, в которых участвует узел ИЛИ его поддерево — секция «Участвует
+         *     в процессах» страницы объекта (single-schema): участник-потомок считает
+         *     процесс участием своего контейнера-предка. Форма ответа — тот же
+         *     ProcessListItem, что у GET /processes (счётчик сообщений, статусы).
+         */
+        get: operations["get_node_processes_api_v1_nodes__node_id__processes_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3373,6 +3398,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_node_processes_api_v1_nodes__node_id__processes_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessListItem"][];
                 };
             };
             /** @description Validation Error */

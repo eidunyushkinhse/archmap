@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -34,6 +34,10 @@ export const nodesApi = {
   // level-конвейером, что и обычный уровень.
   getContextGraph: (id: string): Promise<GraphResponse> =>
     api.get<GraphResponse>(`/nodes/${id}/context-graph`),
+  // Процессы с участием узла или его поддерева — секция «Участвует в процессах»
+  // страницы объекта (форма — ProcessListItem, как у списка процессов).
+  getNodeProcesses: (id: string): Promise<ProcessListItem[]> =>
+    api.get<ProcessListItem[]>(`/nodes/${id}/processes`),
   // Глобальные алерты незавершённости схемы (только архитектор)
   getAlerts: (): Promise<SchemaAlerts> =>
     api.get<SchemaAlerts>(`/nodes/alerts`),

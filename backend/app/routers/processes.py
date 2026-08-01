@@ -8,7 +8,6 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
@@ -22,7 +21,12 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
-from app.processes import edge_is_synchronous, legs_for_edge, resolve_to_participant
+from app.processes import (
+    edge_is_synchronous,
+    legs_for_edge,
+    process_list_items,
+    resolve_to_participant,
+)
 from app.schemas.process import (
     ChannelOut,
     FragmentCreate,
@@ -171,44 +175,7 @@ def list_processes(
     _: User = Depends(get_current_user),
 ) -> list[ProcessListItem]:
     all_nodes = _load_nodes(db, project)
-    # Счётчик сообщений только по процессам текущего проекта (join к BusinessProcess).
-    counts = dict(
-        db.query(ProcessMessage.process_id, func.count(ProcessMessage.id))
-        .join(BusinessProcess, BusinessProcess.id == ProcessMessage.process_id)
-        .filter(BusinessProcess.project_id == project.id)
-        .group_by(ProcessMessage.process_id)
-        .all()
-    )
-    # Статусы узлов-участников по процессам — для производного бейджа в списке.
-    proc_statuses: dict[uuid.UUID, set[str]] = {}
-    for proc_id, node_id in (
-        db.query(ProcessParticipant.process_id, ProcessParticipant.node_id)
-        .join(BusinessProcess, BusinessProcess.id == ProcessParticipant.process_id)
-        .filter(BusinessProcess.project_id == project.id)
-        .all()
-    ):
-        node = all_nodes.get(node_id)
-        if node is not None:
-            proc_statuses.setdefault(proc_id, set()).add(node.status)
-    out: list[ProcessListItem] = []
-    for proc in (
-        db.query(BusinessProcess)
-        .filter(BusinessProcess.project_id == project.id)
-        .order_by(BusinessProcess.created_at)
-        .all()
-    ):
-        scope = all_nodes.get(proc.scope_node_id) if proc.scope_node_id else None
-        out.append(
-            ProcessListItem(
-                id=proc.id,
-                name=proc.name,
-                scope_node_id=proc.scope_node_id,
-                scope_name=scope.name if scope else None,
-                message_count=counts.get(proc.id, 0),
-                statuses=sorted(proc_statuses.get(proc.id, set())),  # type: ignore[arg-type]
-            )
-        )
-    return out
+    return process_list_items(db, project.id, all_nodes)
 
 
 @router.post("", response_model=ProcessDetail, status_code=status.HTTP_201_CREATED)

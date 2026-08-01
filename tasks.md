@@ -734,14 +734,16 @@
            → docs/archive/.
 
         СРЕДНИЕ (после быстрых побед):
-        а) Секция «Участвует в процессах» на страницах узлов. УТОЧНЕНО:
-           клиентский расчёт НЕвозможен (ProcessListItem без node_id → detail на
-           каждый процесс); только бэк-эндпоинт GET /nodes/{id}/processes. Данные
-           готовы: ProcessParticipant.node_id — прямой FK, subtree_ids уже
-           импортирован в processes.py, join-паттерн — в list_processes; ответ —
-           list[ProcessListItem] (там уже message_count/statuses) или {id,name};
-           фронт — секция np-card со ссылками на процессы (референс секции —
-           ProjectHomePage «Бизнес-процессы»).
+        а) [ЗАКРЫТО 2026-08-01] Секция «Участвует в процессах» на страницах узлов.
+           Бэк: GET /nodes/{id}/processes — процессы с участием узла ИЛИ поддерева
+           (участник-потомок считает процесс участием предка); общий строитель
+           списка process_list_items вынесен в app/processes.py (переиспользуется
+           в GET /processes). Ответ — ProcessListItem (имя, счётчик сообщений,
+           статусы). Фронт: секция на странице (пустая скрывается), клик → режим
+           «Процессы» с выбором процесса (initialProcessId ProcessWorkspace ←
+           procInitial ProjectShell). Тесты: test_node_processes.py (4: участие
+           поддерева, форма/счётчики/статусы, пустой список, 404). spec.md
+           дополнен.
         е) Тесты на новые компоненты (NodePage, EmbeddedSchemaBlock,
            MapEditorPage, ProjectShell). УТОЧНЕНО: @testing-library/react в
            проекте НЕТ — рендер-тесты страниц = отдельная инфра-задача

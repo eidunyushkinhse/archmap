@@ -14,6 +14,9 @@ import "./processes.css";
 
 interface Props {
   isArchitect: boolean;
+  // Стартовый выбор процесса (клик по процессу на странице узла). Применяется
+  // только при маунте (воркспейс монтируется на входе в режим «Процессы»).
+  initialProcessId?: string;
   // Уведомление родителя (TreePage) о выбранном процессе — чтобы кнопка экспорта
   // в шапке знала, какой процесс выгружать в Mermaid. null = ничего не выбрано.
   onSelectedChange?: (sel: { id: string; name: string } | null) => void;
@@ -32,11 +35,11 @@ function readPrefs(): Prefs {
   }
 }
 
-export default function ProcessWorkspace({ isArchitect, onSelectedChange }: Props) {
+export default function ProcessWorkspace({ isArchitect, initialProcessId, onSelectedChange }: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Явно выбранный процесс. null → берём первый из списка (derived ниже), без эффекта.
-  const [picked, setPicked] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(initialProcessId ?? null);
   const [railOpen, setRailOpen] = useState<boolean>(() => readPrefs().railOpen ?? true);
   const [editingPref, setEditingPref] = useState<boolean>(() => readPrefs().editing ?? false);
 

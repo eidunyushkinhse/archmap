@@ -11,8 +11,15 @@
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.process_message import ProcessMessage
+from app.models.process_participant import ProcessParticipant
+from app.schemas.process import ProcessListItem
 from app.tree import ancestors
 
 
@@ -78,3 +85,57 @@ def resolve_to_participant(
         if a.id in participant_ids:
             return a.id
     return None
+
+
+def process_list_items(
+    db: Session,
+    project_id: uuid.UUID,
+    all_nodes: dict[uuid.UUID, Node],
+    only_ids: set[uuid.UUID] | None = None,
+) -> list[ProcessListItem]:
+    """Список процессов проекта с счётчиком сообщений и статусами участников.
+
+    Общий строитель для GET /processes (only_ids=None — все процессы проекта) и
+    GET /nodes/{id}/processes (only_ids — процессы с участием узла/поддерева).
+    Сортировка — по дате создания (стабильный порядок списка).
+    """
+    if only_ids is not None and not only_ids:
+        return []
+    proc_filter = [BusinessProcess.project_id == project_id]
+    if only_ids is not None:
+        proc_filter.append(BusinessProcess.id.in_(only_ids))
+    # Счётчик сообщений только по отобранным процессам (join к BusinessProcess).
+    counts = dict(
+        db.query(ProcessMessage.process_id, func.count(ProcessMessage.id))
+        .join(BusinessProcess, BusinessProcess.id == ProcessMessage.process_id)
+        .filter(*proc_filter)
+        .group_by(ProcessMessage.process_id)
+        .all()
+    )
+    # Статусы узлов-участников по процессам — для производного бейджа в списке.
+    proc_statuses: dict[uuid.UUID, set[str]] = {}
+    for proc_id, node_id in (
+        db.query(ProcessParticipant.process_id, ProcessParticipant.node_id)
+        .join(BusinessProcess, BusinessProcess.id == ProcessParticipant.process_id)
+        .filter(*proc_filter)
+        .all()
+    ):
+        node = all_nodes.get(node_id)
+        if node is not None:
+            proc_statuses.setdefault(proc_id, set()).add(node.status)
+    out: list[ProcessListItem] = []
+    for proc in (
+        db.query(BusinessProcess).filter(*proc_filter).order_by(BusinessProcess.created_at).all()
+    ):
+        scope = all_nodes.get(proc.scope_node_id) if proc.scope_node_id else None
+        out.append(
+            ProcessListItem(
+                id=proc.id,
+                name=proc.name,
+                scope_node_id=proc.scope_node_id,
+                scope_name=scope.name if scope else None,
+                message_count=counts.get(proc.id, 0),
+                statuses=sorted(proc_statuses.get(proc.id, set())),  # type: ignore[arg-type]
+            )
+        )
+    return out

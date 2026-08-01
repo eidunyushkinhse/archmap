@@ -9,11 +9,14 @@ from app import restore, tree
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
+from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
+from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
     ContextEdgeResponse,
@@ -30,6 +33,7 @@ from app.schemas.node import (
     NodeUpdate,
     ViewLayoutPayload,
 )
+from app.schemas.process import ProcessListItem
 from app.schemas.restore import DeletionSnapshot
 from app.view_state import bump_graph_rev, bump_view_version, current_version
 
@@ -828,6 +832,36 @@ def get_node_context_graph(
         version=current_version(db, project.id, None),
         graph_rev=project.graph_rev,
     )
+
+
+@router.get("/{node_id}/processes", response_model=list[ProcessListItem])
+def get_node_processes(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[ProcessListItem]:
+    """Процессы, в которых участвует узел ИЛИ его поддерево — секция «Участвует
+    в процессах» страницы объекта (single-schema): участник-потомок считает
+    процесс участием своего контейнера-предка. Форма ответа — тот же
+    ProcessListItem, что у GET /processes (счётчик сообщений, статусы)."""
+    focus = scoped_node(db, node_id, project)
+    if not focus:
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
+    node_ids = tree.subtree_ids(all_nodes, focus.id)
+    proc_ids = {
+        row[0]
+        for row in (
+            db.query(ProcessParticipant.process_id)
+            .join(BusinessProcess, BusinessProcess.id == ProcessParticipant.process_id)
+            .filter(BusinessProcess.project_id == project.id)
+            .filter(ProcessParticipant.node_id.in_(node_ids))
+            .distinct()
+            .all()
+        )
+    }
+    return process_list_items(db, project.id, all_nodes, only_ids=proc_ids)
 
 
 
