@@ -9,6 +9,7 @@ import { canHaveChildren, compareByRank, withoutPersons } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
 import { isConflict } from "../../api/client";
+import { plural } from "../../ui/plural";
 import { ShapeGlyph, Chevron } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import DocOverlay from "./DocOverlay";
@@ -295,7 +296,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               <span className="insp-heavy-ico">{META_ICON.flow}</span>
               <span className="insp-heavy-name">Логика</span>
               <span className="insp-heavy-status">
-                {node.docs.length > 0 ? `${node.docs.length} ${pluralScheme(node.docs.length)} →` : "не задано"}
+                {node.docs.length > 0 ? `${node.docs.length} ${plural(node.docs.length, ["схема", "схемы", "схем"])} →` : "не задано"}
               </span>
             </button>
           )}
@@ -379,7 +380,7 @@ function ChildrenRow({ node }: { node: Node }) {
           <span className="insp-value--empty">загрузка…</span>
         ) : hasKids ? (
           <>
-            <div style={{ marginBottom: 6 }}>{list.length} {pluralObj(list.length)}</div>
+            <div style={{ marginBottom: 6 }}>{list.length} {plural(list.length, ["объект", "объекта", "объектов"])}</div>
             <div className="nt-tree nt-tree--inline">
               {list.map((k) => <TreeRow key={k.id} node={k} />)}
             </div>
@@ -432,21 +433,6 @@ function TreeRow({ node }: { node: Node }) {
       )}
     </>
   );
-}
-
-function pluralObj(n: number): string {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return "объект";
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "объекта";
-  return "объектов";
-}
-
-// «1 схема / 2 схемы / 5 схем» — счётчик доков логики в строке «Документация».
-function pluralScheme(n: number): string {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return "схема";
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "схемы";
-  return "схем";
 }
 
 // Форма узла → человекочитаемая подпись типа.

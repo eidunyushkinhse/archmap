@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ImportPreviewOut } from "../../types";
 import { secondaryBtn } from "../../ui/styles";
+import { plural } from "../../ui/plural";
 
 /**
  * Правая панель импорта YAML в модалке создания проекта: несколько документов
@@ -138,8 +139,8 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
         {summary?.ok && (
           <>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-              Готово к импорту: {summary.node_count} объектов · {summary.edge_count} связей
-              {summary.files > 1 && ` · из ${summary.files} файлов`}
+              Готово к импорту: {summary.node_count} {plural(summary.node_count, ["объект", "объекта", "объектов"])} · {summary.edge_count} {plural(summary.edge_count, ["связь", "связи", "связей"])}
+              {summary.files > 1 && ` · из ${summary.files} ${plural(summary.files, ["файла", "файлов", "файлов"])}`}
             </div>
             {summary.roots.length > 0 && (
               <div style={grayLine}>Корневые: {summary.roots.join(", ")}</div>

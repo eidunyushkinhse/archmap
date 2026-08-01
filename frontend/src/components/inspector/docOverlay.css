@@ -161,6 +161,10 @@
 }
 .doc-edhead {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid #f3f4f6;
   font-size: 11px;
@@ -168,6 +172,26 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #94a3b8;
+}
+.doc-savebtn {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #2563eb;
+  cursor: pointer;
+  font-family: inherit;
+}
+.doc-savebtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.doc-savebtn:not(:disabled):hover {
+  background: #dbeafe;
 }
 .doc-edta {
   flex: 1;

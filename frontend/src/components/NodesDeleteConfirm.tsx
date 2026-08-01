@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { CSSProperties } from "react";
 import type { DeletionSnapshot, Node } from "../types";
 import { nodesApi } from "../api/nodes";
+import { plural } from "../ui/plural";
 import Modal from "../ui/Modal";
 import { dangerBtn, secondaryBtn } from "../ui/styles";
 
@@ -45,7 +46,7 @@ export default function NodesDeleteConfirm({ nodes, onCancel, onDeleted }: Props
     <Modal onClose={onCancel} closeButton={false} boxStyle={{ width: 460, maxHeight: "80vh", overflowY: "auto", padding: 24 }}>
       <div style={titleRow}>
         <span style={warnPlaque} aria-hidden>{WARN_ICON}</span>
-        <h3 style={title}>Удалить {nodes.length} {plural(nodes.length)}?</h3>
+        <h3 style={title}>Удалить {nodes.length} {plural(nodes.length, ["объект", "объекта", "объектов"])}?</h3>
       </div>
       <p style={lead}>
         Будут удалены вместе со своими дочерними объектами и связями:
@@ -68,15 +69,6 @@ export default function NodesDeleteConfirm({ nodes, onCancel, onDeleted }: Props
       </div>
     </Modal>
   );
-}
-
-// Русское склонение «объект» по числу (2 объекта / 5 объектов).
-function plural(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return "объект";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "объекта";
-  return "объектов";
 }
 
 // Знак-предупреждение (линейный SVG, наследует цвет плашки через currentColor).

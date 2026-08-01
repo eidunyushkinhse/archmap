@@ -255,11 +255,14 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   уровня в полёте + user-патч own-on-expand). Fence и политика 409 (V44,
   planPersistFailure) остаются против ЧУЖИХ сессий.
   [репро/контроль: spawn-probe --relayout-first --fast-click --slow-layout]
-- **V48.** `projects.graph_rev` — курсор «в проекте что-то поменялось»:
-  инкрементируется ЛЮБОЙ мутацией узлов/рёбер/раскладки (атомарным UPDATE,
-  не read-modify-write). В отличие от `updated_at` (V12) двигается и
-  раскладкой; V12 при этом в силе — updated_at раскладка по-прежнему не
-  трогает. [тест: backend/tests/test_concurrency.py]
+- **V48.** `projects.graph_rev` — курсор «СХЕМА поменялась»: инкрементируется
+  мутациями узлов/рёбер/раскладки (атомарным UPDATE, не read-modify-write),
+  включая структурные поля узла (имя/форма/иерархия — видны на холсте). В
+  отличие от `updated_at` (V12) двигается и раскладкой; V12 при этом в силе —
+  updated_at раскладка по-прежнему не трогает. МЕТА узла (роль/технология/
+  статус/описание/внешность/openapi, доки) graph_rev НЕ двигает — её курсор
+  `projects.meta_rev` (V53). [тест: backend/tests/test_concurrency.py,
+  test_meta_rev.py]
 - **V49.** CAS смысловых правок: `PATCH /nodes/{id}` и `PATCH /edges/{id}`
   принимают `base_version`; задан и ≠ текущей версии сущности → 409, НИЧЕГО не
   применяется (главная ценность — тексты flowchart/openapi_spec не затираются
@@ -267,9 +270,9 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   задан → без проверки (компенсации undo, совместимость); PATCH без полей
   версию не двигает. `version` отдаётся в NodeResponse/EdgeResponse.
   [тест: backend/tests/test_concurrency.py]
-- **V50.** `GET /views/{view_id}/state` → `{version, graph_rev}` — лёгкий опрос
-  свежести для поллинга, доступен обеим ролям. Мёртвый вид не проверяет
-  (версия 0): арбитр существования — рефетч графа (404).
+- **V50.** `GET /views/{view_id}/state` → `{version, graph_rev, meta_rev}` —
+  лёгкий опрос свежести для поллинга, доступен обеим ролям. Мёртвый вид не
+  проверяет (версия 0): арбитр существования — рефетч графа (404).
   [тест: backend/tests/test_concurrency.py]
 - **V51.** Фронт: каждый батч commitLayout несёт base_version из живого снимка
   viewMeta (TreePage наполняет его из GraphResponse при load(), LevelGraph
@@ -293,6 +296,15 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
   (inflight-замок); пропущенный тик догоняет следующий (максимум ~2×POLL_MS
   задержки). Ошибка сети — молча, следующий тик. Поллят ОБЕ роли (наблюдателю —
   живость чтения). [тест: remoteSync.test.ts]
+- **V53.** (2026-08-01) `projects.meta_rev` — курсор «МЕТА поменялась»:
+  атрибуты узла (роль/технология/статус/описание/внешность/openapi —
+  неструктурные поля PATCH /nodes/{id}), доки (node_docs CRUD), доки-импорт.
+  Поллинг страницы объекта сверяет его тем же тиком (V52): вырос → рефетч узла
+  + сверка содержимого (сигнатура меты) — совпало (СВОЯ запись уже применена
+  локально) → молча; отличается → освежить страницу + тост «Данные изменены в
+  другой сессии». Тост СХЕМЫ («Схема обновлена…») живёт на схеме и срабатывает
+  только на graph_rev — правки доков/спек его больше не вызывают.
+  [тест: test_meta_rev.py, remoteSync.test.ts]
 
 ## Известные ограничения (зафиксированы, не баги)
 

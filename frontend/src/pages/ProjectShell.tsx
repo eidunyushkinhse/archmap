@@ -109,24 +109,6 @@ export default function ProjectShell({
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <ModeSwitch mode={mode} onChange={(m) => { setMode(m); setProcInitial(null); }} />
-          {/* Кнопка «Карта» — вход в редактор-карту (архитектор). Открывает карту на
-              текущем уровне и возвращает на текущую страницу (Ф12). */}
-          {isArchitect && mode === "schema" && (
-            <button
-              style={mapBtn}
-              onClick={() => onNavigateMap(nodeId, {
-                locate: nodeId ?? undefined,
-                ret: nodeId ? `node:${nodeId}` : "project",
-              })}
-              title="Открыть редактор-карту"
-            >
-              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 3 3.5 5.5v15L9 18l6 3 5.5-2.5v-15L15 6 9 3Z" />
-                <path d="M9 3v15" /><path d="M15 6v15" />
-              </svg>
-              Карта
-            </button>
-          )}
           <button
             className="icon-btn"
             onClick={openExport}
@@ -180,6 +162,7 @@ export default function ProjectShell({
                 projectId={projectId}
                 isArchitect={isArchitect}
                 onNavigateNode={onNavigateNode}
+                onNavigateMap={onNavigateMap}
               />
             )}
           </>
@@ -210,13 +193,18 @@ export default function ProjectShell({
   );
 }
 
-// Сегмент-переключатель «Схема / Процессы» (порт из TreePage).
+// Сегмент-переключатель «Объекты / Процессы» со скользящей подсветкой активной
+// вкладки (плавный transition transform).
 function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode) => void }) {
   const tab = (active: boolean): CSSProperties => ({
+    position: "relative",
+    zIndex: 1,
+    flex: 1,
     height: 30,
     padding: "0 14px",
     display: "inline-flex",
     alignItems: "center",
+    justifyContent: "center",
     gap: 7,
     fontSize: 13,
     fontWeight: 600,
@@ -225,16 +213,32 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
     border: "none",
     fontFamily: "inherit",
     color: active ? "#2563eb" : "#64748b",
-    background: active ? "#fff" : "transparent",
-    boxShadow: active ? "0 1px 2px rgba(15,23,42,.10)" : "none",
+    background: "transparent",
+    transition: "color .22s",
   });
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
-      <button style={tab(mode === "schema")} onClick={() => onChange("schema")} title="C4-схема">
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "stretch", width: 236, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
+      {/* Скользящая подсветка активной вкладки */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 3,
+          bottom: 3,
+          left: 3,
+          width: "calc(50% - 3px)",
+          background: "#fff",
+          borderRadius: 7,
+          boxShadow: "0 1px 2px rgba(15,23,42,.10)",
+          transform: mode === "proc" ? "translateX(100%)" : "translateX(0)",
+          transition: "transform .22s cubic-bezier(.4,0,.2,1)",
+        }}
+      />
+      <button style={tab(mode === "schema")} onClick={() => onChange("schema")} title="Объекты: схема и страницы">
         <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
           <rect x="9" y="3" width="6" height="4.5" rx="1" /><rect x="3" y="16.5" width="6" height="4.5" rx="1" /><rect x="15" y="16.5" width="6" height="4.5" rx="1" /><path d="M12 7.5 V11 M6 16.5 V13 H18 V16.5" />
         </svg>
-        Схема
+        Объекты
       </button>
       <button style={tab(mode === "proc")} onClick={() => onChange("proc")} title="Бизнес-процессы">
         <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
@@ -300,18 +304,4 @@ const iconBtn: CSSProperties = {
   border: "1px solid #e2e8f0",
   borderRadius: 8,
   cursor: "pointer",
-};
-const mapBtn: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "7px 16px",
-  fontSize: 13.5,
-  fontWeight: 600,
-  color: "#fff",
-  background: "#2563eb",
-  border: "none",
-  borderRadius: 8,
-  cursor: "pointer",
-  fontFamily: "inherit",
 };

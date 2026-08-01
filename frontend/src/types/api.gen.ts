@@ -1551,6 +1551,11 @@ export interface components {
              * @default 0
              */
             graph_rev: number;
+            /**
+             * Meta Rev
+             * @default 0
+             */
+            meta_rev: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2459,13 +2464,18 @@ export interface components {
         };
         /**
          * ViewStateResponse
-         * @description Лёгкий опрос свежести (этап 1): версия вида + курсор проекта.
+         * @description Лёгкий опрос свежести (этап 1): версия вида + курсоры проекта (схема/мета).
          */
         ViewStateResponse: {
             /** Version */
             version: number;
             /** Graph Rev */
             graph_rev: number;
+            /**
+             * Meta Rev
+             * @default 0
+             */
+            meta_rev: number;
         };
     };
     responses: never;

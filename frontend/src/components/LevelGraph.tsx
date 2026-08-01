@@ -235,7 +235,7 @@ interface LevelGraphProps {
 
 // Живой снимок версий конкурентности (этап 0/1, docs/plan-concurrency.md):
 // version — fence вида, graphRev — курсор изменений проекта.
-export type ViewMetaState = { version: number; graphRev: number };
+export type ViewMetaState = { version: number; graphRev: number; metaRev?: number };
 
 // Запрос фокуса на объекте/связи/группе. ids: для node — [nodeId]; для edge — [edgeId];
 // для group — id всех узлов кластера. token — монотонный счётчик из TreePage.

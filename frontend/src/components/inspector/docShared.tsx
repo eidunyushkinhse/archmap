@@ -1,7 +1,7 @@
 // Общие компоненты DocOverlay для обоих режимов (Логика / OpenAPI): колонка
 // редактора с blur-коммитом и страховкой при размонтировании, варианты
 // статус-строки. Разметка и токены — по ТЗ «Визуализация Mermaid и OpenAPI».
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 
 interface EditorProps {
@@ -43,8 +43,13 @@ export function DocEditorColumn({
   const commitBlur = () => {
     if (!onCommitValue || value === committedRef.current) return;
     committedRef.current = value;
+    setDirty(false);
     onCommitValue(value);
   };
+
+  // Есть несохранённые правки (для доступности кнопки «Сохранить»). Взводится в
+  // onChange, гасится в коммите; ремаунт по key (смена дока/409) сбрасывает сам.
+  const [dirty, setDirty] = useState(false);
 
   // Страховка A3: dirty-значение коммитится из cleanup, если blur не успел
   useEffect(
@@ -60,14 +65,23 @@ export function DocEditorColumn({
 
   return (
     <div className="doc-edcol" style={{ width }}>
-      <div className="doc-edhead">{title}</div>
+      <div className="doc-edhead">
+        <span>{title}</span>
+        {/* Явное сохранение (архитектор): дублирует blur-коммит — финализирует
+            новую схему/версию/спеку без ухода фокусом. Неактивна без правок. */}
+        {!readOnly && onCommitValue && (
+          <button type="button" className="doc-savebtn" onClick={commitBlur} disabled={!dirty}>
+            Сохранить
+          </button>
+        )}
+      </div>
       <textarea
         ref={taRef}
         className="doc-edta"
         value={value}
         placeholder={placeholder}
         readOnly={readOnly}
-        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+        onChange={onChange ? (e) => { onChange(e.target.value); setDirty(true); } : undefined}
         onBlur={readOnly ? undefined : commitBlur}
         spellCheck={false}
         autoCapitalize="off"

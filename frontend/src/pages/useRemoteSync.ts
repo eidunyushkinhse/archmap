@@ -16,13 +16,20 @@ export const POLL_MS = 10_000;
 export type RemoteSyncTick = "skipped" | "quiet" | "refetch" | "error";
 
 // Ядро одного тика — чистое (тестируется без таймеров/DOM): сходить за состоянием,
-// сравнить курсор с известным, дёрнуть колбэк. inflight-замок не даёт тикам
-// накладываться при медленной сети (второй тик просто пропускается).
+// сравнить курсоры с известными, дёрнуть колбэки. Два курсора: graph_rev — схема
+// (узлы/рёбра/раскладка) → onRemoteChange; meta_rev — мета узла (атрибуты/доки/
+// спеки) → onMetaChange (поллинг страницы объекта: тост «данные изменены»).
+// inflight-замок не даёт тикам накладываться при медленной сети (второй тик
+// просто пропускается).
 export function createRemoteSyncTick(deps: {
-  fetchState: () => Promise<{ graph_rev: number }>;
+  fetchState: () => Promise<{ graph_rev: number; meta_rev: number }>;
   knownRev: () => number;
+  // undefined = курсор меты ещё не инициализирован (до первой загрузки) — тик
+  // меты пропускается (эхо-подавление: свои записи обновляют курсор из ответов).
+  knownMeta?: () => number | undefined;
   canRefetch: () => boolean;
   onRemoteChange: () => void;
+  onMetaChange?: (metaRev: number) => void;
 }): () => Promise<RemoteSyncTick> {
   let inflight = false;
   return async () => {
@@ -30,11 +37,17 @@ export function createRemoteSyncTick(deps: {
     inflight = true;
     try {
       const s = await deps.fetchState();
+      let tick: RemoteSyncTick = "quiet";
       if (s.graph_rev > deps.knownRev()) {
         deps.onRemoteChange();
-        return "refetch";
+        tick = "refetch";
       }
-      return "quiet";
+      const km = deps.knownMeta?.();
+      if (deps.onMetaChange && km !== undefined && s.meta_rev > km) {
+        deps.onMetaChange(s.meta_rev);
+        tick = "refetch";
+      }
+      return tick;
     } catch {
       return "error"; // сеть/архив — молча, следующий тик попробует снова
     } finally {
@@ -48,23 +61,30 @@ export function useRemoteSync(opts: {
   viewMeta: { current: ViewMetaState };
   gestureActiveRef: { current: boolean };
   onRemoteChange: () => void;
+  // Рост meta_rev относительно известного (viewMeta.metaRev) — мета узла
+  // изменилась (другая сессия правит атрибуты/доки/спеки).
+  onMetaChange?: (metaRev: number) => void;
 }): void {
   // Латест-колбэк: эффект перезапускается только сменой уровня, а колбэк
   // (замыкание на load текущего уровня + тост) обновляется каждый рендер.
   const onChangeRef = useRef(opts.onRemoteChange);
   useEffect(() => { onChangeRef.current = opts.onRemoteChange; });
+  const onMetaRef = useRef(opts.onMetaChange);
+  useEffect(() => { onMetaRef.current = opts.onMetaChange; });
   const { currentParentId, viewMeta, gestureActiveRef } = opts;
   useEffect(() => {
     let disposed = false;
     const tick = createRemoteSyncTick({
       fetchState: () => viewsApi.state(currentParentId),
       knownRev: () => viewMeta.current.graphRev,
+      knownMeta: () => viewMeta.current.metaRev,
       canRefetch: () =>
         !disposed &&
         !document.hidden &&
         !gestureActiveRef.current &&
         document.querySelector("dialog[open]") == null,
       onRemoteChange: () => { if (!disposed) onChangeRef.current(); },
+      onMetaChange: (rev) => { if (!disposed) onMetaRef.current?.(rev); },
     });
     const id = window.setInterval(() => { void tick(); }, POLL_MS);
     const onFocus = () => { void tick(); };

@@ -39,6 +39,9 @@ interface NodePatch {
   // доки — мета (имя/вид/операция) применяется в стейт узла БЕЗ запроса и БЕЗ
   // undo (истории на страницах нет).
   applyDocEvent: (evt: NodeDocEvent) => void;
+  // Внешнее освежение (мета узла изменилась в другой сессии — поллинг страницы):
+  // применить свежий узел целиком — стейты полей и CAS-база.
+  refresh: (fresh: Node) => void;
 }
 
 export function useNodePatch(
@@ -54,6 +57,18 @@ export function useNodePatch(
   const [conflict, setConflict] = useState<string | null>(null);
   const [node, setNode] = useState(initial);
   const beforeRef = useRef<Node>(initial);
+
+  // Применить свежий узел целиком (409-ресинк и поллинг чужой меты — один код).
+  const refresh = useCallback((fresh: Node) => {
+    beforeRef.current = fresh;
+    setNode(fresh);
+    setName(fresh.name);
+    setDescription(fresh.description ?? "");
+    setRole(fresh.role ?? "");
+    setTechnology(fresh.technology ?? "");
+    setIsExternal(fresh.is_external);
+    setStatus(fresh.status);
+  }, []);
 
   const save = useCallback(
     async (over: Partial<NodeUpdate>) => {
@@ -79,22 +94,14 @@ export function useNodePatch(
       } catch (e: unknown) {
         if (!isConflict(e)) return;
         try {
-          const fresh = await nodesApi.get(before.id);
-          beforeRef.current = fresh;
-          setNode(fresh);
-          setName(fresh.name);
-          setDescription(fresh.description ?? "");
-          setRole(fresh.role ?? "");
-          setTechnology(fresh.technology ?? "");
-          setIsExternal(fresh.is_external);
-          setStatus(fresh.status);
+          refresh(await nodesApi.get(before.id));
         } catch {
           // узел могли удалить
         }
         setConflict("Узел изменён в другой сессии — данные обновлены, повторите правку");
       }
     },
-    [name, description, role, technology, isExternal, status, onSaved],
+    [name, description, role, technology, isExternal, status, onSaved, refresh],
   );
 
   const commitName = useCallback(() => {
@@ -151,6 +158,6 @@ export function useNodePatch(
     name, description, role, technology, isExternal, status,
     setName, setDescription, setRole, setTechnology, setIsExternal, setStatus,
     commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal, pickStatus,
-    conflict, node, applyDocEvent,
+    conflict, node, applyDocEvent, refresh,
   };
 }

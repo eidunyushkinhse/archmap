@@ -18,7 +18,24 @@ import DocOverlay from "../components/inspector/DocOverlay";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import type { ViewMetaState } from "../components/LevelGraph";
 import { componentsSectionHeight, hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
+import { plural } from "../ui/plural";
 import "./NodePage.css";
+
+// Сигнатура меты узла, отображаемой на странице, — для сверки при удалённом
+// изменении (meta_rev): совпала → изменение своё (уже применено локально),
+// тост не нужен; отличается → чужая сессия, освежить и показать тост.
+const metaSig = (n: Node): string => JSON.stringify([
+  n.name, n.role, n.technology, n.status, n.description, n.is_external, n.openapi_spec,
+  [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation]),
+]);
+
+// Тост «Данные изменены в другой сессии» — поверх страницы (fixed).
+const metaToastStyle: CSSProperties = {
+  position: "fixed", top: 74, right: 24, zIndex: 60,
+  background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3",
+  borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 600,
+  boxShadow: "0 4px 12px rgba(30,41,59,.12)",
+};
 
 interface Props {
   nodeId: string;
@@ -131,10 +148,29 @@ function NodePageInner({
   const [menuOpen, setMenuOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string } | null>(null);
+  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean } | null>(null);
+
+  // Мета узла изменилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
+  // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
+  // отличается → применяем + тост «Данные изменены в другой сессии».
+  const [metaToast, setMetaToast] = useState(false);
+  const metaToastTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (metaToastTimer.current) window.clearTimeout(metaToastTimer.current); }, []);
+  const handleMetaChange = useCallback(() => {
+    nodesApi.get(node.id)
+      .then((fresh) => {
+        if (metaSig(fresh) === metaSig(patch.node)) return;
+        patch.refresh(fresh);
+        setMetaToast(true);
+        if (metaToastTimer.current) window.clearTimeout(metaToastTimer.current);
+        metaToastTimer.current = window.setTimeout(() => setMetaToast(false), 4000);
+      })
+      .catch(() => { /* узел могли удалить — догонит навигация */ });
+  }, [node.id, patch]);
 
   return (
     <div className="np-page">
+      {metaToast && <div style={metaToastStyle}>Данные изменены в другой сессии</div>}
       <div className="np-inner">
         {/* ── Шапка ─────────────────────────────────────────────── */}
         <div className="np-header">
@@ -333,6 +369,7 @@ function NodePageInner({
               isArchitect={isArchitect}
               onNavigateNode={onNavigateNode}
               onNavigateMap={onNavigateMap}
+              onMetaChange={handleMetaChange}
             />
           </div>
         ) : (
@@ -404,24 +441,38 @@ function NodePageInner({
           <div className="np-card">
             <h3 className="np-card-title">Логика</h3>
             {node.docs.length === 0 ? (
-              <p className="np-empty">Схемы логики не заданы</p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {node.docs.map((d) => (
-                  <button
-                    key={d.id}
-                    className="np-doc-row"
-                    onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
-                    <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
-                      {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
-                    </span>
-                    {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
-                    <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+              <>
+                <p className="np-empty">Схемы логики не заданы</p>
+                {isArchitect && (
+                  <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
+                    + Добавить схему
                   </button>
-                ))}
-              </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {node.docs.map((d) => (
+                    <button
+                      key={d.id}
+                      className="np-doc-row"
+                      onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
+                      <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
+                        {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
+                      </span>
+                      {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
+                      <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                    </button>
+                  ))}
+                </div>
+                {isArchitect && (
+                  <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
+                    + Добавить схему
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -436,7 +487,14 @@ function NodePageInner({
                 <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
               </button>
             ) : (
-              <p className="np-empty">Спецификация не задана</p>
+              <>
+                <p className="np-empty">Спецификация не задана</p>
+                {isArchitect && (
+                  <button className="np-addbtn" onClick={() => setDoc({ mode: "openapi" })}>
+                    + Добавить спецификацию
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -462,6 +520,8 @@ function NodePageInner({
           nodeName={node.name}
           openapi={node.openapi_spec ?? ""}
           isArchitect={isArchitect}
+          autoCreate={doc.create}
+          initialDocId={doc.docId}
           onCommitOpenapi={(value) => {
             // CAS-правка openapi_spec через useNodePatch
             void patch.commitOpenapi(value);
@@ -843,7 +903,7 @@ function ProcessesSection({ nodeId, onNavigateProcess }: {
             title={`Открыть процесс «${p.name}»`}
           >
             <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>{p.message_count} сообщ.</span>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>{p.message_count} {plural(p.message_count, ["сообщение", "сообщения", "сообщений"])}</span>
             <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
           </button>
         ))}
@@ -868,22 +928,27 @@ function SchemaSection({
   isArchitect,
   onNavigateNode,
   onNavigateMap,
+  onMetaChange,
 }: {
   node: Node;
   ancestors: AncestorRef[];
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  // Рост meta_rev (мета узла изменилась в другой сессии) — страница освежает
+  // данные узла и показывает тост «Данные изменены в другой сессии».
+  onMetaChange?: () => void;
 }) {
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  // Курсор изменений для remote-sync: context-graph несёт version/graph_rev;
-  // рефетч обновляет курсор. Страница read-only (сама не пишет) — ложных
-  // срабатываний на собственные записи нет.
-  const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
+  // Курсоры изменений для remote-sync: context-graph несёт version/graph_rev/
+  // meta_rev; рефетч обновляет курсоры. Схема read-only (сама не пишет) — ложных
+  // срабатываний тоста схемы на собственные записи нет; свои правки меты
+  // подавляются сверкой содержимого в onMetaChange страницы.
+  const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0, metaRev: undefined });
   const gestureActiveRef = useRef(false); // жестов правки на странице нет
   const [remoteToast, setRemoteToast] = useState(false);
   const remoteToastTimer = useRef<number | null>(null);
@@ -892,7 +957,7 @@ function SchemaSection({
   const refetch = useCallback(() => {
     nodesApi.getContextGraph(node.id)
       .then((g) => {
-        viewMetaRef.current = { version: g.version, graphRev: g.graph_rev };
+        viewMetaRef.current = { version: g.version, graphRev: g.graph_rev, metaRev: g.meta_rev };
         setGraph(g);
         setLoading(false);
       })
@@ -906,7 +971,8 @@ function SchemaSection({
   }, [refetch]);
 
   // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
-  // тихий рефетч контекста + тост «обновлено в другой сессии».
+  // тихий рефетч контекста + тост «Схема обновлена в другой сессии»; meta_rev
+  // вырос → onMetaChange (тост «Данные изменены» — хозяин страница).
   useRemoteSync({
     currentParentId: null,
     viewMeta: viewMetaRef,
@@ -917,6 +983,12 @@ function SchemaSection({
       if (remoteToastTimer.current) window.clearTimeout(remoteToastTimer.current);
       remoteToastTimer.current = window.setTimeout(() => setRemoteToast(false), 4000);
     },
+    onMetaChange: onMetaChange
+      ? (rev) => {
+          viewMetaRef.current = { ...viewMetaRef.current, metaRev: rev };
+          onMetaChange();
+        }
+      : undefined,
   });
 
   if (loading) return <p className="np-empty">Загрузка схемы…</p>;

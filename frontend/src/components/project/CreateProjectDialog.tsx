@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type { ImportPreviewOut, Project, TemplateOut } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
+import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import C4Preview from "./C4Preview";
 import ImportPane from "./ImportPane";
@@ -230,7 +231,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                         {p.name}
                       </span>
                       <span style={{ fontSize: 12, color: "#64748b" }}>
-                        {p.object_count} объектов · {p.edge_count} связей
+                        {p.object_count} {plural(p.object_count, ["объект", "объекта", "объектов"])} · {p.edge_count} {plural(p.edge_count, ["связь", "связи", "связей"])}
                       </span>
                     </span>
                   </button>
@@ -362,7 +363,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   <div style={{ textAlign: "center", padding: "0 24px" }}>
                     <div style={{ fontWeight: 700, fontSize: 15, color: "#475569" }}>{source.name}</div>
                     <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>
-                      {source.object_count} объектов · {source.edge_count} связей
+                      {source.object_count} {plural(source.object_count, ["объект", "объекта", "объектов"])} · {source.edge_count} {plural(source.edge_count, ["связь", "связи", "связей"])}
                     </div>
                   </div>
                 </div>

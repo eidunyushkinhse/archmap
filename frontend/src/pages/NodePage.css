@@ -537,6 +537,25 @@
   background: #f8fafc;
 }
 
+/* «+ Добавить» в карточках «Логика»/«OpenAPI» (архитектор) */
+.np-addbtn {
+  margin-top: 10px;
+  padding: 7px 14px;
+  border: 1px dashed #bfdbfe;
+  border-radius: 8px;
+  background: #f5f9ff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.np-addbtn:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
 .np-doc-chip {
   display: inline-flex;
   align-items: center;

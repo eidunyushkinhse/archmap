@@ -21,6 +21,10 @@ interface Props {
   onCommitOpenapi: (value: string) => void;
   onDocEvent: (evt: NodeDocEvent) => void;
   onClose: () => void;
+  // «+ Добавить» со страницы: сразу создать новую схему (режим «Логика»)
+  autoCreate?: boolean;
+  // Открыть оверлей на конкретной схеме (клик по строке в секции «Логика»)
+  initialDocId?: string;
   // Уведомление о конфликте конкурентных сессий (409 CAS от NodeInspector.save,
   // режим OpenAPI): сохранение не применилось — показываем прямо в шапке, панель
   // за модалкой пользователь не видит. У схем логики свой баннер в FlowchartDocs.
@@ -32,7 +36,7 @@ function shortVersion(v: string): string {
   return v.split(".").slice(0, 2).join(".");
 }
 
-export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose, notice }: Props) {
+export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose, autoCreate, initialDocId, notice }: Props) {
   const [showCode, setShowCode] = useState(false);
   // Версия OAS из последнего валидного парса спеки (шлёт OpenApiDoc)
   const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
@@ -43,7 +47,7 @@ export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitec
   const foot = !isArchitect
     ? "Наблюдателю редактирование недоступно"
     : isFlow
-      ? "Изменения сохраняются при потере фокуса — превью обновляется на лету"
+      ? "Сохраняет кнопка «Сохранить» или потеря фокуса — превью обновляется на лету"
       : "Невалидная спека сохраняется как черновик — рендер не обновляется до исправления";
 
   return (
@@ -86,6 +90,8 @@ export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitec
               isArchitect={isArchitect}
               showCode={showCode}
               onDocEvent={onDocEvent}
+              autoCreate={autoCreate}
+              initialDocId={initialDocId}
             />
           ) : (
             <OpenApiDoc

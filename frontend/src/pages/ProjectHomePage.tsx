@@ -11,15 +11,18 @@ import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/
 import { useEditableLevel } from "./useEditableLevel";
 import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
+import { plural } from "../ui/plural";
 import "./NodePage.css";
 
 interface Props {
   projectId: string;
   isArchitect: boolean;
   onNavigateNode: (nodeId: string) => void;
+  // «Редактировать» над схемой → редактор-карта на корневом уровне
+  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
 }
 
-export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode }: Props) {
+export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode, onNavigateMap }: Props) {
   const [project, setProject] = useState<Project | null>(null);
   const [processes, setProcesses] = useState<ProcessListItem[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
@@ -100,9 +103,9 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             </p>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-            <span className="np-count-chip">{project.object_count} объектов</span>
-            <span className="np-count-chip">{project.edge_count} связей</span>
-            <span className="np-count-chip">{processes.length} процессов</span>
+            <span className="np-count-chip">{project.object_count} {plural(project.object_count, ["объект", "объекта", "объектов"])}</span>
+            <span className="np-count-chip">{project.edge_count} {plural(project.edge_count, ["связь", "связи", "связей"])}</span>
+            <span className="np-count-chip">{processes.length} {plural(processes.length, ["процесс", "процесса", "процессов"])}</span>
           </div>
         </div>
 
@@ -125,9 +128,10 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             onSchemaViewChange={setSchemaView}
             onNavigateNode={onNavigateNode}
             height={height}
-            toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} объектов` : undefined}
+            toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} ${plural(graphNodes.length, ["объект", "объекта", "объектов"])}` : undefined}
             showViewFilter={hasStatusInfo}
             nodesDraggable
+            onEdit={() => onNavigateMap?.(null)}
             editing={{
               history: lvl.history,
               onLayoutChanged: lvl.handleLayoutChanged,
@@ -181,7 +185,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
                   </svg>
                   <span style={{ fontWeight: 600 }}>{p.name}</span>
                   <span style={{ color: "#94a3b8", fontSize: 12 }}>
-                    {p.message_count} сообщ.
+                    {p.message_count} {plural(p.message_count, ["сообщение", "сообщения", "сообщений"])}
                   </span>
                 </div>
               ))}

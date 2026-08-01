@@ -45,7 +45,9 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
 // Бейдж «есть дети»: глиф-дерево (узел-родитель сверху, ветви к детям вниз) + число
 // прямых детей. Показывается у узлов с под-схемой — сигнал «сюда можно войти», читаемый
 // без вглядывания в кнопки. Цвет наследует text-цвет узла. child_count считает бэкенд.
-function ChildrenBadge({ count, color }: { count: number; color: string }) {
+// На read-only странице count — РЕЛЕВАНТНЫЕ дети (X16 v2), total — все дети по БД:
+// при расхождении бейдж показывает «N из M» (сколько на схеме из скольких всего).
+function ChildrenBadge({ count, total, color }: { count: number; total?: number; color: string }) {
   return (
     <span style={{
       position: "absolute", right: 12, bottom: 12, zIndex: 1,
@@ -62,7 +64,7 @@ function ChildrenBadge({ count, color }: { count: number; color: string }) {
         <path d="M12 8.3 V13" />
         <path d="M6 15.7 V13 H18 V15.7" />
       </svg>
-      {count}
+      {total !== undefined && total > count ? `${count} из ${total}` : count}
     </span>
   );
 }
@@ -315,7 +317,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
-      {intoZone && <ChildrenBadge count={childCount} color={c.text} />}
+      {intoZone && <ChildrenBadge count={childCount} total={data.appNode.child_count} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
           кнопки «Подробнее» больше нет — «Войти» у сервисов (только редактор) и
           лупа «Раскрыть содержимое» (R5, инлайн-раскрытие; и редактор, и страница). */}
