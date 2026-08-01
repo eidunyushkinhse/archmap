@@ -23,6 +23,7 @@ import "../components/NodeTreePanel.css";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
+import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import LevelGraph, { type ViewMetaState, type LocateRequest } from "../components/LevelGraph";
 import { useRemoteSync } from "./useRemoteSync";
 import { toLevelEdges } from "../components/pageSchema";
@@ -79,6 +80,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
   // Сигнал перезагрузки дерева (создание/удаление узла, undo/redo)
   const [treeReload, setTreeReload] = useState(0);
+  // Модалка «Доки от агента» (BYOA-дозаливка схем логики и OpenAPI-спек)
+  const [docsAgentOpen, setDocsAgentOpen] = useState(false);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
   const [remoteToast, setRemoteToast] = useState(false);
@@ -466,6 +469,25 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
               <RelayoutIcon />
             </button>
           )}
+          {/* Доки от агента (BYOA): наполнить схемы логики и OpenAPI-спеки по репозиторию.
+              Область «текущий контейнер» = текущий уровень (breadcrumb). */}
+          {isArchitect && (
+            <button
+              className="icon-btn"
+              style={iconBtn}
+              onClick={() => setDocsAgentOpen(true)}
+              title="Доки от агента — наполнить схемы логики и OpenAPI-спеки ИИ-агентом по репозиторию"
+              aria-label="Доки от агента"
+            >
+              <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="9" width="14" height="9" rx="2" />
+                <path d="M12 9V6" /><circle cx="12" cy="4.6" r="1.3" />
+                <path d="M9.2 13.5h.01M14.8 13.5h.01" />
+                <path d="M2.8 12.5v3M21.2 12.5v3" />
+              </svg>
+            </button>
+          )}
           {hasStatusInfo && <SchemaViewFilter view={schemaView} onChange={setSchemaView} />}
           <button style={doneBtn} onClick={() => onDone()}>Готово</button>
         </div>
@@ -557,6 +579,14 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
         <RelayoutConfirm containerId={currentParentId} levelName={currentParent?.name}
           onCancel={() => setRelayoutOpen(false)}
           onDone={() => { setRelayoutOpen(false); load(currentParentId); history.clear(); }} />
+      )}
+      {docsAgentOpen && (
+        <DocsAgentModal
+          currentParentId={currentParentId}
+          currentParentName={currentParent?.name ?? null}
+          onClose={() => setDocsAgentOpen(false)}
+          onApplied={() => { setDocsAgentOpen(false); load(currentParentId); setTreeReload((t) => t + 1); }}
+        />
       )}
       {edgeQuick && (
         <EdgeQuickCreate sourceId={edgeQuick.sourceId} targetId={edgeQuick.targetId}

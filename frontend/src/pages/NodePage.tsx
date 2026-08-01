@@ -13,6 +13,7 @@ import { useRemoteSync } from "./useRemoteSync";
 import { isSingleObjectSchema } from "../featureFlags";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import ExportModal from "../components/ExportModal";
+import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
@@ -160,6 +161,8 @@ function NodePageInner({
   const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean } | null>(null);
+  // Модалка «Доки от агента» (BYOA): область = текущий объект (node.id)
+  const [docsAgentOpen, setDocsAgentOpen] = useState(false);
 
   // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
@@ -462,9 +465,14 @@ function NodePageInner({
               <>
                 <p className="np-empty">Схемы логики не заданы</p>
                 {isArchitect && (
-                  <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
-                    + Добавить схему
-                  </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
+                      + Добавить схему
+                    </button>
+                    <button className="np-addbtn" onClick={() => setDocsAgentOpen(true)}>
+                      Доки от агента
+                    </button>
+                  </div>
                 )}
               </>
             ) : (
@@ -486,9 +494,14 @@ function NodePageInner({
                   ))}
                 </div>
                 {isArchitect && (
-                  <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
-                    + Добавить схему
-                  </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
+                      + Добавить схему
+                    </button>
+                    <button className="np-addbtn" onClick={() => setDocsAgentOpen(true)}>
+                      Доки от агента
+                    </button>
+                  </div>
                 )}
               </>
             )}
@@ -557,6 +570,21 @@ function NodePageInner({
           loadKey={node.id}
           load={() => exportApi.subtree(node.id)}
           onClose={() => setExportOpen(false)}
+        />
+      )}
+
+      {/* Доки от агента (BYOA, секция «Логика»): область = текущий объект */}
+      {docsAgentOpen && (
+        <DocsAgentModal
+          currentParentId={node.id}
+          currentParentName={node.name}
+          onClose={() => setDocsAgentOpen(false)}
+          onApplied={() => {
+            setDocsAgentOpen(false);
+            // Дозаливка изменила мету доков/спеки узла — тянем свежий узел и
+            // применяем целиком (обновит секции «Логика» и «OpenAPI»).
+            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
+          }}
         />
       )}
     </div>
