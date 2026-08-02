@@ -19,7 +19,6 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
-import { nodesApi } from "../api/nodes";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, AncestorRef, ViewLayout, ViewLayoutPayload, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import { NODE_W, NODE_H } from "./graph/constants";
@@ -32,7 +31,6 @@ import type { LayoutResult } from "./graph/layout/pipeline";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
-import { relevantChildren, relevantChildCounts } from "./graph/relevantChildren";
 import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
@@ -58,6 +56,7 @@ import { useLevelEdgeChoice } from "./graph/interaction/useLevelEdgeChoice";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
+import { useLevelDrill } from "./graph/interaction/useLevelDrill";
 
 // --- Основной компонент ---
 
@@ -380,12 +379,11 @@ function LevelGraphInner({
   // (свежую раскладку нового уровня применит сборщик).
   useEffect(() => { resetAnim(); }, [containerId, resetAnim]);
 
-  // Авто-центрирование (fitOnLoad/fitOnExpand): expandFitRef взводится при раскрытии
-  // (commitExpanded), didLoadFitRef — одноразовый фит загрузки (на маунт; холст
-  // ремаунтится по key=node.id, поэтому «один раз» == «один раз на страницу»).
-  // Таймер — дебаунс оседания раскладки (двухфазная: замер может прийти вторым
-  // прогоном, фитим по последнему в окне).
-  const expandFitRef = useRef(false);
+  // Авто-центрирование (fitOnLoad/fitOnExpand): didLoadFitRef — одноразовый фит
+  // загрузки (на маунт; холст ремаунтится по key=node.id, поэтому «один раз» ==
+  // «один раз на страницу»). expandFitRef (взводится при раскрытии) приходит из
+  // useLevelDrill. Таймер — дебаунс оседания раскладки (двухфазная: замер может
+  // прийти вторым прогоном, фитим по последнему в окне).
   const didLoadFitRef = useRef(false);
 
   // ЕДИНЫЙ канал записи раскладки вида (R3): дедуп+merge поверх зеркала → батч-PUT
@@ -403,141 +401,20 @@ function LevelGraphInner({
   // layout ниже): own-on-expand берёт отсюда абсолютную позицию контейнера.
   const layoutLatestRef = useRef<LayoutResult | null>(null);
 
-  // Раскрытые инлайн контейнеры (гостевые и ЛОКАЛЬНЫЕ, R5). Раскрытие — часть
-  // состояния ВИДА и персистится (payload.expanded в view_layout, архитектор);
-  // поверх сохранённого живут ЭФЕМЕРНЫЕ правки текущей сессии (overrides): у
-  // viewer'а персиста нет, а у архитектора override совпадает с зеркалом коммита.
-  // Такое производное решает и гонку инициализации: viewLayout приходит async,
-  // а expanded не нужно «переливать» в стейт — он вычисляется.
-  const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(new Map());
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс эфемерных правок на смену уровня — осознанный reset-on-prop-change
-    setExpandOverrides(new Map());
-  }, [containerId]);
-  const expanded = useMemo(() => {
-    const s = new Set<string>();
-    // Страничные схемы стартуют свёрнутыми: сохранённые раскрытия вида не
-    // применяются (ignorePersistedExpanded), живут только клики этой сессии.
-    if (!ignorePersistedExpanded) {
-      for (const [id, p] of Object.entries(viewLayout)) if (p.expanded) s.add(id);
-    }
-    for (const [id, v] of expandOverrides) {
-      if (v) s.add(id);
-      else s.delete(id);
-    }
-    return s;
-  }, [viewLayout, expandOverrides, ignorePersistedExpanded]);
-
-  // read-only (страница): дети, релевантные схеме, — «отображаемое = связанное
-  // рёбрами» (тот же принцип, что у гостей, X16 v2). counts гейтит лупу и бейдж
-  // без фетча списков детей; фильтр собирает состав кэша при раскрытии.
-  const relevantCounts = useMemo(
-    () => (isReadOnly ? relevantChildCounts(edges, endpoints, expanded) : undefined),
-    [isReadOnly, edges, endpoints, expanded],
-  );
-
-  // Догруженные дети раскрытых ЛОКАЛЬНЫХ контейнеров (R5): id → прямые дети.
-  // Кэш живёт до смены уровня; сворачивание кэш не чистит (повторное раскрытие
-  // мгновенно). Конвейер держит контейнер свёрнутым, пока детей нет в карте.
-  const [localChildren, setLocalChildren] = useState<Record<string, AppNode[]>>({});
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс кэша детей на смену уровня — осознанный reset-on-prop-change
-    setLocalChildren({});
-  }, [containerId]);
-  const commitExpanded = useCallback(
-    (id: string, value: boolean) => {
-      // Раскрытие (value=true) в режиме fitOnExpand — запрос на анимированное
-      // центрирование после оседания раскладки (см. эффект авто-центрирования).
-      // Сворачивание (value=false) центрирование не запрашивает.
-      if (value && fitOnExpand) expandFitRef.current = true;
-      setExpandOverrides((prev) => new Map(prev).set(id, value));
-      // персист (архитектор, не контекст — гейтит commitLayout): true — раскрыт,
-      // null-поле — сброс (exclude_none выкинет его из payload строки).
-      // OWN-ON-EXPAND: контейнер, не владевший позицией (чисто-ELK уровень —
-      // типично сразу после импорта), при раскрытии закрепляет текущую. Иначе
-      // сетке первого показа детей не от чего стартовать, и ребёнка без видимых
-      // рёбер (все его связи ведут в сам раскрытый контейнер и дропнуты
-      // проекцией) ELK уносил изолированной компонентой в угол канвы — рамка
-      // «раскрывалась» вдали от места клика, под левой панелью.
-      const p = viewLayout[id];
-      const owned = p?.x != null && p?.y != null;
-      const cur = value && !owned ? layoutLatestRef.current?.positions.get(id) : undefined;
-      commitLayout({ [id]: { expanded: value ? true : null, ...(cur ? { x: cur.x, y: cur.y } : null) } });
-    },
-    [commitLayout, viewLayout, fitOnExpand],
-  );
-  // Раскрытие ГОСТЕВОГО контейнера: детей даёт проекция (реестр endpoints).
-  const expandContainer = useCallback(
-    (id: string) => { noteExpand(id); commitExpanded(id, true); },
-    [commitExpanded, noteExpand],
-  );
-  // Раскрытие ЛОКАЛЬНОГО контейнера (R5): лениво догружаем его прямых детей —
-  // по Д3 показываются ВСЕ дети, а /graph уровня их не отдаёт.
-  // Ф2 плавности: expanded включается ПО ПРИХОДУ детей (одним батчем с
-  // localChildren) — иначе между кликом и фетчем успевал стартовать прогон
-  // «expanded есть, детей нет» (контейнер в нём всё равно свёрнут), который
-  // только скипался по сигнатуре, съедая ~60мс латентности старта анимации.
-  // С тёплым кэшем раскрываем сразу (повторное раскрытие мгновенно, как раньше).
-  const expandLocalContainer = useCallback(
-    (id: string) => {
-      if (localChildren[id]) {
-        noteExpand(id);
-        commitExpanded(id, true);
-        return;
-      }
-      void nodesApi.list(id).then((kids) => {
-        // read-only (страница): только дети, релевантные текущей схеме, —
-        // «отображаемое = связанное рёбрами» (как у гостей, X16 v2). Раскрываемый
-        // контейнер — в наборе раскрытых: рёбра «в его рамку» границу не образуют.
-        const fit = isReadOnly
-          ? relevantChildren(kids, edges, endpoints, new Set([...expanded, id]))
-          : kids;
-        // Пустое раскрытие (все дети нерелевантны): не раскрываем; лупа у узла
-        // уже погашена счётчиком relevantCounts.
-        if (fit.length === 0) return;
-        noteExpand(id);
-        commitExpanded(id, true);
-        setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: fit }));
-      });
-    },
-    [localChildren, commitExpanded, noteExpand, isReadOnly, edges, endpoints, expanded],
-  );
-  const collapseContainer = useCallback(
-    (id: string) => { noteCollapse(id); commitExpanded(id, false); },
-    [commitExpanded, noteCollapse],
-  );
-  // Догрузка детей для ПЕРСИСТНЫХ раскрытий (R5): после перезахода expanded
-  // приходит из view_layout, а кэш детей пуст — конвейер держал бы контейнер
-  // свёрнутым вечно. Дозагружаем локалов уровня (и, по мере появления их детей
-  // в кэше, — раскрытых потомков цепочкой). Гостевых в known нет — им детей
-  // даёт проекция. Повторный сет во время полёта гасится guard'ом cur[id].
-  useEffect(() => {
-    if (isReadOnly) return;
-    const known = new Set([
-      ...nodes.map((n) => n.id),
-      ...Object.values(localChildren).flat().map((n) => n.id),
-    ]);
-    for (const id of expanded) {
-      if (!known.has(id) || localChildren[id]) continue;
-      void nodesApi.list(id).then((kids) => {
-        setLocalChildren((cur) => (cur[id] ? cur : { ...cur, [id]: kids }));
-      });
-    }
-  }, [expanded, nodes, localChildren, isReadOnly]);
-
-  // Таргетный рефреш кэша детей одного контейнера (дроп нового узла в его раскрытую рамку /
-  // откат такого дропа): перечитываем список и ПЕРЕЗАПИСЫВАЕМ (в отличие от ленивой догрузки
-  // выше — та не трогает уже заполненный ключ). token гарантирует срабатывание на повтор.
-  const refreshTokenRef = useRef(0);
-  useEffect(() => {
-    if (isReadOnly || !refreshChildrenOf) return;
-    if (refreshChildrenOf.token === refreshTokenRef.current) return;
-    refreshTokenRef.current = refreshChildrenOf.token;
-    const { id } = refreshChildrenOf;
-    void nodesApi.list(id).then((kids) => {
-      setLocalChildren((cur) => ({ ...cur, [id]: kids }));
-    });
-  }, [refreshChildrenOf, isReadOnly]);
+  // Drill-навигация и инлайн-раскрытие контейнеров (гостевые и ЛОКАЛЬНЫЕ, R5):
+  // drillWithPath, expand/collapse, производные expanded/localChildren/
+  // relevantCounts, ленивая догрузка детей и таргетный рефреш кэша — в
+  // useLevelDrill (Фаза 3в-А). expanded/localChildren/relevantCounts нужны
+  // конвейеру раскладки и сборщику RF; expandFitRef — эффекту авто-центрирования.
+  const {
+    drillWithPath, expandContainer, expandLocalContainer, collapseContainer,
+    expanded, relevantCounts, localChildren, expandFitRef,
+  } = useLevelDrill({
+    containerId, nodes, edges, endpoints, ancestorIds, ancestorNames,
+    onDrillDown, onEnterNode, viewLayout, ignorePersistedExpanded, isReadOnly,
+    fitOnExpand, refreshChildrenOf, commitLayout, noteExpand, noteCollapse,
+    layoutLatestRef,
+  });
 
   // Состояние центральных направляющих магнитного выравнивания (общее для snap-драга
   // и drop-шаблона).
@@ -635,32 +512,6 @@ function LevelGraphInner({
   // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
   // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
   const [dragging, setDragging] = useState(false);
-  // Drill из узла, раскрытого ИНЛАЙН глубже текущего уровня (R5): в breadcrumb входят
-  // промежуточные контейнеры (фактическая архитектура: Контекст > HelixMon > ObsCore >
-  // Zabbix Core), а не прыжок через слои. Цепочку восстанавливаем по parent_id из
-  // локалов уровня + догруженных детей раскрытий; не восстановилась — прежнее поведение.
-  const drillWithPath = useCallback(
-    (n: AppNode) => {
-      if (!onEnterNode || !n.parent_id || n.parent_id === containerId) { onDrillDown(n); return; }
-      const pool = new Map<string, AppNode>();
-      for (const x of nodes) pool.set(x.id, x);
-      for (const kids of Object.values(localChildren)) for (const k of kids) pool.set(k.id, k);
-      const chain: AppNode[] = [];
-      let pid: string | null | undefined = n.parent_id;
-      while (pid && pid !== containerId) {
-        const p = pool.get(pid);
-        if (!p) { onDrillDown(n); return; }
-        chain.unshift(p);
-        pid = p.parent_id;
-      }
-      const ref = (x: AppNode): AncestorRef => ({ id: x.id, name: x.name, is_external: x.is_external });
-      const levelRefs: AncestorRef[] = ancestorIds.map((id, i) => ({
-        id, name: ancestorNames[i] ?? id, is_external: false,
-      }));
-      onEnterNode([...levelRefs, ...chain.map(ref), ref(n)]);
-    },
-    [nodes, localChildren, containerId, ancestorIds, ancestorNames, onDrillDown, onEnterNode],
-  );
 
   // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): их rect производен от
   // детей, перемещение содержимого = перемещение самих узлов. ЖИВОЙ bbox-follow
@@ -1085,7 +936,9 @@ function LevelGraphInner({
       }
     }, 140);
     return () => window.clearTimeout(t);
-  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView]);
+    // expandFitRef — стабильный ref-объект из useLevelDrill (идентичность не
+    // меняется), в deps для полноты exhaustive-deps без изменения поведения.
+  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, expandFitRef]);
 
   return (
     <div
