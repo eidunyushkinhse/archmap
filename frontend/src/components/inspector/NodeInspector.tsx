@@ -48,8 +48,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const [statusOpen, setStatusOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // Оверлей тяжёлой документации; autoCreate — «Новая схема (вручную)» из меню
-  // «+ Добавить» создаёт схему сразу при открытии.
-  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; autoCreate?: boolean } | null>(null);
+  // «+ Добавить» создаёт схему сразу при открытии; docId — открыть конкретную
+  // схему (клик по строке в списке раздела «Логика»).
+  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; autoCreate?: boolean; docId?: string } | null>(null);
   // Модалка «Доки от агента» (BYOA, логика): скоуп = выбранный узел, режим открытия
   const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
   // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = выбранный узел
@@ -302,48 +303,70 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       {/* Тяжёлые поля — оверлеем по кнопке-строке */}
       {!isPerson && (
         <>
-          <div className="insp-block-label">Документация</div>
+          {/* ── Логика: список схем узла кнопками + «+ Добавить» ниже ── */}
           {(isArchitect || node.docs.length > 0) && (
-            <div className="insp-docrow">
-              <button type="button" className="insp-heavy" onClick={() => setDoc({ mode: "flowchart" })}>
-                <span className="insp-heavy-ico">{META_ICON.flow}</span>
-                <span className="insp-heavy-name">Логика</span>
-                <span className="insp-heavy-status">
-                  {node.docs.length > 0 ? `${node.docs.length} ${plural(node.docs.length, ["схема", "схемы", "схем"])} →` : "не задано"}
-                </span>
-              </button>
+            <>
+              <div className="insp-block-label">Логика</div>
+              {node.docs.length > 0 ? (
+                <div className="insp-doc-list">
+                  {node.docs.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className="insp-doc-item"
+                      onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
+                    >
+                      <span className="insp-doc-name">{d.name}</span>
+                      <span className={`insp-doc-chip insp-doc-chip--${d.kind}`}>
+                        {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
+                      </span>
+                      {d.operation && <span className="insp-doc-op">{d.operation}</span>}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="insp-note">Схемы логики не заданы</p>
+              )}
               {isArchitect && (
                 <AddDocsMenu
-                  align="right"
                   groups={[
                     [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", autoCreate: true }) }],
                     [{ label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") }],
                   ]}
                 />
               )}
-            </div>
+            </>
           )}
+          {/* ── OpenAPI: спека + «Обновить» под ней, либо «+ Добавить» ── */}
           {(isArchitect || node.openapi_spec) && (
-            <div className="insp-docrow">
-              <button type="button" className="insp-heavy" onClick={() => setDoc({ mode: "openapi" })}>
-                <span className="insp-heavy-ico">{META_ICON.api}</span>
-                <span className="insp-heavy-name">OpenAPI</span>
-                <span className="insp-heavy-status">{node.openapi_spec ? "открыть →" : "не задано"}</span>
-              </button>
-              {isArchitect && (node.openapi_spec ? (
-                <button type="button" className="adm-btn" onClick={() => setSpecAgent(true)}>
-                  Обновить с помощью ИИ-агента
-                </button>
+            <>
+              <div className="insp-block-label">OpenAPI</div>
+              {node.openapi_spec ? (
+                <>
+                  <button type="button" className="insp-doc-item" onClick={() => setDoc({ mode: "openapi" })}>
+                    <span className="insp-doc-name">Спецификация</span>
+                    <span className="insp-doc-open">открыть →</span>
+                  </button>
+                  {isArchitect && (
+                    <button type="button" className="adm-btn insp-update-btn" onClick={() => setSpecAgent(true)}>
+                      Обновить с помощью ИИ-агента
+                    </button>
+                  )}
+                </>
               ) : (
-                <AddDocsMenu
-                  align="right"
-                  groups={[
-                    [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi" }) }],
-                    [{ label: "Через ИИ-агента", onSelect: () => setSpecAgent(true) }],
-                  ]}
-                />
-              ))}
-            </div>
+                <>
+                  <p className="insp-note">Спецификация не задана</p>
+                  {isArchitect && (
+                    <AddDocsMenu
+                      groups={[
+                        [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi" }) }],
+                        [{ label: "Через ИИ-агента", onSelect: () => setSpecAgent(true) }],
+                      ]}
+                    />
+                  )}
+                </>
+              )}
+            </>
           )}
         </>
       )}
@@ -371,6 +394,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           openapi={node.openapi_spec ?? ""}
           isArchitect={isArchitect}
           autoCreate={doc.autoCreate}
+          initialDocId={doc.docId}
           onCommitOpenapi={commitOpenapi}
           onDocEvent={onDocEvent}
           onClose={() => setDoc(null)}
