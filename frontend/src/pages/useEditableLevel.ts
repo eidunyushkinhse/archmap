@@ -31,8 +31,12 @@ export function useEditableLevel({ containerId, isArchitect }: Args) {
   } | null>(null);
   const resyncingRef = useRef<Promise<void> | null>(null);
 
-  const load = useCallback(async (parentId: string | null) => {
-    setLoading(true);
+  // Загрузка уровня. По умолчанию — ФОНОВОЕ обновление: loading не трогаем, страница
+  // и холст НЕ размонтируются, данные подменяются по готовности и пересчитываются
+  // инкрементально — без моргания на «Переразложить», remote-sync и ресинке 409.
+  // foreground: true — заглушка «Загрузка…» (первичная загрузка / смена контейнера).
+  const load = useCallback(async (parentId: string | null, opts?: { foreground?: boolean }) => {
+    if (opts?.foreground) setLoading(true);
     setLayoutRetry(null);
     try {
       const graph = await nodesApi.getGraph(parentId);
@@ -42,13 +46,13 @@ export function useEditableLevel({ containerId, isArchitect }: Args) {
       setViewLayout(graph.layout ?? {});
       setEdges(toLevelEdges(graph));
     } finally {
-      setLoading(false);
+      if (opts?.foreground) setLoading(false);
     }
   }, []);
 
-  // Первичная загрузка + перезагрузка при смене контейнера
+  // Первичная загрузка + перезагрузка при смене контейнера (foreground — заглушка)
   // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка данных уровня
-  useEffect(() => { void load(containerId); }, [containerId, load]);
+  useEffect(() => { void load(containerId, { foreground: true }); }, [containerId, load]);
 
   // Ресинк уровня при ошибке персиста (409/сеть)
   const resyncOnPersistError = useCallback((): Promise<void> => {
