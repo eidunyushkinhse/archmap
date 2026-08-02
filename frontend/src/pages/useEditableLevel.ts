@@ -1,8 +1,9 @@
 // useEditableLevel — редактируемый уровень схемы для встроенных блоков (pages_pivot).
 // Инкапсулирует загрузку графа, fence-версии вида, undo/redo перемещений узлов,
-// персист раскладки (с обработкой 409) и перераскладку. Используется секциями
-// «Схема компонентов» (NodePage) и «Схема системы» (ProjectHomePage), чтобы дать
-// пользователю контролы undo/redo + «переразложить» прямо в окне схемы.
+// персист раскладки (с обработкой 409) и перераскладку. Используется секцией
+// «Схема системы» (ProjectHomePage), чтобы дать пользователю контролы undo/redo +
+// «переразложить» прямо в окне схемы. «Схема» страницы объекта — view-only: грузит
+// контекстный граф собственным refetch (SchemaSection в NodePage) и хук не использует.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GhostNode, Node, Edge, ViewLayout, ViewLayoutPayload } from "../types";
 import { nodesApi } from "../api/nodes";
