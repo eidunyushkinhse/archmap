@@ -4,13 +4,11 @@
 // Одинарный клик по узлу — выделение + индиго-подсветка инцидентных связей.
 // Двойной клик по узлу — переход на его страницу (onNavigateNode).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GhostNode, Node, ViewLayout, Edge, LevelEdge, ViewLayoutPayload } from "../types";
+import type { GhostNode, Node, ViewLayout, Edge, LevelEdge } from "../types";
 import LevelGraph from "./LevelGraph";
 import type {
-  ViewMetaState,
-  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks, LevelUndoProps,
+  LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
 } from "./graph/types";
-import type { History } from "./graph/interaction/useHistory";
 import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
 import SchemaLegend from "./SchemaLegend";
@@ -18,25 +16,13 @@ import type { SchemaView } from "./schemaView";
 import { responsiveCanvasHeight } from "./pageSchema";
 import "./EmbeddedSchemaBlock.css";
 
-// Инфраструктура редактирования раскладки (из useEditableLevel) — передаётся
-// в LevelGraph для персиста перемещений и undo/redo.
-export interface SchemaEditing {
-  history: History;
-  onLayoutChanged: (items: Record<string, ViewLayoutPayload | null>) => void;
-  viewMeta: { current: ViewMetaState };
-  gestureActiveRef: { current: boolean };
-  onPersistError: (e: unknown) => void | Promise<void>;
-  onPersistConflict: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
-  retryPatch: { patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number } | null;
-}
-
 interface Props {
   nodes: Node[];
   endpoints: GhostNode[];
-  // Рёбра уровня. Тип базовый Edge: useEditableLevel (ProjectHomePage, легаси-
-  // секции) отдаёт EdgeResponse без original_* имён, а SchemaSection — LevelEdge
-  // (с именами концов для модалки выбора). Хук useEdgeChoice приводит к LevelEdge
-  // и терпит отсутствующие original_* (подписи концов фолбэчатся на labelOf).
+  // Рёбра уровня. Тип базовый Edge: useLevelSchema (ProjectHomePage) отдаёт
+  // EdgeResponse без original_* имён, а SchemaSection — LevelEdge (с именами концов
+  // для модалки выбора). Хук useEdgeChoice приводит к LevelEdge и терпит
+  // отсутствующие original_* (подписи концов фолбэчатся на labelOf).
   edges: Edge[];
   viewLayout: ViewLayout;
   containerId: string | null;
@@ -62,17 +48,6 @@ interface Props {
   // Подпись-легенда под холстом («Гости — пунктиром…»). Секция «Схема» страницы
   // объекта (single-schema) рисуется без неё (ТЗ §3.1).
   showCaption?: boolean;
-  // Драг узлов (по умолчанию false для readOnly-блоков)
-  nodesDraggable?: boolean;
-  // Контролы расстановки (undo/redo перемещений + перераскладка) — рисуются
-  // поверх холста: undo/redo слева вверху, перераскладка справа вверху.
-  onUndo?: () => void;
-  onRedo?: () => void;
-  canUndo?: boolean;
-  canRedo?: boolean;
-  onRelayout?: () => void;
-  // Инфраструктура персиста/undo (из useEditableLevel). Без неё блок view-only.
-  editing?: SchemaEditing;
 }
 
 export default function EmbeddedSchemaBlock({
@@ -81,9 +56,6 @@ export default function EmbeddedSchemaBlock({
   schemaView, onSchemaViewChange, onNavigateNode, onEdit,
   height, toolbarHint, showViewFilter, empty,
   showCaption = true,
-  nodesDraggable = false,
-  onUndo, onRedo, canUndo = false, canRedo = false, onRelayout,
-  editing,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -162,22 +134,21 @@ export default function EmbeddedSchemaBlock({
   });
 
   // Бандлы пропсов LevelGraph (Фаза 3д): мемоизированы, чтобы не создавать новый
-  // объект-литерал на каждый рендер. editing — единый источник инфраструктуры персиста
-  // (undefined → блок view-only); его смена пересобирает зависимые бандлы.
+  // объект-литерал на каждый рендер. Блок всегда view-only (драг/undo/перераскладка
+  // убраны — редактирование расстановки живёт в редакторе-карте).
   const mode = useMemo<LevelModeFlags>(() => ({
-    readOnly: !editing,
-    arrangeOnly: !!editing,
+    readOnly: true,
+    arrangeOnly: false,
     // Страничные схемы стартуют СВЁРНУТЫМИ (персистные раскрытия не применяются) и
     // авто-центрируются (по оседании раскладки + при раскрытии узла лупой).
     ignorePersistedExpanded: true,
     fitOnLoad: true,
     fitOnExpand: true,
-    nodesDraggable,
     // Инспекция связей в read-only просмотре (двойной клик по стрелке): подсветка
     // полного пути + модалка выбора при общем плече.
     edgesInspectable: true,
     schemaView,
-  }), [editing, nodesDraggable, schemaView]);
+  }), [schemaView]);
 
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: handleNavigate,
@@ -190,21 +161,6 @@ export default function EmbeddedSchemaBlock({
     onEdgesChoice,
     onTrunkChoice,
   }), [onEdgesChoice, onTrunkChoice]);
-
-  const persistence = useMemo<LevelPersistenceProps>(() => ({
-    onLayoutChanged: editing?.onLayoutChanged,
-    viewMeta: editing?.viewMeta,
-    gestureActiveRef: editing?.gestureActiveRef,
-    onPersistError: editing?.onPersistError,
-    onPersistConflict: editing?.onPersistConflict,
-    retryPatch: editing?.retryPatch,
-  }), [editing]);
-
-  const undo = useMemo<LevelUndoProps>(() => ({
-    history: editing?.history,
-    onUndo,
-    onRedo,
-  }), [editing, onUndo, onRedo]);
 
   return (
     <div>
@@ -255,42 +211,8 @@ export default function EmbeddedSchemaBlock({
                 mode={mode}
                 drill={drill}
                 edgeCallbacks={edgeCallbacks}
-                persistence={persistence}
-                undo={undo}
               />
             </div>
-            {/* Контролы расстановки: undo/redo слева, перераскладка справа */}
-            {active && editing && (onUndo || onRelayout) && (
-              <div className="esb-controls">
-                <div className="esb-controls-left">
-                  <button
-                    className="esb-ctl"
-                    onClick={onUndo}
-                    disabled={!canUndo}
-                    title="Отменить перемещение · Ctrl+Z"
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h13a4 4 0 0 1 0 8H7" /><path d="M3 10 7 6" /><path d="M3 10 7 14" /></svg>
-                  </button>
-                  <button
-                    className="esb-ctl"
-                    onClick={onRedo}
-                    disabled={!canRedo}
-                    title="Повторить перемещение · Ctrl+Shift+Z"
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 10H8a4 4 0 0 0 0 8h9" /><path d="m21 10-4-4" /><path d="m21 10-4 4" /></svg>
-                  </button>
-                </div>
-                {isArchitect && onRelayout && (
-                  <button
-                    className="esb-ctl"
-                    onClick={onRelayout}
-                    title="Переразложить уровень (сбросить расстановку)"
-                  >
-                    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 21v-5h5" /></svg>
-                  </button>
-                )}
-              </div>
-            )}
             {/* Легенда — правый нижний угол, доступна всегда (в т.ч. неактивный блок) */}
             <SchemaLegend />
           </>
