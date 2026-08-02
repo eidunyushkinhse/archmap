@@ -374,8 +374,8 @@
   transform: translateX(14px);
 }
 
-/* Строка «Логика» + меню «+ Добавить» (BYOA): кнопка-строка растягивается,
-   меню прижато к правому краю панели (выпадающий список — right-aligned). */
+/* Строка «Логика»/«OpenAPI» + меню «+ Добавить» (BYOA): кнопка-строка
+   растягивается, меню прижато к правому краю панели (список — right-aligned). */
 .insp-docrow {
   display: flex;
   align-items: stretch;
@@ -387,11 +387,11 @@
   flex: 1;
   min-width: 0;
 }
-.insp-docrow .alm-wrap {
+.insp-docrow .adm-wrap {
   margin-top: 0;
   flex: none;
 }
-.insp-docrow .alm-btn {
+.insp-docrow .adm-btn {
   height: 100%;
 }
 

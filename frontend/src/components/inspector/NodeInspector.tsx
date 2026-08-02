@@ -12,8 +12,9 @@ import { isConflict } from "../../api/client";
 import { plural } from "../../ui/plural";
 import { ShapeGlyph, Chevron } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
-import AddLogicMenu from "../AddLogicMenu";
+import AddDocsMenu from "../AddDocsMenu";
 import DocsAgentModal from "../docsImport/DocsAgentModal";
+import SpecAgentModal from "../docsImport/SpecAgentModal";
 import DocOverlay from "./DocOverlay";
 import type { NodeDocEvent } from "./FlowchartDocs";
 import "../NodeTreePanel.css"; // классы nt-tree/nt-row для справочной ветки детей
@@ -49,8 +50,10 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // Оверлей тяжёлой документации; autoCreate — «Новая схема (вручную)» из меню
   // «+ Добавить» создаёт схему сразу при открытии.
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; autoCreate?: boolean } | null>(null);
-  // Модалка «Доки от агента» (BYOA): скоуп = выбранный узел, режим открытия
+  // Модалка «Доки от агента» (BYOA, логика): скоуп = выбранный узел, режим открытия
   const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
+  // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = выбранный узел
+  const [specAgent, setSpecAgent] = useState(false);
   // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
   // обновлены с сервера — пользователь повторяет правку поверх свежего.
   const [conflict, setConflict] = useState<string | null>(null);
@@ -310,21 +313,36 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                 </span>
               </button>
               {isArchitect && (
-                <AddLogicMenu
+                <AddDocsMenu
                   align="right"
-                  onManual={() => setDoc({ mode: "flowchart", autoCreate: true })}
-                  onBatch={() => setDocsAgent("batch")}
-                  onSingle={() => setDocsAgent("single")}
+                  groups={[
+                    [{ label: "Новая схема (вручную)", onSelect: () => setDoc({ mode: "flowchart", autoCreate: true }) }],
+                    [
+                      { label: "Схемы от агента — пакетом", onSelect: () => setDocsAgent("batch") },
+                      { label: "Схема от агента — по одной", onSelect: () => setDocsAgent("single") },
+                    ],
+                  ]}
                 />
               )}
             </div>
           )}
           {(isArchitect || node.openapi_spec) && (
-            <button type="button" className="insp-heavy" onClick={() => setDoc({ mode: "openapi" })}>
-              <span className="insp-heavy-ico">{META_ICON.api}</span>
-              <span className="insp-heavy-name">OpenAPI</span>
-              <span className="insp-heavy-status">{node.openapi_spec ? "открыть →" : "не задано"}</span>
-            </button>
+            <div className="insp-docrow">
+              <button type="button" className="insp-heavy" onClick={() => setDoc({ mode: "openapi" })}>
+                <span className="insp-heavy-ico">{META_ICON.api}</span>
+                <span className="insp-heavy-name">OpenAPI</span>
+                <span className="insp-heavy-status">{node.openapi_spec ? "открыть →" : "не задано"}</span>
+              </button>
+              {isArchitect && (
+                <AddDocsMenu
+                  align="right"
+                  groups={[
+                    [{ label: "Новая спецификация (вручную)", onSelect: () => setDoc({ mode: "openapi" }) }],
+                    [{ label: "Спека от агента", onSelect: () => setSpecAgent(true) }],
+                  ]}
+                />
+              )}
+            </div>
           )}
         </>
       )}
@@ -359,8 +377,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         />
       )}
 
-      {/* Доки от агента (BYOA): скоуп = выбранный узел. Закрытие после успешного
-          применения — за самой модалкой; onApplied только освежает мету. */}
+      {/* Доки от агента (BYOA, логика): скоуп = выбранный узел. Закрытие после
+          успешного применения — за самой модалкой; onApplied только освежает мету. */}
       {docsAgent && (
         <DocsAgentModal
           nodeId={node.id}
@@ -368,9 +386,27 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           initialMode={docsAgent}
           onClose={() => setDocsAgent(null)}
           onApplied={() => {
-            // Дозаливка изменила мету доков/спеку (и version узла при записи
-            // спеки) — тянем свежий узел: CAS-база локально, мета в стейте
-            // уровня через onNodeRefreshed (применение BYOA не кладётся в undo).
+            // Дозаливка изменила мету доков — тянем свежий узел: CAS-база
+            // локально, мета в стейте уровня через onNodeRefreshed (применение
+            // BYOA не кладётся в undo).
+            void nodesApi.get(node.id)
+              .then((fresh) => { beforeRef.current = fresh; onNodeRefreshed(fresh); })
+              .catch(() => { /* узел могли удалить — уровень догонит поллинг */ });
+          }}
+        />
+      )}
+
+      {/* Спека от агента (BYOA, OpenAPI): скоуп = выбранный узел. Закрытие после
+          успешного применения — за самой модалкой; onApplied только освежает мету. */}
+      {specAgent && (
+        <SpecAgentModal
+          nodeId={node.id}
+          nodeName={node.name}
+          onClose={() => setSpecAgent(false)}
+          onApplied={() => {
+            // Запись спеки меняет и version узла — тянем свежий узел: CAS-база
+            // локально, мета в стейте уровня через onNodeRefreshed (применение
+            // BYOA не кладётся в undo).
             void nodesApi.get(node.id)
               .then((fresh) => { beforeRef.current = fresh; onNodeRefreshed(fresh); })
               .catch(() => { /* узел могли удалить — уровень догонит поллинг */ });

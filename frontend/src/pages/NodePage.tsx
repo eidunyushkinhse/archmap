@@ -12,8 +12,9 @@ import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import ExportModal from "../components/ExportModal";
-import AddLogicMenu from "../components/AddLogicMenu";
+import AddDocsMenu from "../components/AddDocsMenu";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
+import SpecAgentModal from "../components/docsImport/SpecAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
@@ -161,8 +162,10 @@ function NodePageInner({
   const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean } | null>(null);
-  // Модалка «Доки от агента» (BYOA): скоуп = текущий объект, режим открытия
+  // Модалка «Доки от агента» (BYOA, логика): скоуп = текущий объект, режим открытия
   const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
+  // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = текущий объект
+  const [specAgent, setSpecAgent] = useState(false);
 
   // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
@@ -186,10 +189,24 @@ function NodePageInner({
 
   // Меню «+ Добавить» секции «Логика»: вручную / от агента (пакетом / по одной)
   const addLogicMenu = isArchitect ? (
-    <AddLogicMenu
-      onManual={() => setDoc({ mode: "flowchart", create: true })}
-      onBatch={() => setDocsAgent("batch")}
-      onSingle={() => setDocsAgent("single")}
+    <AddDocsMenu
+      groups={[
+        [{ label: "Новая схема (вручную)", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
+        [
+          { label: "Схемы от агента — пакетом", onSelect: () => setDocsAgent("batch") },
+          { label: "Схема от агента — по одной", onSelect: () => setDocsAgent("single") },
+        ],
+      ]}
+    />
+  ) : null;
+
+  // Меню «+ Добавить» секции «OpenAPI»: вручную / спека от агента
+  const addSpecMenu = isArchitect ? (
+    <AddDocsMenu
+      groups={[
+        [{ label: "Новая спецификация (вручную)", onSelect: () => setDoc({ mode: "openapi" }) }],
+        [{ label: "Спека от агента", onSelect: () => setSpecAgent(true) }],
+      ]}
     />
   ) : null;
 
@@ -471,18 +488,17 @@ function NodePageInner({
           <div className="np-card">
             <h3 className="np-card-title">OpenAPI</h3>
             {node.openapi_spec ? (
-              <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-              </button>
+              <>
+                <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                </button>
+                {addSpecMenu}
+              </>
             ) : (
               <>
                 <p className="np-empty">Спецификация не задана</p>
-                {isArchitect && (
-                  <button className="np-addbtn" onClick={() => setDoc({ mode: "openapi" })}>
-                    + Добавить спецификацию
-                  </button>
-                )}
+                {addSpecMenu}
               </>
             )}
           </div>
@@ -540,8 +556,23 @@ function NodePageInner({
           initialMode={docsAgent}
           onClose={() => setDocsAgent(null)}
           onApplied={() => {
-            // Дозаливка изменила мету доков/спеки узла — тянем свежий узел и
-            // применяем целиком (обновит секции «Логика» и «OpenAPI»).
+            // Дозаливка изменила мету доков узла — тянем свежий узел и
+            // применяем целиком (обновит секцию «Логика»).
+            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
+          }}
+        />
+      )}
+
+      {/* Спека от агента (BYOA, секция «OpenAPI»): скоуп = текущий объект.
+          Закрытие после успешного применения — за самой модалкой. */}
+      {specAgent && (
+        <SpecAgentModal
+          nodeId={node.id}
+          nodeName={node.name}
+          onClose={() => setSpecAgent(false)}
+          onApplied={() => {
+            // Дозаливка изменила спеку узла — тянем свежий узел и применяем
+            // целиком (обновит секцию «OpenAPI»).
             void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
           }}
         />
