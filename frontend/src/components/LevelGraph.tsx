@@ -774,7 +774,13 @@ function LevelGraphInner({
         fitView(SCHEMA_FIT_OPTIONS);
         return;
       }
-      if (expandFitRef.current && fitOnExpand) {
+      // Фит после раскрытия/сворачивания — только когда анимация ОСЕЛА (!animActive).
+      // Иначе при сворачивании fitView ловит промежуточную фазу схлопывания (потомки
+      // ещё стягиваются в точку) и считает viewport по ним, а не по итоговому
+      // свёрнутому составу — схема «уезжает в угол». По оседании (animActive=false)
+      // эффект перезапускается и фит считается по финальным узлам — одинаково для
+      // раскрытия и сворачивания.
+      if (expandFitRef.current && fitOnExpand && !animActive) {
         expandFitRef.current = false;
         fitView({ ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS });
       }
@@ -782,7 +788,8 @@ function LevelGraphInner({
     return () => window.clearTimeout(t);
     // expandFitRef — стабильный ref-объект из useLevelDrill (идентичность не
     // меняется), в deps для полноты exhaustive-deps без изменения поведения.
-  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, expandFitRef]);
+    // animActive — флаг анимации раскрытия/сворачивания: фит ждёт её оседания.
+  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, expandFitRef, animActive]);
 
   return (
     <div
