@@ -1,8 +1,11 @@
-// Модалка «Доки от агента» (BYOA-дозаливка): скоуп — ТЕКУЩИЙ УЗЕЛ, два режима.
+// Модалка «Доки от агента» (BYOA-дозаливка) — ТОЛЬКО СХЕМЫ ЛОГИКИ (node_docs,
+// mermaid). OpenAPI-спека узла — отдельное окно SpecAgentModal: сущности не
+// смешиваются (include промпта и фильтр превью/применения зафиксированы на
+// «logic»). Скоуп — ТЕКУЩИЙ УЗЕЛ, два режима.
 // «Пакетом» — агент отдаёт пакет со всеми схемами узла за один заход (небольшие
-// сервисы): слева параметры промпта (состав/язык/подсказки → «Скопировать
-// промпт»), справа файлы пакета archmap-docs (чипы с ИМЕНАМИ — по ним манифест
-// ссылается на спеки), живой dry-run с политикой перезаписи и «Применить».
+// сервисы): слева параметры промпта (язык/подсказки → «Скопировать промпт»),
+// справа файлы пакета archmap-docs (чипы с ИМЕНАМИ — по ним манифест ссылается
+// на файлы пакета), живой dry-run с политикой перезаписи и «Применить».
 // «По одной схеме» — один воркер/эндпоинт за заход (крупные монолиты): слева
 // поле «Что описать» (target — приоритетный блок фокуса в промпте), справа
 // ОДИН манифест; вид схемы (kind) приходит из манифеста и правится селектом
@@ -53,9 +56,7 @@ const KIND_ORDER: NodeDocKind[] = ["overview", "operation", "worker"];
 
 export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", onClose, onApplied }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
-  // ── параметры промпта ──
-  const [incLogic, setIncLogic] = useState(true); // «Пакетом»: состав пакета
-  const [incApi, setIncApi] = useState(true);
+  // ── параметры промпта (include зафиксирован на схемах логики) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
   const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
@@ -80,7 +81,6 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const seqRef = useRef(0);
 
   const active = Math.min(activeRaw, files.length - 1);
-  const include = incLogic && incApi ? "both" : incLogic ? "logic" : "api";
   const hasContent = files.some((f) => f.content.trim() !== "");
   const report = hasContent ? rawReport : null;
   const mmdErrs = report !== null && mmdRes?.forReport === report ? mmdRes.errs : null;
@@ -93,7 +93,8 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     const seq = ++seqRef.current;
     const t = window.setTimeout(() => {
       setChecking(true);
-      docsImportApi.preview(nonEmpty, overwrite)
+      // Окно логики: план фильтруется по схемам логики (only="logic")
+      docsImportApi.preview(nonEmpty, overwrite, "logic")
         .then((r) => {
           if (seqRef.current !== seq) return;
           setRawReport(r);
@@ -119,11 +120,10 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   }, [report]);
 
   function copyPrompt() {
-    // «По одной»: include зафиксирован на логике (одна схема логики, спеки не
-    // нужны), target фокусирует агента; «Пакетом»: весь состав узла.
-    const params: DocsPromptParams = mode === "single"
-      ? { nodeId, include: "logic", lang, hints, target }
-      : { nodeId, include, lang, hints };
+    // include зафиксирован на схемах логики (OpenAPI-спека — окно SpecAgentModal);
+    // в режиме «по одной» target фокусирует агента на одном воркере/эндпоинте
+    // (пустой target в «пакетом» клиент не передаёт).
+    const params: DocsPromptParams = { nodeId, include: "logic", lang, hints, target };
     void docsImportApi.prompt(params).then(({ prompt }) =>
       navigator.clipboard.writeText(prompt).then(() => {
         setPromptCopied(true);
@@ -226,7 +226,8 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
         })
       : nonEmpty;
     setApplying(true);
-    docsImportApi.apply(finalFiles, overwrite)
+    // Окно логики: применяются только схемы логики (only="logic")
+    docsImportApi.apply(finalFiles, overwrite, "logic")
       .then((r) => {
         setRawReport(r);
         if (!r.applied) return;
@@ -244,9 +245,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const willWrite =
     report !== null &&
     report.errors.length === 0 &&
-    (kindEdited ||
-      (count(report.logic, "create") + count(report.logic, "overwrite") +
-        count(report.specs, "create") + count(report.specs, "overwrite")) > 0);
+    (kindEdited || count(report.logic, "create") + count(report.logic, "overwrite") > 0);
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
@@ -255,9 +254,10 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        Схема уже есть — ИИ-агент дополняет документацию объекта «{nodeName}»: схемами логики (mermaid)
-        и OpenAPI-спеками. Скопируйте промпт, запустите своим агентом в репозитории сервиса, затем
-        загрузите сюда полученные файлы пакета archmap-docs/.
+        Схема уже есть — ИИ-агент дополняет документацию объекта «{nodeName}» схемами логики (mermaid).
+        Скопируйте промпт, запустите своим агентом в репозитории сервиса, затем загрузите сюда
+        полученные файлы пакета archmap-docs/. OpenAPI-спека узла готовится в отдельном окне
+        («+ Добавить» в разделе OpenAPI).
       </p>
 
       {/* Переключатель режимов */}
@@ -292,30 +292,6 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             </>
           )}
 
-          {mode === "batch" && (
-            <>
-              <label style={labelStyle}>Что готовит агент</label>
-              <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
-                <label style={radioRow}>
-                  <input
-                    type="checkbox"
-                    checked={incLogic}
-                    onChange={(e) => { if (!e.target.checked && !incApi) return; setIncLogic(e.target.checked); }}
-                  />
-                  Схемы логики
-                </label>
-                <label style={radioRow}>
-                  <input
-                    type="checkbox"
-                    checked={incApi}
-                    onChange={(e) => { if (!e.target.checked && !incLogic) return; setIncApi(e.target.checked); }}
-                  />
-                  API-спеки
-                </label>
-              </div>
-            </>
-          )}
-
           <label style={labelStyle}>Язык подписей</label>
           <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
             <label style={radioRow}>
@@ -331,7 +307,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             style={hintsArea}
             value={hints}
             onChange={(e) => setHints(e.target.value)}
-            placeholder={"Например: документируй только сервис billing;\nспеку не синтезируй."}
+            placeholder={"Например: документируй только сервис billing;\nкаждый воркер опиши отдельной схемой."}
           />
 
           <button type="button" style={{ ...primaryBtn, marginTop: 4 }} onClick={copyPrompt}>
@@ -402,17 +378,14 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-                Применено: схем создано {report.created_docs}, перезаписано {report.updated_docs},
-                спек записано {report.specs_written}.
+                Применено: схем создано {report.created_docs}, перезаписано {report.updated_docs}.
               </div>
             )}
             {!checking && report !== null && !report.applied && report.errors.length === 0 && (
               <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
                 Схем: {report.logic.length} (новых {count(report.logic, "create")},
                 перезапись {count(report.logic, "overwrite")}, пропуск {count(report.logic, "skip")},
-                без изменений {count(report.logic, "unchanged")}) ·
-                Спек: {report.specs.length} (новых {count(report.specs, "create")},
-                перезапись {count(report.specs, "overwrite")}, пропуск {count(report.specs, "skip")})
+                без изменений {count(report.logic, "unchanged")})
               </div>
             )}
             {!checking && report !== null && report.errors.length > 0 && (
@@ -452,20 +425,6 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
                 })}
               />
             )}
-            {!checking && report !== null && report.specs.length > 0 && (
-              <ItemList
-                title="OpenAPI-спеки:"
-                rows={report.specs.map((s) => ({
-                  key: `${s.node_path}#spec`,
-                  text: `«${s.node_path}» · ${s.source}${s.oas_version ? ` · OAS ${s.oas_version}` : ""}`,
-                  badge: `${ACTION_LABEL[s.action] ?? s.action}${s.origin ? ` · ${s.origin}` : ""}`,
-                  bad: s.origin === "synthesized"
-                    ? "синтезирована из кода — проверьте глазами"
-                    : !s.looks_openapi ? "не похожа на OpenAPI" : null,
-                  ok: s.looks_openapi && s.origin !== "synthesized",
-                }))}
-              />
-            )}
             {!checking && report !== null && report.conflicts.length > 0 && (
               <NoteList title="Конфликты файлов (оставлен первый источник):" items={report.conflicts} />
             )}
@@ -484,7 +443,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
           </div>
 
           <div style={footRow}>
-            <label style={{ ...radioRow, marginRight: "auto" }} title="Занятые слоты (схема с тем же именем / непустая спека узла) по умолчанию пропускаются">
+            <label style={{ ...radioRow, marginRight: "auto" }} title="Занятые слоты (схема с тем же именем) по умолчанию пропускаются">
               <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
               Перезаписывать занятые
             </label>
