@@ -26,9 +26,7 @@ import { NODE_W, NODE_H } from "./graph/constants";
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
-  QuickConnectHandlers,
 } from "./graph/types";
-import type { EdgeSide } from "./graph/edgePath";
 import type { SchemaView } from "./schemaView";
 import type { LayoutResult } from "./graph/layout/pipeline";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
@@ -43,7 +41,6 @@ import { trunkHitAt } from "./graph/trunkHit";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
-import { absPositionOf } from "./graph/absPos";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
@@ -51,12 +48,12 @@ import { useHistory } from "./graph/interaction/useHistory";
 import type { History } from "./graph/interaction/useHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
-import { findQuickConnectTarget, type QcNode } from "./graph/interaction/quickConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
 import { ANIM_MOVE_MS } from "./graph/interaction/layoutAnimation";
 import { useLevelLocate } from "./graph/interaction/useLevelLocate";
 import { useLevelSelection } from "./graph/interaction/useLevelSelection";
+import { useLevelQuickConnect } from "./graph/interaction/useLevelQuickConnect";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { planPersistFailure, type CommitOrigin } from "./graph/interaction/persistGuard";
@@ -893,66 +890,13 @@ function LevelGraphInner({
       onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
     });
 
-  // --- «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседним
-  // узлом. enter (навели на стрелку) → подбираем цель и рисуем превью; leave → гасим;
-  // activate (клик) → создаём связь через ту же модалку, что и ручное протягивание.
-  const [qc, setQc] = useState<{ sourceId: string; sourceHandle: string; side: EdgeSide; frac: number } | null>(null);
-  // Кандидат-цель для текущего qc — из геометрии узлов уровня (фикс. размер NODE_W×NODE_H).
-  // Позиции — абсолютные: дети compound-рамок несут относительные координаты (R4).
-  const qcCandidate = useMemo(() => {
-    if (!qc) return null;
-    const byId = new Map(rfNodes.map((n) => [n.id, n]));
-    const src = byId.get(qc.sourceId);
-    if (!src) return null;
-    const cands: QcNode[] = rfNodes
-      .filter((n) => n.type !== "spacer" && n.type !== "frame" && n.id !== qc.sourceId)
-      .map((n) => ({ id: n.id, ...absPositionOf(n, byId) }));
-    return findQuickConnectTarget(
-      qc.sourceId, qc.side, qc.frac,
-      { id: src.id, ...absPositionOf(src, byId) }, cands,
-    );
-  }, [qc, rfNodes]);
-  // latest-refs для стабильного activate: handlers кладём в data узлов, и они НЕ должны
-  // менять идентичность (иначе пересборка раскладки на каждый ховер). Обновляем в эффекте
-  // без зависимостей (как cbRef ниже) — activate читает их в обработчике клика, после рендера.
-  const qcRef = useRef(qc);
-  const qcCandidateRef = useRef(qcCandidate);
-  const onCreateEdgeRef = useRef(onCreateEdge);
-  const onConnectIntoRef = useRef(onConnectInto);
-  const resolveTargetRef = useRef(resolveTarget);
-  const displayNameOfRef = useRef(displayNameOf);
-  useEffect(() => {
-    qcRef.current = qc;
-    qcCandidateRef.current = qcCandidate;
-    onCreateEdgeRef.current = onCreateEdge;
-    onConnectIntoRef.current = onConnectInto;
-    resolveTargetRef.current = resolveTarget;
-    displayNameOfRef.current = displayNameOf;
+  // «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседом.
+  // Стейт наведения, подбор цели (qcCandidate → QuickConnectPreview в JSX) и стабильные
+  // handlers (→ cbRef) вынесены в useLevelQuickConnect (Фаза 3б). resolveTarget/
+  // displayNameOf общие с useEdgeConnect — передаём туда и сюда, не дублируем.
+  const { qcCandidate, quickConnectHandlers } = useLevelQuickConnect({
+    rfNodes, resolveTarget, displayNameOf, onCreateEdge, onConnectInto,
   });
-  const quickConnectHandlers = useMemo<QuickConnectHandlers>(() => ({
-    enter: (sourceId, sourceHandle, side, frac) => setQc({ sourceId, sourceHandle, side, frac }),
-    leave: () => setQc(null),
-    activate: () => {
-      const q = qcRef.current, c = qcCandidateRef.current;
-      setQc(null);
-      if (!q || !c) return;
-      const nameOf = displayNameOfRef.current;
-      // Цель-«зона входа» (контейнер или сервис с детьми) и у быстрой связи уводит
-      // в выбор потомка — как дроп протягивания в тело (E73). Прямая связь в
-      // промежуточный объект рождала бы алерт intermediate_edges (баг 2026-07-16).
-      const target = resolveTargetRef.current(c.targetId);
-      if (target && target.kind === "into") {
-        onConnectIntoRef.current?.(
-          q.sourceId, c.targetId, target.name, q.sourceHandle, nameOf(q.sourceId),
-        );
-        return;
-      }
-      onCreateEdgeRef.current?.(
-        q.sourceId, c.targetId, q.sourceHandle, c.targetHandle,
-        nameOf(q.sourceId), nameOf(c.targetId),
-      );
-    },
-  }), []);
 
   // Стабилизируем массив id предков ПО ЗНАЧЕНИЮ: родители отдают новый массив с тем
   // же содержимым на каждый рендер, а пересчитывать раскладку (и сбрасывать драг/
