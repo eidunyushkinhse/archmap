@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Pre-commit гейт (Фаза 5 рефакторинга). Не пускает красный билд в main: перед
 # КАЖДЫМ коммитом гоняет проверки той части, которую правят (по staged-файлам).
-#   frontend/* → tsc -b + vitest
-#   backend/*  → pytest
+#   frontend/* → tsc -b + eslint + vitest
+#   backend/*  → ruff + mypy + pytest
 # NB: именно `tsc -b`, не `tsc --noEmit`. Корневой tsconfig.json — solution-config
 # (files:[], только references) → `tsc --noEmit` НИЧЕГО не проверяет (тихо exit 0).
 # `tsc -b` идёт по ссылкам на tsconfig.app/node.json и реально типизирует src.
@@ -52,13 +52,15 @@ if $touch_back; then
   if [ ! -x backend/venv/bin/python ]; then
     warn "backend/venv нет — пропускаю бэк-гейт (создай venv, см. dev.sh)."
   else
-    # venv есть, но ruff в нём нет — это рассинхрон зависимостей, а не повод пропустить.
-    if [ ! -x backend/venv/bin/ruff ]; then
-      err "backend/venv есть, но ruff в нём нет — выполни: ( cd backend && ./venv/bin/pip install -r requirements.txt )"
+    # venv есть, но ruff/mypy в нём нет — это рассинхрон зависимостей, а не повод пропустить.
+    if [ ! -x backend/venv/bin/ruff ] || [ ! -x backend/venv/bin/mypy ]; then
+      err "backend/venv есть, но ruff/mypy в нём нет — выполни: ( cd backend && ./venv/bin/pip install -r requirements.txt )"
       exit 1
     fi
     say "Бэк: ruff check…"
     ( cd backend && ./venv/bin/ruff check . )
+    say "Бэк: mypy…"
+    ( cd backend && ./venv/bin/mypy app/ )
     say "Бэк: pytest…"
     ( cd backend && ./venv/bin/python -m pytest -q )
     ok "Бэк-гейт зелёный."

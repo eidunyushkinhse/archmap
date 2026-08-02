@@ -1,5 +1,5 @@
 # Зеркало локального pre-commit-гейта (scripts/git-hooks/pre-commit):
-# фронт — tsc + eslint + vitest, бэк — ruff + pytest (in-memory SQLite, сервисы не нужны).
+# фронт — tsc + eslint + vitest, бэк — ruff + mypy + pytest (in-memory SQLite, сервисы не нужны).
 name: CI
 
 on:
@@ -30,7 +30,7 @@ jobs:
         run: npx vitest run
 
   backend:
-    name: Backend (ruff + pytest)
+    name: Backend (ruff + mypy + pytest)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -46,5 +46,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Lint
         run: ruff check .
+      - name: Type check
+        run: mypy app/
       - name: Tests
         run: python -m pytest -q
