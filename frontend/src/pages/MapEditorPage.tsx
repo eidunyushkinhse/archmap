@@ -568,13 +568,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
           ))}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Undo/Redo */}
-          <button className="icon-btn" style={iconBtn} onClick={() => void dispatchUndo()} disabled={!history.canUndo()} title="Отменить · Ctrl+Z">
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h13a4 4 0 0 1 0 8H7" /><path d="M3 10 7 6" /><path d="M3 10 7 14" /></svg>
-          </button>
-          <button className="icon-btn" style={iconBtn} onClick={() => void dispatchRedo()} disabled={!history.canRedo()} title="Повторить · Ctrl+Shift+Z">
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 10H8a4 4 0 0 0 0 8h9" /><path d="m21 10-4-4" /><path d="m21 10-4 4" /></svg>
-          </button>
+          {/* Undo/Redo — только на канвасе (тулбар LevelGraph, левый верхний угол);
+              из топбара убраны как дубль. */}
           {isArchitect && (
             <button className="icon-btn" style={iconBtn} onClick={() => setRelayoutOpen(true)} disabled={!hasNodes} title="Переразложить уровень">
               <RelayoutIcon />

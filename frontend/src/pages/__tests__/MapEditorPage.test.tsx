@@ -2,7 +2,7 @@
 // по узлу), диспетчеры undo/redo (включая навигацию на уровень команды), кнопки
 // «Готово» и Esc. Тяжёлый холст LevelGraph (@xyflow/react), инспектор, дерево,
 // модалки и поллинг замоканы — тестируем оболочку редактора и её диспетчеры.
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
@@ -56,9 +56,15 @@ vi.mock("../../components/graph/interaction/useEdgeChoice", () => ({
   useEdgeChoice: () => ({ onEdgesChoice: vi.fn(), onTrunkChoice: vi.fn(), choiceModal: null }),
 }));
 
-// Тяжёлые/условные потомки — заглушки.
+// Тяжёлые/условные потомки — заглушки. Холст ловит пропсы: undo/redo-диспетчеры
+// редактора передаются в LevelGraph (бандл undo), а не рисуются в топбаре — тесты
+// вызывают их отсюда.
+const levelGraphProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 vi.mock("../../components/LevelGraph", () => ({
-  default: () => <div data-testid="level-graph" />,
+  default: (props: Record<string, unknown>) => {
+    levelGraphProps.current = props;
+    return <div data-testid="level-graph" />;
+  },
 }));
 vi.mock("../../components/NodeTreePanel", () => ({
   default: () => <div data-testid="tree-panel" />,
@@ -120,6 +126,7 @@ const props = {
 describe("MapEditorPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    levelGraphProps.current = null;
     sessionStorage.clear();
     historyMock.canUndo.mockReturnValue(false);
     historyMock.canRedo.mockReturnValue(false);
@@ -162,18 +169,21 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
-  it("пустая история: кнопки undo/redo заблокированы", async () => {
+  it("пустая история: undo-диспетчер ничего не применяет", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
-    expect(screen.getByTitle("Отменить · Ctrl+Z")).toBeDisabled();
-    expect(screen.getByTitle("Повторить · Ctrl+Shift+Z")).toBeDisabled();
+    const undo = levelGraphProps.current!.undo as { onUndo: () => void };
+    await act(async () => { undo.onUndo(); });
+    expect(historyMock.undo).not.toHaveBeenCalled();
   });
 
   it("undo: диспетчер применяет команду текущего уровня (history.undo)", async () => {
     historyMock.canUndo.mockReturnValue(true);
     historyMock.peekUndo.mockReturnValue({ label: "Правка", level: undefined });
     render(<MapEditorPage {...props} nodeId={null} />);
-    await userEvent.click(screen.getByTitle("Отменить · Ctrl+Z"));
+    await screen.findByTestId("level-graph");
+    const undo = levelGraphProps.current!.undo as { onUndo: () => void };
+    await act(async () => { undo.onUndo(); });
     expect(historyMock.undo).toHaveBeenCalledOnce();
   });
 
@@ -181,7 +191,9 @@ describe("MapEditorPage", () => {
     historyMock.canRedo.mockReturnValue(true);
     historyMock.peekRedo.mockReturnValue({ label: "Правка", level: undefined });
     render(<MapEditorPage {...props} nodeId={null} />);
-    await userEvent.click(screen.getByTitle("Повторить · Ctrl+Shift+Z"));
+    await screen.findByTestId("level-graph");
+    const undo = levelGraphProps.current!.undo as { onRedo: () => void };
+    await act(async () => { undo.onRedo(); });
     expect(historyMock.redo).toHaveBeenCalledOnce();
   });
 
@@ -191,7 +203,8 @@ describe("MapEditorPage", () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([node("other", { name: "Другой" })]);
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
-    await userEvent.click(screen.getByTitle("Отменить · Ctrl+Z"));
+    const undo = levelGraphProps.current!.undo as { onUndo: () => void };
+    await act(async () => { undo.onUndo(); });
     // Навигация на уровень команды строит путь через getAll и грузит уровень
     await waitFor(() => expect(nodesApi.getGraph).toHaveBeenCalledWith("other"));
     await waitFor(() => expect(historyMock.undo).toHaveBeenCalledOnce());
