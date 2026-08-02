@@ -119,8 +119,14 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
 
   // ── Загрузка уровня ──────────────────────────────────────────────
   // Возвращает загруженные узлы уровня (дерево выбирает свежий объект после прыжка).
-  async function load(parentId: string | null): Promise<Node[]> {
-    setLoading(true);
+  // По умолчанию — ФОНОВОЕ обновление: loading не трогаем, холст НЕ размонтируется,
+  // данные подменяются по готовности и инкрементально пересчитываются конвейером
+  // раскладки (reconcile сохраняет позиции/выделение) — без моргания на мутациях
+  // (создание/удаление/правка узлов и связей, remote-sync-эхо, ресинк 409, доки от
+  // агента). foreground: true — заглушка «Загрузка…» (первичная загрузка и навигация
+  // между уровнями, где холст всё равно сбрасывается на новый containerId).
+  async function load(parentId: string | null, opts?: { foreground?: boolean }): Promise<Node[]> {
+    if (opts?.foreground) setLoading(true);
     setLayoutRetry(null);
     try {
       const graph = await nodesApi.getGraph(parentId);
@@ -132,7 +138,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
       reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
       return graph.nodes;
     } finally {
-      setLoading(false);
+      if (opts?.foreground) setLoading(false);
     }
   }
 
@@ -150,7 +156,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
         }
         setBreadcrumb(path);
       }
-      await load(nodeId);
+      await load(nodeId, { foreground: true });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -186,7 +192,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   async function navigateToLevel(level: string | null): Promise<Node[] | undefined> {
     if (level === currentParentId) return;
     setSelectedObject(null);
-    if (level === null) { setBreadcrumb([]); return load(null); }
+    if (level === null) { setBreadcrumb([]); return load(null, { foreground: true }); }
     const all = await nodesApi.getAll();
     const byId = new Map(all.map((n) => [n.id, n]));
     const path: AncestorRef[] = [];
@@ -196,14 +202,14 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
       cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
     }
     setBreadcrumb(path);
-    return load(level);
+    return load(level, { foreground: true });
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк drill: plain-function (зависит от load), бандл drill (Фаза 3д) пересобирается с ним — поведение не меняется.
   function drillDown(node: Node) {
     setSelectedObject(null);
     setBreadcrumb((prev) => [...prev, node]);
-    load(node.id);
+    load(node.id, { foreground: true });
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- см. drillDown: plain-function, бандл drill пересобирается с ним (поведение не меняется).
@@ -211,14 +217,14 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     if (path.length === 0) return;
     setSelectedObject(null);
     setBreadcrumb(path);
-    load(path[path.length - 1].id);
+    load(path[path.length - 1].id, { foreground: true });
   }
 
   function navigateTo(index: number) {
     setSelectedObject(null);
     const next = breadcrumb.slice(0, index + 1);
     setBreadcrumb(next);
-    load(next[next.length - 1].id);
+    load(next[next.length - 1].id, { foreground: true });
   }
 
   // ── Навигация из дерева объектов ─────────────────────────────────
