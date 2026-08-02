@@ -30,6 +30,8 @@ interface Props {
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
   onDocEvent: (evt: NodeDocEvent) => void;
+  // Дозаливка BYOA применилась: освежить узел в стейте уровня (без undo)
+  onNodeRefreshed: (fresh: Node) => void;
   onEdgeSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
   onEdgeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
   onGhostGoToSource: (ghost: GhostNode) => void;
@@ -37,7 +39,7 @@ interface Props {
 
 export default function ObjectInspector({
   hasStatusInfo, view, onViewChange, counts, selected, isArchitect,
-  onNodeSaved, onNodeDeleted, onDocEvent, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
+  onNodeSaved, onNodeDeleted, onDocEvent, onNodeRefreshed, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
 }: Props) {
   return (
     <div className="insp">
@@ -59,6 +61,7 @@ export default function ObjectInspector({
           onNodeSaved={onNodeSaved}
           onNodeDeleted={onNodeDeleted}
           onDocEvent={onDocEvent}
+          onNodeRefreshed={onNodeRefreshed}
         />
       ) : selected.kind === "ghost" ? (
         <GhostInspector

@@ -1,0 +1,82 @@
+/* Меню «+ Добавить» (раздел «Логика»): триггер — стиль np-addbtn, выпадающий
+   список — стиль np-dropdown. Свой файл: компонент общий для страницы узла и
+   правой панели редактора (NodeInspector). */
+.alm-wrap {
+  position: relative;
+  display: inline-block;
+  margin-top: 10px;
+}
+
+.alm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 1px dashed #bfdbfe;
+  border-radius: 8px;
+  background: #f5f9ff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.alm-btn:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.alm-chev {
+  display: inline-flex;
+  transition: transform 0.12s;
+}
+.alm-chev--open {
+  transform: rotate(180deg);
+}
+
+.alm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.alm-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  min-width: 236px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  z-index: 31;
+}
+.alm-menu--right {
+  left: auto;
+  right: 0;
+}
+
+.alm-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: #1e293b;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 7px;
+}
+.alm-menu button:hover {
+  background: #f1f5f9;
+}
+
+.alm-sep {
+  height: 1px;
+  background: #eef0f2;
+  margin: 4px 6px;
+}

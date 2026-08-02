@@ -344,6 +344,13 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     setSelectedObject((sel) => (sel?.kind === "node" && sel.node.id === nodeId2 ? { kind: "node", node: patch(sel.node) } : sel));
   }
 
+  // Освежение меты узла БЕЗ записи в историю: дозаливка BYOA из правой панели
+  // (применение «доков от агента» осознанно не кладётся в undo — см. DocsAgentModal).
+  function handleNodeRefreshed(fresh: Node) {
+    setNodes((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
+    setSelectedObject((sel) => (sel?.kind === "node" && sel.node.id === fresh.id ? { kind: "node", node: fresh } : sel));
+  }
+
   function handleDocEvent(evt: NodeDocEvent) {
     const meta = docToMeta;
     const fields = (d: NodeDoc) => ({ name: d.name, kind: d.kind, operation: d.operation, content: d.content });
@@ -632,7 +639,8 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
             hasStatusInfo={hasStatusInfo} view={schemaView} onViewChange={setSchemaView}
             counts={statusCounts} selected={selectedObject} isArchitect={isArchitect}
             onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
-            onDocEvent={handleDocEvent} onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
+            onDocEvent={handleDocEvent} onNodeRefreshed={handleNodeRefreshed}
+            onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
             onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}
           />
         </aside>

@@ -374,6 +374,27 @@
   transform: translateX(14px);
 }
 
+/* Строка «Логика» + меню «+ Добавить» (BYOA): кнопка-строка растягивается,
+   меню прижато к правому краю панели (выпадающий список — right-aligned). */
+.insp-docrow {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 8px;
+}
+.insp-docrow .insp-heavy {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+}
+.insp-docrow .alm-wrap {
+  margin-top: 0;
+  flex: none;
+}
+.insp-docrow .alm-btn {
+  height: 100%;
+}
+
 /* Тяжёлые поля — кнопки-строки */
 .insp-heavy {
   display: flex;

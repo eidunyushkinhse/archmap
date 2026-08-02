@@ -12,6 +12,7 @@ import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import ExportModal from "../components/ExportModal";
+import AddLogicMenu from "../components/AddLogicMenu";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
@@ -182,6 +183,15 @@ function NodePageInner({
     patch.applyDocEvent(evt);
     syncCursors();
   }, [patch, syncCursors]);
+
+  // Меню «+ Добавить» секции «Логика»: вручную / от агента (пакетом / по одной)
+  const addLogicMenu = isArchitect ? (
+    <AddLogicMenu
+      onManual={() => setDoc({ mode: "flowchart", create: true })}
+      onBatch={() => setDocsAgent("batch")}
+      onSingle={() => setDocsAgent("single")}
+    />
+  ) : null;
 
   return (
     <div className="np-page">
@@ -430,16 +440,7 @@ function NodePageInner({
             {node.docs.length === 0 ? (
               <>
                 <p className="np-empty">Схемы логики не заданы</p>
-                {isArchitect && (
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
-                      + Добавить схему
-                    </button>
-                    <button className="np-addbtn" onClick={() => setDocsAgent("batch")}>
-                      Доки от агента
-                    </button>
-                  </div>
-                )}
+                {addLogicMenu}
               </>
             ) : (
               <>
@@ -459,16 +460,7 @@ function NodePageInner({
                     </button>
                   ))}
                 </div>
-                {isArchitect && (
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
-                      + Добавить схему
-                    </button>
-                    <button className="np-addbtn" onClick={() => setDocsAgent("batch")}>
-                      Доки от агента
-                    </button>
-                  </div>
-                )}
+                {addLogicMenu}
               </>
             )}
           </div>

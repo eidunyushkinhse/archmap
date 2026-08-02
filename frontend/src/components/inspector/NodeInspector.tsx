@@ -12,6 +12,8 @@ import { isConflict } from "../../api/client";
 import { plural } from "../../ui/plural";
 import { ShapeGlyph, Chevron } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
+import AddLogicMenu from "../AddLogicMenu";
+import DocsAgentModal from "../docsImport/DocsAgentModal";
 import DocOverlay from "./DocOverlay";
 import type { NodeDocEvent } from "./FlowchartDocs";
 import "../NodeTreePanel.css"; // классы nt-tree/nt-row для справочной ветки детей
@@ -26,11 +28,14 @@ interface Props {
   // Мутации схем логики (node_docs) из оверлея: MapEditorPage кладёт компенсации в
   // Undo/Redo и освежает мету node.docs в стейте уровня.
   onDocEvent: (evt: NodeDocEvent) => void;
+  // Дозаливка BYOA применилась: свежий узел в стейт уровня и выбранное (БЕЗ
+  // истории — применение «доков от агента» не кладётся в undo).
+  onNodeRefreshed: (fresh: Node) => void;
 }
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
-export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onDocEvent }: Props) {
+export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onDocEvent, onNodeRefreshed }: Props) {
   // Локальные значения полей. Сбрасываются на смену выбора: ObjectInspector монтирует
   // NodeInspector с key=node.id, поэтому при выборе другого узла компонент перемонтируется.
   const [name, setName] = useState(node.name);
@@ -41,7 +46,11 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const [status, setStatus] = useState<NodeStatus>(node.status);
   const [statusOpen, setStatusOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [doc, setDoc] = useState<"flowchart" | "openapi" | null>(null);
+  // Оверлей тяжёлой документации; autoCreate — «Новая схема (вручную)» из меню
+  // «+ Добавить» создаёт схему сразу при открытии.
+  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; autoCreate?: boolean } | null>(null);
+  // Модалка «Доки от агента» (BYOA): скоуп = выбранный узел, режим открытия
+  const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
   // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
   // обновлены с сервера — пользователь повторяет правку поверх свежего.
   const [conflict, setConflict] = useState<string | null>(null);
@@ -292,16 +301,26 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         <>
           <div className="insp-block-label">Документация</div>
           {(isArchitect || node.docs.length > 0) && (
-            <button type="button" className="insp-heavy" onClick={() => setDoc("flowchart")}>
-              <span className="insp-heavy-ico">{META_ICON.flow}</span>
-              <span className="insp-heavy-name">Логика</span>
-              <span className="insp-heavy-status">
-                {node.docs.length > 0 ? `${node.docs.length} ${plural(node.docs.length, ["схема", "схемы", "схем"])} →` : "не задано"}
-              </span>
-            </button>
+            <div className="insp-docrow">
+              <button type="button" className="insp-heavy" onClick={() => setDoc({ mode: "flowchart" })}>
+                <span className="insp-heavy-ico">{META_ICON.flow}</span>
+                <span className="insp-heavy-name">Логика</span>
+                <span className="insp-heavy-status">
+                  {node.docs.length > 0 ? `${node.docs.length} ${plural(node.docs.length, ["схема", "схемы", "схем"])} →` : "не задано"}
+                </span>
+              </button>
+              {isArchitect && (
+                <AddLogicMenu
+                  align="right"
+                  onManual={() => setDoc({ mode: "flowchart", autoCreate: true })}
+                  onBatch={() => setDocsAgent("batch")}
+                  onSingle={() => setDocsAgent("single")}
+                />
+              )}
+            </div>
           )}
           {(isArchitect || node.openapi_spec) && (
-            <button type="button" className="insp-heavy" onClick={() => setDoc("openapi")}>
+            <button type="button" className="insp-heavy" onClick={() => setDoc({ mode: "openapi" })}>
               <span className="insp-heavy-ico">{META_ICON.api}</span>
               <span className="insp-heavy-name">OpenAPI</span>
               <span className="insp-heavy-status">{node.openapi_spec ? "открыть →" : "не задано"}</span>
@@ -327,15 +346,35 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
       {doc && (
         <DocOverlay
-          mode={doc}
+          mode={doc.mode}
           nodeId={node.id}
           nodeName={node.name}
           openapi={node.openapi_spec ?? ""}
           isArchitect={isArchitect}
+          autoCreate={doc.autoCreate}
           onCommitOpenapi={commitOpenapi}
           onDocEvent={onDocEvent}
           onClose={() => setDoc(null)}
           notice={conflict}
+        />
+      )}
+
+      {/* Доки от агента (BYOA): скоуп = выбранный узел. Закрытие после успешного
+          применения — за самой модалкой; onApplied только освежает мету. */}
+      {docsAgent && (
+        <DocsAgentModal
+          nodeId={node.id}
+          nodeName={node.name}
+          initialMode={docsAgent}
+          onClose={() => setDocsAgent(null)}
+          onApplied={() => {
+            // Дозаливка изменила мету доков/спеку (и version узла при записи
+            // спеки) — тянем свежий узел: CAS-база локально, мета в стейте
+            // уровня через onNodeRefreshed (применение BYOA не кладётся в undo).
+            void nodesApi.get(node.id)
+              .then((fresh) => { beforeRef.current = fresh; onNodeRefreshed(fresh); })
+              .catch(() => { /* узел могли удалить — уровень догонит поллинг */ });
+          }}
         />
       )}
     </div>
