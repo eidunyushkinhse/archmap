@@ -929,6 +929,14 @@ function SchemaSection({
       .finally(() => { relayoutInflight.current = false; });
   }, [node.id, refetch]);
 
+  // Рёбра уровня из GraphResponse (тот же маппинг, что у остальных потребителей
+  // графа уровня — pageSchema.toLevelEdges). Мемоизация: toLevelEdges создаёт новый
+  // массив при каждом вызове; без мемоизации проп edges менялся бы на каждый рендер
+  // (зеркало раскладки меняет только graph.layout, не nodes/endpoints/edges) и
+  // пересоздавал computeNow в LevelGraph — конвейер стартовал бы в промежуточном
+  // рендере со старым viewLayout, вызывая визуальный откат узла при отпускании драга.
+  const edges = useMemo(() => (graph ? toLevelEdges(graph) : []), [graph]);
+
   if (loading) return <p className="np-empty">Загрузка схемы…</p>;
   if (!graph) return null;
 
@@ -960,10 +968,6 @@ function SchemaSection({
       </div>
     );
   }
-
-  // Рёбра уровня из GraphResponse (тот же маппинг, что у остальных потребителей
-  // графа уровня — pageSchema.toLevelEdges).
-  const edges = toLevelEdges(graph);
 
   // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
   const height = schemaSectionHeight(visibleEntityGuess(graph));
