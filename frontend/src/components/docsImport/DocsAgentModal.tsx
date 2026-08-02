@@ -1,14 +1,22 @@
-// Модалка «Доки от агента» (BYOA-дозаливка, этап 2 plan-agent-docs.md): слева
-// параметры промпта (область/состав/язык/подсказки → «Скопировать промпт»),
-// справа файлы пакета archmap-docs (чипы с ИМЕНАМИ — по ним манифест ссылается
-// на спеки), живой dry-run с политикой перезаписи и «Применить». Mermaid-тексты
-// схем валидируются здесь фронтом (бэкового валидатора нет) — советующе, ✗ не
-// блокирует применение. Применение НЕ кладётся в undo (см. примечание к
-// версионированию в tasks.md) — страховка: превью + дефолт «не перезаписывать».
+// Модалка «Доки от агента» (BYOA-дозаливка): скоуп — ТЕКУЩИЙ УЗЕЛ, два режима.
+// «Пакетом» — агент отдаёт пакет со всеми схемами узла за один заход (небольшие
+// сервисы): слева параметры промпта (состав/язык/подсказки → «Скопировать
+// промпт»), справа файлы пакета archmap-docs (чипы с ИМЕНАМИ — по ним манифест
+// ссылается на спеки), живой dry-run с политикой перезаписи и «Применить».
+// «По одной схеме» — один воркер/эндпоинт за заход (крупные монолиты): слева
+// поле «Что описать» (target — приоритетный блок фокуса в промпте), справа
+// ОДИН манифест; вид схемы (kind) приходит из манифеста и правится селектом
+// прямо в превью — правка вносится в YAML-текст манифеста перед применением.
+// Mermaid-тексты схем валидируются здесь фронтом (бэкового валидатора нет) —
+// советующе, ✗ не блокирует применение. Применение НЕ кладётся в undo (см.
+// примечание к версионированию в tasks.md) — страховка: превью + дефолт
+// «не перезаписывать». Закрытие после успешного применения — отсюда (onClose);
+// родитель через onApplied только освежает мету узла.
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
-import type { DocsImportReport } from "../../types";
-import { docsImportApi, type DocsFile } from "../../api/docsImport";
+import type { CSSProperties, ReactNode } from "react";
+import type { DocsImportReport, NodeDocKind } from "../../types";
+import { docsImportApi, type DocsFile, type DocsPromptParams } from "../../api/docsImport";
+import { replaceLogicKind } from "./manifestKind";
 import { validateMermaid } from "../mermaidLoader";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
@@ -16,12 +24,16 @@ import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 
 const MAX_FILES = 16; // клиентский предохранитель (бэк режет на 32)
 
+type Mode = "batch" | "single";
+
 interface Props {
-  // Текущий уровень для области «текущий контейнер»; null — открыт корень.
-  currentParentId: string | null;
-  currentParentName: string | null;
+  // Узел, для которого агент готовит документы (скоуп промпта и применения).
+  nodeId: string;
+  nodeName: string;
+  // Режим открытия модалки (пункты меню «+ Добавить» в секции «Логика»).
+  initialMode?: Mode;
   onClose: () => void;
-  // Дозаливка применена — родитель перечитывает уровень (мета docs узлов).
+  // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
 }
 
@@ -32,15 +44,23 @@ const ACTION_LABEL: Record<string, string> = {
   unchanged: "без изменений",
 };
 
-export default function DocsAgentModal({ currentParentId, currentParentName, onClose, onApplied }: Props) {
+const KIND_LABEL: Record<NodeDocKind, string> = {
+  overview: "Обзор",
+  operation: "Операция",
+  worker: "Воркер",
+};
+const KIND_ORDER: NodeDocKind[] = ["overview", "operation", "worker"];
+
+export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", onClose, onApplied }: Props) {
+  const [mode, setMode] = useState<Mode>(initialMode);
   // ── параметры промпта ──
-  const [scope, setScope] = useState<"project" | "container">(currentParentId ? "container" : "project");
-  const [incLogic, setIncLogic] = useState(true);
+  const [incLogic, setIncLogic] = useState(true); // «Пакетом»: состав пакета
   const [incApi, setIncApi] = useState(true);
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
+  const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
   const [promptCopied, setPromptCopied] = useState(false);
-  // ── файлы пакета и превью ──
+  // ── файлы пакета и превью (общие для обоих режимов) ──
   const [files, setFiles] = useState<DocsFile[]>([]);
   const [activeRaw, setActiveRaw] = useState(0);
   const [overwrite, setOverwrite] = useState(false);
@@ -53,6 +73,9 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
   const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; errs: (string | null)[] } | null>(null);
   const [applying, setApplying] = useState(false);
   const [remarksCopied, setRemarksCopied] = useState(false);
+  // Правки вида схем из превью (режим «по одной»): key — `${node_path}#${name}`
+  // строки отчёта; перед применением вносятся в YAML-текст манифеста.
+  const [kindOverrides, setKindOverrides] = useState<{ key: string; name: string; kind: NodeDocKind }[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
 
@@ -96,8 +119,12 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
   }, [report]);
 
   function copyPrompt() {
-    const nodeId = scope === "container" ? currentParentId : null;
-    void docsImportApi.prompt({ nodeId, include, lang, hints }).then(({ prompt }) =>
+    // «По одной»: include зафиксирован на логике (одна схема логики, спеки не
+    // нужны), target фокусирует агента; «Пакетом»: весь состав узла.
+    const params: DocsPromptParams = mode === "single"
+      ? { nodeId, include: "logic", lang, hints, target }
+      : { nodeId, include, lang, hints };
+    void docsImportApi.prompt(params).then(({ prompt }) =>
       navigator.clipboard.writeText(prompt).then(() => {
         setPromptCopied(true);
         setTimeout(() => setPromptCopied(false), 2000);
@@ -143,6 +170,18 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
     setFiles((prev) => prev.map((f, k) => (k === i ? { ...f, content } : f)));
   }
 
+  // ── правка вида схемы в превью (режим «по одной») ──
+  function kindOf(key: string, reportKind: NodeDocKind): NodeDocKind {
+    return kindOverrides.find((o) => o.key === key)?.kind ?? reportKind;
+  }
+  function pickKind(key: string, name: string, reportKind: NodeDocKind, kind: NodeDocKind) {
+    setKindOverrides((prev) => {
+      const rest = prev.filter((o) => o.key !== key);
+      // Выбор вида из манифеста — не правка (не плодим пустые override)
+      return kind === reportKind ? rest : [...rest, { key, name, kind }];
+    });
+  }
+
   // Замечания для агента: ошибки/конфликты/предупреждения + mermaid-ошибки фронта.
   const mmdRemarks =
     report === null || mmdErrs === null
@@ -164,23 +203,50 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
     });
   }
 
-  function apply() {
+  // «Добавить ещё» (режим «по одной»): применить, затем очистить поля для
+  // следующего воркера/эндпоинта (модалка остаётся открытой в режиме single).
+  function resetSingleForNext() {
+    setTarget("");
+    setFiles([]);
+    setActiveRaw(0);
+    setRawReport(null);
+    setMmdRes(null);
+    setKindOverrides([]);
+  }
+
+  function apply(closeAfter: boolean) {
     const nonEmpty = files.filter((f) => f.content.trim() !== "");
+    // Правки вида из превью-селектов вносятся в текст манифеста; блок схемы не
+    // найден (текст правили руками после превью) — файл уходит как есть.
+    const finalFiles = mode === "single" && kindOverrides.length > 0
+      ? nonEmpty.map((f) => {
+          let content = f.content;
+          for (const o of kindOverrides) content = replaceLogicKind(content, o.name, o.kind) ?? content;
+          return content === f.content ? f : { ...f, content };
+        })
+      : nonEmpty;
     setApplying(true);
-    docsImportApi.apply(nonEmpty, overwrite)
+    docsImportApi.apply(finalFiles, overwrite)
       .then((r) => {
         setRawReport(r);
-        if (r.applied) onApplied();
+        if (!r.applied) return;
+        onApplied();
+        if (closeAfter) onClose();
+        else resetSingleForNext();
       })
       .finally(() => setApplying(false));
   }
 
   const count = (arr: { action: string }[], action: string) => arr.filter((a) => a.action === action).length;
+  // Правка вида в превью делает схему «перезаписью» даже при unchanged в отчёте
+  // (бэк сверяет и kind) — учитываем override в доступности кнопок применения.
+  const kindEdited = mode === "single" && kindOverrides.length > 0 && report !== null && report.logic.length > 0;
   const willWrite =
     report !== null &&
     report.errors.length === 0 &&
-    (count(report.logic, "create") + count(report.logic, "overwrite") +
-      count(report.specs, "create") + count(report.specs, "overwrite")) > 0;
+    (kindEdited ||
+      (count(report.logic, "create") + count(report.logic, "overwrite") +
+        count(report.specs, "create") + count(report.specs, "overwrite")) > 0);
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
@@ -189,50 +255,66 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        Схема уже есть — ИИ-агент дополняет её документами: схемами логики (mermaid) и OpenAPI-спеками.
-        Скопируйте промпт, запустите своим агентом в репозитории сервиса, затем загрузите сюда файлы
-        пакета archmap-docs/ из репозитория.
+        Схема уже есть — ИИ-агент дополняет документацию объекта «{nodeName}»: схемами логики (mermaid)
+        и OpenAPI-спеками. Скопируйте промпт, запустите своим агентом в репозитории сервиса, затем
+        загрузите сюда полученные файлы пакета archmap-docs/.
       </p>
+
+      {/* Переключатель режимов */}
+      <div style={segWrap}>
+        <div style={seg} role="tablist" aria-label="Режим дозаливки">
+          <button type="button" role="tab" aria-selected={mode === "batch"} style={mode === "batch" ? segBtnOn : segBtn} onClick={() => setMode("batch")}>
+            Пакетом
+          </button>
+          <button type="button" role="tab" aria-selected={mode === "single"} style={mode === "single" ? segBtnOn : segBtn} onClick={() => setMode("single")}>
+            По одной схеме
+          </button>
+        </div>
+        <span style={segNote}>
+          {mode === "batch"
+            ? "Агент отдаёт пакет со всеми схемами узла за один заход — для небольших сервисов."
+            : "Один воркер или эндпоинт за заход — для крупных монолитов."}
+        </span>
+      </div>
 
       <div style={cols}>
         {/* ── Слева: параметры промпта ── */}
         <div style={leftCol}>
-          <label style={labelStyle}>Область схемы в промпте</label>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
-            <label style={radioRow}>
-              <input type="radio" checked={scope === "project"} onChange={() => setScope("project")} />
-              Весь проект
-            </label>
-            <label style={{ ...radioRow, opacity: currentParentId ? 1 : 0.45 }}>
+          {mode === "single" && (
+            <>
+              <label style={labelStyle}>Что описать</label>
               <input
-                type="radio"
-                disabled={!currentParentId}
-                checked={scope === "container"}
-                onChange={() => setScope("container")}
+                style={targetInput}
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                placeholder="воркер или эндпоинт: OrderCreatedHandler, POST /orders"
               />
-              Текущий контейнер{currentParentName ? ` — «${currentParentName}»` : ""}
-            </label>
-          </div>
+            </>
+          )}
 
-          <label style={labelStyle}>Что готовит агент</label>
-          <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
-            <label style={radioRow}>
-              <input
-                type="checkbox"
-                checked={incLogic}
-                onChange={(e) => { if (!e.target.checked && !incApi) return; setIncLogic(e.target.checked); }}
-              />
-              Схемы логики
-            </label>
-            <label style={radioRow}>
-              <input
-                type="checkbox"
-                checked={incApi}
-                onChange={(e) => { if (!e.target.checked && !incLogic) return; setIncApi(e.target.checked); }}
-              />
-              API-спеки
-            </label>
-          </div>
+          {mode === "batch" && (
+            <>
+              <label style={labelStyle}>Что готовит агент</label>
+              <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
+                <label style={radioRow}>
+                  <input
+                    type="checkbox"
+                    checked={incLogic}
+                    onChange={(e) => { if (!e.target.checked && !incApi) return; setIncLogic(e.target.checked); }}
+                  />
+                  Схемы логики
+                </label>
+                <label style={radioRow}>
+                  <input
+                    type="checkbox"
+                    checked={incApi}
+                    onChange={(e) => { if (!e.target.checked && !incLogic) return; setIncApi(e.target.checked); }}
+                  />
+                  API-спеки
+                </label>
+              </div>
+            </>
+          )}
 
           <label style={labelStyle}>Язык подписей</label>
           <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
@@ -256,8 +338,9 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
             {promptCopied ? "Скопировано ✓" : "Скопировать промпт"}
           </button>
           <p style={leftNote}>
-            Один и тот же промпт запускается в каждом репозитории системы — манифесты
-            из всех репозиториев загружаются сюда вместе.
+            {mode === "batch"
+              ? "Промпт запускается в репозитории сервиса этого узла; файлы пакета archmap-docs/ из репозитория загружаются сюда."
+              : "Скопируйте промпт, запустите агент на этом воркере/эндпоинте, затем загрузите полученный манифест (или вставьте текстом)."}
           </p>
         </div>
 
@@ -285,7 +368,7 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
               disabled={files.length >= MAX_FILES}
               onClick={() => fileRef.current?.click()}
             >
-              Загрузить файлы…
+              {mode === "single" ? "Загрузить манифест…" : "Загрузить файлы…"}
             </button>
             <button
               type="button"
@@ -308,8 +391,9 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
             />
           ) : (
             <div style={dropHint}>
-              Загрузите все файлы папки archmap-docs/ из репозитория
-              (manifest.yaml + файлы спек) — или вставьте манифест текстом.
+              {mode === "single"
+                ? "Загрузите манифест от агента (manifest.yaml с одной схемой) — или вставьте текстом."
+                : "Загрузите все файлы папки archmap-docs/ из репозитория (manifest.yaml + файлы спек) — или вставьте манифест текстом."}
             </div>
           )}
 
@@ -345,12 +429,25 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
                 rows={report.logic.map((l, i) => {
                   // Фиксируем в const: TS не сужает индексацию через ?. в тернарнике
                   const err = mmdErrs?.[i] ?? null;
+                  const key = `${l.node_path}#${l.name}`;
                   return {
-                    key: `${l.node_path}#${l.name}`,
+                    key,
                     text: `«${l.node_path}» · ${l.name}${l.operation ? ` (${l.operation})` : ""}`,
                     badge: ACTION_LABEL[l.action] ?? l.action,
                     bad: err !== null ? `mermaid: ${err.split("\n")[0]}` : null,
                     ok: mmdErrs?.[i] === null,
+                    // Режим «по одной»: вид из манифеста правится до применения
+                    kindSel: mode === "single" ? (
+                      <select
+                        style={kindSelect}
+                        value={kindOf(key, l.kind)}
+                        onChange={(e) => pickKind(key, l.name, l.kind, e.target.value as NodeDocKind)}
+                        title="Вид схемы из манифеста — можно поменять до применения"
+                        aria-label={`Вид схемы ${l.name}`}
+                      >
+                        {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+                      </select>
+                    ) : undefined,
                   };
                 })}
               />
@@ -391,14 +488,36 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
               <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
               Перезаписывать занятые
             </label>
-            <button
-              type="button"
-              style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
-              disabled={!willWrite || applying}
-              onClick={apply}
-            >
-              {applying ? "Применяю…" : "Применить"}
-            </button>
+            {mode === "batch" ? (
+              <button
+                type="button"
+                style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
+                disabled={!willWrite || applying}
+                onClick={() => apply(true)}
+              >
+                {applying ? "Применяю…" : "Применить"}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  style={{ ...secondaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
+                  disabled={!willWrite || applying}
+                  title="Применить и подготовить поля к следующему воркеру/эндпоинту"
+                  onClick={() => apply(false)}
+                >
+                  Добавить ещё
+                </button>
+                <button
+                  type="button"
+                  style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
+                  disabled={!willWrite || applying}
+                  onClick={() => apply(true)}
+                >
+                  {applying ? "Применяю…" : "Добавить"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -406,10 +525,11 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
   );
 }
 
-// Строки превью: текст + бейдж действия + советующий статус (mermaid/origin).
+// Строки превью: текст + бейдж действия + советующий статус (mermaid/origin)
+// + опциональный селект вида схемы (режим «по одной»).
 function ItemList({ title, rows }: {
   title: string;
-  rows: { key: string; text: string; badge: string; bad: string | null; ok: boolean }[];
+  rows: { key: string; text: string; badge: string; bad: string | null; ok: boolean; kindSel?: ReactNode }[];
 }) {
   const shown = rows.slice(0, 8);
   return (
@@ -421,6 +541,7 @@ function ItemList({ title, rows }: {
             {r.text}
           </span>
           <span style={badge}>{r.badge}</span>
+          {r.kindSel}
           {r.bad !== null ? (
             <span style={{ color: "#b45309", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.bad}>
               ⚠ {r.bad}
@@ -450,13 +571,33 @@ function NoteList({ title, items }: { title: string; items: string[] }) {
 }
 
 const head: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 };
-const sub: CSSProperties = { margin: "0 0 14px", fontSize: 12.5, color: "#64748b", lineHeight: 1.5 };
+const sub: CSSProperties = { margin: "0 0 12px", fontSize: 12.5, color: "#64748b", lineHeight: 1.5 };
+const segWrap: CSSProperties = { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "0 0 14px" };
+const seg: CSSProperties = {
+  display: "inline-flex", gap: 3, padding: 3, background: "#f1f5f9",
+  border: "1px solid #e2e8f0", borderRadius: 10,
+};
+const segBtnBase: CSSProperties = {
+  border: "none", borderRadius: 8, padding: "6px 14px", font: "inherit",
+  fontSize: 13, cursor: "pointer", transition: "background .12s, color .12s",
+};
+const segBtn: CSSProperties = { ...segBtnBase, background: "transparent", color: "#64748b", fontWeight: 500 };
+const segBtnOn: CSSProperties = {
+  ...segBtnBase, background: "#fff", color: "#1e293b", fontWeight: 600,
+  boxShadow: "0 1px 3px rgba(15,23,42,.14)",
+};
+const segNote: CSSProperties = { fontSize: 12, color: "#94a3b8", lineHeight: 1.4 };
 const cols: CSSProperties = { display: "flex", gap: 18, alignItems: "stretch" };
 const leftCol: CSSProperties = { width: 300, flex: "none", display: "flex", flexDirection: "column" };
 const rightCol: CSSProperties = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" };
 const radioRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#334155",
   cursor: "pointer", userSelect: "none",
+};
+const targetInput: CSSProperties = {
+  width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px",
+  border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a",
+  fontFamily: "inherit",
 };
 const hintsArea: CSSProperties = {
   width: "100%", height: 74, boxSizing: "border-box", resize: "vertical", marginBottom: 8,
@@ -494,6 +635,10 @@ const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8" };
 const badge: CSSProperties = {
   flex: "none", fontSize: 10.5, fontWeight: 700, color: "#475569", background: "#f1f5f9",
   border: "1px solid #e2e8f0", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap",
+};
+const kindSelect: CSSProperties = {
+  flex: "none", font: "inherit", fontSize: 11.5, color: "#334155", cursor: "pointer",
+  border: "1px solid #e2e8f0", borderRadius: 6, background: "#fff", padding: "1px 4px",
 };
 const footRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 10, marginTop: 12, paddingTop: 12,

@@ -160,8 +160,8 @@ function NodePageInner({
   const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean } | null>(null);
-  // Модалка «Доки от агента» (BYOA): область = текущий объект (node.id)
-  const [docsAgentOpen, setDocsAgentOpen] = useState(false);
+  // Модалка «Доки от агента» (BYOA): скоуп = текущий объект, режим открытия
+  const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
 
   // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
@@ -435,7 +435,7 @@ function NodePageInner({
                     <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
                       + Добавить схему
                     </button>
-                    <button className="np-addbtn" onClick={() => setDocsAgentOpen(true)}>
+                    <button className="np-addbtn" onClick={() => setDocsAgent("batch")}>
                       Доки от агента
                     </button>
                   </div>
@@ -464,7 +464,7 @@ function NodePageInner({
                     <button className="np-addbtn" onClick={() => setDoc({ mode: "flowchart", create: true })}>
                       + Добавить схему
                     </button>
-                    <button className="np-addbtn" onClick={() => setDocsAgentOpen(true)}>
+                    <button className="np-addbtn" onClick={() => setDocsAgent("batch")}>
                       Доки от агента
                     </button>
                   </div>
@@ -539,14 +539,15 @@ function NodePageInner({
         />
       )}
 
-      {/* Доки от агента (BYOA, секция «Логика»): область = текущий объект */}
-      {docsAgentOpen && (
+      {/* Доки от агента (BYOA, секция «Логика»): скоуп = текущий объект.
+          Закрытие после успешного применения — за самой модалкой. */}
+      {docsAgent && (
         <DocsAgentModal
-          currentParentId={node.id}
-          currentParentName={node.name}
-          onClose={() => setDocsAgentOpen(false)}
+          nodeId={node.id}
+          nodeName={node.name}
+          initialMode={docsAgent}
+          onClose={() => setDocsAgent(null)}
           onApplied={() => {
-            setDocsAgentOpen(false);
             // Дозаливка изменила мету доков/спеки узла — тянем свежий узел и
             // применяем целиком (обновит секции «Логика» и «OpenAPI»).
             void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
