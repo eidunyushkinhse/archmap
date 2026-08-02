@@ -56,7 +56,9 @@ describe("useLevelSchema", () => {
     vi.mocked(nodesApi.getGraph).mockResolvedValue(makeGraph());
     const { result } = renderHook(() => useLevelSchema({ containerId: null }));
     await waitFor(() => expect(result.current.loading).toBe(false));
-    act(() => result.current.reload());
+    // reload возвращает промис (ресинк персиста ждёт свежих данных) — act awaited,
+    // чтобы асинхронная перезагрузка корректно завершилась до следующего теста.
+    await act(async () => { await result.current.reload(); });
     await waitFor(() => expect(nodesApi.getGraph).toHaveBeenCalledTimes(2));
   });
 

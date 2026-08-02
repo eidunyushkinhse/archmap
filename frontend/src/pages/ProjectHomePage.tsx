@@ -1,12 +1,14 @@
 // Страница проекта (корень) — вход в проект открывает её (pages_pivot).
 // Шапка: имя, описание, счётчики. Секция «Схема системы» = корневой уровень.
 // Секция «Бизнес-процессы» — список со счётчиком участников.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { Project, ProcessListItem } from "../types";
+import type { Project, ProcessListItem, ViewLayoutPayload } from "../types";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
+import { nodesApi } from "../api/nodes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
+import type { LevelPersistenceProps } from "../components/graph/types";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { useLevelSchema } from "./useLevelSchema";
 import { useToast } from "./useToast";
@@ -43,10 +45,63 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     viewMeta: lvl.viewMetaRef,
     gestureActiveRef: lvl.gestureActiveRef,
     onRemoteChange: () => {
-      lvl.reload();
+      void lvl.reload();
       showRemoteToast();
     },
   });
+
+  // ── Персист раскладки корневого уровня (архитектор) ────────────────
+  // Корень — тот же level-конвейер, что и страница объекта: архитектору доступна
+  // расстановка (драг + запись вида view_id=null), наблюдателю — read-only.
+  // Зеркало записанных батчей держит useLevelSchema (mergeLayout). Ресинк при
+  // ошибке персиста / перед переигровкой 409 — перезагрузка уровня из БД.
+  // Замок resyncingRef — один inflight на серию (по образу SchemaSection).
+  const resyncingRef = useRef<Promise<void> | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк: осознанно plain-function (пересоздаётся каждый рендер), бандл пересобирается с ним — по образу SchemaSection.
+  function resyncOnPersistError(): Promise<void> {
+    if (resyncingRef.current) return resyncingRef.current;
+    const p = lvl.reload().finally(() => { resyncingRef.current = null; });
+    resyncingRef.current = p;
+    return p;
+  }
+  // 409 (корневой вид изменён другой сессией): ресинк + одноразовая переигровка
+  // исходного патча от свежего зеркала (канал retryPatch, по образу SchemaSection).
+  const layoutRetrySeq = useRef(0);
+  const [layoutRetry, setLayoutRetry] = useState<{
+    patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
+  } | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError.
+  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
+    void resyncOnPersistError().then(() => {
+      setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
+    });
+  }
+
+  // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
+  // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
+  // layoutViewId НЕ задаём: корень персистится в вид view_id=null (containerId=null).
+  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
+    if (!isArchitect) return undefined;
+    return {
+      onLayoutChanged: lvl.mergeLayout,
+      onPersistError: resyncOnPersistError,
+      onPersistConflict: handlePersistConflict,
+      retryPatch: layoutRetry,
+      viewMeta: lvl.viewMetaRef,
+      gestureActiveRef: lvl.gestureActiveRef,
+    };
+  }, [isArchitect, lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, resyncOnPersistError, handlePersistConflict, layoutRetry]);
+
+  // «Переразложить»: сброс раскладки корневого уровня → перезагрузка (свежий ELK).
+  // Реф-замок от повторных кликов (relayout идемпотентен, но незачем спамить).
+  const relayoutInflight = useRef(false);
+  const handleRelayout = useCallback(() => {
+    if (relayoutInflight.current) return;
+    relayoutInflight.current = true;
+    nodesApi.relayoutLevel(null)
+      .then(() => lvl.reload())
+      .finally(() => { relayoutInflight.current = false; });
+  }, [lvl]);
 
   // Мета проекта + процессы (граф уровня грузит useLevelSchema)
   useEffect(() => {
@@ -119,6 +174,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             edges={lvl.edges}
             viewLayout={lvl.viewLayout}
             containerId={null}
+            persistence={persistence}
             ancestorNames={[]}
             ancestorIds={[]}
             depth={0}
@@ -126,6 +182,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             schemaView={schemaView}
             onSchemaViewChange={setSchemaView}
             onNavigateNode={onNavigateNode}
+            onRelayout={handleRelayout}
             height={height}
             toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} ${plural(graphNodes.length, ["объект", "объекта", "объектов"])}` : undefined}
             showViewFilter={hasStatusInfo}
