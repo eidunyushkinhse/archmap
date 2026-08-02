@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GhostNode, Node, ViewLayout, Edge, LevelEdge, ViewLayoutPayload } from "../types";
 import LevelGraph from "./LevelGraph";
-import type { ViewMetaState } from "./LevelGraph";
+import type { ViewMetaState } from "./graph/types";
 import type { History } from "./graph/interaction/useHistory";
 import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";

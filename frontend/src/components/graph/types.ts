@@ -4,6 +4,22 @@ import type { Node as RFNode } from "@xyflow/react";
 import type { Node as AppNode, GhostNode, AncestorRef, EdgePoint, LayoutEdge } from "../../types";
 import type { EdgeSide } from "./edgePath";
 
+// Живой снимок версий конкурентности (этап 0/1, docs/archive/plan-concurrency.md):
+// version — fence вида, graphRev — курсор изменений проекта.
+export type ViewMetaState = { version: number; graphRev: number; metaRev?: number };
+
+// Запрос фокуса на объекте/связи/группе. ids: для node — [nodeId]; для edge — [edgeId];
+// для group — id всех узлов кластера. token — монотонный счётчик из MapEditorPage.
+export type LocateRequest = {
+  kind: "node" | "edge" | "group";
+  ids: string[];
+  // Для kind="edge": сырые концы связи из алерта. Фолбэк, когда самой связи нет
+  // среди отрисованных (конец = раскрытый контейнер — проекция её скрывает,
+  // E6/C19): фокусируем ПРЕДСТАВИТЕЛЕЙ концов (узел или рамку — id совпадает).
+  endIds?: string[];
+  token: number;
+};
+
 // Группа связей одного направления между парой отображаемых узлов, слитая в одну
 // «мастер-стрелку» (members.length > 1) либо одиночная связь (members.length === 1).
 // id — id одиночной связи или синтетический `merge:src->tgt`. Раскладку/хэндлы

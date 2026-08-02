@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Node, SchemaAlerts as Alerts } from "../types";
 import type { LocateTarget } from "../components/SchemaAlerts";
-import type { LocateRequest } from "../components/LevelGraph";
+import type { LocateRequest } from "../components/graph/types";
 import { nodesApi } from "../api/nodes";
 
 const EMPTY: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [] };

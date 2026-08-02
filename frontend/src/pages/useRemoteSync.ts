@@ -9,7 +9,7 @@
 // возврат фокуса сверяет немедленно. Поллят обе роли (наблюдателю — живость).
 import { useEffect, useRef } from "react";
 import { viewsApi } from "../api/nodes";
-import type { ViewMetaState } from "../components/LevelGraph";
+import type { ViewMetaState } from "../components/graph/types";
 
 export const POLL_MS = 10_000;
 

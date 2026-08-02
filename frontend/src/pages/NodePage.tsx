@@ -17,7 +17,7 @@ import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
-import type { ViewMetaState } from "../components/LevelGraph";
+import type { ViewMetaState } from "../components/graph/types";
 import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";

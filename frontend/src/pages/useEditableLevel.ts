@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GhostNode, Node, Edge, ViewLayout, ViewLayoutPayload } from "../types";
 import { nodesApi } from "../api/nodes";
 import { useHistory } from "../components/graph/interaction/useHistory";
-import type { ViewMetaState } from "../components/LevelGraph";
+import type { ViewMetaState } from "../components/graph/types";
 import { toLevelEdges } from "../components/pageSchema";
 
 interface Args {

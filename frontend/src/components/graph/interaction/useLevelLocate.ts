@@ -23,7 +23,7 @@ import type {
   ViewportHelperFunctions,
 } from "@xyflow/react";
 import { NODE_W, NODE_H } from "../constants";
-import type { LocateRequest } from "../../LevelGraph";
+import type { LocateRequest } from "../types";
 
 interface UseLevelLocateArgs {
   locate?: LocateRequest | null;

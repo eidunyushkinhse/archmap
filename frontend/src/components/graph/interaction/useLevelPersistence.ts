@@ -29,7 +29,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { viewsApi } from "../../../api/nodes";
 import { isConflict } from "../../../api/client";
 import type { ViewLayout, ViewLayoutPayload } from "../../../types";
-import type { ViewMetaState } from "../../LevelGraph";
+import type { ViewMetaState } from "../types";
 import { planPersistFailure, type CommitOrigin } from "./persistGuard";
 
 interface UseLevelPersistenceArgs {
