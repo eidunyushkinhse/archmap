@@ -183,9 +183,9 @@ export default function EmbeddedSchemaBlock({
         {showViewFilter && (
           <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} />
         )}
-        {isArchitect && onRelayout && (
-          <button className="esb-edit" onClick={onRelayout}>Переразложить</button>
-        )}
+        {/* «Переразложить» переехало на холст (canvas-кнопка LevelGraph, правый
+            верхний угол) — единообразно с редактором-картой. Здесь осталась только
+            «Редактировать» (переход в редактор-карту). */}
         {isArchitect && onEdit && (
           <button className="esb-edit" onClick={onEdit}>Редактировать</button>
         )}
@@ -228,6 +228,7 @@ export default function EmbeddedSchemaBlock({
                 mode={mode}
                 drill={drill}
                 edgeCallbacks={edgeCallbacks}
+                onRelayout={onRelayout}
               />
             </div>
             {/* Легенда — правый нижний угол, доступна всегда (в т.ч. неактивный блок) */}

@@ -18,7 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
-import { UndoIcon, RedoIcon } from "../ui/icons";
+import { UndoIcon, RedoIcon, RelayoutIcon } from "../ui/icons";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import { NODE_W, NODE_H } from "./graph/constants";
@@ -132,6 +132,9 @@ interface LevelGraphProps {
   // Undo/Redo: history, onUndo, onRedo (общая история + дисптчеры страницы-хозяина;
   // без бандла канвас заводит локальную историю). Состав — LevelUndoProps.
   undo?: LevelUndoProps;
+  // «Переразложить» — canvas-кнопка в правом верхнем углу холста (архитектор).
+  // Передан → кнопка видна; редактор-карта НЕ передаёт (у него своя в топбаре).
+  onRelayout?: () => void;
 }
 
 function LevelGraphInner({
@@ -155,6 +158,7 @@ function LevelGraphInner({
   delete: deleteCallbacks,
   drop,
   undo,
+  onRelayout,
 }: LevelGraphProps) {
   // Деструктуризация бандлов в плоские имена (Фаза 3д): тело компонента и вынесенные
   // хуки работают с теми же именами, что и до группировки пропсов, — поведение не
@@ -849,9 +853,12 @@ function LevelGraphInner({
           </marker>
         </defs>
       </svg>
-      {/* Тулбар Undo/Redo (архитектор, не контекст). Кнопка надёжнее клавиш — не зависит
-          от фокуса. Обе зовут дисптчеры из MapEditorPage (кросс-уровневый редирект). */}
-      {isArchitect && !isReadOnly && (
+      {/* Тулбар Undo/Redo (архитектор, расстановка доступна). Кнопка надёжнее клавиш —
+          не зависит от фокуса. Гейт canArrange (= arrangeOnly || !readOnly): тулбар
+          виден и в редакторе, и на страничных схемах с персистом (arrangeOnly), но
+          скрыт у наблюдателя. Обе зовут дисптчеры из MapEditorPage (кросс-уровневый
+          редирект); на страницах (undo-бандл не передан) — локальная ownHistory. */}
+      {isArchitect && canArrange && (
         <div style={{ position: "absolute", top: 14, left: 14, zIndex: 5 }}>
           <div className="lg-seg">
             <button
@@ -871,6 +878,23 @@ function LevelGraphInner({
               aria-label="Вернуть"
             >
               <RedoIcon />
+            </button>
+          </div>
+        </div>
+      )}
+      {/* «Переразложить» — canvas-кнопка в ПРАВОМ верхнем углу (архитектор, передан
+          onRelayout). Стилистика едина с тулбаром Undo/Redo (тот же класс lg-seg).
+          Редактор-карта onRelayout не передаёт — там своя кнопка в топбаре. */}
+      {isArchitect && onRelayout && (
+        <div style={{ position: "absolute", top: 14, right: 14, zIndex: 5 }}>
+          <div className="lg-seg">
+            <button
+              type="button"
+              onClick={onRelayout}
+              title="Переразложить уровень"
+              aria-label="Переразложить"
+            >
+              <RelayoutIcon />
             </button>
           </div>
         </div>
