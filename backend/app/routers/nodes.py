@@ -45,12 +45,18 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
     if not nodes:
         return
     ids = [n.id for n in nodes]
-    counts = dict(
-        db.query(Node.parent_id, func.count(Node.id))
-        .filter(Node.parent_id.in_(ids))
-        .group_by(Node.parent_id)
-        .all()
-    )
+    # Ключ — parent_id (UUID | None), значение — число детей. Comprehension с
+    # распаковкой строк: dict(Row...) не типизируется (Row не подтип tuple для
+    # mypy), а {pid: cnt for ...} выводится чисто.
+    counts: dict[uuid.UUID | None, int] = {
+        pid: cnt
+        for pid, cnt in (
+            db.query(Node.parent_id, func.count(Node.id))
+            .filter(Node.parent_id.in_(ids))
+            .group_by(Node.parent_id)
+            .all()
+        )
+    }
     for n in nodes:
         n.child_count = counts.get(n.id, 0)
         n.has_children = n.child_count > 0

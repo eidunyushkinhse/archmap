@@ -116,13 +116,18 @@ def process_list_items(
     if only_ids is not None:
         proc_filter.append(BusinessProcess.id.in_(only_ids))
     # Счётчик сообщений только по отобранным процессам (join к BusinessProcess).
-    counts = dict(
-        db.query(ProcessMessage.process_id, func.count(ProcessMessage.id))
-        .join(BusinessProcess, BusinessProcess.id == ProcessMessage.process_id)
-        .filter(*proc_filter)
-        .group_by(ProcessMessage.process_id)
-        .all()
-    )
+    # Comprehension с распаковкой строк: dict(Row...) не типизируется (Row не
+    # подтип tuple для mypy), а {pid: cnt for ...} выводится чисто.
+    counts: dict[uuid.UUID, int] = {
+        pid: cnt
+        for pid, cnt in (
+            db.query(ProcessMessage.process_id, func.count(ProcessMessage.id))
+            .join(BusinessProcess, BusinessProcess.id == ProcessMessage.process_id)
+            .filter(*proc_filter)
+            .group_by(ProcessMessage.process_id)
+            .all()
+        )
+    }
     # Статусы узлов-участников по процессам — для производного бейджа в списке.
     proc_statuses: dict[uuid.UUID, set[str]] = {}
     for proc_id, node_id in (

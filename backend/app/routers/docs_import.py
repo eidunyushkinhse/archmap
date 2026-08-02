@@ -9,6 +9,7 @@ preview — dry-run плана без записи; apply — тот же пла
 """
 
 import uuid
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -32,13 +33,16 @@ from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.docs_import import (
+    DocsAction,
     DocsImportIn,
     DocsImportReport,
     DocsInclude,
     DocsLogicItem,
     DocsPromptOut,
     DocsSpecItem,
+    SpecOrigin,
 )
+from app.schemas.node_doc import NodeDocKind
 from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/docs-import", tags=["docs-import"])
@@ -97,14 +101,18 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
 
 
 def _report(plan: DocsPlan) -> DocsImportReport:
+    # kind/action/origin приходят из внутреннего плана (LogicAction/SpecAction)
+    # как str, но их значения гарантированно из домена Literal — проставляются
+    # парсером/строителем плана (build_docs_plan/parse_manifest). Безопасный cast
+    # на границе сериализации вместо игнор-комментариев.
     return DocsImportReport(
         logic=[
             DocsLogicItem(
                 node_path=a.node_path,
                 name=a.name,
-                kind=a.kind,  # type: ignore[arg-type] — kind провалидирован парсером
+                kind=cast(NodeDocKind, a.kind),
                 operation=a.operation,
-                action=a.action,  # type: ignore[arg-type]
+                action=cast(DocsAction, a.action),
                 mermaid=a.mermaid,
             )
             for a in plan.logic
@@ -113,8 +121,8 @@ def _report(plan: DocsPlan) -> DocsImportReport:
             DocsSpecItem(
                 node_path=s.node_path,
                 source=s.source,
-                origin=s.origin,  # type: ignore[arg-type]
-                action=s.action,  # type: ignore[arg-type]
+                origin=cast("SpecOrigin | None", s.origin),
+                action=cast(DocsAction, s.action),
                 valid_yaml=s.valid_yaml,
                 looks_openapi=s.looks_openapi,
                 oas_version=s.oas_version,

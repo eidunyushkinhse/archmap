@@ -47,22 +47,32 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 MAX_PREVIEW_NODES = 12
 
 
-def _counts(db: Session, project_ids: list[uuid.UUID]) -> tuple[dict, dict]:
+def _counts(
+    db: Session, project_ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, int]]:
     """Счётчики объектов и связей по проектам одним запросом на тип (без N+1)."""
     if not project_ids:
         return {}, {}
-    node_counts = dict(
-        db.query(Node.project_id, func.count(Node.id))
-        .filter(Node.project_id.in_(project_ids))
-        .group_by(Node.project_id)
-        .all()
-    )
-    edge_counts = dict(
-        db.query(Edge.project_id, func.count(Edge.id))
-        .filter(Edge.project_id.in_(project_ids))
-        .group_by(Edge.project_id)
-        .all()
-    )
+    # Comprehension с распаковкой строк: dict(Row...) не типизируется (Row не
+    # подтип tuple для mypy), а {pid: cnt for ...} выводится чисто.
+    node_counts: dict[uuid.UUID, int] = {
+        pid: cnt
+        for pid, cnt in (
+            db.query(Node.project_id, func.count(Node.id))
+            .filter(Node.project_id.in_(project_ids))
+            .group_by(Node.project_id)
+            .all()
+        )
+    }
+    edge_counts: dict[uuid.UUID, int] = {
+        pid: cnt
+        for pid, cnt in (
+            db.query(Edge.project_id, func.count(Edge.id))
+            .filter(Edge.project_id.in_(project_ids))
+            .group_by(Edge.project_id)
+            .all()
+        )
+    }
     return node_counts, edge_counts
 
 

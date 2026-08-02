@@ -94,3 +94,11 @@ class Node(Base):
         lazy="selectin",
         order_by="NodeDoc.name",
     )
+
+    # Вычисляемые атрибуты отдачи (в БД НЕ хранятся — не колонки). Проставляются
+    # на экземплярах в домене/роутерах (graph_queries, context_graph, routers.nodes)
+    # перед сериализацией NodeResponse: схема с from_attributes читает их как
+    # обычные атрибуты. Аннотация без Mapped — маппер SQLAlchemy их игнорирует
+    # (проверено: в __table__/__mapper__ не попадают), дефолт совпадает со схемой.
+    child_count: int = 0
+    has_children: bool = False

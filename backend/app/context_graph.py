@@ -9,6 +9,7 @@
 
 import uuid
 from collections import Counter
+from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -17,7 +18,7 @@ from app.graph_queries import ghost_registry
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
-from app.schemas.node import GraphEdgeResponse, GraphResponse
+from app.schemas.node import GraphEdgeResponse, GraphResponse, NodeResponse
 from app.view_state import current_version
 
 
@@ -96,8 +97,11 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
     for n in local_nodes:
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
+    # ORM-узлы сериализуются в NodeResponse через from_attributes (child_count/
+    # has_children проставлены выше) — на границе сериализации типизируем как
+    # list[NodeResponse].
     return GraphResponse(
-        nodes=local_nodes,
+        nodes=cast(list[NodeResponse], local_nodes),
         edges=result_edges,
         endpoints=ghost_registry(all_nodes, endpoint_ids, child_counts),
         version=current_version(db, project.id, None),

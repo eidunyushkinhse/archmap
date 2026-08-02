@@ -18,6 +18,7 @@
 
 from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
+from typing import TypeGuard
 
 from app.import_yaml import (
     MAX_EDGES,
@@ -54,7 +55,9 @@ def _norm(name: str) -> str:
     return " ".join(name.split()).casefold()
 
 
-def _fill(val: str | None) -> bool:
+def _fill(val: str | None) -> TypeGuard[str]:
+    # TypeGuard: после проверки val сужается до str (используется в _merge_str
+    # для безопасного .strip() и передачи в _conflict без повторных null-чеков).
     return val is not None and val.strip() != ""
 
 
