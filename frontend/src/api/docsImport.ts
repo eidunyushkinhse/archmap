@@ -14,6 +14,9 @@ export interface DocsPromptParams {
   include: "logic" | "api" | "both";
   lang: "ru" | "en";
   hints?: string;
+  // Гранулярный режим «по одной схеме»: воркер/эндпоинт, на котором фокусируется
+  // агент (бэк добавляет в промпт приоритетный блок «опиши ТОЛЬКО <target>»)
+  target?: string;
 }
 
 export const docsImportApi = {
@@ -23,6 +26,7 @@ export const docsImportApi = {
     q.set("include", p.include);
     q.set("lang", p.lang);
     if (p.hints?.trim()) q.set("hints", p.hints.trim());
+    if (p.target?.trim()) q.set("target", p.target.trim());
     return api.get<{ prompt: string }>(`/docs-import/prompt?${q.toString()}`);
   },
   preview: (files: DocsFile[], overwrite: boolean): Promise<DocsImportReport> =>
