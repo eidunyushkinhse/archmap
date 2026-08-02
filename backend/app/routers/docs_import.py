@@ -100,7 +100,14 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
         plan.errors = errors
         return plan
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    return build_docs_plan(nodes, manifests, assets, payload.overwrite)
+    plan = build_docs_plan(nodes, manifests, assets, payload.overwrite)
+    # Раздельные окна дозаливки: окно логики применяет только схемы логики, окно
+    # спеки — только OpenAPI-спеки (сущности не смешиваются даже в смешанном манифесте).
+    if payload.only == "logic":
+        plan.specs = []
+    elif payload.only == "api":
+        plan.logic = []
+    return plan
 
 
 def _report(plan: DocsPlan) -> DocsImportReport:

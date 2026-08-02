@@ -14,6 +14,9 @@ from app.schemas.node_doc import NodeDocKind
 DocsAction = Literal["create", "overwrite", "skip", "unchanged"]
 SpecOrigin = Literal["found", "generated", "synthesized"]
 DocsInclude = Literal["logic", "api", "both"]
+# Фильтр типа дозаливки у preview/apply: окна логики и спеки раздельные — каждое
+# применяет только своё (схемы логики ИЛИ OpenAPI-спеки), не смешивая сущности.
+DocsOnly = Literal["logic", "api"]
 
 
 class DocsPromptOut(BaseModel):
@@ -32,6 +35,9 @@ class DocsImportIn(BaseModel):
     files: list[DocsFileIn] = Field(min_length=1, max_length=32)
     # Политика занятых слотов: false — пропускать (дефолт), true — перезаписывать.
     overwrite: bool = False
+    # Применить только схемы логики ("logic") или только OpenAPI-спеки ("api").
+    # None — всё содержимое манифеста (для совместимости; окна ходят с фильтром).
+    only: DocsOnly | None = None
 
 
 class DocsLogicItem(BaseModel):

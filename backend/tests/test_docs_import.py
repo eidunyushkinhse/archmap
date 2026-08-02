@@ -298,9 +298,9 @@ def test_apply_and_idempotent(db):
 
 # ── Эндпоинты ──────────────────────────────────────────────────────────────────
 
-def _payload(*files, overwrite=False):
+def _payload(*files, overwrite=False, only=None):
     return DocsImportIn(
-        files=[DocsFileIn(name=n, content=c) for n, c in files], overwrite=overwrite
+        files=[DocsFileIn(name=n, content=c) for n, c in files], overwrite=overwrite, only=only
     )
 
 
@@ -404,3 +404,30 @@ def test_endpoint_no_manifest_error(db):
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
     assert any("нет манифеста" in e for e in report.errors)
+
+
+def test_endpoint_only_filter(db):
+    # Раздельные окна дозаливки: only="logic" оставляет только схемы логики,
+    # only="api" — только OpenAPI-спеки (сущности не смешиваются).
+    _tree(db)
+    files = (("manifest.yaml", MANIFEST), ("orders-api.yaml", SPEC))
+
+    logic_only = docs_import_preview(
+        _payload(*files, only="logic"),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert len(logic_only.logic) == 1 and logic_only.specs == []
+
+    api_only = docs_import_preview(
+        _payload(*files, only="api"),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert api_only.logic == [] and len(api_only.specs) == 1
+
+    # Применение с фильтром пишет только своё (спека не создаётся)
+    applied = docs_import_apply(
+        _payload(*files, only="logic"),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert applied.applied is True
+    assert (applied.created_docs, applied.specs_written) == (1, 0)
