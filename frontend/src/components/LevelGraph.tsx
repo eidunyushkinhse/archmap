@@ -42,6 +42,7 @@ import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
+import { useLevelMeasure } from "./graph/interaction/useLevelMeasure";
 import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
 import { useHistory } from "./graph/interaction/useHistory";
 import type { History } from "./graph/interaction/useHistory";
@@ -296,19 +297,6 @@ function LevelGraphInner({
   const { screenToFlowPosition, setCenter, fitBounds, fitView, getInternalNode, getNodes, getEdges } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
-  // РЕАЛЬНЫЕ габариты узлов (node.measured — v12 пишет их в контролируемый стейт через
-  // onNodesChange 'dimensions'). Паттерн render→measure→layout (V2.2b): при смене
-  // СИГНАТУРЫ размеров (не позиций/выделения!) перезапускаем раскладку — стадии качества
-  // стрелок получают настоящие тела вместо фолбэка NODE_W×NODE_H. useNodesInitialized не
-  // годится: флипается до публикации замеров (xyflow#4202). Петли нет: пере-раскладка
-  // размеров не меняет → сигнатура стабильна → второго перезапуска не будет.
-  // РЕАЛЬНЫЕ габариты узлов для стадий качества стрелок (V2.2b). Размеры только
-  // НАКАПЛИВАЮТСЯ: сборка пересоздаёт RF-узлы без measured (замер доезжает отдельным
-  // 'dimensions'-событием позже) — сигнатура «полный↔неполный набор» мигала бы и
-  // бесконечно перезапускала раскладку. Запись живёт, пока узел не перемеряется ИНАЧЕ;
-  // исчезновение узла записи не трогает (устаревшие безвредны — конвейер смотрит по id).
-  const nodeSizesRef = useRef<Record<string, { w: number; h: number }>>({});
-  const [sizesVersion, setSizesVersion] = useState(0);
 
   // --- «Тихое окно» (Ф1 эпика плавности): на окно анимации раскрытия/сворачивания
   // прогоны конвейера раскладки ОТКЛАДЫВАЮТСЯ (holdRef), копятся флагом dirtyRef и
@@ -460,32 +448,13 @@ function LevelGraphInner({
     noteGesture, // флаш клавиатурной серии открывает окно жеста, как отпускание драга
   });
 
-  // Поток 'dimensions'-изменений RF (замер узлов) → накопление реальных габаритов и
-  // перезапуск раскладки при реально новом размере (V2.2b, паттерн render→measure→layout;
-  // setState в колбэке внешней системы — легален, в отличие от эффекта по rfNodes).
-  const handleNodesChangeMeasured: typeof handleNodesChange = useCallback((changes) => {
-    handleNodesChange(changes);
-    // копия словаря размеров — лениво, только при dimensions-изменениях: обычный
-    // position-тик драга не должен аллоцировать её на каждый кадр
-    if (!changes.some((ch) => ch.type === "dimensions")) return;
-    let changed = false;
-    const merged = { ...nodeSizesRef.current };
-    for (const ch of changes) {
-      if (ch.type !== "dimensions" || !ch.dimensions) continue;
-      const t = getInternalNode(ch.id)?.type;
-      if (t === "frame" || t === "spacer") continue;
-      const w = Math.round(ch.dimensions.width * 2) / 2, h = Math.round(ch.dimensions.height * 2) / 2;
-      if (!w || !h) continue;
-      const prev = merged[ch.id];
-      if (!prev || prev.w !== w || prev.h !== h) { merged[ch.id] = { w, h }; changed = true; }
-    }
-    if (changed) {
-      nodeSizesRef.current = merged;
-      const dbg = window as unknown as { __archmapSizesVersion?: number };
-      dbg.__archmapSizesVersion = (dbg.__archmapSizesVersion ?? 0) + 1;
-      setSizesVersion((v) => v + 1);
-    }
-  }, [handleNodesChange, getInternalNode]);
+  // Замер реальных габаритов узлов (V2.2b, render→measure→layout): ref-мост размеров,
+  // счётчик новых замеров и обработчик 'dimensions'-событий RF — в useLevelMeasure
+  // (Фаза 3г). sizesVersion — зависимость раскладки и гейт авто-фита (fitOnLoad),
+  // nodeSizesRef читает конвейер, handleNodesChangeMeasured стоит на onNodesChange RF.
+  const { nodeSizesRef, sizesVersion, handleNodesChangeMeasured } = useLevelMeasure({
+    handleNodesChange, getInternalNode,
+  });
 
   // Живой пересчёт авто-хэндлов локальных стрелок во время драга (WYSIWYG: превью =
   // итог по отпускании). Снимок входов раскладки кладём в ref в конце async-раскладки.
@@ -795,6 +764,7 @@ function LevelGraphInner({
     // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodeSizesRef — стабильный ref из useLevelMeasure (читается по .current), в deps не нужен
   }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
