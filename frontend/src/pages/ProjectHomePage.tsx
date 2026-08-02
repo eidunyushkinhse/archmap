@@ -8,7 +8,7 @@ import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
-import { useEditableLevel } from "./useEditableLevel";
+import { useLevelSchema } from "./useLevelSchema";
 import { useToast } from "./useToast";
 import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
@@ -30,7 +30,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const [processes, setProcesses] = useState<ProcessListItem[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
-  const lvl = useEditableLevel({ containerId: null, isArchitect });
+  const lvl = useLevelSchema({ containerId: null });
 
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
 
@@ -48,7 +48,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     },
   });
 
-  // Мета проекта + процессы (граф уровня грузит useEditableLevel)
+  // Мета проекта + процессы (граф уровня грузит useLevelSchema)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -129,22 +129,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             height={height}
             toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} ${plural(graphNodes.length, ["объект", "объекта", "объектов"])}` : undefined}
             showViewFilter={hasStatusInfo}
-            nodesDraggable
             onEdit={() => onNavigateMap?.(null)}
-            editing={{
-              history: lvl.history,
-              onLayoutChanged: lvl.handleLayoutChanged,
-              viewMeta: lvl.viewMetaRef,
-              gestureActiveRef: lvl.gestureActiveRef,
-              onPersistError: lvl.onPersistError,
-              onPersistConflict: lvl.onPersistConflict,
-              retryPatch: lvl.retryPatch,
-            }}
-            onUndo={lvl.undo}
-            onRedo={lvl.redo}
-            canUndo={lvl.canUndo}
-            canRedo={lvl.canRedo}
-            onRelayout={() => { void lvl.relayout(); }}
             empty={
               hasNodes ? undefined : (
                 <span>
