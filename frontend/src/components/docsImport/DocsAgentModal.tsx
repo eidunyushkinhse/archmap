@@ -16,16 +16,21 @@
 // «не перезаписывать». Закрытие после успешного применения — отсюда (onClose);
 // родитель через onApplied только освежает мету узла.
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import type { DocsImportReport, NodeDocKind } from "../../types";
-import { docsImportApi, type DocsFile, type DocsPromptParams } from "../../api/docsImport";
+import { docsImportApi, type DocsPromptParams } from "../../api/docsImport";
 import { replaceLogicKind } from "./manifestKind";
 import { validateMermaid } from "../mermaidLoader";
+import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
+import {
+  ACTION_LABEL, countAction,
+  head, sub, cols, leftCol, rightCol, radioRow, hintsArea, leftNote,
+  chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
+} from "./agentModalShared";
+import { ItemList, NoteList } from "./agentModalReport";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
-
-const MAX_FILES = 16; // клиентский предохранитель (бэк режет на 32)
 
 type Mode = "batch" | "single";
 
@@ -39,13 +44,6 @@ interface Props {
   // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
 }
-
-const ACTION_LABEL: Record<string, string> = {
-  create: "новая",
-  overwrite: "перезапись",
-  skip: "пропуск (занято)",
-  unchanged: "без изменений",
-};
 
 const KIND_LABEL: Record<NodeDocKind, string> = {
   overview: "Обзор",
@@ -62,11 +60,10 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
   const [promptCopied, setPromptCopied] = useState(false);
   // ── файлы пакета и превью (общие для обоих режимов) ──
-  const [files, setFiles] = useState<DocsFile[]>([]);
-  const [activeRaw, setActiveRaw] = useState(0);
+  const pkg = useDocsFiles();
   const [overwrite, setOverwrite] = useState(false);
   // Отчёт последнего превью/применения. Пустые файлы прячут его ПРОИЗВОДНО
-  // (hasContent ниже) — эффекты не зеркалят состояние синхронными setState.
+  // (pkg.hasContent ниже) — эффекты не зеркалят состояние синхронными setState.
   const [rawReport, setRawReport] = useState<DocsImportReport | null>(null);
   const [checking, setChecking] = useState(false);
   // Результаты mermaid-валидации привязаны к породившему их отчёту (сравнение
@@ -77,23 +74,21 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   // Правки вида схем из превью (режим «по одной»): key — `${node_path}#${name}`
   // строки отчёта; перед применением вносятся в YAML-текст манифеста.
   const [kindOverrides, setKindOverrides] = useState<{ key: string; name: string; kind: NodeDocKind }[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null); // скрытый input «Загрузить файлы…»
   const seqRef = useRef(0);
 
-  const active = Math.min(activeRaw, files.length - 1);
-  const hasContent = files.some((f) => f.content.trim() !== "");
-  const report = hasContent ? rawReport : null;
+  const report = pkg.hasContent ? rawReport : null;
   const mmdErrs = report !== null && mmdRes?.forReport === report ? mmdRes.errs : null;
 
-  // Дебаунс-превью по файлам и тумблеру. Все setState — в таймере/ответе
-  // (асинхронно); seq отбрасывает устаревшие ответы при быстрой правке.
+  // Дебаунс-превью по файлам и тумблеру; план фильтруется по схемам логики
+  // (only="logic"). Все setState — в таймере/ответе (асинхронно); seq отбрасывает
+  // устаревшие ответы при быстрой правке.
   useEffect(() => {
-    const nonEmpty = files.filter((f) => f.content.trim() !== "");
+    const nonEmpty = pkg.files.filter((f) => f.content.trim() !== "");
     if (nonEmpty.length === 0) return; // отчёт скрыт производно (hasContent)
     const seq = ++seqRef.current;
     const t = window.setTimeout(() => {
       setChecking(true);
-      // Окно логики: план фильтруется по схемам логики (only="logic")
       docsImportApi.preview(nonEmpty, overwrite, "logic")
         .then((r) => {
           if (seqRef.current !== seq) return;
@@ -107,7 +102,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
         });
     }, 600);
     return () => window.clearTimeout(t);
-  }, [files, overwrite]);
+  }, [pkg.files, overwrite]);
 
   // Mermaid-валидация текстов схем из превью (советующая, ленивый чанк mermaid).
   useEffect(() => {
@@ -130,44 +125,6 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
         setTimeout(() => setPromptCopied(false), 2000);
       }),
     );
-  }
-
-  function addFiles(added: DocsFile[]) {
-    if (!added.length) return;
-    setFiles((prev) => {
-      // Повторная загрузка файла с тем же именем замещает старый (не плодим дубли)
-      const merged = [...prev];
-      for (const f of added) {
-        const at = merged.findIndex((x) => x.name === f.name);
-        if (at >= 0) merged[at] = f;
-        else merged.push(f);
-      }
-      const next = merged.slice(0, MAX_FILES);
-      setActiveRaw(next.length - 1);
-      return next;
-    });
-  }
-
-  function pickFiles(list: FileList | null) {
-    if (!list || list.length === 0) return;
-    void Promise.all(
-      Array.from(list).map(async (f) => ({ name: f.name, content: await f.text() })),
-    ).then(addFiles);
-  }
-
-  function addPaste() {
-    let i = 1;
-    while (files.some((f) => f.name === `вставка-${i}`)) i++;
-    addFiles([{ name: `вставка-${i}`, content: "" }]);
-  }
-
-  function removeFile(i: number) {
-    setFiles((prev) => prev.filter((_, k) => k !== i));
-    setActiveRaw(Math.max(0, active - (i <= active ? 1 : 0)));
-  }
-
-  function setText(i: number, content: string) {
-    setFiles((prev) => prev.map((f, k) => (k === i ? { ...f, content } : f)));
   }
 
   // ── правка вида схемы в превью (режим «по одной») ──
@@ -207,24 +164,22 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   // следующего воркера/эндпоинта (модалка остаётся открытой в режиме single).
   function resetSingleForNext() {
     setTarget("");
-    setFiles([]);
-    setActiveRaw(0);
+    pkg.reset();
     setRawReport(null);
     setMmdRes(null);
     setKindOverrides([]);
   }
 
   function apply(closeAfter: boolean) {
-    const nonEmpty = files.filter((f) => f.content.trim() !== "");
     // Правки вида из превью-селектов вносятся в текст манифеста; блок схемы не
     // найден (текст правили руками после превью) — файл уходит как есть.
     const finalFiles = mode === "single" && kindOverrides.length > 0
-      ? nonEmpty.map((f) => {
+      ? pkg.nonEmpty.map((f) => {
           let content = f.content;
           for (const o of kindOverrides) content = replaceLogicKind(content, o.name, o.kind) ?? content;
           return content === f.content ? f : { ...f, content };
         })
-      : nonEmpty;
+      : pkg.nonEmpty;
     setApplying(true);
     // Окно логики: применяются только схемы логики (only="logic")
     docsImportApi.apply(finalFiles, overwrite, "logic")
@@ -238,14 +193,13 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
       .finally(() => setApplying(false));
   }
 
-  const count = (arr: { action: string }[], action: string) => arr.filter((a) => a.action === action).length;
   // Правка вида в превью делает схему «перезаписью» даже при unchanged в отчёте
   // (бэк сверяет и kind) — учитываем override в доступности кнопок применения.
   const kindEdited = mode === "single" && kindOverrides.length > 0 && report !== null && report.logic.length > 0;
   const willWrite =
     report !== null &&
     report.errors.length === 0 &&
-    (kindEdited || count(report.logic, "create") + count(report.logic, "overwrite") > 0);
+    (kindEdited || countAction(report.logic, "create") + countAction(report.logic, "overwrite") > 0);
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
@@ -323,12 +277,12 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
         {/* ── Справа: файлы пакета + превью + применение ── */}
         <div style={rightCol}>
           <div style={chipsRow}>
-            {files.map((f, i) => (
-              <span key={f.name} style={i === active ? chipOn : chip}>
-                <button type="button" style={chipBtn} title={f.name} onClick={() => setActiveRaw(i)}>
+            {pkg.files.map((f, i) => (
+              <span key={f.name} style={i === pkg.active ? chipOn : chip}>
+                <button type="button" style={chipBtn} title={f.name} onClick={() => pkg.setActive(i)}>
                   {f.name}
                 </button>
-                <button type="button" style={chipX} title="Убрать файл" onClick={() => removeFile(i)}>×</button>
+                <button type="button" style={chipX} title="Убрать файл" onClick={() => pkg.removeFile(i)}>×</button>
               </span>
             ))}
             <input
@@ -336,12 +290,12 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
               type="file"
               multiple
               style={{ display: "none" }}
-              onChange={(e) => { pickFiles(e.target.files); e.target.value = ""; }}
+              onChange={(e) => { pkg.pickFiles(e.target.files); e.target.value = ""; }}
             />
             <button
               type="button"
               style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12.5 }}
-              disabled={files.length >= MAX_FILES}
+              disabled={pkg.files.length >= MAX_FILES}
               onClick={() => fileRef.current?.click()}
             >
               {mode === "single" ? "Загрузить манифест…" : "Загрузить файлы…"}
@@ -349,19 +303,19 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             <button
               type="button"
               style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12.5 }}
-              disabled={files.length >= MAX_FILES}
+              disabled={pkg.files.length >= MAX_FILES}
               title="Добавить манифест вставкой текста"
-              onClick={addPaste}
+              onClick={pkg.addPaste}
             >
               + вставка
             </button>
           </div>
 
-          {files.length > 0 ? (
+          {pkg.files.length > 0 ? (
             <textarea
               style={fileArea}
-              value={files[active]?.content ?? ""}
-              onChange={(e) => setText(active, e.target.value)}
+              value={pkg.files[pkg.active]?.content ?? ""}
+              onChange={(e) => pkg.setText(pkg.active, e.target.value)}
               placeholder="Содержимое файла (manifest.yaml — можно вставить текстом)"
               spellCheck={false}
             />
@@ -369,7 +323,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             <div style={dropHint}>
               {mode === "single"
                 ? "Загрузите манифест от агента (manifest.yaml с одной схемой) — или вставьте текстом."
-                : "Загрузите все файлы папки archmap-docs/ из репозитория (manifest.yaml + файлы спек) — или вставьте манифест текстом."}
+                : "Загрузите все файлы папки archmap-docs/ из репозитория (manifest.yaml + файлы схем) — или вставьте манифест текстом."}
             </div>
           )}
 
@@ -383,9 +337,9 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             )}
             {!checking && report !== null && !report.applied && report.errors.length === 0 && (
               <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
-                Схем: {report.logic.length} (новых {count(report.logic, "create")},
-                перезапись {count(report.logic, "overwrite")}, пропуск {count(report.logic, "skip")},
-                без изменений {count(report.logic, "unchanged")})
+                Схем: {report.logic.length} (новых {countAction(report.logic, "create")},
+                перезапись {countAction(report.logic, "overwrite")}, пропуск {countAction(report.logic, "skip")},
+                без изменений {countAction(report.logic, "unchanged")})
               </div>
             )}
             {!checking && report !== null && report.errors.length > 0 && (
@@ -410,7 +364,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
                     bad: err !== null ? `mermaid: ${err.split("\n")[0]}` : null,
                     ok: mmdErrs?.[i] === null,
                     // Режим «по одной»: вид из манифеста правится до применения
-                    kindSel: mode === "single" ? (
+                    extra: mode === "single" ? (
                       <select
                         style={kindSelect}
                         value={kindOf(key, l.kind)}
@@ -484,53 +438,8 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   );
 }
 
-// Строки превью: текст + бейдж действия + советующий статус (mermaid/origin)
-// + опциональный селект вида схемы (режим «по одной»).
-function ItemList({ title, rows }: {
-  title: string;
-  rows: { key: string; text: string; badge: string; bad: string | null; ok: boolean; kindSel?: ReactNode }[];
-}) {
-  const shown = rows.slice(0, 8);
-  return (
-    <div style={{ marginTop: 8, fontSize: 12.5 }}>
-      <div style={{ fontWeight: 600, color: "#334155" }}>{title}</div>
-      {shown.map((r) => (
-        <div key={r.key} style={{ marginTop: 3, display: "flex", alignItems: "baseline", gap: 6 }}>
-          <span style={{ color: "#475569", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {r.text}
-          </span>
-          <span style={badge}>{r.badge}</span>
-          {r.kindSel}
-          {r.bad !== null ? (
-            <span style={{ color: "#b45309", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.bad}>
-              ⚠ {r.bad}
-            </span>
-          ) : r.ok ? (
-            <span style={{ color: "#15803d" }}>✓</span>
-          ) : null}
-        </div>
-      ))}
-      {rows.length > shown.length && (
-        <div style={{ marginTop: 2, color: "#94a3b8" }}>…ещё {rows.length - shown.length}</div>
-      )}
-    </div>
-  );
-}
+// ── inline-стили только для режимов/правки вида (остальные — agentModalShared) ──
 
-function NoteList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div style={{ marginTop: 8, fontSize: 12.5, color: "#b45309" }}>
-      <div style={{ fontWeight: 600 }}>{title}</div>
-      {items.slice(0, 6).map((s, i) => (
-        <div key={i} style={{ marginTop: 2, color: "#475569" }}>{s}</div>
-      ))}
-      {items.length > 6 && <div style={{ marginTop: 2, color: "#475569" }}>…ещё {items.length - 6}</div>}
-    </div>
-  );
-}
-
-const head: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 };
-const sub: CSSProperties = { margin: "0 0 12px", fontSize: 12.5, color: "#64748b", lineHeight: 1.5 };
 const segWrap: CSSProperties = { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "0 0 14px" };
 const seg: CSSProperties = {
   display: "inline-flex", gap: 3, padding: 3, background: "#f1f5f9",
@@ -546,60 +455,12 @@ const segBtnOn: CSSProperties = {
   boxShadow: "0 1px 3px rgba(15,23,42,.14)",
 };
 const segNote: CSSProperties = { fontSize: 12, color: "#94a3b8", lineHeight: 1.4 };
-const cols: CSSProperties = { display: "flex", gap: 18, alignItems: "stretch" };
-const leftCol: CSSProperties = { width: 300, flex: "none", display: "flex", flexDirection: "column" };
-const rightCol: CSSProperties = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" };
-const radioRow: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "#334155",
-  cursor: "pointer", userSelect: "none",
-};
 const targetInput: CSSProperties = {
   width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px",
   border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a",
   fontFamily: "inherit",
 };
-const hintsArea: CSSProperties = {
-  width: "100%", height: 74, boxSizing: "border-box", resize: "vertical", marginBottom: 8,
-  padding: "8px 10px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13,
-  color: "#0f172a", fontFamily: "inherit",
-};
-const leftNote: CSSProperties = { margin: "10px 0 0", fontSize: 11.5, color: "#94a3b8", lineHeight: 1.5 };
-const chipsRow: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 8 };
-const chip: CSSProperties = {
-  display: "inline-flex", alignItems: "center", border: "1px solid #e2e8f0",
-  borderRadius: 8, background: "#f8fafc", color: "#475569", maxWidth: 220,
-};
-const chipOn: CSSProperties = { ...chip, border: "1px solid #2563eb", background: "#eff6ff", color: "#1e3a8a" };
-const chipBtn: CSSProperties = {
-  border: "none", background: "none", cursor: "pointer", font: "inherit", fontSize: 12.5,
-  fontWeight: 600, color: "inherit", padding: "3px 2px 3px 10px", minWidth: 0,
-  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-};
-const chipX: CSSProperties = {
-  border: "none", background: "none", cursor: "pointer", color: "#94a3b8",
-  fontSize: 14, lineHeight: 1, padding: "3px 8px 3px 4px",
-};
-const fileArea: CSSProperties = {
-  width: "100%", height: 200, boxSizing: "border-box", resize: "none",
-  padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 10,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-  fontSize: 12.5, lineHeight: 1.5, color: "#0f172a", background: "#fff",
-};
-const dropHint: CSSProperties = {
-  height: 200, boxSizing: "border-box", border: "1.5px dashed #cbd5e1", borderRadius: 10,
-  display: "grid", placeItems: "center", padding: 20, textAlign: "center",
-  fontSize: 12.5, color: "#94a3b8", lineHeight: 1.6,
-};
-const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8" };
-const badge: CSSProperties = {
-  flex: "none", fontSize: 10.5, fontWeight: 700, color: "#475569", background: "#f1f5f9",
-  border: "1px solid #e2e8f0", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap",
-};
 const kindSelect: CSSProperties = {
   flex: "none", font: "inherit", fontSize: 11.5, color: "#334155", cursor: "pointer",
   border: "1px solid #e2e8f0", borderRadius: 6, background: "#fff", padding: "1px 4px",
-};
-const footRow: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 10, marginTop: 12, paddingTop: 12,
-  borderTop: "1px solid #eef0f2",
 };
