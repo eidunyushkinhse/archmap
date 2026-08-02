@@ -180,6 +180,10 @@ export default function ProjectShell({
                 isArchitect={isArchitect}
                 onNavigateNode={onNavigateNode}
                 onNavigateMap={onNavigateMap}
+                onNavigateProcesses={(processId) => {
+                  setProcInitial(processId);
+                  setMode("proc");
+                }}
               />
             )}
           </>

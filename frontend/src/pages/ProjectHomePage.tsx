@@ -21,9 +21,11 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
   // «Редактировать» над схемой → редактор-карта на корневом уровне
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  // Клик по процессу в списке → режим «Процессы» с выбором процесса
+  onNavigateProcesses?: (processId: string) => void;
 }
 
-export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode, onNavigateMap }: Props) {
+export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode, onNavigateMap, onNavigateProcesses }: Props) {
   const [project, setProject] = useState<Project | null>(null);
   const [processes, setProcesses] = useState<ProcessListItem[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
@@ -168,23 +170,22 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             <h3 className="np-card-title">Бизнес-процессы</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {processes.map((p) => (
-                <div
+                <button
                   key={p.id}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10,
-                    padding: "9px 14px", border: "1px solid #eef2f6",
-                    borderRadius: 9, fontSize: 13, color: "#1e293b",
-                  }}
+                  className="np-doc-row"
+                  onClick={() => onNavigateProcesses?.(p.id)}
+                  title={`Открыть процесс «${p.name}»`}
                 >
                   <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" />
                     <path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
                   </svg>
-                  <span style={{ fontWeight: 600 }}>{p.name}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
                   <span style={{ color: "#94a3b8", fontSize: 12 }}>
                     {p.message_count} {plural(p.message_count, ["сообщение", "сообщения", "сообщений"])}
                   </span>
-                </div>
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                </button>
               ))}
             </div>
           </div>
