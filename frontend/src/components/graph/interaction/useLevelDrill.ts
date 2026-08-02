@@ -124,10 +124,10 @@ export function useLevelDrill({
   }, [containerId]);
   const commitExpanded = useCallback(
     (id: string, value: boolean) => {
-      // Раскрытие (value=true) в режиме fitOnExpand — запрос на анимированное
+      // Раскрытие И сворачивание в режиме fitOnExpand — запрос на анимированное
       // центрирование после оседания раскладки (см. эффект авто-центрирования).
-      // Сворачивание (value=false) центрирование не запрашивает.
-      if (value && fitOnExpand) expandFitRef.current = true;
+      // Обе операции меняют состав схемы — результат хочется видеть по центру.
+      if (fitOnExpand) expandFitRef.current = true;
       setExpandOverrides((prev) => new Map(prev).set(id, value));
       // персист (архитектор, не контекст — гейтит commitLayout): true — раскрыт,
       // null-поле — сброс (exclude_none выкинет его из payload строки).
