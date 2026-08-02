@@ -57,6 +57,11 @@
   left: auto;
   right: 0;
 }
+/* Раскрытие вверх (когда под кнопкой не хватает места — кнопка у низа экрана) */
+.adm-menu--up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
 
 .adm-menu button {
   display: block;
