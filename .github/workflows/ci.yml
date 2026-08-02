@@ -32,6 +32,11 @@ jobs:
   backend:
     name: Backend (ruff + mypy + pytest)
     runs-on: ubuntu-latest
+    env:
+      # Тестовые значения для fail-fast конфига: тесты на in-memory SQLite, реальная
+      # БД не нужна, но Settings() требует SECRET_KEY (>=32) и DATABASE_URL при импорте.
+      SECRET_KEY: ci-test-secret-key-not-for-production-0000
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
     defaults:
       run:
         working-directory: backend
