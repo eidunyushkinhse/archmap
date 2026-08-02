@@ -549,7 +549,9 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
         <div style={topLeft}>
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
             <LogoMark />
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#2563eb" }}>ArchMap</span>
+            <span style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-0.01em", color: "#0f172a" }}>
+              Arch<span style={{ color: "#2563eb" }}>Map</span>
+            </span>
           </div>
           <span style={divider} />
           {/* Breadcrumb уровней */}
