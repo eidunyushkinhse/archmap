@@ -1,9 +1,9 @@
 // Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
 // (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, ProcessListItem } from "../types";
+import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, edgesApi, exportApi, viewsApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
@@ -19,7 +19,7 @@ import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
-import type { ViewMetaState } from "../components/graph/types";
+import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/types";
 import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";
@@ -783,12 +783,12 @@ function ProcessesSection({ nodeId, onNavigateProcess }: {
 // Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
 // отдаёт его в формате СЫРОГО графа уровня: локалы = фокус + представители
 // соседей (связанные сиблинги), рёбра сырые, реестр концов с цепочками предков.
-// Раскладка — ВСЕГДА свежий ELK (сохранённые координаты общего холста бэк не
-// отдаёт: их гибрид со свежей раскладкой фокуса рождал тесноту и «рогалики»).
-// Рендерит штатный level-конвейер без единой контекстной ветки; отличия от
-// «отдельного проекта» — только рамки реальных предков (ancestorIds) и цвета по
-// реальной глубине (depth). Просмотр read-only: персиста раскладки нет, драг и
-// правка связей — в редакторе-карте.
+// Раскладка — СОХРАНЁННЫЙ вид фокуса (context-graph отдаёт layout вида node.id +
+// его версию; первый вход без записей → свежий ELK). Рендерит штатный level-
+// конвейер без единой контекстной ветки; отличия от «отдельного проекта» — только
+// рамки реальных предков (ancestorIds) и цвета по реальной глубине (depth).
+// Архитектору доступна расстановка (драг + персист в вид фокуса, arrangeOnly);
+// структурная правка и наблюдатель — read-only, правка связей в редакторе-карте.
 function SchemaSection({
   node,
   ancestors,
@@ -815,22 +815,24 @@ function SchemaSection({
 
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  // Курсоры изменений для remote-sync: context-graph несёт version/graph_rev/
-  // meta_rev; рефетч обновляет курсоры. Схема read-only (сама не пишет) — ложных
-  // срабатываний тоста схемы на собственные записи нет; свои правки меты
-  // подавляются сверкой содержимого в onMetaChange страницы.
+  // Курсоры изменений для remote-sync И fence персиста: context-graph несёт
+  // version (вид фокуса) / graph_rev / meta_rev; рефетч обновляет курсоры. Свои
+  // записи раскладки (архитектор) обновляют курсор из ответа PUT — поллинг не даёт
+  // ложного тоста; чужие правки меты давятся сверкой содержимого в onMetaChange.
   const metaCursorRef = viewMeta; // алиас: eslint разрешает писать только в *Ref
-  const gestureActiveRef = useRef(false); // жестов правки на странице нет
+  // Флаг «идёт жест драга» для поллинга (рефетч не врывается в жест): его же
+  // ставит/снимает канвас через бандл персиста (архитектор).
+  const gestureActiveRef = useRef(false);
   const [remoteToast, showRemoteToast] = useToast();
 
-  const refetch = useCallback(() => {
-    nodesApi.getContextGraph(node.id)
+  const refetch = useCallback((): Promise<void> => {
+    return nodesApi.getContextGraph(node.id)
       .then((g) => {
         metaCursorRef.current = { version: g.version, graphRev: g.graph_rev, metaRev: g.meta_rev };
         setGraph(g);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoading(false); });
   }, [node.id, metaCursorRef]);
 
   useEffect(() => {
@@ -857,6 +859,75 @@ function SchemaSection({
         }
       : undefined,
   });
+
+  // ── Персист раскладки вида фокуса (архитектор) ────────────────────
+  // Зеркало записанных значений: канвас шлёт сохранённые батчи, кладём их в
+  // graph.layout — база дедупа/merge остаётся истиной (иначе «драг назад в исходную»
+  // гасился бы дедупом о протухшее зеркало). Спред меняет только layout — ссылки
+  // nodes/endpoints/edges те же, конвейер раскладки не перезапускается.
+  const handleLayoutChanged = useCallback(
+    (items: Record<string, ViewLayoutPayload | null>) => {
+      setGraph((g) => {
+        if (!g) return g;
+        // merge поверх зеркала; null-патч — удалить строку (сброс объекта в
+        // авто-геометрию). Пересборка через fromEntries — без динамического delete.
+        const layout = Object.fromEntries(
+          Object.entries({ ...g.layout, ...items })
+            .filter((e): e is [string, ViewLayoutPayload] => e[1] !== null),
+        );
+        return { ...g, layout };
+      });
+    },
+    [],
+  );
+
+  // Ресинк при ошибке персиста / перед переигровкой 409: перечитать контекст
+  // (курсоры + раскладка к истине). Замок resyncingRef — один inflight на серию.
+  const resyncingRef = useRef<Promise<void> | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк: осознанно plain-function (пересоздаётся каждый рендер), бандл пересобирается с ним — по образу MapEditorPage.
+  function resyncOnPersistError(): Promise<void> {
+    if (resyncingRef.current) return resyncingRef.current;
+    const p = refetch().finally(() => { resyncingRef.current = null; });
+    resyncingRef.current = p;
+    return p;
+  }
+  // 409 (вид фокуса изменён другой сессией): ресинк + одноразовая переигровка
+  // исходного патча от свежего зеркала (канал retryPatch, по образу MapEditorPage).
+  const layoutRetrySeq = useRef(0);
+  const [layoutRetry, setLayoutRetry] = useState<{
+    patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
+  } | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError.
+  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
+    void resyncOnPersistError().then(() => {
+      setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
+    });
+  }
+
+  // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
+  // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
+  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
+    if (!isArchitect) return undefined;
+    return {
+      onLayoutChanged: handleLayoutChanged,
+      onPersistError: resyncOnPersistError,
+      onPersistConflict: handlePersistConflict,
+      retryPatch: layoutRetry,
+      viewMeta: metaCursorRef,
+      gestureActiveRef,
+    };
+  }, [isArchitect, handleLayoutChanged, resyncOnPersistError, handlePersistConflict, layoutRetry, metaCursorRef]);
+
+  // «Переразложить»: сброс раскладки вида фокуса → рефетч (свежий ELK). Реф-замок
+  // от повторных кликов (relayout идемпотентен, но незачем спамить ресинками).
+  const relayoutInflight = useRef(false);
+  const handleRelayout = useCallback(() => {
+    if (relayoutInflight.current) return;
+    relayoutInflight.current = true;
+    nodesApi.relayoutContext(node.id)
+      .then(() => refetch())
+      .finally(() => { relayoutInflight.current = false; });
+  }, [node.id, refetch]);
 
   if (loading) return <p className="np-empty">Загрузка схемы…</p>;
   if (!graph) return null;
@@ -912,8 +983,10 @@ function SchemaSection({
         nodes={graph.nodes}
         endpoints={graph.endpoints}
         edges={edges}
-        viewLayout={{}}
+        viewLayout={graph.layout}
         containerId={node.parent_id ?? null}
+        layoutViewId={node.id}
+        persistence={persistence}
         ancestorNames={ancestors.map((a) => a.name)}
         ancestorIds={ancestors.map((a) => a.id)}
         depth={ancestors.length}
@@ -922,6 +995,7 @@ function SchemaSection({
         onSchemaViewChange={setSchemaView}
         onNavigateNode={onNavigateNode}
         onEdit={onEdit}
+        onRelayout={handleRelayout}
         height={height}
         showViewFilter={hasStatusInfo}
         showCaption={false}

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GhostNode, Node, ViewLayout, Edge, LevelEdge } from "../types";
 import LevelGraph from "./LevelGraph";
 import type {
-  LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
+  LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks, LevelPersistenceProps,
 } from "./graph/types";
 import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
@@ -26,6 +26,12 @@ interface Props {
   edges: Edge[];
   viewLayout: ViewLayout;
   containerId: string | null;
+  // Ключ ВИДА для персиста раскладки (страница объекта: node.id — вид фокуса),
+  // если отличается от структурного containerId. Пробрасывается в LevelGraph.
+  layoutViewId?: string;
+  // Персист раскладки (архитектор на странице объекта). Передан → включается
+  // arrangeOnly (драг + запись вида фокуса); не передан → блок чисто read-only.
+  persistence?: LevelPersistenceProps;
   ancestorNames: string[];
   ancestorIds: string[];
   depth: number;
@@ -37,6 +43,8 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
   // «Редактировать» → редактор-карта (архитектор)
   onEdit?: () => void;
+  // «Переразложить» → сброс раскладки вида фокуса (архитектор, только с персистом)
+  onRelayout?: () => void;
   // Высота блока
   height: number;
   // Заголовок тулбара (счётчик компонентов и т.п.)
@@ -51,9 +59,9 @@ interface Props {
 }
 
 export default function EmbeddedSchemaBlock({
-  nodes, endpoints, edges, viewLayout, containerId,
+  nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, depth, isArchitect,
-  schemaView, onSchemaViewChange, onNavigateNode, onEdit,
+  schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout,
   height, toolbarHint, showViewFilter, empty,
   showCaption = true,
 }: Props) {
@@ -134,21 +142,25 @@ export default function EmbeddedSchemaBlock({
   });
 
   // Бандлы пропсов LevelGraph (Фаза 3д): мемоизированы, чтобы не создавать новый
-  // объект-литерал на каждый рендер. Блок всегда view-only (драг/undo/перераскладка
-  // убраны — редактирование расстановки живёт в редакторе-карте).
+  // объект-литерал на каждый рендер. Структура всегда read-only (создание/удаление/
+  // связи — в редакторе-карте); расстановка — только у архитектора с персистом.
   const mode = useMemo<LevelModeFlags>(() => ({
+    // Структурная правка выключена всегда; arrangeOnly включает драг+персист,
+    // не трогая canStructure (нет хэндлов/создания/удаления/quick-connect).
     readOnly: true,
-    arrangeOnly: false,
-    // Страничные схемы стартуют СВЁРНУТЫМИ (персистные раскрытия не применяются) и
-    // авто-центрируются (по оседании раскладки + при раскрытии узла лупой).
-    ignorePersistedExpanded: true,
+    // Персист передан (архитектор) → драг и запись вида фокуса доступны.
+    arrangeOnly: !!persistence,
+    // С персистом инлайн-раскрытия вида фокуса восстанавливаются при перезаходе
+    // (раскрытия — часть раскладки страницы); без персиста (наблюдатель) стартуем
+    // свёрнутыми. Авто-центрирование — по оседании раскладки + при раскрытии лупой.
+    ignorePersistedExpanded: !persistence,
     fitOnLoad: true,
     fitOnExpand: true,
     // Инспекция связей в read-only просмотре (двойной клик по стрелке): подсветка
     // полного пути + модалка выбора при общем плече.
     edgesInspectable: true,
     schemaView,
-  }), [schemaView]);
+  }), [schemaView, persistence]);
 
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: handleNavigate,
@@ -170,6 +182,9 @@ export default function EmbeddedSchemaBlock({
         <span style={{ flex: 1 }} />
         {showViewFilter && (
           <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} />
+        )}
+        {isArchitect && onRelayout && (
+          <button className="esb-edit" onClick={onRelayout}>Переразложить</button>
         )}
         {isArchitect && onEdit && (
           <button className="esb-edit" onClick={onEdit}>Редактировать</button>
@@ -203,6 +218,8 @@ export default function EmbeddedSchemaBlock({
                 edges={edges}
                 viewLayout={viewLayout}
                 containerId={containerId}
+                layoutViewId={layoutViewId}
+                persistence={persistence}
                 ancestorNames={ancestorNames}
                 ancestorIds={ancestorIds}
                 depth={depth}

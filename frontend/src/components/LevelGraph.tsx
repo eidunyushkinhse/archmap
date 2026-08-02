@@ -89,6 +89,10 @@ interface LevelGraphProps {
   depth: number;
   /** id узла-контейнера текущего уровня (null — корень) */
   containerId: string | null;
+  /** Ключ ВИДА для персиста раскладки, если отличается от структурного containerId.
+      Страница объекта: containerId = parent_id (структура/предки/глубина), а раскладка
+      персистится в вид фокуса — layoutViewId = node.id. Не задан → view_id = containerId. */
+  layoutViewId?: string;
   /** имена предков из breadcrumb (корень → непосредственный родитель) —
       подписи вложенных рамок уровней; пусто на корне */
   ancestorNames: string[];
@@ -137,6 +141,7 @@ function LevelGraphInner({
   edges,
   depth,
   containerId,
+  layoutViewId,
   ancestorNames,
   ancestorIds,
   isArchitect,
@@ -254,8 +259,11 @@ function LevelGraphInner({
   // и стабильная обёртка — в useLevelPersistence (Фаза 3в-А). commitLayout нужен
   // драгу/снапам (commitLayoutStable), раскрытиям (commitExpanded) и конвейеру
   // (intent-засев через cbRef).
+  // view_id записи раскладки: ключ ВИДА (layoutViewId), а не структурный containerId.
+  // На странице объекта раскладка персистится в вид фокуса (node.id), тогда как
+  // containerId (= parent_id) продолжает ключить структуру/предков/глубину ниже.
   const { commitLayout, commitLayoutStable } = useLevelPersistence({
-    containerId, isArchitect, canArrange, viewLayout,
+    containerId: layoutViewId ?? containerId, isArchitect, canArrange, viewLayout,
     onPersistError, onPersistConflict, onLayoutChanged, viewMeta, retryPatch,
   });
 

@@ -31,6 +31,12 @@ export const nodesApi = {
   // level-конвейером, что и обычный уровень.
   getContextGraph: (id: string): Promise<GraphResponse> =>
     api.get<GraphResponse>(`/nodes/${id}/context-graph`),
+  // «Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
+  // (view_id = id узла) — позиции и инлайн-раскрытия → свежий ELK. Соседние виды
+  // (другие страницы, уровни редактора) нетронуты. 204 No Content; после вызова
+  // контекст нужно перезагрузить (getContextGraph).
+  relayoutContext: (id: string): Promise<void> =>
+    api.post(`/nodes/${id}/context-relayout`, {}),
   // Процессы с участием узла или его поддерева — секция «Участвует в процессах»
   // страницы объекта (форма — ProcessListItem, как у списка процессов).
   getNodeProcesses: (id: string): Promise<ProcessListItem[]> =>
