@@ -68,9 +68,17 @@ export function useEditableLevel({ containerId, isArchitect }: Args) {
   // Зеркалирование сохранённой раскладки в локальный стейт
   const handleLayoutChanged = useCallback((items: Record<string, ViewLayoutPayload | null>) => {
     setViewLayout((prev) => {
-      const next = { ...prev };
+      // Пересобираем объект без оператора delete: сначала фильтруем удаляемые
+      // ключи (null в items), затем применяем ненулевые обновления
+      const removed = new Set(
+        Object.entries(items).filter(([, p]) => p === null).map(([k]) => k),
+      );
+      const next: ViewLayout = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (!removed.has(k)) next[k] = v;
+      }
       for (const [k, p] of Object.entries(items)) {
-        if (p === null) delete next[k]; else next[k] = p;
+        if (p !== null) next[k] = p;
       }
       return next;
     });

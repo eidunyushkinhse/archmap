@@ -283,7 +283,8 @@ export function placeGhostsOnRings(params: {
       }
       // хвост без якоря — за последним якорем; эффективная проекция ребёнка вдоль оси
       if (!isFinite(lastAnchor)) lastAnchor = axis === "y" ? (ring.minY + ring.maxY) / 2 : (ring.minX + ring.maxX) / 2;
-      const eff = (id: string) => (isFinite(proj.get(id)!) ? proj.get(id)! : lastAnchor);
+      // proj заполнена для всех ids циклом выше; ?? страхует от undefined
+      const eff = (id: string) => { const v = proj.get(id); return v != null && isFinite(v) ? v : lastAnchor; };
       // ставит узел: along — центр вдоль оси полки, cross — координата поперёк (0 = к кольцу)
       const place = (id: string, along: number, cross: number): void => {
         if (axis === "y") positions.set(id, { x: cross, y: along - NODE_H / 2 });
@@ -306,8 +307,9 @@ export function placeGhostsOnRings(params: {
         // (cross = 0, к кольцу), остальные выталкиваются наружу колонками по perCol штук.
         const com = ids.reduce((s, id) => s + eff(id), 0) / ids.length;
         const links = new Map<string, number>(ids.map((id) => [id, connectedLocal([id]).length]));
+        // links построена по ids; ?? 0 страхует от undefined
         const byPull = [...ids].sort((p, q) =>
-          (links.get(q)! - links.get(p)!) ||
+          ((links.get(q) ?? 0) - (links.get(p) ?? 0)) ||
           (Math.abs(eff(p) - com) - Math.abs(eff(q) - com)) ||
           (p < q ? -1 : p > q ? 1 : 0));
         const columns: string[][] = [];
@@ -325,7 +327,9 @@ export function placeGhostsOnRings(params: {
           sorted.forEach((id, k) => place(id, start + k * pitch, sign * j * step));
         });
       }
-      const newCB = groupBbox(ids)!;
+      // place() выставил позиции всем ids выше — bbox заведомо непустой
+      const newCB = groupBbox(ids);
+      if (!newCB) return null;
       return { minX: newCB.minX - pad, minY: newCB.minY - pad, maxX: newCB.maxX + pad, maxY: newCB.maxY + pad + labelPad };
     };
 

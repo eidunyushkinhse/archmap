@@ -47,8 +47,9 @@ export const nodesApi = {
   deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
     api.get<DeletionSnapshot>(`/nodes/${id}/deletion-snapshot`),
   // Восстановить удалённое поддерево из снимка (Undo удаления) — с исходными id.
+  // undefined (не void): void как type-parameter нарушает no-invalid-void-type
   restore: (snapshot: DeletionSnapshot): Promise<void> =>
-    api.post<void>(`/nodes/restore`, snapshot),
+    api.post<undefined>(`/nodes/restore`, snapshot),
   // «Переразложить уровень»: стирает ВСЕ строки view_layout уровня (позиции
   // локалов и гостей, раскрытия expanded, легаси) → возврат к авто-виду.
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.

@@ -434,9 +434,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   {
     const pushedIds = new Set<string>(movedOwnedByInvariants);
     if (sg) for (const id of sg.moved) if (ownedPositions[id]) pushedIds.add(id);
-    const pushed = [...pushedIds].map((id) => {
-      const p = positions.get(id)!;
-      return { id, x: p.x, y: p.y };
+    const pushed = [...pushedIds].flatMap((id) => {
+      const p = positions.get(id);
+      return p ? [{ id, x: p.x, y: p.y }] : [];
     });
     if (pushed.length > 0) intents.push({ kind: "seed-positions", seeds: pushed });
   }

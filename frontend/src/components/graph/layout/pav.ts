@@ -37,10 +37,12 @@ export function spread1DSized(desired: number[], halfExtent: number[], pad: numb
     const e = desired[order[i]] - G[i];
     let pool: Pool = { sum: e, count: 1, mean: e };
     // пока предыдущий пул «выше» текущего (нарушает неубывание) — сливаем в среднее
-    while (pools.length && pools[pools.length - 1].mean > pool.mean) {
-      const prev = pools.pop()!;
-      const sum = prev.sum + pool.sum;
-      const count = prev.count + pool.count;
+    while (pools.length > 0) {
+      const last = pools[pools.length - 1];
+      if (last.mean <= pool.mean) break;
+      pools.pop();
+      const sum = last.sum + pool.sum;
+      const count = last.count + pool.count;
       pool = { sum, count, mean: sum / count };
     }
     pools.push(pool);

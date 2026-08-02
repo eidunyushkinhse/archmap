@@ -73,6 +73,7 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
     affectedFramesRef.current = affected;
     if (affected.size === 0) { setOverlayFrames([]); return; }
     setOverlayFrames([...affected].map((id) => {
+      // Безопасно: id добавлен в affected только из byId (цикл выше) — ключ существует
       const f = byId.get(id)!;
       const abs = absPositionOf(f, byId);
       const { w, h } = rfSize(f);
@@ -106,7 +107,10 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
     const kidsOf = new Map<string, RFNode[]>();
     for (const n of byId.values()) {
       if (!n.parentId || n.type === "spacer") continue;
-      (kidsOf.get(n.parentId) ?? kidsOf.set(n.parentId, []).get(n.parentId)!).push(n);
+      // get-or-create без «!»
+      let arr = kidsOf.get(n.parentId);
+      if (!arr) { arr = []; kidsOf.set(n.parentId, arr); }
+      arr.push(n);
     }
     // live-rect рамок в АБСОЛЮТЕ, глубокие первыми (объемлющая видит live-rect вложенной)
     const live = new Map<string, { x: number; y: number; w: number; h: number }>();
@@ -166,7 +170,10 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
       const kidsOf = new Map<string, RFNode[]>();
       for (const n of prev) {
         if (!n.parentId || n.type === "spacer") continue;
-        (kidsOf.get(n.parentId) ?? kidsOf.set(n.parentId, []).get(n.parentId)!).push(n);
+        // get-or-create без «!»
+        let arr = kidsOf.get(n.parentId);
+        if (!arr) { arr = []; kidsOf.set(n.parentId, arr); }
+        arr.push(n);
       }
       for (const f of frames) {
         const pad = pads.get(f.id);
@@ -174,14 +181,18 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
         if (!pad || !kids0 || kids0.length === 0) continue;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const k0 of kids0) {
-          const k = cur(k0.id)!;
+          // k0 ∈ prev, byId построена из prev — cur всегда находит узел
+          const k = cur(k0.id);
+          if (!k) continue;
           const { w, h } = rfSize(k);
           minX = Math.min(minX, k.position.x); minY = Math.min(minY, k.position.y);
           maxX = Math.max(maxX, k.position.x + w); maxY = Math.max(maxY, k.position.y + h);
         }
         const dx = minX - pad.l, dy = minY - pad.t;
         const nw = maxX - minX + pad.l + pad.r, nh = maxY - minY + pad.t + pad.b;
-        const fc = cur(f.id)!;
+        // f ∈ prev, byId построена из prev — cur всегда находит узел
+        const fc = cur(f.id);
+        if (!fc) continue;
         const { w: fw, h: fh } = rfSize(fc);
         const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
         if (!moved && Math.abs(nw - fw) < 0.5 && Math.abs(nh - fh) < 0.5) continue;
@@ -195,7 +206,8 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
         // (dx=dy=0) детей не трогает
         if (moved) {
           for (const k0 of kids0) {
-            const k = cur(k0.id)!;
+            const k = cur(k0.id);
+            if (!k) continue;
             patched.set(k.id, { ...k, position: { x: k.position.x - dx, y: k.position.y - dy } });
           }
         }

@@ -79,6 +79,7 @@ export function computeJumps(
 ): Map<string, JumpPoint[]> {
   const ids = [...polys.keys()];
   const result = new Map<string, JumpPoint[]>(ids.map((id) => [id, []]));
+  // Безопасно: id только что извлечён из polys.keys() — ключ гарантированно существует
   const segs = new Map(ids.map((id) => [id, segments(polys.get(id)!)]));
 
   // 1) все крестики СПИСКОМ; группировка — ниже, КЛАСТЕРАМИ (радиус CLUSTER_R), а не
@@ -91,6 +92,7 @@ export function computeJumps(
   const crossings: RawCross[] = [];
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
+      // Безопасно: segs построена по всем ids — индексация ids[i]/ids[j] всегда даёт ключ
       const segA = segs.get(ids[i])!;
       const segB = segs.get(ids[j])!;
       for (const sa of segA) {
@@ -142,6 +144,7 @@ export function computeJumps(
   // оси члена, а поперечная координата хопа — ОСЬ САМОГО ЧЛЕНА (иначе фильтр
   // отрисовки «мостик лежит на сегменте» молча выбросил бы хоп).
   const axisOf = (m: Member, horiz: boolean): number => {
+    // Безопасно: m.id — из crossings, где hId/vId всегда ∈ ids (ключи polys)
     const pts = polys.get(m.id)!;
     return horiz ? pts[m.index].y : pts[m.index].x;
   };
@@ -150,6 +153,7 @@ export function computeJumps(
     const meanY = pt.sumY / pt.n;
     // запас прямой части члена в середине кластера (после трима скруглений)
     const availOf = (m: Member, horiz: boolean): number => {
+      // Безопасно: m.id — из crossings, всегда ключ polys (см. axisOf)
       const span = straightSpan(polys.get(m.id)!, m.index, r);
       const c = horiz ? meanX : meanY;
       return Math.min(c - span.lo, span.hi - c);
@@ -163,6 +167,7 @@ export function computeJumps(
     const push = (side: typeof sideH, jrEff: number) => {
       for (const m of side.members) {
         const axis = axisOf(m, side.horiz);
+        // Безопасно: result инициализирована по всем ids; m.id ∈ ids (см. axisOf)
         result.get(m.id)!.push(side.horiz ? { x: meanX, y: axis, jr: jrEff } : { x: axis, y: meanY, jr: jrEff });
       }
     };

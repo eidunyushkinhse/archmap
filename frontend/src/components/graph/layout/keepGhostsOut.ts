@@ -153,8 +153,11 @@ export function enforceFramesKeepOut(params: {
     }
     const groups = new Map<string, string[]>();
     for (const ext of externals) {
-      const k = groupKey.get(ext.id)!;
-      (groups.get(k) ?? groups.set(k, []).get(k)!).push(ext.id);
+      const k = groupKey.get(ext.id);
+      if (!k) continue; // groupKey заполнен для всех externals — недостижимо
+      let arr = groups.get(k);
+      if (!arr) { arr = []; groups.set(k, arr); }
+      arr.push(ext.id);
     }
 
     let changed = false;
@@ -287,7 +290,8 @@ export function keepOutOfExpandedFrames(params: {
       return { minX: r.minX - KEEPOUT_GAP, minY: r.minY - KEEPOUT_GAP, maxX: r.maxX + KEEPOUT_GAP, maxY: r.maxY + KEEPOUT_GAP };
     });
     for (const id of subjectNodes) {
-      const p0 = positions.get(id)!;
+      const p0 = positions.get(id);
+      if (!p0) continue; // subjectNodes отфильтрован по positions.has — недостижимо
       const subject: Rect = { minX: p0.x, minY: p0.y, maxX: p0.x + NODE_W, maxY: p0.y + NODE_H };
       if (!inflated.some((f) => overlaps(subject, f))) continue;
       let best: { dx: number; dy: number } | null = null;

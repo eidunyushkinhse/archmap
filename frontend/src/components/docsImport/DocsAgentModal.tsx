@@ -342,13 +342,17 @@ export default function DocsAgentModal({ currentParentId, currentParentName, onC
             {!checking && report !== null && report.logic.length > 0 && (
               <ItemList
                 title="Схемы логики:"
-                rows={report.logic.map((l, i) => ({
-                  key: `${l.node_path}#${l.name}`,
-                  text: `«${l.node_path}» · ${l.name}${l.operation ? ` (${l.operation})` : ""}`,
-                  badge: ACTION_LABEL[l.action] ?? l.action,
-                  bad: mmdErrs?.[i] != null ? `mermaid: ${mmdErrs[i]!.split("\n")[0]}` : null,
-                  ok: mmdErrs?.[i] === null,
-                }))}
+                rows={report.logic.map((l, i) => {
+                  // Фиксируем в const: TS не сужает индексацию через ?. в тернарнике
+                  const err = mmdErrs?.[i] ?? null;
+                  return {
+                    key: `${l.node_path}#${l.name}`,
+                    text: `«${l.node_path}» · ${l.name}${l.operation ? ` (${l.operation})` : ""}`,
+                    badge: ACTION_LABEL[l.action] ?? l.action,
+                    bad: err !== null ? `mermaid: ${err.split("\n")[0]}` : null,
+                    ok: mmdErrs?.[i] === null,
+                  };
+                })}
               />
             )}
             {!checking && report !== null && report.specs.length > 0 && (

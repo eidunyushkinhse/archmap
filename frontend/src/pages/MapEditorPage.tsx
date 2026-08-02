@@ -306,7 +306,10 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     if (intoFrame) {
       if (nodeModal.pos) handleLayoutChanged({ [saved.id]: { x: nodeModal.pos.x, y: nodeModal.pos.y } });
       childRefreshTok.current += 1;
-      setChildRefresh({ id: saved.parent_id!, token: childRefreshTok.current });
+      // parent_id !== null гарантирован условием intoFrame; явная проверка для сужения TS
+      if (saved.parent_id !== null) {
+        setChildRefresh({ id: saved.parent_id, token: childRefreshTok.current });
+      }
     } else {
       setNodes((prev) => prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [...prev, saved]);
     }
@@ -393,8 +396,18 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк зеркала раскладки: plain-function, бандл persistence (Фаза 3д) пересобирается с ним — поведение идентично прежней прямой передаче пропа.
   function handleLayoutChanged(items: Record<string, ViewLayoutPayload | null>) {
     setViewLayout((prev) => {
-      const next = { ...prev };
-      for (const [k, p] of Object.entries(items)) { if (p === null) delete next[k]; else next[k] = p; }
+      // Пересобираем объект без оператора delete: сначала фильтруем удаляемые
+      // ключи (null в items), затем применяем ненулевые обновления
+      const removed = new Set(
+        Object.entries(items).filter(([, p]) => p === null).map(([k]) => k),
+      );
+      const next: ViewLayout = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (!removed.has(k)) next[k] = v;
+      }
+      for (const [k, p] of Object.entries(items)) {
+        if (p !== null) next[k] = p;
+      }
       return next;
     });
   }

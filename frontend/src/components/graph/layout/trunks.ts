@@ -121,17 +121,21 @@ export function trunkPieces(routes: ReadonlyMap<string, EdgePoint[]>): Map<strin
   const ids = [...routes.keys()].sort();
   const out = new Map<string, TrunkMatePiece[]>();
   const push = (id: string, rec: TrunkMatePiece): void => {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- set() выше гарантировал наличие ключа
     (out.get(id) ?? out.set(id, []).get(id)!).push(rec);
   };
   // бакеты по порту своей роли
   const byStart = new Map<string, string[]>();
   const byEnd = new Map<string, string[]>();
   for (const id of ids) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- ids из routes.keys(), ключ заведомо есть
     const pts = routes.get(id)!;
     if (pts.length < 2) continue;
     const ks = portKey(pts[0]);
     const ke = portKey(pts[pts.length - 1]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- set() выше гарантировал наличие ключа
     (byStart.get(ks) ?? byStart.set(ks, []).get(ks)!).push(id);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- set() выше гарантировал наличие ключа
     (byEnd.get(ke) ?? byEnd.set(ke, []).get(ke)!).push(id);
   }
   const collect = (buckets: Map<string, string[]>, kind: "out" | "in"): void => {
@@ -139,7 +143,9 @@ export function trunkPieces(routes: ReadonlyMap<string, EdgePoint[]>): Map<strin
       if (bucket.length < 2) continue;
       for (let i = 0; i < bucket.length; i++) {
         for (let j = i + 1; j < bucket.length; j++) {
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bucket заполнен из routes.keys()
           const a = routes.get(bucket[i])!;
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bucket заполнен из routes.keys()
           const b = routes.get(bucket[j])!;
           const piece = kind === "out" ? commonPrefix(a, b) : commonSuffix(a, b);
           if (piece.length < 2) continue;

@@ -305,9 +305,11 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
         if (!alive) return;
         let kids = childrenById[id];
         if (kids === undefined) {
-          kids = fitNodes(await nodesApi.getChildren(id));
+          // Фиксируем в const: TS не сужает let-переменную внутри замыкания
+          const fetched = fitNodes(await nodesApi.getChildren(id));
           if (!alive) return;
-          setChildrenById((p) => ({ ...p, [id]: kids! }));
+          setChildrenById((p) => ({ ...p, [id]: fetched }));
+          kids = fetched;
         }
         if (kids.length > 0) setExpanded((p) => new Set(p).add(id));
         else setLeaves((p) => new Set(p).add(id));
@@ -344,8 +346,10 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     if (kids === undefined) {
       setLoadingId((p) => new Set(p).add(id));
       try {
-        kids = fitNodes(await nodesApi.getChildren(id));
-        setChildrenById((p) => ({ ...p, [id]: kids! }));
+        // Фиксируем в const: TS не сужает let-переменную внутри замыкания
+        const fetched = fitNodes(await nodesApi.getChildren(id));
+        setChildrenById((p) => ({ ...p, [id]: fetched }));
+        kids = fetched;
       } finally {
         setLoadingId((p) => { const n = new Set(p); n.delete(id); return n; });
       }

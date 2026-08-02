@@ -81,16 +81,19 @@ export function buildGuestForest(params: {
     if (!r) continue;
     const leaf: CLeaf = { kind: "leaf", id, rect: r, weight: leafWeight(id) };
     const host = deepestFrameContaining(guestFrames, id);
-    (host ? frameNode.get(host.id)! : root).children.push(leaf);
+    // frameNode заполнен из guestFrames; ?? root — страховка от рассинхрона
+    (host ? frameNode.get(host.id) ?? root : root).children.push(leaf);
   }
   // гостевые рамки — к родителям; вес рамки: содержит новичка → пин, иначе владеемая
   for (const f of guestFrames) {
-    const node = frameNode.get(f.id)!;
+    const node = frameNode.get(f.id);
+    if (!node) continue; // frameNode заполнен из guestFrames — недостижимо
     let hasLight = false;
     for (const m of f.memberIds) if (lightIds.has(m)) { hasLight = true; break; }
     node.weight = hasLight ? W_PIN : W_OWNED;
     const par = parentFrameOf(guestFrames, f);
-    (par ? frameNode.get(par.id)! : root).children.push(node);
+    // frameNode заполнен из guestFrames; ?? root — страховка от рассинхрона
+    (par ? frameNode.get(par.id) ?? root : root).children.push(node);
   }
 
   // отбрасываем пустые рамки (все члены ушли глубже / без позиции) — иначе bbox по пустому

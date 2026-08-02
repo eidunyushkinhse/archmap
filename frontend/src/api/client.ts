@@ -58,5 +58,7 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
-  delete: (path: string) => request<void>(path, { method: "DELETE" }),
+  // undefined (не void): void как type-parameter нарушает no-invalid-void-type;
+  // request возвращает undefined при 204 — тип совпадает с фактическим значением
+  delete: (path: string) => request<undefined>(path, { method: "DELETE" }),
 };

@@ -88,7 +88,8 @@ export function widenNodesForLabels(params: {
   let moved = false;
   for (const [id, i] of idxOf) {
     if (weights[i] === Infinity) continue;
-    const p = positions.get(id)!;
+    const p = positions.get(id);
+    if (!p) continue; // idxOf содержит только id с позицией
     if (Math.abs(widened[i].minX - p.x) > 1e-6 || Math.abs(widened[i].minY - p.y) > 1e-6) moved = true;
     positions.set(id, { ...p, x: widened[i].minX, y: widened[i].minY });
   }

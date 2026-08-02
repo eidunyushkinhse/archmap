@@ -89,8 +89,9 @@ export function railAssignments(
     const lo = a.id < b.id ? a : b;
     const hi = a.id < b.id ? b : a;
     for (const [grp, idx] of [[lo, RAIL_LO] as const, [hi, RAIL_HI] as const]) {
-      const sp = positions.get(grp.source)!;
-      const tp = positions.get(grp.target)!;
+      const sp = positions.get(grp.source);
+      const tp = positions.get(grp.target);
+      if (!sp || !tp) continue; // пара прошла фильтр позиций выше — недостижимо
       const { sSide, tSide } = facingSides(sp, tp);
       out.set(grp.id, { sSide, sIdx: idx, tSide, tIdx: idx });
     }

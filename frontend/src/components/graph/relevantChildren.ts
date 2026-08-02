@@ -75,7 +75,10 @@ export function relevantChildCounts(
   const anc = ancestorIndex(endpoints);
   const sets = new Map<string, Set<string>>();
   const add = (parentId: string, kidId: string): void => {
-    (sets.get(parentId) ?? sets.set(parentId, new Set()).get(parentId)!).add(kidId);
+    // get-or-create без «!»: явная проверка и создание
+    let s = sets.get(parentId);
+    if (!s) { s = new Set(); sets.set(parentId, s); }
+    s.add(kidId);
   };
   for (const e of edges) {
     const ends: Array<[string, string]> = [

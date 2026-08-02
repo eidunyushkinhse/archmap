@@ -50,8 +50,9 @@ export function assignEdgeHandles(
   const pairGroups = new Map<string, LayoutEdge[]>();
   for (const e of edges) {
     const key = [e.source_id, e.target_id].sort().join("|");
-    if (!pairGroups.has(key)) pairGroups.set(key, []);
-    pairGroups.get(key)!.push(e);
+    let group = pairGroups.get(key);
+    if (!group) { group = []; pairGroups.set(key, group); }
+    group.push(e);
   }
   const pairInfo = new Map<string, { idx: number; total: number }>();
   for (const [, group] of pairGroups) {

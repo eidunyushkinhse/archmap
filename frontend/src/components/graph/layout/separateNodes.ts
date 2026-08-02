@@ -43,16 +43,19 @@ export function separateOverlappingNodes(params: {
 }): Set<string> {
   const { ids, positions, ownedPositions } = params;
   const present = ids.filter((id) => positions.has(id));
-  const rects: Rect[] = present.map((id) => {
-    const p = positions.get(id)!;
-    return { minX: p.x, minY: p.y, maxX: p.x + NODE_W, maxY: p.y + NODE_H };
-  });
+  const rects: Rect[] = [];
+  for (const id of present) {
+    const p = positions.get(id);
+    if (!p) continue; // present отфильтрован по positions.has — недостижимо
+    rects.push({ minX: p.x, minY: p.y, maxX: p.x + NODE_W, maxY: p.y + NODE_H });
+  }
   const weights = present.map((id) => (ownedPositions[id] ? OWNED_WEIGHT : 1));
   const out = separateRects(rects, weights, NODE_SEP_PAD);
   const moved = new Set<string>();
   out.forEach((r, i) => {
     const id = present[i];
-    const p = positions.get(id)!;
+    const p = positions.get(id);
+    if (!p) return; // present отфильтрован по positions.has — недостижимо
     let nx = r.minX;
     let ny = r.minY;
     const owned = ownedPositions[id];

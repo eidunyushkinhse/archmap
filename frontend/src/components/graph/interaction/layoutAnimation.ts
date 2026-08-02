@@ -308,6 +308,7 @@ export function planCollapse(
     // общий сосед: довезти до next-позиции в СТАРОЙ системе родителей
     // (рамки вне поддерева в фазе 1 неподвижны, абсолюты сходятся)
     if (moved.has(n.id)) {
+      // Безопасно: moved построена обходом nextById — ключ n.id гарантированно существует
       const abs = absPositionOf(nextById.get(n.id)!, nextById);
       const chain = parentChainAbs(n, prevById);
       return { ...n, position: { x: abs.x - chain.x, y: abs.y - chain.y } };

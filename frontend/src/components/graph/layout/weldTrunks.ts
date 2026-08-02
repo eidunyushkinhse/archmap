@@ -139,17 +139,21 @@ export function weldTrunks(params: WeldParams): Set<string> {
       const push = (id: string | null, pts: EdgePoint[]): void => {
         if (pts.length < 2) return;
         const k = portKey(pts[0]);
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- set() выше гарантировал наличие ключа
         (buckets.get(k) ?? buckets.set(k, []).get(k)!).push({ id, pts });
       };
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- id из routes.keys(), ключ заведомо есть
       for (const id of [...routes.keys()].sort()) push(id, orient(routes.get(id)!));
       preplaced.forEach((r) => push(null, orient(r)));
 
       for (const key of [...buckets.keys()].sort()) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- key из buckets.keys(), ключ заведомо есть
         const bucket = buckets.get(key)!;
         if (bucket.length < 2) continue;
         for (const member of bucket) {
           if (member.id === null || !routableIds.has(member.id)) continue;
           const follower = member.id;
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- follower из routes.keys() (push выше)
           const curReal = routes.get(follower)!;
           if (curReal.length < 2) continue;
           const cur = orient(curReal);
@@ -169,6 +173,7 @@ export function weldTrunks(params: WeldParams): Set<string> {
           for (const mate of bucket) {
             if (mate === member) continue;
             // живой маршрут собрата (мог быть переварен ранее в этой же итерации)
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- mate.id из routes.keys() (push выше)
             const matePts = mate.id !== null ? orient(routes.get(mate.id)!) : mate.pts;
             if (matePts.length < 2) continue;
             const diverge = pieceLen(commonPrefix(cur, matePts));

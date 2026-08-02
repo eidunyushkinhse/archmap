@@ -68,7 +68,10 @@ export function computeFrames(params: {
       if (idx !== undefined && idx > lcaIdx) { lcaIdx = idx; lcaPos = pos; }
     });
     // член breadcrumb-рамок до общего предка включительно (если общий предок есть)
-    for (let i = 0; i <= lcaIdx; i++) frames.get(ancestorIds[i])!.memberIds.add(g.id);
+    for (let i = 0; i <= lcaIdx; i++) {
+      const frame = frames.get(ancestorIds[i]);
+      if (frame) frame.memberIds.add(g.id);
+    }
     // Контейнеры-предки ниже общего предка — гостевые рамки. Для гостя БЕЗ общего
     // предка (lcaPos = −1) это вся его «чужая» ветка от корня (напр. HelixMon ⊃
     // ObsCore вокруг листа): такой раскрытый гость-контейнер тоже обводится своими
@@ -76,8 +79,9 @@ export function computeFrames(params: {
     for (let p = lcaPos + 1; p < anc.length; p++) {
       const a = anc[p];
       const depth = lcaIdx + (p - lcaPos);
-      if (!frames.has(a.id)) frames.set(a.id, { id: a.id, name: a.name, depth, native: false, memberIds: new Set() });
-      frames.get(a.id)!.memberIds.add(g.id);
+      let frame = frames.get(a.id);
+      if (!frame) { frame = { id: a.id, name: a.name, depth, native: false, memberIds: new Set() }; frames.set(a.id, frame); }
+      frame.memberIds.add(g.id);
     }
   }
 
