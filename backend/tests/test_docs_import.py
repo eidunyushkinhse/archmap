@@ -305,15 +305,15 @@ def _payload(*files, overwrite=False):
 
 
 def test_endpoint_prompt_slices(db):
-    # lang/hints передаём явно: прямой вызов минует DI, дефолты Query — не значения
+    # lang/hints/target передаём явно: прямой вызов минует DI, дефолты Query — не значения
     root, orders, billing, *_ = _tree(db)
     whole = docs_prompt(
-        lang="ru", hints=None, db=db, project=ensure_project(db), _=ensure_architect(db)
+        lang="ru", hints=None, target=None, db=db, project=ensure_project(db), _=ensure_architect(db)
     )
     assert "Ярмарка" in whole.prompt and "billing" in whole.prompt
 
     sub = docs_prompt(
-        node_id=billing.id, lang="ru", hints=None,
+        node_id=billing.id, lang="ru", hints=None, target=None,
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
     slice_part = sub.prompt.split("## Срез схемы")[1].split("## Что документировать")[0]
@@ -321,10 +321,28 @@ def test_endpoint_prompt_slices(db):
 
     with pytest.raises(HTTPException) as e:
         docs_prompt(
-            node_id=uuid.uuid4(), lang="ru", hints=None,
+            node_id=uuid.uuid4(), lang="ru", hints=None, target=None,
             db=db, project=ensure_project(db), _=ensure_architect(db),
         )
     assert e.value.status_code == 404
+
+
+def test_endpoint_prompt_target_focus(db):
+    # Гранулярный режим «по одной схеме»: target фокусирует агента на одном
+    # воркере/эндпоинте (приоритетный блок в промпте); без target блока нет.
+    _tree(db)
+    focused = docs_prompt(
+        lang="ru", hints=None, target="OrderCreatedHandler",
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert "Фокус этого прогона" in focused.prompt
+    assert "OrderCreatedHandler" in focused.prompt
+
+    broad = docs_prompt(
+        lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert "Фокус этого прогона" not in broad.prompt
 
 
 def test_endpoint_preview_does_not_write(db):

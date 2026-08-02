@@ -54,12 +54,15 @@ def docs_prompt(
     include: DocsInclude = "both",
     lang: str = Query("ru", max_length=8),
     hints: str | None = Query(None, max_length=4000),
+    target: str | None = Query(None, max_length=256),
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> DocsPromptOut:
     """Промпт агенту со вложенным срезом схемы: node_id — поддерево (агенту
-    одного сервиса хватает его контейнера), без node_id — весь проект."""
+    одного сервиса хватает его контейнера), без node_id — весь проект.
+    target — гранулярный режим «по одной схеме»: фокусирует агента на одном
+    воркере/эндпоинте (крупные монолиты, которые не переварить за один заход)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     if node_id is not None:
@@ -70,7 +73,7 @@ def docs_prompt(
         nodes = [by_id[i] for i in sub_ids]
         edges = [e for e in edges if e.source_id in sub_ids and e.target_id in sub_ids]
     export_slice = build_export(nodes, edges, root_id=node_id)
-    return DocsPromptOut(prompt=build_docs_prompt(export_slice, include, lang, hints))
+    return DocsPromptOut(prompt=build_docs_prompt(export_slice, include, lang, hints, target))
 
 
 def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> DocsPlan:
