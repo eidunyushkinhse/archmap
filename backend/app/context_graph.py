@@ -14,7 +14,7 @@ from typing import cast
 from sqlalchemy.orm import Session
 
 from app import tree
-from app.graph_queries import ghost_registry
+from app.graph_queries import ghost_registry, read_view_layout
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
@@ -35,12 +35,11 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
       конец в поддереве — сам контекст) и сосед↔сосед (связи между соседями —
       как в «отдельном проекте», куда положили объект и его соседей).
     - endpoints — реестр не-локальных концов этих рёбер с цепочками предков.
-    - layout — НЕ отдаётся (пустой по умолчанию): виртуальный корень всегда
-      раскладывается свежим ELK, как корень отдельного проекта без сохранённых
-      позиций. Сохранённые координаты общего холста на страницу не переносятся:
-      гибрид «представители по сохранённым местам + фокус по свежему ELK» рождал
-      тесноту и «рогалики» стрелок (решение 2026-08-01; критерий X11-A переписан:
-      тождество состава/связей/рамок при СВОЕЙ раскладке).
+    - layout — сохранённая раскладка ВИДА ФОКУСА (view_id = focus.id): архитектор
+      двигает узлы на странице с персистом (как на обычном холсте). Нет сохранённой
+      → пустой dict → фронт раскладывает свежим ELK (первый просмотр). Сохранённые
+      координаты общего холста на страницу не переносятся — у каждой страницы СВОЙ
+      вид (решение 2026-08-02; инвариант X13 переписан).
     """
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
@@ -104,7 +103,8 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
         nodes=cast(list[NodeResponse], local_nodes),
         edges=result_edges,
         endpoints=ghost_registry(all_nodes, endpoint_ids, child_counts),
-        version=current_version(db, project.id, None),
+        layout=read_view_layout(db, project.id, focus.id),
+        version=current_version(db, project.id, focus.id),
         graph_rev=project.graph_rev,
         meta_rev=project.meta_rev,
     )

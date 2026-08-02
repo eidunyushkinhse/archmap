@@ -572,3 +572,21 @@ def relayout_level(
     if not scoped_node(db, container_id, project):
         raise HTTPException(status_code=404, detail="Уровень не найден")
     _clear_level_layout(db, container_id, project)
+
+
+@router.post(
+    "/{node_id}/context-relayout",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def relayout_context(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> None:
+    """«Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
+    (view_id = node_id) — позиции и инлайн-раскрытия → свежий ELK. Соседние
+    виды (другие страницы, уровни редактора) нетронуты."""
+    if not scoped_node(db, node_id, project):
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    _clear_level_layout(db, node_id, project)

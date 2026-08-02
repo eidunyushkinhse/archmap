@@ -3,10 +3,8 @@
 Контекст объекта в формате сырого графа уровня — виртуальный корневой уровень:
 локалы = фокус + представители соседей (связанные сиблинги), рёбра сырые
 (внутренние поддерева + граничные + сосед↔сосед), реестр концов с цепочками
-предков, раскладка — КОРНЕВОГО вида. Критерии заказчика: страница корневого
-узла совпадает с корневым холстом (сохранённые позиции корня), страница
-вложенного узла раскладывается как корень отдельного проекта (свежий ELK —
-строк корневого вида для этих узлов нет).
+предков. Раскладка — ВИДА ФОКУСА (view_id = focus.id): сохранённые архитектором
+позиции/раскрытия страницы; нет сохранённой → пустой dict → свежий ELK.
 """
 
 import uuid
@@ -88,8 +86,8 @@ def test_root_focus_locals_are_connected_roots_layout_empty(db, project):
     # Реестр — глубокий конец a1 с цепочкой предков (для проекции/R5).
     assert {ep.id for ep in g.endpoints} == {a1.id}
     assert [x.id for x in g.endpoints[0].ancestors] == [a.id]
-    # Раскладка НЕ отдаётся (X11-A v2): виртуальный корень — всегда свежий ELK,
-    # сохранённые позиции общего холста на страницу не переносятся.
+    # Раскладка вида фокуса: строки лежат в корневом виде (view_id=None), а не
+    # в виде фокуса (view_id=a.id) → для страницы A раскладка пустая (свежий ELK).
     assert g.layout == {}
 
 
@@ -121,7 +119,8 @@ def test_nested_focus_reps_are_connected_siblings_layout_empty(db, project):
     assert {ep.id for ep in g.endpoints} == {f1.id, s1.id}
     s1_entry = next(ep for ep in g.endpoints if ep.id == s1.id)
     assert [x.id for x in s1_entry.ancestors] == [p.id, s.id]
-    # Раскладка пустая: виртуальный корень — всегда свежий ELK (X11-A v2).
+    # Раскладка вида фокуса: строки в корневом (None) и виде родителя (p.id),
+    # а не в виде фокуса (f.id) → для страницы F раскладка пустая (свежий ELK).
     assert g.layout == {}
 
 
@@ -169,3 +168,60 @@ def test_leaf_without_edges_is_bare_focus(db, project):
 
     assert [n.id for n in g.nodes] == [leaf.id]
     assert g.edges == [] and g.endpoints == []
+
+
+def test_focus_view_layout_is_returned(db, project):
+    # Раскладка ВИДА ФОКУСА (view_id = focus.id) отдаётся в context-graph:
+    # архитектор двигает узлы на странице с персистом.
+    a = _node(db, "A")
+    b = _node(db, "B")
+    _edge(db, a, b)
+    # Строки в виде фокуса (view_id=a.id) — должны попасть в ответ.
+    _layout_row(db, a, a, x=100, y=200)
+    _layout_row(db, a, b, x=300, y=400)
+    # Строка в корневом виде (view_id=None) — НЕ должна попасть.
+    _layout_row(db, None, a, x=1, y=2)
+    db.commit()
+
+    g = get_node_context_graph(a.id, db=db, project=project, _=None)
+
+    assert set(g.layout.keys()) == {str(a.id), str(b.id)}
+    assert g.layout[str(a.id)].x == 100 and g.layout[str(a.id)].y == 200
+    assert g.layout[str(b.id)].x == 300 and g.layout[str(b.id)].y == 400
+
+
+def test_context_relayout_clears_only_focus_view(db, project):
+    # relayout-context чистит ТОЛЬКО вид фокуса (view_id = node_id);
+    # соседние виды (корневой, вид родителя, другие страницы) нетронуты.
+    from app.routers.nodes import relayout_context
+
+    p = _node(db, "P")
+    f = _node(db, "F", p)
+    s = _node(db, "S", p)
+    _edge(db, f, s)
+    # Раскладка вида фокуса (f.id) — должна быть очищена.
+    _layout_row(db, f, f, x=10, y=20)
+    _layout_row(db, f, s, x=30, y=40)
+    # Раскладка корневого вида и вида родителя — НЕ должны быть затронуты.
+    _layout_row(db, None, p, x=1, y=2)
+    _layout_row(db, p, f, x=5, y=6)
+    db.commit()
+
+    relayout_context(f.id, db=db, project=project, _=None)
+
+    # Вид фокуса очищен.
+    g = get_node_context_graph(f.id, db=db, project=project, _=None)
+    assert g.layout == {}
+    # Корневой вид и вид родителя нетронуты.
+    root_rows = (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id == project.id, ViewLayoutItem.view_id.is_(None))
+        .all()
+    )
+    parent_rows = (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id == project.id, ViewLayoutItem.view_id == p.id)
+        .all()
+    )
+    assert len(root_rows) == 1
+    assert len(parent_rows) == 1
