@@ -54,6 +54,7 @@ import { ANIM_MOVE_MS } from "./graph/interaction/layoutAnimation";
 import { useLevelLocate } from "./graph/interaction/useLevelLocate";
 import { useLevelSelection } from "./graph/interaction/useLevelSelection";
 import { useLevelQuickConnect } from "./graph/interaction/useLevelQuickConnect";
+import { useLevelEdgeChoice } from "./graph/interaction/useLevelEdgeChoice";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { planPersistFailure, type CommitOrigin } from "./graph/interaction/persistGuard";
@@ -911,34 +912,9 @@ function LevelGraphInner({
   // нестабильными (новые функции каждый рендер); будь они зависимостями сборки,
   // массив rfNodes пересоздавался бы на каждый рендер родителя и сбрасывал выделение/
   // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
-  // Открыть список связей по их членам — всегда через «Выберите связь», даже для
-  // одиночной связи: так в модалке доступна кнопка «Добавить связь» (дозапись новой
-  // связи того же направления). Общая точка для двойного клика по линии и по
-  // плашке с описанием.
-  const openEdgeMembers = useCallback(
-    (memberIds: string[]) => {
-      const members = memberIds
-        .map((mid) => edges.find((e) => e.id === mid))
-        .filter((e): e is AppEdge => e != null);
-      if (members.length === 0) return;
-      onEdgesChoice(members);
-    },
-    [edges, onEdgesChoice],
-  );
-  // Выбор связи ОБЩЕГО ПЛЕЧА (E80): члены отрисованных участников ствола флаттенятся
-  // до связей БД. Меньше двух связей (вырожденный ствол) — false, вызывающий уходит
-  // в обычную детализацию.
-  const openTrunkMembers = useCallback(
-    (kind: "out" | "in", memberIds: string[]): boolean => {
-      const members = memberIds
-        .map((mid) => edges.find((e) => e.id === mid))
-        .filter((e): e is AppEdge => e != null);
-      if (members.length < 2 || !onTrunkChoice) return false;
-      onTrunkChoice(kind, members);
-      return true;
-    },
-    [edges, onTrunkChoice],
-  );
+  // Инспекция связей (openEdgeMembers/openTrunkMembers) вынесена в useLevelEdgeChoice
+  // (Фаза 3б) — оба колбэка кормят cbRef ниже.
+  const { openEdgeMembers, openTrunkMembers } = useLevelEdgeChoice({ edges, onEdgesChoice, onTrunkChoice });
 
   const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
