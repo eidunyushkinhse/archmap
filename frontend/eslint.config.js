@@ -11,7 +11,7 @@ export default defineConfig([
     files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
-      tseslint.configs.recommended,
+      tseslint.configs.strict,
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
     ],
@@ -35,5 +35,12 @@ export default defineConfig([
     // правка пересобирает граф целиком. Отключаем точечно для graph/**.
     files: ['src/components/graph/**'],
     rules: { 'react-refresh/only-export-components': 'off' },
+  },
+  {
+    // Тесты легитимно используют `!` после ассертов (expect(x).toBeDefined(); x!.foo)
+    // и для доступа по индексу сразу после проверки длины — это общепринятая конвенция,
+    // гарды лишь зашумляют тестовый код. Продакшн-код от этого правила не освобождается.
+    files: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx'],
+    rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
   },
 ])

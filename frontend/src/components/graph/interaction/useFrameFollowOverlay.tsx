@@ -73,7 +73,7 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
     affectedFramesRef.current = affected;
     if (affected.size === 0) { setOverlayFrames([]); return; }
     setOverlayFrames([...affected].map((id) => {
-      // Безопасно: id добавлен в affected только из byId (цикл выше) — ключ существует
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- id добавлен в affected из byId, ключ существует
       const f = byId.get(id)!;
       const abs = absPositionOf(f, byId);
       const { w, h } = rfSize(f);
