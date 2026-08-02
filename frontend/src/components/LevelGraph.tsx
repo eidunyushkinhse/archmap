@@ -56,6 +56,7 @@ import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
 import { ANIM_MOVE_MS } from "./graph/interaction/layoutAnimation";
 import { useLevelLocate } from "./graph/interaction/useLevelLocate";
+import { useLevelSelection } from "./graph/interaction/useLevelSelection";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { planPersistFailure, type CommitOrigin } from "./graph/interaction/persistGuard";
@@ -1209,78 +1210,11 @@ function LevelGraphInner({
   // useLevelLocate (Фаза 3б); RF-API передаётся из useReactFlow этого компонента.
   useLevelLocate({ locate, rfNodes, rfEdges, getInternalNode, setCenter, fitBounds });
 
-  // УСТОЙЧИВАЯ подсветка связанного по двойному клику (П5/П6): что открыто в правой панели,
-  // то и подсвечено, пока открыто. Узел → он сам + инцидентные отрисованные стрелки; связь
-  // → её отрисованное ребро (панель держит ЧЛЕНА пучка — ищем несущее ребро) + оба его узла.
-  // Как и locate — императивно по data-id (не ввязываем пересборку rfNodes из async-раскладки);
-  // отличие: держим до смены выделения (класс снимаем в cleanup, а не по таймеру). Зависимость
-  // от rfNodes/rfEdges — переналожение после пере-раскладки/ремаунта холста.
-  useEffect(() => {
-    if (!linkedHighlight) return;
-    const nodeIds = new Set<string>();
-    const edgeIds = new Set<string>();
-    if (linkedHighlight.kind === "node") {
-      nodeIds.add(linkedHighlight.id);
-      for (const e of rfEdges) {
-        if (e.source === linkedHighlight.id || e.target === linkedHighlight.id) edgeIds.add(e.id);
-      }
-    } else {
-      const re = rfEdges.find((e) => {
-        const mids = (e.data as WrappedEdgeData | undefined)?.memberIds;
-        return mids ? mids.includes(linkedHighlight.id) : e.id === linkedHighlight.id;
-      });
-      if (re) {
-        edgeIds.add(re.id);
-        if (re.source) nodeIds.add(re.source);
-        if (re.target) nodeIds.add(re.target);
-      }
-    }
-    if (nodeIds.size === 0 && edgeIds.size === 0) return;
-    let applied: Element[] = [];
-    // Подсвеченные рёбра поднимаем НАД прочими рёбрами перестановкой их <svg> в конец
-    // контейнера .react-flow__edges: RF рисует каждое ребро отдельным <svg>, стекинг между
-    // ними — по DOM-порядку (z-index бесполезен и опасен: рёбра делят stacking-контекст с
-    // узлами и положительный z накрыл бы узлы). Так дуги-мостики подсвеченного ребра идут
-    // ПОВЕРХ пересекаемых серых стрелок, но ребро остаётся под узлами (узлы — в своём div
-    // после контейнера рёбер). Возврат на место — по восстановлению исходного соседа.
-    let restore: Array<{ svg: Element; parent: Node; before: Node | null }> = [];
-    const raf = requestAnimationFrame(() => {
-      for (const id of nodeIds) {
-        const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
-        if (el) { el.classList.add("lg-linked-node"); applied.push(el); }
-      }
-      for (const id of edgeIds) {
-        // Плашка подписи живёт в другом контейнере (edgelabel-renderer) — поднимаем её
-        // над соседними плашками классом (z внутри stacking context renderer'а; жалоба
-        // «плашки друг на друге — выбранную не прочитать»). Адрес — data-lg-edge (edges.tsx).
-        const lb = document.querySelector(`.react-flow__edgelabel-renderer [data-lg-edge="${CSS.escape(id)}"]`);
-        if (lb) { lb.classList.add("lg-linked-label"); applied.push(lb); }
-        const el = document.querySelector(`.react-flow__edge[data-id="${CSS.escape(id)}"]`);
-        if (!el) continue;
-        el.classList.add("lg-linked-edge");
-        applied.push(el);
-        const svg = el.closest("svg");
-        const parent = svg?.parentElement;
-        if (svg && parent && parent.classList.contains("react-flow__edges") && svg !== parent.lastElementChild) {
-          restore.push({ svg, parent, before: svg.nextSibling });
-          parent.appendChild(svg); // в конец → рисуется поверх прочих рёбер
-        }
-      }
-    });
-    return () => {
-      cancelAnimationFrame(raf);
-      for (const el of applied) el.classList.remove("lg-linked-node", "lg-linked-edge", "lg-linked-label");
-      // Возврат <svg> ребра на исходную позицию (best-effort: только если узлы ещё в DOM
-      // на прежних местах — иначе RF уже перерисовал список и сам восстановил порядок).
-      for (const r of restore) {
-        if (r.svg.parentElement !== r.parent) continue;
-        if (r.before && r.before.parentNode === r.parent) r.parent.insertBefore(r.svg, r.before);
-        else if (!r.before) r.parent.appendChild(r.svg);
-      }
-      applied = [];
-      restore = [];
-    };
-  }, [linkedHighlight, rfNodes, rfEdges]);
+  // УСТОЙЧИВАЯ подсветка связанного по двойному клику (П5/П6): узел/связь, открытая в
+  // правой панели, подсвечена, пока открыта. Эффект самодостаточен — вынесен в
+  // useLevelSelection (Фаза 3б). onClearSelection (сброс по клику на пустом холсте)
+  // остаётся в cbRef — это триггер выделения, а не его подсветка.
+  useLevelSelection({ linkedHighlight, rfNodes, rfEdges });
 
   // АДАПТИВНАЯ ТОЛЩИНА РАМОК ПОД ЗУМ: рамки (нативные C4-boundary и compound-рамки
   // раскрытий) рисуются 1px-пунктиром в координатах графа — на сильном отдалении
