@@ -68,14 +68,14 @@ describe("LevelGraph orchestration: персист раскладки", () => {
 
   it("commitLayout пишет новый payload: onLayoutChanged + saveLayout с fence-версией", async () => {
     const meta = viewMeta(7);
-    const { props } = await renderGraph({ viewMeta: meta });
+    const { props } = await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: meta } });
 
     const committed = getCb().commitLayout({ n1: { x: 10, y: 20 } });
     expect(committed).toBe(true);
 
     // Зеркало родителю — нормализованный payload (без null-полей).
-    expect(props.onLayoutChanged).toHaveBeenCalledOnce();
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 10, y: 20 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledOnce();
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 10, y: 20 } });
 
     // Батч-PUT идёт с fence-версией вида из viewMeta.
     await flushPersist();
@@ -91,52 +91,52 @@ describe("LevelGraph orchestration: персист раскладки", () => {
 
   it("дедуп: патч, идентичный зеркалу, не пишет и не дёргает родителя", async () => {
     const mirror: Record<string, ViewLayoutPayload> = { n1: { x: 10, y: 20 } };
-    const { props } = await renderGraph({ viewLayout: mirror, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ viewLayout: mirror, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     const committed = getCb().commitLayout({ n1: { x: 10, y: 20 } });
     expect(committed).toBe(false);
-    expect(props.onLayoutChanged).not.toHaveBeenCalled();
+    expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
     await flushPersist();
     expect(apiNodesMock.viewsApi.saveLayout).not.toHaveBeenCalled();
   });
 
   it("дедуп игнорирует null-поля: {x,y,expanded:null} эквивалентно {x,y}", async () => {
     const mirror: Record<string, ViewLayoutPayload> = { n1: { x: 10, y: 20 } };
-    const { props } = await renderGraph({ viewLayout: mirror, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ viewLayout: mirror, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     const committed = getCb().commitLayout({ n1: { x: 10, y: 20, expanded: null } });
     expect(committed).toBe(false);
-    expect(props.onLayoutChanged).not.toHaveBeenCalled();
+    expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
   });
 
   it("merge: частичный патч дополняется из зеркала (сервер заменяет строку целиком)", async () => {
     const mirror: Record<string, ViewLayoutPayload> = { n1: { x: 10, y: 20 } };
-    const { props } = await renderGraph({ viewLayout: mirror, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ viewLayout: mirror, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     getCb().commitLayout({ n1: { y: 99 } });
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 10, y: 99 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 10, y: 99 } });
   });
 
   it("null-патч строки (сброс в авто) проходит как items=null, даже если зеркала нет", async () => {
     const mirror: Record<string, ViewLayoutPayload> = { n1: { x: 10, y: 20 } };
-    const { props } = await renderGraph({ viewLayout: mirror, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ viewLayout: mirror, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     getCb().commitLayout({ n1: null });
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ n1: null });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ n1: null });
   });
 
   it("батч из нескольких ключей: изменившиеся пишутся, совпавшие с зеркалом — нет", async () => {
     const mirror: Record<string, ViewLayoutPayload> = { a: { x: 1, y: 1 } };
-    const { props } = await renderGraph({ viewLayout: mirror, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ viewLayout: mirror, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     getCb().commitLayout({ a: { x: 1, y: 1 }, b: { x: 2, y: 2 } });
     // «a» погашен дедупом, «b» — новый.
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ b: { x: 2, y: 2 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ b: { x: 2, y: 2 } });
   });
 
   it("409 на user-интент → onPersistConflict с исходным патчем (не onPersistError)", async () => {
     const onPersistConflict = vi.fn<(patch: Items) => void>();
-    const { props } = await renderGraph({ viewMeta: viewMeta(), onPersistConflict });
+    const { props } = await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: viewMeta(), onPersistConflict } });
     apiNodesMock.viewsApi.saveLayout.mockRejectedValueOnce(new ApiError(409, "stale view"));
 
     getCb().commitLayout({ n1: { x: 10, y: 20 } });
@@ -144,53 +144,56 @@ describe("LevelGraph orchestration: персист раскладки", () => {
 
     expect(onPersistConflict).toHaveBeenCalledOnce();
     expect(onPersistConflict).toHaveBeenCalledWith({ n1: { x: 10, y: 20 } });
-    expect(props.onPersistError).not.toHaveBeenCalled();
+    expect(props.persistence?.onPersistError).not.toHaveBeenCalled();
   });
 
   it("409 на derived-интент → только onPersistError (конвейер пересчитает сам)", async () => {
     const onPersistConflict = vi.fn<(patch: Items) => void>();
-    const { props } = await renderGraph({ viewMeta: viewMeta(), onPersistConflict });
+    const { props } = await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: viewMeta(), onPersistConflict } });
     apiNodesMock.viewsApi.saveLayout.mockRejectedValueOnce(new ApiError(409, "stale view"));
 
     getCb().commitLayout({ n1: { x: 10, y: 20 } }, "derived");
     await flushPersist();
 
     expect(onPersistConflict).not.toHaveBeenCalled();
-    expect(props.onPersistError).toHaveBeenCalledOnce();
+    expect(props.persistence?.onPersistError).toHaveBeenCalledOnce();
   });
 
   it("повторный 409 на ретрай (isRetry) → resync-only, не переигрывается снова", async () => {
     const onPersistConflict = vi.fn<(patch: Items) => void>();
-    const { props } = await renderGraph({ viewMeta: viewMeta(), onPersistConflict });
+    const { props } = await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: viewMeta(), onPersistConflict } });
     apiNodesMock.viewsApi.saveLayout.mockRejectedValueOnce(new ApiError(409, "stale view"));
 
     getCb().commitLayout({ n1: { x: 10, y: 20 } }, "user", true);
     await flushPersist();
 
     expect(onPersistConflict).not.toHaveBeenCalled();
-    expect(props.onPersistError).toHaveBeenCalledOnce();
+    expect(props.persistence?.onPersistError).toHaveBeenCalledOnce();
   });
 
   it("не-конфликтная ошибка записи → onPersistError (ресинк), не onPersistConflict", async () => {
     const onPersistConflict = vi.fn<(patch: Items) => void>();
-    const { props } = await renderGraph({ viewMeta: viewMeta(), onPersistConflict });
+    const { props } = await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: viewMeta(), onPersistConflict } });
     apiNodesMock.viewsApi.saveLayout.mockRejectedValueOnce(new Error("network down"));
 
     getCb().commitLayout({ n1: { x: 10, y: 20 } });
     await flushPersist();
 
     expect(onPersistConflict).not.toHaveBeenCalled();
-    expect(props.onPersistError).toHaveBeenCalledOnce();
+    expect(props.persistence?.onPersistError).toHaveBeenCalledOnce();
   });
 
   it("retryPatch переигрывает исходный патч (user) поверх зеркала", async () => {
     const { props } = await renderGraph({
-      viewMeta: viewMeta(),
-      retryPatch: { patch: { n1: { x: 42, y: 43 } }, token: 1 },
+      persistence: {
+        ...baseProps().persistence,
+        viewMeta: viewMeta(),
+        retryPatch: { patch: { n1: { x: 42, y: 43 } }, token: 1 },
+      },
     });
 
     // Эффект retryPatch коммитит патч → зеркало + PUT.
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 42, y: 43 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 42, y: 43 } });
     await flushPersist();
     expect(apiNodesMock.viewsApi.saveLayout).toHaveBeenCalledOnce();
   });
@@ -202,10 +205,8 @@ describe("LevelGraph orchestration: персист раскладки", () => {
     const el = (vl: Record<string, ViewLayoutPayload>) => (
       <LevelGraph
         {...baseProps()}
-        viewMeta={meta}
-        retryPatch={retry}
         viewLayout={vl}
-        onLayoutChanged={onLayoutChanged}
+        persistence={{ ...baseProps().persistence, viewMeta: meta, retryPatch: retry, onLayoutChanged }}
       />
     );
     const { rerender } = render(el({}));
@@ -221,41 +222,41 @@ describe("LevelGraph orchestration: персист раскладки", () => {
 
   it("производный интент конвейера (seeds) коммитится как derived → onLayoutChanged", async () => {
     pipeline.result.intents = [{ kind: "seed-positions", seeds: [{ id: "g1", x: 5, y: 6 }] }];
-    const { props } = await renderGraph({ viewMeta: viewMeta() });
+    const { props } = await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     // computeNow применил интент через cbRef.commitLayout(..., "derived").
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ g1: { x: 5, y: 6 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ g1: { x: 5, y: 6 } });
   });
 
   it("не-архитектор: commitLayout гасится (нет зеркала и PUT)", async () => {
-    const { props } = await renderGraph({ isArchitect: false, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ isArchitect: false, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     const committed = getCb().commitLayout({ n1: { x: 10, y: 20 } });
     expect(committed).toBe(false);
-    expect(props.onLayoutChanged).not.toHaveBeenCalled();
+    expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
     await flushPersist();
     expect(apiNodesMock.viewsApi.saveLayout).not.toHaveBeenCalled();
   });
 
   it("read-only (canArrange=false): commitLayout гасится", async () => {
-    const { props } = await renderGraph({ readOnly: true, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ mode: { readOnly: true }, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     const committed = getCb().commitLayout({ n1: { x: 10, y: 20 } });
     expect(committed).toBe(false);
-    expect(props.onLayoutChanged).not.toHaveBeenCalled();
+    expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
   });
 
   it("arrangeOnly разрешает персист раскладки даже при структурном read-only", async () => {
     // arrangeOnly: canArrange = arrangeOnly || !readOnly → true при readOnly+arrangeOnly.
-    const { props } = await renderGraph({ readOnly: true, arrangeOnly: true, viewMeta: viewMeta() });
+    const { props } = await renderGraph({ mode: { readOnly: true, arrangeOnly: true }, persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     const committed = getCb().commitLayout({ n1: { x: 10, y: 20 } });
     expect(committed).toBe(true);
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 10, y: 20 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ n1: { x: 10, y: 20 } });
   });
 
   it("очередь персиста: два батча идут строго последовательно (один PUT за раз)", async () => {
-    const { props } = await renderGraph({ viewMeta: viewMeta() });
+    const { props } = await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
 
     getCb().commitLayout({ a: { x: 1, y: 1 } });
     getCb().commitLayout({ b: { x: 2, y: 2 } });
@@ -263,6 +264,6 @@ describe("LevelGraph orchestration: персист раскладки", () => {
 
     // Оба батча записаны (цепочка persistChainRef не потеряла второй).
     expect(apiNodesMock.viewsApi.saveLayout).toHaveBeenCalledTimes(2);
-    expect(props.onLayoutChanged).toHaveBeenCalledTimes(2);
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledTimes(2);
   });
 });

@@ -19,15 +19,16 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { UndoIcon, RedoIcon } from "../ui/icons";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, NodeShape, AncestorRef, ViewLayout, ViewLayoutPayload, EdgePoint } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import { NODE_W, NODE_H } from "./graph/constants";
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
-  ViewMetaState, LocateRequest,
+  LocateRequest,
+  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
+  LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
 } from "./graph/types";
-import type { SchemaView } from "./schemaView";
 import type { LayoutResult } from "./graph/layout/pipeline";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
 import { layoutSig } from "./graph/layout/layoutSig";
@@ -94,144 +95,39 @@ interface LevelGraphProps {
   /** id тех же предков (параллельно ancestorNames) — для сопоставления гостей */
   ancestorIds: string[];
   isArchitect: boolean;
-  onDrillDown: (node: AppNode) => void;
-  // войти к компонентам гостя/контейнера — открыть слой-схему узла по его полному пути
-  // (предки + сам узел). Путь строит граф: гость/контейнер — из другой ветки дерева,
-  // аппендить к текущему breadcrumb нельзя.
-  onEnterNode?: (path: AncestorRef[]) => void;
-  onEditNode: (node: AppNode) => void;
-  // Двойной клик по ГОСТЮ (проекция чужого узла) — детализация read-only в правой панели.
-  onInspectGhost?: (ghost: GhostNode) => void;
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
   // стрелка+оба узла). Гость сводится к kind:"node". Считается в MapEditorPage из selectedObject.
   linkedHighlight?: { kind: "node" | "edge"; id: string } | null;
-  // Двойной клик по пустому холсту — сбросить выделение (подсветку связанного) и очистить
-  // правую панель. Вызывается только для клика по пустому pane, не по узлу/ребру.
-  onClearSelection?: () => void;
-  // клик по описанию связи (одиночной или «мастер-стрелке») — список для выбора.
-  // Даже одиночная связь открывает «Выберите связь»: оттуда можно дозаписать новую
-  // связь в том же направлении, а не городить отдельную стрелку.
-  onEdgesChoice: (edges: AppEdge[]) => void;
-  // ОБЩЕЕ ПЛЕЧО (E80): двойной клик в точке легального ствола ≥2 отрисованных
-  // связей — модалка выбора с направлением ствола (вместо обычной детализации)
-  onTrunkChoice?: (kind: "out" | "in", edges: AppEdge[]) => void;
-  // Раскладка вида изменена и сохранена (батч view_layout: позиции узлов и/или
-  // геометрия пучков; null — строка удалена) — родитель зеркалит те же значения в
-  // свой стейт, чтобы пересчёт раскладки без рефетча их не откатил. ЕДИНСТВЕННЫЙ
-  // канал зеркалирования раскладки (R3; заменил пять прежних колбэков).
-  onLayoutChanged?: (items: Record<string, ViewLayoutPayload | null>) => void;
-  // отпускание перетянутого из боковой палитры шаблона на схему: shape — выбранная
-  // форма, pos — координаты в системе графа (левый-верхний угол узла), parentId —
-  // контейнер раскрытой рамки под курсором (узел станет его ребёнком) либо null (уровень).
-  onDropNode?: (shape: NodeShape, pos: { x: number; y: number }, parentId: string | null) => void;
   // Обновить кэш детей раскрытого контейнера (после создания/отката ребёнка в его рамке
   // на ЭТОМ же уровне — localChildren иначе держит устаревший список). token — триггер.
   refreshChildrenOf?: { id: string; token: number } | null;
-  // протянули стрелку от узла sourceId на ЛИСТОВОЙ узел/хэндл targetId — создать связь.
-  // Хэндлы из жеста: при дропе на хэндл известны оба, на тело листа — только исходный.
-  // Имена концов едут С ЖЕСТОМ: дети раскрытых ЛОКАЛЬНЫХ контейнеров известны только
-  // холсту (кэш localChildren) — MapEditorPage разрешить их id в имя не может.
-  onCreateEdge?: (
-    sourceId: string, targetId: string,
-    sourceHandle: string | null, targetHandle: string | null,
-    sourceName?: string, targetName?: string,
-  ) => void;
-  // протянули стрелку на узел С ДЕТЬМИ (containerId) — открыть выбор его потомка
-  // как дальнего конца межуровневой связи (источник — sourceId, его хэндл — sourceHandle)
-  onConnectInto?: (
-    sourceId: string, containerId: string, containerName: string,
-    sourceHandle: string | null, sourceName?: string,
-  ) => void;
-  // конец стрелки отпустили на плитку «вне уровня» — открыть выбор дальнего конца
-  // из всей схемы (узла, которого нет на текущем холсте)
-  onExitUp?: (sourceId: string, sourceHandle: string | null, sourceName?: string) => void;
-  // запрос на удаление узла прямо с канваса (Backspace/Delete по выбранному
-  // узлу) — открыть подтверждение со списком связей (как кнопка «Удалить» в
-  // модалке узла). Само удаление React Flow отключено (deleteKeyCode=null).
-  onRequestDeleteNode?: (node: AppNode) => void;
-  // запрос на удаление НЕСКОЛЬКИХ выбранных узлов (Backspace/Delete по рамке
-  // выделения) — открыть агрегированное подтверждение (мультиудаление).
-  onRequestDeleteNodes?: (nodes: AppNode[]) => void;
-  // форма шаблона, который СЕЙЧАС перетаскивают из палитры (null — драга нет).
-  // Нужна, чтобы во время dragover показать на схеме превью-рамку будущего узла:
-  // dataTransfer.getData в dragover недоступен (только на drop), поэтому форму
-  // прокидываем через состояние из MapEditorPage.
-  dragShape?: NodeShape | null;
-  // Общая история Undo/Redo, поднятая в страницу-хозяин (MapEditorPage):
-  // команды перемещений кладёт сам LevelGraph, а команду удаления — страница
-  // (удаление инициируется там, в NodeDeleteConfirm). Если не передана (страницы
-  // объекта/проекта — EmbeddedSchemaBlock) — заводим свою локальную.
-  history?: History;
-  // Дисптчеры Undo/Redo из страницы-хозяина: они умеют редиректить на уровень правки
-  // перед откатом (кросс-уровневый Undo). Кнопки и клавиши канваса зовут именно их,
-  // а не history.undo/redo напрямую. На страницах не передаются (истории там нет).
-  onUndo?: () => void;
-  onRedo?: () => void;
-  // фоновый («оптимистичный»/компенсирующий) персист правки канваса упал — родитель
-  // возвращает зеркало к истине, перезагружая уровень из БД. Без него зеркало и БД
-  // молча расходятся при сетевой ошибке/409. На read-only страницах не нужен.
-  // Возвращаемый промис (ресинк) нужен политике 409: переигровка user-патча ждёт
-  // завершения перезагрузки уровня.
-  onPersistError?: (e: unknown) => void | Promise<void>;
-  // Версия вида (fence записей раскладки) + курсор проекта (поллинг) — живой
-  // снимок, шарится с MapEditorPage мутируемым ref'ом: MapEditorPage наполняет его из
-  // GraphResponse при load(), LevelGraph читает версию при каждой записи и
-  // обновляет из ответов PUT. Не передан (read-only блок) — записи всё равно не
-  // идут (гейт readOnly); на уровне ОБЯЗАТЕЛЕН для fence.
-  viewMeta?: { current: ViewMetaState };
-  // Флаг «идёт жест драга» для поллинга этапа 1: MapEditorPage пропускает рефетч,
-  // пока пользователь тащит узлы (перезагрузка уровня посреди жеста снесла бы
-  // RF-стейт под рукой). Реф, не колбэк — ноль ре-рендеров на жест.
-  gestureActiveRef?: { current: boolean };
-  // Канал переигровки 409 user-батча (этап 0): persistFenced отдаёт исходный
-  // патч НАВЕРХ (onPersistConflict), MapEditorPage делает ресинк и возвращает патч
-  // пропом retryPatch. Канал живёт в MapEditorPage сознательно: ресинк показывает
-  // «Загрузка…» и РАЗМОНТИРУЕТ холст — локальный стейт канала умер бы вместе с
-  // ним (ретрай терялся, найдено e2e-зондом).
-  onPersistConflict?: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
-  retryPatch?: { patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number } | null;
-  // Read-only: все жесты правки отключены (драг, связи, удаление, дроп, персист
-  // раскладки), но рендер уровня и навигация (двойной клик, выделение) сохраняются.
-  // Для встроенных блоков схемы на страницах (pages_pivot).
-  readOnly?: boolean;
-  // Инспекция связей (двойной клик по стрелке/общему плечу → подсветка полного
-  // пути, модалка выбора) доступна и в read-only: это просмотр, не правка.
-  // По умолчанию гейтится readOnly (?? !readOnly) — редактор не передаёт и ведёт
-  // себя как прежде; встроенные блоки просмотра передают true.
-  edgesInspectable?: boolean;
-  // Переопределение draggable-узлов: true — узлы можно таскать даже в readOnly
-  // (персист раскладки при этом НЕ идёт — только визуальный драг в рамках сессии).
-  // По умолчанию: !readOnly.
-  nodesDraggable?: boolean;
-  // Режим «только расстановка» (встроенные блоки на страницах): драг узлов,
-  // персист раскладки и undo/redo перемещений ВКЛЮЧЕНЫ, но создание/удаление
-  // связей и узлов, дроп шаблонов — ВЫКЛЮЧЕНЫ (это зона редактора-карты).
-  arrangeOnly?: boolean;
-  // Стартовать свёрнутым: персистные раскрытия вида (payload.expanded) НЕ
-  // применяются — раскрытия только эфемерными кликами лупы этой сессии.
-  // Страничные схемы (проекта и объекта) стартуют свёрнутыми единообразно
-  // (решение 2026-07-30); редактор-карта флаг не передаёт и восстанавливает
-  // персистные раскрытия как прежде (container.md C7).
-  ignorePersistedExpanded?: boolean;
-  // Авто-центрирование вида (встроенные блоки на страницах). fitOnLoad — вписать
-  // контент ПОСЛЕ оседания раскладки (двухфазная: фолбэк-габариты → замер →
-  // пере-прогон; декларативный fitView снимает лишь первый проход и «сползает»).
-  // fitOnExpand — анимированно центрировать при каждом раскрытии узла лупой
-  // (контент может уехать за край окна). Оба используют SCHEMA_FIT_OPTIONS — те же
-  // опции, что кнопка «Центрировать» (Controls), чтобы вид совпадал с ручным.
-  // Редактор-карта флаги не передаёт — его центрирование не меняется.
-  fitOnLoad?: boolean;
-  fitOnExpand?: boolean;
-  // Выбранный «Вид схемы» (as-is/переход/to-be) — поднят в MapEditorPage (живёт в правой
-  // панели). Управляет приглушением узлов/рёбер и легендой. В контексте не применяется
-  // (дефолт «переход» — ничего не гасит).
-  schemaView?: SchemaView;
   // Запрос «показать на схеме» из индикатора незавершённости (SchemaAlerts → MapEditorPage).
-  // MapEditorPage сперва приводит holст к нужному уровню (navigateToLevel), затем кладёт сюда
+  // MapEditorPage сперва приводит холст к нужному уровню (navigateToLevel), затем кладёт сюда
   // запрос. Холст центрируется на цели и коротко её подсвечивает. token меняется на
   // КАЖДЫЙ клик — повторный клик по тому же объекту снова сфокусирует. Раскладка async,
   // поэтому фокус срабатывает отложенно — как только цель появится в rfNodes/rfEdges.
   locate?: LocateRequest | null;
+  // Персист раскладки вида (fence + политика 409 + зеркало родителю): onLayoutChanged,
+  // onPersistError, viewMeta, gestureActiveRef, onPersistConflict, retryPatch. read-only
+  // страницы бандл не передают — записи гейтятся readOnly. Состав — LevelPersistenceProps.
+  persistence?: LevelPersistenceProps;
+  // Флаги режима канваса: readOnly, edgesInspectable, nodesDraggable, arrangeOnly,
+  // ignorePersistedExpanded, fitOnLoad, fitOnExpand, schemaView. Состав — LevelModeFlags.
+  mode?: LevelModeFlags;
+  // Drill-навигация и деталька (двойной клик по узлу/гостю/пустому холсту): onDrillDown,
+  // onEnterNode, onEditNode, onInspectGhost, onClearSelection. Состав — LevelDrillCallbacks.
+  drill: LevelDrillCallbacks;
+  // Колбэки создания и инспекции связей: onEdgesChoice, onTrunkChoice, onCreateEdge,
+  // onConnectInto, onExitUp. НАМЕРЕННО НЕ `edges` (так зовётся дата-проп AppEdge[]).
+  edgeCallbacks: LevelEdgeCallbacks;
+  // Запросы удаления узлов с канваса (клавиатура → подтверждение в родителе):
+  // onRequestDeleteNode, onRequestDeleteNodes. Состав — LevelDeleteCallbacks.
+  delete?: LevelDeleteCallbacks;
+  // Дроп шаблона узла из боковой палитры: onDropNode, dragShape. Состав — LevelDropProps.
+  drop?: LevelDropProps;
+  // Undo/Redo: history, onUndo, onRedo (общая история + дисптчеры страницы-хозяина;
+  // без бандла канвас заводит локальную историю). Состав — LevelUndoProps.
+  undo?: LevelUndoProps;
 }
 
 function LevelGraphInner({
@@ -244,41 +140,34 @@ function LevelGraphInner({
   ancestorNames,
   ancestorIds,
   isArchitect,
-  onDrillDown,
-  onEnterNode,
-  onEditNode,
-  onInspectGhost,
   linkedHighlight,
-  onClearSelection,
-  onEdgesChoice,
-  onTrunkChoice,
-  onLayoutChanged,
-  onDropNode,
   refreshChildrenOf,
-  onCreateEdge,
-  onConnectInto,
-  onExitUp,
-  onRequestDeleteNode,
-  onRequestDeleteNodes,
-  dragShape,
-  history: historyProp,
-  onUndo,
-  onRedo,
-  onPersistError,
-  onPersistConflict,
-  retryPatch,
-  viewMeta,
-  gestureActiveRef,
-  readOnly = false,
-  edgesInspectable,
-  nodesDraggable: nodesDraggableProp,
-  arrangeOnly = false,
-  ignorePersistedExpanded = false,
-  fitOnLoad = false,
-  fitOnExpand = false,
-  schemaView = "all",
   locate,
+  persistence,
+  mode,
+  drill,
+  edgeCallbacks,
+  delete: deleteCallbacks,
+  drop,
+  undo,
 }: LevelGraphProps) {
+  // Деструктуризация бандлов в плоские имена (Фаза 3д): тело компонента и вынесенные
+  // хуки работают с теми же именами, что и до группировки пропсов, — поведение не
+  // меняется. Сами бандлы НЕ становятся зависимостями эффектов/хуков (только их члены),
+  // поэтому ссылочная стабильность бандла не влияет на внутренние пересчёты канваса.
+  const {
+    onLayoutChanged, onPersistError, viewMeta, gestureActiveRef, onPersistConflict, retryPatch,
+  } = persistence ?? {};
+  const {
+    readOnly = false, edgesInspectable, nodesDraggable: nodesDraggableProp,
+    arrangeOnly = false, ignorePersistedExpanded = false, fitOnLoad = false,
+    fitOnExpand = false, schemaView = "all",
+  } = mode ?? {};
+  const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onClearSelection } = drill;
+  const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice } = edgeCallbacks;
+  const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
+  const { onDropNode, dragShape } = drop ?? {};
+  const { history: historyProp, onUndo, onRedo } = undo ?? {};
   // readOnly гейтит все жесты правки, но не влияет на рендер уровня
   const isReadOnly = readOnly;
   // Драг узлов: по умолчанию !isReadOnly, но можно включить отдельно (embedded-блоки)

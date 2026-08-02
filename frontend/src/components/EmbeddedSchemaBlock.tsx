@@ -6,7 +6,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GhostNode, Node, ViewLayout, Edge, LevelEdge, ViewLayoutPayload } from "../types";
 import LevelGraph from "./LevelGraph";
-import type { ViewMetaState } from "./graph/types";
+import type {
+  ViewMetaState,
+  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks, LevelUndoProps,
+} from "./graph/types";
 import type { History } from "./graph/interaction/useHistory";
 import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
@@ -158,6 +161,51 @@ export default function EmbeddedSchemaBlock({
     resolveEdge, labelOf, onPick: setSelectedEdge,
   });
 
+  // Бандлы пропсов LevelGraph (Фаза 3д): мемоизированы, чтобы не создавать новый
+  // объект-литерал на каждый рендер. editing — единый источник инфраструктуры персиста
+  // (undefined → блок view-only); его смена пересобирает зависимые бандлы.
+  const mode = useMemo<LevelModeFlags>(() => ({
+    readOnly: !editing,
+    arrangeOnly: !!editing,
+    // Страничные схемы стартуют СВЁРНУТЫМИ (персистные раскрытия не применяются) и
+    // авто-центрируются (по оседании раскладки + при раскрытии узла лупой).
+    ignorePersistedExpanded: true,
+    fitOnLoad: true,
+    fitOnExpand: true,
+    nodesDraggable,
+    // Инспекция связей в read-only просмотре (двойной клик по стрелке): подсветка
+    // полного пути + модалка выбора при общем плече.
+    edgesInspectable: true,
+    schemaView,
+  }), [editing, nodesDraggable, schemaView]);
+
+  const drill = useMemo<LevelDrillCallbacks>(() => ({
+    onDrillDown: handleNavigate,
+    onEditNode: handleNavigate,
+    onInspectGhost: handleGhostNavigate,
+    onClearSelection: () => setSelectedEdge(null),
+  }), [handleNavigate, handleGhostNavigate]);
+
+  const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
+    onEdgesChoice,
+    onTrunkChoice,
+  }), [onEdgesChoice, onTrunkChoice]);
+
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: editing?.onLayoutChanged,
+    viewMeta: editing?.viewMeta,
+    gestureActiveRef: editing?.gestureActiveRef,
+    onPersistError: editing?.onPersistError,
+    onPersistConflict: editing?.onPersistConflict,
+    retryPatch: editing?.retryPatch,
+  }), [editing]);
+
+  const undo = useMemo<LevelUndoProps>(() => ({
+    history: editing?.history,
+    onUndo,
+    onRedo,
+  }), [editing, onUndo, onRedo]);
+
   return (
     <div>
       {/* Тулбар секции */}
@@ -203,38 +251,12 @@ export default function EmbeddedSchemaBlock({
                 ancestorIds={ancestorIds}
                 depth={depth}
                 isArchitect={isArchitect}
-                readOnly={!editing}
-                arrangeOnly={!!editing}
-                // Страничные схемы (проекта и объекта) стартуют СВЁРНУТЫМИ:
-                // персистные раскрытия вида не применяются, раскрытие — лупой
-                // (решение 2026-07-30; редактор-карта восстанавливает как прежде).
-                ignorePersistedExpanded
-                // Авто-центрирование окна просмотра: вписать контент по оседании
-                // раскладки (иначе «вверху и мелко») + анимированно центрировать
-                // при каждом раскрытии узла лупой (контент не уезжает за край).
-                fitOnLoad
-                fitOnExpand
-                nodesDraggable={nodesDraggable}
-                schemaView={schemaView}
-                onDrillDown={handleNavigate}
-                onEditNode={handleNavigate}
-                onInspectGhost={handleGhostNavigate}
-                // Инспекция связей в read-only просмотре (двойной клик по стрелке):
-                // подсветка полного пути + модалка выбора при общем плече.
-                edgesInspectable
                 linkedHighlight={linkedHighlight}
-                onClearSelection={() => setSelectedEdge(null)}
-                onEdgesChoice={onEdgesChoice}
-                onTrunkChoice={onTrunkChoice}
-                history={editing?.history}
-                onUndo={onUndo}
-                onRedo={onRedo}
-                onLayoutChanged={editing?.onLayoutChanged}
-                viewMeta={editing?.viewMeta}
-                gestureActiveRef={editing?.gestureActiveRef}
-                onPersistError={editing?.onPersistError}
-                onPersistConflict={editing?.onPersistConflict}
-                retryPatch={editing?.retryPatch}
+                mode={mode}
+                drill={drill}
+                edgeCallbacks={edgeCallbacks}
+                persistence={persistence}
+                undo={undo}
               />
             </div>
             {/* Контролы расстановки: undo/redo слева, перераскладка справа */}

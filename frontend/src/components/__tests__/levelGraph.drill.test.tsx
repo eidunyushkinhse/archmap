@@ -15,7 +15,7 @@ import type { Node as AppNode, AncestorRef } from "../../types";
 import {
   resetHarness, layoutAnimMock, apiNodesMock, pipeline, settle,
 } from "./levelGraphHarness";
-import { renderGraph, getCb } from "./levelGraphRender";
+import { renderGraph, getCb, baseProps } from "./levelGraphRender";
 
 // --- vi.mock: зависимости LevelGraph → реализации из общего harness ---
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
@@ -67,16 +67,16 @@ describe("LevelGraph orchestration: drill / expand", () => {
     const n = appNode("a", { parent_id: "root" });
 
     getCb().drillWithPath(n);
-    expect(props.onDrillDown).toHaveBeenCalledWith(n);
+    expect(props.drill.onDrillDown).toHaveBeenCalledWith(n);
   });
 
   it("drill прямого ребёнка уровня (parent_id === containerId) → onDrillDown, не onEnterNode", async () => {
     const onEnterNode = vi.fn<(path: AncestorRef[]) => void>();
-    const { props } = await renderGraph({ containerId: "root", onEnterNode });
+    const { props } = await renderGraph({ containerId: "root", drill: { ...baseProps().drill, onEnterNode } });
     const n = appNode("a", { parent_id: "root" });
 
     getCb().drillWithPath(n);
-    expect(props.onDrillDown).toHaveBeenCalledWith(n);
+    expect(props.drill.onDrillDown).toHaveBeenCalledWith(n);
     expect(onEnterNode).not.toHaveBeenCalled();
   });
 
@@ -90,7 +90,7 @@ describe("LevelGraph orchestration: drill / expand", () => {
       ancestorIds: ["root"],
       ancestorNames: ["Root"],
       nodes: [p1],
-      onEnterNode,
+      drill: { ...baseProps().drill, onEnterNode },
     });
 
     getCb().drillWithPath(n);
@@ -107,10 +107,10 @@ describe("LevelGraph orchestration: drill / expand", () => {
     const onEnterNode = vi.fn<(path: AncestorRef[]) => void>();
     // parent_id указывает на узел, которого нет ни в nodes, ни в localChildren.
     const n = appNode("n", { parent_id: "missing" });
-    const { props } = await renderGraph({ containerId: "root", onEnterNode });
+    const { props } = await renderGraph({ containerId: "root", drill: { ...baseProps().drill, onEnterNode } });
 
     getCb().drillWithPath(n);
-    expect(props.onDrillDown).toHaveBeenCalledWith(n);
+    expect(props.drill.onDrillDown).toHaveBeenCalledWith(n);
     expect(onEnterNode).not.toHaveBeenCalled();
   });
 
@@ -124,7 +124,7 @@ describe("LevelGraph orchestration: drill / expand", () => {
     });
 
     expect(layoutAnimMock.noteExpand).toHaveBeenCalledWith("g1");
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ g1: { expanded: true } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ g1: { expanded: true } });
   });
 
   it("collapseContainer: сворачивание → noteCollapse + commitLayout({expanded:null})", async () => {
@@ -135,7 +135,7 @@ describe("LevelGraph orchestration: drill / expand", () => {
     });
 
     expect(layoutAnimMock.noteCollapse).toHaveBeenCalledWith("g1");
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ g1: { expanded: null } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ g1: { expanded: null } });
   });
 
   it("own-on-expand: нерасположенный контейнер закрепляет текущую позицию из раскладки", async () => {
@@ -148,7 +148,7 @@ describe("LevelGraph orchestration: drill / expand", () => {
     });
 
     // Раскрытие идёт ВМЕСТЕ с закреплением позиции (иначе ELK унёс бы рамку).
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ c1: { expanded: true, x: 50, y: 60 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ c1: { expanded: true, x: 50, y: 60 } });
   });
 
   it("own-on-expand не подмешивает позицию раскладки, если контейнер уже владеет ей (owned)", async () => {
@@ -161,7 +161,7 @@ describe("LevelGraph orchestration: drill / expand", () => {
 
     // Владеет позицией → координаты из ЗЕРКАЛА (1,2), а не из раскладки (50,60):
     // own-on-expand не перезаписывает уже сохранённое место.
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ c1: { expanded: true, x: 1, y: 2 } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ c1: { expanded: true, x: 1, y: 2 } });
   });
 
   // ---------------- EXPAND ЛОКАЛА (ленивая догрузка детей) ----------------
@@ -178,14 +178,14 @@ describe("LevelGraph orchestration: drill / expand", () => {
 
     expect(apiNodesMock.nodesApi.list).toHaveBeenCalledWith("c1");
     expect(layoutAnimMock.noteExpand).toHaveBeenCalledWith("c1");
-    expect(props.onLayoutChanged).toHaveBeenCalledWith({ c1: { expanded: true } });
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ c1: { expanded: true } });
   });
 
   it("expandLocalContainer в read-only: нерелевантные дети (нет рёбер) → не раскрываем", async () => {
     const kid = appNode("kid", { parent_id: "c1" });
     apiNodesMock.nodesApi.list.mockResolvedValueOnce([kid]);
     // read-only: релевантность = связанность рёбрами; рёбер нет → детей в схеме нет.
-    const { props } = await renderGraph({ readOnly: true });
+    const { props } = await renderGraph({ mode: { readOnly: true } });
 
     await act(async () => {
       getCb().expandLocalContainer("c1");
@@ -194,6 +194,6 @@ describe("LevelGraph orchestration: drill / expand", () => {
 
     expect(apiNodesMock.nodesApi.list).toHaveBeenCalledWith("c1");
     expect(layoutAnimMock.noteExpand).not.toHaveBeenCalled();
-    expect(props.onLayoutChanged).not.toHaveBeenCalled();
+    expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
   });
 });

@@ -25,7 +25,11 @@ import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import LevelGraph from "../components/LevelGraph";
-import type { ViewMetaState, LocateRequest } from "../components/graph/types";
+import type {
+  ViewMetaState, LocateRequest,
+  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
+  LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
+} from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
@@ -163,12 +167,14 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   });
 
   const resyncingRef = useRef<Promise<void> | null>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк: осознанно plain-function (пересоздаётся каждый рендер). Бандл persistence (Фаза 3д) пересобирается с ним — поведение идентично прежней прямой передаче пропа; стабилизация через useCallback потребует обернуть load (отдельный рефакторинг).
   function resyncOnPersistError(): Promise<void> {
     if (resyncingRef.current) return resyncingRef.current;
     const p = load(currentParentId).then(() => undefined).finally(() => { resyncingRef.current = null; });
     resyncingRef.current = p;
     return p;
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError: plain-function, бандл пересобирается с ним (поведение не меняется).
   function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
     void resyncOnPersistError().then(() => {
       setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
@@ -193,12 +199,14 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     return load(level);
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк drill: plain-function (зависит от load), бандл drill (Фаза 3д) пересобирается с ним — поведение не меняется.
   function drillDown(node: Node) {
     setSelectedObject(null);
     setBreadcrumb((prev) => [...prev, node]);
     load(node.id);
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. drillDown: plain-function, бандл drill пересобирается с ним (поведение не меняется).
   function drillToPath(path: AncestorRef[]) {
     if (path.length === 0) return;
     setSelectedObject(null);
@@ -260,6 +268,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   }
 
   // ── Undo/Redo ────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный дисптчер Undo: plain-function (зависит от navigateToLevel/currentParentId), бандл undo (Фаза 3д) пересобирается с ним — поведение не меняется.
   async function dispatchUndo() {
     const cmd = history.peekUndo();
     if (!cmd) return;
@@ -267,6 +276,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     history.undo();
     setTreeReload((t) => t + 1);
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. dispatchUndo: plain-function, бандл undo пересобирается с ним (поведение не меняется).
   async function dispatchRedo() {
     const cmd = history.peekRedo();
     if (!cmd) return;
@@ -380,6 +390,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     });
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк зеркала раскладки: plain-function, бандл persistence (Фаза 3д) пересобирается с ним — поведение идентично прежней прямой передаче пропа.
   function handleLayoutChanged(items: Record<string, ViewLayoutPayload | null>) {
     setViewLayout((prev) => {
       const next = { ...prev };
@@ -457,6 +468,59 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
       ? (rep) => setEdgeQuick({ sourceId: rep.source_id, targetId: rep.target_id, sourceHandle: null, targetHandle: null })
       : undefined,
   });
+
+  // ── Бандлы пропсов LevelGraph (Фаза 3д) ──────────────────────────
+  // Плоские колбэк-пропсы сгруппированы в связные доменные бандлы и мемоизированы,
+  // чтобы не создавать новый объект-литерал на каждый рендер (канвас чувствителен к
+  // ре-рендерам). Зависимости — динамические значения, которые замыкают колбэки;
+  // стабильные setState-сеттеры и ref'ы в deps не нужны (exhaustive-deps их не требует).
+  const drill = useMemo<LevelDrillCallbacks>(() => ({
+    onDrillDown: drillDown,
+    onEnterNode: drillToPath,
+    onEditNode: (node) => { setSelectedObject({ kind: "node", node }); },
+    onInspectGhost: (ghost) => { onNavigateNode(ghost.id); },
+    onClearSelection: () => setSelectedObject(null),
+  }), [drillDown, drillToPath, onNavigateNode]);
+
+  const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
+    onEdgesChoice,
+    onTrunkChoice,
+    onCreateEdge: (s, t, sh, th, sn, tn) => setEdgeQuick({ sourceId: s, targetId: t, sourceHandle: sh, targetHandle: th, sourceName: sn, targetName: tn }),
+    onConnectInto: (s, cid, cn, sh, sn) => setIntoPicker({ sourceId: s, containerId: cid, containerName: cn, sourceHandle: sh, sourceName: sn }),
+    onExitUp: (s, sh, sn) => setOutPicker({ sourceId: s, sourceHandle: sh, sourceName: sn }),
+  }), [onEdgesChoice, onTrunkChoice]);
+
+  const deleteCallbacks = useMemo<LevelDeleteCallbacks>(() => ({
+    onRequestDeleteNode: setPendingDelete,
+    onRequestDeleteNodes: setPendingMultiDelete,
+  }), []);
+
+  const drop = useMemo<LevelDropProps>(() => ({
+    onDropNode: (shape, pos, dropParentId) => {
+      if (dropParentId) setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
+      else setNodeModal({ open: true, node: null, shape, pos });
+    },
+    dragShape,
+  }), [currentParentId, dragShape]);
+
+  const undo = useMemo<LevelUndoProps>(() => ({
+    history,
+    onUndo: dispatchUndo,
+    onRedo: dispatchRedo,
+  }), [history, dispatchUndo, dispatchRedo]);
+
+  const persistence = useMemo<LevelPersistenceProps>(() => ({
+    onLayoutChanged: handleLayoutChanged,
+    onPersistError: resyncOnPersistError,
+    onPersistConflict: handlePersistConflict,
+    retryPatch: layoutRetry,
+    viewMeta: viewMetaRef,
+    gestureActiveRef,
+  }), [handleLayoutChanged, resyncOnPersistError, handlePersistConflict, layoutRetry]);
+
+  const mode = useMemo<LevelModeFlags>(() => ({
+    schemaView,
+  }), [schemaView]);
 
   // ── Рендер ───────────────────────────────────────────────────────
   return (
@@ -554,29 +618,16 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
               depth={breadcrumb.length} containerId={currentParentId}
               ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
               isArchitect={isArchitect}
-              onDrillDown={drillDown} onEnterNode={drillToPath}
-              onEditNode={(node) => { setSelectedObject({ kind: "node", node }); }}
-              onInspectGhost={(ghost) => { onNavigateNode(ghost.id); }}
               linkedHighlight={linkedHighlight}
-              onClearSelection={() => setSelectedObject(null)}
-              onEdgesChoice={onEdgesChoice}
-              onTrunkChoice={onTrunkChoice}
-              onLayoutChanged={handleLayoutChanged}
-              onDropNode={(shape, pos, dropParentId) => {
-                if (dropParentId) setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
-                else setNodeModal({ open: true, node: null, shape, pos });
-              }}
               refreshChildrenOf={childRefresh}
-              onCreateEdge={(s, t, sh, th, sn, tn) => setEdgeQuick({ sourceId: s, targetId: t, sourceHandle: sh, targetHandle: th, sourceName: sn, targetName: tn })}
-              onConnectInto={(s, cid, cn, sh, sn) => setIntoPicker({ sourceId: s, containerId: cid, containerName: cn, sourceHandle: sh, sourceName: sn })}
-              onExitUp={(s, sh, sn) => setOutPicker({ sourceId: s, sourceHandle: sh, sourceName: sn })}
-              onRequestDeleteNode={setPendingDelete}
-              onRequestDeleteNodes={setPendingMultiDelete}
-              dragShape={dragShape}
-              history={history} onUndo={dispatchUndo} onRedo={dispatchRedo}
-              onPersistError={resyncOnPersistError} onPersistConflict={handlePersistConflict}
-              retryPatch={layoutRetry} viewMeta={viewMetaRef} gestureActiveRef={gestureActiveRef}
-              schemaView={schemaView} locate={locate}
+              locate={locate}
+              drill={drill}
+              edgeCallbacks={edgeCallbacks}
+              delete={deleteCallbacks}
+              drop={drop}
+              undo={undo}
+              persistence={persistence}
+              mode={mode}
             />
           )}
         </div>

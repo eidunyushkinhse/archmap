@@ -171,7 +171,7 @@ describe("LevelGraph orchestration: linked-highlight / выделение", () =
     expect(canvas).not.toBeNull();
 
     fireEvent.doubleClick(canvas as HTMLElement);
-    expect(props.onClearSelection).toHaveBeenCalledOnce();
+    expect(props.drill.onClearSelection).toHaveBeenCalledOnce();
   });
 
   it("двойной клик по узлу НЕ вызывает onClearSelection (у узла свой триггер)", async () => {
@@ -183,6 +183,6 @@ describe("LevelGraph orchestration: linked-highlight / выделение", () =
     canvas.appendChild(node);
 
     fireEvent.doubleClick(node);
-    expect(props.onClearSelection).not.toHaveBeenCalled();
+    expect(props.drill.onClearSelection).not.toHaveBeenCalled();
   });
 });

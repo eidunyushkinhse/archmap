@@ -11,10 +11,11 @@ import { captured, settle, type TestCb } from "./levelGraphHarness";
 
 export type LevelGraphProps = ComponentProps<typeof LevelGraph>;
 
-// Базовый набор колбэк-пропсов редактора (vi.fn — тесты ассертят вызовы).
-// onEnterNode/onPersistConflict/retryPatch/history НЕ заданы по умолчанию: их
-// наличие меняет поведение (drillNav, канал 409, своя/чужая история) — тест
-// добавляет их осознанно.
+// Базовый набор колбэк-пропсов редактора (vi.fn — тесты ассертят вызовы). Пропсы
+// сгруппированы в бандлы (Фаза 3д): drill/edgeCallbacks/persistence. Члены, чьё
+// наличие меняет поведение (onEnterNode → drillNav; onPersistConflict/retryPatch →
+// канал 409; history → чужая история), НЕ заданы по умолчанию — тест добавляет их
+// осознанно, сливая поверх базового бандла ({ ...baseProps().drill, onEnterNode }).
 export function baseProps(): LevelGraphProps {
   return {
     nodes: [] as AppNode[],
@@ -26,20 +27,26 @@ export function baseProps(): LevelGraphProps {
     ancestorNames: [],
     ancestorIds: [],
     isArchitect: true,
-    onDrillDown: vi.fn<(n: AppNode) => void>(),
-    onEditNode: vi.fn<(n: AppNode) => void>(),
-    onEdgesChoice: vi.fn<(e: AppEdge[]) => void>(),
-    onInspectGhost: vi.fn<(g: GhostNode) => void>(),
-    onClearSelection: vi.fn<() => void>(),
-    onLayoutChanged: vi.fn<(items: Record<string, unknown>) => void>(),
-    onPersistError: vi.fn<(e: unknown) => void>(),
-    onCreateEdge: vi.fn<
-      (s: string, t: string, sh: string | null, th: string | null, sn?: string, tn?: string) => void
-    >(),
-    onConnectInto: vi.fn<
-      (s: string, cid: string, cname: string, sh: string | null, sn?: string) => void
-    >(),
-    onExitUp: vi.fn<(s: string, sh: string | null, sn?: string) => void>(),
+    drill: {
+      onDrillDown: vi.fn<(n: AppNode) => void>(),
+      onEditNode: vi.fn<(n: AppNode) => void>(),
+      onInspectGhost: vi.fn<(g: GhostNode) => void>(),
+      onClearSelection: vi.fn<() => void>(),
+    },
+    edgeCallbacks: {
+      onEdgesChoice: vi.fn<(e: AppEdge[]) => void>(),
+      onCreateEdge: vi.fn<
+        (s: string, t: string, sh: string | null, th: string | null, sn?: string, tn?: string) => void
+      >(),
+      onConnectInto: vi.fn<
+        (s: string, cid: string, cname: string, sh: string | null, sn?: string) => void
+      >(),
+      onExitUp: vi.fn<(s: string, sh: string | null, sn?: string) => void>(),
+    },
+    persistence: {
+      onLayoutChanged: vi.fn<(items: Record<string, unknown>) => void>(),
+      onPersistError: vi.fn<(e: unknown) => void>(),
+    },
   };
 }
 

@@ -95,11 +95,11 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await activate();
 
     // Хэндл цели подобран напротив источника (left, индекс 1 — центр по Y).
-    expect(props.onCreateEdge).toHaveBeenCalledOnce();
-    expect(props.onCreateEdge).toHaveBeenCalledWith(
+    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledOnce();
+    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledWith(
       "s", "t", "s--right--1", "t--left--1", "Source", "Target",
     );
-    expect(props.onConnectInto).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 
   it("цель-гость: activate → onCreateEdge (гость всегда прямая связь)", async () => {
@@ -109,10 +109,10 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    expect(props.onCreateEdge).toHaveBeenCalledWith(
+    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledWith(
       "s", "g", "s--right--1", "g--left--1", "Source", "Ghost",
     );
-    expect(props.onConnectInto).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 
   it("цель-контейнер: activate → onConnectInto (выбор потомка, не прямая связь)", async () => {
@@ -122,9 +122,9 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    expect(props.onConnectInto).toHaveBeenCalledOnce();
-    expect(props.onConnectInto).toHaveBeenCalledWith("s", "c", "Cont", "s--right--1", "Source");
-    expect(props.onCreateEdge).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledOnce();
+    expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledWith("s", "c", "Cont", "s--right--1", "Source");
+    expect(props.edgeCallbacks.onCreateEdge).not.toHaveBeenCalled();
   });
 
   it("цель-сервис с детьми: activate → onConnectInto (зона входа)", async () => {
@@ -137,8 +137,8 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    expect(props.onConnectInto).toHaveBeenCalledWith("s", "big", "Big", "s--right--1", "Source");
-    expect(props.onCreateEdge).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledWith("s", "big", "Big", "s--right--1", "Source");
+    expect(props.edgeCallbacks.onCreateEdge).not.toHaveBeenCalled();
   });
 
   it("БД с детьми — НЕ зона входа (canHaveChildren): activate → onCreateEdge напрямую", async () => {
@@ -151,8 +151,8 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    expect(props.onCreateEdge).toHaveBeenCalledOnce();
-    expect(props.onConnectInto).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledOnce();
+    expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 
   it("leave до подтверждения: qc гаснет → activate не создаёт связь", async () => {
@@ -165,8 +165,8 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     });
     await activate();
 
-    expect(props.onCreateEdge).not.toHaveBeenCalled();
-    expect(props.onConnectInto).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onCreateEdge).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 
   it("нет подходящей цели в радиусе: activate не создаёт связь", async () => {
@@ -177,8 +177,8 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    expect(props.onCreateEdge).not.toHaveBeenCalled();
-    expect(props.onConnectInto).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onCreateEdge).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 
   it("activate одноразов: после клика qc гаснет, повторный activate без наведения — no-op", async () => {
@@ -189,7 +189,7 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await activate();
     await activate(); // qc уже null
 
-    expect(props.onCreateEdge).toHaveBeenCalledOnce();
+    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledOnce();
   });
 
   it("наведение само по себе не создаёт связь (только превью)", async () => {
@@ -198,7 +198,7 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
 
     await enterRight("s");
 
-    expect(props.onCreateEdge).not.toHaveBeenCalled();
-    expect(props.onConnectInto).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onCreateEdge).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 });

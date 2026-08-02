@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Edge as AppEdge } from "../../types";
 import { resetHarness } from "./levelGraphHarness";
-import { renderGraph, getCb } from "./levelGraphRender";
+import { renderGraph, getCb, baseProps } from "./levelGraphRender";
 
 // --- vi.mock: зависимости LevelGraph → реализации из общего harness ---
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
@@ -62,8 +62,8 @@ describe("LevelGraph orchestration: выбор связи (edges choice / trunk)
     const { props } = await renderGraph({ edges: [e1] });
 
     getCb().openEdgeMembers(["e1"]);
-    expect(props.onEdgesChoice).toHaveBeenCalledOnce();
-    expect(props.onEdgesChoice).toHaveBeenCalledWith([e1]);
+    expect(props.edgeCallbacks.onEdgesChoice).toHaveBeenCalledOnce();
+    expect(props.edgeCallbacks.onEdgesChoice).toHaveBeenCalledWith([e1]);
   });
 
   it("openEdgeMembers: несколько связей → все найденные; неизвестные id фильтруются", async () => {
@@ -72,21 +72,21 @@ describe("LevelGraph orchestration: выбор связи (edges choice / trunk)
     const { props } = await renderGraph({ edges: [e1, e2] });
 
     getCb().openEdgeMembers(["e1", "missing", "e2"]);
-    expect(props.onEdgesChoice).toHaveBeenCalledWith([e1, e2]);
+    expect(props.edgeCallbacks.onEdgesChoice).toHaveBeenCalledWith([e1, e2]);
   });
 
   it("openEdgeMembers: ни одной найденной связи → onEdgesChoice НЕ вызывается", async () => {
     const { props } = await renderGraph({ edges: [edge("e1")] });
 
     getCb().openEdgeMembers(["missing"]);
-    expect(props.onEdgesChoice).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onEdgesChoice).not.toHaveBeenCalled();
   });
 
   it("openTrunkMembers: ≥2 связей общего плеча → onTrunkChoice(kind, связи), возврат true", async () => {
     const onTrunkChoice = vi.fn<(kind: "out" | "in", edges: AppEdge[]) => void>();
     const e1 = edge("e1");
     const e2 = edge("e2");
-    const { props } = await renderGraph({ edges: [e1, e2], onTrunkChoice });
+    const { props } = await renderGraph({ edges: [e1, e2], edgeCallbacks: { ...baseProps().edgeCallbacks, onTrunkChoice } });
     void props;
 
     const handled = getCb().openTrunkMembers("out", ["e1", "e2"]);
@@ -96,7 +96,7 @@ describe("LevelGraph orchestration: выбор связи (edges choice / trunk)
 
   it("openTrunkMembers: вырожденный ствол (<2 связей) → false, onTrunkChoice НЕ зовётся", async () => {
     const onTrunkChoice = vi.fn<(kind: "out" | "in", edges: AppEdge[]) => void>();
-    await renderGraph({ edges: [edge("e1")], onTrunkChoice });
+    await renderGraph({ edges: [edge("e1")], edgeCallbacks: { ...baseProps().edgeCallbacks, onTrunkChoice } });
 
     const handled = getCb().openTrunkMembers("in", ["e1"]);
     expect(handled).toBe(false);
@@ -109,6 +109,6 @@ describe("LevelGraph orchestration: выбор связи (edges choice / trunk)
 
     const handled = getCb().openTrunkMembers("out", ["e1", "e2"]);
     expect(handled).toBe(false);
-    expect(props.onEdgesChoice).not.toHaveBeenCalled();
+    expect(props.edgeCallbacks.onEdgesChoice).not.toHaveBeenCalled();
   });
 });
