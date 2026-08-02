@@ -316,11 +316,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                 <AddDocsMenu
                   align="right"
                   groups={[
-                    [{ label: "Новая схема (вручную)", onSelect: () => setDoc({ mode: "flowchart", autoCreate: true }) }],
-                    [
-                      { label: "Схемы от агента — пакетом", onSelect: () => setDocsAgent("batch") },
-                      { label: "Схема от агента — по одной", onSelect: () => setDocsAgent("single") },
-                    ],
+                    [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", autoCreate: true }) }],
+                    [{ label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") }],
                   ]}
                 />
               )}
@@ -333,15 +330,19 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                 <span className="insp-heavy-name">OpenAPI</span>
                 <span className="insp-heavy-status">{node.openapi_spec ? "открыть →" : "не задано"}</span>
               </button>
-              {isArchitect && (
+              {isArchitect && (node.openapi_spec ? (
+                <button type="button" className="adm-btn" onClick={() => setSpecAgent(true)}>
+                  Обновить с помощью ИИ-агента
+                </button>
+              ) : (
                 <AddDocsMenu
                   align="right"
                   groups={[
-                    [{ label: "Новая спецификация (вручную)", onSelect: () => setDoc({ mode: "openapi" }) }],
-                    [{ label: "Спека от агента", onSelect: () => setSpecAgent(true) }],
+                    [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi" }) }],
+                    [{ label: "Через ИИ-агента", onSelect: () => setSpecAgent(true) }],
                   ]}
                 />
-              )}
+              ))}
             </div>
           )}
         </>

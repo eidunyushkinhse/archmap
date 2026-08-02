@@ -187,27 +187,33 @@ function NodePageInner({
     syncCursors();
   }, [patch, syncCursors]);
 
-  // Меню «+ Добавить» секции «Логика»: вручную / от агента (пакетом / по одной)
+  // Меню «+ Добавить» секции «Логика»: вручную / через ИИ-агента («Через
+  // ИИ-агента» открывает модалку режимом «Пакетом» по умолчанию; на «По одной»
+  // пользователь переключится в модалке сам, если нужно).
   const addLogicMenu = isArchitect ? (
     <AddDocsMenu
       groups={[
-        [{ label: "Новая схема (вручную)", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
-        [
-          { label: "Схемы от агента — пакетом", onSelect: () => setDocsAgent("batch") },
-          { label: "Схема от агента — по одной", onSelect: () => setDocsAgent("single") },
-        ],
+        [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
+        [{ label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") }],
       ]}
     />
   ) : null;
 
-  // Меню «+ Добавить» секции «OpenAPI»: вручную / спека от агента
+  // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента
   const addSpecMenu = isArchitect ? (
     <AddDocsMenu
       groups={[
-        [{ label: "Новая спецификация (вручную)", onSelect: () => setDoc({ mode: "openapi" }) }],
-        [{ label: "Спека от агента", onSelect: () => setSpecAgent(true) }],
+        [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi" }) }],
+        [{ label: "Через ИИ-агента", onSelect: () => setSpecAgent(true) }],
       ]}
     />
+  ) : null;
+
+  // Когда спека уже есть — вместо «+ Добавить» кнопка обновления через ИИ-агента
+  const updateSpecBtn = isArchitect ? (
+    <button type="button" className="np-addbtn" onClick={() => setSpecAgent(true)}>
+      Обновить с помощью ИИ-агента
+    </button>
   ) : null;
 
   return (
@@ -493,7 +499,7 @@ function NodePageInner({
                   <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
                   <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
                 </button>
-                {addSpecMenu}
+                {updateSpecBtn}
               </>
             ) : (
               <>
