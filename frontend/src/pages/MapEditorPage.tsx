@@ -723,7 +723,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
 // ── Стили ───────────────────────────────────────────────────────────
 
 const page: CSSProperties = { display: "flex", flexDirection: "column", height: "100vh", fontFamily: "system-ui, -apple-system, sans-serif", overflow: "hidden", background: "#f8fafc" };
-const topBar: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 16px", borderBottom: "1px solid #e2e8f0", background: "#fff", flexShrink: 0, gap: 12, flexWrap: "wrap" };
+const topBar: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 20px", borderBottom: "1px solid #e2e8f0", background: "#fff", flexShrink: 0, gap: 12, flexWrap: "wrap" };
 const topLeft: CSSProperties = { display: "flex", alignItems: "center", gap: 4, fontSize: 14, flexWrap: "wrap", flex: 1, minWidth: 0 };
 const divider: CSSProperties = { width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" };
 const bodyRow: CSSProperties = { flex: 1, display: "flex", minHeight: 0, overflow: "hidden" };
