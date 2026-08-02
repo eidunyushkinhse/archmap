@@ -3,6 +3,26 @@
 Аудит: 6 параллельных разведок (дублирование/сложность, покрытие, мёртвый код,
 связность, инфра-практики, документация). Ниже — оценки, риски и поэтапный план.
 
+## Статус выполнения (обновлено 2026-08-02)
+
+**Рефакторинг завершён (фазы 0–7).** Итоги и уроки — `docs/refactoring-lessons.md`,
+сценарии ручных проверок — `QA-REFACTOR.md`.
+
+| Фаза | Статус | Итог |
+|---|---|---|
+| 0. Гигиена + CI | ✅ | CI-зеркало гейта; архивация планов; синхронизация CLAUDE.md/spec.md/tasks.md |
+| 1. Снятие легаси | ✅ | TreePage + легаси-секции + контекст-эндпоинт удалены (~2100 строк) |
+| 2. Тесты UI + coverage | ✅ | 558→655 тестов; baseline 45.49% stmts; ratchet 45/37/32/45 в vite.config |
+| 3. Декомпозиция LevelGraph | ✅ | 1678→1055 строк; пропсы 43→19; 7 хуков useLevel*. <800 осознанно НЕ достигнут (атомарный конвейер + JSX ~260) |
+| 4. Домен из бэк-роутеров | ✅ | nodes.py 854→568, processes.py 585→480; новые graph_queries/alerts/context_graph |
+| 5. Строгость типов/линтеров | ✅ | TS strict (0 ошибок), eslint strict (0/0), mypy в гейте (0, pydantic-плагин) |
+| 6. Секреты/прод-готовность | ✅ | fail-fast SECRET_KEY/DATABASE_URL; dev.sh создаёт .env; CI-значения. CORS — по деплою |
+| 7. Уроки рефакторинга | ✅ | docs/refactoring-lessons.md + «Архитектурные привычки» QWEN.md/CLAUDE.md |
+
+Открытые хвосты (осознанно, не в этом прогоне): ConfirmDialog-кластер (визуальный
+риск); <800 строк LevelGraph (только фрагментация JSX); CORS под реальный домен
+(по деплою); покрытие 0%-модулей UI (следующие волны); зонды как e2e-шаг CI.
+
 ## 1. Пять ключевых метрик (оценки A..F)
 
 | Метрика | Оценка | Факты |
@@ -113,16 +133,20 @@ god-компонентами без тестов; легаси — извест�
 
 ### Фаза 2 — Тестовая инфраструктура UI (разблокирует фазы 3 и 5)
 
-**Статус 2026-08-01: инфраструктура + первая волна тестов — СДЕЛАНО.**
-Coverage baseline: **41.33% statements** (замер `vitest run --coverage`).
+**Статус 2026-08-02: фаза ЗАВЕРШЕНА** (655 тестов, baseline 45.49% stmts, ratchet
+45/37/32/45 в vite.config.ts; детали — docs/refactoring-lessons.md). Ниже —
+историческая сводка первой волны.
+Coverage baseline первой волны: **41.33% statements** (замер `vitest run --coverage`).
 Тестов: 553 (было 521; +32 рендер/поведенческих).
 Готово: coverage-v8 + конфиг в vite.config.ts; @testing-library/react +
 jest-dom + user-event; test-setup.ts (полифилы matchMedia/ResizeObserver/
 dialog/scrollTo); тесты useNodePatch (8), useEditableLevel (6), NodeTreePanel
 (6), FlowchartDocs (6), NodePage (6, канвас замокан).
-Осталось (следующие волны): ProjectShell (свитчер/экспорт/навигация),
-MapEditorPage (breadcrumb/undo-диспетчеры), DocOverlay, useRemoteSync-хук
-(ядро тика уже покрыто), coverage-ratchet-гейт, зонды как e2e-шаг CI.
+Следующие волны (сделаны 2026-08-01/02): ProjectShell (13), MapEditorPage (8),
+DocOverlay (8), useRemoteSync (10) + characterization-тесты оркестрации LevelGraph
+(58, фаза 3а); coverage-ratchet в vite.config.ts. Не покрыто (открытый хвост):
+0%-модули UI (processes/*, project/*, инспекторы, ProjectsPage/LoginPage/
+ProjectHomePage); зонды как e2e-шаг CI (нужен docker-compose).
 
 1. @vitest/coverage-v8 + конфиг coverage в vite.config.ts; pytest-cov в
    requirements.txt. Замерить базовое покрытие, зафиксировать.
