@@ -62,3 +62,19 @@ export const dangerBtn: CSSProperties = {
   background: "#dc2626",
   color: "#fff",
 };
+
+// Контейнер списка (связи/имена) внутри подтверждений удаления (ConfirmDialog).
+export const confirmListBox: CSSProperties = {
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 10,
+  padding: "10px 12px",
+  marginBottom: 4,
+};
+export const confirmList: CSSProperties = {
+  margin: 0,
+  paddingLeft: 18,
+  color: "#475569",
+  fontSize: 14,
+  lineHeight: 1.6,
+};
