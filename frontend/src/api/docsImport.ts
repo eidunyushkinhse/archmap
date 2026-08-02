@@ -19,6 +19,11 @@ export interface DocsPromptParams {
   target?: string;
 }
 
+// Фильтр плана превью/применения: «logic» — только схемы логики (node_docs),
+// «api» — только OpenAPI-спеки. Раздельные окна дозаливки (DocsAgentModal /
+// SpecAgentModal) не смешивают сущности. Без only бэк строит полный план.
+export type DocsOnly = "logic" | "api";
+
 export const docsImportApi = {
   prompt: (p: DocsPromptParams): Promise<{ prompt: string }> => {
     const q = new URLSearchParams();
@@ -29,8 +34,9 @@ export const docsImportApi = {
     if (p.target?.trim()) q.set("target", p.target.trim());
     return api.get<{ prompt: string }>(`/docs-import/prompt?${q.toString()}`);
   },
-  preview: (files: DocsFile[], overwrite: boolean): Promise<DocsImportReport> =>
-    api.post<DocsImportReport>("/docs-import/preview", { files, overwrite }),
-  apply: (files: DocsFile[], overwrite: boolean): Promise<DocsImportReport> =>
-    api.post<DocsImportReport>("/docs-import/apply", { files, overwrite }),
+  // only передаётся только если задан (без него бэк строит полный план).
+  preview: (files: DocsFile[], overwrite: boolean, only?: DocsOnly): Promise<DocsImportReport> =>
+    api.post<DocsImportReport>("/docs-import/preview", only === undefined ? { files, overwrite } : { files, overwrite, only }),
+  apply: (files: DocsFile[], overwrite: boolean, only?: DocsOnly): Promise<DocsImportReport> =>
+    api.post<DocsImportReport>("/docs-import/apply", only === undefined ? { files, overwrite } : { files, overwrite, only }),
 };
