@@ -620,10 +620,10 @@ function EdgeRow({
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onBlur={commitLabel}
-            placeholder="описание"
+            placeholder="–"
           />
         ) : (
-          edge.label || <span className="np-value--empty">—</span>
+          edge.label || <span className="np-value--empty">–</span>
         )}
       </td>
       <td>
@@ -633,10 +633,10 @@ function EdgeRow({
             value={tech}
             onChange={(e) => setTech(e.target.value)}
             onBlur={commitTech}
-            placeholder="технология"
+            placeholder="–"
           />
         ) : (
-          edge.technology || <span className="np-value--empty">—</span>
+          edge.technology || <span className="np-value--empty">–</span>
         )}
       </td>
     </tr>
