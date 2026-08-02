@@ -964,10 +964,10 @@ function LevelGraphInner({
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
-        {/* Кнопка «Центрировать» (fit-view). Страничные схемы: SCHEMA_FIT_OPTIONS —
-            идентично авто-фиту (fitOnLoad/fitOnExpand), «как будто кнопка нажата».
+        {/* Кнопка «Центрировать» (fit-view). Страничные схемы: SCHEMA_FIT_OPTIONS +
+            плавность (duration = ANIM_MOVE_MS) — как авто-фит при раскрытии/сворачивании.
             Редактор-карта: undefined → прежнее поведение (дефолт RF, без cap). */}
-        <Controls fitViewOptions={(fitOnLoad || fitOnExpand) ? SCHEMA_FIT_OPTIONS : undefined} />
+        <Controls fitViewOptions={(fitOnLoad || fitOnExpand) ? { ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS } : undefined} />
         {/* Границы уровней: вложенные рамки вокруг локальных узлов — по одной на
             каждого родителя из breadcrumb. Только на не-корневых уровнях. */}
         {containerId && ancestorIds.length > 0 && (
