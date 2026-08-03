@@ -461,30 +461,12 @@
   text-decoration: underline;
 }
 
-.np-edge-field {
-  display: block;
-  width: 100%;
-  padding: 3px 6px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  font: inherit;
-  font-size: 12.5px;
-  color: #1e293b;
-  background: transparent;
-  outline: none;
-  box-sizing: border-box;
+/* Архитектор: клик по строке открывает модалку-редактор связи (подсветка ряда) */
+.np-edge-rowclick {
+  cursor: pointer;
 }
-/* Прочерк-плейсхолдер пустых «Описание»/«Технология» — приглушённый, не чёрный */
-.np-edge-field::placeholder {
-  color: #94a3b8;
-}
-.np-edge-field:hover {
-  border-color: #e2e8f0;
-}
-.np-edge-field:focus {
-  border-color: #2563eb;
-  background: #fff;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.08);
+.np-edge-rowclick:hover td {
+  background: #f8fafc;
 }
 
 /* ── Конфликт CAS ────────────────────────────────────────────────── */

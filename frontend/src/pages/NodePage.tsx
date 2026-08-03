@@ -5,12 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren } from "../types";
-import { nodesApi, edgesApi, exportApi, viewsApi } from "../api/nodes";
+import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
+import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
@@ -166,6 +167,8 @@ function NodePageInner({
   const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
   // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = текущий объект
   const [specAgent, setSpecAgent] = useState(false);
+  // Модалка-редактор связи (архитектор): id связи из строки таблицы «Связи»
+  const [edgeEditId, setEdgeEditId] = useState<string | null>(null);
 
   // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
@@ -445,7 +448,7 @@ function NodePageInner({
                     nodeName={node.name}
                     isArchitect={isArchitect}
                     onNavigateNode={onNavigateNode}
-                    onReload={onEdgesReload}
+                    onEdit={setEdgeEditId}
                   />
                 ))}
               </tbody>
@@ -583,54 +586,48 @@ function NodePageInner({
           }}
         />
       )}
+
+      {/* Редактор связи (архитектор, клик по строке таблицы «Связи»): структура
+          — концы, направление, описание, технология. Секция «Схема» догоняет
+          изменения своим поллингом (graph_rev); таблица — через onEdgesReload. */}
+      {edgeEditId && (
+        <EdgeEditModal
+          edgeId={edgeEditId}
+          onClose={() => setEdgeEditId(null)}
+          onChanged={onEdgesReload}
+        />
+      )}
     </div>
   );
 }
 
-// Строка таблицы связей с inline-правкой описания/технологии (архитектор).
-// Колонки «Вызывающий»/«Вызываемый» (вместо «Направление»/«Объект»): источник и
-// цель связи. Выводятся из direction + other_node: outgoing → текущий узел источник,
-// incoming → текущий узел цель. Чужой узел — ссылка (переход), текущий — текст.
+// Строка таблицы связей: компактный read-only-вид. Архитектору клик по строке
+// открывает модалку-редактор связи (концы, направление, описание, технология);
+// наблюдателю строки не кликабельны. Колонки «Вызывающий»/«Вызываемый» (вместо
+// «Направление»/«Объект»): источник и цель связи из direction + other_node
+// (outgoing → текущий узел источник, incoming → цель). Чужой узел — ссылка
+// (переход), текущий — текст.
 function EdgeRow({
   edge,
   nodeName,
   isArchitect,
   onNavigateNode,
-  onReload,
+  onEdit,
 }: {
   edge: NodeEdgeInfo;
   nodeName: string;
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
-  onReload: () => void;
+  onEdit: (edgeId: string) => void;
 }) {
-  const [label, setLabel] = useState(edge.label ?? "");
-  const [tech, setTech] = useState(edge.technology ?? "");
   const isOut = edge.direction === "outgoing";
 
-  const commitLabel = () => {
-    if (label === (edge.label ?? "")) return;
-    edgesApi.update(edge.id, { label: label || null })
-      .then(onReload)
-      .catch(() => {
-        // Запись не прошла (409 чужой правки / сеть): откат черновика и рефетч
-        setLabel(edge.label ?? "");
-        onReload();
-      });
-  };
-  const commitTech = () => {
-    if (tech === (edge.technology ?? "")) return;
-    edgesApi.update(edge.id, { technology: tech || null })
-      .then(onReload)
-      .catch(() => {
-        setTech(edge.technology ?? "");
-        onReload();
-      });
-  };
-
-  // Чужой узел — ссылка; текущий — текст (ссылка на самого себя бессмысленна).
+  // stopPropagation: переход на чужой узел не должен открывать модалку строки
   const otherLink = (
-    <button className="np-edge-link" onClick={() => onNavigateNode(edge.other_node_id)}>
+    <button
+      className="np-edge-link"
+      onClick={(e) => { e.stopPropagation(); onNavigateNode(edge.other_node_id); }}
+    >
       {edge.other_node_name}
     </button>
   );
@@ -639,36 +636,16 @@ function EdgeRow({
   const callee = isOut ? otherLink : selfName;
 
   return (
-    <tr>
+    <tr
+      className={isArchitect ? "np-edge-rowclick" : undefined}
+      onClick={isArchitect ? () => onEdit(edge.id) : undefined}
+      title={isArchitect ? "Редактировать связь" : undefined}
+    >
       <td>{caller}</td>
       <td className="np-edge-arrowcol">→</td>
       <td>{callee}</td>
-      <td>
-        {isArchitect ? (
-          <input
-            className="np-edge-field"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            onBlur={commitLabel}
-            placeholder="–"
-          />
-        ) : (
-          edge.label || <span className="np-value--empty">–</span>
-        )}
-      </td>
-      <td>
-        {isArchitect ? (
-          <input
-            className="np-edge-field"
-            value={tech}
-            onChange={(e) => setTech(e.target.value)}
-            onBlur={commitTech}
-            placeholder="–"
-          />
-        ) : (
-          edge.technology || <span className="np-value--empty">–</span>
-        )}
-      </td>
+      <td>{edge.label || <span className="np-value--empty">–</span>}</td>
+      <td>{edge.technology || <span className="np-value--empty">–</span>}</td>
     </tr>
   );
 }
