@@ -991,7 +991,7 @@ function LevelGraphInner({
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
         // частично. В read-only без драга узлов — панорамирование левой кнопкой.
         panOnDrag={dragNodes ? [2] : (isReadOnly ? true : [2])}
-        selectionOnDrag={dragNodes && !isReadOnly}
+        selectionOnDrag={dragNodes && canArrange}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={["Control", "Meta"]}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
