@@ -12,8 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.schemas.node import (
     AlertsResponse,
+    ContainerOwnDocsAlert,
     DisconnectedNodeAlert,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
@@ -25,7 +27,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
     2) связи, у которых хотя бы один конец упирается в промежуточный
        (контейнерный) узел, а не в атомарный;
-    3) изолированные группы — связные компоненты графа рёбер.
+    3) изолированные группы — связные компоненты графа рёбер;
+    4) контейнеры с СОБСТВЕННЫМИ доками/спекой (grandfather) — логика и спеки
+       должны жить на атомарных детях, такие доки распределяют по детям.
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -110,8 +114,34 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
                 )
             )
 
+    # 4) Контейнеры с собственными доками/спекой (grandfather). Контейнер =
+    #    service с детьми. Алерт: узел стал контейнером, но логика/спека
+    #    остались на нём — надо распределить по детям.
+    node_ids = [n.id for n in all_nodes]
+    doc_owner_flat: set[uuid.UUID] = set()
+    if node_ids:
+        rows = db.query(NodeDoc.node_id).filter(NodeDoc.node_id.in_(node_ids)).distinct().all()
+        doc_owner_flat = {nid for (nid,) in rows}
+
+    container_own_docs: list[ContainerOwnDocsAlert] = []
+    for n in all_nodes:
+        if n.id not in intermediate_ids or n.shape != "service":
+            continue
+        has_docs = n.id in doc_owner_flat
+        has_spec = bool(n.openapi_spec)
+        if has_docs or has_spec:
+            container_own_docs.append(
+                ContainerOwnDocsAlert(
+                    node_id=n.id,
+                    node_name=n.name,
+                    has_docs=has_docs,
+                    has_spec=has_spec,
+                )
+            )
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
         isolated_groups=isolated_groups,
+        container_own_docs=container_own_docs,
     )

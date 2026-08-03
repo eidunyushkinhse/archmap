@@ -229,7 +229,43 @@ class IsolatedGroupAlert(BaseModel):
     node_names: list[str]
 
 
+class ContainerOwnDocsAlert(BaseModel):
+    """Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): узел стал
+    контейнером (появились дети), но логика/спека остались на нём самом.
+    Правила контейнеров: логика и спеки живут на атомарных детях — такие
+    доки надо распределить по детям (модалка «Распределить по детям»)."""
+    node_id: uuid.UUID
+    node_name: str
+    has_docs: bool
+    has_spec: bool
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
     isolated_groups: list[IsolatedGroupAlert] = []
+    container_own_docs: list[ContainerOwnDocsAlert] = []
+
+
+# --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---
+
+class DistributeDocAssignment(BaseModel):
+    """Назначение одного собственного дока контейнера конкретному ребёнку."""
+    doc_id: uuid.UUID
+    child_id: uuid.UUID
+
+
+class DistributeDocsIn(BaseModel):
+    """Вход переноса: маппинг доков по детям + опциональный ребёнок для спеки.
+
+    openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
+    (spec_child_id). Если детей несколько и спека есть — пользователь в
+    модалке выбирает, кому она отойдёт."""
+    doc_assignments: list[DistributeDocAssignment] = []
+    spec_child_id: uuid.UUID | None = None
+
+
+class DistributeDocsOut(BaseModel):
+    """Отчёт переноса."""
+    moved_docs: int
+    spec_moved: bool
