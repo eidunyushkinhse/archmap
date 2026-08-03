@@ -113,6 +113,13 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
     };
   }, [open]);
 
+  // Клик по пункту ведёт к цели (на страницу объекта или в редактор) — переход
+  // уводит с текущего экрана, поэтому панель сразу закрываем.
+  const locate = (target: LocateTarget) => {
+    setOpen(false);
+    onLocate?.(target);
+  };
+
   // Ничего активного и тост отыграл — не рендерим
   if (total === 0 && !toast) return null;
 
@@ -152,7 +159,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
 
           <Section icon={IcoUnlink(13)} title="Объекты без связей" count={disconnected.length}>
             {disconnected.map((d) => (
-              <Item key={d.node_id} onClick={onLocate && (() => onLocate({ kind: "node", id: d.node_id }))}>
+              <Item key={d.node_id} onClick={onLocate && (() => locate({ kind: "node", id: d.node_id }))}>
                 {d.node_name}
               </Item>
             ))}
@@ -160,7 +167,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
 
           <Section icon={IcoArrowBox(13)} title="Связи в промежуточный объект" count={intermediate.length}>
             {intermediate.map((e) => (
-              <Item key={e.edge_id} onClick={onLocate && (() => onLocate({ kind: "edge", id: e.edge_id }))}>
+              <Item key={e.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: e.edge_id }))}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                   <span style={e.source_is_intermediate ? badEnd : undefined}>{e.source_name}</span>
                   <span style={{ color: "#9ca3af" }}>→</span>
@@ -172,7 +179,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
 
           <Section icon={IcoScatter(13)} title="Изолированные группы" count={isolated.length}>
             {isolated.map((grp, i) => (
-              <Item key={i} onClick={onLocate && (() => onLocate({ kind: "group", ids: grp.node_ids }))}>
+              <Item key={i} onClick={onLocate && (() => locate({ kind: "group", ids: grp.node_ids }))}>
                 <span style={{ color: "#6b7280", fontWeight: 600 }}>Группа {i + 1}:</span> {grp.node_names.join(", ")}
               </Item>
             ))}
@@ -180,7 +187,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
 
           <Section icon={IcoBoxDocs(13)} title="Контейнеры со своими схемами" count={containerOwn.length}>
             {containerOwn.map((c) => (
-              <Item key={c.node_id} onClick={onLocate && (() => onLocate({ kind: "node", id: c.node_id }))}>
+              <Item key={c.node_id} onClick={onLocate && (() => locate({ kind: "node", id: c.node_id }))}>
                 {c.node_name}{c.has_spec ? " + спека" : ""}
               </Item>
             ))}

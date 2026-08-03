@@ -5,6 +5,7 @@
 // тестируем оркестрацию оболочки, а не внутренности детей.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProjectShell from "../ProjectShell";
 import { getUserRole } from "../../api/auth";
@@ -30,12 +31,21 @@ vi.mock("../useSchemaAlerts", () => ({
   PENDING_ALERT_LOCATE_KEY: "archmap.pendingAlertLocate",
 }));
 
-// Знак алертов: кнопка, дёргающая onLocate (как клик по пункту в реальном меню).
+// Модалка: прозрачная обёртка (jsdom не выставляет содержимое <dialog> в
+// a11y-дерево — паттерн DocOverlay.test). Кнопки подтверждения рендерятся в children.
+vi.mock("../../ui/Modal", () => ({
+  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+
+// Знак алертов: кнопки, дёргающие onLocate разными типами целей (как клик по
+// пунктам в реальном меню): узел / связь / группа.
 vi.mock("../../components/SchemaAlerts", () => ({
-  default: ({ onLocate }: { onLocate: (t: { kind: string; id: string }) => void }) => (
-    <button data-testid="alert-locate" onClick={() => onLocate({ kind: "node", id: "n1" })}>
-      алерт
-    </button>
+  default: ({ onLocate }: { onLocate: (t: { kind: string; id?: string; ids?: string[] }) => void }) => (
+    <>
+      <button data-testid="alert-node" onClick={() => onLocate({ kind: "node", id: "n1" })}>алерт-узел</button>
+      <button data-testid="alert-edge" onClick={() => onLocate({ kind: "edge", id: "e1" })}>алерт-связь</button>
+      <button data-testid="alert-group" onClick={() => onLocate({ kind: "group", ids: ["n1", "n2"] })}>алерт-группа</button>
+    </>
   ),
 }));
 
@@ -202,19 +212,41 @@ describe("ProjectShell", () => {
     expect(nav.onNavigateProject).toHaveBeenCalledOnce();
   });
 
-  it("клик по алерту шапки пишет цель в sessionStorage и открывает карту в корне", async () => {
+  it("клик по узлу-алерту ведёт на СТРАНИЦУ узла, а не в редактор", async () => {
     setup(null);
-    await userEvent.click(screen.getByTestId("alert-locate"));
+    await userEvent.click(screen.getByTestId("alert-node"));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("n1");
+    expect(nav.onNavigateMap).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("archmap.pendingAlertLocate")).toBeNull();
+  });
+
+  it("клик по связи-алерту показывает подтверждение «Открыть в редакторе?»", async () => {
+    setup(null);
+    await userEvent.click(screen.getByTestId("alert-edge"));
+    // Ещё не в редакторе — ждём подтверждения.
+    expect(nav.onNavigateMap).not.toHaveBeenCalled();
+    expect(screen.getByText("Открыть в редакторе?")).toBeInTheDocument();
+    // «Ок» → цель в sessionStorage и карта в корне.
+    await userEvent.click(screen.getByRole("button", { name: "Ок" }));
     const raw = sessionStorage.getItem("archmap.pendingAlertLocate");
-    expect(raw).toBeTruthy();
-    expect(JSON.parse(raw!)).toEqual({ kind: "node", id: "n1" });
+    expect(JSON.parse(raw!)).toEqual({ kind: "edge", id: "e1" });
     expect(nav.onNavigateMap).toHaveBeenCalledWith(null);
+  });
+
+  it("«Отмена» в подтверждении не открывает редактор", async () => {
+    setup(null);
+    await userEvent.click(screen.getByTestId("alert-group"));
+    expect(screen.getByText("Открыть в редакторе?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(nav.onNavigateMap).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("archmap.pendingAlertLocate")).toBeNull();
+    expect(screen.queryByText("Открыть в редакторе?")).not.toBeInTheDocument();
   });
 
   it("наблюдателю не виден знак алертов в шапке", async () => {
     vi.mocked(getUserRole).mockReturnValue("viewer");
     setup(null);
     await waitFor(() => expect(screen.getByTestId("tree-panel")).toBeInTheDocument());
-    expect(screen.queryByTestId("alert-locate")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("alert-node")).not.toBeInTheDocument();
   });
 });

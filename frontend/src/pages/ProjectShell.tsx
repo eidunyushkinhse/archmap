@@ -17,6 +17,8 @@ import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
+import Modal from "../ui/Modal";
+import { primaryBtn, secondaryBtn } from "../ui/styles";
 import { LogoMark, ExportIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
@@ -72,12 +74,29 @@ export default function ProjectShell({
   // In-context рейл с locate живёт в редакторе-карте (MapEditorPage).
   const { alerts } = useSchemaAlerts(isArchitect);
 
-  // Клик по пункту алерта в шапке → переход в редактор-карту к проблемному месту.
-  // Цель (узел/связь/группа) передаём через sessionStorage: URL-locate умеет только
-  // узел, а алерты ведут ещё к связям и группам. Карту открываем в корне —
-  // MapEditorPage сам перейдёт на нужный уровень, применив цель после загрузки.
+  // Подтверждение «Открыть в редакторе?» — для алертов про несколько объектов
+  // (связь/группа), по которым одну страницу выбрать невозможно.
+  const [editorConfirmTarget, setEditorConfirmTarget] = useState<LocateTarget | null>(null);
+
+  // Клик по пункту алерта в шапке (режим просмотра страниц). Один объект (узел) →
+  // на его СТРАНИЦУ. Связь/группа — объектов несколько, одну страницу не выбрать →
+  // подтверждение «Открыть в редакторе?».
   function handleAlertLocate(target: LocateTarget) {
-    sessionStorage.setItem(PENDING_ALERT_LOCATE_KEY, JSON.stringify(target));
+    if (target.kind === "node") {
+      setMode("schema"); // страница узла живёт в режиме «Объекты»
+      onNavigateNode(target.id);
+      return;
+    }
+    setEditorConfirmTarget(target);
+  }
+
+  // «Ок» в подтверждении → в редактор-карту к проблемному месту. Цель (связь/группа)
+  // передаём через sessionStorage: URL-locate умеет только узел. Карту открываем в
+  // корне — MapEditorPage сам перейдёт на нужный уровень, применив цель после загрузки.
+  function confirmGoToEditor() {
+    if (!editorConfirmTarget) return;
+    sessionStorage.setItem(PENDING_ALERT_LOCATE_KEY, JSON.stringify(editorConfirmTarget));
+    setEditorConfirmTarget(null);
     onNavigateMap(null);
   }
 
@@ -209,6 +228,23 @@ export default function ProjectShell({
           load={exportScope.load}
           onClose={() => setExportScope(null)}
         />
+      )}
+
+      {/* Подтверждение перехода в редактор для алертов про несколько объектов */}
+      {editorConfirmTarget && (
+        <Modal onClose={() => setEditorConfirmTarget(null)} boxStyle={{ width: 420 }}>
+          <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 700, color: "#1e293b", lineHeight: 1.3 }}>
+            Открыть в редакторе?
+          </h3>
+          <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: "#475569" }}>
+            Это замечание касается нескольких объектов — перейти к нему можно только
+            в редакторе-карте.
+          </p>
+          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+            <button type="button" onClick={confirmGoToEditor} style={primaryBtn}>Ок</button>
+            <button type="button" onClick={() => setEditorConfirmTarget(null)} style={secondaryBtn}>Отмена</button>
+          </div>
+        </Modal>
       )}
     </div>
   );
