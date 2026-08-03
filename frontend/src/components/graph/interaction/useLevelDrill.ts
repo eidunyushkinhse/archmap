@@ -109,10 +109,25 @@ export function useLevelDrill({
   // read-only (страница): дети, релевантные схеме, — «отображаемое = связанное
   // рёбрами» (тот же принцип, что у гостей, X16 v2). counts гейтит лупу и бейдж
   // без фетча списков детей; фильтр собирает состав кэша при раскрытии.
-  const relevantCounts = useMemo(
+  const countsRaw = useMemo(
     () => (isReadOnly ? relevantChildCounts(edges, endpoints, expanded) : undefined),
     [isReadOnly, edges, endpoints, expanded],
   );
+  // Идентичность counts стабилизируем ПО ЗНАЧЕНИЮ (как stableAncestorIds в
+  // LevelGraph). Входы пересоздаются от любого зеркала раскладки: хозяин страницы
+  // на драг-стопе делает setGraph/setViewLayout, отчего меняются ссылки edges
+  // (toLevelEdges нового graph) и expanded (Set пересчитывается от viewLayout) —
+  // при НЕИЗМЕННОМ содержимом. А counts — зависимость ЭФФЕКТА-СБОРЩИКА RF, и
+  // новая ссылка запускала его на СНИМКЕ старой раскладки: узел, только что
+  // отпущенный драгом, откатывался на позицию до жеста и вставал на целевую лишь
+  // по готовности конвейера (визуальный «откат-вперёд» страничных схем, 2026-08-02).
+  // В редакторе-карте counts всегда undefined (isReadOnly=false) — там отката и не было.
+  const countsKey = useMemo(
+    () => (countsRaw ? `ro|${[...countsRaw].map(([id, n]) => `${id}:${n}`).sort().join(",")}` : "-"),
+    [countsRaw],
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- зависим от значения (countsKey), а не от ссылки Map
+  const relevantCounts = useMemo(() => countsRaw, [countsKey]);
 
   // Догруженные дети раскрытых ЛОКАЛЬНЫХ контейнеров (R5): id → прямые дети.
   // Кэш живёт до смены уровня; сворачивание кэш не чистит (повторное раскрытие
