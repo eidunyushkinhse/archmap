@@ -456,6 +456,15 @@
   border-color: #c4cdd8;
   background: #fbfcfd;
 }
+/* Read-only строка (правила контейнеров: свои grandfather-схемы контейнера и
+   строки объединения схем детей) — не кликабельна, hover нейтрален. */
+.insp-doc-item--ro {
+  cursor: default;
+}
+.insp-doc-item--ro:hover {
+  border-color: #e2e8f0;
+  background: #fff;
+}
 .insp-doc-name {
   font-size: 13px;
   font-weight: 600;

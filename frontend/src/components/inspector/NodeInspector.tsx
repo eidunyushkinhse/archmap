@@ -3,13 +3,14 @@
 // правка коммитится по blur (тексты) / сразу (toggle/статус) и ложится в Undo/Redo через
 // тот же onNodeSaved, что и модалка. Тяжёлые поля (Flowchart/OpenAPI) — оверлеем DocOverlay.
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { DeletionSnapshot, Node, NodeShape, NodeStatus, NodeUpdate } from "../../types";
 import { canHaveChildren, compareByRank, withoutPersons } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
 import { isConflict } from "../../api/client";
 import { plural } from "../../ui/plural";
+import { useContainerChildren, type ContainerChildrenState } from "../../pages/useContainerChildren";
 import { ShapeGlyph, Chevron } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import AddDocsMenu from "../AddDocsMenu";
@@ -64,6 +65,10 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const beforeRef = useRef<Node>(node);
   const shape = node.shape;
   const isPerson = shape === "person";
+  const isContainer = canHaveChildren(shape) && node.has_children;
+  // Правила контейнеров: непосредственные дети и их объединённые данные
+  // (доки/спеки/технологии). Не контейнер — хук не фетчит.
+  const container = useContainerChildren(node.id, isContainer);
 
   // Единый коммит: собирает полный NodeUpdate из локального состояния + правленого поля
   // (over перекрывает то, что ещё не доехало в стейт на момент blur). Тяжёлое поле
@@ -150,7 +155,6 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   };
 
   const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
-  const isContainer = canHaveChildren(shape) && node.has_children;
 
   return (
     <div>
@@ -279,7 +283,17 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
         {!isPerson && (
           <Row icon={META_ICON.tech} label="Технология">
-            {isArchitect ? (
+            {isContainer ? (
+              // Правила контейнеров: своей технологии нет — агрегированный
+              // список уникальных технологий детей, только чтение.
+              container.loading ? (
+                <span className="insp-value insp-value--empty">загрузка…</span>
+              ) : container.aggTech !== "" ? (
+                <span className="insp-value">{container.aggTech}</span>
+              ) : (
+                <span className="insp-value insp-value--empty">не указана</span>
+              )
+            ) : isArchitect ? (
               <span className="insp-value">
                 <input
                   className="insp-field"
@@ -303,45 +317,56 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       {/* Тяжёлые поля — оверлеем по кнопке-строке */}
       {!isPerson && (
         <>
-          {/* ── Логика: список схем узла кнопками + «+ Добавить» ниже ── */}
-          {(isArchitect || node.docs.length > 0) && (
+          {/* ── Логика: список схем узла кнопками + «+ Добавить» ниже.
+              Контейнер: свои (grandfather) схемы read-only сверху + объединение
+              схем детей; создание и распределение — на странице объекта ── */}
+          {(isArchitect || node.docs.length > 0 || container.combinedDocs.length > 0) && (
             <>
               <div className="insp-block-label">Логика</div>
-              {node.docs.length > 0 ? (
-                <div className="insp-doc-list">
-                  {node.docs.map((d) => (
-                    <button
-                      key={d.id}
-                      type="button"
-                      className="insp-doc-item"
-                      onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
-                    >
-                      <span className="insp-doc-name">{d.name}</span>
-                      <span className={`insp-doc-chip insp-doc-chip--${d.kind}`}>
-                        {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
-                      </span>
-                      {d.operation && <span className="insp-doc-op">{d.operation}</span>}
-                    </button>
-                  ))}
-                </div>
+              {isContainer ? (
+                <ContainerLogicBlock node={node} container={container} />
               ) : (
-                <p className="insp-note">Схемы логики не заданы</p>
-              )}
-              {isArchitect && (
-                <AddDocsMenu
-                  groups={[
-                    [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", autoCreate: true }) }],
-                    [{ label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") }],
-                  ]}
-                />
+                <>
+                  {node.docs.length > 0 ? (
+                    <div className="insp-doc-list">
+                      {node.docs.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          className="insp-doc-item"
+                          onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
+                        >
+                          <span className="insp-doc-name">{d.name}</span>
+                          <span className={`insp-doc-chip insp-doc-chip--${d.kind}`}>
+                            {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
+                          </span>
+                          {d.operation && <span className="insp-doc-op">{d.operation}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="insp-note">Схемы логики не заданы</p>
+                  )}
+                  {isArchitect && (
+                    <AddDocsMenu
+                      groups={[
+                        [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", autoCreate: true }) }],
+                        [{ label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") }],
+                      ]}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
-          {/* ── OpenAPI: спека + «Обновить» под ней, либо «+ Добавить» ── */}
-          {(isArchitect || node.openapi_spec) && (
+          {/* ── OpenAPI: спека + «Обновить» под ней, либо «+ Добавить».
+              Контейнер: своя спека read-only сверху + спеки детей ── */}
+          {(isArchitect || node.openapi_spec || container.combinedSpecs.length > 0) && (
             <>
               <div className="insp-block-label">OpenAPI</div>
-              {node.openapi_spec ? (
+              {isContainer ? (
+                <ContainerSpecBlock node={node} container={container} />
+              ) : node.openapi_spec ? (
                 <>
                   <button type="button" className="insp-doc-item" onClick={() => setDoc({ mode: "openapi" })}>
                     <span className="insp-doc-name">Спецификация</span>
@@ -439,6 +464,102 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         />
       )}
     </div>
+  );
+}
+
+// ── Правила контейнеров в панели ─────────────────────────────────────────────
+// Контейнеру нельзя создавать логику/спеки, своей технологии нет; показываем
+// собственные (grandfather) доки/спеку read-only с предупреждением и ниже —
+// объединение данных непосредственных детей. Распределение по детям — со
+// страницы объекта (модалка), здесь только отображение.
+
+// Плашка-предупреждение о собственных схемах/спеке контейнера.
+const containerWarn: CSSProperties = {
+  color: "#92400e",
+  background: "#fef3c7",
+  border: "1px solid #fcd34d",
+  borderRadius: 8,
+  padding: "6px 10px",
+  fontSize: 12.5,
+  lineHeight: 1.4,
+  margin: "0 0 8px",
+};
+
+// «Логика» контейнера: свои схемы (read-only) + объединение схем детей.
+function ContainerLogicBlock({ node, container }: { node: Node; container: ContainerChildrenState }) {
+  return (
+    <>
+      {node.docs.length > 0 && (
+        <>
+          <p style={containerWarn}>
+            У контейнера остались собственные схемы логики — распределите их по детям
+            на странице объекта.
+          </p>
+          <div className="insp-doc-list">
+            {node.docs.map((d) => (
+              <div key={d.id} className="insp-doc-item insp-doc-item--ro">
+                <span className="insp-doc-name">{d.name}</span>
+                <span className={`insp-doc-chip insp-doc-chip--${d.kind}`}>
+                  {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
+                </span>
+                {d.operation && <span className="insp-doc-op">{d.operation}</span>}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {container.combinedDocs.length > 0 && (
+        <div className="insp-doc-list" style={node.docs.length > 0 ? { marginTop: 8 } : undefined}>
+          {container.combinedDocs.map(({ doc, child }) => (
+            <div key={`${child.id}:${doc.id}`} className="insp-doc-item insp-doc-item--ro">
+              <span className="insp-doc-name">{doc.name}</span>
+              <span className={`insp-doc-chip insp-doc-chip--${doc.kind}`}>
+                {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
+              </span>
+              {doc.operation && <span className="insp-doc-op">{doc.operation}</span>}
+              <span className="insp-doc-open">от {child.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {container.loading && <p className="insp-note">Загрузка данных детей…</p>}
+      {!container.loading && node.docs.length === 0 && container.combinedDocs.length === 0 && (
+        <p className="insp-note">Схемы логики не заданы</p>
+      )}
+    </>
+  );
+}
+
+// «OpenAPI» контейнера: своя спека (read-only) + спеки детей.
+function ContainerSpecBlock({ node, container }: { node: Node; container: ContainerChildrenState }) {
+  return (
+    <>
+      {node.openapi_spec && (
+        <>
+          <p style={containerWarn}>
+            У контейнера осталась собственная OpenAPI-спека — распределите её по детям
+            на странице объекта.
+          </p>
+          <div className="insp-doc-item insp-doc-item--ro">
+            <span className="insp-doc-name">Спецификация</span>
+          </div>
+        </>
+      )}
+      {container.combinedSpecs.length > 0 && (
+        <div className="insp-doc-list" style={node.openapi_spec ? { marginTop: 8 } : undefined}>
+          {container.combinedSpecs.map((child) => (
+            <div key={child.id} className="insp-doc-item insp-doc-item--ro">
+              <span className="insp-doc-name">Спецификация</span>
+              <span className="insp-doc-open">от {child.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {container.loading && <p className="insp-note">Загрузка данных детей…</p>}
+      {!container.loading && !node.openapi_spec && container.combinedSpecs.length === 0 && (
+        <p className="insp-note">Спецификация не задана</p>
+      )}
+    </>
   );
 }
 
