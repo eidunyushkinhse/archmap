@@ -1,6 +1,6 @@
 // Чистые хелперы страничных схем (pages_pivot / single-schema): маппинг графа
 // уровня и метрики блоков. Вынесены из NodePage / ProjectHomePage /
-// MapEditorPage / useEditableLevel, чтобы жили в одном месте и были
+// MapEditorPage / useLevelSchema, чтобы жили в одном месте и были
 // покрыты тестами (pageSchema.test.ts).
 
 import type { GhostNode, GraphResponse, LevelEdge } from "../types";
