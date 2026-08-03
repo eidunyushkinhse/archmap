@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -74,6 +74,10 @@ export const nodeDocsApi = {
     api.patch<NodeDoc>(`/nodes/${nodeId}/docs/${docId}`, data),
   delete: (nodeId: string, docId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/docs/${docId}`),
+  // «Распределить по детям» (правила контейнеров): перенос grandfather-доков/спеки
+  // контейнера на его непосредственных детей.
+  distribute: (nodeId: string, data: DistributeDocsIn): Promise<DistributeDocsOut> =>
+    api.post<DistributeDocsOut>(`/nodes/${nodeId}/docs/distribute`, data),
 };
 
 export const viewsApi = {

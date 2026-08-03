@@ -302,9 +302,9 @@ export interface paths {
          * @description Глобальные алерты незавершённости схемы (только архитектор):
          *     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
          *     2) связи, у которых хотя бы один конец упирается в промежуточный
-         *        (контейнерный) узел, а не в атомарный.
-         *     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
-         *     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
+         *        (контейнерный) узел, а не в атомарный;
+         *     3) изолированные группы — связные компоненты графа рёбер.
+         *     Доменный алгоритм — в app/alerts.compute_alerts.
          */
         get: operations["get_alerts_api_v1_nodes_alerts_get"];
         put?: never;
@@ -449,23 +449,9 @@ export interface paths {
         /**
          * Get Node Context Graph
          * @description Контекст объекта в формате СЫРОГО графа уровня — «Схема» страницы объекта
-         *     (single-schema): виртуальный корневой уровень, который фронт рендерит тем же
-         *     level-конвейером, что и обычный уровень. Форма ответа — GraphResponse:
-         *
-         *     - nodes (локалы) = фокус + ПРЕДСТАВИТЕЛИ соседей: сиблинги фокуса (дети того
-         *       же родителя; на корне — корневые узлы), в чьём поддереве лежит хотя бы один
-         *       сосед. Несвязанные сиблинги уровня в контекст не попадают.
-         *     - edges — СЫРЫЕ рёбра контекста (реальные концы, проекция — на фронте):
-         *       внутренние поддерева фокуса (питают раскрытие R5), граничные (ровно один
-         *       конец в поддереве — сам контекст) и сосед↔сосед (связи между соседями —
-         *       как в «отдельном проекте», куда положили объект и его соседей).
-         *     - endpoints — реестр не-локальных концов этих рёбер с цепочками предков.
-         *     - layout — НЕ отдаётся (пустой по умолчанию): виртуальный корень всегда
-         *       раскладывается свежим ELK, как корень отдельного проекта без сохранённых
-         *       позиций. Сохранённые координаты общего холста на страницу не переносятся:
-         *       гибрид «представители по сохранённым местам + фокус по свежему ELK» рождал
-         *       тесноту и «рогалики» стрелок (решение 2026-08-01; критерий X11-A переписан:
-         *       тождество состава/связей/рамок при СВОЕЙ раскладке).
+         *     (single-schema): виртуальный корневой уровень «фокус + представители соседей»,
+         *     который фронт рендерит тем же level-конвейером, что и обычный уровень.
+         *     Доменный алгоритм сборки — в app/context_graph.build_context_graph.
          */
         get: operations["get_node_context_graph_api_v1_nodes__node_id__context_graph_get"];
         put?: never;
@@ -539,6 +525,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/context-relayout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Relayout Context
+         * @description «Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
+         *     (view_id = node_id) — позиции и инлайн-раскрытия → свежий ELK. Соседние
+         *     виды (другие страницы, уровни редактора) нетронуты.
+         */
+        post: operations["relayout_context_api_v1_nodes__node_id__context_relayout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/docs": {
         parameters: {
             query?: never;
@@ -575,6 +583,29 @@ export interface paths {
         patch: operations["update_doc_api_v1_nodes__node_id__docs__doc_id__patch"];
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/docs/distribute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Distribute Docs
+         * @description «Распределить по детям» (правила контейнеров, grandfather): переносит
+         *     СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
+         *     его openapi_spec — целиком одному ребёнку. Вызывается из модалки
+         *     распределения на странице контейнера. Доки — МЕТА узла: бампаем meta_rev.
+         */
+        post: operations["distribute_docs_api_v1_nodes__node_id__docs_distribute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -586,6 +617,8 @@ export interface paths {
          * Docs Prompt
          * @description Промпт агенту со вложенным срезом схемы: node_id — поддерево (агенту
          *     одного сервиса хватает его контейнера), без node_id — весь проект.
+         *     target — гранулярный режим «по одной схеме»: фокусирует агента на одном
+         *     воркере/эндпоинте (крупные монолиты, которые не переварить за один заход).
          */
         get: operations["docs_prompt_api_v1_docs_import_prompt_get"];
         put?: never;
@@ -993,6 +1026,11 @@ export interface components {
              * @default []
              */
             isolated_groups: components["schemas"]["IsolatedGroupAlert"][];
+            /**
+             * Container Own Docs
+             * @default []
+             */
+            container_own_docs: components["schemas"]["ContainerOwnDocsAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1054,6 +1092,26 @@ export interface components {
             legs: components["schemas"]["LegOut"][];
         };
         /**
+         * ContainerOwnDocsAlert
+         * @description Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): узел стал
+         *     контейнером (появились дети), но логика/спека остались на нём самом.
+         *     Правила контейнеров: логика и спеки живут на атомарных детях — такие
+         *     доки надо распределить по детям (модалка «Распределить по детям»).
+         */
+        ContainerOwnDocsAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /** Has Docs */
+            has_docs: boolean;
+            /** Has Spec */
+            has_spec: boolean;
+        };
+        /**
          * DeletionSnapshot
          * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов,
          *     их доки логики, инцидентные рёбра и строки раскладки. Достаточно для
@@ -1089,6 +1147,49 @@ export interface components {
             node_name: string;
         };
         /**
+         * DistributeDocAssignment
+         * @description Назначение одного собственного дока контейнера конкретному ребёнку.
+         */
+        DistributeDocAssignment: {
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /**
+             * Child Id
+             * Format: uuid
+             */
+            child_id: string;
+        };
+        /**
+         * DistributeDocsIn
+         * @description Вход переноса: маппинг доков по детям + опциональный ребёнок для спеки.
+         *
+         *     openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
+         *     (spec_child_id). Если детей несколько и спека есть — пользователь в
+         *     модалке выбирает, кому она отойдёт.
+         */
+        DistributeDocsIn: {
+            /**
+             * Doc Assignments
+             * @default []
+             */
+            doc_assignments: components["schemas"]["DistributeDocAssignment"][];
+            /** Spec Child Id */
+            spec_child_id?: string | null;
+        };
+        /**
+         * DistributeDocsOut
+         * @description Отчёт переноса.
+         */
+        DistributeDocsOut: {
+            /** Moved Docs */
+            moved_docs: number;
+            /** Spec Moved */
+            spec_moved: boolean;
+        };
+        /**
          * DocsFileIn
          * @description Один загруженный файл пакета: имя нужно для file-референсов манифеста
          *     и префиксов ошибок.
@@ -1108,6 +1209,8 @@ export interface components {
              * @default false
              */
             overwrite: boolean;
+            /** Only */
+            only?: ("logic" | "api") | null;
         };
         /**
          * DocsImportReport
@@ -3389,6 +3492,37 @@ export interface operations {
             };
         };
     };
+    relayout_context_api_v1_nodes__node_id__context_relayout_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_docs_api_v1_nodes__node_id__docs_get: {
         parameters: {
             query?: never;
@@ -3529,6 +3663,43 @@ export interface operations {
             };
         };
     };
+    distribute_docs_api_v1_nodes__node_id__docs_distribute_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DistributeDocsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DistributeDocsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     docs_prompt_api_v1_docs_import_prompt_get: {
         parameters: {
             query?: {
@@ -3536,6 +3707,7 @@ export interface operations {
                 include?: "logic" | "api" | "both";
                 lang?: string;
                 hints?: string | null;
+                target?: string | null;
             };
             header?: {
                 "X-Project-Id"?: string | null;

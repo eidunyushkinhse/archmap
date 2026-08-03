@@ -66,6 +66,12 @@ export type NodeDocKind = NodeDocMeta["kind"];
 export type NodeDocCreate = Schemas["NodeDocCreate"];
 export type NodeDocUpdate = Schemas["NodeDocUpdate"];
 
+// «Распределить по детям» (правила контейнеров): перенос grandfather-доков/спеки
+// контейнера на его непосредственных детей.
+export type DistributeDocAssignment = Schemas["DistributeDocAssignment"];
+export type DistributeDocsIn = Schemas["DistributeDocsIn"];
+export type DistributeDocsOut = Schemas["DistributeDocsOut"];
+
 // Дозаливка доков от ИИ-агента: отчёт превью/применения пакета archmap-docs.
 export type DocsImportReport = Schemas["DocsImportReport"];
 export type DocsLogicItem = Schemas["DocsLogicItem"];
@@ -123,6 +129,7 @@ export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];
 export type DisconnectedNodeAlert = Schemas["DisconnectedNodeAlert"];
 export type IntermediateEdgeAlert = Schemas["IntermediateEdgeAlert"];
 export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
+export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
