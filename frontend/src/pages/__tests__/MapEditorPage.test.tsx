@@ -44,7 +44,7 @@ vi.mock("../../components/graph/interaction/useHistory", () => ({
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 vi.mock("../useSchemaAlerts", () => ({
   useSchemaAlerts: () => ({
-    alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [] },
+    alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [] },
     loaded: true,
     reload: vi.fn(),
   }),

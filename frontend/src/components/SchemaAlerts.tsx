@@ -19,7 +19,9 @@ import "./schemaAlerts.css";
  * Категории (формулировки на «объект», не «узел»):
  *  1) Объекты без связей — атомарные объекты без единой связи;
  *  2) Связи в промежуточный объект — связь упирается в контейнер, а не в атомарный;
- *  3) Изолированные группы — схема распалась на ≥2 несвязанных кластера.
+ *  3) Изолированные группы — схема распалась на ≥2 несвязанных кластера;
+ *  4) Контейнеры со своими схемами — у контейнера остались собственные
+ *     (grandfather) схемы логики и/или спека; их надо распределить по детям.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -56,6 +58,8 @@ const sIco = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLin
 const IcoUnlink = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="4.2" /><path d="M3.2 12.8 12.8 3.2" /></svg>;
 const IcoArrowBox = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="9" y="3.4" width="3.8" height="9.2" rx="1" /><path d="M2 8h5.2" /><path d="M5.2 5.6 7.6 8l-2.4 2.4" /></svg>;
 const IcoScatter = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="4.2" cy="5" r="1.9" /><circle cx="11.6" cy="4.4" r="1.9" /><circle cx="8" cy="11.4" r="1.9" /></svg>;
+// Контейнер со своими схемами: бокс-контейнер с точкой («своя» схема внутри)
+const IcoBoxDocs = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="2.4" y="3" width="11.2" height="10" rx="1.6" /><path d="M2.4 6.2h11.2" /><circle cx="8" cy="9.8" r="1.2" fill="currentColor" stroke="none" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
 
 export default function SchemaAlerts({ alerts, onLocate }: Props) {
@@ -68,12 +72,15 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
   const disconnected = alerts.disconnected_nodes;
   const intermediate = alerts.intermediate_edges;
   const isolated = alerts.isolated_groups;
+  // Правила контейнеров: контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather) —
+  // каждая такая запись = 1 проблема (схемы/спеку надо распределить по детям).
+  const containerOwn = alerts.container_own_docs;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
   // показываются как «2», но в сумму незавершённости дают «1».
   const isolatedProblems = Math.max(0, isolated.length - 1);
-  const total = disconnected.length + intermediate.length + isolatedProblems;
+  const total = disconnected.length + intermediate.length + isolatedProblems + containerOwn.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -167,6 +174,14 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
             {isolated.map((grp, i) => (
               <Item key={i} onClick={onLocate && (() => onLocate({ kind: "group", ids: grp.node_ids }))}>
                 <span style={{ color: "#6b7280", fontWeight: 600 }}>Группа {i + 1}:</span> {grp.node_names.join(", ")}
+              </Item>
+            ))}
+          </Section>
+
+          <Section icon={IcoBoxDocs(13)} title="Контейнеры со своими схемами" count={containerOwn.length}>
+            {containerOwn.map((c) => (
+              <Item key={c.node_id} onClick={onLocate && (() => onLocate({ kind: "node", id: c.node_id }))}>
+                {c.node_name}{c.has_spec ? " + спека" : ""}
               </Item>
             ))}
           </Section>

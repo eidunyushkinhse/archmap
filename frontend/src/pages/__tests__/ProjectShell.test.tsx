@@ -23,7 +23,7 @@ vi.mock("../../components/processes/sequence/toMermaid", () => ({
 // Алерты шапки: хук отдаёт пустой набор, ключ sessionStorage — настоящая константа.
 vi.mock("../useSchemaAlerts", () => ({
   useSchemaAlerts: () => ({
-    alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [] },
+    alerts: { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [] },
     loaded: true,
     reload: vi.fn(),
   }),
