@@ -4,20 +4,23 @@
 // (CAS-правка по blur), поэтому ищутся по displayValue.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
-import { nodesApi } from "../../api/nodes";
-import type { Node, NodeEdgeInfo, ProcessListItem } from "../../types";
+import { nodesApi, nodeDocsApi } from "../../api/nodes";
+import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
     get: vi.fn(),
     getAll: vi.fn(),
     getEdges: vi.fn(),
+    getChildren: vi.fn(),
     getContextGraph: vi.fn(),
     getNodeProcesses: vi.fn(),
     update: vi.fn(),
   },
+  nodeDocsApi: { distribute: vi.fn() },
   viewsApi: { state: vi.fn() },
   edgesApi: { update: vi.fn() },
   exportApi: { subtree: vi.fn() },
@@ -26,6 +29,13 @@ vi.mock("../../api/nodes", () => ({
 // Канвас схемы — заглушка (LevelGraph тянет @xyflow/react и весь конвейер).
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
   default: () => <div data-testid="schema-block">схема</div>,
+}));
+
+// Модалка на нативном <dialog>: в jsdom showModal() не выставляет open, и
+// контент диалога выпадает из role-запросов. Заменяем прозрачной обёрткой
+// (паттерн DocOverlay.test) — тестируем форму распределения, не фокус-менеджмент.
+vi.mock("../../ui/Modal", () => ({
+  default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
 }));
 
 function node(id: string, over: Partial<Node> = {}): Node {
@@ -133,5 +143,77 @@ describe("NodePage", () => {
     setup({ processes: [] });
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
     expect(screen.queryByText("Участвует в процессах")).not.toBeInTheDocument();
+  });
+});
+
+// ── Правила контейнеров ─────────────────────────────────────────────────────
+// Контейнер (сервис с детьми): логика/спеки — объединение детей с пометкой
+// ребёнка, свои (grandfather) схемы — с предупреждением и переносом по детям,
+// технология — агрегированная read-only, создание схем/спек скрыто.
+describe("NodePage: правила контейнеров", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function docMeta(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
+    return { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, ...over };
+  }
+
+  function setupContainer(over: { own?: Partial<Node>; children?: Node[] } = {}) {
+    const kids = over.children ?? [];
+    const cont = node("c1", { name: "Ядро", has_children: true, child_count: kids.length, ...over.own });
+    vi.mocked(nodesApi.get).mockResolvedValue(cont);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([cont, ...kids]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    vi.mocked(nodesApi.getChildren).mockResolvedValue(kids);
+    return render(<NodePage nodeId="c1" isArchitect {...nav} />);
+  }
+
+  it("объединение схем детей: пометка ребёнка-источника, клик ведёт на страницу ребёнка", async () => {
+    setupContainer({ children: [node("k1", { name: "Шлюз", docs: [docMeta()] })] });
+    const row = await screen.findByText("Схема оплаты");
+    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
+    const btn = row.closest("button");
+    expect(btn).not.toBeNull();
+    await userEvent.click(btn as HTMLButtonElement);
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
+  });
+
+  it("свои схемы: предупреждение и «Распределить по детям», создание скрыто", async () => {
+    setupContainer({ own: { docs: [docMeta()] } });
+    await screen.findByText(/остались собственные схемы логики/);
+    expect(screen.getByRole("button", { name: "Распределить по детям" })).toBeInTheDocument();
+    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+  });
+
+  it("технология — агрегированная из детей, только чтение", async () => {
+    setupContainer({
+      children: [
+        node("k1", { name: "А-сервис", technology: "Python" }),
+        node("k2", { name: "Б-шлюз", technology: "Kafka" }),
+        node("k3", { name: "В-воркер", technology: "Python" }),
+      ],
+    });
+    expect(await screen.findByText("Python, Kafka")).toBeInTheDocument();
+    // Своего поля technology у контейнера нет — инпута с ним быть не должно
+    expect(screen.queryByDisplayValue("Python")).not.toBeInTheDocument();
+  });
+
+  it("модалка распределения: переносит схему выбранному ребёнку", async () => {
+    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false });
+    setupContainer({
+      own: { docs: [docMeta()] },
+      children: [node("k1", { name: "Шлюз" })],
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Распределить по детям" }));
+    await screen.findByText("Схемы логики"); // форма модалки загрузилась
+    await userEvent.click(screen.getByRole("button", { name: "Распределить" }));
+    await waitFor(() =>
+      expect(nodeDocsApi.distribute).toHaveBeenCalledWith("c1", {
+        doc_assignments: [{ doc_id: "d1", child_id: "k1" }],
+      }),
+    );
+    // Модалка закрылась после успеха
+    await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
   });
 });

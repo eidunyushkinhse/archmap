@@ -10,7 +10,9 @@ import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
+import { useContainerChildren } from "./useContainerChildren";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
+import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
@@ -158,6 +160,9 @@ function NodePageInner({
   const node = patch.node;
   const shape = node.shape;
   const isContainer = canHaveChildren(shape) && node.has_children;
+  // Правила контейнеров: непосредственные дети и их объединённые данные
+  // (доки/спеки/технологии). Не контейнер — хук не фетчит.
+  const container = useContainerChildren(node.id, isContainer);
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -169,6 +174,8 @@ function NodePageInner({
   const [specAgent, setSpecAgent] = useState(false);
   // Модалка-редактор связи (архитектор): id связи из строки таблицы «Связи»
   const [edgeEditId, setEdgeEditId] = useState<string | null>(null);
+  // Модалка «Распределить по детям» (правила контейнеров, grandfather-доки/спека)
+  const [distributeOpen, setDistributeOpen] = useState(false);
 
   // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
@@ -193,7 +200,8 @@ function NodePageInner({
   // Меню «+ Добавить» секции «Логика»: вручную / через ИИ-агента («Через
   // ИИ-агента» открывает модалку режимом «Пакетом» по умолчанию; на «По одной»
   // пользователь переключится в модалке сам, если нужно).
-  const addLogicMenu = isArchitect ? (
+  // Правила контейнеров: контейнеру новую логику создавать нельзя (!isContainer).
+  const addLogicMenu = !isContainer && isArchitect ? (
     <AddDocsMenu
       groups={[
         [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
@@ -202,8 +210,9 @@ function NodePageInner({
     />
   ) : null;
 
-  // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента
-  const addSpecMenu = isArchitect ? (
+  // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
+  // Контейнеру спеку создавать нельзя (правила контейнеров).
+  const addSpecMenu = !isContainer && isArchitect ? (
     <AddDocsMenu
       groups={[
         [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi" }) }],
@@ -213,7 +222,8 @@ function NodePageInner({
   ) : null;
 
   // Когда спека уже есть — вместо «+ Добавить» кнопка обновления через ИИ-агента
-  const updateSpecBtn = isArchitect ? (
+  // (контейнеру недоступна — спека контейнера подлежит распределению, не обновлению).
+  const updateSpecBtn = !isContainer && isArchitect ? (
     <button type="button" className="np-addbtn" onClick={() => setSpecAgent(true)}>
       Обновить с помощью ИИ-агента
     </button>
@@ -375,7 +385,17 @@ function NodePageInner({
               <>
                 <span className="np-term">Технология</span>
                 <span className="np-value">
-                  {isArchitect ? (
+                  {isContainer ? (
+                    // Правила контейнеров: своей технологии нет — агрегированный
+                    // список уникальных технологий детей, только чтение.
+                    container.loading ? (
+                      <span className="np-value--empty">загрузка…</span>
+                    ) : container.aggTech !== "" ? (
+                      container.aggTech
+                    ) : (
+                      <span className="np-value--empty">не указана</span>
+                    )
+                  ) : isArchitect ? (
                     <input
                       className="np-field"
                       value={patch.technology}
@@ -460,10 +480,73 @@ function NodePageInner({
         <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}
-        {node.shape !== "person" && (isArchitect || node.docs.length > 0) && (
+        {node.shape !== "person" && (isArchitect || node.docs.length > 0 || container.combinedDocs.length > 0) && (
           <div className="np-card">
             <h3 className="np-card-title">Логика</h3>
-            {node.docs.length === 0 ? (
+            {isContainer ? (
+              <>
+                {/* Собственные (grandfather) схемы контейнера: по правилам у
+                    контейнера нет своей логики — предупреждение и перенос на
+                    детей модалкой «Распределить по детям». */}
+                {node.docs.length > 0 && (
+                  <>
+                    <p className="np-warn">
+                      У контейнера остались собственные схемы логики — распределите их по детям.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {node.docs.map((d) => (
+                        <button
+                          key={d.id}
+                          className="np-doc-row"
+                          onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
+                        >
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
+                          <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
+                            {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
+                          </span>
+                          {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
+                          <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                        </button>
+                      ))}
+                    </div>
+                    {isArchitect && (
+                      <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
+                        Распределить по детям
+                      </button>
+                    )}
+                  </>
+                )}
+                {/* Объединение схем НЕПОСРЕДСТВЕННЫХ детей: у каждой — пометка
+                    ребёнка-источника; клик ведёт на страницу ребёнка, где схема
+                    открывается штатно (доки принадлежат детям, не контейнеру). */}
+                {container.combinedDocs.length > 0 && (
+                  <>
+                    {node.docs.length > 0 && <div className="np-sublabel">Схемы детей</div>}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {container.combinedDocs.map(({ doc, child }) => (
+                        <button
+                          key={`${child.id}:${doc.id}`}
+                          className="np-doc-row"
+                          onClick={() => onNavigateNode(child.id)}
+                          title={`Открыть объект «${child.name}»`}
+                        >
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
+                          <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>
+                            {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
+                          </span>
+                          {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
+                          <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>от {child.name} →</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
+                {!container.loading && node.docs.length === 0 && container.combinedDocs.length === 0 && (
+                  <p className="np-empty">Схемы логики не заданы</p>
+                )}
+              </>
+            ) : node.docs.length === 0 ? (
               <>
                 <p className="np-empty">Схемы логики не заданы</p>
                 {addLogicMenu}
@@ -493,10 +576,55 @@ function NodePageInner({
         )}
 
         {/* ── OpenAPI ───────────────────────────────────────────── */}
-        {node.shape !== "person" && (isArchitect || node.openapi_spec) && (
+        {node.shape !== "person" && (isArchitect || node.openapi_spec || container.combinedSpecs.length > 0) && (
           <div className="np-card">
             <h3 className="np-card-title">OpenAPI</h3>
-            {node.openapi_spec ? (
+            {isContainer ? (
+              <>
+                {/* Своя (grandfather) спека контейнера: по правилам спеки живут
+                    на атомарных детях — предупреждение и перенос одному ребёнку. */}
+                {node.openapi_spec && (
+                  <>
+                    <p className="np-warn">
+                      У контейнера осталась собственная OpenAPI-спека — распределите её по детям.
+                    </p>
+                    <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+                      <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                    </button>
+                    {isArchitect && (
+                      <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
+                        Распределить по детям
+                      </button>
+                    )}
+                  </>
+                )}
+                {/* Спеки детей: список детей у кого спека есть; клик ведёт на
+                    страницу ребёнка (там спека открывается штатно). */}
+                {container.combinedSpecs.length > 0 && (
+                  <>
+                    {node.openapi_spec && <div className="np-sublabel">Спеки детей</div>}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {container.combinedSpecs.map((child) => (
+                        <button
+                          key={child.id}
+                          className="np-doc-row"
+                          onClick={() => onNavigateNode(child.id)}
+                          title={`Открыть объект «${child.name}»`}
+                        >
+                          <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+                          <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>от {child.name} →</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
+                {!container.loading && !node.openapi_spec && container.combinedSpecs.length === 0 && (
+                  <p className="np-empty">Спецификация не задана</p>
+                )}
+              </>
+            ) : node.openapi_spec ? (
               <>
                 <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
@@ -595,6 +723,23 @@ function NodePageInner({
           edgeId={edgeEditId}
           onClose={() => setEdgeEditId(null)}
           onChanged={onEdgesReload}
+        />
+      )}
+
+      {/* «Распределить по детям» (правила контейнеров): перенос собственных
+          (grandfather) схем логики и спеки контейнера на детей. */}
+      {distributeOpen && isContainer && (
+        <DistributeDocsModal
+          nodeId={node.id}
+          onClose={() => setDistributeOpen(false)}
+          onApplied={() => {
+            // Перенос изменил мету узла (доки/спека ушли детям) и мету детей:
+            // тянем свежий узел (patch.refresh обновляет CAS-базу и значения
+            // полей — секции «Логика»/«OpenAPI» пересчитаются) и перезагружаем
+            // детей для объединения.
+            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
+            container.reload();
+          }}
         />
       )}
     </div>
