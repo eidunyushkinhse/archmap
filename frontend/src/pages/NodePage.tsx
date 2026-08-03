@@ -3,9 +3,10 @@
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, ProcessListItem, ViewLayoutPayload } from "../types";
+import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
+import { isConflict } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
@@ -167,7 +168,10 @@ function NodePageInner({
   const [menuOpen, setMenuOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean } | null>(null);
+  // Оверлей документации. `child` задан, когда открываем доку/спеку РЕБЁНКА прямо
+  // со страницы контейнера (из объединённого списка) — тогда оверлей работает в
+  // контексте ребёнка (его id/имя/спека), а не контейнера.
+  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean; child?: Node } | null>(null);
   // Модалка «Доки от агента» (BYOA, логика): скоуп = текущий объект, режим открытия
   const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
   // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = текущий объект
@@ -176,6 +180,11 @@ function NodePageInner({
   const [edgeEditId, setEdgeEditId] = useState<string | null>(null);
   // Модалка «Распределить по детям» (правила контейнеров, grandfather-доки/спека)
   const [distributeOpen, setDistributeOpen] = useState(false);
+  // CAS-база для правки openapi РЕБЁНКА со страницы контейнера: полный узел
+  // (после успешного коммита заменяется на сохранённый — со свежей версией,
+  // чтобы повторная правка не словила ложный 409).
+  const childSpecBaseRef = useRef<Node | null>(null);
+  const [childSpecConflict, setChildSpecConflict] = useState<string | null>(null);
 
   // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
   // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
@@ -196,6 +205,52 @@ function NodePageInner({
     patch.applyDocEvent(evt);
     syncCursors();
   }, [patch, syncCursors]);
+
+  // ── Открытие доков/спеки РЕБЁНКА прямо со страницы контейнера ─────────────
+  // Схемы логики: FlowchartDocs сам делает CRUD/CAS по nodeId=child.id; здесь лишь
+  // освежаем объединение детей и курсоры (echo-suppression своей записи).
+  const handleChildDocEvent = useCallback((_evt: NodeDocEvent) => {
+    container.reload();
+    syncCursors();
+  }, [container, syncCursors]);
+
+  // OpenAPI ребёнка: CAS-коммит в ребёнка (полный NodeUpdate из его полей +
+  // base_version из childSpecBaseRef). Успех → свежая версия в ref + reload.
+  const openChildSpec = useCallback((child: Node) => {
+    childSpecBaseRef.current = child;
+    setChildSpecConflict(null);
+    setDoc({ mode: "openapi", child });
+  }, []);
+  const commitChildOpenapi = useCallback((value: string) => {
+    const base = childSpecBaseRef.current;
+    if (!base) return;
+    if (value === (base.openapi_spec ?? "")) return;
+    const payload: NodeUpdate = {
+      name: base.name,
+      description: base.description,
+      role: base.role,
+      technology: base.technology,
+      openapi_spec: value || null,
+      is_external: base.is_external,
+      shape: base.shape,
+      status: base.status,
+      base_version: base.version,
+    };
+    nodesApi.update(base.id, payload)
+      .then((saved) => {
+        childSpecBaseRef.current = saved;
+        setChildSpecConflict(null);
+        container.reload();
+        syncCursors();
+      })
+      .catch((e: unknown) => {
+        if (!isConflict(e)) return;
+        nodesApi.get(base.id)
+          .then((fresh) => { childSpecBaseRef.current = fresh; container.reload(); })
+          .catch(() => { /* ребёнка могли удалить */ });
+        setChildSpecConflict("Спека изменена в другой сессии — данные обновлены, повторите правку");
+      });
+  }, [container, syncCursors]);
 
   // Меню «+ Добавить» секции «Логика»: вручную / через ИИ-агента («Через
   // ИИ-агента» открывает модалку режимом «Пакетом» по умолчанию; на «По одной»
@@ -524,19 +579,31 @@ function NodePageInner({
                     {node.docs.length > 0 && <div className="np-sublabel">Схемы детей</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {container.combinedDocs.map(({ doc, child }) => (
-                        <button
-                          key={`${child.id}:${doc.id}`}
-                          className="np-doc-row"
-                          onClick={() => onNavigateNode(child.id)}
-                          title={`Открыть объект «${child.name}»`}
-                        >
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
-                          <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>
-                            {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
-                          </span>
-                          {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
-                          <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>от {child.name} →</span>
-                        </button>
+                        <div key={`${child.id}:${doc.id}`} className="np-doc-split">
+                          {/* Левая (широкая) часть — открыть схему ребёнка напрямую */}
+                          <button
+                            type="button"
+                            className="np-doc-split-main"
+                            onClick={() => setDoc({ mode: "flowchart", docId: doc.id, child })}
+                            title={`Открыть схему «${doc.name}»`}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
+                            <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>
+                              {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
+                            </span>
+                            {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
+                            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                          </button>
+                          {/* Правая (узкая) часть — на страницу ребёнка */}
+                          <button
+                            type="button"
+                            className="np-doc-split-child"
+                            onClick={() => onNavigateNode(child.id)}
+                            title={`Перейти к объекту «${child.name}»`}
+                          >
+                            от {child.name} →
+                          </button>
+                        </div>
                       ))}
                     </div>
                   </>
@@ -606,15 +673,27 @@ function NodePageInner({
                     {node.openapi_spec && <div className="np-sublabel">Спеки детей</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {container.combinedSpecs.map((child) => (
-                        <button
-                          key={child.id}
-                          className="np-doc-row"
-                          onClick={() => onNavigateNode(child.id)}
-                          title={`Открыть объект «${child.name}»`}
-                        >
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                          <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>от {child.name} →</span>
-                        </button>
+                        <div key={child.id} className="np-doc-split">
+                          {/* Левая (широкая) часть — открыть спеку ребёнка напрямую */}
+                          <button
+                            type="button"
+                            className="np-doc-split-main"
+                            onClick={() => openChildSpec(child)}
+                            title={`Открыть спецификацию «${child.name}»`}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+                            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                          </button>
+                          {/* Правая (узкая) часть — на страницу ребёнка */}
+                          <button
+                            type="button"
+                            className="np-doc-split-child"
+                            onClick={() => onNavigateNode(child.id)}
+                            title={`Перейти к объекту «${child.name}»`}
+                          >
+                            от {child.name} →
+                          </button>
+                        </div>
                       ))}
                     </div>
                   </>
@@ -654,23 +733,23 @@ function NodePageInner({
         />
       )}
 
-      {/* Оверлей документации (Логика / OpenAPI) */}
+      {/* Оверлей документации (Логика / OpenAPI). Если открыт док/спека РЕБЁНКА
+          (doc.child) — работаем в контексте ребёнка, иначе — контейнера. */}
       {doc && (
         <DocOverlay
           mode={doc.mode}
-          nodeId={node.id}
-          nodeName={node.name}
-          openapi={node.openapi_spec ?? ""}
+          nodeId={doc.child ? doc.child.id : node.id}
+          nodeName={doc.child ? doc.child.name : node.name}
+          openapi={doc.child ? (doc.child.openapi_spec ?? "") : (node.openapi_spec ?? "")}
           isArchitect={isArchitect}
           autoCreate={doc.create}
           initialDocId={doc.docId}
-          onCommitOpenapi={(value) => {
-            // CAS-правка openapi_spec через useNodePatch
-            void patch.commitOpenapi(value);
-          }}
-          onDocEvent={handleDocEvent}
+          onCommitOpenapi={doc.child
+            ? commitChildOpenapi
+            : (value) => { void patch.commitOpenapi(value); }}
+          onDocEvent={doc.child ? handleChildDocEvent : handleDocEvent}
           onClose={() => setDoc(null)}
-          notice={patch.conflict}
+          notice={doc.child ? childSpecConflict : patch.conflict}
         />
       )}
 

@@ -38,6 +38,14 @@ vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
 }));
 
+// Оверлей документации: маркер с контекстом (nodeId/initialDocId/mode) — проверить,
+// что split-кнопка открывает доку в контексте РЕБЁНКА, не рендеря тяжёлый FlowchartDocs.
+vi.mock("../../components/inspector/DocOverlay", () => ({
+  default: ({ nodeId, initialDocId, mode }: { nodeId: string; initialDocId?: string; mode: string }) => (
+    <div data-testid="doc-overlay" data-node-id={nodeId} data-doc-id={initialDocId ?? ""} data-mode={mode} />
+  ),
+}));
+
 function node(id: string, over: Partial<Node> = {}): Node {
   return {
     id,
@@ -169,13 +177,21 @@ describe("NodePage: правила контейнеров", () => {
     return render(<NodePage nodeId="c1" isArchitect {...nav} />);
   }
 
-  it("объединение схем детей: пометка ребёнка-источника, клик ведёт на страницу ребёнка", async () => {
+  it("объединение схем детей: левая часть открывает схему ребёнка напрямую, правая ведёт на его страницу", async () => {
     setupContainer({ children: [node("k1", { name: "Шлюз", docs: [docMeta()] })] });
-    const row = await screen.findByText("Схема оплаты");
+    await screen.findByText("Схема оплаты");
     expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
-    const btn = row.closest("button");
-    expect(btn).not.toBeNull();
-    await userEvent.click(btn as HTMLButtonElement);
+    // Левая (широкая) часть — открыть схему ребёнка напрямую: оверлей в контексте
+    // ребёнка (nodeId=k1, не контейнера) на конкретной схеме (d1).
+    const mainBtn = screen.getByText("Схема оплаты").closest("button");
+    await userEvent.click(mainBtn as HTMLButtonElement);
+    const overlay = screen.getByTestId("doc-overlay");
+    expect(overlay).toHaveAttribute("data-node-id", "k1");
+    expect(overlay).toHaveAttribute("data-doc-id", "d1");
+    expect(overlay).toHaveAttribute("data-mode", "flowchart");
+    // Правая (узкая) часть — на страницу ребёнка.
+    const childBtn = screen.getByText("от Шлюз →").closest("button");
+    await userEvent.click(childBtn as HTMLButtonElement);
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
   });
 
