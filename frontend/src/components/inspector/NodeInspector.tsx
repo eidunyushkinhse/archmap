@@ -13,6 +13,7 @@ import { isConflict } from "../../api/client";
 import { plural } from "../../ui/plural";
 import { ShapeGlyph, Chevron } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
+import { useContainerChildren } from "../../pages/useContainerChildren";
 import "../NodeTreePanel.css"; // классы nt-tree/nt-row для справочной ветки детей
 import "./inspector.css";
 
@@ -49,6 +50,10 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const shape = node.shape;
   const isPerson = shape === "person";
   const isContainer = canHaveChildren(shape) && node.has_children;
+  // Агрегированная технология потомков для контейнера: по правилам у контейнера
+  // нет своей технологии — показываем сумму технологий потомков, read-only
+  // (как на странице узла). Для не-контейнеров хук ничего не фетчит.
+  const container = useContainerChildren(node.id, isContainer);
 
   // Единый коммит: собирает полный NodeUpdate из локального состояния + правленого поля
   // (over перекрывает то, что ещё не доехало в стейт на момент blur). openapi_spec
@@ -259,7 +264,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
         {!isPerson && (
           <Row icon={META_ICON.tech} label="Технология">
-            {isArchitect ? (
+            {isContainer ? (
+              // Контейнер: агрегированная технология потомков, только чтение.
+              <span className={"insp-value" + (container.aggTech ? "" : " insp-value--empty")}>
+                {container.loading ? "…" : container.aggTech || "не указана"}
+              </span>
+            ) : isArchitect ? (
               <span className="insp-value">
                 <input
                   className="insp-field"
