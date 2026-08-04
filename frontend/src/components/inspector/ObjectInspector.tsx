@@ -7,7 +7,6 @@ import { getNodeColors, STATUS_META } from "../graph/colors";
 import { SchemaViewFilter } from "../SchemaViewFilter";
 import { viewShows, type SchemaView } from "../schemaView";
 import NodeInspector from "./NodeInspector";
-import type { NodeDocEvent } from "./FlowchartDocs";
 import EdgeInspector from "./EdgeInspector";
 import GhostInspector from "./GhostInspector";
 import "./inspector.css";
@@ -29,19 +28,16 @@ interface Props {
   isArchitect: boolean;
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
-  onDocEvent: (evt: NodeDocEvent) => void;
-  // Дозаливка BYOA применилась: освежить узел в стейте уровня (без undo)
-  onNodeRefreshed: (fresh: Node) => void;
   onEdgeSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
   onEdgeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
   onGhostGoToSource: (ghost: GhostNode) => void;
-  // Переход на страницу узла (из split-строк «от <ребёнок>» у контейнера)
+  // Переход на страницу узла (раздел «Документация» инспектора)
   onNavigateNode: (nodeId: string) => void;
 }
 
 export default function ObjectInspector({
   hasStatusInfo, view, onViewChange, counts, selected, isArchitect,
-  onNodeSaved, onNodeDeleted, onDocEvent, onNodeRefreshed, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
+  onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
   onNavigateNode,
 }: Props) {
   return (
@@ -63,8 +59,6 @@ export default function ObjectInspector({
           isArchitect={isArchitect}
           onNodeSaved={onNodeSaved}
           onNodeDeleted={onNodeDeleted}
-          onDocEvent={onDocEvent}
-          onNodeRefreshed={onNodeRefreshed}
           onNavigateNode={onNavigateNode}
         />
       ) : selected.kind === "ghost" ? (

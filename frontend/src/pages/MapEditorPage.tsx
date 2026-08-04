@@ -4,11 +4,11 @@
 // Центр: LevelGraph со всеми жестами. Справа: ObjectInspector (272px).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi, nodeDocsApi, edgesApi } from "../api/nodes";
+import { nodesApi, edgesApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
-  Node, NodeDoc, NodeDocMeta, NodeShape, NodeStatus, NodeUpdate,
+  Node, NodeShape, NodeStatus, NodeUpdate,
   ViewLayout, ViewLayoutPayload,
 } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
@@ -35,8 +35,6 @@ import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY } from ".
 import { toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
-import { docToMeta } from "../components/inspector/docMeta";
-import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import { LogoMark, RelayoutIcon, ChevronIcon } from "../ui/icons";
@@ -338,45 +336,6 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     }
   }
 
-  function applyDocsMeta(nodeId2: string, mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) {
-    const patch = (n: Node): Node => (n.id === nodeId2 ? { ...n, docs: mut(n.docs) } : n);
-    setNodes((prev) => prev.map(patch));
-    setSelectedObject((sel) => (sel?.kind === "node" && sel.node.id === nodeId2 ? { kind: "node", node: patch(sel.node) } : sel));
-  }
-
-  // Освежение меты узла БЕЗ записи в историю: дозаливка BYOA из правой панели
-  // (применение «доков от агента» осознанно не кладётся в undo — см. DocsAgentModal).
-  function handleNodeRefreshed(fresh: Node) {
-    setNodes((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
-    setSelectedObject((sel) => (sel?.kind === "node" && sel.node.id === fresh.id ? { kind: "node", node: fresh } : sel));
-  }
-
-  function handleDocEvent(evt: NodeDocEvent) {
-    const meta = docToMeta;
-    const fields = (d: NodeDoc) => ({ name: d.name, kind: d.kind, operation: d.operation, content: d.content });
-    const level = currentParentId;
-    if (evt.type === "edit") {
-      const { nodeId: nid, before, after } = evt;
-      applyDocsMeta(nid, (ds) => ds.map((m) => (m.id === after.id ? meta(after) : m)));
-      history.push({ label: "Правка схемы логики", level,
-        undo: () => { applyDocsMeta(nid, (ds) => ds.map((m) => (m.id === before.id ? meta(before) : m))); guardPersist(nodeDocsApi.update(nid, before.id, fields(before)), resyncOnPersistError); },
-        redo: () => { applyDocsMeta(nid, (ds) => ds.map((m) => (m.id === after.id ? meta(after) : m))); guardPersist(nodeDocsApi.update(nid, after.id, fields(after)), resyncOnPersistError); },
-      });
-      return;
-    }
-    const { nodeId: nid } = evt;
-    let cur = evt.doc;
-    const recreate = () => guardPersist(nodeDocsApi.create(nid, fields(cur)).then((d) => { cur = d; applyDocsMeta(nid, (ds) => [...ds, meta(d)]); }), resyncOnPersistError);
-    const remove = () => { applyDocsMeta(nid, (ds) => ds.filter((m) => m.id !== cur.id)); guardPersist(nodeDocsApi.delete(nid, cur.id), resyncOnPersistError); };
-    if (evt.type === "create") {
-      applyDocsMeta(nid, (ds) => [...ds, meta(evt.doc)]);
-      history.push({ label: "Создание схемы логики", level, undo: remove, redo: recreate });
-    } else {
-      applyDocsMeta(nid, (ds) => ds.filter((m) => m.id !== evt.doc.id));
-      history.push({ label: "Удаление схемы логики", level, undo: recreate, redo: remove });
-    }
-  }
-
   function handleNodeDeleted(id: string, snapshot?: DeletionSnapshot) {
     setNodeModal({ open: false, node: null });
     setSelectedObject(null);
@@ -639,7 +598,6 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
             hasStatusInfo={hasStatusInfo} view={schemaView} onViewChange={setSchemaView}
             counts={statusCounts} selected={selectedObject} isArchitect={isArchitect}
             onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
-            onDocEvent={handleDocEvent} onNodeRefreshed={handleNodeRefreshed}
             onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
             onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}
             onNavigateNode={onNavigateNode}
