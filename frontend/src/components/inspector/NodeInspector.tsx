@@ -3,18 +3,16 @@
 // правка коммитится по blur (тексты) / сразу (toggle/статус) и ложится в Undo/Redo через
 // тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DeletionSnapshot, Node, NodeShape, NodeStatus, NodeUpdate } from "../../types";
-import { canHaveChildren, compareByRank, withoutPersons } from "../../types";
+import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
 import { isConflict } from "../../api/client";
-import { plural } from "../../ui/plural";
-import { ShapeGlyph, Chevron } from "../nodeTree.shared";
+import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import { useContainerChildren } from "../../pages/useContainerChildren";
-import "../NodeTreePanel.css"; // классы nt-tree/nt-row для справочной ветки детей
 import "./inspector.css";
 
 interface Props {
@@ -286,8 +284,6 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             )}
           </Row>
         )}
-
-        <ChildrenRow node={node} />
       </dl>
 
       {/* Документация: управление схемами логики и спеками — только на странице
@@ -296,8 +292,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         <>
           <div className="insp-block-label">Документация</div>
           <button type="button" className="insp-doc-item" onClick={() => onNavigateNode(node.id)}>
-            <span className="insp-doc-name">Схемы логики и OpenAPI</span>
-            <span className="insp-doc-open">Открыть →</span>
+            <span className="insp-doc-name">Открыть</span>
           </button>
         </>
       )}
@@ -334,85 +329,6 @@ function Row({ icon, label, children }: { icon: ReactNode; label: string; childr
   );
 }
 
-// Строка «Дочерние объекты»: счётчик + справочная ветка дерева (только просмотр).
-function ChildrenRow({ node }: { node: Node }) {
-  const [kids, setKids] = useState<Node[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    nodesApi.getChildren(node.id)
-      .then((cs) => { if (alive) setKids(withoutPersons(cs).sort(compareByRank)); })
-      .catch(() => { if (alive) setKids([]); });
-    return () => { alive = false; };
-  }, [node.id]);
-  const loading = kids === null;
-  const list = kids ?? [];
-  const hasKids = list.length > 0;
-  return (
-    <div className={"insp-row" + (hasKids ? " insp-row--top" : "")}>
-      <dt className="insp-term">
-        <span className="insp-term-ico">{META_ICON.children}</span>
-        Дочерние
-      </dt>
-      <dd className="insp-value insp-value--block" style={{ padding: 0 }}>
-        {loading ? (
-          <span className="insp-value--empty">загрузка…</span>
-        ) : hasKids ? (
-          <>
-            <div style={{ marginBottom: 6 }}>{list.length} {plural(list.length, ["объект", "объекта", "объектов"])}</div>
-            <div className="nt-tree nt-tree--inline">
-              {list.map((k) => <TreeRow key={k.id} node={k} />)}
-            </div>
-          </>
-        ) : (
-          <span className="insp-value--empty">Нет</span>
-        )}
-      </dd>
-    </div>
-  );
-}
-
-// Строка справочной ветки детей (мини-аналог дерева, без drill/контекста). Порт из NodeModal.
-function TreeRow({ node }: { node: Node }) {
-  const [open, setOpen] = useState(false);
-  const [kids, setKids] = useState<Node[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const expandable = canHaveChildren(node.shape) && node.has_children;
-
-  async function toggle() {
-    if (open) { setOpen(false); return; }
-    if (kids === null) {
-      setLoading(true);
-      try {
-        const got = withoutPersons(await nodesApi.getChildren(node.id)).sort(compareByRank);
-        setKids(got);
-        if (got.length === 0) return;
-      } finally { setLoading(false); }
-    } else if (kids.length === 0) { return; }
-    setOpen(true);
-  }
-
-  return (
-    <>
-      <div className="nt-row">
-        {expandable ? (
-          <button className="nt-chevzone" onClick={toggle} aria-label={open ? "Свернуть ветку" : "Развернуть ветку"} aria-expanded={open}>
-            <span className="nt-chevhit">
-              <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>
-                {loading ? "⋯" : <Chevron />}
-              </span>
-            </span>
-          </button>
-        ) : <span className="nt-chevspacer" />}
-        <ShapeGlyph container={expandable} shape={node.shape} />
-        <span className={expandable ? "nt-name nt-name--container" : "nt-name"}>{node.name}</span>
-      </div>
-      {open && kids && kids.length > 0 && (
-        <div className="nt-children">{kids.map((k) => <TreeRow key={k.id} node={k} />)}</div>
-      )}
-    </>
-  );
-}
-
 // Форма узла → человекочитаемая подпись типа.
 const SHAPE_LABEL: Record<NodeShape, string> = {
   service: "Сервис",
@@ -426,18 +342,12 @@ const ms = {
   width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
   stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
 } as const;
-const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "children" | "flow" | "api" | "trash", ReactNode> = {
+const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "flow" | "api" | "trash", ReactNode> = {
   type: <svg {...ms}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
   placement: <svg {...ms}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
   status: <svg {...ms}><path d="M1.75 8h2.5l1.6-3.8 2.2 7.2 1.7-5 1 1.6h3.5" /></svg>,
   role: <svg {...ms}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
   tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
-  children: <svg {...ms}>
-    <rect x="6" y="2.5" width="4" height="3" rx="0.6" />
-    <rect x="1.75" y="10.5" width="4" height="3" rx="0.6" />
-    <rect x="10.25" y="10.5" width="4" height="3" rx="0.6" />
-    <path d="M8 5.5V8 M3.75 8H12.25 M3.75 8V10.5 M12.25 8V10.5" />
-  </svg>,
   flow: <svg {...ms}><circle cx="4" cy="4" r="1.8" /><circle cx="12" cy="8" r="1.8" /><circle cx="4" cy="12" r="1.8" /><path d="M5.6 4H9a1.7 1.7 0 0 1 1.7 1.7v.6 M5.6 12H9a1.7 1.7 0 0 0 1.7-1.7v-.6" /></svg>,
   api: <svg {...ms}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M5 6.5 3.5 8 5 9.5 M11 6.5 12.5 8 11 9.5 M8.6 5.7 7.4 10.3" /></svg>,
   trash: <svg {...ms} width={15} height={15}><path d="M3 4.2h10 M5.5 4.2V3h5v1.2 M4.2 4.2l.6 8.3a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.3" /></svg>,
