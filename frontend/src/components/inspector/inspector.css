@@ -454,6 +454,7 @@
   color: #1e293b;
   flex: 1;
   min-width: 0;
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
