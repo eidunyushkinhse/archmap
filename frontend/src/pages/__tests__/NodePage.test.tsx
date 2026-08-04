@@ -16,6 +16,7 @@ vi.mock("../../api/nodes", () => ({
     getAll: vi.fn(),
     getEdges: vi.fn(),
     getChildren: vi.fn(),
+    getDescendants: vi.fn(),
     getContextGraph: vi.fn(),
     getNodeProcesses: vi.fn(),
     update: vi.fn(),
@@ -166,13 +167,19 @@ describe("NodePage: правила контейнеров", () => {
   }
 
   function setupContainer(over: { own?: Partial<Node>; children?: Node[] } = {}) {
-    const kids = over.children ?? [];
+    // Детям без parent_id ставим parent_id контейнера; узел с явным parent_id
+    // (напр. внук с parent_id=ребёнок) оставляем как есть: хук выводит
+    // непосредственных детей из потомков (getDescendants) по parent_id === nodeId.
+    const kids = (over.children ?? []).map((k) => (k.parent_id ? k : { ...k, parent_id: "c1" }));
     const cont = node("c1", { name: "Ядро", has_children: true, child_count: kids.length, ...over.own });
     vi.mocked(nodesApi.get).mockResolvedValue(cont);
     vi.mocked(nodesApi.getAll).mockResolvedValue([cont, ...kids]);
     vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    // getDescendants — для хука агрегации контейнера; getChildren — для модалки
+    // «Распределить по детям» (она сама фетчит непосредственных детей).
+    vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
     vi.mocked(nodesApi.getChildren).mockResolvedValue(kids);
     return render(<NodePage nodeId="c1" isArchitect {...nav} />);
   }
@@ -193,6 +200,20 @@ describe("NodePage: правила контейнеров", () => {
     const childBtn = screen.getByText("от Шлюз →").closest("button");
     await userEvent.click(childBtn as HTMLButtonElement);
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
+  });
+
+  it("объединение включает схемы опосредованных потомков (внуков)", async () => {
+    // k1 — непосредственный ребёнок (без своих схем), g1 — внук (parent_id=k1)
+    // со схемой: она должна попасть в объединение с пометкой «от Внук».
+    const kid = node("k1", { name: "Шлюз" });
+    const grand = node("g1", { name: "Внук", parent_id: "k1", docs: [docMeta({ id: "dg", name: "Схема внука" })] });
+    setupContainer({ children: [kid, grand] });
+    await screen.findByText("Схема внука");
+    expect(screen.getByText("от Внук →")).toBeInTheDocument();
+    // Левая часть открывает схему внука в его контексте.
+    const mainBtn = screen.getByText("Схема внука").closest("button");
+    await userEvent.click(mainBtn as HTMLButtonElement);
+    expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-node-id", "g1");
   });
 
   it("свои схемы: предупреждение и «Распределить по детям», создание скрыто", async () => {

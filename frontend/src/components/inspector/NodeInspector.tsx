@@ -552,8 +552,9 @@ const containerWarn: CSSProperties = {
   margin: "0 0 8px",
 };
 
-// «Логика» контейнера: свои схемы (read-only) + объединение схем детей
-// (split-кнопки: левая открывает схему ребёнка напрямую, правая — на его страницу).
+// «Логика» контейнера: свои схемы (read-only) + объединение схем потомков
+// (дети и глубже; split-кнопки: левая открывает схему напрямую, правая — на
+// страницу узла-владельца).
 function ContainerLogicBlock({ node, container, onOpenChildDoc, onNavigateChild }: {
   node: Node;
   container: ContainerChildrenState;
@@ -617,8 +618,8 @@ function ContainerLogicBlock({ node, container, onOpenChildDoc, onNavigateChild 
   );
 }
 
-// «OpenAPI» контейнера: своя спека (read-only) + спеки детей (split-кнопки:
-// левая открывает спеку ребёнка напрямую, правая — на его страницу).
+// «OpenAPI» контейнера: своя спека (read-only) + спеки потомков (дети и глубже;
+// split-кнопки: левая открывает спеку напрямую, правая — на страницу узла-владельца).
 function ContainerSpecBlock({ node, container, onOpenChildSpec, onNavigateChild }: {
   node: Node;
   container: ContainerChildrenState;

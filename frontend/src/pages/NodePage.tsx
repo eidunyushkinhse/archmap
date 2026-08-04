@@ -571,12 +571,12 @@ function NodePageInner({
                     )}
                   </>
                 )}
-                {/* Объединение схем НЕПОСРЕДСТВЕННЫХ детей: у каждой — пометка
-                    ребёнка-источника; клик ведёт на страницу ребёнка, где схема
-                    открывается штатно (доки принадлежат детям, не контейнеру). */}
+                {/* Объединение схем ВСЕХ потомков (дети и глубже): у каждой — пометка
+                    узла-источника; split-кнопки: левая открывает схему напрямую,
+                    правая ведёт на страницу узла-владельца (доки принадлежат ему). */}
                 {container.combinedDocs.length > 0 && (
                   <>
-                    {node.docs.length > 0 && <div className="np-sublabel">Схемы детей</div>}
+                    {node.docs.length > 0 && <div className="np-sublabel">Схемы потомков</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {container.combinedDocs.map(({ doc, child }) => (
                         <div key={`${child.id}:${doc.id}`} className="np-doc-split">
@@ -666,11 +666,11 @@ function NodePageInner({
                     )}
                   </>
                 )}
-                {/* Спеки детей: список детей у кого спека есть; клик ведёт на
-                    страницу ребёнка (там спека открывается штатно). */}
+                {/* Спеки потомков (дети и глубже): список узлов, у кого спека есть;
+                    split-кнопки: левая открывает спеку напрямую, правая — на страницу. */}
                 {container.combinedSpecs.length > 0 && (
                   <>
-                    {node.openapi_spec && <div className="np-sublabel">Спеки детей</div>}
+                    {node.openapi_spec && <div className="np-sublabel">Спеки потомков</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {container.combinedSpecs.map((child) => (
                         <div key={child.id} className="np-doc-split">
