@@ -1,9 +1,9 @@
 // Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
 // (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GraphResponse, Node, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
+import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict } from "../api/client";
@@ -535,7 +535,7 @@ function NodePageInner({
         <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}
-        {node.shape !== "person" && (isArchitect || node.docs.length > 0 || container.combinedDocs.length > 0) && (
+        {node.shape !== "person" && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
           <div className="np-card">
             <h3 className="np-card-title">Логика</h3>
             {isContainer ? (
@@ -571,45 +571,29 @@ function NodePageInner({
                     )}
                   </>
                 )}
-                {/* Объединение схем ВСЕХ потомков (дети и глубже): у каждой — пометка
+                {/* Объединение схем ВСЕХ потомков (дети и глубже), сгруппированное
+                    по непосредственным детям контейнера: у каждой схемы — пометка
                     узла-источника; split-кнопки: левая открывает схему напрямую,
                     правая ведёт на страницу узла-владельца (доки принадлежат ему). */}
-                {container.combinedDocs.length > 0 && (
+                {container.docGroups.length > 0 && (
                   <>
                     {node.docs.length > 0 && <div className="np-sublabel">Схемы потомков</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {container.combinedDocs.map(({ doc, child }) => (
-                        <div key={`${child.id}:${doc.id}`} className="np-doc-split">
-                          {/* Левая (широкая) часть — открыть схему ребёнка напрямую */}
-                          <button
-                            type="button"
-                            className="np-doc-split-main"
-                            onClick={() => setDoc({ mode: "flowchart", docId: doc.id, child })}
-                            title={`Открыть схему «${doc.name}»`}
-                          >
-                            <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
-                            <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>
-                              {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
-                            </span>
-                            {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
-                            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                          </button>
-                          {/* Правая (узкая) часть — на страницу ребёнка */}
-                          <button
-                            type="button"
-                            className="np-doc-split-child"
-                            onClick={() => onNavigateNode(child.id)}
-                            title={`Перейти к объекту «${child.name}»`}
-                          >
-                            от {child.name} →
-                          </button>
-                        </div>
+                      {container.docGroups.map((group) => (
+                        <Fragment key={group.child.id}>
+                          {group.own.map((doc) => (
+                            <DocSplitRow key={doc.id} doc={doc} child={group.child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
+                          ))}
+                          {group.deep.map(({ doc, child }) => (
+                            <DocSplitRow key={`${child.id}:${doc.id}`} doc={doc} child={child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
+                          ))}
+                        </Fragment>
                       ))}
                     </div>
                   </>
                 )}
                 {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
-                {!container.loading && node.docs.length === 0 && container.combinedDocs.length === 0 && (
+                {!container.loading && node.docs.length === 0 && container.docGroups.length === 0 && (
                   <p className="np-empty">Схемы логики не заданы</p>
                 )}
               </>
@@ -643,7 +627,7 @@ function NodePageInner({
         )}
 
         {/* ── OpenAPI ───────────────────────────────────────────── */}
-        {node.shape !== "person" && (isArchitect || node.openapi_spec || container.combinedSpecs.length > 0) && (
+        {node.shape !== "person" && (isArchitect || node.openapi_spec || container.specGroups.length > 0) && (
           <div className="np-card">
             <h3 className="np-card-title">OpenAPI</h3>
             {isContainer ? (
@@ -666,40 +650,28 @@ function NodePageInner({
                     )}
                   </>
                 )}
-                {/* Спеки потомков (дети и глубже): список узлов, у кого спека есть;
-                    split-кнопки: левая открывает спеку напрямую, правая — на страницу. */}
-                {container.combinedSpecs.length > 0 && (
+                {/* Спеки потомков (дети и глубже), сгруппированные по непосредственным
+                    детям контейнера; split-кнопки: левая открывает спеку напрямую,
+                    правая — на страницу узла-владельца. */}
+                {container.specGroups.length > 0 && (
                   <>
                     {node.openapi_spec && <div className="np-sublabel">Спеки потомков</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {container.combinedSpecs.map((child) => (
-                        <div key={child.id} className="np-doc-split">
-                          {/* Левая (широкая) часть — открыть спеку ребёнка напрямую */}
-                          <button
-                            type="button"
-                            className="np-doc-split-main"
-                            onClick={() => openChildSpec(child)}
-                            title={`Открыть спецификацию «${child.name}»`}
-                          >
-                            <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                          </button>
-                          {/* Правая (узкая) часть — на страницу ребёнка */}
-                          <button
-                            type="button"
-                            className="np-doc-split-child"
-                            onClick={() => onNavigateNode(child.id)}
-                            title={`Перейти к объекту «${child.name}»`}
-                          >
-                            от {child.name} →
-                          </button>
-                        </div>
+                      {container.specGroups.map((group) => (
+                        <Fragment key={group.child.id}>
+                          {group.own && (
+                            <SpecSplitRow key={group.child.id} child={group.child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
+                          )}
+                          {group.deep.map((child) => (
+                            <SpecSplitRow key={child.id} child={child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
+                          ))}
+                        </Fragment>
                       ))}
                     </div>
                   </>
                 )}
                 {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
-                {!container.loading && !node.openapi_spec && container.combinedSpecs.length === 0 && (
+                {!container.loading && !node.openapi_spec && container.specGroups.length === 0 && (
                   <p className="np-empty">Спецификация не задана</p>
                 )}
               </>
@@ -821,6 +793,73 @@ function NodePageInner({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// Split-кнопка схемы потомка в объединении контейнера: левая (широкая) часть
+// открывает схему владельца напрямую (в его контексте), правая (узкая) ведёт на
+// страницу владельца — доки принадлежат ему.
+function DocSplitRow({ doc, child, onOpen, onNavigateNode }: {
+  doc: NodeDocMeta;
+  child: Node;
+  onOpen: (target: { mode: "flowchart"; docId: string; child: Node }) => void;
+  onNavigateNode: (id: string) => void;
+}) {
+  return (
+    <div className="np-doc-split">
+      <button
+        type="button"
+        className="np-doc-split-main"
+        onClick={() => onOpen({ mode: "flowchart", docId: doc.id, child })}
+        title={`Открыть схему «${doc.name}»`}
+      >
+        <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
+        <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>
+          {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
+        </span>
+        {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+      </button>
+      <button
+        type="button"
+        className="np-doc-split-child"
+        onClick={() => onNavigateNode(child.id)}
+        title={`Перейти к объекту «${child.name}»`}
+      >
+        от {child.name} →
+      </button>
+    </div>
+  );
+}
+
+// Split-кнопка спеки потомка в объединении контейнера: левая (широкая) часть
+// открывает спеку владельца напрямую (его CAS-контекст), правая (узкая) ведёт
+// на страницу владельца.
+function SpecSplitRow({ child, onOpen, onNavigateNode }: {
+  child: Node;
+  onOpen: (child: Node) => void;
+  onNavigateNode: (id: string) => void;
+}) {
+  return (
+    <div className="np-doc-split">
+      <button
+        type="button"
+        className="np-doc-split-main"
+        onClick={() => onOpen(child)}
+        title={`Открыть спецификацию «${child.name}»`}
+      >
+        <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+      </button>
+      <button
+        type="button"
+        className="np-doc-split-child"
+        onClick={() => onNavigateNode(child.id)}
+        title={`Перейти к объекту «${child.name}»`}
+      >
+        от {child.name} →
+      </button>
     </div>
   );
 }
