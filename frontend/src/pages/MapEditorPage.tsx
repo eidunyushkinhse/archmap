@@ -642,6 +642,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
             onDocEvent={handleDocEvent} onNodeRefreshed={handleNodeRefreshed}
             onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
             onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}
+            onNavigateNode={onNavigateNode}
           />
         </aside>
       </div>

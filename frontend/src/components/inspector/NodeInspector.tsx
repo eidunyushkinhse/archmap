@@ -33,11 +33,13 @@ interface Props {
   // Дозаливка BYOA применилась: свежий узел в стейт уровня и выбранное (БЕЗ
   // истории — применение «доков от агента» не кладётся в undo).
   onNodeRefreshed: (fresh: Node) => void;
+  // Переход на страницу узла (правая часть split-строк «от <ребёнок>» у контейнера).
+  onNavigateNode: (nodeId: string) => void;
 }
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
-export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onDocEvent, onNodeRefreshed }: Props) {
+export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onDocEvent, onNodeRefreshed, onNavigateNode }: Props) {
   // Локальные значения полей. Сбрасываются на смену выбора: ObjectInspector монтирует
   // NodeInspector с key=node.id, поэтому при выборе другого узла компонент перемонтируется.
   const [name, setName] = useState(node.name);
@@ -50,8 +52,10 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const [confirming, setConfirming] = useState(false);
   // Оверлей тяжёлой документации; autoCreate — «Новая схема (вручную)» из меню
   // «+ Добавить» создаёт схему сразу при открытии; docId — открыть конкретную
-  // схему (клик по строке в списке раздела «Логика»).
-  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; autoCreate?: boolean; docId?: string } | null>(null);
+  // схему (клик по строке в списке раздела «Логика»). `child` задан, когда открыта
+  // дока/спека РЕБЁНКА из объединённого списка контейнера — тогда оверлей работает
+  // в контексте ребёнка (его id/имя/спека), а не выбранного узла.
+  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; autoCreate?: boolean; docId?: string; child?: Node } | null>(null);
   // Модалка «Доки от агента» (BYOA, логика): скоуп = выбранный узел, режим открытия
   const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
   // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = выбранный узел
@@ -59,6 +63,11 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
   // обновлены с сервера — пользователь повторяет правку поверх свежего.
   const [conflict, setConflict] = useState<string | null>(null);
+  // CAS-база для правки openapi РЕБЁНКА из панели контейнера: полный узел (после
+  // успешного коммита заменяется на сохранённый — со свежей версией, чтобы
+  // повторная правка не словила ложный 409).
+  const childSpecBaseRef = useRef<Node | null>(null);
+  const [childSpecConflict, setChildSpecConflict] = useState<string | null>(null);
 
   // Узел ДО последней правки — для обратимой записи в историю. Обновляем после
   // успешного коммита (тяжёлые поля правит DocOverlay тем же save → ref не отстаёт).
@@ -153,6 +162,52 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
     if (value === (beforeRef.current.openapi_spec ?? "")) return;
     void save({ openapi_spec: value || null });
   };
+
+  // ── Открытие доков/спеки РЕБЁНКА прямо из панели контейнера ───────────────
+  // Схемы логики: FlowchartDocs сам делает CRUD/CAS по nodeId=child.id; мутации
+  // репортятся onDocEvent (MapEditorPage кладёт компенсации в Undo и освежает
+  // мету уровня), здесь дополнительно освежаем объединение детей.
+  const handleChildDocEvent = useCallback((evt: NodeDocEvent) => {
+    onDocEvent(evt);
+    container.reload();
+  }, [onDocEvent, container]);
+
+  // OpenAPI ребёнка: CAS-коммит в ребёнка (полный NodeUpdate из его полей +
+  // base_version из childSpecBaseRef). Успех → свежая версия в ref + reload.
+  const openChildSpec = useCallback((child: Node) => {
+    childSpecBaseRef.current = child;
+    setChildSpecConflict(null);
+    setDoc({ mode: "openapi", child });
+  }, []);
+  const commitChildOpenapi = useCallback((value: string) => {
+    const base = childSpecBaseRef.current;
+    if (!base) return;
+    if (value === (base.openapi_spec ?? "")) return;
+    const payload: NodeUpdate = {
+      name: base.name,
+      description: base.description,
+      role: base.role,
+      technology: base.technology,
+      openapi_spec: value || null,
+      is_external: base.is_external,
+      shape: base.shape,
+      status: base.status,
+      base_version: base.version,
+    };
+    nodesApi.update(base.id, payload)
+      .then((saved) => {
+        childSpecBaseRef.current = saved;
+        setChildSpecConflict(null);
+        container.reload();
+      })
+      .catch((e: unknown) => {
+        if (!isConflict(e)) return;
+        nodesApi.get(base.id)
+          .then((fresh) => { childSpecBaseRef.current = fresh; container.reload(); })
+          .catch(() => { /* ребёнка могли удалить */ });
+        setChildSpecConflict("Спека изменена в другой сессии — данные обновлены, повторите правку");
+      });
+  }, [container]);
 
   const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
 
@@ -324,7 +379,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             <>
               <div className="insp-block-label">Логика</div>
               {isContainer ? (
-                <ContainerLogicBlock node={node} container={container} />
+                <ContainerLogicBlock
+                  node={node}
+                  container={container}
+                  onOpenChildDoc={(child, docId) => setDoc({ mode: "flowchart", docId, child })}
+                  onNavigateChild={onNavigateNode}
+                />
               ) : (
                 <>
                   {node.docs.length > 0 ? (
@@ -365,7 +425,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             <>
               <div className="insp-block-label">OpenAPI</div>
               {isContainer ? (
-                <ContainerSpecBlock node={node} container={container} />
+                <ContainerSpecBlock
+                  node={node}
+                  container={container}
+                  onOpenChildSpec={openChildSpec}
+                  onNavigateChild={onNavigateNode}
+                />
               ) : node.openapi_spec ? (
                 <>
                   <button type="button" className="insp-doc-item" onClick={() => setDoc({ mode: "openapi" })}>
@@ -411,19 +476,21 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         />
       )}
 
+      {/* Оверлей документации (Логика / OpenAPI). Если открыта дока/спека РЕБЁНКА
+          (doc.child) — работаем в контексте ребёнка, иначе — выбранного узла. */}
       {doc && (
         <DocOverlay
           mode={doc.mode}
-          nodeId={node.id}
-          nodeName={node.name}
-          openapi={node.openapi_spec ?? ""}
+          nodeId={doc.child ? doc.child.id : node.id}
+          nodeName={doc.child ? doc.child.name : node.name}
+          openapi={doc.child ? (doc.child.openapi_spec ?? "") : (node.openapi_spec ?? "")}
           isArchitect={isArchitect}
           autoCreate={doc.autoCreate}
           initialDocId={doc.docId}
-          onCommitOpenapi={commitOpenapi}
-          onDocEvent={onDocEvent}
+          onCommitOpenapi={doc.child ? commitChildOpenapi : commitOpenapi}
+          onDocEvent={doc.child ? handleChildDocEvent : onDocEvent}
           onClose={() => setDoc(null)}
-          notice={conflict}
+          notice={doc.child ? childSpecConflict : conflict}
         />
       )}
 
@@ -485,8 +552,14 @@ const containerWarn: CSSProperties = {
   margin: "0 0 8px",
 };
 
-// «Логика» контейнера: свои схемы (read-only) + объединение схем детей.
-function ContainerLogicBlock({ node, container }: { node: Node; container: ContainerChildrenState }) {
+// «Логика» контейнера: свои схемы (read-only) + объединение схем детей
+// (split-кнопки: левая открывает схему ребёнка напрямую, правая — на его страницу).
+function ContainerLogicBlock({ node, container, onOpenChildDoc, onNavigateChild }: {
+  node: Node;
+  container: ContainerChildrenState;
+  onOpenChildDoc: (child: Node, docId: string) => void;
+  onNavigateChild: (childId: string) => void;
+}) {
   return (
     <>
       {node.docs.length > 0 && (
@@ -511,13 +584,27 @@ function ContainerLogicBlock({ node, container }: { node: Node; container: Conta
       {container.combinedDocs.length > 0 && (
         <div className="insp-doc-list" style={node.docs.length > 0 ? { marginTop: 8 } : undefined}>
           {container.combinedDocs.map(({ doc, child }) => (
-            <div key={`${child.id}:${doc.id}`} className="insp-doc-item insp-doc-item--ro">
-              <span className="insp-doc-name">{doc.name}</span>
-              <span className={`insp-doc-chip insp-doc-chip--${doc.kind}`}>
-                {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
-              </span>
-              {doc.operation && <span className="insp-doc-op">{doc.operation}</span>}
-              <span className="insp-doc-open">от {child.name}</span>
+            <div key={`${child.id}:${doc.id}`} className="np-doc-split">
+              <button
+                type="button"
+                className="np-doc-split-main"
+                onClick={() => onOpenChildDoc(child, doc.id)}
+                title={`Открыть схему «${doc.name}»`}
+              >
+                <span className="insp-doc-name">{doc.name}</span>
+                <span className={`insp-doc-chip insp-doc-chip--${doc.kind}`}>
+                  {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
+                </span>
+                {doc.operation && <span className="insp-doc-op">{doc.operation}</span>}
+              </button>
+              <button
+                type="button"
+                className="np-doc-split-child"
+                onClick={() => onNavigateChild(child.id)}
+                title={`Перейти к объекту «${child.name}»`}
+              >
+                от {child.name} →
+              </button>
             </div>
           ))}
         </div>
@@ -530,8 +617,14 @@ function ContainerLogicBlock({ node, container }: { node: Node; container: Conta
   );
 }
 
-// «OpenAPI» контейнера: своя спека (read-only) + спеки детей.
-function ContainerSpecBlock({ node, container }: { node: Node; container: ContainerChildrenState }) {
+// «OpenAPI» контейнера: своя спека (read-only) + спеки детей (split-кнопки:
+// левая открывает спеку ребёнка напрямую, правая — на его страницу).
+function ContainerSpecBlock({ node, container, onOpenChildSpec, onNavigateChild }: {
+  node: Node;
+  container: ContainerChildrenState;
+  onOpenChildSpec: (child: Node) => void;
+  onNavigateChild: (childId: string) => void;
+}) {
   return (
     <>
       {node.openapi_spec && (
@@ -548,9 +641,23 @@ function ContainerSpecBlock({ node, container }: { node: Node; container: Contai
       {container.combinedSpecs.length > 0 && (
         <div className="insp-doc-list" style={node.openapi_spec ? { marginTop: 8 } : undefined}>
           {container.combinedSpecs.map((child) => (
-            <div key={child.id} className="insp-doc-item insp-doc-item--ro">
-              <span className="insp-doc-name">Спецификация</span>
-              <span className="insp-doc-open">от {child.name}</span>
+            <div key={child.id} className="np-doc-split">
+              <button
+                type="button"
+                className="np-doc-split-main"
+                onClick={() => onOpenChildSpec(child)}
+                title={`Открыть спецификацию «${child.name}»`}
+              >
+                <span className="insp-doc-name">Спецификация</span>
+              </button>
+              <button
+                type="button"
+                className="np-doc-split-child"
+                onClick={() => onNavigateChild(child.id)}
+                title={`Перейти к объекту «${child.name}»`}
+              >
+                от {child.name} →
+              </button>
             </div>
           ))}
         </div>

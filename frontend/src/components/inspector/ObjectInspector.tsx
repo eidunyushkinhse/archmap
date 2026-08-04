@@ -35,11 +35,14 @@ interface Props {
   onEdgeSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
   onEdgeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
   onGhostGoToSource: (ghost: GhostNode) => void;
+  // Переход на страницу узла (из split-строк «от <ребёнок>» у контейнера)
+  onNavigateNode: (nodeId: string) => void;
 }
 
 export default function ObjectInspector({
   hasStatusInfo, view, onViewChange, counts, selected, isArchitect,
   onNodeSaved, onNodeDeleted, onDocEvent, onNodeRefreshed, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
+  onNavigateNode,
 }: Props) {
   return (
     <div className="insp">
@@ -62,6 +65,7 @@ export default function ObjectInspector({
           onNodeDeleted={onNodeDeleted}
           onDocEvent={onDocEvent}
           onNodeRefreshed={onNodeRefreshed}
+          onNavigateNode={onNavigateNode}
         />
       ) : selected.kind === "ghost" ? (
         <GhostInspector
