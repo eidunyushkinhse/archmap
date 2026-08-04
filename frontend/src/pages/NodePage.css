@@ -598,6 +598,51 @@
   color: #64748b;
 }
 
+/* Кнопка-группа: схемы/спеки ГЛУБОКИХ потомков, собранные под непосредственным
+   ребёнком контейнера; клик раскрывает вложенные split-кнопки. */
+.np-doc-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 1px solid #eef2f6;
+  border-radius: 9px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.np-doc-group-toggle:hover {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+/* Шеврон группы: поворачивается при раскрытии (transform задаёт компонент) */
+.np-doc-group-chev {
+  display: inline-flex;
+  color: #94a3b8;
+  transition: transform 0.12s;
+}
+/* Счётчик схем/спек в группе (справа) */
+.np-doc-group-count {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+/* Тело раскрытой группы: вложенные split-кнопки с отступом слева */
+.np-doc-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 18px;
+}
+
 /* «+ Добавить» в карточках «Логика»/«OpenAPI» (архитектор) */
 .np-addbtn {
   margin-top: 10px;

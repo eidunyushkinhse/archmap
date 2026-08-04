@@ -180,6 +180,17 @@ function NodePageInner({
   const [edgeEditId, setEdgeEditId] = useState<string | null>(null);
   // Модалка «Распределить по детям» (правила контейнеров, grandfather-доки/спека)
   const [distributeOpen, setDistributeOpen] = useState(false);
+  // Раскрытые группы схем/спек глубоких потомков (ключ «doc:<id ребёнка>» /
+  // «spec:<id ребёнка>»). Сбрасывается перемонтированием при смене узла.
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
+  const toggleGroup = useCallback((key: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
   // CAS-база для правки openapi РЕБЁНКА со страницы контейнера: полный узел
   // (после успешного коммита заменяется на сохранённый — со свежей версией,
   // чтобы повторная правка не словила ложный 409).
@@ -572,23 +583,50 @@ function NodePageInner({
                   </>
                 )}
                 {/* Объединение схем ВСЕХ потомков (дети и глубже), сгруппированное
-                    по непосредственным детям контейнера: у каждой схемы — пометка
-                    узла-источника; split-кнопки: левая открывает схему напрямую,
-                    правая ведёт на страницу узла-владельца (доки принадлежат ему). */}
+                    по непосредственным детям контейнера: собственные схемы ребёнка —
+                    плоские split-кнопки, схемы глубоких потомков — в раскрываемой
+                    группе под ребёнком. Левая часть split-кнопки открывает схему
+                    владельца напрямую, правая ведёт на его страницу. */}
                 {container.docGroups.length > 0 && (
                   <>
                     {node.docs.length > 0 && <div className="np-sublabel">Схемы потомков</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {container.docGroups.map((group) => (
-                        <Fragment key={group.child.id}>
-                          {group.own.map((doc) => (
-                            <DocSplitRow key={doc.id} doc={doc} child={group.child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
-                          ))}
-                          {group.deep.map(({ doc, child }) => (
-                            <DocSplitRow key={`${child.id}:${doc.id}`} doc={doc} child={child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
-                          ))}
-                        </Fragment>
-                      ))}
+                      {container.docGroups.map((group) => {
+                        const groupKey = `doc:${group.child.id}`;
+                        const open = openGroups.has(groupKey);
+                        return (
+                          <Fragment key={group.child.id}>
+                            {/* Собственные схемы ребёнка — плоско */}
+                            {group.own.map((doc) => (
+                              <DocSplitRow key={doc.id} doc={doc} child={group.child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
+                            ))}
+                            {/* Схемы глубоких потомков — кнопка-группа с шевроном */}
+                            {group.deep.length > 0 && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="np-doc-group-toggle"
+                                  onClick={() => toggleGroup(groupKey)}
+                                  aria-expanded={open}
+                                >
+                                  <GroupChevron open={open} />
+                                  {group.child.name}
+                                  <span className="np-doc-group-count">
+                                    {group.deep.length} {plural(group.deep.length, ["схема", "схемы", "схем"])}
+                                  </span>
+                                </button>
+                                {open && (
+                                  <div className="np-doc-group-body">
+                                    {group.deep.map(({ doc, child }) => (
+                                      <DocSplitRow key={`${child.id}:${doc.id}`} doc={doc} child={child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -651,22 +689,48 @@ function NodePageInner({
                   </>
                 )}
                 {/* Спеки потомков (дети и глубже), сгруппированные по непосредственным
-                    детям контейнера; split-кнопки: левая открывает спеку напрямую,
-                    правая — на страницу узла-владельца. */}
+                    детям контейнера: спека самого ребёнка — плоская split-кнопка,
+                    спеки глубоких потомков — в раскрываемой группе под ребёнком. */}
                 {container.specGroups.length > 0 && (
                   <>
                     {node.openapi_spec && <div className="np-sublabel">Спеки потомков</div>}
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {container.specGroups.map((group) => (
-                        <Fragment key={group.child.id}>
-                          {group.own && (
-                            <SpecSplitRow key={group.child.id} child={group.child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
-                          )}
-                          {group.deep.map((child) => (
-                            <SpecSplitRow key={child.id} child={child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
-                          ))}
-                        </Fragment>
-                      ))}
+                      {container.specGroups.map((group) => {
+                        const groupKey = `spec:${group.child.id}`;
+                        const open = openGroups.has(groupKey);
+                        return (
+                          <Fragment key={group.child.id}>
+                            {/* Спека самого ребёнка — плоско */}
+                            {group.own && (
+                              <SpecSplitRow child={group.child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
+                            )}
+                            {/* Спеки глубоких потомков — кнопка-группа с шевроном */}
+                            {group.deep.length > 0 && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="np-doc-group-toggle"
+                                  onClick={() => toggleGroup(groupKey)}
+                                  aria-expanded={open}
+                                >
+                                  <GroupChevron open={open} />
+                                  {group.child.name}
+                                  <span className="np-doc-group-count">
+                                    {group.deep.length} {plural(group.deep.length, ["спека", "спеки", "спек"])}
+                                  </span>
+                                </button>
+                                {open && (
+                                  <div className="np-doc-group-body">
+                                    {group.deep.map((child) => (
+                                      <SpecSplitRow key={child.id} child={child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -979,6 +1043,16 @@ function ChevronDown() {
       strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}>
       <path d="M6 9 L12 15 L18 9" />
     </svg>
+  );
+}
+
+// Шеврон кнопки-группы (схемы/спеки глубоких потомков): смотрит вниз, когда
+// группа раскрыта, и вправо — когда свёрнута (CSS-трансформация).
+function GroupChevron({ open }: { open: boolean }) {
+  return (
+    <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
+      <ChevronDown />
+    </span>
   );
 }
 

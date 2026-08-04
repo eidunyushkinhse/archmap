@@ -156,9 +156,10 @@ describe("NodePage", () => {
 });
 
 // ── Правила контейнеров ─────────────────────────────────────────────────────
-// Контейнер (сервис с детьми): логика/спеки — объединение детей с пометкой
-// ребёнка, свои (grandfather) схемы — с предупреждением и переносом по детям,
-// технология — агрегированная read-only, создание схем/спек скрыто.
+// Контейнер (сервис с детьми): логика/спеки — объединение потомков,
+// сгруппированное по непосредственным детям (своё плоско, глубокое — в
+// раскрываемой группе), свои (grandfather) схемы — с предупреждением и
+// переносом по детям, технология — агрегированная read-only, создание скрыто.
 describe("NodePage: правила контейнеров", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -202,18 +203,62 @@ describe("NodePage: правила контейнеров", () => {
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k1");
   });
 
-  it("объединение включает схемы опосредованных потомков (внуков)", async () => {
-    // k1 — непосредственный ребёнок (без своих схем), g1 — внук (parent_id=k1)
-    // со схемой: она должна попасть в объединение с пометкой «от Внук».
-    const kid = node("k1", { name: "Шлюз" });
+  it("группировка по детям: схемы ребёнка плоско, схемы внуков — в раскрываемой группе под родителем", async () => {
+    // k1 — непосредственный ребёнок со своей схемой, g1 — внук (parent_id=k1)
+    // со схемой: она уходит в группу под «Шлюз», свёрнутую по умолчанию.
+    const kid = node("k1", { name: "Шлюз", docs: [docMeta({ id: "dk", name: "Схема шлюза" })] });
     const grand = node("g1", { name: "Внук", parent_id: "k1", docs: [docMeta({ id: "dg", name: "Схема внука" })] });
     setupContainer({ children: [kid, grand] });
-    await screen.findByText("Схема внука");
+    // Собственная схема ребёнка — плоская split-кнопка, видна сразу.
+    await screen.findByText("Схема шлюза");
+    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
+    // Схема внука — в свёрнутой группе: скрыта, но есть кнопка-группа с именем
+    // ребёнка и счётчиком (aria-expanded=false).
+    expect(screen.queryByText("Схема внука")).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 схема/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // Клик раскрывает группу: схема внука видна, пометка «от Внук».
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Схема внука")).toBeInTheDocument();
     expect(screen.getByText("от Внук →")).toBeInTheDocument();
-    // Левая часть открывает схему внука в его контексте.
-    const mainBtn = screen.getByText("Схема внука").closest("button");
-    await userEvent.click(mainBtn as HTMLButtonElement);
+    // Левая часть группы открывает схему внука в его контексте.
+    const deepBtn = screen.getByText("Схема внука").closest("button");
+    await userEvent.click(deepBtn as HTMLButtonElement);
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-node-id", "g1");
+    expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "dg");
+    // Левая часть собственной схемы ребёнка — в контексте ребёнка.
+    const ownBtn = screen.getByText("Схема шлюза").closest("button");
+    await userEvent.click(ownBtn as HTMLButtonElement);
+    expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-node-id", "k1");
+    expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "dk");
+    // Правая часть split-кнопки внука ведёт на его страницу.
+    await userEvent.click(screen.getByText("от Внук →"));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
+  });
+
+  it("спеки потомков: спека ребёнка плоско, спека внука — в раскрываемой группе", async () => {
+    const kid = node("k1", { name: "Шлюз", openapi_spec: "openapi: 3.0.0" });
+    const grand = node("g1", { name: "Внук", parent_id: "k1", openapi_spec: "openapi: 3.0.0" });
+    setupContainer({ children: [kid, grand] });
+    // Спека ребёнка — плоская split-кнопка, видна сразу; спека внука скрыта
+    // в свёрнутой группе (видима только одна «Спецификация»).
+    await screen.findByText("Спецификация");
+    expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
+    expect(screen.getAllByText("Спецификация")).toHaveLength(1);
+    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 спека/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByText("Спецификация")).toHaveLength(2);
+    // Левая часть спеки внука открывает оверлей в его контексте (режим openapi).
+    await userEvent.click(screen.getByTitle("Открыть спецификацию «Внук»"));
+    const overlay = screen.getByTestId("doc-overlay");
+    expect(overlay).toHaveAttribute("data-node-id", "g1");
+    expect(overlay).toHaveAttribute("data-mode", "openapi");
+    // Правая часть ведёт на страницу внука.
+    await userEvent.click(screen.getByText("от Внук →"));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
   });
 
   it("свои схемы: предупреждение и «Распределить по детям», создание скрыто", async () => {
