@@ -18,7 +18,6 @@ import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
 import NodeModal from "../components/NodeModal";
-import { spawnPosition } from "./spawnPosition";
 import NodeTreePanel from "../components/NodeTreePanel";
 import "../components/NodeTreePanel.css";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
@@ -566,14 +565,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
           currentNodeId={currentParentId}
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
-          onCreateChild={(parentId) => {
-            // Детерминированный спавн: «+» не оставляет узел невладеемым (ELK
-            // выбирал бы позицию сам, и создание связи сдвигало бы его).
-            const sp = spawnPosition(viewLayout, new Set(nodes.map((n) => n.id)), parentId, currentParentId);
-            setNodeModal(sp && sp.viaCurrentView
-              ? { open: true, node: null, parentId, pos: sp.pos, posView: currentParentId }
-              : { open: true, node: null, parentId, pos: sp?.pos ?? null });
-          }}
+          onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
           onTemplateDrag={setDragShape}
         />
 

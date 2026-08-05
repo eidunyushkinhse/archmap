@@ -84,6 +84,33 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.liveInputs.layoutEdges.map((e) => e.id).sort()).toEqual(["eAB", "eGA", "eHB"]);
   });
 
+  it("V22: невладеемые ЛОКАЛЫ засеиваются при первом показе (стабильность холста)", async () => {
+    // уровень без сохранённых строк: локалы A/B засеиваются вместе с гостями —
+    // иначе ELK пере-размещал бы их при каждом изменении графа
+    const out = await computeViewLayout(levelInput({ viewLayout: {} }));
+    const seeds = out.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
+    expect(seeds.map((s) => s.id).sort()).toEqual(["A", "B", "D", "G"]);
+  });
+
+  it("стабильность: добавление узла и связи не двигает владеемых локалов", async () => {
+    const first = await computeViewLayout(levelInput());
+    const posA = first.layout.positions.get("A");
+    const posB = first.layout.positions.get("B");
+    // новый узел C + связь с ним: A/B владеемые → остаются на местах
+    const second = await computeViewLayout(levelInput({
+      nodes: [appNode("A"), appNode("B"), appNode("C")],
+      edges: [
+        edge("eAB", "A", "B", "зов"), edge("eGA", "G", "A"), edge("eHB", "H", "B"),
+        edge("eAC", "A", "C"),
+      ],
+    }));
+    expect(second.layout.positions.get("A")).toEqual(posA);
+    expect(second.layout.positions.get("B")).toEqual(posB);
+    // новичок C невладеемый → засеян (зафиксируется и дальше двигать не будет)
+    const seeds = second.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
+    expect(seeds.map((s) => s.id)).toContain("C");
+  });
+
   it("конвергенция: второй прогон с засеянными позициями — без интентов и без сдвигов", async () => {
     const first = await computeViewLayout(levelInput());
     const seeded = Object.fromEntries(
