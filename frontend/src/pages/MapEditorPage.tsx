@@ -18,6 +18,7 @@ import CrossLevelEdgePicker from "../components/CrossLevelEdgePicker";
 import EdgeQuickCreate from "../components/EdgeQuickCreate";
 import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
 import NodeModal from "../components/NodeModal";
+import { spawnPosition } from "./spawnPosition";
 import NodeTreePanel from "../components/NodeTreePanel";
 import "../components/NodeTreePanel.css";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
@@ -307,8 +308,13 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
 
   function handleNodeSaved(saved: Node, isCreate: boolean, before?: Node) {
     const intoFrame = isCreate && saved.parent_id != null && saved.parent_id !== currentParentId;
+    // Позиция созданного узла — СРАЗУ в зеркало вида: иначе конвейер увидит узел
+    // невладеемым, поставит его ELK'ом, а засев владения перетрёт записанную
+    // при создании позицию (узел «спавнился случайно», не там, где его поставили).
+    if (isCreate && nodeModal.pos) {
+      handleLayoutChanged({ [saved.id]: { x: nodeModal.pos.x, y: nodeModal.pos.y } });
+    }
     if (intoFrame) {
-      if (nodeModal.pos) handleLayoutChanged({ [saved.id]: { x: nodeModal.pos.x, y: nodeModal.pos.y } });
       childRefreshTok.current += 1;
       // parent_id !== null гарантирован условием intoFrame; явная проверка для сужения TS
       if (saved.parent_id !== null) {
@@ -560,7 +566,14 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
           currentNodeId={currentParentId}
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
-          onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
+          onCreateChild={(parentId) => {
+            // Детерминированный спавн: «+» не оставляет узел невладеемым (ELK
+            // выбирал бы позицию сам, и создание связи сдвигало бы его).
+            const sp = spawnPosition(viewLayout, new Set(nodes.map((n) => n.id)), parentId, currentParentId);
+            setNodeModal(sp && sp.viaCurrentView
+              ? { open: true, node: null, parentId, pos: sp.pos, posView: currentParentId }
+              : { open: true, node: null, parentId, pos: sp?.pos ?? null });
+          }}
           onTemplateDrag={setDragShape}
         />
 
