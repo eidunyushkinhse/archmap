@@ -94,17 +94,19 @@ _read_view_layout/_ghost_registry); фронт `pages/NodePage.tsx` (SchemaSecti
   (view_id = focus.id); наблюдатель — read-only. Структурное редактирование
   (создание/удаление узлов и связей, хэндлы, quick-connect) выключено для
   ОБЕИХ ролей (canStructure=false: readOnly=true, arrangeOnly=isArchitect).
-  «Переразложить» на странице сбрасывает позиции И раскрытия вида фокуса
-  (POST /nodes/{id}/context-relayout). [код: EmbeddedSchemaBlock +
-  useLevelPersistence с layoutViewId]
+  «Переразложить» на странице сбрасывает позиции вида фокуса
+  (POST /nodes/{id}/context-relayout); раскрытия переживают сброс (V31/C28).
+  [код: EmbeddedSchemaBlock + useLevelPersistence с layoutViewId]
 - **X14.** (v2, 2026-08-02) Инлайн-раскрытия на странице СОХРАНЯЮТСЯ как часть
   раскладки вида фокуса (expanded-флаги в view_layout, view_id = focus.id) и
-  восстанавливаются при перезаходе. «Переразложить» сбрасывает и их.
-  ignorePersistedExpanded для страницы НЕ передаётся (раскрытия персистны).
-  [код: EmbeddedSchemaBlock + useLevelDrill]
+  восстанавливаются при перезаходе. «Переразложить» сохраняет и их —
+  сбрасываются только позиции (V31/C28). ignorePersistedExpanded для страницы
+  НЕ передаётся (раскрытия персистны). [код: EmbeddedSchemaBlock +
+  useLevelDrill]
 - **X15.** Блок инертен до клика-активации (пан/зум после неё), Esc/клик-мимо
   деактивирует; заголовок секции — просто «Схема», без пилюль и без
-  подписи-легенды под холстом (showCaption=false). [код: ESB]
+  подписи-легенды под холстом (легенда удалена вместе с механизмом
+  showCaption, 2026-08-05). [код: ESB]
 
 ## 5. Раскрытие (R5) на странице
 
