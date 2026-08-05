@@ -53,9 +53,6 @@ interface Props {
   showViewFilter: boolean;
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
-  // Подпись-легенда под холстом («Гости — пунктиром…»). Секция «Схема» страницы
-  // объекта (single-schema) рисуется без неё (ТЗ §3.1).
-  showCaption?: boolean;
 }
 
 export default function EmbeddedSchemaBlock({
@@ -63,7 +60,6 @@ export default function EmbeddedSchemaBlock({
   ancestorNames, ancestorIds, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout,
   height, toolbarHint, showViewFilter, empty,
-  showCaption = true,
 }: Props) {
   const [active, setActive] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -236,13 +232,6 @@ export default function EmbeddedSchemaBlock({
           </>
         )}
       </div>
-
-      {/* Подпись */}
-      {!empty && showCaption && (
-        <p className="esb-caption">
-          Гости с других уровней — пунктиром. Двойной клик по объекту — его страница.
-        </p>
-      )}
 
       {/* Модалка выбора связи (общее плечо / несколько связей) */}
       {choiceModal}

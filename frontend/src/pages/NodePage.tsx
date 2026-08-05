@@ -1318,7 +1318,6 @@ function SchemaSection({
         onRelayout={handleRelayout}
         height={height}
         showViewFilter={hasStatusInfo}
-        showCaption={false}
       />
     </div>
   );
