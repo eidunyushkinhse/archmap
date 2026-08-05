@@ -528,19 +528,29 @@ def get_node_processes(
 def _clear_level_layout(
     db: Session, container_id: uuid.UUID | None, project: Project
 ) -> None:
-    """Сбрасывает ВЕСЬ ручной layout вида в авто (own-on-first-render, Ф2):
-    удаляем все строки view_layout этого вида — позиции локалов/гостей/контейнеров
-    и геометрию пучков разом (R3: единое хранилище). После сброса уровень выглядит
-    как при первом открытии (ELK + кольца + авто-маршруты + пере-засев владения).
-    Скоуп строго по виду: соседние уровни и другие виды нетронуты."""
+    """Сбрасывает ручной layout вида в авто (own-on-first-render, Ф2):
+    удаляем строки view_layout этого вида — позиции локалов/гостей/контейнеров
+    и геометрию пучков разом (R3: единое хранилище). Строки с флагом expanded
+    СОХРАНЯЕМ без координат: раскрытия переживают сброс (решение 2026-08-05 —
+    «Переразложить» расставляет видимые узлы на авто-позиции, но контейнеры не
+    сворачивает; до фикса раскрытия держались лишь эфемерно в сессии и терялись
+    при перезагрузке). После сброса уровень выглядит как при первом открытии
+    (ELK + кольца + авто-маршруты + пере-засев владения) с сохранёнными
+    раскрытиями. Скоуп строго по виду: соседние уровни и другие виды нетронуты."""
     view_filter = (
         ViewLayoutItem.view_id.is_(None)
         if container_id is None
         else ViewLayoutItem.view_id == container_id
     )
-    db.query(ViewLayoutItem).filter(
-        ViewLayoutItem.project_id == project.id, view_filter
-    ).delete(synchronize_session=False)
+    for it in (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id == project.id, view_filter)
+        .all()
+    ):
+        if isinstance(it.payload, dict) and it.payload.get("expanded") is True:
+            it.payload = {"expanded": True}
+        else:
+            db.delete(it)
     # relayout меняет мир вида: fence должен отсечь отставшие батчи (например,
     # дроп драга из сессии, не видевшей перераскладку), поллинг — увидеть сброс
     bump_view_version(db, project.id, container_id)
@@ -554,7 +564,7 @@ def relayout_root_level(
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> None:
-    """«Переразложить» корневой уровень: позиции корневых узлов → авто (dagre)."""
+    """«Переразложить» корневой уровень: позиции корневых узлов → авто (ELK)."""
     _clear_level_layout(db, None, project)
 
 
