@@ -149,6 +149,16 @@ drawIn после жеста — [edge.md](edge.md) E64–E66, переезды 
   (сдвиг относительной позиции при том же абсолюте — не изменение) + все точки
   маршрута + центр плашки; квант 0.5px; новые/исчезнувшие/скрытые рёбра не
   участвуют. [тест: layoutAnimation.test.ts]
+- **AN28а.** (2026-08-05) Окно мутаций: noteMutation зовут обработчики мутаций
+  страниц — создание/удаление узлов и связей, правка связи (MapEditorPage:
+  handleNodeSaved-создание, handleNodeDeleted, handleNodesDeleted,
+  handleEdgeDeleted, handleEdgeSaved, pushEdgeCreate; NodePage: onChanged
+  EdgeEditModal через SchemaSection). Сигнал — проп mutationToken
+  (LevelGraph/EmbeddedSchemaBlock). Потребление как AN27, но в draw-набор
+  входят и НОВЫЕ рёбра (отсутствуют в прежнем снимке) — новые стрелки тоже
+  рисуются. Назначение: пересчёт авто-маршрутов при изменении графа
+  «дёргал» стрелки — теперь они перерисовываются drawIn-каскадом. TTL — тот же
+  GESTURE_TTL_MS; undo/redo мутаций анимирует окно жеста (AN26). [код]
 
 ## 9. Каскад drawIn
 
