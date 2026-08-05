@@ -86,6 +86,9 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   // Токен свершившейся переразкладки: LevelGraph режиссирует приход свежей
   // раскладки чистым переездом узлов (анимация «Переразложить»).
   const [relayoutToken, setRelayoutToken] = useState(0);
+  // Токен мутации (создание/удаление узлов и связей): LevelGraph перерисовывает
+  // изменившиеся стрелки анимированно и рисует новые (окно мутаций, AN28а).
+  const [mutationToken, setMutationToken] = useState(0);
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
   // Сигнал перезагрузки дерева (создание/удаление узла, undo/redo)
   const [treeReload, setTreeReload] = useState(0);
@@ -301,6 +304,10 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   // ── Обработчики (порты из TreePage) ──────────────────────────────
   const refetchLevel = (level: string | null) => () => { load(level); };
 
+  // Мутация свершилась: следующее применение раскладки перерисует изменившиеся
+  // стрелки анимированно и нарисует новые (окно мутаций, AN28а).
+  function noteMutation() { setMutationToken((t) => t + 1); }
+
   function nodeFields(n: Node): NodeUpdate {
     return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape };
   }
@@ -326,6 +333,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     setSelectedObject((sel) => sel?.kind === "node" && sel.node.id === saved.id ? { kind: "node", node: saved } : sel);
     if (!isArchitect) return;
     if (isCreate) {
+      noteMutation();
       setTreeReload((t) => t + 1);
       const levelAtCreate = currentParentId;
       const frameParent = intoFrame ? saved.parent_id : null;
@@ -349,6 +357,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     setSelectedObject(null);
     setTreeReload((t) => t + 1);
     load(currentParentId);
+    noteMutation();
     if (!snapshot) return;
     const levelAtDelete = currentParentId;
     const refetch = refetchLevel(levelAtDelete);
@@ -361,6 +370,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   function handleNodesDeleted(ids: string[], snapshots: DeletionSnapshot[]) {
     setTreeReload((t) => t + 1);
     load(currentParentId);
+    noteMutation();
     if (snapshots.length === 0) return;
     const levelAtDelete = currentParentId;
     const refetch = refetchLevel(levelAtDelete);
@@ -392,6 +402,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   function handleEdgeDeleted(id: string, snapshot?: DeletionSnapshot) {
     setSelectedObject(null);
     load(currentParentId);
+    noteMutation();
     if (!snapshot || !isArchitect) return;
     const levelAtDelete = currentParentId;
     const refetch = () => load(levelAtDelete);
@@ -403,6 +414,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
 
   function handleEdgeSaved(updated: Edge, undoPayload?: EdgeUpdate, redoPayload?: EdgeUpdate) {
     load(currentParentId);
+    noteMutation();
     if (!undoPayload || !redoPayload || !isArchitect) return;
     const levelAtEdit = currentParentId;
     const refetch = () => load(levelAtEdit);
@@ -414,6 +426,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
 
   function pushEdgeCreate(created: Edge) {
     if (!isArchitect) return;
+    noteMutation();
     const levelAtCreate = currentParentId;
     const refetch = () => load(levelAtCreate);
     let snap: DeletionSnapshot | null = null;
@@ -584,6 +597,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
             <LevelGraph
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}
               depth={breadcrumb.length} containerId={currentParentId} relayoutToken={relayoutToken}
+              mutationToken={mutationToken}
               ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
               isArchitect={isArchitect}
               linkedHighlight={linkedHighlight}

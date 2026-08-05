@@ -178,6 +178,9 @@ function NodePageInner({
   const [specAgent, setSpecAgent] = useState(false);
   // Модалка-редактор связи (архитектор): id связи из строки таблицы «Связи»
   const [edgeEditId, setEdgeEditId] = useState<string | null>(null);
+  // Токен мутации (правка связи со страницы): секция «Схема» перерисовывает
+  // изменившиеся стрелки анимированно (окно мутаций, AN28а).
+  const [mutationToken, setMutationToken] = useState(0);
   // Модалка «Распределить по детям» (правила контейнеров, grandfather-доки/спека)
   const [distributeOpen, setDistributeOpen] = useState(false);
   // Раскрытые группы схем/спек глубоких потомков (ключ «doc:<id ребёнка>» /
@@ -507,6 +510,7 @@ function NodePageInner({
             onNavigateMap={onNavigateMap}
             onMetaChange={handleMetaChange}
             viewMeta={viewMetaRef}
+            mutationToken={mutationToken}
           />
         </div>
 
@@ -837,7 +841,7 @@ function NodePageInner({
         <EdgeEditModal
           edgeId={edgeEditId}
           onClose={() => setEdgeEditId(null)}
-          onChanged={onEdgesReload}
+          onChanged={() => { setMutationToken((t) => t + 1); onEdgesReload(); }}
         />
       )}
 
@@ -1113,6 +1117,7 @@ function SchemaSection({
   onNavigateMap,
   onMetaChange,
   viewMeta,
+  mutationToken,
 }: {
   node: Node;
   ancestors: AncestorRef[];
@@ -1125,6 +1130,9 @@ function SchemaSection({
   // Общий с страницей курсор конкурентности (страница тихо обновляет его после
   // СВОИХ записей — echo-suppression, V53).
   viewMeta: { current: ViewMetaState };
+  // Токен мутации страницы (правка связи в EdgeEditModal): изменившиеся стрелки
+  // перерисовываются анимированно (окно мутаций, AN28а).
+  mutationToken: number;
 }) {
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
@@ -1319,6 +1327,7 @@ function SchemaSection({
         onEdit={onEdit}
         onRelayout={handleRelayout}
         relayoutToken={relayoutToken}
+        mutationToken={mutationToken}
         height={height}
         showViewFilter={hasStatusInfo}
       />

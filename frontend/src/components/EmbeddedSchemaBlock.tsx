@@ -48,6 +48,9 @@ interface Props {
   // Токен свершившейся переразкладки (инкрементит хозяин после сброса): приход
   // свежей раскладки анимируется чистым переездом узлов.
   relayoutToken?: number;
+  // Токен мутации страницы (правка/создание/удаление связей и узлов): стрелки с
+  // изменившейся геометрией перерисовываются анимированно, новые рисуются (AN28а).
+  mutationToken?: number;
   // Высота блока
   height: number;
   // Заголовок тулбара (счётчик компонентов и т.п.)
@@ -61,7 +64,7 @@ interface Props {
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, depth, isArchitect,
-  schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken,
+  schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
   height, toolbarHint, showViewFilter, empty,
 }: Props) {
   const [active, setActive] = useState(false);
@@ -229,6 +232,7 @@ export default function EmbeddedSchemaBlock({
                 edgeCallbacks={edgeCallbacks}
                 onRelayout={onRelayout}
                 relayoutToken={relayoutToken}
+                mutationToken={mutationToken}
               />
             </div>
             {/* Легенда — правый нижний угол, доступна всегда (в т.ч. неактивный блок) */}

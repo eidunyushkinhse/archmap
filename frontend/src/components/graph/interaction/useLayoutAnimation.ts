@@ -82,6 +82,10 @@ export interface LayoutAnimation {
   /** ручной жест изменил раскладку (отпускание драга, undo/redo) — изменённые
       стрелки следующего пересчёта перерисовать анимированно (drawIn) */
   noteGesture: () => void;
+  /** мутация страницы (создание/удаление узлов и связей, правка связи) — в
+      следующем применении перерисовать анимированно стрелки с изменившейся
+      геометрией И нарисовать новые (окно мутаций, AN28а) */
+  noteMutation: () => void;
   /** мгновенно доиграть анимацию (старт драга: применить отложенное, показать скрытое) */
   cancel: () => void;
   /** жёсткий сброс БЕЗ доигровки (смена уровня: отложенное протухло, применит сборщик) */
@@ -132,6 +136,8 @@ export function useLayoutAnimation({
   const intentRef = useRef<Intent | null>(null);
   // момент последнего ручного жеста (0 — окна жеста нет)
   const gestureRef = useRef(0);
+  // момент последней мутации страницы (0 — окна мутаций нет)
+  const mutationRef = useRef(0);
   // маски открытого окна анимации: что прятать в прогонах-посредниках
   const maskRef = useRef<{ frames: Set<string>; edges: Set<string> } | null>(null);
   // рёбра в фазе ОТРИСОВКИ (drawIn): помечать заново в прогонах-посредниках,
@@ -208,6 +214,7 @@ export function useLayoutAnimation({
     epochRef.current++; // продолжения флаша в полёте — устаревают
     intentRef.current = null;
     gestureRef.current = 0;
+    mutationRef.current = 0;
     drawRef.current = null;
     const pending = pendingRef.current;
     pendingRef.current = null;
@@ -231,6 +238,7 @@ export function useLayoutAnimation({
     epochRef.current++; // продолжения флаша в полёте — устаревают
     intentRef.current = null;
     gestureRef.current = 0;
+    mutationRef.current = 0;
     maskRef.current = null;
     drawRef.current = null;
     pendingRef.current = null;
@@ -413,6 +421,27 @@ export function useLayoutAnimation({
       }
     }
 
+    // ОКНО МУТАЦИЙ (noteMutation): создание/удаление узлов и связей на странице
+    // пересчитывает авто-маршруты — стрелки с изменившейся геометрией
+    // перерисовываем анимированно (drawIn) вместо резкого скачка; НОВЫЕ рёбра
+    // (их нет в прежнем снимке) тоже рисуются. Механика общая с окном жеста.
+    if (mutationRef.current) {
+      if (Date.now() - mutationRef.current >= GESTURE_TTL_MS) {
+        mutationRef.current = 0;
+      } else if (!reducedMotion()) {
+        const changed = changedEdgeIds(getNodes(), getEdges(), nextNodes, nextEdges);
+        const prevEdgeIds = new Set(getEdges().map((e) => e.id));
+        for (const e of nextEdges) if (!prevEdgeIds.has(e.id)) changed.add(e.id);
+        if (changed.size > 0) {
+          mutationRef.current = 0;
+          drawRef.current = new Set([...(drawRef.current ?? []), ...changed]);
+          laterFromFrame(drawSpanMs(drawRef.current.size), endDraw);
+        }
+      } else {
+        mutationRef.current = 0;
+      }
+    }
+
     // применение без режиссуры; внутри окна анимации — с повторной маской
     // (скрытые рамки/рёбра) и повторным drawIn (фаза отрисовки ещё идёт)
     const mask = maskRef.current;
@@ -442,6 +471,9 @@ export function useLayoutAnimation({
   const noteGesture = useCallback(() => {
     gestureRef.current = Date.now();
   }, []);
+  const noteMutation = useCallback(() => {
+    mutationRef.current = Date.now();
+  }, []);
 
-  return { apply, noteExpand, noteCollapse, noteRelayout, noteGesture, cancel, reset, active, jumpsPaused };
+  return { apply, noteExpand, noteCollapse, noteRelayout, noteGesture, noteMutation, cancel, reset, active, jumpsPaused };
 }

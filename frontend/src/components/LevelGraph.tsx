@@ -139,6 +139,10 @@ interface LevelGraphProps {
   // после сброса): приход свежей раскладки режиссируется чистым переездом
   // видимых узлов/рамок (planRelayout), без сворачивания раскрытий.
   relayoutToken?: number;
+  // Сигнал мутации страницы (создание/удаление узлов и связей, правка связи):
+  // стрелки с изменившейся геометрией в следующем применении перерисовываются
+  // анимированно (drawIn), новые — рисуются (окно мутаций, AN28а).
+  mutationToken?: number;
 }
 
 function LevelGraphInner({
@@ -164,6 +168,7 @@ function LevelGraphInner({
   undo,
   onRelayout,
   relayoutToken,
+  mutationToken,
 }: LevelGraphProps) {
   // Деструктуризация бандлов в плоские имена (Фаза 3д): тело компонента и вынесенные
   // хуки работают с теми же именами, что и до группировки пропсов, — поведение не
@@ -248,7 +253,7 @@ function LevelGraphInner({
   // сборщике). Интенты ставят обработчики лупы/сворачивания; окно анимации
   // включает класс lg-canvas--anim (CSS-transition в LevelGraph.css).
   const {
-    apply: applyLayout, noteExpand, noteCollapse, noteRelayout, noteGesture,
+    apply: applyLayout, noteExpand, noteCollapse, noteRelayout, noteGesture, noteMutation,
     cancel: cancelAnim, reset: resetAnim, active: animActive, jumpsPaused,
   } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges, gate });
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
@@ -257,6 +262,9 @@ function LevelGraphInner({
   // «Переразложить»: страница-хозяин свершила сброс (токен) — интент держится в
   // хуке до прихода свежего прогона и режиссирует его чистым переездом.
   useEffect(() => { if (relayoutToken) noteRelayout(); }, [relayoutToken, noteRelayout]);
+  // Мутация страницы (создание/удаление узлов и связей): окно мутаций — стрелки
+  // с изменившейся геометрией перерисуются анимированно, новые нарисуются (AN28а).
+  useEffect(() => { if (mutationToken) noteMutation(); }, [mutationToken, noteMutation]);
 
   // Авто-центрирование (fitOnLoad/fitOnExpand): didLoadFitRef — одноразовый фит
   // загрузки (на маунт; холст ремаунтится по key=node.id, поэтому «один раз» ==
