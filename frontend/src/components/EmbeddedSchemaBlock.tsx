@@ -45,6 +45,9 @@ interface Props {
   onEdit?: () => void;
   // «Переразложить» → сброс раскладки вида фокуса (архитектор, только с персистом)
   onRelayout?: () => void;
+  // Токен свершившейся переразкладки (инкрементит хозяин после сброса): приход
+  // свежей раскладки анимируется чистым переездом узлов.
+  relayoutToken?: number;
   // Высота блока
   height: number;
   // Заголовок тулбара (счётчик компонентов и т.п.)
@@ -58,7 +61,7 @@ interface Props {
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
   ancestorNames, ancestorIds, depth, isArchitect,
-  schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout,
+  schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken,
   height, toolbarHint, showViewFilter, empty,
 }: Props) {
   const [active, setActive] = useState(false);
@@ -225,6 +228,7 @@ export default function EmbeddedSchemaBlock({
                 drill={drill}
                 edgeCallbacks={edgeCallbacks}
                 onRelayout={onRelayout}
+                relayoutToken={relayoutToken}
               />
             </div>
             {/* Легенда — правый нижний угол, доступна всегда (в т.ч. неактивный блок) */}

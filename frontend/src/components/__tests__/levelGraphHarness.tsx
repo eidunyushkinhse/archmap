@@ -255,6 +255,7 @@ export const layoutAnimMock = {
   apply: vi.fn(),
   noteExpand: vi.fn(),
   noteCollapse: vi.fn(),
+  noteRelayout: vi.fn(),
   noteGesture: vi.fn(),
   cancel: vi.fn(),
   reset: vi.fn(),

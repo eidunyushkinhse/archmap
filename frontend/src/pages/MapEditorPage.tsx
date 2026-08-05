@@ -83,6 +83,9 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
   const [relayoutOpen, setRelayoutOpen] = useState(false);
+  // Токен свершившейся переразкладки: LevelGraph режиссирует приход свежей
+  // раскладки чистым переездом узлов (анимация «Переразложить»).
+  const [relayoutToken, setRelayoutToken] = useState(0);
   const [dragShape, setDragShape] = useState<NodeShape | null>(null);
   // Сигнал перезагрузки дерева (создание/удаление узла, undo/redo)
   const [treeReload, setTreeReload] = useState(0);
@@ -575,7 +578,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
           ) : (
             <LevelGraph
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}
-              depth={breadcrumb.length} containerId={currentParentId}
+              depth={breadcrumb.length} containerId={currentParentId} relayoutToken={relayoutToken}
               ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
               isArchitect={isArchitect}
               linkedHighlight={linkedHighlight}
@@ -624,7 +627,7 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
       {relayoutOpen && (
         <RelayoutConfirm containerId={currentParentId} levelName={currentParent?.name}
           onCancel={() => setRelayoutOpen(false)}
-          onDone={() => { setRelayoutOpen(false); load(currentParentId); history.clear(); }} />
+          onDone={() => { setRelayoutOpen(false); setRelayoutToken((t) => t + 1); load(currentParentId); history.clear(); }} />
       )}
       {edgeQuick && (
         <EdgeQuickCreate sourceId={edgeQuick.sourceId} targetId={edgeQuick.targetId}

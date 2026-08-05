@@ -95,11 +95,13 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   // «Переразложить»: сброс раскладки корневого уровня → перезагрузка (свежий ELK).
   // Реф-замок от повторных кликов (relayout идемпотентен, но незачем спамить).
   const relayoutInflight = useRef(false);
+  // Токен свершившегося сброса: блок схемы анимирует переезд на авто-позиции.
+  const [relayoutToken, setRelayoutToken] = useState(0);
   const handleRelayout = useCallback(() => {
     if (relayoutInflight.current) return;
     relayoutInflight.current = true;
     nodesApi.relayoutLevel(null)
-      .then(() => lvl.reload())
+      .then(() => { setRelayoutToken((t) => t + 1); return lvl.reload(); })
       .finally(() => { relayoutInflight.current = false; });
   }, [lvl]);
 
@@ -183,6 +185,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             onSchemaViewChange={setSchemaView}
             onNavigateNode={onNavigateNode}
             onRelayout={handleRelayout}
+            relayoutToken={relayoutToken}
             height={height}
             toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} ${plural(graphNodes.length, ["объект", "объекта", "объектов"])}` : undefined}
             showViewFilter={hasStatusInfo}

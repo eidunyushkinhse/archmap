@@ -135,6 +135,10 @@ interface LevelGraphProps {
   // «Переразложить» — canvas-кнопка в правом верхнем углу холста (архитектор).
   // Передан → кнопка видна; редактор-карта НЕ передаёт (у него своя в топбаре).
   onRelayout?: () => void;
+  // Сигнал свершившейся переразкладки (токен инкрементится страницей-хозяином
+  // после сброса): приход свежей раскладки режиссируется чистым переездом
+  // видимых узлов/рамок (planRelayout), без сворачивания раскрытий.
+  relayoutToken?: number;
 }
 
 function LevelGraphInner({
@@ -159,6 +163,7 @@ function LevelGraphInner({
   drop,
   undo,
   onRelayout,
+  relayoutToken,
 }: LevelGraphProps) {
   // Деструктуризация бандлов в плоские имена (Фаза 3д): тело компонента и вынесенные
   // хуки работают с теми же именами, что и до группировки пропсов, — поведение не
@@ -243,12 +248,15 @@ function LevelGraphInner({
   // сборщике). Интенты ставят обработчики лупы/сворачивания; окно анимации
   // включает класс lg-canvas--anim (CSS-transition в LevelGraph.css).
   const {
-    apply: applyLayout, noteExpand, noteCollapse, noteGesture,
+    apply: applyLayout, noteExpand, noteCollapse, noteRelayout, noteGesture,
     cancel: cancelAnim, reset: resetAnim, active: animActive, jumpsPaused,
   } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges, gate });
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
   // (свежую раскладку нового уровня применит сборщик).
   useEffect(() => { resetAnim(); }, [containerId, resetAnim]);
+  // «Переразложить»: страница-хозяин свершила сброс (токен) — интент держится в
+  // хуке до прихода свежего прогона и режиссирует его чистым переездом.
+  useEffect(() => { if (relayoutToken) noteRelayout(); }, [relayoutToken, noteRelayout]);
 
   // Авто-центрирование (fitOnLoad/fitOnExpand): didLoadFitRef — одноразовый фит
   // загрузки (на маунт; холст ремаунтится по key=node.id, поэтому «один раз» ==
