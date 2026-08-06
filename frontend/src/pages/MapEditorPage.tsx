@@ -334,6 +334,12 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     if (!isArchitect) return;
     if (isCreate) {
       noteMutation();
+      // Эхо-подавление самого создания: POST поднял graph_rev — без load курсор
+      // viewMetaRef остаётся старым, и ресинк считает СОБСТВЕННУЮ мутацию чужой
+      // сессией (ложный тост «Схема обновлена в другой сессии» + принудительный
+      // пересчёт, обрывающий анимацию окна мутаций). load обновляет курсор и
+      // даёт авторитетное состояние с сервера.
+      load(currentParentId);
       setTreeReload((t) => t + 1);
       const levelAtCreate = currentParentId;
       const frameParent = intoFrame ? saved.parent_id : null;

@@ -46,6 +46,14 @@ const INTENT_TTL_MS = 15_000;
 // (позиция не изменилась → commitLayout задедупил → прогона нет).
 const GESTURE_TTL_MS = 4_000;
 
+// Окно мутаций (noteMutation): сходимость. После мутации страницы раскладка
+// может прогоняться НЕСКОЛЬКО раз (зеркало засева, ресинк после 409 fence,
+// эхо поллинга) — окно живёт, пока геометрия меняется: изменённые стрелки
+// скрыты, и как только новых изменений нет MUTATION_SETTLE_MS — они рисуются
+// одним drawIn-каскадом по финальным маршрутам. Промежуточные пересчёты на
+// стрелках не видны — анимация не обрывается.
+const MUTATION_SETTLE_MS = 250;
+
 type Intent = { kind: "expand" | "collapse" | "relayout"; id: string; ts: number };
 
 // «Тихое окно» (Ф1 плавности): шлюз отложенного пересчёта раскладки. Владелец —
@@ -138,6 +146,9 @@ export function useLayoutAnimation({
   const gestureRef = useRef(0);
   // момент последней мутации страницы (0 — окна мутаций нет)
   const mutationRef = useRef(0);
+  // таймер сходимости окна мутаций (перезаказывается каждым применением с
+  // изменениями; истёк — геометрия устоялась, рисуем накопленное)
+  const settleTimerRef = useRef(0);
   // маски открытого окна анимации: что прятать в прогонах-посредниках
   const maskRef = useRef<{ frames: Set<string>; edges: Set<string> } | null>(null);
   // рёбра в фазе ОТРИСОВКИ (drawIn): помечать заново в прогонах-посредниках,
@@ -422,20 +433,45 @@ export function useLayoutAnimation({
     }
 
     // ОКНО МУТАЦИЙ (noteMutation): создание/удаление узлов и связей на странице
-    // пересчитывает авто-маршруты — стрелки с изменившейся геометрией
-    // перерисовываем анимированно (drawIn) вместо резкого скачка; НОВЫЕ рёбра
-    // (их нет в прежнем снимке) тоже рисуются. Механика общая с окном жеста.
+    // пересчитывает авто-маршруты — и порой НЕ В ОДИН прогон (зеркало засева,
+    // ресинк после 409 fence, эхо поллинга). Окно живёт ДО СХОДИМОСТИ: стрелки
+    // с изменившейся геометрией и НОВЫЕ рёбра скрываются (маска живёт в
+    // применениях-посредниках) и копятся в draw-набор; когда MUTATION_SETTLE_MS
+    // нет новых изменений (или истёк TTL) — рисуются ОДНИМ drawIn-каскадом по
+    // финальным маршрутам. Промежуточные пересчёты на стрелках не видны.
     if (mutationRef.current) {
       if (Date.now() - mutationRef.current >= GESTURE_TTL_MS) {
         mutationRef.current = 0;
+        if (settleTimerRef.current) { window.clearTimeout(settleTimerRef.current); settleTimerRef.current = 0; }
+        if (maskRef.current && maskRef.current.edges.size > 0) unmask(true);
       } else if (!reducedMotion()) {
         const changed = changedEdgeIds(getNodes(), getEdges(), nextNodes, nextEdges);
         const prevEdgeIds = new Set(getEdges().map((e) => e.id));
         for (const e of nextEdges) if (!prevEdgeIds.has(e.id)) changed.add(e.id);
         if (changed.size > 0) {
-          mutationRef.current = 0;
-          drawRef.current = new Set([...(drawRef.current ?? []), ...changed]);
-          laterFromFrame(drawSpanMs(drawRef.current.size), endDraw);
+          const first = !maskRef.current || maskRef.current.edges.size === 0;
+          const mask = maskRef.current ?? { frames: new Set<string>(), edges: new Set<string>() };
+          for (const id of changed) mask.edges.add(id);
+          maskRef.current = mask;
+          // сходимость: перезаказ таймера каждым применением с изменениями;
+          // истёк — геометрия устоялась, рисуем накопленное
+          if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+          settleTimerRef.current = window.setTimeout(() => {
+            settleTimerRef.current = 0;
+            if (!mutationRef.current) return; // окно уже закрыто (cancel/TTL)
+            mutationRef.current = 0;
+            if (maskRef.current && maskRef.current.edges.size > 0) unmask(true);
+          }, MUTATION_SETTLE_MS);
+          timersRef.current.push(settleTimerRef.current);
+          if (first) {
+            // жёсткий потолок: окно не переживает TTL даже без сигнала сходимости
+            later(GESTURE_TTL_MS, () => {
+              if (!mutationRef.current) return;
+              mutationRef.current = 0;
+              if (settleTimerRef.current) { window.clearTimeout(settleTimerRef.current); settleTimerRef.current = 0; }
+              if (maskRef.current && maskRef.current.edges.size > 0) unmask(true);
+            });
+          }
         }
       } else {
         mutationRef.current = 0;
