@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeViewLayout, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
+import { computeViewLayout, buildRouteSig, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 
 // Характеризация КОМПОЗИЦИИ конвейера раскладки (R1/R3): отдельные стадии покрыты
@@ -389,5 +389,79 @@ describe("computeViewLayout — композиция конвейера уров
     }));
     expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "B"]);
     expect(out.layout.guestFrames).toEqual([]);
+  });
+});
+
+// ГАШЕНИЕ ОСЦИЛЛЯЦИЙ МАРШРУТОВ (2026-08-06): роутер не идемпотентен относительно
+// prev (гистерезис осциллирует на реальных сценах — флип слотов/плашек), поэтому
+// при ПОБИТОВО неизменных входах роутинга результат удерживается ЦЕЛИКОМ из prev.
+describe("гашение осцилляций маршрутов (prevRouteSig)", () => {
+  const sameRoutes = (a: LayoutResult, b: LayoutResult) =>
+    [...a.autoRoutes!.entries()].every(([id, r]) => {
+      const q = b.autoRoutes!.get(id);
+      return q && q.length === r.length && q.every((p, i) => p.x === r[i].x && p.y === r[i].y);
+    }) && a.autoRoutes!.size === b.autoRoutes!.size;
+
+  it("идентичные входы + сигнатура prev → маршруты/хэндлы/плашки удерживаются из prev ЦЕЛИКОМ", async () => {
+    const A = await computeViewLayout(levelInput());
+    // доказательство механизма: подсовываем в prev МАРШРУТ С ИЗЛОМОМ, которого нет
+    // в свежем расчёте — если гашение сработало, результат вернёт именно его
+    const tampered = new Map(A.layout.autoRoutes!);
+    const firstId = [...tampered.keys()][0];
+    const orig = tampered.get(firstId)!;
+    const mid = { x: (orig[0].x + orig[orig.length - 1].x) / 2, y: -999 };
+    tampered.set(firstId, [orig[0], mid, orig[orig.length - 1]]);
+    const B = await computeViewLayout(levelInput({
+      prevRoutes: tampered,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    }));
+    expect([...B.layout.autoRoutes!.get(firstId)!].map((p) => p.y)).toContain(-999);
+    expect(B.layout.edgeHandles).toEqual(A.layout.edgeHandles);
+    expect(B.layout.labelPlacements).toEqual(A.layout.labelPlacements);
+  });
+
+  it("фикспойнт: прогон с prev=свой же результат идентичен ему (нет флипа)", async () => {
+    const A = await computeViewLayout(levelInput());
+    const B = await computeViewLayout(levelInput({
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    }));
+    expect(sameRoutes(A.layout, B.layout)).toBe(true);
+    expect(B.layout.edgeHandles).toEqual(A.layout.edgeHandles);
+    expect(B.layout.labelPlacements).toEqual(A.layout.labelPlacements);
+  });
+
+  it("сдвиг узла меняет сигнатуру → гашение не применяется, роутинг полный", async () => {
+    const A = await computeViewLayout(levelInput());
+    const moved = levelInput();
+    moved.viewLayout = { A: { x: 0, y: 0 }, B: { x: 900, y: 400 } };
+    const B = await computeViewLayout({
+      ...moved,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    });
+    expect(B.routeSig).not.toBe(A.routeSig);
+    expect(sameRoutes(A.layout, B.layout)).toBe(false);
+  });
+
+  it("buildRouteSig: детерминирована и чувствительна к подписи ребра", () => {
+    const ids = ["A", "B"];
+    const pos = new Map([["A", { x: 0, y: 0 }], ["B", { x: 400, y: 0 }]]);
+    const sizes = new Map<string, { w: number; h: number }>();
+    const mk = (label: string) => [{
+      id: "e1", source: "A", target: "B",
+      members: [{ label, technology: null } as unknown as AppEdge],
+    }];
+    const s1 = buildRouteSig(ids, pos, sizes, mk("зов") as never, new Set(["e1"]), []);
+    const s2 = buildRouteSig(ids, pos, sizes, mk("зов") as never, new Set(["e1"]), []);
+    const s3 = buildRouteSig(ids, pos, sizes, mk("событие") as never, new Set(["e1"]), []);
+    expect(s1).toBe(s2);
+    expect(s1).not.toBe(s3);
   });
 });

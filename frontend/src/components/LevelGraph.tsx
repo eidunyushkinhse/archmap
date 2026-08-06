@@ -30,6 +30,7 @@ import type {
   LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
 } from "./graph/types";
 import type { LayoutResult } from "./graph/layout/pipeline";
+import type { LabelPlacement } from "./graph/layout/labelLayout";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
@@ -579,6 +580,10 @@ function LevelGraphInner({
   const prevRoutesRef = useRef<{
     routes: Map<string, EdgePoint[]>;
     handles: Map<string, { sourceHandle: string; targetHandle: string }>;
+    // плашки и сигнатура входов роутинга прошлого прогона — гашение осцилляций
+    // (конвейер удерживает результат целиком из prev при неизменных входах)
+    labels?: Map<string, LabelPlacement>;
+    sig?: string;
     version: number;
   } | null>(null);
   // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
@@ -639,17 +644,22 @@ function LevelGraphInner({
       dragScopeRef.current = null;
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
-      const { layout: next, liveInputs, intents } = await computeViewLayoutOffThread({
+      const { layout: next, liveInputs, intents, routeSig } = await computeViewLayoutOffThread({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren,
         sizes: nodeSizesRef.current,
         prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
         prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
+        prevRouteSig: sameSizes ? prevRoutesRef.current?.sig : undefined,
+        prevLabelPlacements: sameSizes ? prevRoutesRef.current?.labels : undefined,
         scopeNodeIds: sameSizes ? scopeNodeIds : undefined,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
       if (next.autoRoutes) {
-        prevRoutesRef.current = { routes: next.autoRoutes, handles: next.edgeHandles, version: sizesVersion };
+        prevRoutesRef.current = {
+          routes: next.autoRoutes, handles: next.edgeHandles,
+          labels: next.labelPlacements, sig: routeSig, version: sizesVersion,
+        };
       }
       liveHandleInputs.current = liveInputs;
       // Побочные записи раскладки (интенты) — через единый commitLayout: засев владения

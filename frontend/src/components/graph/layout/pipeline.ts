@@ -125,6 +125,15 @@ export interface PipelineInput {
   // 18–26 из 32 маршрутов и не сходил к фикспойнту (дрейф гистерезисных прогонов). Полный
   // пересчёт всех рёбер остаётся на открытие уровня и «Переразложить» (scopeNodeIds не задан).
   scopeNodeIds?: string[];
+  // ГАШЕНИЕ ОСЦИЛЛЯЦИЙ МАРШРУТОВ (2026-08-06): сигнатура входов роутинга прошлого
+  // прогона и его плашки. Если входы роутинга ТЕКУЩЕГО прогона совпадают с сигнатурой
+  // ПО БИТАМ, результат берётся ЦЕЛИКОМ из prev (маршруты/хэндлы/плашки): роутер
+  // не идемпотентен относительно prev — гистерезис осциллирует (асимметрия раздачи
+  // слотов free/pinned + обратная связь маршрут↔плашка T4), и удержание prev —
+  // единственный фикспойнт. Стрелки не двигаются, пока не изменилось ничего,
+  // роутинг определяющего (см. buildRouteSig).
+  prevRouteSig?: string;
+  prevLabelPlacements?: Map<string, LabelPlacement>;
 }
 
 export interface PipelineOutput {
@@ -133,6 +142,10 @@ export interface PipelineOutput {
   // те же мастер-рёбра и узлы, по которым посчитан layout
   liveInputs: LiveHandleInputs;
   intents: PersistIntent[];
+  // сигнатура входов роутинга этого прогона: вызывающий кладёт её рядом с prev
+  // маршрутами и возвращает в следующем прогоне — гашение осцилляций
+  // (см. PipelineInput.prevRouteSig).
+  routeSig: string;
 }
 
 // Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
@@ -148,11 +161,46 @@ export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | n
   return t ? { text: t, lines: 1 } : null;
 }
 
+// Сигнатура входов роутинга (гашение осцилляций): всё, что видит роутер и
+// плашки — позиции/габариты отображаемых сущностей, мастер-рёбра с подписями
+// и скоупом, раскрытые рамки с плашками и составом. Детерминированная сборка:
+// одинаковые входы → одинаковая сигнатура; любое изменение, влияющее на
+// маршруты/хэндлы/плашки, её меняет (позиции, габариты, состав узлов/рёбер,
+// подписи, скоуп, рамки).
+export function buildRouteSig(
+  displayIds: readonly string[],
+  positions: ReadonlyMap<string, { x: number; y: number }>,
+  sizeMap: ReadonlyMap<string, { w: number; h: number }>,
+  groups: readonly EdgeGroup[],
+  routableIds: ReadonlySet<string>,
+  frames: ReadonlyArray<{
+    rect: { x: number; y: number; w: number; h: number };
+    plaque: { x: number; y: number; w: number; h: number };
+    memberIds: ReadonlySet<string>;
+  }>,
+): string {
+  const parts: string[] = [];
+  for (const id of displayIds) {
+    const p = positions.get(id);
+    const s = sizeMap.get(id);
+    parts.push(`n${id}:${p ? `${p.x},${p.y}` : "-"}:${s ? `${s.w},${s.h}` : `${NODE_W},${NODE_H}`}`);
+  }
+  for (const g of groups) {
+    const m = edgeLabelMeta(g);
+    parts.push(`e${g.id}:${g.source}>${g.target}:${m ? `${m.text}#${m.lines}` : ""}:${routableIds.has(g.id) ? 1 : 0}`);
+  }
+  for (const f of frames) {
+    parts.push(`f:${f.rect.x},${f.rect.y},${f.rect.w},${f.rect.h}|${f.plaque.x},${f.plaque.y},${f.plaque.w},${f.plaque.h}|${[...f.memberIds].sort().join(",")}`);
+  }
+  return parts.join(";");
+}
+
 /** Полный расчёт раскладки вида. Async из-за ELK; всё остальное синхронно и чисто. */
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
     expanded, localChildren, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
+    prevRouteSig, prevLabelPlacements,
   } = input;
   const intents: PersistIntent[] = [];
 
@@ -677,6 +725,20 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     }
   }
 
+  // Сигнатура входов роутинга этого прогона + ГАШЕНИЕ ОСЦИЛЛЯЦИЙ: входы совпали
+  // с прошлым прогоном ПО БИТАМ → результат ЦЕЛИКОМ из prev. Роутер не идемпотентен
+  // относительно prev (гистерезис осциллирует: асимметрия раздачи слотов free/pinned
+  // + обратная связь маршрут↔плашка T4 — пара рёбер по очереди отжимает слоты,
+  // плашки летают leader↔online, каждый прогон с prevRoutes переворачивает сцену).
+  // Удержание prev — единственный фикспойнт: стрелки/хэндлы/плашки не двигаются,
+  // пока не изменилось ничего, роутинг определяющего.
+  const routeSig = buildRouteSig(displayIds, positions, sizeMap, groupArr, routableIds, routerFrames);
+  if (prevRouteSig === routeSig && prevRoutes && prevEdgeHandles && prevLabelPlacements && autoRoutes) {
+    autoRoutes = prevRoutes;
+    edgeHandles = new Map(prevEdgeHandles);
+    labelPlacements = prevLabelPlacements;
+  }
+
   // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
   // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг
   // подставит живые. Роутим только затронутые — прочие маршруты идут фиксированным prev.
@@ -728,5 +790,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       route: liveRoute,
     },
     intents,
+    routeSig,
   };
 }
