@@ -471,6 +471,28 @@
   animation: lg-edge-draw 400ms ease-out both;
 }
 
+/* Появление плашек и поводков-выносок (идея 2026-08-06, AN28б): быстрое плавное
+   проявление. Плашка монтируется в момент снятия drawIn (или при появлении
+   стрелки без окна анимации) — появление синхронно с отрисовкой стрелок.
+   Обёртка .lg-label-in анимует scale+opacity: ВНЕШНИЙ div плашки держит
+   inline-transform позиции (translate до labelX/labelY) — анимация его не
+   задевает. Перемещение существующей плашки анимацию не проигрывает (нет
+   ремаунта) — никакого мерцания на драге/пересчёте. */
+@keyframes lg-label-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+.lg-label-in {
+  animation: lg-label-in 160ms ease-out both;
+}
+@keyframes lg-leader-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.lg-edge-leader {
+  animation: lg-leader-in 160ms ease-out both;
+}
+
 /* Уважение prefers-reduced-motion: хук и так применяет мгновенно (см.
    reducedMotion в useLayoutAnimation), это страховка на случай гонки класса. */
 @media (prefers-reduced-motion: reduce) {
@@ -478,7 +500,9 @@
   .lg-canvas--anim .lg-frame {
     transition: none;
   }
-  .lg-edge-drawin {
+  .lg-edge-drawin,
+  .lg-label-in,
+  .lg-edge-leader {
     animation: none;
   }
 }
