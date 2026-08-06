@@ -74,6 +74,11 @@ const EMPTY_VIEW_LAYOUT: ViewLayout = {};
 // идентичный вид. maxZoom 1.0 — не раздувать разреженные схемы (1–2 узла) крупнее
 // натурального размера, но и не мельчить (прежние 0.85 оставляли схемы «мелко»).
 const SCHEMA_FIT_OPTIONS = { padding: 0.1, maxZoom: 1.0 };
+// Тихое окно авто-центрирования: фит стартует, когда после последнего RF-коммита
+// прошло не меньше FIT_QUIET_MS (анимация не бьётся о коммиты), но не дольше
+// FIT_ATTEMPTS попыток по 140ms (не откладываем вечно при непрерывных изменениях).
+const FIT_QUIET_MS = 300;
+const FIT_ATTEMPTS = 10;
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -204,8 +209,21 @@ function LevelGraphInner({
   // страница объекта — нет (навигация двойным кликом + лупа).
   const drillNav = !!onEnterNode;
   const { screenToFlowPosition, setCenter, fitBounds, fitView, getInternalNode, getNodes, getEdges } = useReactFlow();
-  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
-  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
+  const [rfNodes, setRfNodesRaw, onNodesChange] = useNodesState<RFNode>([]);
+  const [rfEdges, setRfEdgesRaw, onEdgesChange] = useEdgesState<RFEdge>([]);
+  // Маркер «RF-стейт только что менялся» (apply, drawIn-маски, frame-follow):
+  // авто-центрирование ждёт ТИХОЕ ОКНО после последнего коммита, чтобы анимация
+  // фитовки не стартовала внутри тяжёлого коммита и не билась о последующие
+  // (трейс 2026-08-06: коммиты 100–180ms морозили кадры центрирования).
+  const lastRfCommitRef = useRef(0);
+  const setRfNodes = useCallback<typeof setRfNodesRaw>((...a) => {
+    lastRfCommitRef.current = performance.now();
+    return setRfNodesRaw(...a);
+  }, [setRfNodesRaw]);
+  const setRfEdges = useCallback<typeof setRfEdgesRaw>((...a) => {
+    lastRfCommitRef.current = performance.now();
+    return setRfEdgesRaw(...a);
+  }, [setRfEdgesRaw]);
 
   // --- «Тихое окно» (Ф1 эпика плавности): на окно анимации раскрытия/сворачивания
   // прогоны конвейера раскладки ОТКЛАДЫВАЮТСЯ (holdRef), копятся флагом dirtyRef и
@@ -806,24 +824,40 @@ function LevelGraphInner({
   // (редактор-карта) — эффект no-op, центрирование редактора не меняется.
   useEffect(() => {
     if ((!fitOnLoad && !fitOnExpand) || !hasGraphContent) return;
-    const t = window.setTimeout(() => {
-      if (!didLoadFitRef.current && fitOnLoad && sizesVersion >= 1) {
-        didLoadFitRef.current = true;
-        fitView(SCHEMA_FIT_OPTIONS);
-        return;
-      }
-      // Фит после раскрытия/сворачивания — только когда анимация ОСЕЛА (!animActive).
-      // Иначе при сворачивании fitView ловит промежуточную фазу схлопывания (потомки
-      // ещё стягиваются в точку) и считает viewport по ним, а не по итоговому
-      // свёрнутому составу — схема «уезжает в угол». По оседании (animActive=false)
-      // эффект перезапускается и фит считается по финальным узлам — одинаково для
-      // раскрытия и сворачивания.
-      if (expandFitRef.current && fitOnExpand && !animActive) {
-        expandFitRef.current = false;
-        fitView({ ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS });
-      }
-    }, 140);
-    return () => window.clearTimeout(t);
+    let cancelled = false;
+    let timer = 0;
+    const attempt = (n: number) => {
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        // ТИХОЕ ОКНО: фит стартует, только когда после последнего RF-коммита
+        // (apply/drawIn/маски) прошло FIT_QUIET_MS — иначе анимация центрирования
+        // начинается внутри тяжёлого коммита (первые кадры задержаны) и бьётся о
+        // последующие (фризы посреди анимации; трейс 2026-08-06). Не тихо и лимит
+        // попыток не исчерпан — ждём дальше; исчерпан — фитим как есть (лучше
+        // поздно и чуть дёргано, чем никогда).
+        if (performance.now() - lastRfCommitRef.current < FIT_QUIET_MS && n < FIT_ATTEMPTS) {
+          attempt(n + 1);
+          return;
+        }
+        if (!didLoadFitRef.current && fitOnLoad && sizesVersion >= 1) {
+          didLoadFitRef.current = true;
+          fitView(SCHEMA_FIT_OPTIONS);
+          return;
+        }
+        // Фит после раскрытия/сворачивания — только когда анимация ОСЕЛА (!animActive).
+        // Иначе при сворачивании fitView ловит промежуточную фазу схлопывания (потомки
+        // ещё стягиваются в точку) и считает viewport по ним, а не по итоговому
+        // свёрнутому составу — схема «уезжает в угол». По оседании (animActive=false)
+        // эффект перезапускается и фит считается по финальным узлам — одинаково для
+        // раскрытия и сворачивания.
+        if (expandFitRef.current && fitOnExpand && !animActive) {
+          expandFitRef.current = false;
+          fitView({ ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS });
+        }
+      }, 140);
+    };
+    attempt(0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
     // expandFitRef — стабильный ref-объект из useLevelDrill (идентичность не
     // меняется), в deps для полноты exhaustive-deps без изменения поведения.
     // animActive — флаг анимации раскрытия/сворачивания: фит ждёт её оседания.
