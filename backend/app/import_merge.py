@@ -20,6 +20,7 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import TypeGuard
 
+from app.identity import compare_identity, merge_key_sets
 from app.import_yaml import (
     MAX_EDGES,
     MAX_NODES,
@@ -80,7 +81,14 @@ class _Merger:
         self.nodes: list[_ImpNode] = []  # копии узлов, порядок «родители раньше детей»
         self.paths: list[str] = []  # полный путь merged-узла (для отчёта)
         self.sources: list[set[int]] = []  # какие файлы внесли вклад в узел
-        self.by_key: dict[tuple[int | None, str], int] = {}  # (merged-родитель, норм-имя) → idx
+        # (merged-родитель, норм-имя) → кандидаты. Список, а не один idx: якорь
+        # может РАЗВЕСТИ двух тёзок в одном родителе (разные репозитории), и оба
+        # обязаны остаться адресуемыми для следующих файлов.
+        self.by_key: dict[tuple[int | None, str], list[int]] = {}
+        # канонический ключ источника → idx узла. Индекс ГЛОБАЛЬНЫЙ (не в пределах
+        # родителя): якорь сильнее иерархии — им ловится сервис, которого разные
+        # прогоны положили под разных родителей или назвали по-разному.
+        self.by_source: dict[str, int] = {}
         self.edges: list[_ImpEdge] = []
         self.edge_seen: set[tuple[int, int, str, str]] = set()
         # (src, dst) → [(label, файл)] — для предупреждения о похожих рёбрах.
@@ -115,21 +123,75 @@ class _Merger:
             return
         self._conflict(idx, fld, cur, new, fi)
 
+    def _match_by_source(self, node: _ImpNode) -> int | None:
+        """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии. Кандидат по слабому
+        ключу отбрасывается, если по сильному он противоречит (общий host «api»
+        при разных git — разные сервисы двух команд)."""
+        for k in node.source_keys:
+            hit = self.by_source.get(k)
+            if hit is not None and compare_identity(self.nodes[hit].source_keys, node.source_keys) != "different":
+                return hit
+        return None
+
+    def _match_by_name(self, node: _ImpNode, parent_m: int | None) -> int | None:
+        """Матч по имени в пределах слитого родителя — прежнее поведение, но с
+        предохранителем: тёзка с противоречащим якорем НЕ склеивается."""
+        for idx in self.by_key.get((parent_m, _norm(node.name)), []):
+            if compare_identity(self.nodes[idx].source_keys, node.source_keys) == "different":
+                self.report.warnings.append(
+                    f"«{node.name}» ({self._where(parent_m)}) встречается в файлах как РАЗНЫЕ "
+                    f"объекты (различаются источники) — оставлены раздельно"
+                )
+                continue
+            return idx
+        return None
+
+    def _where(self, parent_m: int | None) -> str:
+        return f"внутри «{self.paths[parent_m]}»" if parent_m is not None else "на верхнем уровне"
+
+    def _register(self, idx: int, node: _ImpNode, parent_m: int | None) -> None:
+        """Узел адресуем и по имени в родителе, и по каждому своему якорю."""
+        self.by_key.setdefault((parent_m, _norm(node.name)), []).append(idx)
+        for k in self.nodes[idx].source_keys:
+            self.by_source.setdefault(k, idx)
+
     def add_node(self, node: _ImpNode, parent_m: int | None, fi: int) -> int:
-        key = (parent_m, _norm(node.name))
-        hit = self.by_key.get(key)
+        hit = self._match_by_source(node)
+        if hit is None:
+            hit = self._match_by_name(node, parent_m)
         if hit is None:
             idx = len(self.nodes)
             self.nodes.append(replace(node, parent_idx=parent_m))
             prefix = f"{self.paths[parent_m]} / " if parent_m is not None else ""
             self.paths.append(prefix + node.name)
             self.sources.append({fi})
-            self.by_key[key] = idx
+            self._register(idx, node, parent_m)
             return idx
         # Узел уже есть — склейка полей. Имя оставляем первое встреченное
         # (различие лишь в регистре/пробелах — в отчёт не шумим).
         if fi not in self.sources[hit] and len(self.sources[hit]) == 1:
             self.report.merged_paths.append(self.paths[hit])
+        # Якорь связал узлы, названные ПО-РАЗНОМУ (в своём репозитории сервис зовётся
+        # «app», вызывающие ходят на «payments») либо положенные под разных родителей.
+        # Оставляем первое — перевешивать поддерево по позднему файлу опаснее, чем
+        # оставить расхождение видимым в отчёте.
+        if _norm(node.name) != _norm(self.nodes[hit].name):
+            self._conflict(hit, "имя", self.nodes[hit].name, node.name, fi)
+        kept_parent = self.nodes[hit].parent_idx
+        if parent_m != kept_parent:
+            top = "верхний уровень"
+            self._conflict(
+                hit,
+                "родитель",
+                self.paths[kept_parent] if kept_parent is not None else top,
+                self.paths[parent_m] if parent_m is not None else top,
+                fi,
+            )
+        # Грани источника у прогонов разные — склеенный узел наследует все, иначе
+        # следующий файл не найдёт его по той грани, которой не досталось.
+        self.nodes[hit].source_keys = merge_key_sets(self.nodes[hit].source_keys, node.source_keys)
+        for k in self.nodes[hit].source_keys:
+            self.by_source.setdefault(k, hit)
         self._merge_str(hit, "role", node.role, fi)
         self._merge_str(hit, "technology", node.technology, fi)
         self._merge_str(hit, "description", node.description, fi)

@@ -217,3 +217,106 @@ def test_parents_before_children_invariant():
     merged, _ = merge_imports([_parse(FILE_B), _parse(FILE_A)])
     for i, n in enumerate(merged.nodes):
         assert n.parent_idx is None or n.parent_idx < i
+
+
+# ── Идентичность: якорь источника поверх имени (Фаза 0 docs/plan-arch-sync.md) ──
+
+
+def test_якорь_склеивает_сервис_названный_по_разному():
+    """Свой репозиторий зовёт сервис «app» (имя compose-сервиса), вызывающие —
+    «payments» (hostname). Без якоря это два узла; с якорем — один, а расхождение
+    имён видно в отчёте."""
+    own = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: app\n"
+        "        technology: Go\n"
+        "        source: {repo: github.com/org/payments, host: payments}\n"
+    )
+    caller = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {host: payments}\n"
+    )
+    merged, report = merge_imports([own, caller])
+
+    assert _path_list(merged) == ["Система", "Система / app"]
+    assert _node_by_path(merged, "Система / app").technology == "Go"
+    assert any("имя" in c and "payments" in c for c in report.conflicts)
+
+
+def test_якорь_разводит_тёзок_из_разных_репозиториев():
+    """Два «api» разных команд имеют одно имя в одном родителе. Раньше склеились
+    бы молча — теперь остаются разными узлами."""
+    team_a = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: api\n"
+        "        source: {repo: github.com/team-a/api}\n"
+    )
+    team_b = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: api\n"
+        "        source: {repo: github.com/team-b/api}\n"
+    )
+    merged, report = merge_imports([team_a, team_b])
+
+    assert len([n for n in merged.nodes if n.name == "api"]) == 2
+    assert any("РАЗНЫЕ объекты" in w for w in report.warnings)
+
+
+def test_без_якорей_поведение_прежнее():
+    """Файлы старых прогонов (якорей нет) склеиваются по имени, как раньше."""
+    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n        role: сервис\n")
+    b = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n        technology: Go\n")
+    merged, report = merge_imports([a, b])
+
+    assert _path_list(merged) == ["Система", "Система / api"]
+    node = _node_by_path(merged, "Система / api")
+    assert node.role == "сервис" and node.technology == "Go"
+    assert report.warnings == []
+
+
+def test_якорь_сильнее_иерархии():
+    """Прогоны положили один сервис под разных родителей (в своём репозитории он
+    контейнер системы, у соседа — компонент шлюза). Якорь склеивает, место
+    остаётся первым, расхождение — в отчёте."""
+    a = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: auth\n"
+        "        source: {repo: github.com/org/auth}\n"
+    )
+    b = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: gateway\n"
+        "        children:\n"
+        "          - name: auth\n"
+        "            source: {repo: github.com/org/auth}\n"
+    )
+    merged, report = merge_imports([a, b])
+
+    paths = _path_list(merged)
+    assert "Система / auth" in paths and "Система / gateway / auth" not in paths
+    assert any("родитель" in c for c in report.conflicts)
+
+
+def test_склеенный_узел_наследует_все_грани_источника():
+    """Третий файл должен найти узел по той грани, которой не было в первом:
+    A знает git, B — образ, C ходит только по сетевому имени."""
+    a = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc}\n")
+    b = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc, image: reg.io/svc}\n")
+    c = _parse("nodes:\n  - name: другое-имя\n    source: {image: reg.io/svc}\n")
+    merged, _report = merge_imports([a, b, c])
+
+    assert len(merged.nodes) == 1
+    assert merged.nodes[0].source_keys == ["git:github.com/org/svc", "img:reg.io/svc"]

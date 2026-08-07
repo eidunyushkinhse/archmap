@@ -168,6 +168,19 @@ def strongest_common_type(a: list[str], b: list[str]) -> str | None:
     return next((t for t in KEY_ORDER if t in ta and t in tb), None)
 
 
+def merge_key_sets(a: list[str], b: list[str]) -> list[str]:
+    """Объединение наборов склеенных узлов: дедуп + порядок по убыванию силы.
+    Прогоны видят разные грани одного сервиса (свой репозиторий — git, вызывающий —
+    host), и склеенный узел обязан унаследовать обе, иначе третий файл не найдёт
+    его по той грани, которой не досталось."""
+    out: list[str] = []
+    for k in (*a, *b):
+        if k not in out:
+            out.append(k)
+    order = {t: i for i, t in enumerate(KEY_ORDER)}
+    return sorted(out, key=lambda k: (order.get(key_type(k), len(order)), k))
+
+
 def compare_identity(a: list[str], b: list[str]) -> str:
     """Один ли это узел: «same» | «different» | «unknown».
 
