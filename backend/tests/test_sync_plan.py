@@ -259,3 +259,57 @@ class TestEdges:
         assert _by_action(plan, "create") == ["Система / cache"]
         created = [(e.source_path, e.target_path) for e in plan.edges if e.action == "create"]
         assert created == [("Система / payments", "Система / cache")]
+
+
+# ── Эндпоинт POST /projects/{id}/sync/preview ─────────────────────────────────
+
+
+def test_sync_preview_endpoint(db):
+    """Полный путь через роутер: проект создан импортом, тот же прогон синка даёт
+    пустой план (фикспойнт), а изменённый — конкретные действия. Записи нет."""
+    from conftest import ensure_architect
+
+    from app.routers.projects import create_project, sync_preview
+    from app.schemas.project import ProjectCreate, SyncPreviewIn
+
+    user = ensure_architect(db)
+    p = create_project(
+        ProjectCreate(name="Из репозитория", start="import", import_yaml=RUN),
+        db=db, user=user,
+    )
+
+    same = sync_preview(p.id, SyncPreviewIn(contents=[RUN]), db=db, _user=user)
+    assert same.ok and same.is_noop
+    assert same.summary == {"nodes_unchanged": 4, "edges_unchanged": 2}
+
+    grown = RUN.replace(
+        "edges:",
+        "      - name: cache\n        source: {host: cache}\nedges:\n  - {from: payments, to: cache, label: кэширует}",
+    )
+    plan = sync_preview(p.id, SyncPreviewIn(contents=[grown]), db=db, _user=user)
+    assert plan.ok and not plan.is_noop
+    assert [a.path for a in plan.nodes if a.action == "create"] == ["Система / cache"]
+    assert plan.summary["edges_create"] == 1
+    # Ничего не записано: схема осталась прежней.
+    assert db.query(Node).filter(Node.project_id == p.id).count() == 4
+
+
+def test_sync_preview_broken_yaml_and_404(db):
+    from conftest import ensure_architect
+
+    from app.routers.projects import create_project, sync_preview
+    from app.schemas.project import ProjectCreate, SyncPreviewIn
+
+    user = ensure_architect(db)
+    p = create_project(
+        ProjectCreate(name="Проект", start="import", import_yaml=RUN), db=db, user=user
+    )
+
+    bad = sync_preview(p.id, SyncPreviewIn(contents=["nodes: [oops"]), db=db, _user=user)
+    assert not bad.ok and bad.errors and bad.nodes == []
+
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        sync_preview(uuid.uuid4(), SyncPreviewIn(contents=[RUN]), db=db, _user=user)
+    assert exc.value.status_code == 404

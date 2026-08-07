@@ -36,8 +36,13 @@ from app.schemas.project import (
     ProjectPreviewNode,
     ProjectResponse,
     ProjectUpdate,
+    SyncEdgeActionOut,
+    SyncNodeActionOut,
+    SyncPreviewIn,
+    SyncPreviewOut,
     TemplateOut,
 )
+from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -274,6 +279,72 @@ def import_preview(
         conflicts=report.conflicts,
         warnings=report.warnings,
         dropped_edges=report.dropped_edges,
+    )
+
+
+@router.post("/{project_id}/sync/preview", response_model=SyncPreviewOut)
+def sync_preview(
+    project_id: uuid.UUID,
+    payload: SyncPreviewIn,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_architect),
+) -> SyncPreviewOut:
+    """Dry-run синхронизации ЖИВОГО проекта со свежим прогоном агента: что
+    изменится, если применить. БД не пишем (применение — отдельным вызовом).
+
+    Вход тот же, что у импорта (мульти-репо сливается merge_imports), поэтому
+    ошибки разбора и предупреждения слияния возвращаются в той же форме — фронт
+    показывает их до плана. Проект скоупится ПУТЁМ (не заголовком X-Project-Id):
+    синк адресует конкретный проект, а не «текущий» сеанса."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    merged, report, errors = parse_and_merge(list(payload.contents))
+    if merged is None:
+        return SyncPreviewOut(ok=False, errors=errors, files=len(payload.contents))
+
+    nodes = db.query(Node).filter(Node.project_id == project_id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+    plan = build_sync_plan(
+        nodes,
+        edges,
+        merged,
+        SyncPolicies(
+            update_descriptions=payload.update_descriptions,
+            update_names=payload.update_names,
+            sync_components=payload.sync_components,
+            mark_missing_deprecated=payload.mark_missing_deprecated,
+        ),
+    )
+    return SyncPreviewOut(
+        ok=True,
+        files=len(payload.contents),
+        nodes=[
+            SyncNodeActionOut(
+                path=a.path,
+                action=a.action,  # type: ignore[arg-type]  # значения из фиксированного набора sync_plan
+                node_id=a.node_id,
+                source_ref=a.source_ref,
+                fields=a.fields,
+                matched_by=a.matched_by,  # type: ignore[arg-type]
+            )
+            for a in plan.nodes
+        ],
+        edges=[
+            SyncEdgeActionOut(
+                source_path=e.source_path,
+                target_path=e.target_path,
+                action=e.action,  # type: ignore[arg-type]
+            )
+            for e in plan.edges
+        ],
+        # Предупреждения слияния файлов и предупреждения матчинга — один список:
+        # для человека это одна категория «посмотри глазами».
+        conflicts=report.conflicts + plan.conflicts,
+        warnings=report.warnings + plan.warnings,
+        summary=plan.summary,
+        is_noop=plan.is_noop,
     )
 
 

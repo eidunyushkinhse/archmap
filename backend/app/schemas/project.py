@@ -56,6 +56,48 @@ class ImportPreviewOut(BaseModel):
     dropped_edges: int = 0  # выброшенные точные дубли рёбер
 
 
+class SyncPreviewIn(BaseModel):
+    """YAML свежего прогона агента для dry-run синхронизации ЖИВОГО проекта.
+    Формат входа тот же, что у импорта (мульти-репо сливается merge_imports);
+    отличаются только политики — что синку разрешено трогать."""
+
+    contents: list[_ImportDoc] = Field(min_length=1, max_length=MAX_IMPORT_FILES)
+    update_descriptions: bool = False
+    update_names: bool = False
+    sync_components: bool = False
+    mark_missing_deprecated: bool = False
+
+
+class SyncNodeActionOut(BaseModel):
+    path: str
+    action: Literal["create", "update", "unchanged", "missing"]
+    node_id: uuid.UUID | None = None
+    source_ref: str | None = None
+    fields: list[str] = []  # какие поля изменит update
+    matched_by: Literal["source", "name"] | None = None  # чем опознан живой узел
+
+
+class SyncEdgeActionOut(BaseModel):
+    source_path: str
+    target_path: str
+    action: Literal["create", "unchanged", "missing"]
+
+
+class SyncPreviewOut(BaseModel):
+    """Что изменится в живой схеме, если применить прогон. Ничего не записано —
+    применение отдельным вызовом (Фаза 2 docs/plan-arch-sync.md)."""
+
+    ok: bool
+    errors: list[str] = []  # пусто при ok=true (ошибки разбора/лимитов)
+    files: int = 0
+    nodes: list[SyncNodeActionOut] = []
+    edges: list[SyncEdgeActionOut] = []
+    conflicts: list[str] = []  # решённые правилом расхождения (переименование, переезд)
+    warnings: list[str] = []  # слияние файлов + тёзки из другого источника
+    summary: dict[str, int] = {}  # счётчики действий для шапки превью
+    is_noop: bool = False  # ничего не изменится (фикспойнт)
+
+
 class ImportPromptOut(BaseModel):
     """Текст универсального промпта «Из репозитория» для ИИ-агента пользователя."""
 

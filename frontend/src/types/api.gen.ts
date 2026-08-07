@@ -126,6 +126,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/sync/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Preview
+         * @description Dry-run синхронизации ЖИВОГО проекта со свежим прогоном агента: что
+         *     изменится, если применить. БД не пишем (применение — отдельным вызовом).
+         *
+         *     Вход тот же, что у импорта (мульти-репо сливается merge_imports), поэтому
+         *     ошибки разбора и предупреждения слияния возвращаются в той же форме — фронт
+         *     показывает их до плана. Проект скоупится ПУТЁМ (не заголовком X-Project-Id):
+         *     синк адресует конкретный проект, а не «текущий» сеанса.
+         */
+        post: operations["sync_preview_api_v1_projects__project_id__sync_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -2317,6 +2343,120 @@ export interface components {
             /** Ids */
             ids: string[];
         };
+        /** SyncEdgeActionOut */
+        SyncEdgeActionOut: {
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "unchanged" | "missing";
+        };
+        /** SyncNodeActionOut */
+        SyncNodeActionOut: {
+            /** Path */
+            path: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "update" | "unchanged" | "missing";
+            /** Node Id */
+            node_id?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /**
+             * Fields
+             * @default []
+             */
+            fields: string[];
+            /** Matched By */
+            matched_by?: ("source" | "name") | null;
+        };
+        /**
+         * SyncPreviewIn
+         * @description YAML свежего прогона агента для dry-run синхронизации ЖИВОГО проекта.
+         *     Формат входа тот же, что у импорта (мульти-репо сливается merge_imports);
+         *     отличаются только политики — что синку разрешено трогать.
+         */
+        SyncPreviewIn: {
+            /** Contents */
+            contents: string[];
+            /**
+             * Update Descriptions
+             * @default false
+             */
+            update_descriptions: boolean;
+            /**
+             * Update Names
+             * @default false
+             */
+            update_names: boolean;
+            /**
+             * Sync Components
+             * @default false
+             */
+            sync_components: boolean;
+            /**
+             * Mark Missing Deprecated
+             * @default false
+             */
+            mark_missing_deprecated: boolean;
+        };
+        /**
+         * SyncPreviewOut
+         * @description Что изменится в живой схеме, если применить прогон. Ничего не записано —
+         *     применение отдельным вызовом (Фаза 2 docs/plan-arch-sync.md).
+         */
+        SyncPreviewOut: {
+            /** Ok */
+            ok: boolean;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Files
+             * @default 0
+             */
+            files: number;
+            /**
+             * Nodes
+             * @default []
+             */
+            nodes: components["schemas"]["SyncNodeActionOut"][];
+            /**
+             * Edges
+             * @default []
+             */
+            edges: components["schemas"]["SyncEdgeActionOut"][];
+            /**
+             * Conflicts
+             * @default []
+             */
+            conflicts: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Summary
+             * @default {}
+             */
+            summary: {
+                [key: string]: number;
+            };
+            /**
+             * Is Noop
+             * @default false
+             */
+            is_noop: boolean;
+        };
         /**
          * TemplateEdgeOut
          * @description Связь стартового шаблона: source/target — ключи узлов того же шаблона.
@@ -2703,6 +2843,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_preview_api_v1_projects__project_id__sync_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncPreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncPreviewOut"];
                 };
             };
             /** @description Validation Error */
