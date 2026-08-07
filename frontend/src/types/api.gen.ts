@@ -496,7 +496,7 @@ export interface paths {
         put?: never;
         /**
          * Relayout Root Level
-         * @description «Переразложить» корневой уровень: позиции корневых узлов → авто (dagre).
+         * @description «Переразложить» корневой уровень: позиции корневых узлов → авто (ELK).
          */
         post: operations["relayout_root_level_api_v1_nodes_relayout_post"];
         delete?: never;
@@ -2037,6 +2037,8 @@ export interface components {
              * @default false
              */
             has_children: boolean;
+            /** Source Ref */
+            source_ref?: string | null;
             /**
              * Version
              * @default 1

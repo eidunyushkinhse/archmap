@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 
 class Node(Base):
     __tablename__ = "nodes"
+    # Матчинг синка всегда скоупится проектом («узлы ЭТОГО проекта с такими
+    # якорями»), поэтому индекс составной, а не по одному source_ref.
+    __table_args__ = (Index("ix_nodes_project_source", "project_id", "source_ref"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     # Проект-владелец: вся доменная модель скоупится им (NOT NULL, каскад при удалении).
@@ -41,6 +44,12 @@ class Node(Base):
     # статус жизненного цикла: existing (as-is, дефолт) | planned (to-be) | deprecated.
     # Версионируемая семантика, не раскладка. Кодируется на схеме цветом тела узла.
     status: Mapped[str] = mapped_column(String(16), default="existing", server_default="existing")
+    # Канонический ключ источника (app/identity): чем узел опознаётся между прогонами
+    # ИИ-агента — git-remote, образ, деплоймент или сетевое имя, приведённые к
+    # каноническому виду («git:github.com/org/payments»). Пишется импортом и синком,
+    # руками не правится: это отпечаток прогона, а не пользовательские данные.
+    # УНИКАЛЬНОСТИ НЕТ намеренно — монорепо легально даёт один repo многим узлам.
+    source_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Версия для optimistic CAS (этап 0 конкурентности, docs/archive/plan-concurrency.md):
     # PATCH с base_version ≠ текущей → 409 — правка от устаревшего состояния не
     # затирает чужую (критично для текстов flowchart/openapi_spec). Инкремент —

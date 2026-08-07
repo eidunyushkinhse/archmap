@@ -415,3 +415,27 @@ def test_source_unknown_subkeys_ignored():
     parsed, errors = parse_import(content)
     assert errors == [] and parsed is not None
     assert parsed.nodes[0].source_keys == ["git:github.com/org/a"]
+
+
+def test_source_ref_persisted_on_import(db):
+    """Якорь доезжает до БД: в nodes.source_ref ложится сильнейший ключ прогона —
+    по нему будущий синк узнает узел даже после переименования сервиса."""
+    user = ensure_architect(db)
+    content = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {repo: git@github.com:Org/Payments.git, host: payments}\n"
+        "      - name: legacy\n"
+    )
+    p = create_project(
+        ProjectCreate(name="Из репозитория", start="import", import_yaml=content),
+        db=db, user=user,
+    )
+    refs = {n.name: n.source_ref for n in db.query(Node).filter(Node.project_id == p.id)}
+    assert refs == {
+        "Система": None,  # у корня-системы якоря нет
+        "payments": "git:github.com/org/payments",
+        "legacy": None,  # узел без блока source
+    }

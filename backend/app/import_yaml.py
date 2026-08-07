@@ -320,6 +320,9 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> Non
                 shape=n.shape,
                 status=n.status,
                 is_external=n.is_external,
+                # Сильнейший якорь прогона: по нему будущий синк узнает узел, даже
+                # если сервис переименуют (docs/plan-arch-sync.md).
+                source_ref=n.source_keys[0] if n.source_keys else None,
                 parent_id=ids[n.parent_idx] if n.parent_idx is not None else None,
             )
         )
