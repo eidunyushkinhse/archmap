@@ -95,7 +95,8 @@ _read_view_layout/_ghost_registry); фронт `pages/NodePage.tsx` (SchemaSecti
   (создание/удаление узлов и связей, хэндлы, quick-connect) выключено для
   ОБЕИХ ролей (canStructure=false: readOnly=true, arrangeOnly=isArchitect).
   «Переразложить» на странице сбрасывает позиции вида фокуса
-  (POST /nodes/{id}/context-relayout); раскрытия переживают сброс (V31/C28).
+  (POST /nodes/{id}/context-relayout); раскрытия переживают сброс (V31/C28),
+  переезд узлов доигрывается анимированным центрированием схемы (AN28г).
   [код: EmbeddedSchemaBlock + useLevelPersistence с layoutViewId]
 - **X14.** (v2, 2026-08-02) Инлайн-раскрытия на странице СОХРАНЯЮТСЯ как часть
   раскладки вида фокуса (expanded-флаги в view_layout, view_id = focus.id) и

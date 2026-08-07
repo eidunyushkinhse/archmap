@@ -79,6 +79,13 @@ const SCHEMA_FIT_OPTIONS = { padding: 0.1, maxZoom: 1.0 };
 // FIT_ATTEMPTS попыток по 140ms (не откладываем вечно при непрерывных изменениях).
 const FIT_QUIET_MS = 300;
 const FIT_ATTEMPTS = 10;
+// Срок годности запроса на анимированное центрирование (autoFitRef). Обычный путь
+// «взвели → пришёл свежий прогон → анимация осела → фит» укладывается в ~2–3с даже
+// на нагруженной схеме. Потолок нужен там, где ожидаемого прогона НЕ будет:
+// «Переразложить» на уже авто-разложенной схеме раскладку не меняет (скип по
+// layoutSig), эффект не перезапускается — и протухший запрос иначе сработал бы на
+// следующей смене раскладки (например, после драга), дёрнув схему без причины.
+const AUTO_FIT_TTL_MS = 8_000;
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -275,22 +282,33 @@ function LevelGraphInner({
     apply: applyLayout, noteExpand, noteCollapse, noteRelayout, noteGesture, noteMutation,
     cancel: cancelAnim, reset: resetAnim, active: animActive, jumpsPaused,
   } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges, gate });
+  // Авто-центрирование (fitOnLoad/fitOnExpand): didLoadFitRef — одноразовый фит
+  // загрузки (на маунт; холст ремаунтится по key=node.id, поэтому «один раз» ==
+  // «один раз на страницу»). autoFitRef — запрос на АНИМИРОВАННОЕ центрирование
+  // (метка времени взведения; null — запроса нет): взводят раскрытие/сворачивание
+  // (useLevelDrill) и «Переразложить» (эффект ниже), гасит эффект авто-центрирования.
+  // Таймер там — дебаунс оседания раскладки (двухфазная: замер может прийти вторым
+  // прогоном, фитим по последнему в окне).
+  const didLoadFitRef = useRef(false);
+  const autoFitRef = useRef<number | null>(null);
+
   // Смена уровня/режима: отложенная анимация протухла — жёсткий сброс без доигровки
   // (свежую раскладку нового уровня применит сборщик).
   useEffect(() => { resetAnim(); }, [containerId, resetAnim]);
   // «Переразложить»: страница-хозяин свершила сброс (токен) — интент держится в
-  // хуке до прихода свежего прогона и режиссирует его чистым переездом.
-  useEffect(() => { if (relayoutToken) noteRelayout(); }, [relayoutToken, noteRelayout]);
+  // хуке до прихода свежего прогона и режиссирует его чистым переездом. На
+  // страничных схемах (fitOnExpand) сброс раскладки — ещё и запрос на анимированное
+  // центрирование: состав прежний, но геометрия новая, и результат хочется видеть
+  // целиком по центру — как после раскрытия/сворачивания. Фит идёт ПОСЛЕ оседания
+  // переезда (гейт !animActive в эффекте центрирования), не поверх него.
+  useEffect(() => {
+    if (!relayoutToken) return;
+    noteRelayout();
+    if (fitOnExpand) autoFitRef.current = performance.now();
+  }, [relayoutToken, noteRelayout, fitOnExpand]);
   // Мутация страницы (создание/удаление узлов и связей): окно мутаций — стрелки
   // с изменившейся геометрией перерисуются анимированно, новые нарисуются (AN28а).
   useEffect(() => { if (mutationToken) noteMutation(); }, [mutationToken, noteMutation]);
-
-  // Авто-центрирование (fitOnLoad/fitOnExpand): didLoadFitRef — одноразовый фит
-  // загрузки (на маунт; холст ремаунтится по key=node.id, поэтому «один раз» ==
-  // «один раз на страницу»). expandFitRef (взводится при раскрытии) приходит из
-  // useLevelDrill. Таймер — дебаунс оседания раскладки (двухфазная: замер может
-  // прийти вторым прогоном, фитим по последнему в окне).
-  const didLoadFitRef = useRef(false);
 
   // ЕДИНЫЙ канал записи раскладки вида (R3): дедуп+merge поверх зеркала → батч-PUT
   // view_layout (fence + политика 409) + зеркало родителю. Тела commitLayout/
@@ -314,14 +332,15 @@ function LevelGraphInner({
   // drillWithPath, expand/collapse, производные expanded/localChildren/
   // relevantCounts, ленивая догрузка детей и таргетный рефреш кэша — в
   // useLevelDrill (Фаза 3в-А). expanded/localChildren/relevantCounts нужны
-  // конвейеру раскладки и сборщику RF; expandFitRef — эффекту авто-центрирования.
+  // конвейеру раскладки и сборщику RF; autoFitRef хук взводит при раскрытии и
+  // сворачивании (владелец запроса — эффект авто-центрирования ниже).
   const {
     drillWithPath, expandContainer, expandLocalContainer, collapseContainer,
-    expanded, relevantCounts, localChildren, expandFitRef,
+    expanded, relevantCounts, localChildren,
   } = useLevelDrill({
     containerId, nodes, edges, endpoints, ancestorIds, ancestorNames,
     onDrillDown, onEnterNode, viewLayout, ignorePersistedExpanded, isReadOnly,
-    fitOnExpand, refreshChildrenOf, commitLayout, noteExpand, noteCollapse,
+    fitOnExpand, autoFitRef, refreshChildrenOf, commitLayout, noteExpand, noteCollapse,
     layoutLatestRef,
   });
 
@@ -818,8 +837,9 @@ function LevelGraphInner({
   //  - Загрузка (fitOnLoad): одноразово (didLoadFitRef), после первого замера
   //    (sizesVersion ≥ 1), БЕЗ анимации — правит «спозание» декларативного fitView,
   //    который сгорает на первом проходе и оставляет схему «вверху и мелко».
-  //  - Раскрытие (fitOnExpand): по флагу expandFitRef (взведён в commitExpanded),
-  //    С анимацией (duration = ANIM_MOVE_MS) — идёт параллельно разъезду узлов.
+  //  - Раскрытие/сворачивание/«Переразложить» (fitOnExpand): по запросу autoFitRef
+  //    (взводят commitExpanded и эффект relayoutToken), С анимацией
+  //    (duration = ANIM_MOVE_MS) — по оседании переезда узлов.
   // Оба — через SCHEMA_FIT_OPTIONS (== кнопка «Центрировать»). Не fitOnLoad/Expand
   // (редактор-карта) — эффект no-op, центрирование редактора не меняется.
   useEffect(() => {
@@ -844,24 +864,27 @@ function LevelGraphInner({
           fitView(SCHEMA_FIT_OPTIONS);
           return;
         }
-        // Фит после раскрытия/сворачивания — только когда анимация ОСЕЛА (!animActive).
-        // Иначе при сворачивании fitView ловит промежуточную фазу схлопывания (потомки
-        // ещё стягиваются в точку) и считает viewport по ним, а не по итоговому
+        // Фит по запросу — только когда анимация ОСЕЛА (!animActive). Иначе при
+        // сворачивании fitView ловит промежуточную фазу схлопывания (потомки ещё
+        // стягиваются в точку) и считает viewport по ним, а не по итоговому
         // свёрнутому составу — схема «уезжает в угол». По оседании (animActive=false)
         // эффект перезапускается и фит считается по финальным узлам — одинаково для
-        // раскрытия и сворачивания.
-        if (expandFitRef.current && fitOnExpand && !animActive) {
-          expandFitRef.current = false;
-          fitView({ ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS });
+        // раскрытия, сворачивания и переразкладки. Протухший запрос (AUTO_FIT_TTL_MS)
+        // гасим молча: ожидавшегося прогона не случилось, центрировать нечего.
+        if (autoFitRef.current !== null && fitOnExpand && !animActive) {
+          const stale = performance.now() - autoFitRef.current > AUTO_FIT_TTL_MS;
+          autoFitRef.current = null;
+          if (!stale) fitView({ ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS });
         }
       }, 140);
     };
     attempt(0);
     return () => { cancelled = true; window.clearTimeout(timer); };
-    // expandFitRef — стабильный ref-объект из useLevelDrill (идентичность не
-    // меняется), в deps для полноты exhaustive-deps без изменения поведения.
-    // animActive — флаг анимации раскрытия/сворачивания: фит ждёт её оседания.
-  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, expandFitRef, animActive]);
+    // animActive — флаг анимации раскрытия/сворачивания/переезда: фит ждёт её
+    // оседания. relayoutToken в зависимостях НЕТ намеренно: запрос взводится в
+    // момент сброса, а фитить надо по ПРИШЕДШЕЙ раскладке (layout) — перезапуск
+    // по токену стартовал бы отсчёт до рефетча и центрировал старую геометрию.
+  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, animActive]);
 
   return (
     <div

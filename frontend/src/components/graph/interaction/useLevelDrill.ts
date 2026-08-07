@@ -32,8 +32,12 @@ interface UseLevelDrillArgs {
   // стартовать свёрнутым: персистные раскрытия вида не применяются (страничные схемы)
   ignorePersistedExpanded: boolean;
   isReadOnly: boolean;
-  // анимированное центрирование при раскрытии (взводит expandFitRef)
+  // анимированное центрирование при раскрытии/сворачивании (взводит autoFitRef)
   fitOnExpand: boolean;
+  // запрос центрирования (метка времени взведения; null — запроса нет). Владелец —
+  // LevelGraphInner: там же эффект авто-центрирования, который его гасит, и второй
+  // источник запроса («Переразложить»). Хук только взводит при раскрытии/сворачивании.
+  autoFitRef: { current: number | null };
   // таргетный рефреш кэша детей одного контейнера (дроп/откат узла в его рамке)
   refreshChildrenOf?: { id: string; token: number } | null;
   // единая запись раскладки (useLevelPersistence) — персист expanded + own-on-expand
@@ -60,8 +64,6 @@ export interface LevelDrill {
   relevantCounts: Map<string, number> | undefined;
   /** догруженные дети раскрытых ЛОКАЛЬНЫХ контейнеров (кэш до смены уровня) */
   localChildren: Record<string, AppNode[]>;
-  /** флаг запроса центрирования по раскрытии (читает эффект авто-центрирования) */
-  expandFitRef: { current: boolean };
 }
 
 export function useLevelDrill({
@@ -77,16 +79,13 @@ export function useLevelDrill({
   ignorePersistedExpanded,
   isReadOnly,
   fitOnExpand,
+  autoFitRef,
   refreshChildrenOf,
   commitLayout,
   noteExpand,
   noteCollapse,
   layoutLatestRef,
 }: UseLevelDrillArgs): LevelDrill {
-  // Флаг анимированного центрирования по раскрытии (fitOnExpand): взводится в
-  // commitExpanded, гасится эффектом авто-центрирования (живёт в LevelGraphInner).
-  const expandFitRef = useRef(false);
-
   const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(new Map());
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс эфемерных правок на смену уровня — осознанный reset-on-prop-change
@@ -142,7 +141,7 @@ export function useLevelDrill({
       // Раскрытие И сворачивание в режиме fitOnExpand — запрос на анимированное
       // центрирование после оседания раскладки (см. эффект авто-центрирования).
       // Обе операции меняют состав схемы — результат хочется видеть по центру.
-      if (fitOnExpand) expandFitRef.current = true;
+      if (fitOnExpand) autoFitRef.current = performance.now();
       setExpandOverrides((prev) => new Map(prev).set(id, value));
       // персист (архитектор, не контекст — гейтит commitLayout): true — раскрыт,
       // null-поле — сброс (exclude_none выкинет его из payload строки).
@@ -157,7 +156,7 @@ export function useLevelDrill({
       const cur = value && !owned ? layoutLatestRef.current?.positions.get(id) : undefined;
       commitLayout({ [id]: { expanded: value ? true : null, ...(cur ? { x: cur.x, y: cur.y } : null) } });
     },
-    [commitLayout, viewLayout, fitOnExpand, layoutLatestRef],
+    [commitLayout, viewLayout, fitOnExpand, autoFitRef, layoutLatestRef],
   );
   // Раскрытие ГОСТЕВОГО контейнера: детей даёт проекция (реестр endpoints).
   const expandContainer = useCallback(
@@ -261,6 +260,6 @@ export function useLevelDrill({
 
   return {
     drillWithPath, expandContainer, expandLocalContainer, collapseContainer,
-    expanded, relevantCounts, localChildren, expandFitRef,
+    expanded, relevantCounts, localChildren,
   };
 }
