@@ -10,6 +10,7 @@ from app.identity import (
     SourceRef,
     canonical_key,
     compare_identity,
+    normalize_host,
     normalize_image,
     normalize_repo,
     source_keys,
@@ -46,6 +47,30 @@ class TestNormalizeImage:
 
     def test_короткое_имя_без_реестра(self) -> None:
         assert normalize_image("payments:latest") == "payments"
+
+
+class TestNormalizeHost:
+    def test_порт_срезается(self) -> None:
+        # «payments» и «payments:8080» — один сервис; прогоны в разных
+        # репозиториях пишут его по-разному.
+        assert normalize_host("payments:8080") == "payments"
+        assert normalize_host("payments") == "payments"
+
+    def test_петлевые_адреса_якорем_не_считаются(self) -> None:
+        # Примета машины разработчика, а не сервиса: иначе любые две БД разных
+        # систем на дефолтном порту склеились бы по «localhost:5432».
+        for raw in ("localhost:5432", "127.0.0.1", "0.0.0.0:8000", "host.docker.internal"):
+            assert normalize_host(raw) is None, raw
+
+    def test_ipv6_в_скобках(self) -> None:
+        assert normalize_host("[::1]:5432") is None
+        assert normalize_host("[2001:db8::1]:80") == "2001:db8::1"
+
+    def test_петлевой_host_не_даёт_ключа(self) -> None:
+        assert source_keys(SourceRef(host="localhost:5432")) == []
+        # …и не мешает остальным приметам узла.
+        keys = source_keys(SourceRef(repo="github.com/org/x", host="localhost:8000"))
+        assert keys == ["git:github.com/org/x"]
 
 
 class TestSourceKeys:

@@ -96,6 +96,26 @@ def normalize_image(raw: str | None) -> str | None:
     return val.strip("/") or None
 
 
+# Петлевые адреса: «localhost:5432» — примета машины разработчика, а не сервиса.
+# Любая БД любой системы на дефолтном порту даст такой же ключ, и два разных узла
+# склеились бы по нему (найдено прогоном по репозиторию без compose 2026-08-07).
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal"})
+
+
+def normalize_host(raw: str | None) -> str | None:
+    """Сетевое имя без порта; петлевые адреса якорем НЕ считаются (None).
+
+    Порт срезается намеренно: «payments» и «payments:8080» — один сервис, а
+    прогоны в разных репозиториях пишут его по-разному."""
+    val = _clean(raw)
+    if val is None:
+        return None
+    bare = val.rsplit("]", 1)[0].lstrip("[") if val.startswith("[") else val.split(":", 1)[0]
+    if not bare or bare in _LOOPBACK:
+        return None
+    return bare
+
+
 @dataclass(frozen=True)
 class SourceRef:
     """Чем узел опознаётся вне схемы. Все поля опциональны: агент кладёт то, что
@@ -119,7 +139,7 @@ def normalized(src: SourceRef) -> SourceRef:
         path=normalize_path(src.path),
         image=normalize_image(src.image),
         deployment=_clean(src.deployment),
-        host=_clean(src.host),
+        host=normalize_host(src.host),
     )
 
 
