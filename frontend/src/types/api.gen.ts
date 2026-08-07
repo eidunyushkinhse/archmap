@@ -152,6 +152,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/sync/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Apply
+         * @description Применить прогон агента к живому проекту.
+         *
+         *     План ПЕРЕСЧИТЫВАЕТСЯ здесь же из присланных YAML — клиентскому плану не
+         *     доверяем (иначе подменённый план писал бы что угодно). Чтобы применение не
+         *     разошлось с тем, что человек видел в превью, клиент возвращает base_graph_rev:
+         *     схема изменилась с тех пор — 409, обновите превью. Это тот же курсор, которым
+         *     живёт поллинг конкурентных сессий.
+         *
+         *     НЕ ТРОГАЕМ: схемы логики, OpenAPI-спеки, раскладку и бизнес-процессы —
+         *     ради этого синк и существует. Удаления нет ни в каком режиме.
+         */
+        post: operations["sync_apply_api_v1_projects__project_id__sync_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -2343,6 +2372,76 @@ export interface components {
             /** Ids */
             ids: string[];
         };
+        /**
+         * SyncApplyIn
+         * @description Применение прогона. Вход тот же, что у превью (план ПЕРЕСЧИТЫВАЕТСЯ на
+         *     сервере — клиентскому плану не доверяем), плюс курсор схемы, увиденный в
+         *     превью: если схема успела измениться, применение отклоняется, а не пишет
+         *     вслепую то, чего пользователь не видел.
+         */
+        SyncApplyIn: {
+            /** Contents */
+            contents: string[];
+            /**
+             * Update Descriptions
+             * @default false
+             */
+            update_descriptions: boolean;
+            /**
+             * Update Names
+             * @default false
+             */
+            update_names: boolean;
+            /**
+             * Sync Components
+             * @default false
+             */
+            sync_components: boolean;
+            /**
+             * Mark Missing Deprecated
+             * @default false
+             */
+            mark_missing_deprecated: boolean;
+            /** Base Graph Rev */
+            base_graph_rev?: number | null;
+        };
+        /**
+         * SyncApplyOut
+         * @description Что реально записано. Списки путей — для тоста и журнала, не для сверки:
+         *     сверка была на превью.
+         */
+        SyncApplyOut: {
+            /**
+             * Created Nodes
+             * @default []
+             */
+            created_nodes: string[];
+            /**
+             * Updated Nodes
+             * @default []
+             */
+            updated_nodes: string[];
+            /**
+             * Deprecated Nodes
+             * @default []
+             */
+            deprecated_nodes: string[];
+            /**
+             * Created Edges
+             * @default []
+             */
+            created_edges: string[];
+            /**
+             * Skipped
+             * @default []
+             */
+            skipped: string[];
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
+        };
         /** SyncEdgeActionOut */
         SyncEdgeActionOut: {
             /** Source Path */
@@ -2456,6 +2555,11 @@ export interface components {
              * @default false
              */
             is_noop: boolean;
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
         };
         /**
          * TemplateEdgeOut
@@ -2878,6 +2982,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SyncPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_apply_api_v1_projects__project_id__sync_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncApplyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncApplyOut"];
                 };
             };
             /** @description Validation Error */

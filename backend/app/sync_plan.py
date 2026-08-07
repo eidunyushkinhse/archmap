@@ -61,6 +61,12 @@ class SyncNodeAction:
     source_ref: str | None  # якорь, который будет записан
     fields: list[str] = field(default_factory=list)  # какие поля меняет update
     matched_by: str | None = None  # source | name (чем опознан живой узел)
+    # Ссылки для МЕХАНИЧЕСКОГО применения (Фаза 2): значения полей apply берёт из
+    # разобранного прогона по imp_idx, родителя создаваемого узла — по parent_path
+    # (к тому моменту он уже создан или смэтчен). Так решения принимает один
+    # build_sync_plan, а apply остаётся исполнителем и матчинг не дублирует.
+    imp_idx: int | None = None
+    parent_path: str | None = None
 
 
 @dataclass
@@ -69,6 +75,7 @@ class SyncEdgeAction:
     target_path: str
     action: str  # create | unchanged | missing
     edge_id: uuid.UUID | None = None
+    imp_idx: int | None = None  # индекс ребра в прогоне (label/technology для create)
 
 
 @dataclass
@@ -77,6 +84,9 @@ class SyncPlan:
     edges: list[SyncEdgeAction] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Политики, по которым план построен: применение читает их отсюда, а не
+    # получает вторым путём — иначе план и его исполнение могли бы разойтись.
+    policies: SyncPolicies = field(default_factory=SyncPolicies)
 
     @property
     def summary(self) -> dict[str, int]:
@@ -218,6 +228,8 @@ class _Matcher:
                         action="create",
                         node_id=None,
                         source_ref=imp.source_keys[0] if imp.source_keys else None,
+                        imp_idx=i,
+                        parent_path=self.imp_paths[parent_idx],
                     )
                 )
                 continue
@@ -229,6 +241,8 @@ class _Matcher:
                         action="create",
                         node_id=None,
                         source_ref=imp.source_keys[0] if imp.source_keys else None,
+                        imp_idx=i,
+                        parent_path=self.imp_paths[parent_idx] if parent_idx is not None else None,
                     )
                 )
                 continue
@@ -256,6 +270,8 @@ class _Matcher:
                     source_ref=imp.source_keys[0] if imp.source_keys else live.source_ref,
                     fields=fields,
                     matched_by=how,
+                    imp_idx=i,
+                    parent_path=self.imp_paths[parent_idx] if parent_idx is not None else None,
                 )
             )
 
@@ -293,7 +309,7 @@ class _Matcher:
             live_pairs.setdefault((live_edge.source_id, live_edge.target_id), live_edge)
         seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
 
-        for ie in parsed.edges:
+        for ei, ie in enumerate(parsed.edges):
             if ie.source_idx in self.skipped or ie.target_idx in self.skipped:
                 continue
             src_live = self.imp_to_live.get(ie.source_idx)
@@ -301,14 +317,16 @@ class _Matcher:
             sp, tp = self.imp_paths[ie.source_idx], self.imp_paths[ie.target_idx]
             if src_live is None or dst_live is None:
                 # Хотя бы один конец — новый узел: связь тоже новая.
-                self.plan.edges.append(SyncEdgeAction(sp, tp, "create"))
+                self.plan.edges.append(SyncEdgeAction(sp, tp, "create", imp_idx=ei))
                 continue
             hit = live_pairs.get((src_live.id, dst_live.id))
             if hit is None:
-                self.plan.edges.append(SyncEdgeAction(sp, tp, "create"))
+                self.plan.edges.append(SyncEdgeAction(sp, tp, "create", imp_idx=ei))
             else:
                 seen.add((src_live.id, dst_live.id))
-                self.plan.edges.append(SyncEdgeAction(sp, tp, "unchanged", edge_id=hit.id))
+                self.plan.edges.append(
+                    SyncEdgeAction(sp, tp, "unchanged", edge_id=hit.id, imp_idx=ei)
+                )
 
         # Пропавшие: живые связи МЕЖДУ СМЭТЧЕННЫМИ узлами, которых прогон не дал.
         # Связь, чей конец сам помечен missing, сюда НЕ попадает намеренно: узел
@@ -335,6 +353,7 @@ def build_sync_plan(
 ) -> SyncPlan:
     """Свежий прогон агента × живая схема → что изменится. БД не трогает."""
     m = _Matcher(nodes, edges, policies or SyncPolicies())
+    m.plan.policies = m.policies
     m.walk_import(parsed)
     m.collect_missing()
     m.walk_edges(parsed)

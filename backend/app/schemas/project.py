@@ -68,6 +68,15 @@ class SyncPreviewIn(BaseModel):
     mark_missing_deprecated: bool = False
 
 
+class SyncApplyIn(SyncPreviewIn):
+    """Применение прогона. Вход тот же, что у превью (план ПЕРЕСЧИТЫВАЕТСЯ на
+    сервере — клиентскому плану не доверяем), плюс курсор схемы, увиденный в
+    превью: если схема успела измениться, применение отклоняется, а не пишет
+    вслепую то, чего пользователь не видел."""
+
+    base_graph_rev: int | None = None
+
+
 class SyncNodeActionOut(BaseModel):
     path: str
     action: Literal["create", "update", "unchanged", "missing"]
@@ -96,6 +105,19 @@ class SyncPreviewOut(BaseModel):
     warnings: list[str] = []  # слияние файлов + тёзки из другого источника
     summary: dict[str, int] = {}  # счётчики действий для шапки превью
     is_noop: bool = False  # ничего не изменится (фикспойнт)
+    graph_rev: int = 0  # курсор схемы на момент расчёта — вернуть в apply
+
+
+class SyncApplyOut(BaseModel):
+    """Что реально записано. Списки путей — для тоста и журнала, не для сверки:
+    сверка была на превью."""
+
+    created_nodes: list[str] = []
+    updated_nodes: list[str] = []
+    deprecated_nodes: list[str] = []
+    created_edges: list[str] = []
+    skipped: list[str] = []  # действия, потерявшие цель между расчётом и записью
+    graph_rev: int = 0  # новый курсор схемы
 
 
 class ImportPromptOut(BaseModel):

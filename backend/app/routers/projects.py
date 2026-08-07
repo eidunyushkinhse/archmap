@@ -36,12 +36,15 @@ from app.schemas.project import (
     ProjectPreviewNode,
     ProjectResponse,
     ProjectUpdate,
+    SyncApplyIn,
+    SyncApplyOut,
     SyncEdgeActionOut,
     SyncNodeActionOut,
     SyncPreviewIn,
     SyncPreviewOut,
     TemplateOut,
 )
+from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
 
@@ -345,6 +348,64 @@ def sync_preview(
         warnings=report.warnings + plan.warnings,
         summary=plan.summary,
         is_noop=plan.is_noop,
+        graph_rev=project.graph_rev,
+    )
+
+
+@router.post("/{project_id}/sync/apply", response_model=SyncApplyOut)
+def sync_apply(
+    project_id: uuid.UUID,
+    payload: SyncApplyIn,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_architect),
+) -> SyncApplyOut:
+    """Применить прогон агента к живому проекту.
+
+    План ПЕРЕСЧИТЫВАЕТСЯ здесь же из присланных YAML — клиентскому плану не
+    доверяем (иначе подменённый план писал бы что угодно). Чтобы применение не
+    разошлось с тем, что человек видел в превью, клиент возвращает base_graph_rev:
+    схема изменилась с тех пор — 409, обновите превью. Это тот же курсор, которым
+    живёт поллинг конкурентных сессий.
+
+    НЕ ТРОГАЕМ: схемы логики, OpenAPI-спеки, раскладку и бизнес-процессы —
+    ради этого синк и существует. Удаления нет ни в каком режиме."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if payload.base_graph_rev is not None and payload.base_graph_rev != project.graph_rev:
+        raise HTTPException(
+            status_code=409,
+            detail="Схема изменилась после расчёта — обновите превью и повторите",
+        )
+
+    merged, _report, errors = parse_and_merge(list(payload.contents))
+    if merged is None:
+        raise HTTPException(status_code=400, detail="; ".join(errors[:5]))
+
+    nodes = db.query(Node).filter(Node.project_id == project_id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+    plan = build_sync_plan(
+        nodes,
+        edges,
+        merged,
+        SyncPolicies(
+            update_descriptions=payload.update_descriptions,
+            update_names=payload.update_names,
+            sync_components=payload.sync_components,
+            mark_missing_deprecated=payload.mark_missing_deprecated,
+        ),
+    )
+    report = apply_sync_plan(db, project, merged, plan)
+    project.updated_at = datetime.now(UTC)
+    project.updated_by_id = _user.id
+    db.commit()
+    return SyncApplyOut(
+        created_nodes=report.created_nodes,
+        updated_nodes=report.updated_nodes,
+        deprecated_nodes=report.deprecated_nodes,
+        created_edges=report.created_edges,
+        skipped=report.skipped,
+        graph_rev=project.graph_rev,
     )
 
 
