@@ -31,6 +31,13 @@ export type TemplateEdge = Schemas["TemplateEdgeOut"];
 export type ImportPreviewOut = Schemas["ImportPreviewOut"];
 export type ImportPromptOut = Schemas["ImportPromptOut"];
 
+// Синхронизация живого проекта со свежим прогоном агента (docs/plan-arch-sync.md):
+// dry-run плана и отчёт применения.
+export type SyncPreviewOut = Schemas["SyncPreviewOut"];
+export type SyncApplyOut = Schemas["SyncApplyOut"];
+export type SyncNodeAction = Schemas["SyncNodeActionOut"];
+export type SyncEdgeAction = Schemas["SyncEdgeActionOut"];
+
 export type Node = Schemas["NodeResponse"];
 
 // Порядок узлов-сиблингов в дереве: РАНГ ФОРМЫ — сервисы с детьми (ядро системы),

@@ -13,13 +13,14 @@ import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import { processesApi } from "../api/processes";
 import { detailToMermaid } from "../components/processes/sequence/toMermaid";
 import ExportModal from "../components/ExportModal";
+import SyncRepoModal from "../components/docsImport/SyncRepoModal";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
-import { LogoMark, ExportIcon } from "../ui/icons";
+import { LogoMark, ExportIcon, RepoSyncIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
 
@@ -67,6 +68,11 @@ export default function ProjectShell({
 
   // Сигнал перезагрузки дерева (после создания/удаления узла)
   const [treeReload, setTreeReload] = useState(0);
+  // «Обновить из репозитория» (синк с прогоном агента): окно, счётчик применений
+  // (перемонтирует страницу — схема грузится свежей, не ждём поллинга) и тост-итог.
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncToken, setSyncToken] = useState(0);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
   // Модалка создания дочернего объекта («+» в дереве)
   const [createFor, setCreateFor] = useState<string | null>(null);
 
@@ -155,6 +161,17 @@ export default function ProjectShell({
           >
             <ExportIcon />
           </button>
+          {isArchitect && mode !== "proc" && (
+            <button
+              className="icon-btn"
+              onClick={() => setSyncOpen(true)}
+              style={iconBtn}
+              title="Обновить схему из репозитория (прогон ИИ-агента)"
+              aria-label="Обновить из репозитория"
+            >
+              <RepoSyncIcon />
+            </button>
+          )}
           <ProfileMenu role={isArchitect ? "Архитектор" : "Наблюдатель"} onLogout={onLogout} />
         </div>
       </div>
@@ -178,6 +195,7 @@ export default function ProjectShell({
             />
             {nodeId ? (
               <NodePage
+                key={`node-${nodeId}-${syncToken}`}
                 nodeId={nodeId}
                 isArchitect={isArchitect}
                 onNavigateNode={onNavigateNode}
@@ -195,6 +213,7 @@ export default function ProjectShell({
               />
             ) : (
               <ProjectHomePage
+                key={`home-${syncToken}`}
                 projectId={projectId}
                 isArchitect={isArchitect}
                 onNavigateNode={onNavigateNode}
@@ -220,6 +239,20 @@ export default function ProjectShell({
           }}
         />
       )}
+
+      {syncOpen && (
+        <SyncRepoModal
+          projectId={projectId}
+          onClose={() => setSyncOpen(false)}
+          onApplied={(message) => {
+            setSyncToast(message);
+            setTreeReload((t) => t + 1);
+            setSyncToken((t) => t + 1);
+            window.setTimeout(() => setSyncToast(null), 5000);
+          }}
+        />
+      )}
+      {syncToast && <div style={syncToastStyle}>{syncToast}</div>}
 
       {exportScope && (
         <ExportModal
@@ -349,6 +382,22 @@ const bodyRow: CSSProperties = {
   minHeight: 0,
   overflow: "hidden",
 };
+// Тост-итог применения синка: тот же язык, что у тостов конкурентности.
+const syncToastStyle: CSSProperties = {
+  position: "fixed",
+  right: 18,
+  bottom: 18,
+  zIndex: 60,
+  maxWidth: 420,
+  padding: "10px 14px",
+  borderRadius: 8,
+  background: "#065f46",
+  color: "#ecfdf5",
+  fontSize: 13,
+  lineHeight: 1.45,
+  boxShadow: "0 6px 20px rgba(15,23,42,0.22)",
+};
+
 const iconBtn: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",

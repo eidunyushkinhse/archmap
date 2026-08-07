@@ -1,5 +1,16 @@
-import type { ImportPreviewOut, ImportPromptOut, Project, ProjectCreate, ProjectUpdate, TemplateOut } from "../types";
+import type {
+  ImportPreviewOut, ImportPromptOut, Project, ProjectCreate, ProjectUpdate,
+  SyncApplyOut, SyncPreviewOut, TemplateOut,
+} from "../types";
 import { api } from "./client";
+
+/** Что синку разрешено трогать (зеркало SyncPolicies бэка; дефолты — там же). */
+export interface SyncPolicies {
+  update_descriptions: boolean;
+  update_names: boolean;
+  sync_components: boolean;
+  mark_missing_deprecated: boolean;
+}
 
 // Управление проектами. Запросы к /projects скоупом X-Project-Id не оборачиваются
 // (см. client.needsProjectScope) — они оперируют самими проектами.
@@ -19,6 +30,22 @@ export const projectsApi = {
     if (p.hints) q.set("hints", p.hints);
     return api.get<ImportPromptOut>(`/projects/import/prompt?${q.toString()}`);
   },
+  // Синхронизация ЖИВОГО проекта со свежим прогоном агента: превью считает, что
+  // изменится (БД не трогает), apply записывает. base_graph_rev — курсор схемы из
+  // превью: изменилась с тех пор → 409, чтобы не применить вслепую не то, что видели.
+  syncPreview: (projectId: string, contents: string[], policies: SyncPolicies): Promise<SyncPreviewOut> =>
+    api.post<SyncPreviewOut>(`/projects/${projectId}/sync/preview`, { contents, ...policies }),
+  syncApply: (
+    projectId: string,
+    contents: string[],
+    policies: SyncPolicies,
+    baseGraphRev: number,
+  ): Promise<SyncApplyOut> =>
+    api.post<SyncApplyOut>(`/projects/${projectId}/sync/apply`, {
+      contents,
+      ...policies,
+      base_graph_rev: baseGraphRev,
+    }),
   get: (id: string): Promise<Project> => api.get<Project>(`/projects/${id}`),
   create: (payload: ProjectCreate): Promise<Project> =>
     api.post<Project>(`/projects`, payload),
