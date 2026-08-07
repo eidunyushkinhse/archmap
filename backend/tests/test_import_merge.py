@@ -320,3 +320,55 @@ def test_склеенный_узел_наследует_все_грани_ист
 
     assert len(merged.nodes) == 1
     assert merged.nodes[0].source_keys == ["git:github.com/org/svc", "img:reg.io/svc"]
+
+
+def test_узлы_одного_файла_не_склеиваются_общим_якорем():
+    """Монорепо: агент вешает один git-remote на все свои сервисы, не различив их
+    путями. Внутри файла узлы разведены осознанно — склеивать их нельзя, иначе
+    поддерево второго растворяется в первом (найдено прогоном на реальном
+    репозитории 2026-08-07). Предупреждение зовёт уточнить source.path."""
+    mono = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: frontend\n"
+        "        source: {repo: github.com/org/mono}\n"
+        "      - name: backend\n"
+        "        source: {repo: github.com/org/mono}\n"
+        "        children:\n"
+        "          - name: api\n"
+    )
+    neighbour = _parse("nodes:\n  - name: Система\n    children:\n      - name: backend\n        source: {host: backend}\n")
+    merged, report = merge_imports([mono, neighbour])
+
+    paths = _path_list(merged)
+    assert "Система / frontend" in paths and "Система / backend" in paths
+    assert "Система / backend / api" in paths  # поддерево уцелело
+    assert any("указывают один источник" in w for w in report.warnings)
+
+
+def test_path_различает_сервисы_монорепо():
+    """С заполненным path узлы монорепо получают разные ключи — и склейка с
+    соседними файлами идёт адресно."""
+    mono = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: frontend\n"
+        "        source: {repo: github.com/org/mono, path: web}\n"
+        "      - name: backend\n"
+        "        source: {repo: github.com/org/mono, path: api}\n"
+    )
+    caller = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: сервер\n"
+        "        source: {repo: github.com/org/mono, path: api}\n"
+    )
+    merged, report = merge_imports([mono, caller])
+
+    assert _path_list(merged) == ["Система", "Система / frontend", "Система / backend"]
+    assert not any("указывают один источник" in w for w in report.warnings)
+    # Склеился именно backend, а не frontend.
+    assert any("имя" in c and "сервер" in c for c in report.conflicts)

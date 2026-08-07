@@ -123,13 +123,21 @@ class _Merger:
             return
         self._conflict(idx, fld, cur, new, fi)
 
-    def _match_by_source(self, node: _ImpNode) -> int | None:
+    def _match_by_source(self, node: _ImpNode, fi: int) -> int | None:
         """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии. Кандидат по слабому
         ключу отбрасывается, если по сильному он противоречит (общий host «api»
-        при разных git — разные сервисы двух команд)."""
+        при разных git — разные сервисы двух команд).
+
+        Узлы ОДНОГО файла не склеиваются никогда, даже при совпавшем якоре: внутри
+        файла агент развёл их осознанно (тот же принцип, что в warn_fuzzy_siblings).
+        Без этого монорепо схлопывалось — агент вешает один git-remote на все свои
+        сервисы, и «backend» вместе с поддеревом растворялся во «frontend»
+        (найдено прогоном на реальном репозитории 2026-08-07)."""
         for k in node.source_keys:
             hit = self.by_source.get(k)
-            if hit is not None and compare_identity(self.nodes[hit].source_keys, node.source_keys) != "different":
+            if hit is None or fi in self.sources[hit]:
+                continue
+            if compare_identity(self.nodes[hit].source_keys, node.source_keys) != "different":
                 return hit
         return None
 
@@ -149,14 +157,26 @@ class _Merger:
     def _where(self, parent_m: int | None) -> str:
         return f"внутри «{self.paths[parent_m]}»" if parent_m is not None else "на верхнем уровне"
 
-    def _register(self, idx: int, node: _ImpNode, parent_m: int | None) -> None:
+    def _register(self, idx: int, node: _ImpNode, parent_m: int | None, fi: int) -> None:
         """Узел адресуем и по имени в родителе, и по каждому своему якорю."""
         self.by_key.setdefault((parent_m, _norm(node.name)), []).append(idx)
         for k in self.nodes[idx].source_keys:
+            taken = self.by_source.get(k)
+            if taken is not None and fi in self.sources[taken]:
+                # Один якорь на два узла ОДНОГО файла: агент повесил общий
+                # git-remote на все сервисы монорепо, не различив их путями.
+                # Склеивать нельзя (см. _match_by_source), но следующие файлы
+                # найдут по этому ключу только первого — предупреждаем.
+                self.report.warnings.append(
+                    f"«{self.nodes[taken].name}» и «{node.name}» указывают один источник "
+                    f"({k}) — уточните source.path у каждого, иначе следующие файлы "
+                    f"свяжутся только с первым"
+                )
+                continue
             self.by_source.setdefault(k, idx)
 
     def add_node(self, node: _ImpNode, parent_m: int | None, fi: int) -> int:
-        hit = self._match_by_source(node)
+        hit = self._match_by_source(node, fi)
         if hit is None:
             hit = self._match_by_name(node, parent_m)
         if hit is None:
@@ -165,7 +185,7 @@ class _Merger:
             prefix = f"{self.paths[parent_m]} / " if parent_m is not None else ""
             self.paths.append(prefix + node.name)
             self.sources.append({fi})
-            self._register(idx, node, parent_m)
+            self._register(idx, node, parent_m, fi)
             return idx
         # Узел уже есть — склейка полей. Имя оставляем первое встреченное
         # (различие лишь в регистре/пробелах — в отчёт не шумим).
