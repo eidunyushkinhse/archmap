@@ -374,3 +374,44 @@ def test_import_over_file_limit_rejected():
     """Больше MAX_IMPORT_FILES документов — ошибка валидации контракта."""
     with pytest.raises(ValidationError):
         ImportPreviewIn(contents=["nodes: []"] * (MAX_IMPORT_FILES + 1))
+
+
+def test_source_block_parsed_into_keys():
+    """Блок source узла → канонические ключи идентичности (Фаза 0 синка).
+    Форма записи git-remote роли не играет — ключ один и тот же."""
+    content = (
+        "nodes:\n"
+        "  - name: payments\n"
+        "    source:\n"
+        "      repo: git@github.com:Org/Payments.git\n"
+        "      image: reg.io/org/payments:1.4\n"
+        "      host: payments\n"
+    )
+    parsed, errors = parse_import(content)
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == [
+        "git:github.com/org/payments",
+        "img:reg.io/org/payments",
+        "host:payments",
+    ]
+
+
+def test_source_block_optional_and_tolerant():
+    """Якорей нет — узел живёт как раньше (пустой набор ключей). Кривой блок —
+    ошибка формата, но узел не пропадает: якоря необязательны."""
+    parsed, errors = parse_import("nodes:\n  - name: A\n")
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == []
+
+    parsed, errors = parse_import("nodes:\n  - name: A\n    source: github.com/org/a\n")
+    assert parsed is None  # ошибки формата валят импорт целиком
+    assert any("source: ожидается словарь" in e for e in errors)
+
+
+def test_source_unknown_subkeys_ignored():
+    """Неизвестные вложенные ключи — как и на верхнем уровне, молча игнорируются
+    (формат форвард-совместим: агент мог прислать больше, чем мы читаем)."""
+    content = "nodes:\n  - name: A\n    source:\n      repo: github.com/org/a\n      branch: main\n"
+    parsed, errors = parse_import(content)
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == ["git:github.com/org/a"]
