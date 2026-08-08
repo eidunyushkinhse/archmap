@@ -15,6 +15,7 @@ import type { SyncApplyOut, SyncPreviewOut } from "../../types";
 import { projectsApi, type SyncPolicies } from "../../api/projects";
 import { ApiError } from "../../api/client";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
+import { useFileDrop } from "./useFileDrop";
 import { planSections, planSummary, applySummary } from "./syncPlanView";
 import { NoteList } from "./agentModalReport";
 import {
@@ -77,6 +78,13 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   const [applyError, setApplyError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
+  // Перетаскивание в ту же зону, что и кнопка «Загрузить файлы…»: список
+  // расширений держим одинаковым с input accept ниже.
+  const drop = useFileDrop({
+    accept: [".yaml", ".yml", ".txt"],
+    onFiles: pkg.pickFiles,
+    disabled: pkg.files.length >= MAX_FILES,
+  });
 
   // Файлы убрали — план прячем ПРОИЗВОДНО, без зеркалящего эффекта.
   const preview = pkg.hasContent ? rawPreview : null;
@@ -230,10 +238,10 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             ))}
             {pkg.files.length < MAX_FILES && (
               <>
-                <button type="button" style={chip} onClick={() => fileRef.current?.click()}>
+                <button type="button" className="btn-soft" onClick={() => fileRef.current?.click()}>
                   Загрузить файлы…
                 </button>
-                <button type="button" style={chip} onClick={pkg.addPaste}>
+                <button type="button" className="btn-soft" onClick={pkg.addPaste}>
                   Вставить текст
                 </button>
               </>
@@ -254,13 +262,14 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
           {/* Редактор показывается, как только файл ЗАВЕДЁН (в том числе пустой,
               созданный кнопкой «Вставить текст»), а не когда в нём уже есть текст:
               иначе вставлять было некуда — чип есть, поля нет. */}
-          {pkg.files.length === 0 ? (
-            <div style={dropHint}>
-              Загрузите YAML-ответы агента — по файлу на репозиторий — или вставьте текстом.
-              План обновления посчитается автоматически.
-            </div>
-          ) : (
-            <>
+          <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
+            {pkg.files.length === 0 ? (
+              <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
+                Перетащите сюда YAML-ответы агента — по файлу на репозиторий — или нажмите,
+                чтобы выбрать их на диске. Можно и вставить текстом: план обновления
+                посчитается сам.
+              </button>
+            ) : (
               <textarea
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
@@ -268,7 +277,12 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
                 placeholder="Вставьте сюда YAML от агента"
                 spellCheck={false}
               />
+            )}
+          </div>
+          {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
 
+          {pkg.files.length > 0 && (
+            <>
               <div style={{ margin: "12px 0 6px" }}>
                 {POLICY_LABELS.map((p) => (
                   <label

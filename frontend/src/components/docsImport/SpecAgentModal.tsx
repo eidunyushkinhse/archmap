@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DocsImportReport } from "../../types";
 import { docsImportApi } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
+import { useFileDrop } from "./useFileDrop";
 import {
   ACTION_LABEL, countAction,
   head, sub, cols, leftCol, rightCol, radioRow, hintsArea, leftNote,
@@ -48,6 +49,9 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   const [remarksCopied, setRemarksCopied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null); // скрытый input «Загрузить файлы…»
   const seqRef = useRef(0);
+  // Перетаскивание в ту же зону, что и кнопка загрузки. Расширения не сужаем:
+  // в пакете archmap-docs лежит манифест и файл спеки, состав задаёт агент.
+  const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
 
   const report = pkg.hasContent ? rawReport : null;
 
@@ -181,7 +185,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
             />
             <button
               type="button"
-              style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12.5 }}
+              className="btn-soft"
               disabled={pkg.files.length >= MAX_FILES}
               onClick={() => fileRef.current?.click()}
             >
@@ -189,7 +193,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
             </button>
             <button
               type="button"
-              style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12.5 }}
+              className="btn-soft"
               disabled={pkg.files.length >= MAX_FILES}
               title="Добавить манифест вставкой текста"
               onClick={pkg.addPaste}
@@ -198,19 +202,25 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
             </button>
           </div>
 
-          {pkg.files.length > 0 ? (
-            <textarea
-              style={fileArea}
-              value={pkg.files[pkg.active]?.content ?? ""}
-              onChange={(e) => pkg.setText(pkg.active, e.target.value)}
-              placeholder="Содержимое файла (manifest.yaml — можно вставить текстом)"
-              spellCheck={false}
-            />
-          ) : (
-            <div style={dropHint}>
-              Загрузите файлы пакета archmap-docs/ от агента (manifest.yaml со ссылкой на файл
-              спеки + сам файл) — или вставьте манифест текстом.
-            </div>
+          <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
+            {pkg.files.length > 0 ? (
+              <textarea
+                style={fileArea}
+                value={pkg.files[pkg.active]?.content ?? ""}
+                onChange={(e) => pkg.setText(pkg.active, e.target.value)}
+                placeholder="Содержимое файла (manifest.yaml — можно вставить текстом)"
+                spellCheck={false}
+              />
+            ) : (
+              <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
+                Перетащите сюда файлы пакета archmap-docs/ от агента (manifest.yaml со ссылкой
+                на файл спеки + сам файл) — или нажмите, чтобы выбрать их на диске. Манифест
+                можно и вставить текстом.
+              </button>
+            )}
+          </div>
+          {drop.error && (
+            <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>
           )}
 
           {/* Отчёт превью / применения */}

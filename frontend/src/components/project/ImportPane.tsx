@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ImportPreviewOut } from "../../types";
-import { secondaryBtn } from "../../ui/styles";
 import { plural } from "../../ui/plural";
+import { useFileDrop } from "../docsImport/useFileDrop";
 
 /**
  * Правая панель импорта YAML в модалке создания проекта: несколько документов
@@ -50,10 +50,21 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     setActiveRaw(Math.max(0, active - (i <= active ? 1 : 0)));
   }
 
-  function pickFiles(list: FileList | null) {
+  // ArrayLike, а не FileList: тем же путём заходят перетащенные файлы (useFileDrop
+  // отдаёт отфильтрованный массив). Нечитаемое пропускаем: перетащить можно и то,
+  // чего не бывает в диалоге выбора.
+  function pickFiles(list: ArrayLike<File> | null) {
     if (!list || list.length === 0) return;
-    void Promise.all(Array.from(list).map((f) => f.text())).then(addDocs);
+    void Promise.all(Array.from(list).map((f) => f.text().catch(() => null)))
+      .then((texts) => addDocs(texts.filter((t): t is string => t !== null)));
   }
+
+  // Перетаскивание в ту же зону, что и кнопка: расширения — как в input accept.
+  const drop = useFileDrop({
+    accept: [".yaml", ".yml"],
+    onFiles: pickFiles,
+    disabled: docs.length >= MAX_IMPORT_FILES,
+  });
 
   // Замечания для агента: при ошибках — они; при зелёной сводке — конфликты и
   // предупреждения слияния (промпт учит агента чинить по такому списку).
@@ -116,7 +127,7 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
         />
         <button
           type="button"
-          style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12.5 }}
+          className="btn-soft"
           disabled={docs.length >= MAX_IMPORT_FILES}
           onClick={() => fileRef.current?.click()}
         >
@@ -124,16 +135,21 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
         </button>
       </div>
 
-      <textarea
-        style={importArea}
-        value={docs[active]}
-        onChange={(e) => setDoc(active, e.target.value)}
-        placeholder={
-          "Вставьте YAML — тот же формат, что выдаёт «Экспорт».\n" +
-          "Файлов может быть несколько (по одному на репозиторий) — они сольются автоматически."
-        }
-        spellCheck={false}
-      />
+      <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
+        <textarea
+          style={importArea}
+          value={docs[active]}
+          onChange={(e) => setDoc(active, e.target.value)}
+          placeholder={
+            "Перетащите сюда YAML-файлы или вставьте текст — тот же формат, что выдаёт «Экспорт».\n" +
+            "Файлов может быть несколько (по одному на репозиторий) — они сольются автоматически."
+          }
+          spellCheck={false}
+        />
+      </div>
+      {drop.error && (
+        <p style={{ ...grayLine, color: "#b45309" }}>{drop.error}</p>
+      )}
 
       <div style={{ marginTop: 10 }}>
         {summary?.ok && (
@@ -172,11 +188,7 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
           </div>
         )}
         {remarks.length > 0 && (
-          <button
-            type="button"
-            style={{ ...secondaryBtn, marginTop: 8, padding: "4px 10px", fontSize: 12.5 }}
-            onClick={copyRemarks}
-          >
+          <button type="button" className="btn-soft" style={{ marginTop: 8 }} onClick={copyRemarks}>
             {copied ? "Скопировано ✓" : "Скопировать замечания для агента"}
           </button>
         )}

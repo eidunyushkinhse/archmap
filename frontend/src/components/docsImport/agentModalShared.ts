@@ -57,10 +57,14 @@ export const fileArea: CSSProperties = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   fontSize: 12.5, lineHeight: 1.5, color: "#0f172a", background: "#fff",
 };
+// Пустая зона приёма файлов. Это КНОПКА (открывает тот же диалог выбора, что и
+// «Загрузить файлы…»): зона своим видом обещает взаимодействие, и клик по ней —
+// первое, что пробует пользователь; заодно с клавиатуры она доступна даром.
 export const dropHint: CSSProperties = {
-  height: 200, boxSizing: "border-box", border: "1.5px dashed #cbd5e1", borderRadius: 10,
+  width: "100%", height: 200, boxSizing: "border-box", background: "none",
+  border: "1.5px dashed #cbd5e1", borderRadius: 10,
   display: "grid", placeItems: "center", padding: 20, textAlign: "center",
-  fontSize: 12.5, color: "#94a3b8", lineHeight: 1.6,
+  font: "inherit", fontSize: 12.5, color: "#94a3b8", lineHeight: 1.6,
 };
 export const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8" };
 export const badge: CSSProperties = {

@@ -21,7 +21,9 @@ export interface DocsFilesApi {
   // Непустые файлы — то, что уходит в превью/применение
   nonEmpty: DocsFile[];
   addFiles: (added: DocsFile[]) => void;
-  pickFiles: (list: FileList | null) => void;
+  // ArrayLike, а не FileList: тем же путём заходят файлы, перетащенные в зону
+  // (useFileDrop отдаёт отфильтрованный массив, собрать из него FileList нельзя).
+  pickFiles: (list: ArrayLike<File> | null) => void;
   addPaste: () => void;
   removeFile: (i: number) => void;
   setText: (i: number, content: string) => void;
@@ -54,11 +56,19 @@ export function useDocsFiles(): DocsFilesApi {
     });
   }
 
-  function pickFiles(list: FileList | null) {
+  function pickFiles(list: ArrayLike<File> | null) {
     if (!list || list.length === 0) return;
     void Promise.all(
-      Array.from(list).map(async (f) => ({ name: f.name, content: await f.text() })),
-    ).then(addFiles);
+      // Нечитаемое пропускаем молча: через перетаскивание сюда может приехать
+      // то, чего не бывает в диалоге выбора (папка, удалённый уже файл).
+      Array.from(list).map(async (f) => {
+        try {
+          return { name: f.name, content: await f.text() };
+        } catch {
+          return null;
+        }
+      }),
+    ).then((read) => addFiles(read.filter((f): f is DocsFile => f !== null)));
   }
 
   function addPaste() {
