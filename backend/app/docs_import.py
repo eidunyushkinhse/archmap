@@ -17,17 +17,21 @@ openapi/paths, серверное зеркало docValidate) — warnings, не
 
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import yaml
 from sqlalchemy.orm import Session
 
 from app.import_yaml import _FENCE_RE, _load_doc
+from app.mmd_header import parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 
 MAX_ENTRIES = 500
-MAX_LOGIC_PER_NODE = 50
+# Схем на объект. Поднято с 50 при переезде на .mmd: там схема — отдельный файл,
+# и потолок пакета стал ближе (docs/plan-docs-mmd.md, таблица лимитов).
+MAX_LOGIC_PER_NODE = 100
 MAX_MERMAID_LEN = 200_000
 MAX_SPEC_LEN = 2_000_000
 
@@ -56,9 +60,16 @@ class OpenapiIn:
 
 @dataclass
 class ManifestEntry:
-    node_ref: str
+    # None — «объект, из окна которого открыта дозаливка»: так адресуют себя
+    # файлы .mmd без «%% archmap-node» (переезд на .mmd, docs/plan-docs-mmd.md).
+    # У манифеста адрес есть всегда; поле станет обязательным обратно, когда
+    # манифест уйдёт целиком (Фаза 4 плана).
+    node_ref: str | None
     logic: list[LogicIn]
     openapi: OpenapiIn | None
+    # Запись пришла из .mmd, а не из манифеста: для неё адрес ограничен
+    # поддеревом объекта окна (у манифеста исторически ограничения нет).
+    from_mmd: bool = False
 
 
 @dataclass
@@ -210,6 +221,56 @@ def looks_like_manifest(content: str) -> bool:
 
 
 @dataclass
+class MmdOverride:
+    """Правка строки превью пользователем: что он исправил руками перед записью."""
+
+    name: str | None = None
+    kind: str | None = None
+    node: str | None = None
+
+
+def _name_from_file(fname: str) -> str:
+    """Имя схемы из имени файла: «orders-create.mmd» → «orders-create»."""
+    stem = fname.rsplit("/", 1)[-1]
+    for ext in (".mmd", ".mermaid", ".txt"):
+        if stem.lower().endswith(ext):
+            return stem[: -len(ext)] or stem
+    return stem
+
+
+def manifest_from_mmd(
+    fname: str,
+    content: str,
+    override: MmdOverride | None = None,
+) -> tuple[ParsedManifest, list[str]]:
+    """Файл .mmd → «манифест» из одной схемы. (манифест, замечания).
+
+    Так весь дальнейший конвейер (резолв узла, конфликты слотов, действия
+    create/overwrite/skip) переиспользуется без изменений.
+
+    Чем закрываем пропуски в шапке: имя — именем файла, вид — «обзор», адрес —
+    объектом окна. Ничего не блокирует импорт: слабая модель шапку забудет, а
+    поправить имя и вид пользователь сможет прямо в превью (override).
+
+    Содержимое сохраняем ЦЕЛИКОМ, вместе с шапкой: mermaid её игнорирует, зато
+    метаданные не теряются при обратной выгрузке, а повторная заливка того же
+    файла остаётся идемпотентной.
+    """
+    header = parse_mmd_header(content)
+    notes = [f"{fname}: {p}" for p in header.problems]
+    name = (override.name if override and override.name else None) or header.name or _name_from_file(fname)
+    kind = (override.kind if override and override.kind else None) or header.kind or "overview"
+    node_ref = (override.node if override and override.node else None) or header.node
+    entry = ManifestEntry(
+        node_ref=node_ref,
+        logic=[LogicIn(name=name, kind=kind, operation=header.operation, mermaid=content)],
+        openapi=None,
+        from_mmd=True,
+    )
+    return ParsedManifest(entries=[entry]), notes
+
+
+@dataclass
 class LogicAction:
     node_id: uuid.UUID
     node_path: str
@@ -287,18 +348,55 @@ def _spec_check(content: str) -> tuple[bool, bool, str | None]:
     return True, looks, str(ver) if looks else None
 
 
+def _resolve_entry(
+    entry: ManifestEntry,
+    fname: str,
+    resolve: Callable[[str, str], int | None],
+    flat: list[Node],
+    by_node_id: dict[uuid.UUID, int],
+    window_node_id: uuid.UUID | None,
+    scope_ids: set[uuid.UUID] | None,
+    plan: DocsPlan,
+) -> int | None:
+    """Какому узлу принадлежит запись. Без адреса — объект окна; с адресом из
+    .mmd — он же, но не дальше своего поддерева."""
+    if entry.node_ref is None:
+        if window_node_id is None or window_node_id not in by_node_id:
+            plan.errors.append(f"{fname}: не указан объект, а окно не сказало, к какому применять")
+            return None
+        return by_node_id[window_node_id]
+    idx = resolve(entry.node_ref, fname)
+    if idx is None:
+        return None
+    if entry.from_mmd and scope_ids is not None and flat[idx].id not in scope_ids:
+        plan.errors.append(
+            f'{fname}: объект «{entry.node_ref}» не относится к тому, для которого открыто окно'
+        )
+        return None
+    return idx
+
+
 def build_docs_plan(
     nodes: list[Node],
     manifests: list[tuple[str, ParsedManifest]],
     assets: dict[str, str],
     overwrite: bool,
+    window_node_id: uuid.UUID | None = None,
+    scope_ids: set[uuid.UUID] | None = None,
 ) -> DocsPlan:
     """Мердж манифестов против живого дерева → действия + отчёт. Чистая функция
     (БД не трогает; nodes несут свои docs через relationship). Идентичность
     дока = (узел, точное имя схемы), спеки = узел; дубль слота внутри ОДНОГО
-    файла — ошибка, из РАЗНЫХ файлов — первый побеждает + конфликт."""
+    файла — ошибка, из РАЗНЫХ файлов — первый побеждает + конфликт.
+
+    window_node_id — объект, из окна которого открыта дозаливка: к нему уезжают
+    записи без адреса (файлы .mmd без «%% archmap-node»). scope_ids — его
+    поддерево: адрес в шапке дальше него не действует, иначе схема тихо приехала
+    бы чужому сервису. На манифест ограничение НЕ распространяется (историческое
+    поведение; манифест уходит в Фазе 4)."""
     plan = DocsPlan()
     flat, fulls, by_bare, by_path = _node_paths(nodes)
+    by_node_id = {n.id: i for i, n in enumerate(flat)}
 
     def resolve(ref: str, where: str) -> int | None:
         hits = by_path.get(ref)
@@ -331,7 +429,9 @@ def build_docs_plan(
 
     for fname, manifest in manifests:
         for entry in manifest.entries:
-            idx = resolve(entry.node_ref, fname)
+            idx = _resolve_entry(
+                entry, fname, resolve, flat, by_node_id, window_node_id, scope_ids, plan
+            )
             if idx is None:
                 continue
             node, path = flat[idx], fulls[idx]

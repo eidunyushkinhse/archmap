@@ -1266,6 +1266,10 @@ export interface components {
             overwrite: boolean;
             /** Only */
             only?: ("logic" | "api") | null;
+            /** Node Id */
+            node_id?: string | null;
+            /** Overrides */
+            overrides?: components["schemas"]["DocsOverrideIn"][];
         };
         /**
          * DocsImportReport
@@ -1338,6 +1342,23 @@ export interface components {
             action: "create" | "overwrite" | "skip" | "unchanged";
             /** Mermaid */
             mermaid: string;
+        };
+        /**
+         * DocsOverrideIn
+         * @description Правка строки превью: пользователь исправил имя/вид/адрес перед записью.
+         *
+         *     Нужна с переездом на .mmd: раньше вид схемы правился ПЕРЕЗАПИСЬЮ текста
+         *     манифеста на фронте, а манифеста больше нет — правка едет отдельным полем.
+         */
+        DocsOverrideIn: {
+            /** File */
+            file: string;
+            /** Name */
+            name?: string | null;
+            /** Kind */
+            kind?: ("overview" | "operation" | "worker") | null;
+            /** Node */
+            node?: string | null;
         };
         /** DocsPromptOut */
         DocsPromptOut: {

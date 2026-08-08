@@ -403,7 +403,9 @@ def test_endpoint_no_manifest_error(db):
         _payload(("orders-api.yaml", SPEC)),
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
-    assert any("нет манифеста" in e for e in report.errors)
+    # Формулировка изменилась с переездом на .mmd: пакет теперь бывает и без
+    # манифеста — из одних схем (docs/plan-docs-mmd.md).
+    assert any("нет ни схемы" in e for e in report.errors)
 
 
 def test_endpoint_only_filter(db):
@@ -431,3 +433,155 @@ def test_endpoint_only_filter(db):
     )
     assert applied.applied is True
     assert (applied.created_docs, applied.specs_written) == (1, 0)
+
+
+# ── приём .mmd вместо манифеста (docs/plan-docs-mmd.md, Фаза 1) ────────────────
+
+MMD = '%% archmap-name: Приём заказа\n%% archmap-kind: operation\n%% archmap-operation: POST /orders\ngraph TD\n  A["Приём"] --> B["Запись"]\n'
+
+
+def _mmd_payload(db, *files, node=None, overwrite=False, overrides=None):
+    """Пакет из .mmd: адрес по умолчанию — объект окна (node_id)."""
+    return DocsImportIn(
+        files=[DocsFileIn(name=n, content=c) for n, c in files],
+        overwrite=overwrite,
+        only="logic",
+        node_id=node.id if node is not None else None,
+        overrides=overrides or [],
+    )
+
+
+def test_mmd_едет_на_объект_окна_без_всякого_адреса(db):
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _mmd_payload(db, ("orders-create.mmd", MMD), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.errors == []
+    assert len(report.logic) == 1
+    item = report.logic[0]
+    assert item.node_path == "Ярмарка / orders"
+    assert item.name == "Приём заказа"
+    assert item.kind == "operation"
+    assert item.operation == "POST /orders"
+    # Содержимое сохраняем ЦЕЛИКОМ, вместе с шапкой: метаданные не теряются.
+    assert item.mermaid == MMD
+
+
+def test_без_шапки_имя_берётся_из_имени_файла_и_вид_обзорный(db):
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _mmd_payload(db, ("Схема хранения.mmd", "graph LR\n  T1 --> T2\n"), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.errors == []
+    assert report.logic[0].name == "Схема хранения"
+    assert report.logic[0].kind == "overview"
+
+
+def test_вставка_текстом_опознаётся_по_содержимому(db):
+    # У вставки из буфера имени файла нет — окно называет её само, поэтому
+    # распознавание обязано работать по тексту диаграммы.
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _mmd_payload(db, ("вставка-1", "sequenceDiagram\n  A->>B: hi\n"), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.errors == []
+    assert report.logic[0].name == "вставка-1"
+
+
+def test_адрес_в_шапке_уводит_схему_на_ребёнка(db):
+    root, _orders, billing, *_ = _tree(db)
+    text = "%% archmap-node: billing / api\ngraph TD\n  A --> B\n"
+
+    report = docs_import_preview(
+        _mmd_payload(db, ("api.mmd", text), node=billing),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.errors == []
+    assert report.logic[0].node_path == "Ярмарка / billing / api"
+
+
+def test_адрес_вне_поддерева_окна_отклоняется(db):
+    # Иначе схема тихо приедет чужому сервису: окно открыто для billing, а
+    # шапка адресует shipping.
+    _root, _orders, billing, shipping, *_ = _tree(db)
+    text = "%% archmap-node: shipping\ngraph TD\n  A --> B\n"
+
+    report = docs_import_preview(
+        _mmd_payload(db, ("чужое.mmd", text), node=billing),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.logic == []
+    assert any("не относится" in e for e in report.errors)
+
+
+def test_непонятая_строка_шапки_попадает_в_замечания(db):
+    _, orders, *_ = _tree(db)
+    text = "%% archmap-namee: Опечатка\ngraph TD\n  A --> B\n"
+
+    report = docs_import_preview(
+        _mmd_payload(db, ("схема.mmd", text), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    # Схема всё равно приезжает (имя — из файла), но пользователь предупреждён.
+    assert report.errors == []
+    assert report.logic[0].name == "схема"
+    assert any("namee" in w for w in report.warnings)
+
+
+def test_правка_из_превью_перебивает_шапку(db):
+    from app.schemas.docs_import import DocsOverrideIn
+
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _mmd_payload(
+            db, ("orders-create.mmd", MMD), node=orders,
+            overrides=[DocsOverrideIn(file="orders-create.mmd", name="Создание заказа", kind="worker")],
+        ),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.logic[0].name == "Создание заказа"
+    assert report.logic[0].kind == "worker"
+
+
+def test_повторная_заливка_того_же_файла_ничего_не_меняет(db):
+    _, orders, *_ = _tree(db)
+    payload = _mmd_payload(db, ("orders-create.mmd", MMD), node=orders)
+
+    first = docs_import_apply(
+        payload, db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert first.applied and first.created_docs == 1
+
+    second = docs_import_preview(
+        _mmd_payload(db, ("orders-create.mmd", MMD), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert [i.action for i in second.logic] == ["unchanged"]
+
+
+def test_спека_рядом_со_схемами_остаётся_ресурсом(db):
+    # OpenAPI-файл не должен опознаться схемой логики: у него нет ни расширения,
+    # ни шапки, ни начала диаграммы.
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _mmd_payload(db, ("orders-create.mmd", MMD), ("orders-api.yaml", SPEC), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert len(report.logic) == 1
+    assert any("не использован" in w for w in report.warnings)

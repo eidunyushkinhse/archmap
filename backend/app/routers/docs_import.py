@@ -20,14 +20,17 @@ from app.database import get_db
 from app.deps import get_current_project, touch_project
 from app.docs_import import (
     DocsPlan,
+    MmdOverride,
     ParsedManifest,
     apply_docs_plan,
     build_docs_plan,
     looks_like_manifest,
+    manifest_from_mmd,
     parse_manifest,
 )
 from app.docs_prompt import build_docs_prompt
 from app.export import build_export
+from app.mmd_header import looks_like_mermaid
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
@@ -83,24 +86,40 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
     manifests: list[tuple[str, ParsedManifest]] = []
     assets: dict[str, str] = {}
     errors: list[str] = []
+    notes: list[str] = []
+    overrides = {o.file: MmdOverride(name=o.name, kind=o.kind, node=o.node) for o in payload.overrides}
     for f in payload.files:
         if looks_like_manifest(f.content):
             parsed, errs = parse_manifest(f.content)
             if parsed is not None:
                 manifests.append((f.name, parsed))
             errors.extend(f"{f.name}: {e}" for e in errs)
+        elif looks_like_mermaid(f.name, f.content):
+            # Схема логики приезжает самодостаточным файлом: метаданные — в его
+            # шапке. Превращаем в «манифест» из одной записи, чтобы дальше
+            # работал ровно тот же конвейер (docs/plan-docs-mmd.md).
+            parsed_mmd, mmd_notes = manifest_from_mmd(f.name, f.content, overrides.get(f.name))
+            manifests.append((f.name, parsed_mmd))
+            notes.extend(mmd_notes)
         else:
             # Дубль имени ресурса — последний побеждает молча (имена в одной папке
             # уникальны по построению; дубль возможен только ручной загрузкой).
             assets[f.name] = f.content
     if not manifests and not errors:
-        errors.append("среди загруженных файлов нет манифеста (YAML с ключом docs)")
+        errors.append("среди загруженных файлов нет ни схемы (.mmd), ни манифеста")
     if errors:
         plan = DocsPlan()
         plan.errors = errors
         return plan
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    plan = build_docs_plan(nodes, manifests, assets, payload.overwrite)
+    scope_ids = None
+    if payload.node_id is not None:
+        by_id = {n.id: n for n in nodes}
+        scope_ids = tree.subtree_ids(by_id, payload.node_id) if payload.node_id in by_id else set()
+    plan = build_docs_plan(
+        nodes, manifests, assets, payload.overwrite, payload.node_id, scope_ids
+    )
+    plan.warnings.extend(notes)
     # Раздельные окна дозаливки: окно логики применяет только схемы логики, окно
     # спеки — только OpenAPI-спеки (сущности не смешиваются даже в смешанном манифесте).
     if payload.only == "logic":

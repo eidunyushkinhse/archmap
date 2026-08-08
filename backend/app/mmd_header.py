@@ -51,30 +51,63 @@ class MmdHeader:
         return not any((self.name, self.kind, self.operation, self.node)) and not self.problems
 
 
-def _leading_comments(text: str) -> Iterator[str]:
-    """Комментарии ДО первой строки диаграммы, без ведущих «%%».
+def _preamble(text: str) -> tuple[list[str], str | None]:
+    """(комментарии до диаграммы без «%%», первая строка самой диаграммы).
 
     Читаем только начало файла: комментарий посреди диаграммы — часть схемы, а не
     её паспорт. Пустые строки и чужие комментарии пропускаем, но сканирование не
     прерываем: «%%{init: …}%%» — это ДИРЕКТИВА mermaid, она законно стоит перед
-    диаграммой и не должна прятать шапку, идущую следом.
+    диаграммой и не должна прятать шапку, идущую следом. Frontmatter mermaid
+    («--- title: … ---») тоже пропускаем — он допустим в начале файла.
     """
     lines = text.lstrip("﻿").splitlines()
     i = 0
-    # Frontmatter mermaid («--- title: … ---») тоже пропускаем: он допустим в
-    # начале файла, и шапка может идти после него.
     if i < len(lines) and lines[i].strip() == "---":
         i += 1
         while i < len(lines) and lines[i].strip() != "---":
             i += 1
         i += 1
+    comments: list[str] = []
     for line in lines[i:]:
         stripped = line.strip()
         if not stripped:
             continue
         if not stripped.startswith("%%"):
-            return  # началась диаграмма
-        yield stripped[2:].strip()
+            return comments, stripped
+        comments.append(stripped[2:].strip())
+    return comments, None
+
+
+def _leading_comments(text: str) -> Iterator[str]:
+    """Комментарии ДО первой строки диаграммы, без ведущих «%%»."""
+    return iter(_preamble(text)[0])
+
+
+# Слова, с которых начинается диаграмма mermaid. Нужны, чтобы отличить схему
+# логики от прочих файлов пакета (спека OpenAPI, манифест) КОГДА ИМЕНИ НЕТ или
+# оно ни о чём не говорит — например, при вставке текста из буфера.
+_DIAGRAMS = (
+    "graph", "flowchart", "sequencediagram", "classdiagram", "statediagram",
+    "erdiagram", "journey", "gantt", "pie", "mindmap", "timeline", "gitgraph",
+    "quadrantchart", "sankey", "xychart", "block", "packet", "architecture",
+    "c4context", "c4container", "c4component", "c4dynamic", "requirementdiagram",
+)
+
+
+def looks_like_mermaid(name: str, text: str) -> bool:
+    """Это схема логики? Имя .mmd, наша шапка или узнаваемое начало диаграммы.
+
+    Определять по СОДЕРЖИМОМУ обязательно: при вставке текста из буфера имени
+    файла попросту нет (окно называет такую вставку само)."""
+    if name.lower().endswith((".mmd", ".mermaid")):
+        return True
+    comments, first = _preamble(text)
+    if any(c.lower().startswith(_PREFIX) for c in comments):
+        return True
+    if first is None:
+        return False
+    head = first.split(maxsplit=1)[0].rstrip(":").lower()
+    return head in _DIAGRAMS
 
 
 def parse_mmd_header(text: str) -> MmdHeader:
