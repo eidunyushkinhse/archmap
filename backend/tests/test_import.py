@@ -439,3 +439,25 @@ def test_source_ref_persisted_on_import(db):
         "payments": "git:github.com/org/payments",
         "legacy": None,  # узел без блока source
     }
+
+
+def test_связь_путём_со_слэшем_без_пробелов_находит_узел():
+    # Слабые модели пишут «worker/queue-reader» вместо «worker / queue-reader».
+    # Стало важно, когда промпт начал требовать адресовать связи компонентов:
+    # до этого рёбра ссылались на голые имена и слэшей в них не бывало.
+    parsed, errors = parse_import(
+        "nodes:\n"
+        "- name: Система\n"
+        "  children:\n"
+        "  - name: worker\n"
+        "    children:\n"
+        "    - name: queue-reader\n"
+        "  - name: redis\n"
+        "edges:\n"
+        "- from: worker/queue-reader\n"
+        "  to: redis\n"
+    )
+
+    assert errors == [] and parsed is not None
+    src = parsed.nodes[parsed.edges[0].source_idx].name
+    assert src == "queue-reader"

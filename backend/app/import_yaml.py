@@ -256,6 +256,17 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         if not hits and " / " in ref:
             tail = f" / {ref}"
             hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
+        if not hits and "/" in ref:
+            # Слабые модели пишут путь слэшем без пробелов («worker/queue-reader»):
+            # нормализуем разделитель и повторяем точный путь + однозначный хвост.
+            # Тот же фолбэк давно живёт в резолвере дозаливки доков; здесь он стал
+            # нужен, когда промпт начал требовать адресовать связи компонентов.
+            # Фолбэк ПОСЛЕДНИЙ — настоящие имена со слэшем матчатся выше.
+            norm = " / ".join(part.strip() for part in ref.split("/") if part.strip())
+            hits = by_path.get(norm)
+            if not hits:
+                tail = f" / {norm}"
+                hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
         if not hits:
             errors.append(f'{path}: узел "{ref}" не найден')
             return None
