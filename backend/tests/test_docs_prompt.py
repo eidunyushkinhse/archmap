@@ -1,38 +1,34 @@
 """Тесты промпта «Доки от агента» (docs_prompt, этап 2 plan-agent-docs.md).
 
-Главная гарантия — пример манифеста из промпта проходит parse_manifest во всех
-вариантах include (промпт не может протухнуть относительно формата). Плюс
-маркеры критичных правил (уроки стресс-теста repo-import) и переключатели.
+Главная гарантия — образец файла из промпта РАЗБИРАЕТСЯ нашим же парсером
+(промпт не может протухнуть относительно формата). Плюс маркеры критичных правил
+(уроки стресс-теста repo-import) и переключатели.
+
+С переездом на .mmd (docs/plan-docs-mmd.md) образец — не манифест, а сам файл
+схемы: пакет манифеста больше не содержит.
 """
 
-from app.docs_import import parse_manifest
-from app.docs_prompt import build_docs_prompt, example_manifest
+from app.docs_prompt import build_docs_prompt
+from app.mmd_header import example_mmd, parse_mmd_header
 
 SLICE = "nodes:\n- name: Ярмарка\n  shape: service\nedges: []\n"
 
 
-def test_example_passes_validator_all_includes():
-    for include in ("both", "logic", "api"):
-        parsed, errors = parse_manifest(example_manifest(include))
-        assert errors == [], (include, errors)
-        assert parsed is not None and parsed.entries
-        if include == "logic":
-            assert all(e.openapi is None for e in parsed.entries)
-        if include == "api":
-            assert all(not e.logic for e in parsed.entries)
-            assert all(e.openapi is not None for e in parsed.entries)
+def test_образец_из_промпта_разбирается_парсером():
+    prompt = build_docs_prompt(SLICE, include="logic")
+    assert example_mmd() in prompt  # в промпте лежит ровно то, что парсится
+
+    header = parse_mmd_header(example_mmd())
+    assert header.name and header.kind == "operation" and header.operation
+    assert header.problems == []
 
 
-def test_example_teaches_conventions():
-    text = example_manifest("both")
-    # Двоеточие в имени схемы закавычено дампером — молчаливый урок кавычек
-    assert '"Крон: выставление счетов"' in text
-    # mermaid — литеральным блоком, подписи в ["…"]
-    assert "mermaid: |" in text
+def test_образец_учит_конвенциям():
+    text = example_mmd()
+    # Подписи вершин — в кавычках внутри скобок (частая ошибка слабой модели)
     assert 'A["Приём запроса"]' in text
-    # Обе формы адресации: полный путь и голое уникальное имя
-    assert "node: Ярмарка / orders" in text
-    assert "node: orders-db" in text
+    # Диаграмма — flowchart, а не sequence
+    assert text.splitlines()[3].startswith("graph ")
 
 
 def test_prompt_markers_and_slice():
@@ -40,27 +36,39 @@ def test_prompt_markers_and_slice():
     assert SLICE.rstrip() in prompt  # срез вложен
     for marker in (
         "ДОСЛОВНО",
-        "archmap-docs/manifest.yaml",
+        "archmap-docs/",
+        "%% archmap-name",
         "НЕ перепечатывай",
-        "origin: found",
-        "origin: synthesized",
+        "archmap-origin",
         "graph TD",
-        "двойные кавычки",
         "Схему НЕ меняй",
         "чью реализацию видишь в ЭТОМ репозитории",
+        # Посылка перестала быть одним файлом: перечень созданных файлов —
+        # единственная защита от «половину не перетащил».
+        "перечисли СОЗДАННЫЕ ФАЙЛЫ",
     ):
         assert marker in prompt, marker
 
 
 def test_prompt_include_toggles():
     logic_only = build_docs_prompt(SLICE, include="logic")
-    assert "Схемы логики (logic)" in logic_only
-    assert "OpenAPI-спека (openapi)" not in logic_only
-    assert "origin" not in logic_only.split("## Формат результата")[0].split("## Срез")[1]
+    assert "Схемы логики" in logic_only
+    assert "OpenAPI-спека" not in logic_only
+    assert "archmap-origin" not in logic_only
 
     api_only = build_docs_prompt(SLICE, include="api")
-    assert "OpenAPI-спека (openapi)" in api_only
-    assert "Схемы логики (logic)" not in api_only
+    assert "OpenAPI-спека" in api_only
+    assert "Схемы логики" not in api_only
+    # Образец .mmd в окне спеки не нужен и только сбивал бы с толку
+    assert "%% archmap-name" not in api_only
+
+
+def test_адресация_объяснена_только_там_где_нужна():
+    # В окне логики схема может уехать вложенному узлу — адрес объясняем; в окне
+    # спеки адресовать нечего, спека одна и принадлежит объекту окна.
+    logic_only = build_docs_prompt(SLICE, include="logic")
+    assert "%% archmap-node" in logic_only
+    assert "%% archmap-node" not in build_docs_prompt(SLICE, include="api")
 
 
 def test_prompt_lang_and_hints():
@@ -73,3 +81,9 @@ def test_prompt_lang_and_hints():
     ru = build_docs_prompt(SLICE)
     assert "Пример ниже написан по-русски" not in ru
     assert "Дополнительные указания" not in ru
+
+
+def test_режим_по_одной_схеме_требует_ровно_один_файл():
+    one = build_docs_prompt(SLICE, include="logic", target="Крон: счета")
+    assert "Крон: счета" in one
+    assert "ровно один .mmd-файл" in one

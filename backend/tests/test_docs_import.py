@@ -585,3 +585,72 @@ def test_спека_рядом_со_схемами_остаётся_ресурс
 
     assert len(report.logic) == 1
     assert any("не использован" in w for w in report.warnings)
+
+
+# ── окно спеки без манифеста (docs/plan-docs-mmd.md, Фаза 4, бэковая часть) ────
+
+SPEC_WITH_ORIGIN = "# archmap-origin: generated\n" + SPEC
+
+
+def _spec_payload(*files, node=None, overwrite=True):
+    return DocsImportIn(
+        files=[DocsFileIn(name=n, content=c) for n, c in files],
+        overwrite=overwrite,
+        only="api",
+        node_id=node.id if node is not None else None,
+    )
+
+
+def test_голая_спека_уезжает_объекту_окна(db):
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.yaml", SPEC), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.errors == []
+    assert len(report.specs) == 1
+    assert report.specs[0].node_path == "Ярмарка / orders"
+    assert report.specs[0].looks_openapi
+
+
+def test_происхождение_читается_комментарием_в_спеке(db):
+    # Единственное, что манифест давал сверх самого файла, — origin; агент пишет
+    # его комментарием в первых строках спеки.
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.yaml", SPEC_WITH_ORIGIN), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs[0].origin == "generated"
+
+
+def test_две_спеки_в_пакете_это_вопрос_а_не_догадка(db):
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _spec_payload(("a.yaml", SPEC), ("b.yaml", SPEC), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs == []
+    assert any("несколько файлов спеки" in e for e in report.errors)
+
+
+def test_спека_пишется_и_повторное_применение_ничего_не_меняет(db):
+    _, orders, *_ = _tree(db)
+    payload = _spec_payload(("orders-api.yaml", SPEC), node=orders)
+
+    first = docs_import_apply(
+        payload, db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert first.applied and first.specs_written == 1
+
+    second = docs_import_preview(
+        _spec_payload(("orders-api.yaml", SPEC), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert [s.action for s in second.specs] == ["unchanged"]

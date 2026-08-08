@@ -26,7 +26,9 @@ from app.docs_import import (
     build_docs_plan,
     looks_like_manifest,
     manifest_from_mmd,
+    manifest_from_spec,
     parse_manifest,
+    spec_check,
 )
 from app.docs_prompt import build_docs_prompt
 from app.export import build_export
@@ -105,6 +107,15 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
             # Дубль имени ресурса — последний побеждает молча (имена в одной папке
             # уникальны по построению; дубль возможен только ручной загрузкой).
             assets[f.name] = f.content
+    if not manifests and not errors and payload.only == "api" and payload.node_id is not None:
+        # Окно спеки: пакет — сам файл спеки, конверт не нужен (объект известен
+        # из окна, спека у него одна). Из нескольких файлов выбираем похожий на
+        # OpenAPI; если таких несколько — спрашиваем, а не угадываем.
+        picked = [n for n, c in assets.items() if spec_check(c)[1]] or list(assets)
+        if len(picked) == 1:
+            manifests.append((picked[0], manifest_from_spec(picked[0], assets[picked[0]])))
+        elif len(picked) > 1:
+            errors.append("в пакете несколько файлов спеки: " + ", ".join(sorted(picked)))
     if not manifests and not errors:
         errors.append("среди загруженных файлов нет ни схемы (.mmd), ни манифеста")
     if errors:

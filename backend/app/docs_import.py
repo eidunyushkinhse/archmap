@@ -238,6 +238,29 @@ def _name_from_file(fname: str) -> str:
     return stem
 
 
+_ORIGIN_COMMENT_RE = re.compile(r"^[#/ ]*archmap-origin:[ \t]*(\w+)[ \t]*$", re.MULTILINE)
+
+
+def manifest_from_spec(fname: str, content: str) -> ParsedManifest:
+    """Голый файл спеки → «манифест» из одной записи для объекта окна.
+
+    Окно спеки открыто ДЛЯ узла, спека у него одна — конверт-манифест здесь не
+    нёс ничего, кроме происхождения; его агент пишет комментарием в первых
+    строках самой спеки («# archmap-origin: generated»)."""
+    match = _ORIGIN_COMMENT_RE.search(content[:2000])
+    origin = match.group(1) if match and match.group(1) in _ORIGINS else None
+    return ParsedManifest(
+        entries=[
+            ManifestEntry(
+                node_ref=None,
+                logic=[],
+                openapi=OpenapiIn(file=fname, inline=None, origin=origin),
+                from_mmd=True,
+            )
+        ]
+    )
+
+
 def manifest_from_mmd(
     fname: str,
     content: str,
@@ -335,7 +358,7 @@ def _node_paths(nodes: list[Node]) -> tuple[list[Node], list[str], dict[str, lis
     return flat, fulls, by_bare, by_path
 
 
-def _spec_check(content: str) -> tuple[bool, bool, str | None]:
+def spec_check(content: str) -> tuple[bool, bool, str | None]:
     """(валидный YAML, похоже на OpenAPI, версия OAS) — серверное зеркало docValidate."""
     try:
         doc = yaml.safe_load(content)
@@ -510,7 +533,7 @@ def build_docs_plan(
                 plan.warnings.append(
                     f"{fname}: у спеки узла «{path}» не указано происхождение (origin)"
                 )
-            valid_yaml, looks, ver = _spec_check(content)
+            valid_yaml, looks, ver = spec_check(content)
             if not valid_yaml:
                 plan.warnings.append(f"спека узла «{path}» ({source}) не разбирается как YAML")
             elif not looks:
