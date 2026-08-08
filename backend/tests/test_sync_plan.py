@@ -313,3 +313,52 @@ def test_sync_preview_broken_yaml_and_404(db):
     with pytest.raises(HTTPException) as exc:
         sync_preview(uuid.uuid4(), SyncPreviewIn(contents=[RUN]), db=db, _user=user)
     assert exc.value.status_code == 404
+
+
+# ── возврат статуса вернувшемуся узлу (проверка-2 №1) ─────────────────────────
+
+_RETURN_YAML = "nodes:\n- name: Система\n  children:\n  - name: seed-data\nedges: []\n"
+
+
+def _schema_with_deprecated_seed() -> tuple[list[Node], list[Edge]]:
+    """Схема из того же YAML, но seed-data помечен устаревшим (его «не было» в
+    прошлом прогоне, и синк поставил статус)."""
+    nodes, edges = _seed(_parse(_RETURN_YAML))
+    next(n for n in nodes if n.name == "seed-data").status = "deprecated"
+    return nodes, edges
+
+
+def test_вернувшийся_узел_виден_в_плане_даже_когда_статус_не_трогаем():
+    # Раньше такой узел попадал в unchanged и не упоминался в плане ни строкой:
+    # правило «не-дефолт бьёт дефолт» не пропускало обратный переход.
+    nodes, edges = _schema_with_deprecated_seed()
+
+    plan = build_sync_plan(nodes, edges, _parse(_RETURN_YAML), SyncPolicies())
+
+    act = next(a for a in plan.nodes if a.path.endswith("seed-data"))
+    assert act.returned is True
+    assert act.action == "unchanged"  # статус не трогаем без галочки
+    assert "status" not in act.fields
+    assert plan.summary.get("nodes_returned") == 1
+
+
+def test_галочка_возвращает_статус():
+    nodes, edges = _schema_with_deprecated_seed()
+
+    plan = build_sync_plan(
+        nodes, edges, _parse(_RETURN_YAML), SyncPolicies(restore_returned=True)
+    )
+
+    act = next(a for a in plan.nodes if a.path.endswith("seed-data"))
+    assert act.returned is True and act.action == "update" and "status" in act.fields
+
+
+def test_обычный_узел_вернувшимся_не_считается():
+    nodes, edges = _seed(_parse(_RETURN_YAML))
+
+    plan = build_sync_plan(
+        nodes, edges, _parse(_RETURN_YAML), SyncPolicies(restore_returned=True)
+    )
+
+    act = next(a for a in plan.nodes if a.path.endswith("seed-data"))
+    assert act.returned is False and act.action == "unchanged"

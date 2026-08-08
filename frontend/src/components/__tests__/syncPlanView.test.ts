@@ -26,9 +26,9 @@ describe("planSections", () => {
   it("неизменное не показывает, изменения раскладывает по разделам", () => {
     const p = preview({
       nodes: [
-        { path: "С / new", action: "create", fields: [] },
-        { path: "С / old", action: "unchanged", fields: [], matched_by: "source" },
-        { path: "С / упавший", action: "missing", fields: [] },
+        { returned: false, path: "С / new", action: "create", fields: [] },
+        { returned: false, path: "С / old", action: "unchanged", fields: [], matched_by: "source" },
+        { returned: false, path: "С / упавший", action: "missing", fields: [] },
       ],
       edges: [
         { source_path: "С / a", target_path: "С / b", action: "create" },
@@ -43,21 +43,21 @@ describe("planSections", () => {
   });
 
   it("пропажи помечены как требующие внимания", () => {
-    const p = preview({ nodes: [{ path: "С / x", action: "missing", fields: [] }] });
+    const p = preview({ nodes: [{ returned: false, path: "С / x", action: "missing", fields: [] }] });
     expect(planSections(p)[0].attention).toBe(true);
   });
 
   it("у изменённого узла видно, какие поля меняются и чем он опознан", () => {
     const p = preview({
       nodes: [
-        { path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "source" },
+        { returned: false, path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "source" },
       ],
     });
     expect(planSections(p)[0].rows[0].note).toBe("имя, источник · нашли по репозиторию");
   });
 
   it("матч по имени показан даже без изменений полей — он слабее якорного", () => {
-    const p = preview({ nodes: [{ path: "С / svc", action: "update", fields: [], matched_by: "name" }] });
+    const p = preview({ nodes: [{ returned: false, path: "С / svc", action: "update", fields: [], matched_by: "name" }] });
     expect(planSections(p)[0].rows[0].note).toBe("нашли по имени");
   });
 });
@@ -110,5 +110,41 @@ describe("applySummary", () => {
 
   it("пустое применение не притворяется работой", () => {
     expect(applySummary(applied())).toBe("Схема уже актуальна");
+  });
+});
+
+describe("вернувшиеся объекты", () => {
+  // Раньше такой узел не попадал в план ни строкой: он был unchanged, а
+  // неизменные скрыты (находка проверки-2 №1).
+  it("показаны отдельным разделом даже когда статус не трогаем", () => {
+    const p = preview({
+      nodes: [{ returned: true, path: "С / seed", action: "unchanged", fields: [] }],
+    });
+
+    const [section] = planSections(p);
+    expect(section.key).toBe("nodes_returned");
+    expect(section.rows[0].note).toBe("статус оставляем как есть");
+  });
+
+  it("с включённой галочкой сказано, что вернём в строй", () => {
+    const p = preview({
+      nodes: [{ returned: true, path: "С / seed", action: "update", fields: ["status"] }],
+    });
+
+    const [section] = planSections(p);
+    expect(section.key).toBe("nodes_returned");
+    expect(section.rows[0].note).toBe("вернётся в строй");
+  });
+
+  it("вернувшийся не дублируется в «Изменённых»", () => {
+    const p = preview({
+      nodes: [
+        { returned: true, path: "С / seed", action: "update", fields: ["status"] },
+        { returned: false, path: "С / other", action: "update", fields: ["role"] },
+      ],
+    });
+
+    const update = planSections(p).find((s) => s.key === "nodes_update");
+    expect(update?.rows.map((r) => r.path)).toEqual(["С / other"]);
   });
 });

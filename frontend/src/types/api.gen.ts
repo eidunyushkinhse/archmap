@@ -2425,6 +2425,11 @@ export interface components {
              * @default false
              */
             mark_missing_deprecated: boolean;
+            /**
+             * Restore Returned
+             * @default false
+             */
+            restore_returned: boolean;
             /** Base Graph Rev */
             base_graph_rev?: number | null;
         };
@@ -2497,6 +2502,11 @@ export interface components {
             fields: string[];
             /** Matched By */
             matched_by?: ("source" | "name") | null;
+            /**
+             * Returned
+             * @default false
+             */
+            returned: boolean;
         };
         /**
          * SyncPreviewIn
@@ -2527,6 +2537,11 @@ export interface components {
              * @default false
              */
             mark_missing_deprecated: boolean;
+            /**
+             * Restore Returned
+             * @default false
+             */
+            restore_returned: boolean;
         };
         /**
          * SyncPreviewOut

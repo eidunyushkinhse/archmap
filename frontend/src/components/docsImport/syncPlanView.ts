@@ -67,12 +67,24 @@ export function planSections(p: SyncPreviewOut): PlanSection[] {
     {
       key: "nodes_update",
       title: "Изменённые объекты",
-      rows: nodes("update").map((a) => ({ path: a.path, note: nodeNote(a) })),
+      rows: nodes("update").filter((a) => !a.returned).map((a) => ({ path: a.path, note: nodeNote(a) })),
     },
     {
       key: "edges_create",
       title: "Новые связи",
       rows: edges("create").map(edgeRow),
+    },
+    {
+      // Вернувшиеся показываем ВСЕГДА, даже когда статус не трогаем: иначе
+      // объект, снова появившийся в YAML, не упоминался бы в плане ни строкой.
+      key: "nodes_returned",
+      title: "Снова в YAML",
+      rows: (p.nodes ?? []).filter((a) => a.returned).map((a) => ({
+        path: a.path,
+        note: a.fields?.includes("status")
+          ? "вернётся в строй"
+          : "статус оставляем как есть",
+      })),
     },
     {
       key: "nodes_missing",
@@ -101,6 +113,7 @@ export function planSummary(p: SyncPreviewOut): string {
   };
   add(s.nodes_create, "новых");
   add(s.nodes_update, "изменённых");
+  add(s.nodes_returned, "вернувшихся");
   add(s.nodes_missing, "пропавших");
   add(s.edges_create, "новых связей");
   add(s.edges_missing, "пропавших связей");

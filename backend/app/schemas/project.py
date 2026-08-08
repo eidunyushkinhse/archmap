@@ -66,6 +66,9 @@ class SyncPreviewIn(BaseModel):
     update_names: bool = False
     sync_components: bool = False
     mark_missing_deprecated: bool = False
+    # Снимать «устаревший» с вернувшихся в YAML. Симметрично пометке; см.
+    # SyncPolicies — дефолт консервативный, потому что пометка могла быть ручной.
+    restore_returned: bool = False
 
 
 class SyncApplyIn(SyncPreviewIn):
@@ -84,6 +87,9 @@ class SyncNodeActionOut(BaseModel):
     source_ref: str | None = None
     fields: list[str] = []  # какие поля изменит update
     matched_by: Literal["source", "name"] | None = None  # чем опознан живой узел
+    # Узел был помечен устаревшим, а в YAML снова есть. Показывается ВСЕГДА,
+    # даже когда статус не трогаем.
+    returned: bool = False
 
 
 class SyncEdgeActionOut(BaseModel):

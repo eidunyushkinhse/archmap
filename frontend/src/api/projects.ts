@@ -10,6 +10,7 @@ export interface SyncPolicies {
   update_names: boolean;
   sync_components: boolean;
   mark_missing_deprecated: boolean;
+  restore_returned: boolean;
 }
 
 // Управление проектами. Запросы к /projects скоупом X-Project-Id не оборачиваются

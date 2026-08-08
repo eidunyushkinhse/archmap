@@ -56,6 +56,11 @@ const POLICY_LABELS: { key: keyof SyncPolicies; title: string; hint: string }[] 
     title: "Помечать устаревшими то, чего нет в YAML",
     hint: "Объекты, которых в YAML больше нет, получат статус «устаревший» и будут видны на схеме серым. Удалять их ArchMap не будет ни при каких настройках.",
   },
+  {
+    key: "restore_returned",
+    title: "Возвращать в строй то, что снова появилось",
+    hint: "С объектов, помеченных устаревшими, статус будет снят, если в YAML они снова есть. По умолчанию выключено: пометку могли поставить вы вручную, и снимать её без спроса неправильно. Сам факт возвращения показан в плане в любом случае.",
+  },
 ];
 
 export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) {
@@ -71,6 +76,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
     update_names: false,
     sync_components: false,
     mark_missing_deprecated: false,
+    restore_returned: false,
   });
   const [rawPreview, setRawPreview] = useState<SyncPreviewOut | null>(null);
   const [checking, setChecking] = useState(false);

@@ -318,6 +318,7 @@ def sync_preview(
             update_names=payload.update_names,
             sync_components=payload.sync_components,
             mark_missing_deprecated=payload.mark_missing_deprecated,
+            restore_returned=payload.restore_returned,
         ),
     )
     return SyncPreviewOut(
@@ -331,6 +332,7 @@ def sync_preview(
                 source_ref=a.source_ref,
                 fields=a.fields,
                 matched_by=a.matched_by,  # type: ignore[arg-type]
+                returned=a.returned,
             )
             for a in plan.nodes
         ],
@@ -393,6 +395,7 @@ def sync_apply(
             update_names=payload.update_names,
             sync_components=payload.sync_components,
             mark_missing_deprecated=payload.mark_missing_deprecated,
+            restore_returned=payload.restore_returned,
         ),
     )
     report = apply_sync_plan(db, project, merged, plan)

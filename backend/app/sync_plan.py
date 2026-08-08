@@ -51,6 +51,12 @@ class SyncPolicies:
     # Пропавшим из прогона узлам ставить status=deprecated. Выключено: пропажа
     # может означать, что репозиторий просто не прогнали. УДАЛЕНИЯ НЕТ НИКОГДА.
     mark_missing_deprecated: bool = False
+    # Снимать «устаревший» с узлов, которые снова появились в YAML. Симметрично
+    # пометке: пометили по галочке — снимаем по галочке. Выключено, потому что
+    # ArchMap не знает, КТО поставил статус: пометку могли сделать руками, и
+    # снимать её молча значит переигрывать решение человека. Сам факт возвращения
+    # виден в плане ВСЕГДА, независимо от галочки (находка проверки-2 №1).
+    restore_returned: bool = False
 
 
 @dataclass
@@ -67,6 +73,10 @@ class SyncNodeAction:
     # build_sync_plan, а apply остаётся исполнителем и матчинг не дублирует.
     imp_idx: int | None = None
     parent_path: str | None = None
+    # Узел был помечен устаревшим, а в YAML он снова есть. Показываем ВСЕГДА,
+    # даже когда статус не трогаем: иначе вернувшийся объект не упоминался бы в
+    # плане ни строкой (он попадал в unchanged, а неизменные скрыты).
+    returned: bool = False
 
 
 @dataclass
@@ -93,6 +103,8 @@ class SyncPlan:
         counts: dict[str, int] = {}
         for a in self.nodes:
             counts[f"nodes_{a.action}"] = counts.get(f"nodes_{a.action}", 0) + 1
+            if a.returned:
+                counts["nodes_returned"] = counts.get("nodes_returned", 0) + 1
         for e in self.edges:
             counts[f"edges_{e.action}"] = counts.get(f"edges_{e.action}", 0) + 1
         return counts
@@ -104,6 +116,16 @@ class SyncPlan:
         return all(a.action == "unchanged" for a in self.nodes) and all(
             e.action == "unchanged" for e in self.edges
         )
+
+
+def _is_return(live: Node, imp: _ImpNode) -> bool:
+    """Узел был помечен устаревшим, а в YAML он снова есть — «вернулся в строй».
+
+    Обратный переход deprecated → existing не проходил общее правило «не-дефолт
+    бьёт дефолт»: в YAML статус почти всегда existing (дефолт схемы), поэтому
+    условие никогда не выполнялось, и вернувшийся узел вдобавок попадал в
+    unchanged — то есть не был виден в плане вовсе (находка проверки-2 №1)."""
+    return live.status == "deprecated" and imp.status == "existing"
 
 
 def _norm(name: str) -> str:
@@ -212,6 +234,8 @@ class _Matcher:
             fields.append("shape")
         if imp.status != "existing" and live.status != imp.status:
             fields.append("status")
+        elif self.policies.restore_returned and _is_return(live, imp):
+            fields.append("status")
         # Якорь — не пользовательские данные: проставляем и обновляем всегда.
         new_ref = imp.source_keys[0] if imp.source_keys else None
         if new_ref and new_ref != live.source_ref:
@@ -283,6 +307,7 @@ class _Matcher:
                 SyncNodeAction(
                     path=self.imp_paths[i],
                     action="update" if fields else "unchanged",
+                    returned=_is_return(live, imp),
                     node_id=live.id,
                     source_ref=imp.source_keys[0] if imp.source_keys else live.source_ref,
                     fields=fields,
