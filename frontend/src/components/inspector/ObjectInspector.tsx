@@ -1,10 +1,10 @@
-// Оркестратор правой панели (Вариант A · «Тихий бар»): сверху — переключатель «Вид
-// схемы» + легенда статусов (когда есть не-existing узлы), ниже — мета выбранного
-// объекта (узел/связь) либо пустое состояние. Одна область меты для наблюдателя и
+// Оркестратор правой панели (Вариант A · «Тихий бар»): сверху — легенда статусов
+// (когда есть не-existing узлы), ниже — мета выбранного объекта (узел/связь) либо
+// пустое состояние. Сам переключатель «Вид схемы» живёт ТОЛЬКО в шапке редактора:
+// две копии одного переключателя на экране путали (находка проверки 2026-08-08). Одна область меты для наблюдателя и
 // архитектора: роли различает сам NodeInspector/EdgeInspector.
 import type { Edge, EdgeUpdate, DeletionSnapshot, GhostNode, Node, NodeStatus, LevelEdge } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
-import { SchemaViewFilter } from "../SchemaViewFilter";
 import { viewShows, type SchemaView } from "../schemaView";
 import NodeInspector from "./NodeInspector";
 import EdgeInspector from "./EdgeInspector";
@@ -21,8 +21,9 @@ export type Selected =
 
 interface Props {
   hasStatusInfo: boolean;
+  // Текущий вид нужен легенде (какие статусы сейчас показаны); ПЕРЕКЛЮЧАЕТ его
+  // шапка редактора — панель только отражает выбор.
   view: SchemaView;
-  onViewChange: (v: SchemaView) => void;
   counts: Record<NodeStatus, number>;
   selected: Selected;
   isArchitect: boolean;
@@ -36,7 +37,7 @@ interface Props {
 }
 
 export default function ObjectInspector({
-  hasStatusInfo, view, onViewChange, counts, selected, isArchitect,
+  hasStatusInfo, view, counts, selected, isArchitect,
   onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
   onNavigateNode,
 }: Props) {
@@ -44,7 +45,6 @@ export default function ObjectInspector({
     <div className="insp">
       {hasStatusInfo && (
         <section>
-          <SchemaViewFilter view={view} onChange={onViewChange} />
           <StatusLegend view={view} counts={counts} />
           <div className="insp-rule" />
         </section>

@@ -654,7 +654,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         {/* Инспектор */}
         <aside style={rightPanel}>
           <ObjectInspector
-            hasStatusInfo={hasStatusInfo} view={schemaView} onViewChange={setSchemaView}
+            hasStatusInfo={hasStatusInfo} view={schemaView}
             counts={statusCounts} selected={selectedObject} isArchitect={isArchitect}
             onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
             onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
