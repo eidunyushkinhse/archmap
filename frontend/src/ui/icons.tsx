@@ -20,12 +20,14 @@ export const RedoIcon = ({ size = 17 }: IcoProps) => (
 export const ExportIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M12 3 V14" /><path d="M8 10 L12 14 L16 10" /><path d="M4 17 V20 H20 V17" /></svg>);
-// «Обновить из репозитория» — стрелка вниз в схему поверх круговой: обновление
-// живой схемы прогоном агента (не путать с ExportIcon — та выгружает наружу).
+// «Обновить из репозитория» — ТОТ ЖЕ лоток, что у ExportIcon, но стрелка наружу:
+// кнопки стоят рядом в шапке и обязаны читаться парой «отдать / принять». Круговых
+// стрелок здесь быть не может: в шапке редактора соседствует «Переразложить
+// уровень», и два круглых знака подряд читались бы как одно действие.
 export const RepoSyncIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
-    <path d="M20 8 a8 8 0 0 0-14-3 M6 2 V5 H9" />
-    <path d="M12 10 V18" /><path d="M8.5 14.5 L12 18 L15.5 14.5" /></svg>);
+    <path d="M12 14 V3" /><path d="M8 7 L12 3 L16 7" />
+    <path d="M4 17 V20 H20 V17" /></svg>);
 // «Переразложить уровень» — круговые стрелки (сброс к авто-раскладке).
 export const RelayoutIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
