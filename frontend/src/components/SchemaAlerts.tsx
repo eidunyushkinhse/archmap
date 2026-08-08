@@ -244,8 +244,14 @@ const count: CSSProperties = {
   borderRadius: 10, background: "#fff", color: "#b45309", border: "1.5px solid #f59e0b",
   fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box",
 };
+// Панель поверх содержимого страницы: у соседей z-index задан явно (меню ⋯ и
+// выпадающие списки страницы объекта — 20/15/14), а холст React Flow расставляет
+// свои значения элементам схемы. Без z-index панель уходила под них (находка
+// ручной проверки 2026-08-08). 50 — выше содержимого, но ниже тостов (60);
+// модалки живут в top-layer <dialog> и вне этой шкалы.
 const menu: CSSProperties = {
-  position: "absolute", top: "calc(100% + 8px)", right: 0, width: 296, maxHeight: 460, overflowY: "auto",
+  position: "absolute", zIndex: 50,
+  top: "calc(100% + 8px)", right: 0, width: 296, maxHeight: 460, overflowY: "auto",
   background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, boxShadow: "0 12px 32px rgba(17,24,39,.16)", padding: "0 0 6px",
 };
 const menuHead: CSSProperties = {

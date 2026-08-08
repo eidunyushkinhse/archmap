@@ -32,26 +32,28 @@ interface Props {
   onApplied: (message: string) => void;
 }
 
+// Подсказки описывают ЭФФЕКТ для пользователя, а не механику: в интерфейс не
+// должны попадать наши рабочие слова («прогон», «политика», «якорь», «слой»).
 const POLICY_LABELS: { key: keyof SyncPolicies; title: string; hint: string }[] = [
   {
     key: "update_descriptions",
-    title: "Обновлять описания",
-    hint: "Проза агента перезапишет описания. Выключено: она меняется от прогона к прогону.",
+    title: "Заменить описания",
+    hint: "Описания объектов будут заменены на те, что в YAML. Если вы правили описания вручную, эти правки пропадут. По умолчанию выключено: описания у агента каждый раз получаются немного разными.",
   },
   {
     key: "update_names",
-    title: "Применять переименования",
-    hint: "Имена из прогона заменят текущие. Переименования видны в плане и без этого.",
+    title: "Переименовать объекты",
+    hint: "Объекты получат имена из YAML. Без этой галочки имена в схеме останутся прежними, а расхождение будет просто показано в списке ниже.",
   },
   {
     key: "sync_components",
-    title: "Синхронизировать компоненты",
-    hint: "Внутренний слой (компоненты сервисов). Выключено: его состав нестабилен.",
+    title: "Обновлять внутреннее устройство сервисов",
+    hint: "Затрагивать не только сами сервисы и базы, но и то, из чего они состоят внутри. По умолчанию выключено: внутреннее устройство агент описывает менее надёжно, и такие изменения обычно только мешают увидеть главное.",
   },
   {
     key: "mark_missing_deprecated",
-    title: "Помечать пропавшие устаревшими",
-    hint: "Пропавшим ставится статус «устаревший». Удаления не происходит никогда.",
+    title: "Помечать устаревшими то, чего нет в YAML",
+    hint: "Объекты, которых в YAML больше нет, получат статус «устаревший» и будут видны на схеме серым. Удалять их ArchMap не будет ни при каких настройках.",
   },
 ];
 
@@ -141,8 +143,8 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
       .catch((e: unknown) => {
         setApplyError(
           e instanceof ApiError && e.status === 409
-            ? "Схема изменилась в другой сессии — план устарел. Закройте окно и повторите."
-            : "Не удалось применить. Проверьте соединение и повторите.",
+            ? "Схему изменили в другом окне или другим пользователем — список ниже устарел. Закройте это окно и откройте снова."
+            : "Не удалось сохранить изменения. Проверьте соединение и повторите.",
         );
       })
       .finally(() => setApplying(false));
@@ -164,9 +166,10 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
         </button>
       </div>
       <p style={sub}>
-        Запустите промпт своим агентом в каждом репозитории системы и вставьте ответы сюда.
-        Схема обновится, а раскладка, схемы логики, спецификации и бизнес-процессы останутся
-        на месте. Ничего не удаляется.
+        Скопируйте задание, выполните его своим ИИ-агентом в каждом репозитории системы и
+        вставьте полученные YAML сюда. ArchMap сверит их со схемой и покажет, что изменится,
+        прежде чем что-либо записать. Расположение объектов, схемы логики, спецификации и
+        бизнес-процессы останутся на месте, удалять ArchMap ничего не будет.
       </p>
 
       <div style={cols}>
@@ -198,12 +201,12 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             onClick={copyPrompt}
             disabled={!projectName}
           >
-            {promptCopied ? "Скопировано" : "Скопировать промпт"}
+            {promptCopied ? "Скопировано" : "Скопировать задание для агента"}
           </button>
           <p style={leftNote}>
-            Имя системы в промпте — «{projectName}». Один и тот же промпт запускается в каждом
-            репозитории; объекты опознаются по источнику (git-remote, образ, сетевое имя),
-            поэтому переименованный сервис не задвоится.
+            В задании система названа «{projectName}». Одно и то же задание выполняется в каждом
+            репозитории: объекты узнаются по репозиторию, образу и сетевому имени, поэтому
+            переименованный сервис не превратится в новый объект.
           </p>
         </div>
 
@@ -262,7 +265,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}
-                placeholder="Вставьте сюда YAML-ответ агента"
+                placeholder="Вставьте сюда YAML от агента"
                 spellCheck={false}
               />
 
@@ -283,9 +286,9 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
                 ))}
               </div>
 
-              {checking && <p style={grayLine}>Считаем план…</p>}
+              {checking && <p style={grayLine}>Сверяем со схемой…</p>}
               {preview && !preview.ok && (
-                <NoteList title="Не удалось разобрать" items={preview.errors ?? []} />
+                <NoteList title="YAML не читается" items={preview.errors ?? []} />
               )}
               {preview?.ok && (
                 <>
@@ -315,10 +318,10 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
                     </div>
                   ))}
                   {!!preview.conflicts?.length && (
-                    <NoteList title="Решено правилом" items={preview.conflicts} />
+                    <NoteList title="Есть нюанс" items={preview.conflicts} />
                   )}
                   {!!preview.warnings?.length && (
-                    <NoteList title="Проверьте глазами" items={preview.warnings} />
+                    <NoteList title="Стоит проверить глазами" items={preview.warnings} />
                   )}
                 </>
               )}

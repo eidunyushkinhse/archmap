@@ -53,18 +53,20 @@ describe("planSections", () => {
         { path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "source" },
       ],
     });
-    expect(planSections(p)[0].rows[0].note).toBe("имя, источник · по источнику");
+    expect(planSections(p)[0].rows[0].note).toBe("имя, источник · нашли по репозиторию");
   });
 
   it("матч по имени показан даже без изменений полей — он слабее якорного", () => {
     const p = preview({ nodes: [{ path: "С / svc", action: "update", fields: [], matched_by: "name" }] });
-    expect(planSections(p)[0].rows[0].note).toBe("по имени");
+    expect(planSections(p)[0].rows[0].note).toBe("нашли по имени");
   });
 });
 
 describe("planSummary", () => {
   it("пустой план называет вещи своими именами", () => {
-    expect(planSummary(preview({ is_noop: true }))).toContain("применять нечего");
+    expect(planSummary(preview({ is_noop: true }))).toBe(
+      "Применять нечего. Схема уже соответствует YAML",
+    );
   });
 
   it("считает изменения и отдельно неизменное", () => {

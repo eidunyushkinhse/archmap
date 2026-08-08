@@ -350,6 +350,11 @@ const page: CSSProperties = {
   overflow: "hidden",
 };
 const topBar: CSSProperties = {
+  // Своя плоскость наложения выше тела страницы: панель алертов раскрывается
+  // ИЗ шапки, и без этого её z-index (50) ничего не решал бы — тело страницы
+  // рисуется позже и перекрывало бы её целиком.
+  position: "relative",
+  zIndex: 50,
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",

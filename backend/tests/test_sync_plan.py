@@ -117,7 +117,7 @@ class TestIdentity:
         act = next(a for a in plan.nodes if a.path.endswith("billing"))
         assert act.action == "unchanged" and act.matched_by == "source"
         # Переименование ВИДНО, но по умолчанию не применяется.
-        assert any("назван «billing»" in c and "имя не меняем" in c for c in plan.conflicts)
+        assert any("назван «billing»" in c and "оставляем как есть" in c for c in plan.conflicts)
 
     def test_переименование_применяется_по_политике(self):
         parsed = _parse(RUN)
@@ -143,7 +143,7 @@ class TestIdentity:
         plan = build_sync_plan(nodes, edges, alien)
 
         assert _by_action(plan, "create") == ["Система / payments"]
-        assert any("тёзка из другого источника" in w for w in plan.warnings)
+        assert any("уже есть объект с таким именем" in w for w in plan.warnings)
 
     def test_первый_синк_заякоривает_узлы_без_source_ref(self):
         """Схема из старого прогона (якорей не было): матч идёт по имени, а план
@@ -241,7 +241,7 @@ nodes:
 """)
         plan = build_sync_plan(nodes, edges, moved, SyncPolicies(sync_components=True))
 
-        assert any("лежит в другом месте" in c for c in plan.conflicts)
+        assert any("показан в другом месте" in c for c in plan.conflicts)
         act = next(a for a in plan.nodes if a.path.endswith("payments"))
         assert act.action == "unchanged" and act.node_id is not None
 

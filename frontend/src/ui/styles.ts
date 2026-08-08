@@ -36,7 +36,8 @@ export const input: CSSProperties = {
 const btnBase: CSSProperties = {
   padding: "9px 18px",
   borderRadius: 8,
-  cursor: "pointer",
+  // cursor ЗДЕСЬ НЕ ЗАДАЁМ намеренно: инлайн-стиль перебил бы not-allowed у
+  // неактивной кнопки. Курсор и состояние :disabled — глобальным CSS (index.css).
   fontSize: 14,
   fontWeight: 600,
   lineHeight: 1.1,

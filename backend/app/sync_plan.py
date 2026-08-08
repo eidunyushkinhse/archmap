@@ -115,6 +115,18 @@ def _live_keys(node: Node) -> list[str]:
     return [node.source_ref] if node.source_ref else []
 
 
+# Строки плана читает ПОЛЬЗОВАТЕЛЬ, а не мы: технический ключ вида
+# «git:github.com/org/x» превращаем в «репозиторию github.com/org/x».
+_SOURCE_KIND = {"git": "репозиторию", "img": "образу", "k8s": "деплойменту", "host": "сетевому имени"}
+
+
+def _human_source(ref: str | None) -> str:
+    if not ref:
+        return "источнику"
+    kind, _, value = ref.partition(":")
+    return f"{_SOURCE_KIND.get(kind, 'источнику')} {value}" if value else "источнику"
+
+
 class _Matcher:
     """Состояние одного построения плана (класс вместо связки словарей — тот же
     приём, что в _Merger)."""
@@ -174,8 +186,8 @@ class _Matcher:
             # Предохранитель Фазы 0: тёзка с противоречащим якорем — другой узел.
             if compare_identity(_live_keys(cand), imp.source_keys) == "different":
                 self.plan.warnings.append(
-                    f"«{imp.name}»: в схеме есть тёзка из другого источника "
-                    f"({cand.source_ref}) — будет создан отдельный объект"
+                    f"«{imp.name}»: в схеме уже есть объект с таким именем, но он относится "
+                    f"к другому {_human_source(cand.source_ref)} — добавим отдельный объект"
                 )
                 continue
             return cand, "name"
@@ -249,17 +261,22 @@ class _Matcher:
             self.taken.add(live.id)
             self.imp_to_live[i] = live
             if how == "source" and _norm(live.name) != _norm(imp.name):
-                verb = "будет переименован" if self.policies.update_names else "имя не меняем"
+                verb = (
+                    "имя будет изменено"
+                    if self.policies.update_names
+                    else "имя в схеме оставляем как есть"
+                )
                 self.plan.conflicts.append(
-                    f"«{live.name}» в прогоне назван «{imp.name}» (опознан по источнику "
-                    f"{live.source_ref}) — {verb}"
+                    f"«{live.name}»: в YAML этот объект назван «{imp.name}» "
+                    f"(узнали по {_human_source(live.source_ref)}) — {verb}"
                 )
             live_parent = live.parent_id if live.parent_id in self.by_id else None
             want_parent = parent_live.id if parent_live else None
             if live_parent != want_parent:
                 self.plan.conflicts.append(
-                    f"«{live.name}»: в прогоне лежит в другом месте ({self.imp_paths[i]}) — "
-                    f"перемещение не выполняется, поддерево остаётся на месте"
+                    f"«{live.name}»: в YAML этот объект показан в другом месте "
+                    f"({self.imp_paths[i]}) — переносить не будем, вложенность в схеме "
+                    f"останется прежней"
                 )
             fields = self._diff_fields(live, imp)
             self.plan.nodes.append(

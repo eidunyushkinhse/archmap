@@ -17,10 +17,11 @@ const FIELD_LABEL: Record<string, string> = {
   source_ref: "источник",
 };
 
-/** Чем опознан живой узел — важно для доверия к плану. */
+/** Как объект найден в схеме — от этого зависит доверие к строке плана.
+ *  Формулировки без внутренних терминов: пользователю важно, по чему сошлось. */
 const MATCHED_LABEL: Record<string, string> = {
-  source: "по источнику",
-  name: "по имени",
+  source: "нашли по репозиторию",
+  name: "нашли по имени",
 };
 
 export interface PlanRow {
@@ -92,7 +93,7 @@ export function planSections(p: SyncPreviewOut): PlanSection[] {
 /** Строка-сводка для шапки превью. Пустой план — отдельная формулировка. */
 export function planSummary(p: SyncPreviewOut): string {
   if (!p.ok) return "";
-  if (p.is_noop) return "Схема уже соответствует прогону — применять нечего";
+  if (p.is_noop) return "Применять нечего. Схема уже соответствует YAML";
   const s = p.summary ?? {};
   const bits: string[] = [];
   const add = (n: number | undefined, text: string) => {
