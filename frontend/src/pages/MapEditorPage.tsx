@@ -8,7 +8,7 @@ import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
-  Node, NodeShape, NodeStatus, NodeUpdate,
+  Node, NodeShape, NodeUpdate,
   ViewLayout, ViewLayoutPayload,
 } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
@@ -467,12 +467,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const hasNodes = nodes.length + levelGhosts.length > 0;
   const hasStatusInfo = nodes.some((n) => n.status !== "existing") || levelGhosts.some((g) => g.status !== "existing");
-  const statusCounts = useMemo<Record<NodeStatus, number>>(() => {
-    const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
-    for (const n of nodes) c[n.status]++;
-    for (const g of levelGhosts) c[g.status]++;
-    return c;
-  }, [nodes, levelGhosts]);
 
   const inspectEdge = (edge: LevelEdge) => { setSelectedObject({ kind: "edge", edge }); };
   // Выбор связи (общая оркестрация с просмотром — useEdgeChoice): модалки выбора
@@ -589,7 +583,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               setTreeReload((t) => t + 1);
             }}
           />
-          {hasStatusInfo && <SchemaViewFilter view={schemaView} onChange={setSchemaView} />}
+          {hasStatusInfo && <SchemaViewFilter view={schemaView} onChange={setSchemaView} variant="inline" />}
           {/* «Принять переход» стоит рядом с переключателем вида, а не среди
               иконок: обе вещи про статусы, и появляться должны там, где статусы
               видны. Кнопка есть, только когда принимать есть что. */}
@@ -654,8 +648,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         {/* Инспектор */}
         <aside style={rightPanel}>
           <ObjectInspector
-            hasStatusInfo={hasStatusInfo} view={schemaView}
-            counts={statusCounts} selected={selectedObject} isArchitect={isArchitect}
+            selected={selectedObject} isArchitect={isArchitect}
             onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
             onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
             onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}

@@ -1,11 +1,10 @@
-// Оркестратор правой панели (Вариант A · «Тихий бар»): сверху — легенда статусов
-// (когда есть не-existing узлы), ниже — мета выбранного объекта (узел/связь) либо
-// пустое состояние. Сам переключатель «Вид схемы» живёт ТОЛЬКО в шапке редактора:
-// две копии одного переключателя на экране путали (находка проверки 2026-08-08). Одна область меты для наблюдателя и
+// Оркестратор правой панели (Вариант A · «Тихий бар»): мета выбранного объекта
+// (узел/связь) либо пустое состояние. Всё, что относится к СТАТУСАМ схемы —
+// переключатель вида и легенда цветов, — живёт в шапке редактора: держать это в
+// двух местах значило путать, какой из переключателей главный (находка проверки
+// 2026-08-08). Одна область меты для наблюдателя и
 // архитектора: роли различает сам NodeInspector/EdgeInspector.
-import type { Edge, EdgeUpdate, DeletionSnapshot, GhostNode, Node, NodeStatus, LevelEdge } from "../../types";
-import { getNodeColors, STATUS_META } from "../graph/colors";
-import { viewShows, type SchemaView } from "../schemaView";
+import type { Edge, EdgeUpdate, DeletionSnapshot, GhostNode, Node, LevelEdge } from "../../types";
 import NodeInspector from "./NodeInspector";
 import EdgeInspector from "./EdgeInspector";
 import GhostInspector from "./GhostInspector";
@@ -20,11 +19,6 @@ export type Selected =
   | null;
 
 interface Props {
-  hasStatusInfo: boolean;
-  // Текущий вид нужен легенде (какие статусы сейчас показаны); ПЕРЕКЛЮЧАЕТ его
-  // шапка редактора — панель только отражает выбор.
-  view: SchemaView;
-  counts: Record<NodeStatus, number>;
   selected: Selected;
   isArchitect: boolean;
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
@@ -37,19 +31,12 @@ interface Props {
 }
 
 export default function ObjectInspector({
-  hasStatusInfo, view, counts, selected, isArchitect,
+  selected, isArchitect,
   onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
   onNavigateNode,
 }: Props) {
   return (
     <div className="insp">
-      {hasStatusInfo && (
-        <section>
-          <StatusLegend view={view} counts={counts} />
-          <div className="insp-rule" />
-        </section>
-      )}
-
       {!selected ? (
         <InspectorEmpty />
       ) : selected.kind === "node" ? (
@@ -91,22 +78,3 @@ function InspectorEmpty() {
 
 // Легенда статусов в панели (свотч + подпись + счётчик). Строки статусов, скрытых
 // текущим видом, гасим и показываем «—» вместо счётчика. Переехала с холста сюда (B4).
-function StatusLegend({ view, counts }: { view: SchemaView; counts: Record<NodeStatus, number> }) {
-  const order: NodeStatus[] = ["existing", "planned", "deprecated"];
-  return (
-    <div className="insp-legend">
-      <div className="insp-legend-head">Цвет = статус узла</div>
-      {order.map((st) => {
-        const visible = viewShows(view, st);
-        const swatch = getNodeColors(false, 0, st);
-        return (
-          <div key={st} className="insp-legend-row" style={{ opacity: visible ? 1 : 0.32 }}>
-            <span className="insp-swatch" style={{ background: swatch.bg, borderColor: swatch.border }} />
-            <span className="insp-legend-label">{STATUS_META[st].label}</span>
-            <span className="insp-legend-count">{visible ? counts[st] : "—"}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}

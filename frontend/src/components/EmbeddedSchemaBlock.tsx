@@ -183,7 +183,7 @@ export default function EmbeddedSchemaBlock({
         {toolbarHint && <span className="esb-hint">{toolbarHint}</span>}
         <span style={{ flex: 1 }} />
         {showViewFilter && (
-          <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} />
+          <SchemaViewFilter view={schemaView} onChange={onSchemaViewChange} variant="inline" />
         )}
         {/* «Переразложить» переехало на холст (canvas-кнопка LevelGraph, правый
             верхний угол) — единообразно с редактором-картой. Здесь осталась только

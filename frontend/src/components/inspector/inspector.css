@@ -53,6 +53,24 @@
 .insp-seg-btn.is-active .insp-seg-sub {
   color: #7591b4;
 }
+
+/* Вариант для горизонтального тулбара: одна строка, кнопки по содержимому.
+   Здесь у переключателя нет своей колонки — он стоит в ряд с другими
+   элементами, поэтому не тянется во всю ширину и не задаёт высоту строки. */
+.insp-seg--inline {
+  flex: none;
+  padding: 2px;
+  border-radius: 8px;
+}
+.insp-seg--inline .insp-seg-btn {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.insp-seg--inline .insp-seg-main {
+  font-size: 12px;
+  white-space: nowrap;
+}
 .insp-rule {
   height: 1px;
   background: #eef0f2;
@@ -495,43 +513,3 @@
   background: #fef2f2;
 }
 
-/* Легенда статусов в панели */
-.insp-legend {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.insp-legend-head {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #94a3b8;
-  margin-bottom: 4px;
-}
-.insp-legend-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 0;
-}
-.insp-swatch {
-  width: 13px;
-  height: 13px;
-  border-radius: 3px;
-  border: 1px solid;
-  flex: none;
-}
-.insp-legend-label {
-  font-size: 12px;
-  color: #374151;
-  flex: 1;
-}
-.insp-legend-count {
-  font-size: 12px;
-  font-weight: 700;
-  color: #6b7280;
-  min-width: 14px;
-  text-align: right;
-}
