@@ -443,3 +443,22 @@ def test_корень_системы_без_связей_не_считается
 
     assert errors == []
     assert not any("без единой связи" in w for w in report.warnings)
+
+
+def test_контейнер_со_связанными_детьми_подвисшим_не_считается():
+    # Прямых связей у контейнера быть и не должно — их несут дети (зеркало
+    # app/alerts.compute_alerts). Иначе превью пугало бы тем, чего схема не покажет.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "    children:\n"
+            "    - name: web-api\n"
+            "  - name: redis\n",
+            "edges:\n- from: web-api\n  to: redis\n",
+        )
+    ])
+
+    assert errors == []
+    assert not any("без единой связи" in w for w in report.warnings)

@@ -341,10 +341,16 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
             f"внутри системы оказались люди ({', '.join(f'«{a}»' for a in actors[:6])}) — "
             f"по C4 человек пользуется системой, а не входит в неё; перенесите их в корень"
         )
-    # Корень связей и не имеет — они у его детей; сравниваем только остальных.
+    # «Подвисшим» считается ТОЛЬКО атомарный узел: у контейнера прямых связей и
+    # быть не должно — их несут его дети, а связь, упирающаяся в контейнер, ловится
+    # отдельным алертом. Зеркалим определение из app/alerts.compute_alerts, иначе
+    # превью пугало бы тем, чего схема потом не показывает.
+    parents = {n.parent_idx for n in merged.nodes if n.parent_idx is not None}
     linked = {e.source_idx for e in merged.edges} | {e.target_idx for e in merged.edges}
     lonely = [
-        n.name for i, n in enumerate(merged.nodes) if i not in linked and n.parent_idx is not None
+        n.name
+        for i, n in enumerate(merged.nodes)
+        if i not in linked and i not in parents and n.parent_idx is not None
     ]
     if lonely:
         names = ", ".join(f"«{x}»" for x in lonely[:6])
