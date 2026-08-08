@@ -159,7 +159,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
     >
       <div style={head}>
         <h3 style={{ margin: 0, fontSize: 16.5 }}>Обновить из репозитория</h3>
-        <button className="icon-btn" onClick={onClose} aria-label="Закрыть">
+        <button className="modal-close" onClick={onClose} aria-label="Закрыть">
           <CloseIcon />
         </button>
       </div>
@@ -248,19 +248,21 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             />
           </div>
 
-          {!pkg.hasContent ? (
-            <div style={fileArea}>
-              <p style={dropHint}>
-                Загрузите YAML-ответы агента — по файлу на репозиторий. План обновления
-                посчитается автоматически.
-              </p>
+          {/* Редактор показывается, как только файл ЗАВЕДЁН (в том числе пустой,
+              созданный кнопкой «Вставить текст»), а не когда в нём уже есть текст:
+              иначе вставлять было некуда — чип есть, поля нет. */}
+          {pkg.files.length === 0 ? (
+            <div style={dropHint}>
+              Загрузите YAML-ответы агента — по файлу на репозиторий — или вставьте текстом.
+              План обновления посчитается автоматически.
             </div>
           ) : (
             <>
               <textarea
-                style={{ ...fileArea, fontFamily: "ui-monospace, monospace", fontSize: 12 }}
+                style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}
+                placeholder="Вставьте сюда YAML-ответ агента"
                 spellCheck={false}
               />
 
