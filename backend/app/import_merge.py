@@ -324,6 +324,37 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
     return m.finish(parts)
 
 
+def warn_content(merged: ParsedImport, report: MergeReport) -> None:
+    """Проверки СОДЕРЖАНИЯ схемы, не полагающиеся на аккуратность агента.
+
+    Обе находки ручной проверки 2026-08-08: агент кладёт людей внутрь системы
+    (3 прогона из 4) и создаёт компоненты, не связанные ни с чем (2 объекта из
+    10). Промпт про это говорит, но соблюдает его модель через раз — поэтому
+    предупреждаем ЗДЕСЬ, до создания проекта.
+
+    Только предупреждения: тихо перестраивать чужое дерево (поднимать актора в
+    корень) хуже, чем строка в отчёте, — пользователь не поймёт, что произошло.
+    """
+    actors = [n.name for n in merged.nodes if n.shape == "person" and n.parent_idx is not None]
+    if actors:
+        report.warnings.append(
+            f"внутри системы оказались люди ({', '.join(f'«{a}»' for a in actors[:6])}) — "
+            f"по C4 человек пользуется системой, а не входит в неё; перенесите их в корень"
+        )
+    # Корень связей и не имеет — они у его детей; сравниваем только остальных.
+    linked = {e.source_idx for e in merged.edges} | {e.target_idx for e in merged.edges}
+    lonely = [
+        n.name for i, n in enumerate(merged.nodes) if i not in linked and n.parent_idx is not None
+    ]
+    if lonely:
+        names = ", ".join(f"«{x}»" for x in lonely[:6])
+        tail = f" и ещё {len(lonely) - 6}" if len(lonely) > 6 else ""
+        report.warnings.append(
+            f"объектов без единой связи: {len(lonely)} ({names}{tail}) — проверьте, "
+            f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»"
+        )
+
+
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:
     """Общий путь превью и создания: разобрать N текстов и слить. Возвращает
     (результат, отчёт, ошибки); при любых ошибках результат None. Ошибки
@@ -342,4 +373,5 @@ def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport,
     merged, report = merge_imports(parts)
     if report.errors:
         return None, report, list(report.errors)
+    warn_content(merged, report)
     return merged, report, []

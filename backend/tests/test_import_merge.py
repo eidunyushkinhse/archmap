@@ -8,7 +8,7 @@
 «родители раньше детей» (совместимость с seed_import).
 """
 
-from app.import_merge import merge_imports
+from app.import_merge import merge_imports, parse_and_merge
 from app.import_yaml import ParsedImport, parse_import
 
 
@@ -372,3 +372,74 @@ def test_path_различает_сервисы_монорепо():
     assert not any("указывают один источник" in w for w in report.warnings)
     # Склеился именно backend, а не frontend.
     assert any("имя" in c and "сервер" in c for c in report.conflicts)
+
+
+# ── проверки содержания схемы (находки ручной проверки 2026-08-08) ────────────
+
+def _doc(nodes_yaml: str, edges_yaml: str = "edges: []") -> str:
+    return f"nodes:\n{nodes_yaml}{edges_yaml}\n"
+
+
+def test_актор_внутри_системы_это_предупреждение_а_не_молчание():
+    # По C4 человек пользуется системой, а не входит в неё. Агент нарушал это в
+    # 3 прогонах из 4 — промпт правилу учит, но полагаться на модель нельзя.
+    merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "  - name: Избиратель\n"
+            "    shape: person\n",
+            "edges:\n- from: Избиратель\n  to: vote\n",
+        )
+    ])
+
+    assert errors == [] and merged is not None
+    assert any("Избиратель" in w and "человек" in w for w in report.warnings)
+
+
+def test_актор_в_корне_молчит():
+    merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "- name: Избиратель\n"
+            "  shape: person\n",
+            "edges:\n- from: Избиратель\n  to: vote\n",
+        )
+    ])
+
+    assert errors == [] and merged is not None
+    assert not any("человек" in w for w in report.warnings)
+
+
+def test_объекты_без_связей_считаются_и_называются():
+    merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "  - name: redis\n"
+            "  - name: Voting API\n"
+            "  - name: Frontend Templates\n",
+            "edges:\n- from: vote\n  to: redis\n",
+        )
+    ])
+
+    assert errors == [] and merged is not None
+    warn = next(w for w in report.warnings if "без единой связи" in w)
+    assert "2" in warn and "Voting API" in warn and "Frontend Templates" in warn
+
+
+def test_корень_системы_без_связей_не_считается_потерянным():
+    # У корня связей и не бывает — они у его детей; жаловаться не на что.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n  children:\n  - name: vote\n  - name: redis\n",
+            "edges:\n- from: vote\n  to: redis\n",
+        )
+    ])
+
+    assert errors == []
+    assert not any("без единой связи" in w for w in report.warnings)
