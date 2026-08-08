@@ -174,6 +174,27 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     }
   }
 
+  const nameFields = (
+    <div>
+      <label style={labelStyle}>Название</label>
+      <input
+        data-autofocus
+        style={input}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Например, «Платёжная платформа»"
+        onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+      />
+      <label style={labelStyle}>Описание <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span></label>
+      <textarea
+        style={{ ...input, minHeight: 52, resize: "none", marginBottom: 0 }}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Коротко о схеме"
+      />
+    </div>
+  );
+
   return (
     <Modal onClose={onClose} boxStyle={{ width: 904, maxHeight: "90vh", padding: 0, overflow: "hidden" }}>
       <div style={root}>
@@ -182,7 +203,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         <div style={body}>
           {/* ── Левая колонка: способ старта + список + имя/описание ── */}
           <div style={leftCol}>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <SegBtn label="Пустой" on={mode === "blank"} onClick={() => setMode("blank")} />
               <SegBtn label="Шаблон" on={mode === "template"} onClick={() => setMode("template")} />
               <SegBtn
@@ -240,9 +261,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
               {mode === "import" && (
                 <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
                   Формат — тот же YAML, что выдаёт «Экспорт». Файлов может быть
-                  несколько (например, по одному на репозиторий системы) — они
-                  сольются автоматически, сводка справа покажет склейку,
-                  конфликты и подозрения.
+                  несколько (по одному на репозиторий каждого сервиса, из которых
+                  состоит система) — они сольются автоматически, сводка справа
+                  покажет склейку, конфликты и подозрения.
                 </p>
               )}
 
@@ -251,7 +272,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
                     Схему построит ваш ИИ-агент (Claude Code, Cursor…): скопируйте
                     промпт и запустите его в корне каждого репозитория системы.
-                    Каждый прогон вернёт YAML — вставьте их все справа, файлы
+                    Каждый прогон вернёт YAML. Вставьте их все справа, файлы
                     сольются автоматически.
                   </p>
                   <div>
@@ -295,33 +316,15 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   >
                     {promptCopied ? "Промпт скопирован ✓" : "Скопировать промпт"}
                   </button>
-                  {!name.trim() && (
-                    <span style={{ fontSize: 12, color: "#94a3b8" }}>
-                      Название проекта (ниже) станет именем системы в промпте.
-                    </span>
-                  )}
                 </div>
               )}
             </div>
 
-            <div>
-              <label style={labelStyle}>Название</label>
-              <input
-                data-autofocus
-                style={input}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Например, «Платёжная платформа»"
-                onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
-              />
-              <label style={labelStyle}>Описание <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span></label>
-              <textarea
-                style={{ ...input, minHeight: 52, resize: "none", marginBottom: 0 }}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Коротко о схеме"
-              />
-            </div>
+            {/* Имя и описание живут слева ТОЛЬКО там, где слева есть место.
+                В режимах со вставкой файлов левая колонка занята параметрами
+                промпта, и поля выдавливали кнопку «Скопировать промпт» за край —
+                там они переезжают вправо, над зоной вставки. */}
+            {!importish && nameFields}
           </div>
 
           {/* ── Правая колонка: живое превью выбранного варианта ── */}
@@ -372,7 +375,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             )}
 
             {importish && (
-              <ImportPane docs={docs} onDocs={setDocs} summary={summary} />
+              <>
+                <div style={{ marginBottom: 12 }}>{nameFields}</div>
+                <ImportPane docs={docs} onDocs={setDocs} summary={summary} />
+              </>
             )}
           </div>
         </div>

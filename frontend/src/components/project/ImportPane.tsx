@@ -90,7 +90,13 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
       <div style={chipsRow}>
         {docs.map((_, i) => (
           <span key={i} className={`cp-chip${i === active ? " cp-chip--on" : ""}`}>
-            <button type="button" style={chipBtn} onClick={() => setActiveRaw(i)}>
+            {/* Без крестика padding должен быть симметричным: асимметрия ниже
+                рассчитана на соседство с ним, иначе текст жмётся вправо. */}
+            <button
+              type="button"
+              style={docs.length > 1 ? chipBtn : { ...chipBtn, padding: "3px 10px" }}
+              onClick={() => setActiveRaw(i)}
+            >
               Файл {i + 1}
             </button>
             {docs.length > 1 && (
@@ -141,8 +147,9 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
           value={docs[active]}
           onChange={(e) => setDoc(active, e.target.value)}
           placeholder={
-            "Перетащите сюда YAML-файлы или вставьте текст — тот же формат, что выдаёт «Экспорт».\n" +
-            "Файлов может быть несколько (по одному на репозиторий) — они сольются автоматически."
+            "Перетащите сюда .yaml-файлы или вставьте текст. Файлов может быть несколько\n" +
+            "(по одному на репозиторий каждого сервиса, из которых состоит система),\n" +
+            "они сольются автоматически."
           }
           spellCheck={false}
         />
