@@ -6,8 +6,9 @@
 import { useState } from "react";
 import type { DocsFile } from "../../api/docsImport";
 
-// Клиентский предохранитель (бэк режет на 32)
-export const MAX_FILES = 16;
+// Клиентский предохранитель. Зеркало MAX_PACKAGE_FILES бэка: схема логики стала
+// отдельным .mmd, и у монолита их десятки (docs/plan-docs-mmd.md).
+export const MAX_FILES = 100;
 
 // Реф скрытого input[type=file] («Загрузить файлы…») намеренно НЕ здесь:
 // модалки держат его локально (react-hooks/refs запрещает раздавать рефы

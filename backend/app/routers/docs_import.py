@@ -149,6 +149,7 @@ def _report(plan: DocsPlan) -> DocsImportReport:
         logic=[
             DocsLogicItem(
                 node_path=a.node_path,
+                source=a.source,
                 name=a.name,
                 kind=cast(NodeDocKind, a.kind),
                 operation=a.operation,

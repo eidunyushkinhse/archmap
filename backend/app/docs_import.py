@@ -297,6 +297,9 @@ def manifest_from_mmd(
 class LogicAction:
     node_id: uuid.UUID
     node_path: str
+    # Файл-источник: по нему превью привязывает правку пользователя к файлу
+    # (правка едет обратно полем overrides — файла-описи больше нет).
+    source: str
     name: str
     kind: str
     operation: str | None
@@ -495,6 +498,7 @@ def build_docs_plan(
                     LogicAction(
                         node_id=node.id,
                         node_path=path,
+                        source=fname,
                         name=logic.name,
                         kind=logic.kind,
                         operation=logic.operation,

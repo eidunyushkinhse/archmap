@@ -1326,6 +1326,8 @@ export interface components {
         DocsLogicItem: {
             /** Node Path */
             node_path: string;
+            /** Source */
+            source: string;
             /** Name */
             name: string;
             /**

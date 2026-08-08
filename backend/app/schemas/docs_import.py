@@ -75,6 +75,8 @@ class DocsImportIn(BaseModel):
 
 class DocsLogicItem(BaseModel):
     node_path: str
+    # Имя файла, из которого приехала схема: превью привязывает к нему правку.
+    source: str
     name: str
     kind: NodeDocKind
     operation: str | None

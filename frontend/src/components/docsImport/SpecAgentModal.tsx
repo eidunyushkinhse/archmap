@@ -16,7 +16,7 @@ import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {
   ACTION_LABEL, countAction,
-  head, sub, cols, leftCol, rightCol, radioRow, hintsArea, leftNote,
+  head, sub, cols, leftCol, rightCol, radioRow, hintsArea,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
 import { ItemList, NoteList } from "./agentModalReport";
@@ -40,7 +40,6 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   const [promptCopied, setPromptCopied] = useState(false);
   // ── файлы пакета и превью ──
   const pkg = useDocsFiles();
-  const [overwrite, setOverwrite] = useState(false);
   // Отчёт последнего превью/применения. Пустые файлы прячут его ПРОИЗВОДНО
   // (pkg.hasContent) — эффекты не зеркалят состояние синхронными setState.
   const [rawReport, setRawReport] = useState<DocsImportReport | null>(null);
@@ -64,7 +63,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
     const seq = ++seqRef.current;
     const t = window.setTimeout(() => {
       setChecking(true);
-      docsImportApi.preview(nonEmpty, overwrite, "api")
+      docsImportApi.preview({ files: nonEmpty, overwrite: true, only: "api", nodeId })
         .then((r) => {
           if (seqRef.current !== seq) return;
           setRawReport(r);
@@ -77,7 +76,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
         });
     }, 600);
     return () => window.clearTimeout(t);
-  }, [pkg.files, overwrite]);
+  }, [pkg.files, nodeId]);
 
   function copyPrompt() {
     void docsImportApi.prompt({ nodeId, include: "api", lang, hints }).then(({ prompt }) =>
@@ -105,7 +104,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   function apply() {
     setApplying(true);
     // Окно спеки: применяются только OpenAPI-спеки (only="api")
-    docsImportApi.apply(pkg.nonEmpty, overwrite, "api")
+    docsImportApi.apply({ files: pkg.nonEmpty, overwrite: true, only: "api", nodeId })
       .then((r) => {
         setRawReport(r);
         if (!r.applied) return;
@@ -123,15 +122,13 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
       <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>Спека от агента</h2>
+        <h2 style={{ margin: 0, fontSize: 17 }}>Подготовить OpenAPI-спецификацию с помощью ИИ-агента</h2>
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        Схема уже есть — ИИ-агент дополняет документацию объекта «{nodeName}» OpenAPI-спекой:
-        найдёт готовую в репозитории, сгенерирует из фреймворка или синтезирует по коду.
-        Скопируйте промпт, запустите своим агентом в репозитории сервиса, затем загрузите сюда
-        полученные файлы пакета archmap-docs/. Схемы логики готовятся в отдельном окне
-        («+ Добавить» в разделе «Логика»).
+        ИИ-агент поможет дополнить документацию объекта «{nodeName}» спецификацией OpenAPI.
+        Скопируйте промпт, запустите своим агентом в репозитории сервиса и загрузите сюда
+        полученные файлы пакета archmap-docs/.
       </p>
 
       <div style={cols}>
@@ -140,7 +137,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
           <label style={labelStyle}>Язык подписей</label>
           <div style={{ display: "flex", gap: 14, marginBottom: 10 }}>
             <label style={radioRow}>
-              <input type="radio" checked={lang === "ru"} onChange={() => setLang("ru")} /> русский
+              <input type="radio" checked={lang === "ru"} onChange={() => setLang("ru")} /> Русский
             </label>
             <label style={radioRow}>
               <input type="radio" checked={lang === "en"} onChange={() => setLang("en")} /> English
@@ -158,11 +155,6 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
           <button type="button" style={{ ...primaryBtn, marginTop: 4 }} onClick={copyPrompt}>
             {promptCopied ? "Скопировано ✓" : "Скопировать промпт"}
           </button>
-          <p style={leftNote}>
-            Скопируйте промпт, запустите агент в репозитории сервиса — он подготовит
-            OpenAPI-спеку узла (найдёт готовую, сгенерирует или синтезирует по коду).
-            Затем загрузите файлы пакета archmap-docs/.
-          </p>
         </div>
 
         {/* ── Справа: файлы пакета + превью + применение ── */}
@@ -195,10 +187,10 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
               type="button"
               className="btn-soft"
               disabled={pkg.files.length >= MAX_FILES}
-              title="Добавить манифест вставкой текста"
+              title="Добавить спеку вставкой текста"
               onClick={pkg.addPaste}
             >
-              + вставка
+              + вставить из буфера
             </button>
           </div>
 
@@ -208,14 +200,13 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}
-                placeholder="Содержимое файла (manifest.yaml — можно вставить текстом)"
+                placeholder="вставьте содержимое файла"
                 spellCheck={false}
               />
             ) : (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда файлы пакета archmap-docs/ от агента (manifest.yaml со ссылкой
-                на файл спеки + сам файл) — или нажмите, чтобы выбрать их на диске. Манифест
-                можно и вставить текстом.
+                Перетащите сюда файл спеки, который подготовил агент, — или нажмите, чтобы
+                выбрать его на диске. Спеку можно и вставить текстом.
               </button>
             )}
           </div>
@@ -280,10 +271,6 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
           </div>
 
           <div style={footRow}>
-            <label style={{ ...radioRow, marginRight: "auto" }} title="Непустая спека узла по умолчанию пропускается">
-              <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
-              Перезаписывать занятые
-            </label>
             <button
               type="button"
               style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
