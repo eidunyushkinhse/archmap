@@ -70,8 +70,16 @@ export default function Modal({
       className="app-modal"
       tabIndex={-1}
       style={{ ...dialogBase, ...dialogOverrides }}
-      // Escape: гасим дефолт (он закрыл бы диалог в обход React) и закрываем через родителя
-      onCancel={(e) => { e.preventDefault(); onClose(); }}
+      // Escape: гасим дефолт (он закрыл бы диалог в обход React) и закрываем через
+      // родителя. ⚠️ Проверка цели обязательна: `cancel` шлёт не только сам диалог —
+      // <input type=file> стреляет им (с bubbles:true) при ОТМЕНЕ системного выбора
+      // файлов. Без неё окно закрывалось вместе с файловым диалогом во всех окнах с
+      // загрузкой (находка ручной проверки 2026-08-08).
+      onCancel={(e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        onClose();
+      }}
       // Страховка: если диалог всё же закрылся нативно (повторный Escape в Chrome)
       onClose={() => onClose()}
     >

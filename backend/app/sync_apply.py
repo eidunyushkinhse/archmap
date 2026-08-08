@@ -117,7 +117,7 @@ def apply_sync_plan(
         if act.action == "unchanged" or not act.fields:
             continue
         if imp is None:
-            report.skipped.append(f"{act.path}: нет данных прогона")
+            report.skipped.append(f"{act.path}: нет данных в YAML")
             continue
         # Что менять — решено планом (список fields); здесь только присваивание.
         for fld in act.fields:

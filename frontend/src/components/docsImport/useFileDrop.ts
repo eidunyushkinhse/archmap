@@ -55,6 +55,7 @@ function names(list: string[]): string {
   return list.length > 3 ? `${list.slice(0, 3).join(", ")} и ещё ${list.length - 3}` : list.join(", ");
 }
 
+/** Жалоба начинается сразу с причины: «Не приняли —» ничего не добавляло к смыслу. */
 function rejectMessage(
   folders: string[],
   badExt: string[],
@@ -62,10 +63,10 @@ function rejectMessage(
   accept: string[],
 ): string | null {
   const parts: string[] = [];
-  if (folders.length) parts.push(`папку перетащить нельзя (${names(folders)}) — перетащите файлы из неё`);
-  if (badExt.length) parts.push(`не тот формат: ${names(badExt)} (подойдёт ${accept.join(", ")})`);
-  if (tooBig.length) parts.push(`слишком большой файл: ${names(tooBig)} (больше 2 МБ)`);
-  return parts.length ? `Не приняли — ${parts.join("; ")}.` : null;
+  if (folders.length) parts.push(`Папку перетащить нельзя (${names(folders)}) — перетащите файлы из неё.`);
+  if (badExt.length) parts.push(`Не тот формат: ${names(badExt)} (подойдёт ${accept.join(", ")}).`);
+  if (tooBig.length) parts.push(`Слишком большой файл: ${names(tooBig)} (больше 2 МБ).`);
+  return parts.length ? parts.join(" ") : null;
 }
 
 export function useFileDrop({ accept = [], onFiles, disabled = false }: FileDropOptions): FileDropApi {

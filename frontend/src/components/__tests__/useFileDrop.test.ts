@@ -55,8 +55,9 @@ describe("useFileDrop", () => {
     act(() => result.current.bind.onDrop(dragEvent([file("схема.png")])));
 
     expect(onFiles).not.toHaveBeenCalled();
-    expect(result.current.error).toContain("схема.png");
-    expect(result.current.error).toContain(".yaml");
+    // Жалоба начинается с причины: служебное «Не приняли —» убрано по просьбе
+    // пользователя (проверка 2026-08-08) — оно ничего не добавляло к смыслу.
+    expect(result.current.error).toBe("Не тот формат: схема.png (подойдёт .yaml, .yml).");
   });
 
   it("слишком большой файл отсекает, остальные принимает", () => {

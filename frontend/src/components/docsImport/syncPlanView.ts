@@ -76,7 +76,7 @@ export function planSections(p: SyncPreviewOut): PlanSection[] {
     },
     {
       key: "nodes_missing",
-      title: "Пропали из прогона",
+      title: "Пропали из YAML",
       rows: nodes("missing").map((a) => ({ path: a.path, note: "" })),
       attention: true,
     },

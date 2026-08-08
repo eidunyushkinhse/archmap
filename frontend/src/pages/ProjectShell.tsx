@@ -166,7 +166,7 @@ export default function ProjectShell({
               className="icon-btn"
               onClick={() => setSyncOpen(true)}
               style={iconBtn}
-              title="Обновить схему из репозитория (прогон ИИ-агента)"
+              title="Обновить схему из репозитория"
               aria-label="Обновить из репозитория"
             >
               <RepoSyncIcon />
