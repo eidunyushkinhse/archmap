@@ -4,7 +4,7 @@
 // Центр: LevelGraph со всеми жестами. Справа: ObjectInspector (272px).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi, edgesApi } from "../api/nodes";
+import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getUserRole } from "../api/auth";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
@@ -37,6 +37,7 @@ import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
+import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import { LogoMark, RelayoutIcon, ChevronIcon } from "../ui/icons";
 import "../ui/chrome.css";
 
@@ -52,7 +53,7 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
 }
 
-export default function MapEditorPage({ projectId: _projectId, nodeId, locateNodeId, onDone, onNavigateNode }: Props) {
+export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone, onNavigateNode }: Props) {
   // ── Стейт уровня (адаптация TreePage) ────────────────────────────
   const [nodes, setNodes] = useState<Node[]>([]);
   const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
@@ -456,6 +457,11 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
     return { kind: "node", id: selectedObject.node.id };
   }, [selectedObject]);
 
+  // Экспортируем то, что открыто: поддерево текущего уровня, в корне — всю схему.
+  const exportScope: ExportScope = currentParentId
+    ? { key: currentParentId, title: "Экспорт поддерева", load: () => exportApi.subtree(currentParentId) }
+    : { key: "all", title: "Экспорт схемы", load: () => exportApi.all() };
+
   const hasNodes = nodes.length + levelGhosts.length > 0;
   const hasStatusInfo = nodes.some((n) => n.status !== "existing") || levelGhosts.some((g) => g.status !== "existing");
   const statusCounts = useMemo<Record<NodeStatus, number>>(() => {
@@ -567,6 +573,19 @@ export default function MapEditorPage({ projectId: _projectId, nodeId, locateNod
               <RelayoutIcon />
             </button>
           )}
+          {/* Экспорт и обновление из репозитория — тот же компонент, что в шапке
+              оболочки: в редакторе их не было вовсе (находка проверки 2026-08-08),
+              а копия разметки разъехалась бы с оболочкой на первой же правке. */}
+          <SchemaActions
+            projectId={projectId}
+            isArchitect={isArchitect}
+            exportScope={exportScope}
+            size={32}
+            onSynced={() => {
+              void load(currentParentId);
+              setTreeReload((t) => t + 1);
+            }}
+          />
           {hasStatusInfo && <SchemaViewFilter view={schemaView} onChange={setSchemaView} />}
           <button style={doneBtn} onClick={() => onDone()}>Готово</button>
         </div>

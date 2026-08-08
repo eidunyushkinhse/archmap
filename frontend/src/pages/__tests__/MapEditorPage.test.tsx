@@ -142,6 +142,16 @@ describe("MapEditorPage", () => {
     expect(nodesApi.getGraph).toHaveBeenCalledWith(null);
   });
 
+  // Кнопки жили только в шапке ОБОЛОЧКИ, а редактор — отдельный роут мимо неё:
+  // в пивоте они тут просто исчезли (находка ручной проверки 2026-08-08).
+  it("в шапке есть экспорт и обновление из репозитория", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+
+    expect(screen.getByRole("button", { name: "Экспорт" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Обновить из репозитория" })).toBeInTheDocument();
+  });
+
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       node("a", { name: "Корень", parent_id: null }),

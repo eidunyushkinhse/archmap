@@ -12,15 +12,14 @@ import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import { processesApi } from "../api/processes";
 import { detailToMermaid } from "../components/processes/sequence/toMermaid";
-import ExportModal from "../components/ExportModal";
-import SyncRepoModal from "../components/docsImport/SyncRepoModal";
+import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
-import { LogoMark, ExportIcon, RepoSyncIcon } from "../ui/icons";
+import { LogoMark } from "../ui/icons";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
 
@@ -60,19 +59,11 @@ export default function ProjectShell({
   // Процесс, выбранный извне (клик по процессу на странице узла) — стартовый
   // выбор ProcessWorkspace при входе в режим «Процессы».
   const [procInitial, setProcInitial] = useState<string | null>(null);
-  const [exportScope, setExportScope] = useState<{
-    key: string;
-    title: string;
-    load: () => Promise<{ content: string }>;
-  } | null>(null);
-
   // Сигнал перезагрузки дерева (после создания/удаления узла)
   const [treeReload, setTreeReload] = useState(0);
-  // «Обновить из репозитория» (синк с прогоном агента): окно, счётчик применений
-  // (перемонтирует страницу — схема грузится свежей, не ждём поллинга) и тост-итог.
-  const [syncOpen, setSyncOpen] = useState(false);
+  // Счётчик применений синка: перемонтирует страницу — схема грузится свежей, не
+  // ждём поллинга. Само окно и тост-итог живут в SchemaActions.
   const [syncToken, setSyncToken] = useState(0);
-  const [syncToast, setSyncToast] = useState<string | null>(null);
   // Модалка создания дочернего объекта («+» в дереве)
   const [createFor, setCreateFor] = useState<string | null>(null);
 
@@ -106,25 +97,20 @@ export default function ProjectShell({
     onNavigateMap(null);
   }
 
-  const openExport = () => {
-    if (mode === "proc") {
-      if (!procSelection) return;
-      const { id, name } = procSelection;
-      setExportScope({
-        key: `proc:${id}`,
-        title: `Экспорт процесса «${name}» (Mermaid)`,
-        load: () => processesApi.get(id).then((d) => ({ content: detailToMermaid(d) })),
-      });
-    } else if (nodeId) {
-      setExportScope({
-        key: nodeId,
-        title: "Экспорт поддерева",
-        load: () => exportApi.subtree(nodeId),
-      });
-    } else {
-      setExportScope({ key: "all", title: "Экспорт схемы", load: () => exportApi.all() });
-    }
-  };
+  // Что экспортировать сейчас — производное от режима и открытой страницы
+  // (null в «Процессах» без выбранного процесса: кнопка гаснет).
+  const exportScope: ExportScope | null =
+    mode === "proc"
+      ? procSelection
+        ? {
+            key: `proc:${procSelection.id}`,
+            title: `Экспорт процесса «${procSelection.name}» (Mermaid)`,
+            load: () => processesApi.get(procSelection.id).then((d) => ({ content: detailToMermaid(d) })),
+          }
+        : null
+      : nodeId
+        ? { key: nodeId, title: "Экспорт поддерева", load: () => exportApi.subtree(nodeId) }
+        : { key: "all", title: "Экспорт схемы", load: () => exportApi.all() };
 
   return (
     <div style={page}>
@@ -151,27 +137,17 @@ export default function ProjectShell({
           {/* Индикатор незавершённости схемы (архитектор): знак в шапке для
               глобальной видимости; клик по пункту ведёт в редактор-карту. */}
           {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleAlertLocate} />}
-          <button
-            className="icon-btn"
-            onClick={openExport}
-            style={iconBtn}
-            disabled={mode === "proc" && !procSelection}
-            title={mode === "proc" ? "Экспорт процесса в Mermaid" : "Экспорт в YAML"}
-            aria-label="Экспорт"
-          >
-            <ExportIcon />
-          </button>
-          {isArchitect && mode !== "proc" && (
-            <button
-              className="icon-btn"
-              onClick={() => setSyncOpen(true)}
-              style={iconBtn}
-              title="Обновить схему из репозитория"
-              aria-label="Обновить из репозитория"
-            >
-              <RepoSyncIcon />
-            </button>
-          )}
+          <SchemaActions
+            projectId={projectId}
+            isArchitect={isArchitect}
+            exportScope={exportScope}
+            exportHint={mode === "proc" ? "Экспорт процесса в Mermaid" : "Экспорт в YAML"}
+            syncHidden={mode === "proc"}
+            onSynced={() => {
+              setTreeReload((t) => t + 1);
+              setSyncToken((t) => t + 1);
+            }}
+          />
           <ProfileMenu role={isArchitect ? "Архитектор" : "Наблюдатель"} onLogout={onLogout} />
         </div>
       </div>
@@ -237,29 +213,6 @@ export default function ProjectShell({
             setTreeReload((t) => t + 1);
             onNavigateNode(saved.id);
           }}
-        />
-      )}
-
-      {syncOpen && (
-        <SyncRepoModal
-          projectId={projectId}
-          onClose={() => setSyncOpen(false)}
-          onApplied={(message) => {
-            setSyncToast(message);
-            setTreeReload((t) => t + 1);
-            setSyncToken((t) => t + 1);
-            window.setTimeout(() => setSyncToast(null), 5000);
-          }}
-        />
-      )}
-      {syncToast && <div style={syncToastStyle}>{syncToast}</div>}
-
-      {exportScope && (
-        <ExportModal
-          title={exportScope.title}
-          loadKey={exportScope.key}
-          load={exportScope.load}
-          onClose={() => setExportScope(null)}
         />
       )}
 
@@ -387,32 +340,5 @@ const bodyRow: CSSProperties = {
   minHeight: 0,
   overflow: "hidden",
 };
-// Тост-итог применения синка: тот же язык, что у тостов конкурентности.
-const syncToastStyle: CSSProperties = {
-  position: "fixed",
-  right: 18,
-  bottom: 18,
-  zIndex: 60,
-  maxWidth: 420,
-  padding: "10px 14px",
-  borderRadius: 8,
-  background: "#065f46",
-  color: "#ecfdf5",
-  fontSize: 13,
-  lineHeight: 1.45,
-  boxShadow: "0 6px 20px rgba(15,23,42,0.22)",
-};
-
-const iconBtn: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 34,
-  height: 34,
-  flex: "none",
-  background: "#fff",
-  color: "#475569",
-  border: "1px solid #e2e8f0",
-  borderRadius: 8,
-  cursor: "pointer",
-};
+// Стиль иконочных кнопок шапки и тост синка переехали в SchemaActions вместе с
+// самими кнопками — здесь их больше нет намеренно.
