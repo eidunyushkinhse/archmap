@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import restore, tree
@@ -26,9 +26,14 @@ from app.schemas.node import (
     NodeEdgeInfo,
     NodeResponse,
     NodeUpdate,
+    TransitionApplyIn,
+    TransitionApplyOut,
+    TransitionNodeOut,
+    TransitionPreviewOut,
 )
 from app.schemas.process import ProcessListItem
 from app.schemas.restore import DeletionSnapshot
+from app.transition import apply_transition, build_transition, cleanup_layout
 from app.view_state import (
     bump_graph_rev,
     bump_meta_rev,
@@ -229,7 +234,73 @@ def get_root_graph(
     return graph
 
 
-# Должен быть объявлен до /{node_id}, иначе FastAPI примет "alerts" за node_id
+# Должен быть объявлен до /{node_id}, иначе FastAPI примет "transition" за node_id
+@router.get("/transition", response_model=TransitionPreviewOut)
+def transition_preview(
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> TransitionPreviewOut:
+    """Что произойдёт при принятии перехода (новое → существующее, выводимое →
+    удалить). Ничего не записывает."""
+    plan = build_transition(db, project)
+    paths = _node_paths(db, project)
+    return TransitionPreviewOut(
+        graph_rev=project.graph_rev,
+        is_noop=plan.is_noop,
+        delete=[_transition_node(n, paths) for n in plan.delete_roots],
+        delete_total=len(plan.delete_ids),
+        collateral=[_transition_node(n, paths) for n in plan.collateral],
+        delete_edges=plan.edges,
+        delete_docs=plan.docs,
+        delete_specs=plan.specs,
+        promote=[_transition_node(n, paths) for n in plan.promote],
+    )
+
+
+@router.post("/transition", response_model=TransitionApplyOut)
+def transition_apply(
+    payload: TransitionApplyIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> TransitionApplyOut:
+    """Принять переход. План ПЕРЕСЧИТЫВАЕТСЯ здесь — клиентскому не доверяем; при
+    расхождении курсора схемы отказываем, а не пишем вслепую."""
+    if payload.base_graph_rev is not None and payload.base_graph_rev != project.graph_rev:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Схема изменилась с момента показа плана",
+        )
+    plan = build_transition(db, project)
+    deleted, promoted = apply_transition(db, project, plan)
+    if deleted or promoted:
+        bump_graph_rev(db, project)
+        touch_project(db, project, user.id)
+    db.commit()
+    return TransitionApplyOut(deleted_nodes=deleted, promoted_nodes=promoted)
+
+
+def _node_paths(db: Session, project: Project) -> dict[uuid.UUID, str]:
+    """Полные пути узлов проекта — «Система / payments / api»."""
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    by_id = {n.id: n for n in nodes}
+
+    def full(n: Node) -> str:
+        parts = [n.name]
+        cur = by_id.get(n.parent_id) if n.parent_id else None
+        while cur is not None:
+            parts.append(cur.name)
+            cur = by_id.get(cur.parent_id) if cur.parent_id else None
+        return " / ".join(reversed(parts))
+
+    return {n.id: full(n) for n in nodes}
+
+
+def _transition_node(n: Node, paths: dict[uuid.UUID, str]) -> TransitionNodeOut:
+    return TransitionNodeOut(id=n.id, name=n.name, path=paths.get(n.id, n.name))
+
+
 @router.get("/alerts", response_model=AlertsResponse)
 def get_alerts(
     db: Session = Depends(get_db),
@@ -334,30 +405,9 @@ def delete_node(
     # Удаляем узел со всем поддеревом (потомки любой глубины) и их рёбрами — это
     # делает БД-каскад (ondelete="CASCADE" на parent_id, source_id/target_id), а
     # passive_deletes на связях Node не даёт ORM лезть в эти строки в Python.
-    #
-    # Раскладка: строки view_layout СВОИХ видов поддерева умирают каскадом view_id,
-    # но строки, ссылающиеся на поддерево из ДРУГИХ видов (гостевые позиции, ключи
-    # пучков "b:<src>><tgt>"), FK не накрыты (item_id — строка) — чистим явно по
-    # вхождению uuid в ключ.
-    subtree = tree.collect_subtree_ids_db(db, node_id)
-    like_filter = or_(*[ViewLayoutItem.item_id.like(f"%{sid}%") for sid in subtree])
-    # Виды, из которых чистка вычистит строки (гостевые позиции и т.п.), — их мир
-    # меняется, fence должен это увидеть. Виды ВНУТРИ поддерева умирают каскадом —
-    # им версию не бампаем (строка view_state уйдёт тем же каскадом view_id).
-    touched_views = {
-        vid
-        for (vid,) in db.query(ViewLayoutItem.view_id)
-        .filter(ViewLayoutItem.project_id == project.id, like_filter)
-        .distinct()
-        .all()
-        if vid is None or vid not in subtree
-    }
-    db.query(ViewLayoutItem).filter(
-        ViewLayoutItem.project_id == project.id, like_filter
-    ).delete(synchronize_session=False)
-    touched_views.add(node.parent_id)  # членство родительского вида изменилось
-    for vid in touched_views:
-        bump_view_version(db, project.id, vid)
+    # Строки раскладки чужих видов каскадом не накрыты — их чистит cleanup_layout
+    # (тот же помощник использует «принять переход», чтобы логика не разошлась).
+    cleanup_layout(db, project, node)
     bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.delete(node)

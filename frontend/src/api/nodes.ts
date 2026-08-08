@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -99,6 +99,14 @@ export const viewsApi = {
   // Лёгкий опрос свежести вида/проекта (поллинг этапа 1; доступен обеим ролям).
   state: (viewId: string | null): Promise<ViewState> =>
     api.get<ViewState>(`/views/${viewId ?? "root"}/state`),
+};
+
+// «Принять переход»: превью (что уедет и что повысится) и применение с курсором
+// схемы — если схему изменили после показа плана, бэк отвечает 409.
+export const transitionApi = {
+  preview: (): Promise<TransitionPreview> => api.get<TransitionPreview>("/nodes/transition"),
+  apply: (baseGraphRev: number): Promise<TransitionApplyOut> =>
+    api.post<TransitionApplyOut>("/nodes/transition", { base_graph_rev: baseGraphRev }),
 };
 
 export const exportApi = {

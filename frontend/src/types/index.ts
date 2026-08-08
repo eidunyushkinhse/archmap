@@ -34,6 +34,9 @@ export type ImportPromptOut = Schemas["ImportPromptOut"];
 // Синхронизация живого проекта со свежим прогоном агента (docs/plan-arch-sync.md):
 // dry-run плана и отчёт применения.
 export type SyncPreviewOut = Schemas["SyncPreviewOut"];
+// «Принять переход»: план стал фактом (новое → существующее, выводимое → удалить).
+export type TransitionPreview = Schemas["TransitionPreviewOut"];
+export type TransitionApplyOut = Schemas["TransitionApplyOut"];
 export type SyncApplyOut = Schemas["SyncApplyOut"];
 export type SyncNodeAction = Schemas["SyncNodeActionOut"];
 export type SyncEdgeAction = Schemas["SyncEdgeActionOut"];

@@ -38,6 +38,7 @@ import ObjectInspector, { type Selected } from "../components/inspector/ObjectIn
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
+import TransitionConfirm from "../components/TransitionConfirm";
 import { LogoMark, RelayoutIcon, ChevronIcon } from "../ui/icons";
 import "../ui/chrome.css";
 
@@ -84,6 +85,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
   const [relayoutOpen, setRelayoutOpen] = useState(false);
+  const [transitionOpen, setTransitionOpen] = useState(false);
+  const [transitionToast, setTransitionToast] = useState<string | null>(null);
   // Токен свершившейся переразкладки: LevelGraph режиссирует приход свежей
   // раскладки чистым переездом узлов (анимация «Переразложить»).
   const [relayoutToken, setRelayoutToken] = useState(0);
@@ -587,6 +590,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             }}
           />
           {hasStatusInfo && <SchemaViewFilter view={schemaView} onChange={setSchemaView} />}
+          {/* «Принять переход» стоит рядом с переключателем вида, а не среди
+              иконок: обе вещи про статусы, и появляться должны там, где статусы
+              видны. Кнопка есть, только когда принимать есть что. */}
+          {isArchitect && hasStatusInfo && (
+            <button className="btn-soft" onClick={() => setTransitionOpen(true)}>
+              Принять переход
+            </button>
+          )}
           <button style={doneBtn} onClick={() => onDone()}>Готово</button>
         </div>
       </div>
@@ -615,6 +626,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           <div style={toastRail}>
             {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleLocate} />}
             {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+            {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
           </div>
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
@@ -673,6 +685,20 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           onCancel={() => setRelayoutOpen(false)}
           onDone={() => { setRelayoutOpen(false); setRelayoutToken((t) => t + 1); load(currentParentId); history.clear(); }} />
       )}
+      {transitionOpen && (
+        <TransitionConfirm
+          onClose={() => setTransitionOpen(false)}
+          onApplied={(message) => {
+            // Переход меняет схему целиком: перечитываем уровень и дерево, а
+            // историю чистим — её команды ссылаются на удалённые узлы.
+            setTransitionToast(message);
+            window.setTimeout(() => setTransitionToast(null), 5000);
+            void load(currentParentId, { foreground: true });
+            setTreeReload((t) => t + 1);
+            history.clear();
+          }}
+        />
+      )}
       {edgeQuick && (
         <EdgeQuickCreate sourceId={edgeQuick.sourceId} targetId={edgeQuick.targetId}
           sourceLabel={edgeQuick.sourceName ?? findNodeLabel(edgeQuick.sourceId)}
@@ -721,4 +747,5 @@ const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", j
 // Рейл тостов холста (правый верхний угол): колонка, прозрачна для мыши —
 // интерактивны только вложенные знак/панель алертов и тост (у них pointerEvents auto).
 const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
+const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const remoteToastStyle: CSSProperties = { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

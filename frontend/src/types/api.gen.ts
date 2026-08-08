@@ -345,6 +345,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transition Preview
+         * @description Что произойдёт при принятии перехода (новое → существующее, выводимое →
+         *     удалить). Ничего не записывает.
+         */
+        get: operations["transition_preview_api_v1_nodes_transition_get"];
+        put?: never;
+        /**
+         * Transition Apply
+         * @description Принять переход. План ПЕРЕСЧИТЫВАЕТСЯ здесь — клиентскому не доверяем; при
+         *     расхождении курсора схемы отказываем, а не пишем вслепую.
+         */
+        post: operations["transition_apply_api_v1_nodes_transition_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/alerts": {
         parameters: {
             query?: never;
@@ -2669,6 +2695,82 @@ export interface components {
              */
             token_type: string;
         };
+        /**
+         * TransitionApplyIn
+         * @description Курсор схемы, увиденный в превью: если схему успели изменить, применение
+         *     отклоняется, а не выполняет вслепую не то, что человек видел.
+         */
+        TransitionApplyIn: {
+            /** Base Graph Rev */
+            base_graph_rev?: number | null;
+        };
+        /** TransitionApplyOut */
+        TransitionApplyOut: {
+            /** Deleted Nodes */
+            deleted_nodes: number;
+            /** Promoted Nodes */
+            promoted_nodes: number;
+        };
+        /**
+         * TransitionNodeOut
+         * @description Объект в плане перехода: показываем именем и путём — id нужен только коду.
+         */
+        TransitionNodeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+        };
+        /**
+         * TransitionPreviewOut
+         * @description Что произойдёт, если принять переход. Ничего не записано.
+         */
+        TransitionPreviewOut: {
+            /** Graph Rev */
+            graph_rev: number;
+            /** Is Noop */
+            is_noop: boolean;
+            /**
+             * Delete
+             * @default []
+             */
+            delete: components["schemas"]["TransitionNodeOut"][];
+            /**
+             * Delete Total
+             * @default 0
+             */
+            delete_total: number;
+            /**
+             * Collateral
+             * @default []
+             */
+            collateral: components["schemas"]["TransitionNodeOut"][];
+            /**
+             * Delete Edges
+             * @default 0
+             */
+            delete_edges: number;
+            /**
+             * Delete Docs
+             * @default 0
+             */
+            delete_docs: number;
+            /**
+             * Delete Specs
+             * @default 0
+             */
+            delete_specs: number;
+            /**
+             * Promote
+             * @default []
+             */
+            promote: components["schemas"]["TransitionNodeOut"][];
+        };
         /** UserCreate */
         UserCreate: {
             /** Username */
@@ -3410,6 +3512,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transition_preview_api_v1_nodes_transition_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transition_apply_api_v1_nodes_transition_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionApplyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionApplyOut"];
                 };
             };
             /** @description Validation Error */
