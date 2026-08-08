@@ -23,6 +23,7 @@ from app.models.user import User
 from app.processes import (
     build_process_detail,
     edge_is_synchronous,
+    legal_directions,
     legs_for_edge,
     load_nodes,
     message_out,
@@ -33,6 +34,7 @@ from app.processes import (
 )
 from app.schemas.process import (
     ChannelOut,
+    DirectionOut,
     FragmentCreate,
     FragmentOut,
     FragmentUpdate,
@@ -431,6 +433,29 @@ def delete_fragment(
 
 
 # ── Композитор: каналы между парой участников ─────────────────────────────────
+@router.get("/{process_id}/directions", response_model=list[DirectionOut])
+def list_directions(
+    process_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[DirectionOut]:
+    """Куда МОЖНО завести сообщение — сразу для всех пар участников процесса.
+
+    Композитор спрашивает про одну пару (/channels); индикации при протягивании
+    нужна вся картина, и считать её на клиенте нельзя: проекция концов связи через
+    предков живёт здесь, и вторая реализация неизбежно разошлась бы с валидатором.
+    """
+    proc = _get_process(db, process_id, project)
+    all_nodes = load_nodes(db, project.id)
+    participant_ids = {p.node_id for p in proc.participants}
+    edges = db.query(Edge).filter(Edge.project_id == project.id).all()
+    return [
+        DirectionOut(from_id=f, to_id=t)
+        for f, t in sorted(legal_directions(edges, participant_ids, all_nodes))
+    ]
+
+
 @router.get("/{process_id}/channels", response_model=list[ChannelOut])
 def list_channels(
     process_id: uuid.UUID,

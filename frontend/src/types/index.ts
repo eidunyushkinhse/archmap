@@ -33,6 +33,8 @@ export type ImportPromptOut = Schemas["ImportPromptOut"];
 
 // Синхронизация живого проекта со свежим прогоном агента (docs/plan-arch-sync.md):
 // dry-run плана и отчёт применения.
+// Пара участников, между которыми есть плечо канала (индикация в композиторе).
+export type MessageDirection = Schemas["DirectionOut"];
 export type SyncPreviewOut = Schemas["SyncPreviewOut"];
 // «Принять переход»: план стал фактом (новое → существующее, выводимое → удалить).
 export type TransitionPreview = Schemas["TransitionPreviewOut"];

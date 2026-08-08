@@ -98,6 +98,31 @@ def resolve_to_participant(
     return None
 
 
+def legal_directions(
+    edges: list[Edge],
+    participant_ids: set[uuid.UUID],
+    all_nodes: dict[uuid.UUID, Node],
+) -> set[tuple[uuid.UUID, uuid.UUID]]:
+    """Пары участников (откуда, куда), между которыми есть ПЛЕЧО канала.
+
+    Ровно то, что композитор потом покажет списком, но сразу для всей схемы: одним
+    проходом по рёбрам, тем же резолвом проекции. Нужно индикации в композиторе —
+    подсветить при протягивании, куда сообщение завести можно, а куда нет.
+
+    Направление здесь и есть ответ на вопрос про асинхронность: у асинхронного
+    канала ответного плеча не существует (legs_for_edge), поэтому обратная сторона
+    в набор просто не попадёт — отдельной проверки не нужно.
+    """
+    out: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    for edge in edges:
+        for leg in legs_for_edge(edge):
+            f = resolve_to_participant(leg.from_id, participant_ids, all_nodes)
+            t = resolve_to_participant(leg.to_id, participant_ids, all_nodes)
+            if f is not None and t is not None and f != t:
+                out.add((f, t))
+    return out
+
+
 def process_list_items(
     db: Session,
     project_id: uuid.UUID,

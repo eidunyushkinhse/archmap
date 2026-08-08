@@ -1052,6 +1052,30 @@ export interface paths {
         patch: operations["update_fragment_api_v1_processes__process_id__fragments__fragment_id__patch"];
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/directions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Directions
+         * @description Куда МОЖНО завести сообщение — сразу для всех пар участников процесса.
+         *
+         *     Композитор спрашивает про одну пару (/channels); индикации при протягивании
+         *     нужна вся картина, и считать её на клиенте нельзя: проекция концов связи через
+         *     предков живёт здесь, и вторая реализация неизбежно разошлась бы с валидатором.
+         */
+        get: operations["list_directions_api_v1_processes__process_id__directions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/channels": {
         parameters: {
             query?: never;
@@ -1213,6 +1237,22 @@ export interface components {
              * @default []
              */
             node_docs: components["schemas"]["NodeDocSnapshot"][];
+        };
+        /**
+         * DirectionOut
+         * @description Куда можно завести сообщение: пара участников с плечом в эту сторону.
+         */
+        DirectionOut: {
+            /**
+             * From Id
+             * Format: uuid
+             */
+            from_id: string;
+            /**
+             * To Id
+             * Format: uuid
+             */
+            to_id: string;
         };
         /**
          * DisconnectedNodeAlert
@@ -5137,6 +5177,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FragmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_directions_api_v1_processes__process_id__directions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectionOut"][];
                 };
             };
             /** @description Validation Error */
