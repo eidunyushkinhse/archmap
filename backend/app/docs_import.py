@@ -1,14 +1,12 @@
-"""Дозаливка доков от ИИ-агента (этап 2 plan-agent-docs.md): парсер манифеста
-archmap-docs + детерминированный план применения.
+"""Дозаливка доков от ИИ-агента: разбор пакета archmap-docs + план применения.
 
-Пакет агента: manifest.yaml {docs: [{node: путь, logic: [...], openapi: {...}}]}
-+ файлы спек рядом (манифест ссылается на них по имени). Файлы различаются ПО
-СОДЕРЖИМОМУ: наличие ключа docs (или строки «docs:» при битом YAML) — манифест,
-остальное — ресурс. parse_manifest разбирает и валидирует ОДИН манифест
-(ошибки — человеческим списком с путями, как parse_import); build_docs_plan
-мержит разобранные манифесты против ЖИВОГО дерева проекта в список действий
-(create | overwrite | skip | unchanged) + отчёт; apply_docs_plan пишет действия
-в БД. Разделение — ради общего dry-run превью и применения.
+Пакет — САМОДОСТАТОЧНЫЕ файлы, файла-описи нет (docs/plan-docs-mmd.md):
+схема логики приезжает .mmd-файлом с метаданными в шапке («%% archmap-*»,
+разбирает mmd_header), спека — самим файлом OpenAPI. Оба вида превращаются в
+PkgEntry — единую внутреннюю запись «этому узлу такие-то документы», — и дальше
+работает общий конвейер: build_docs_plan мержит записи против ЖИВОГО дерева
+проекта в действия (create | overwrite | skip | unchanged) + отчёт,
+apply_docs_plan пишет их в БД. Разделение — ради общего dry-run превью.
 
 Mermaid здесь НЕ валидируется (валидатора на бэке нет — проверяет фронт по
 текстам из превью); OpenAPI проверяется советующе (yaml + эвристика
@@ -23,24 +21,17 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
-from app.import_yaml import _FENCE_RE, _load_doc
 from app.mmd_header import parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 
-MAX_ENTRIES = 500
 # Схем на объект. Поднято с 50 при переезде на .mmd: там схема — отдельный файл,
 # и потолок пакета стал ближе (docs/plan-docs-mmd.md, таблица лимитов).
 MAX_LOGIC_PER_NODE = 100
 MAX_MERMAID_LEN = 200_000
 MAX_SPEC_LEN = 2_000_000
 
-_KINDS = ("overview", "operation", "worker")
 _ORIGINS = ("found", "generated", "synthesized")
-
-# Первая строка верхнего уровня «docs:» — точка среза преамбулы и признак
-# манифеста при битом YAML (зеркало _NODES_LINE_RE импорта схемы).
-_DOCS_LINE_RE = re.compile(r"^docs:[ \t]*$", re.MULTILINE)
 
 
 @dataclass
@@ -53,171 +44,24 @@ class LogicIn:
 
 @dataclass
 class OpenapiIn:
-    file: str | None
-    inline: str | None
+    # Имя файла спеки среди загруженных. Инлайн-спеки не бывает: спека приезжает
+    # файлом (её копирует инструмент агента, а не перепечатывает модель).
+    file: str
     origin: str | None  # None — происхождение не указано (warning в плане)
 
 
 @dataclass
-class ManifestEntry:
+class PkgEntry:
     # None — «объект, из окна которого открыта дозаливка»: так адресуют себя
-    # файлы .mmd без «%% archmap-node» (переезд на .mmd, docs/plan-docs-mmd.md).
-    # У манифеста адрес есть всегда; поле станет обязательным обратно, когда
-    # манифест уйдёт целиком (Фаза 4 плана).
+    # файлы .mmd без строки «%% archmap-node».
     node_ref: str | None
     logic: list[LogicIn]
     openapi: OpenapiIn | None
-    # Запись пришла из .mmd, а не из манифеста: для неё адрес ограничен
-    # поддеревом объекта окна (у манифеста исторически ограничения нет).
-    from_mmd: bool = False
 
 
 @dataclass
-class ParsedManifest:
-    entries: list[ManifestEntry]
-
-
-def parse_manifest(content: str) -> tuple[ParsedManifest | None, list[str]]:
-    """Разбор + валидация одного манифеста. (результат, ошибки): при любой
-    ошибке результат None, список — все найденные проблемы. Неизвестные ключи
-    игнорируются молча (форвард-совместимость). Толерантность к обёртке вывода
-    агента — цепочка parse_import: сырой → fenced-блок → срез от «docs:»."""
-    doc, load_errors = _load_doc(content)
-    if doc is None or "docs" not in doc:
-        candidates: list[str] = []
-        m = _FENCE_RE.search(content)
-        if m is not None:
-            candidates.append(m.group(1))
-        n = _DOCS_LINE_RE.search(content)
-        if n is not None and n.start() > 0:
-            candidates.append(content[n.start():])
-        for cand in candidates:
-            doc2, errs2 = _load_doc(cand)
-            if doc2 is not None and "docs" in doc2:
-                doc, load_errors = doc2, errs2
-                break
-            doc, load_errors = doc2, errs2
-    if doc is None:
-        return None, load_errors
-
-    raw_entries = doc.get("docs")
-    if raw_entries is None:
-        return None, ["docs: обязательный список записей отсутствует"]
-    if not isinstance(raw_entries, list):
-        return None, ["docs: ожидается список записей"]
-    if len(raw_entries) > MAX_ENTRIES:
-        return None, [f"Слишком много записей (больше {MAX_ENTRIES})"]
-
-    errors: list[str] = []
-
-    def opt_str(raw: dict, key: str, path: str, max_len: int | None) -> str | None:
-        val = raw.get(key)
-        if val is None:
-            return None
-        if not isinstance(val, str):
-            errors.append(f"{path}.{key}: ожидается строка")
-            return None
-        if max_len is not None and len(val) > max_len:
-            errors.append(f"{path}.{key}: длиннее {max_len} символов")
-            return None
-        return val
-
-    entries: list[ManifestEntry] = []
-    for i, raw_e in enumerate(raw_entries):
-        path = f"docs[{i}]"
-        if not isinstance(raw_e, dict):
-            errors.append(f"{path}: запись должна быть словарём (mapping)")
-            continue
-        node_ref = raw_e.get("node")
-        if not isinstance(node_ref, str) or not node_ref.strip():
-            errors.append(f"{path}: node — обязательная непустая строка (путь узла)")
-            continue
-
-        logic: list[LogicIn] = []
-        raw_logic = raw_e.get("logic") or []
-        if not isinstance(raw_logic, list):
-            errors.append(f"{path}.logic: ожидается список схем")
-            raw_logic = []
-        if len(raw_logic) > MAX_LOGIC_PER_NODE:
-            errors.append(f"{path}.logic: больше {MAX_LOGIC_PER_NODE} схем на узел")
-            raw_logic = []
-        seen_names: set[str] = set()
-        for j, raw_l in enumerate(raw_logic):
-            lpath = f"{path}.logic[{j}]"
-            if not isinstance(raw_l, dict):
-                errors.append(f"{lpath}: схема должна быть словарём (mapping)")
-                continue
-            name = raw_l.get("name")
-            if not isinstance(name, str) or not name.strip():
-                errors.append(f"{lpath}: name — обязательная непустая строка")
-                continue
-            if len(name) > 256:
-                errors.append(f"{lpath}: name длиннее 256 символов")
-                continue
-            if name in seen_names:
-                errors.append(f'{lpath}: дубль имени схемы "{name}" в записи узла')
-                continue
-            seen_names.add(name)
-            kind = raw_l.get("kind", "overview")
-            if kind not in _KINDS:
-                errors.append(f"{lpath}: kind {kind!r} не поддерживается ({' | '.join(_KINDS)})")
-                kind = "overview"
-            mermaid = raw_l.get("mermaid")
-            if not isinstance(mermaid, str) or not mermaid.strip():
-                errors.append(f"{lpath}: mermaid — обязательный непустой текст схемы")
-                continue
-            if len(mermaid) > MAX_MERMAID_LEN:
-                errors.append(f"{lpath}: mermaid длиннее {MAX_MERMAID_LEN} символов")
-                continue
-            logic.append(
-                LogicIn(
-                    name=name,
-                    kind=kind,
-                    operation=opt_str(raw_l, "operation", lpath, 256),
-                    mermaid=mermaid,
-                )
-            )
-
-        openapi: OpenapiIn | None = None
-        raw_api = raw_e.get("openapi")
-        # Пустой словарь «openapi: {}» — частый способ слабой модели сказать
-        # «спеки нет» (стресс-тест: 2/8 прогонов); трактуем как отсутствие ключа.
-        if raw_api is not None and raw_api != {}:
-            apath = f"{path}.openapi"
-            if not isinstance(raw_api, dict):
-                errors.append(f"{apath}: ожидается словарь с file|inline")
-            else:
-                file_ref = opt_str(raw_api, "file", apath, 512)
-                inline = opt_str(raw_api, "inline", apath, MAX_SPEC_LEN)
-                if (file_ref is None) == (inline is None):
-                    errors.append(f"{apath}: нужно ровно одно из file | inline")
-                else:
-                    origin = raw_api.get("origin")
-                    if origin is not None and origin not in _ORIGINS:
-                        errors.append(
-                            f"{apath}: origin {origin!r} не поддерживается ({' | '.join(_ORIGINS)})"
-                        )
-                        origin = None
-                    openapi = OpenapiIn(file=file_ref, inline=inline, origin=origin)
-
-        entries.append(ManifestEntry(node_ref=node_ref, logic=logic, openapi=openapi))
-
-    if errors:
-        return None, errors
-    return ParsedManifest(entries=entries), []
-
-
-def looks_like_manifest(content: str) -> bool:
-    """Признак манифеста для сортировки загруженных файлов: разобрался в словарь
-    с ключом docs ЛИБО содержит строку «docs:» (битый манифест должен попасть в
-    parse_manifest и отдать ошибки, а не молча уйти в ресурсы)."""
-    doc, _ = _load_doc(content)
-    if isinstance(doc, dict) and "docs" in doc:
-        return True
-    return _DOCS_LINE_RE.search(content) is not None
-
-
-# ── План применения ────────────────────────────────────────────────────────────
+class ParsedPkg:
+    entries: list[PkgEntry]
 
 
 @dataclass
@@ -241,7 +85,7 @@ def _name_from_file(fname: str) -> str:
 _ORIGIN_COMMENT_RE = re.compile(r"^[#/ ]*archmap-origin:[ \t]*(\w+)[ \t]*$", re.MULTILINE)
 
 
-def manifest_from_spec(fname: str, content: str) -> ParsedManifest:
+def pkg_from_spec(fname: str, content: str) -> ParsedPkg:
     """Голый файл спеки → «манифест» из одной записи для объекта окна.
 
     Окно спеки открыто ДЛЯ узла, спека у него одна — конверт-манифест здесь не
@@ -249,23 +93,22 @@ def manifest_from_spec(fname: str, content: str) -> ParsedManifest:
     строках самой спеки («# archmap-origin: generated»)."""
     match = _ORIGIN_COMMENT_RE.search(content[:2000])
     origin = match.group(1) if match and match.group(1) in _ORIGINS else None
-    return ParsedManifest(
+    return ParsedPkg(
         entries=[
-            ManifestEntry(
+            PkgEntry(
                 node_ref=None,
                 logic=[],
-                openapi=OpenapiIn(file=fname, inline=None, origin=origin),
-                from_mmd=True,
+                openapi=OpenapiIn(file=fname, origin=origin),
             )
         ]
     )
 
 
-def manifest_from_mmd(
+def pkg_from_mmd(
     fname: str,
     content: str,
     override: MmdOverride | None = None,
-) -> tuple[ParsedManifest, list[str]]:
+) -> tuple[ParsedPkg, list[str]]:
     """Файл .mmd → «манифест» из одной схемы. (манифест, замечания).
 
     Так весь дальнейший конвейер (резолв узла, конфликты слотов, действия
@@ -284,13 +127,12 @@ def manifest_from_mmd(
     name = (override.name if override and override.name else None) or header.name or _name_from_file(fname)
     kind = (override.kind if override and override.kind else None) or header.kind or "overview"
     node_ref = (override.node if override and override.node else None) or header.node
-    entry = ManifestEntry(
+    entry = PkgEntry(
         node_ref=node_ref,
         logic=[LogicIn(name=name, kind=kind, operation=header.operation, mermaid=content)],
         openapi=None,
-        from_mmd=True,
     )
-    return ParsedManifest(entries=[entry]), notes
+    return ParsedPkg(entries=[entry]), notes
 
 
 @dataclass
@@ -312,7 +154,7 @@ class LogicAction:
 class SpecAction:
     node_id: uuid.UUID
     node_path: str
-    source: str  # имя файла | "inline"
+    source: str  # имя файла спеки
     origin: str | None
     content: str
     action: str  # create | overwrite | skip | unchanged
@@ -375,7 +217,7 @@ def spec_check(content: str) -> tuple[bool, bool, str | None]:
 
 
 def _resolve_entry(
-    entry: ManifestEntry,
+    entry: PkgEntry,
     fname: str,
     resolve: Callable[[str, str], int | None],
     flat: list[Node],
@@ -394,7 +236,7 @@ def _resolve_entry(
     idx = resolve(entry.node_ref, fname)
     if idx is None:
         return None
-    if entry.from_mmd and scope_ids is not None and flat[idx].id not in scope_ids:
+    if scope_ids is not None and flat[idx].id not in scope_ids:
         plan.errors.append(
             f'{fname}: объект «{entry.node_ref}» не относится к тому, для которого открыто окно'
         )
@@ -404,13 +246,13 @@ def _resolve_entry(
 
 def build_docs_plan(
     nodes: list[Node],
-    manifests: list[tuple[str, ParsedManifest]],
+    entries: list[tuple[str, ParsedPkg]],
     assets: dict[str, str],
     overwrite: bool,
     window_node_id: uuid.UUID | None = None,
     scope_ids: set[uuid.UUID] | None = None,
 ) -> DocsPlan:
-    """Мердж манифестов против живого дерева → действия + отчёт. Чистая функция
+    """Мердж записей пакета против живого дерева → действия + отчёт. Чистая функция
     (БД не трогает; nodes несут свои docs через relationship). Идентичность
     дока = (узел, точное имя схемы), спеки = узел; дубль слота внутри ОДНОГО
     файла — ошибка, из РАЗНЫХ файлов — первый побеждает + конфликт.
@@ -418,8 +260,7 @@ def build_docs_plan(
     window_node_id — объект, из окна которого открыта дозаливка: к нему уезжают
     записи без адреса (файлы .mmd без «%% archmap-node»). scope_ids — его
     поддерево: адрес в шапке дальше него не действует, иначе схема тихо приехала
-    бы чужому сервису. На манифест ограничение НЕ распространяется (историческое
-    поведение; манифест уходит в Фазе 4)."""
+    бы чужому сервису."""
     plan = DocsPlan()
     flat, fulls, by_bare, by_path = _node_paths(nodes)
     by_node_id = {n.id: i for i, n in enumerate(flat)}
@@ -453,8 +294,8 @@ def build_docs_plan(
     spec_owner: dict[uuid.UUID, str] = {}
     used_assets: set[str] = set()
 
-    for fname, manifest in manifests:
-        for entry in manifest.entries:
+    for fname, pkg in entries:
+        for entry in pkg.entries:
             idx = _resolve_entry(
                 entry, fname, resolve, flat, by_node_id, window_node_id, scope_ids, plan
             )
@@ -521,18 +362,14 @@ def build_docs_plan(
                 )
                 continue
             spec_owner[node.id] = fname
-            if entry.openapi.file is not None:
-                content = assets.get(entry.openapi.file)
-                if content is None:
-                    plan.errors.append(
-                        f'{fname}: файл спеки "{entry.openapi.file}" не найден среди загруженных'
-                    )
-                    continue
-                used_assets.add(entry.openapi.file)
-                source = entry.openapi.file
-            else:
-                content = entry.openapi.inline or ""
-                source = "inline"
+            content = assets.get(entry.openapi.file)
+            if content is None:
+                plan.errors.append(
+                    f'{fname}: файл спеки "{entry.openapi.file}" не найден среди загруженных'
+                )
+                continue
+            used_assets.add(entry.openapi.file)
+            source = entry.openapi.file
             if entry.openapi.origin is None:
                 plan.warnings.append(
                     f"{fname}: у спеки узла «{path}» не указано происхождение (origin)"
@@ -566,7 +403,7 @@ def build_docs_plan(
             )
 
     for name in sorted(set(assets) - used_assets):
-        plan.warnings.append(f'файл "{name}" не использован ни одним манифестом')
+        plan.warnings.append(f'файл "{name}" не пригодился — ни схема, ни спека')
     return plan
 
 

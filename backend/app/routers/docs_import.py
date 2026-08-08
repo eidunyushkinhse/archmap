@@ -21,13 +21,11 @@ from app.deps import get_current_project, touch_project
 from app.docs_import import (
     DocsPlan,
     MmdOverride,
-    ParsedManifest,
+    ParsedPkg,
     apply_docs_plan,
     build_docs_plan,
-    looks_like_manifest,
-    manifest_from_mmd,
-    manifest_from_spec,
-    parse_manifest,
+    pkg_from_mmd,
+    pkg_from_spec,
     spec_check,
 )
 from app.docs_prompt import build_docs_prompt
@@ -82,42 +80,39 @@ def docs_prompt(
 
 
 def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> DocsPlan:
-    """Разбор загруженных файлов (манифесты отличаются от ресурсов ПО СОДЕРЖИМОМУ)
-    → план. Ошибки парсинга любого манифеста блокируют план целиком (частичный
-    план вводил бы в заблуждение кнопку «Применить»)."""
-    manifests: list[tuple[str, ParsedManifest]] = []
+    """Разбор загруженных файлов пакета → план. Схема логики опознаётся ПО
+    СОДЕРЖИМОМУ (расширение, шапка или начало диаграммы), остальное — кандидат в
+    файл спеки. Ошибки блокируют план целиком: частичный план вводил бы в
+    заблуждение кнопку «Применить»."""
+    entries: list[tuple[str, ParsedPkg]] = []
     assets: dict[str, str] = {}
     errors: list[str] = []
     notes: list[str] = []
     overrides = {o.file: MmdOverride(name=o.name, kind=o.kind, node=o.node) for o in payload.overrides}
     for f in payload.files:
-        if looks_like_manifest(f.content):
-            parsed, errs = parse_manifest(f.content)
-            if parsed is not None:
-                manifests.append((f.name, parsed))
-            errors.extend(f"{f.name}: {e}" for e in errs)
-        elif looks_like_mermaid(f.name, f.content):
-            # Схема логики приезжает самодостаточным файлом: метаданные — в его
-            # шапке. Превращаем в «манифест» из одной записи, чтобы дальше
-            # работал ровно тот же конвейер (docs/plan-docs-mmd.md).
-            parsed_mmd, mmd_notes = manifest_from_mmd(f.name, f.content, overrides.get(f.name))
-            manifests.append((f.name, parsed_mmd))
+        if looks_like_mermaid(f.name, f.content):
+            # Схема логики самодостаточна: метаданные — в её шапке.
+            parsed_mmd, mmd_notes = pkg_from_mmd(f.name, f.content, overrides.get(f.name))
+            entries.append((f.name, parsed_mmd))
             notes.extend(mmd_notes)
         else:
-            # Дубль имени ресурса — последний побеждает молча (имена в одной папке
-            # уникальны по построению; дубль возможен только ручной загрузкой).
+            # Всё остальное — ресурс (кандидат в файл спеки). Дубль имени: последний
+            # побеждает молча (имена в одной папке уникальны по построению).
             assets[f.name] = f.content
-    if not manifests and not errors and payload.only == "api" and payload.node_id is not None:
+    if payload.only == "api" and payload.node_id is not None and assets:
         # Окно спеки: пакет — сам файл спеки, конверт не нужен (объект известен
         # из окна, спека у него одна). Из нескольких файлов выбираем похожий на
         # OpenAPI; если таких несколько — спрашиваем, а не угадываем.
+        # Условие НЕ «файлов больше нет»: пользователь вправе перетащить всю
+        # папку archmap-docs целиком, и спеку в ней надо найти, а не потерять
+        # среди схем логики.
         picked = [n for n, c in assets.items() if spec_check(c)[1]] or list(assets)
         if len(picked) == 1:
-            manifests.append((picked[0], manifest_from_spec(picked[0], assets[picked[0]])))
+            entries.append((picked[0], pkg_from_spec(picked[0], assets[picked[0]])))
         elif len(picked) > 1:
             errors.append("в пакете несколько файлов спеки: " + ", ".join(sorted(picked)))
-    if not manifests and not errors:
-        errors.append("среди загруженных файлов нет ни схемы (.mmd), ни манифеста")
+    if not entries and not errors:
+        errors.append("среди загруженных файлов нет ни схемы (.mmd), ни файла спеки")
     if errors:
         plan = DocsPlan()
         plan.errors = errors
@@ -128,7 +123,7 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
         by_id = {n.id: n for n in nodes}
         scope_ids = tree.subtree_ids(by_id, payload.node_id) if payload.node_id in by_id else set()
     plan = build_docs_plan(
-        nodes, manifests, assets, payload.overwrite, payload.node_id, scope_ids
+        nodes, entries, assets, payload.overwrite, payload.node_id, scope_ids
     )
     plan.warnings.extend(notes)
     # Раздельные окна дозаливки: окно логики применяет только схемы логики, окно
