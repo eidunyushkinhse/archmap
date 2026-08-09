@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import {
-  planExpand, planCollapse, markDrawIn, clearDrawIn, changedEdgeIds,
+  planExpand, planCollapse, planRelayout, markDrawIn, clearDrawIn, changedEdgeIds,
   ANIM_MOVE_MS, ANIM_FADE_MS, drawSpanMs,
 } from "./layoutAnimation";
 
@@ -46,7 +46,15 @@ const INTENT_TTL_MS = 15_000;
 // (позиция не изменилась → commitLayout задедупил → прогона нет).
 const GESTURE_TTL_MS = 4_000;
 
-type Intent = { kind: "expand" | "collapse"; id: string; ts: number };
+// Окно мутаций (noteMutation): сходимость. После мутации страницы раскладка
+// может прогоняться НЕСКОЛЬКО раз (зеркало засева, ресинк после 409 fence,
+// эхо поллинга) — окно живёт, пока геометрия меняется: изменённые стрелки
+// скрыты, и как только новых изменений нет MUTATION_SETTLE_MS — они рисуются
+// одним drawIn-каскадом по финальным маршрутам. Промежуточные пересчёты на
+// стрелках не видны — анимация не обрывается.
+const MUTATION_SETTLE_MS = 250;
+
+type Intent = { kind: "expand" | "collapse" | "relayout"; id: string; ts: number };
 
 // «Тихое окно» (Ф1 плавности): шлюз отложенного пересчёта раскладки. Владелец —
 // LevelGraph (holdRef/dirtyRef/computeNow там); хук только дёргает фазы:
@@ -76,9 +84,16 @@ export interface LayoutAnimation {
   apply: (nextNodes: RFNode[], nextEdges: RFEdge[]) => void;
   noteExpand: (id: string) => void;
   noteCollapse: (id: string) => void;
+  /** «Переразложить»: следующее применение раскладки режиссировать чистым
+      переездом видимых узлов/рамок на новые позиции (без сворачивания) */
+  noteRelayout: () => void;
   /** ручной жест изменил раскладку (отпускание драга, undo/redo) — изменённые
       стрелки следующего пересчёта перерисовать анимированно (drawIn) */
   noteGesture: () => void;
+  /** мутация страницы (создание/удаление узлов и связей, правка связи) — в
+      следующем применении перерисовать анимированно стрелки с изменившейся
+      геометрией И нарисовать новые (окно мутаций, AN28а) */
+  noteMutation: () => void;
   /** мгновенно доиграть анимацию (старт драга: применить отложенное, показать скрытое) */
   cancel: () => void;
   /** жёсткий сброс БЕЗ доигровки (смена уровня: отложенное протухло, применит сборщик) */
@@ -129,6 +144,11 @@ export function useLayoutAnimation({
   const intentRef = useRef<Intent | null>(null);
   // момент последнего ручного жеста (0 — окна жеста нет)
   const gestureRef = useRef(0);
+  // момент последней мутации страницы (0 — окна мутаций нет)
+  const mutationRef = useRef(0);
+  // таймер сходимости окна мутаций (перезаказывается каждым применением с
+  // изменениями; истёк — геометрия устоялась, рисуем накопленное)
+  const settleTimerRef = useRef(0);
   // маски открытого окна анимации: что прятать в прогонах-посредниках
   const maskRef = useRef<{ frames: Set<string>; edges: Set<string> } | null>(null);
   // рёбра в фазе ОТРИСОВКИ (drawIn): помечать заново в прогонах-посредниках,
@@ -205,6 +225,7 @@ export function useLayoutAnimation({
     epochRef.current++; // продолжения флаша в полёте — устаревают
     intentRef.current = null;
     gestureRef.current = 0;
+    mutationRef.current = 0;
     drawRef.current = null;
     const pending = pendingRef.current;
     pendingRef.current = null;
@@ -228,6 +249,7 @@ export function useLayoutAnimation({
     epochRef.current++; // продолжения флаша в полёте — устаревают
     intentRef.current = null;
     gestureRef.current = 0;
+    mutationRef.current = 0;
     maskRef.current = null;
     drawRef.current = null;
     pendingRef.current = null;
@@ -291,7 +313,7 @@ export function useLayoutAnimation({
           return;
         }
         // рамки в этом прогоне ещё нет (дети локала грузятся) — интент ждёт
-      } else {
+      } else if (intent.kind === "collapse") {
         const plan = planCollapse(getNodes(), getEdges(), nextNodes, intent.id);
         if (plan) {
           intentRef.current = null;
@@ -346,6 +368,46 @@ export function useLayoutAnimation({
         // прогон не в той фазе: рамки уже нет и узла ещё нет — применяем как есть,
         // интент ждёт прогона с узлом; если узел уже на месте (проскочили) —
         // planCollapse вернул бы план, сюда не попадаем
+      } else {
+        // «ПЕРЕРАЗЛОЖИТЬ»: состав не меняется (раскрытия переживают сброс) —
+        // чистый переезд видимых узлов/рамок на новые авто-позиции. Режиссура
+        // та же, что у раскрытия, без спавна: кадр 1 — стрелки гаснут, узлы ещё
+        // на старых местах; отпуск через 2×rAF (CSS-transition развозит); конец
+        // переезда — «мёртвая зона» (флаш отложенных прогонов, затем drawIn
+        // каскадом рисует СВЕЖИЕ маршруты).
+        const plan = planRelayout(getNodes(), getEdges(), nextNodes, nextEdges);
+        if (plan) {
+          intentRef.current = null;
+          clearTimers();
+          const epoch = ++epochRef.current;
+          gate.hold(); // тихое окно: прогоны конвейера копятся до конца переезда
+          setJumpsPaused(true); // реестр мостиков заморожен до unmask
+          maskRef.current = { frames: new Set(), edges: plan.hiddenEdgeIds };
+          pendingRef.current = { nodes: nextNodes, edges: nextEdges };
+          setActive(true);
+          // кадр 1: стрелки гаснут, узлы и рамки ещё на старых местах
+          setRfEdges(nextEdges.map((e) => (plan.hiddenEdgeIds.has(e.id) ? { ...e, hidden: true } : e)));
+          // отпуск на новые позиции — после фиксации первого кадра в DOM
+          rafsRef.current.push(window.requestAnimationFrame(() => {
+            rafsRef.current.push(window.requestAnimationFrame(() => {
+              const fin = pendingRef.current;
+              pendingRef.current = null;
+              if (!fin) return; // окно отменено — cancel доиграл
+              setRfNodes(fin.nodes); // класс жив — CSS-transition развозит
+              later(ANIM_MOVE_MS, () => {
+                void gate.flush().then(() => {
+                  if (epoch !== epochRef.current) return; // окно отменено/переоткрыто
+                  unmask(true);
+                  later(ANIM_FADE_MS + 60, () => setActive(false));
+                });
+              });
+            }));
+          }));
+          return;
+        }
+        // состав изменился (параллельная структурная правка), первый рендер или
+        // ничего не сдвинулось — интент снимется применением без режиссуры ниже
+        // только при потреблении; здесь оставляем ждать подходящего прогона
       }
     } else if (fresh && reducedMotion()) {
       intentRef.current = null;
@@ -367,6 +429,52 @@ export function useLayoutAnimation({
         }
       } else {
         gestureRef.current = 0;
+      }
+    }
+
+    // ОКНО МУТАЦИЙ (noteMutation): создание/удаление узлов и связей на странице
+    // пересчитывает авто-маршруты — и порой НЕ В ОДИН прогон (зеркало засева,
+    // ресинк после 409 fence, эхо поллинга). Окно живёт ДО СХОДИМОСТИ: стрелки
+    // с изменившейся геометрией и НОВЫЕ рёбра скрываются (маска живёт в
+    // применениях-посредниках) и копятся в draw-набор; когда MUTATION_SETTLE_MS
+    // нет новых изменений (или истёк TTL) — рисуются ОДНИМ drawIn-каскадом по
+    // финальным маршрутам. Промежуточные пересчёты на стрелках не видны.
+    if (mutationRef.current) {
+      if (Date.now() - mutationRef.current >= GESTURE_TTL_MS) {
+        mutationRef.current = 0;
+        if (settleTimerRef.current) { window.clearTimeout(settleTimerRef.current); settleTimerRef.current = 0; }
+        if (maskRef.current && maskRef.current.edges.size > 0) unmask(true);
+      } else if (!reducedMotion()) {
+        const changed = changedEdgeIds(getNodes(), getEdges(), nextNodes, nextEdges);
+        const prevEdgeIds = new Set(getEdges().map((e) => e.id));
+        for (const e of nextEdges) if (!prevEdgeIds.has(e.id)) changed.add(e.id);
+        if (changed.size > 0) {
+          const first = !maskRef.current || maskRef.current.edges.size === 0;
+          const mask = maskRef.current ?? { frames: new Set<string>(), edges: new Set<string>() };
+          for (const id of changed) mask.edges.add(id);
+          maskRef.current = mask;
+          // сходимость: перезаказ таймера каждым применением с изменениями;
+          // истёк — геометрия устоялась, рисуем накопленное
+          if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current);
+          settleTimerRef.current = window.setTimeout(() => {
+            settleTimerRef.current = 0;
+            if (!mutationRef.current) return; // окно уже закрыто (cancel/TTL)
+            mutationRef.current = 0;
+            if (maskRef.current && maskRef.current.edges.size > 0) unmask(true);
+          }, MUTATION_SETTLE_MS);
+          timersRef.current.push(settleTimerRef.current);
+          if (first) {
+            // жёсткий потолок: окно не переживает TTL даже без сигнала сходимости
+            later(GESTURE_TTL_MS, () => {
+              if (!mutationRef.current) return;
+              mutationRef.current = 0;
+              if (settleTimerRef.current) { window.clearTimeout(settleTimerRef.current); settleTimerRef.current = 0; }
+              if (maskRef.current && maskRef.current.edges.size > 0) unmask(true);
+            });
+          }
+        }
+      } else {
+        mutationRef.current = 0;
       }
     }
 
@@ -393,9 +501,15 @@ export function useLayoutAnimation({
   const noteCollapse = useCallback((id: string) => {
     intentRef.current = { kind: "collapse", id, ts: Date.now() };
   }, []);
+  const noteRelayout = useCallback(() => {
+    intentRef.current = { kind: "relayout", id: "", ts: Date.now() };
+  }, []);
   const noteGesture = useCallback(() => {
     gestureRef.current = Date.now();
   }, []);
+  const noteMutation = useCallback(() => {
+    mutationRef.current = Date.now();
+  }, []);
 
-  return { apply, noteExpand, noteCollapse, noteGesture, cancel, reset, active, jumpsPaused };
+  return { apply, noteExpand, noteCollapse, noteRelayout, noteGesture, noteMutation, cancel, reset, active, jumpsPaused };
 }

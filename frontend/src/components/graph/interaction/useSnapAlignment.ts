@@ -23,7 +23,7 @@ interface Params {
   onNodesChange: (changes: NodeChange<RFNode>[]) => void;
   setGuides: Dispatch<SetStateAction<Guides>>;
   isArchitect: boolean;
-  isContext: boolean;
+  disabled: boolean;
   // breadcrumb-предки уровня — нужны для запрета задвинуть гостя в чужую родную рамку
   ancestorIds: string[];
   ancestorNames: string[];
@@ -45,7 +45,7 @@ interface Params {
 const KB_FLUSH_MS = 500;
 
 export function useSnapAlignment({
-  rfNodes, onNodesChange, setGuides, isArchitect, isContext,
+  rfNodes, onNodesChange, setGuides, isArchitect, disabled,
   ancestorIds, ancestorNames, commitLayout, push, noteGesture,
 }: Params) {
   // Позиции узлов на момент старта драга — «старое» состояние для инверсии перемещения.
@@ -66,14 +66,14 @@ export function useSnapAlignment({
 
   // Флаш клавиатурной серии: один батч персиста + одна команда истории + окно жеста
   // (изменившиеся стрелки перерисуются drawIn — как после отпускания драга).
-  // У наблюдателя и в контексте сдвиг эфемерен (та же семантика, что у драга).
+  // У наблюдателя и при запрете правки сдвиг эфемерен (та же семантика, что у драга).
   const flushKeyboard = useCallback(() => {
     if (kbTimer.current != null) { clearTimeout(kbTimer.current); kbTimer.current = null; }
     const start = kbStart.current;
     const next = kbNext.current;
     kbStart.current = new Map();
     kbNext.current = new Map();
-    if (next.size === 0 || !isArchitect || isContext) return;
+    if (next.size === 0 || !isArchitect || disabled) return;
     type Move = { id: string; old: { x: number; y: number }; next: { x: number; y: number } };
     const moves: Move[] = [];
     for (const [id, pos] of next) {
@@ -93,7 +93,7 @@ export function useSnapAlignment({
         redo: () => apply("next"),
       });
     }
-  }, [isArchitect, isContext, commitLayout, push, noteGesture]);
+  }, [isArchitect, disabled, commitLayout, push, noteGesture]);
   // Латест-реф: таймер и cleanup зовут свежий флаш (commitLayout меняет идентичность).
   const flushKeyboardRef = useRef(flushKeyboard);
   useEffect(() => { flushKeyboardRef.current = flushKeyboard; });
@@ -201,7 +201,7 @@ export function useSnapAlignment({
   // Оптимизация (2026-07-21): byId создаётся один раз на группу.
   const persistGroup = useCallback(
     (group: RFNode[]): boolean => {
-      if (isContext) return false; // контекст read-only — перетаскивания не сохраняем
+      if (disabled) return false; // read-only — перетаскивания не сохраняем
       if (!isArchitect) return false;
       const single = group.length === 1;
       const byId = new Map(rfNodes.map((n) => [n.id, n]));
@@ -307,7 +307,7 @@ export function useSnapAlignment({
       }
       return wrote;
     },
-    [isArchitect, isContext, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, clampOutOfNodes, rfNodes, push],
+    [isArchitect, disabled, commitLayout, onNodesChange, levelFrames, clampOutOfCompound, clampOutOfNodes, rfNodes, push],
   );
 
   // Отпускание драга одиночного узла (или узла-«ручки» мультивыделения). RF отдаёт

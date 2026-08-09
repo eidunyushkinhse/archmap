@@ -5,15 +5,24 @@ Literal-типы (Action/Origin/kind) — чтобы генерат типов �
 валидность проверяет фронт по этим текстам (ленивый чанк mermaid уже в бандле).
 """
 
+import uuid
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.node_doc import NodeDocKind
+
+# Лимиты пакета (docs/plan-docs-mmd.md): файлов много, потому что схема логики —
+# отдельный .mmd; потолок на весь пакет введён вместе с этим.
+MAX_PACKAGE_FILES = 100
+MAX_PACKAGE_CHARS = 16_000_000
 
 DocsAction = Literal["create", "overwrite", "skip", "unchanged"]
 SpecOrigin = Literal["found", "generated", "synthesized"]
 DocsInclude = Literal["logic", "api", "both"]
+# Фильтр типа дозаливки у preview/apply: окна логики и спеки раздельные — каждое
+# применяет только своё (схемы логики ИЛИ OpenAPI-спеки), не смешивая сущности.
+DocsOnly = Literal["logic", "api"]
 
 
 class DocsPromptOut(BaseModel):
@@ -28,14 +37,46 @@ class DocsFileIn(BaseModel):
     content: str = Field(max_length=2_000_000)
 
 
+class DocsOverrideIn(BaseModel):
+    """Правка строки превью: пользователь исправил имя/вид/адрес перед записью.
+
+    Нужна с переездом на .mmd: раньше вид схемы правился ПЕРЕЗАПИСЬЮ текста
+    манифеста на фронте, а манифеста больше нет — правка едет отдельным полем."""
+
+    file: str = Field(min_length=1, max_length=512)
+    name: str | None = Field(default=None, min_length=1, max_length=512)
+    kind: NodeDocKind | None = None
+    node: str | None = Field(default=None, min_length=1, max_length=512)
+
+
 class DocsImportIn(BaseModel):
-    files: list[DocsFileIn] = Field(min_length=1, max_length=32)
+    # Потолок пакета поднят с 32: схема логики стала отдельным файлом, и у
+    # монолита их десятки (docs/plan-docs-mmd.md).
+    files: list[DocsFileIn] = Field(min_length=1, max_length=MAX_PACKAGE_FILES)
     # Политика занятых слотов: false — пропускать (дефолт), true — перезаписывать.
     overwrite: bool = False
+    # Применить только схемы логики ("logic") или только OpenAPI-спеки ("api").
+    # None — всё содержимое манифеста (для совместимости; окна ходят с фильтром).
+    only: DocsOnly | None = None
+    # Объект, из окна которого открыта дозаливка: к нему уезжают .mmd без
+    # «%% archmap-node», им же ограничена область адресации.
+    node_id: uuid.UUID | None = None
+    overrides: list[DocsOverrideIn] = Field(default_factory=list, max_length=MAX_PACKAGE_FILES)
+
+    @model_validator(mode="after")
+    def _package_size(self) -> "DocsImportIn":
+        # Отдельный файл лимитирован полем content, но сотня файлов по 2 МБ уехала
+        # бы одним запросом — потолка на ПАКЕТ до переезда не было вовсе.
+        total = sum(len(f.content) for f in self.files)
+        if total > MAX_PACKAGE_CHARS:
+            raise ValueError(f"пакет больше {MAX_PACKAGE_CHARS // 1_000_000} МБ")
+        return self
 
 
 class DocsLogicItem(BaseModel):
     node_path: str
+    # Имя файла, из которого приехала схема: превью привязывает к нему правку.
+    source: str
     name: str
     kind: NodeDocKind
     operation: str | None

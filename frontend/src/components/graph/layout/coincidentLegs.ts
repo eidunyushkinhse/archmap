@@ -115,20 +115,26 @@ export function edgeArcLength(pts: EdgePoint[]): number {
 // он попадёт и в shared[A], и в shared[B] (на своих arc-координатах).
 export function coincidentLegs(polys: Map<string, EdgePoint[]>): Map<string, Interval[]> {
   const ids = [...polys.keys()];
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- ids из polys.keys(), ключ заведомо есть
   const segs = new Map(ids.map((id) => [id, arcSegments(polys.get(id)!)]));
   const shared = new Map<string, Interval[]>(ids.map((id) => [id, []]));
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- segs построена по ids, ключ заведомо есть
       for (const sa of segs.get(ids[i])!) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- segs построена по ids, ключ заведомо есть
         for (const sb of segs.get(ids[j])!) {
           const ov = overlapShared(sa, sb);
           if (!ov) continue;
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- shared построена по ids, ключ заведомо есть
           shared.get(ids[i])!.push(ov[0]);
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- shared построена по ids, ключ заведомо есть
           shared.get(ids[j])!.push(ov[1]);
         }
       }
     }
   }
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- shared построена по ids, ключ заведомо есть
   for (const id of ids) shared.set(id, mergeIntervals(shared.get(id)!));
   return shared;
 }

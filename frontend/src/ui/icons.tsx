@@ -17,12 +17,17 @@ export const UndoIcon = ({ size = 17 }: IcoProps) => (
 export const RedoIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M15 7 L20 12 L15 17" /><path d="M20 12 H10 a5 5 0 0 0 0 10 H13" /></svg>);
-export const UpIcon = ({ size = 16 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
-    <path d="M12 19 V5" /><path d="M6 11 L12 5 L18 11" /></svg>);
 export const ExportIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M12 3 V14" /><path d="M8 10 L12 14 L16 10" /><path d="M4 17 V20 H20 V17" /></svg>);
+// «Обновить из репозитория» — ТОТ ЖЕ лоток, что у ExportIcon, но стрелка наружу:
+// кнопки стоят рядом в шапке и обязаны читаться парой «отдать / принять». Круговых
+// стрелок здесь быть не может: в шапке редактора соседствует «Переразложить
+// уровень», и два круглых знака подряд читались бы как одно действие.
+export const RepoSyncIcon = ({ size = 17 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
+    <path d="M12 14 V3" /><path d="M8 7 L12 3 L16 7" />
+    <path d="M4 17 V20 H20 V17" /></svg>);
 // «Переразложить уровень» — круговые стрелки (сброс к авто-раскладке).
 export const RelayoutIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
@@ -56,10 +61,6 @@ export const TreeIcon = ({ size = 17 }: IcoProps) => (
 export const PlusIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M12 5 V19 M5 12 H19" /></svg>);
-export const FlowIcon = ({ size = 17 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.7} aria-hidden>
-    <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" />
-    <path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" /></svg>);
 
 // Логомарк: синяя плитка с мини-графом (узел + объект-контейнер + ребро).
 export function LogoMark({ size = 30 }: IcoProps) {

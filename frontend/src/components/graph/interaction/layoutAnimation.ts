@@ -308,6 +308,7 @@ export function planCollapse(
     // общий сосед: довезти до next-позиции в СТАРОЙ системе родителей
     // (рамки вне поддерева в фазе 1 неподвижны, абсолюты сходятся)
     if (moved.has(n.id)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- moved построена обходом nextById, ключ n.id гарантирован
       const abs = absPositionOf(nextById.get(n.id)!, nextById);
       const chain = parentChainAbs(n, prevById);
       return { ...n, position: { x: abs.x - chain.x, y: abs.y - chain.y } };
@@ -317,4 +318,34 @@ export function planCollapse(
 
   const affected = new Set([...descendants, ...moved, containerId]);
   return { phase1Nodes, hiddenEdgeIds: edgesTouching(prevEdges, affected) };
+}
+
+export interface RelayoutPlan {
+  /** стрелки с изменившейся геометрией (+ новые) — hidden на переезд, по концу
+      рисуются каскадом */
+  hiddenEdgeIds: Set<string>;
+}
+
+/**
+ * План анимации «ПЕРЕРАЗЛОЖИТЬ»: состав сцены не меняется (раскрытия переживают
+ * сброс — решение 2026-08-05), все видимые узлы/рамки едут на новые авто-позиции.
+ * Чистый переезд: спавна/схождения нет, стрелки гаснут на переезд (SVG-путь не
+ * транзишнится — висел бы оторванным). null — состав изменился (параллельная
+ * структурная правка), первый рендер, или ничего реально не сдвинулось: раскладка
+ * применяется без режиссуры.
+ */
+export function planRelayout(
+  prevNodes: RFNode[], prevEdges: RFEdge[],
+  nextNodes: RFNode[], nextEdges: RFEdge[],
+): RelayoutPlan | null {
+  if (prevNodes.length === 0 || prevNodes.length !== nextNodes.length) return null;
+  const prevIds = new Set(prevNodes.map((n) => n.id));
+  for (const n of nextNodes) if (!prevIds.has(n.id)) return null;
+  const prevById = new Map(prevNodes.map((n) => [n.id, n]));
+  const nextById = new Map(nextNodes.map((n) => [n.id, n]));
+  if (movedIds(prevById, nextById).size === 0) return null; // ничего не уехало
+  const prevEdgeIds = new Set(prevEdges.map((e) => e.id));
+  const hiddenEdgeIds = changedEdgeIds(prevNodes, prevEdges, nextNodes, nextEdges);
+  for (const e of nextEdges) if (!prevEdgeIds.has(e.id)) hiddenEdgeIds.add(e.id);
+  return { hiddenEdgeIds };
 }

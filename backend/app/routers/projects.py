@@ -36,8 +36,16 @@ from app.schemas.project import (
     ProjectPreviewNode,
     ProjectResponse,
     ProjectUpdate,
+    SyncApplyIn,
+    SyncApplyOut,
+    SyncEdgeActionOut,
+    SyncNodeActionOut,
+    SyncPreviewIn,
+    SyncPreviewOut,
     TemplateOut,
 )
+from app.sync_apply import apply_sync_plan
+from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -47,22 +55,32 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 MAX_PREVIEW_NODES = 12
 
 
-def _counts(db: Session, project_ids: list[uuid.UUID]) -> tuple[dict, dict]:
+def _counts(
+    db: Session, project_ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, int]]:
     """Счётчики объектов и связей по проектам одним запросом на тип (без N+1)."""
     if not project_ids:
         return {}, {}
-    node_counts = dict(
-        db.query(Node.project_id, func.count(Node.id))
-        .filter(Node.project_id.in_(project_ids))
-        .group_by(Node.project_id)
-        .all()
-    )
-    edge_counts = dict(
-        db.query(Edge.project_id, func.count(Edge.id))
-        .filter(Edge.project_id.in_(project_ids))
-        .group_by(Edge.project_id)
-        .all()
-    )
+    # Comprehension с распаковкой строк: dict(Row...) не типизируется (Row не
+    # подтип tuple для mypy), а {pid: cnt for ...} выводится чисто.
+    node_counts: dict[uuid.UUID, int] = {
+        pid: cnt
+        for pid, cnt in (
+            db.query(Node.project_id, func.count(Node.id))
+            .filter(Node.project_id.in_(project_ids))
+            .group_by(Node.project_id)
+            .all()
+        )
+    }
+    edge_counts: dict[uuid.UUID, int] = {
+        pid: cnt
+        for pid, cnt in (
+            db.query(Edge.project_id, func.count(Edge.id))
+            .filter(Edge.project_id.in_(project_ids))
+            .group_by(Edge.project_id)
+            .all()
+        )
+    }
     return node_counts, edge_counts
 
 
@@ -228,7 +246,7 @@ def import_prompt(
 ) -> ImportPromptOut:
     """Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
-    сливает merge_imports. Параметры вшиваются в текст (docs/plan-repo-import.md)."""
+    сливает merge_imports. Параметры вшиваются в текст (docs/archive/plan-repo-import.md)."""
     return ImportPromptOut(
         prompt=build_import_prompt(system_name, depth=depth, lang=lang, hints=hints)
     )
@@ -264,6 +282,133 @@ def import_preview(
         conflicts=report.conflicts,
         warnings=report.warnings,
         dropped_edges=report.dropped_edges,
+    )
+
+
+@router.post("/{project_id}/sync/preview", response_model=SyncPreviewOut)
+def sync_preview(
+    project_id: uuid.UUID,
+    payload: SyncPreviewIn,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_architect),
+) -> SyncPreviewOut:
+    """Dry-run синхронизации ЖИВОГО проекта со свежим прогоном агента: что
+    изменится, если применить. БД не пишем (применение — отдельным вызовом).
+
+    Вход тот же, что у импорта (мульти-репо сливается merge_imports), поэтому
+    ошибки разбора и предупреждения слияния возвращаются в той же форме — фронт
+    показывает их до плана. Проект скоупится ПУТЁМ (не заголовком X-Project-Id):
+    синк адресует конкретный проект, а не «текущий» сеанса."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    merged, report, errors = parse_and_merge(list(payload.contents))
+    if merged is None:
+        return SyncPreviewOut(ok=False, errors=errors, files=len(payload.contents))
+
+    nodes = db.query(Node).filter(Node.project_id == project_id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+    plan = build_sync_plan(
+        nodes,
+        edges,
+        merged,
+        SyncPolicies(
+            update_descriptions=payload.update_descriptions,
+            update_names=payload.update_names,
+            sync_components=payload.sync_components,
+            mark_missing_deprecated=payload.mark_missing_deprecated,
+            restore_returned=payload.restore_returned,
+        ),
+    )
+    return SyncPreviewOut(
+        ok=True,
+        files=len(payload.contents),
+        nodes=[
+            SyncNodeActionOut(
+                path=a.path,
+                action=a.action,  # type: ignore[arg-type]  # значения из фиксированного набора sync_plan
+                node_id=a.node_id,
+                source_ref=a.source_ref,
+                fields=a.fields,
+                matched_by=a.matched_by,  # type: ignore[arg-type]
+                returned=a.returned,
+            )
+            for a in plan.nodes
+        ],
+        edges=[
+            SyncEdgeActionOut(
+                source_path=e.source_path,
+                target_path=e.target_path,
+                action=e.action,  # type: ignore[arg-type]
+            )
+            for e in plan.edges
+        ],
+        # Предупреждения слияния файлов и предупреждения матчинга — один список:
+        # для человека это одна категория «посмотри глазами».
+        conflicts=report.conflicts + plan.conflicts,
+        warnings=report.warnings + plan.warnings,
+        summary=plan.summary,
+        is_noop=plan.is_noop,
+        graph_rev=project.graph_rev,
+    )
+
+
+@router.post("/{project_id}/sync/apply", response_model=SyncApplyOut)
+def sync_apply(
+    project_id: uuid.UUID,
+    payload: SyncApplyIn,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_architect),
+) -> SyncApplyOut:
+    """Применить прогон агента к живому проекту.
+
+    План ПЕРЕСЧИТЫВАЕТСЯ здесь же из присланных YAML — клиентскому плану не
+    доверяем (иначе подменённый план писал бы что угодно). Чтобы применение не
+    разошлось с тем, что человек видел в превью, клиент возвращает base_graph_rev:
+    схема изменилась с тех пор — 409, обновите превью. Это тот же курсор, которым
+    живёт поллинг конкурентных сессий.
+
+    НЕ ТРОГАЕМ: схемы логики, OpenAPI-спеки, раскладку и бизнес-процессы —
+    ради этого синк и существует. Удаления нет ни в каком режиме."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if payload.base_graph_rev is not None and payload.base_graph_rev != project.graph_rev:
+        raise HTTPException(
+            status_code=409,
+            detail="Схема изменилась после расчёта — обновите превью и повторите",
+        )
+
+    merged, _report, errors = parse_and_merge(list(payload.contents))
+    if merged is None:
+        raise HTTPException(status_code=400, detail="; ".join(errors[:5]))
+
+    nodes = db.query(Node).filter(Node.project_id == project_id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+    plan = build_sync_plan(
+        nodes,
+        edges,
+        merged,
+        SyncPolicies(
+            update_descriptions=payload.update_descriptions,
+            update_names=payload.update_names,
+            sync_components=payload.sync_components,
+            mark_missing_deprecated=payload.mark_missing_deprecated,
+            restore_returned=payload.restore_returned,
+        ),
+    )
+    report = apply_sync_plan(db, project, merged, plan)
+    project.updated_at = datetime.now(UTC)
+    project.updated_by_id = _user.id
+    db.commit()
+    return SyncApplyOut(
+        created_nodes=report.created_nodes,
+        updated_nodes=report.updated_nodes,
+        deprecated_nodes=report.deprecated_nodes,
+        created_edges=report.created_edges,
+        skipped=report.skipped,
+        graph_rev=project.graph_rev,
     )
 
 

@@ -8,7 +8,7 @@
 «родители раньше детей» (совместимость с seed_import).
 """
 
-from app.import_merge import merge_imports
+from app.import_merge import merge_imports, parse_and_merge
 from app.import_yaml import ParsedImport, parse_import
 
 
@@ -217,3 +217,248 @@ def test_parents_before_children_invariant():
     merged, _ = merge_imports([_parse(FILE_B), _parse(FILE_A)])
     for i, n in enumerate(merged.nodes):
         assert n.parent_idx is None or n.parent_idx < i
+
+
+# ── Идентичность: якорь источника поверх имени (Фаза 0 docs/plan-arch-sync.md) ──
+
+
+def test_якорь_склеивает_сервис_названный_по_разному():
+    """Свой репозиторий зовёт сервис «app» (имя compose-сервиса), вызывающие —
+    «payments» (hostname). Без якоря это два узла; с якорем — один, а расхождение
+    имён видно в отчёте."""
+    own = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: app\n"
+        "        technology: Go\n"
+        "        source: {repo: github.com/org/payments, host: payments}\n"
+    )
+    caller = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {host: payments}\n"
+    )
+    merged, report = merge_imports([own, caller])
+
+    assert _path_list(merged) == ["Система", "Система / app"]
+    assert _node_by_path(merged, "Система / app").technology == "Go"
+    assert any("имя" in c and "payments" in c for c in report.conflicts)
+
+
+def test_якорь_разводит_тёзок_из_разных_репозиториев():
+    """Два «api» разных команд имеют одно имя в одном родителе. Раньше склеились
+    бы молча — теперь остаются разными узлами."""
+    team_a = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: api\n"
+        "        source: {repo: github.com/team-a/api}\n"
+    )
+    team_b = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: api\n"
+        "        source: {repo: github.com/team-b/api}\n"
+    )
+    merged, report = merge_imports([team_a, team_b])
+
+    assert len([n for n in merged.nodes if n.name == "api"]) == 2
+    assert any("РАЗНЫЕ объекты" in w for w in report.warnings)
+
+
+def test_без_якорей_поведение_прежнее():
+    """Файлы старых прогонов (якорей нет) склеиваются по имени, как раньше."""
+    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n        role: сервис\n")
+    b = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n        technology: Go\n")
+    merged, report = merge_imports([a, b])
+
+    assert _path_list(merged) == ["Система", "Система / api"]
+    node = _node_by_path(merged, "Система / api")
+    assert node.role == "сервис" and node.technology == "Go"
+    assert report.warnings == []
+
+
+def test_якорь_сильнее_иерархии():
+    """Прогоны положили один сервис под разных родителей (в своём репозитории он
+    контейнер системы, у соседа — компонент шлюза). Якорь склеивает, место
+    остаётся первым, расхождение — в отчёте."""
+    a = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: auth\n"
+        "        source: {repo: github.com/org/auth}\n"
+    )
+    b = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: gateway\n"
+        "        children:\n"
+        "          - name: auth\n"
+        "            source: {repo: github.com/org/auth}\n"
+    )
+    merged, report = merge_imports([a, b])
+
+    paths = _path_list(merged)
+    assert "Система / auth" in paths and "Система / gateway / auth" not in paths
+    assert any("родитель" in c for c in report.conflicts)
+
+
+def test_склеенный_узел_наследует_все_грани_источника():
+    """Третий файл должен найти узел по той грани, которой не было в первом:
+    A знает git, B — образ, C ходит только по сетевому имени."""
+    a = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc}\n")
+    b = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc, image: reg.io/svc}\n")
+    c = _parse("nodes:\n  - name: другое-имя\n    source: {image: reg.io/svc}\n")
+    merged, _report = merge_imports([a, b, c])
+
+    assert len(merged.nodes) == 1
+    assert merged.nodes[0].source_keys == ["git:github.com/org/svc", "img:reg.io/svc"]
+
+
+def test_узлы_одного_файла_не_склеиваются_общим_якорем():
+    """Монорепо: агент вешает один git-remote на все свои сервисы, не различив их
+    путями. Внутри файла узлы разведены осознанно — склеивать их нельзя, иначе
+    поддерево второго растворяется в первом (найдено прогоном на реальном
+    репозитории 2026-08-07). Предупреждение зовёт уточнить source.path."""
+    mono = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: frontend\n"
+        "        source: {repo: github.com/org/mono}\n"
+        "      - name: backend\n"
+        "        source: {repo: github.com/org/mono}\n"
+        "        children:\n"
+        "          - name: api\n"
+    )
+    neighbour = _parse("nodes:\n  - name: Система\n    children:\n      - name: backend\n        source: {host: backend}\n")
+    merged, report = merge_imports([mono, neighbour])
+
+    paths = _path_list(merged)
+    assert "Система / frontend" in paths and "Система / backend" in paths
+    assert "Система / backend / api" in paths  # поддерево уцелело
+    assert any("указывают один источник" in w for w in report.warnings)
+
+
+def test_path_различает_сервисы_монорепо():
+    """С заполненным path узлы монорепо получают разные ключи — и склейка с
+    соседними файлами идёт адресно."""
+    mono = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: frontend\n"
+        "        source: {repo: github.com/org/mono, path: web}\n"
+        "      - name: backend\n"
+        "        source: {repo: github.com/org/mono, path: api}\n"
+    )
+    caller = _parse(
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: сервер\n"
+        "        source: {repo: github.com/org/mono, path: api}\n"
+    )
+    merged, report = merge_imports([mono, caller])
+
+    assert _path_list(merged) == ["Система", "Система / frontend", "Система / backend"]
+    assert not any("указывают один источник" in w for w in report.warnings)
+    # Склеился именно backend, а не frontend.
+    assert any("имя" in c and "сервер" in c for c in report.conflicts)
+
+
+# ── проверки содержания схемы (находки ручной проверки 2026-08-08) ────────────
+
+def _doc(nodes_yaml: str, edges_yaml: str = "edges: []") -> str:
+    return f"nodes:\n{nodes_yaml}{edges_yaml}\n"
+
+
+def test_актор_внутри_системы_это_предупреждение_а_не_молчание():
+    # По C4 человек пользуется системой, а не входит в неё. Агент нарушал это в
+    # 3 прогонах из 4 — промпт правилу учит, но полагаться на модель нельзя.
+    merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "  - name: Избиратель\n"
+            "    shape: person\n",
+            "edges:\n- from: Избиратель\n  to: vote\n",
+        )
+    ])
+
+    assert errors == [] and merged is not None
+    assert any("Избиратель" in w and "человек" in w for w in report.warnings)
+
+
+def test_актор_в_корне_молчит():
+    merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "- name: Избиратель\n"
+            "  shape: person\n",
+            "edges:\n- from: Избиратель\n  to: vote\n",
+        )
+    ])
+
+    assert errors == [] and merged is not None
+    assert not any("человек" in w for w in report.warnings)
+
+
+def test_объекты_без_связей_считаются_и_называются():
+    merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "  - name: redis\n"
+            "  - name: Voting API\n"
+            "  - name: Frontend Templates\n",
+            "edges:\n- from: vote\n  to: redis\n",
+        )
+    ])
+
+    assert errors == [] and merged is not None
+    warn = next(w for w in report.warnings if "без единой связи" in w)
+    assert "2" in warn and "Voting API" in warn and "Frontend Templates" in warn
+
+
+def test_корень_системы_без_связей_не_считается_потерянным():
+    # У корня связей и не бывает — они у его детей; жаловаться не на что.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n  children:\n  - name: vote\n  - name: redis\n",
+            "edges:\n- from: vote\n  to: redis\n",
+        )
+    ])
+
+    assert errors == []
+    assert not any("без единой связи" in w for w in report.warnings)
+
+
+def test_контейнер_со_связанными_детьми_подвисшим_не_считается():
+    # Прямых связей у контейнера быть и не должно — их несут дети (зеркало
+    # app/alerts.compute_alerts). Иначе превью пугало бы тем, чего схема не покажет.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "    children:\n"
+            "    - name: web-api\n"
+            "  - name: redis\n",
+            "edges:\n- from: web-api\n  to: redis\n",
+        )
+    ])
+
+    assert errors == []
+    assert not any("без единой связи" in w for w in report.warnings)

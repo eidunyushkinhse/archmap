@@ -18,11 +18,12 @@ dry-run превью модалки (POST /projects/import/preview) и созд�
 import re
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import yaml
 from sqlalchemy.orm import Session
 
+from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
 
@@ -45,6 +46,9 @@ class _ImpNode:
     is_external: bool
     description: str | None
     parent_idx: int | None  # индекс родителя в ParsedImport.nodes (родители раньше детей)
+    # Канонические ключи источника (app/identity): чем узел опознаётся между
+    # прогонами агента поверх имени. Пусто — якорей нет, тождество решает имя.
+    source_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -152,6 +156,28 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             return None
         return val
 
+    def parse_source(raw: dict, path: str) -> list[str]:
+        """Блок source узла → канонические ключи (app/identity). Блок целиком
+        опционален; кривой тип — ошибка, но узел от неё не пропадает (якоря
+        необязательны, без них тождество решает имя). Неизвестные вложенные ключи
+        игнорируются молча, как и на верхнем уровне формата."""
+        raw_src = raw.get("source")
+        if raw_src is None:
+            return []
+        if not isinstance(raw_src, dict):
+            errors.append(f"{path}.source: ожидается словарь (repo/path/image/deployment/host)")
+            return []
+        sp = f"{path}.source"
+        return source_keys(
+            SourceRef(
+                repo=opt_str(raw_src, "repo", sp, 512),
+                path=opt_str(raw_src, "path", sp, 512),
+                image=opt_str(raw_src, "image", sp, 512),
+                deployment=opt_str(raw_src, "deployment", sp, 256),
+                host=opt_str(raw_src, "host", sp, 256),
+            )
+        )
+
     def walk(raw: object, path: str, parent_idx: int | None, prefix: str, depth: int) -> None:
         nonlocal overflow
         if overflow:
@@ -195,6 +221,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
                 is_external=ext,
                 description=opt_str(raw, "description", path, None),
                 parent_idx=parent_idx,
+                source_keys=parse_source(raw, path),
             )
         )
         full = f"{prefix} / {name}" if prefix else name
@@ -229,6 +256,17 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         if not hits and " / " in ref:
             tail = f" / {ref}"
             hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
+        if not hits and "/" in ref:
+            # Слабые модели пишут путь слэшем без пробелов («worker/queue-reader»):
+            # нормализуем разделитель и повторяем точный путь + однозначный хвост.
+            # Тот же фолбэк давно живёт в резолвере дозаливки доков; здесь он стал
+            # нужен, когда промпт начал требовать адресовать связи компонентов.
+            # Фолбэк ПОСЛЕДНИЙ — настоящие имена со слэшем матчатся выше.
+            norm = " / ".join(part.strip() for part in ref.split("/") if part.strip())
+            hits = by_path.get(norm)
+            if not hits:
+                tail = f" / {norm}"
+                hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
         if not hits:
             errors.append(f'{path}: узел "{ref}" не найден')
             return None
@@ -293,6 +331,9 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> Non
                 shape=n.shape,
                 status=n.status,
                 is_external=n.is_external,
+                # Сильнейший якорь прогона: по нему будущий синк узнает узел, даже
+                # если сервис переименуют (docs/plan-arch-sync.md).
+                source_ref=n.source_keys[0] if n.source_keys else None,
                 parent_id=ids[n.parent_idx] if n.parent_idx is not None else None,
             )
         )

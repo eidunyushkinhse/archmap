@@ -93,7 +93,7 @@ export interface paths {
          * Import Prompt
          * @description Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
          *     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
-         *     сливает merge_imports. Параметры вшиваются в текст (docs/plan-repo-import.md).
+         *     сливает merge_imports. Параметры вшиваются в текст (docs/archive/plan-repo-import.md).
          */
         get: operations["import_prompt_api_v1_projects_import_prompt_get"];
         put?: never;
@@ -120,6 +120,61 @@ export interface paths {
          *     трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет.
          */
         post: operations["import_preview_api_v1_projects_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sync/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Preview
+         * @description Dry-run синхронизации ЖИВОГО проекта со свежим прогоном агента: что
+         *     изменится, если применить. БД не пишем (применение — отдельным вызовом).
+         *
+         *     Вход тот же, что у импорта (мульти-репо сливается merge_imports), поэтому
+         *     ошибки разбора и предупреждения слияния возвращаются в той же форме — фронт
+         *     показывает их до плана. Проект скоупится ПУТЁМ (не заголовком X-Project-Id):
+         *     синк адресует конкретный проект, а не «текущий» сеанса.
+         */
+        post: operations["sync_preview_api_v1_projects__project_id__sync_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sync/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Apply
+         * @description Применить прогон агента к живому проекту.
+         *
+         *     План ПЕРЕСЧИТЫВАЕТСЯ здесь же из присланных YAML — клиентскому плану не
+         *     доверяем (иначе подменённый план писал бы что угодно). Чтобы применение не
+         *     разошлось с тем, что человек видел в превью, клиент возвращает base_graph_rev:
+         *     схема изменилась с тех пор — 409, обновите превью. Это тот же курсор, которым
+         *     живёт поллинг конкурентных сессий.
+         *
+         *     НЕ ТРОГАЕМ: схемы логики, OpenAPI-спеки, раскладку и бизнес-процессы —
+         *     ради этого синк и существует. Удаления нет ни в каком режиме.
+         */
+        post: operations["sync_apply_api_v1_projects__project_id__sync_apply_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -290,6 +345,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transition Preview
+         * @description Что произойдёт при принятии перехода (новое → существующее, выводимое →
+         *     удалить). Ничего не записывает.
+         */
+        get: operations["transition_preview_api_v1_nodes_transition_get"];
+        put?: never;
+        /**
+         * Transition Apply
+         * @description Принять переход. План ПЕРЕСЧИТЫВАЕТСЯ здесь — клиентскому не доверяем; при
+         *     расхождении курсора схемы отказываем, а не пишем вслепую.
+         */
+        post: operations["transition_apply_api_v1_nodes_transition_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/alerts": {
         parameters: {
             query?: never;
@@ -302,9 +383,9 @@ export interface paths {
          * @description Глобальные алерты незавершённости схемы (только архитектор):
          *     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
          *     2) связи, у которых хотя бы один конец упирается в промежуточный
-         *        (контейнерный) узел, а не в атомарный.
-         *     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
-         *     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
+         *        (контейнерный) узел, а не в атомарный;
+         *     3) изолированные группы — связные компоненты графа рёбер.
+         *     Доменный алгоритм — в app/alerts.compute_alerts.
          */
         get: operations["get_alerts_api_v1_nodes_alerts_get"];
         put?: never;
@@ -439,7 +520,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/nodes/{node_id}/context": {
+    "/api/v1/nodes/{node_id}/context-graph": {
         parameters: {
             query?: never;
             header?: never;
@@ -447,13 +528,36 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Node Context
-         * @description Контекстная схема узла: сам узел + его прямые соседи.
-         *     Сосед — другой конец связи, у которой ровно один конец лежит в поддереве
-         *     фокуса (сам узел ИЛИ любой его потомок на любой глубине). Конец внутри
-         *     поддерева проецируется на фокус, внешний конец — это узел-сосед.
+         * Get Node Context Graph
+         * @description Контекст объекта в формате СЫРОГО графа уровня — «Схема» страницы объекта
+         *     (single-schema): виртуальный корневой уровень «фокус + представители соседей»,
+         *     который фронт рендерит тем же level-конвейером, что и обычный уровень.
+         *     Доменный алгоритм сборки — в app/context_graph.build_context_graph.
          */
-        get: operations["get_node_context_api_v1_nodes__node_id__context_get"];
+        get: operations["get_node_context_graph_api_v1_nodes__node_id__context_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Node Processes
+         * @description Процессы, в которых участвует узел ИЛИ его поддерево — секция «Участвует
+         *     в процессах» страницы объекта (single-schema): участник-потомок считает
+         *     процесс участием своего контейнера-предка. Форма ответа — тот же
+         *     ProcessListItem, что у GET /processes (счётчик сообщений, статусы).
+         */
+        get: operations["get_node_processes_api_v1_nodes__node_id__processes_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -473,7 +577,7 @@ export interface paths {
         put?: never;
         /**
          * Relayout Root Level
-         * @description «Переразложить» корневой уровень: позиции корневых узлов → авто (dagre).
+         * @description «Переразложить» корневой уровень: позиции корневых узлов → авто (ELK).
          */
         post: operations["relayout_root_level_api_v1_nodes_relayout_post"];
         delete?: never;
@@ -496,6 +600,28 @@ export interface paths {
          * @description «Переразложить уровень»: весь ручной layout уровня container_id → авто.
          */
         post: operations["relayout_level_api_v1_nodes__container_id__relayout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/context-relayout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Relayout Context
+         * @description «Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
+         *     (view_id = node_id) — позиции и инлайн-раскрытия → свежий ELK. Соседние
+         *     виды (другие страницы, уровни редактора) нетронуты.
+         */
+        post: operations["relayout_context_api_v1_nodes__node_id__context_relayout_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -538,6 +664,29 @@ export interface paths {
         patch: operations["update_doc_api_v1_nodes__node_id__docs__doc_id__patch"];
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/docs/distribute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Distribute Docs
+         * @description «Распределить по детям» (правила контейнеров, grandfather): переносит
+         *     СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
+         *     его openapi_spec — целиком одному ребёнку. Вызывается из модалки
+         *     распределения на странице контейнера. Доки — МЕТА узла: бампаем meta_rev.
+         */
+        post: operations["distribute_docs_api_v1_nodes__node_id__docs_distribute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -549,6 +698,8 @@ export interface paths {
          * Docs Prompt
          * @description Промпт агенту со вложенным срезом схемы: node_id — поддерево (агенту
          *     одного сервиса хватает его контейнера), без node_id — весь проект.
+         *     target — гранулярный режим «по одной схеме»: фокусирует агента на одном
+         *     воркере/эндпоинте (крупные монолиты, которые не переварить за один заход).
          */
         get: operations["docs_prompt_api_v1_docs_import_prompt_get"];
         put?: never;
@@ -901,6 +1052,30 @@ export interface paths {
         patch: operations["update_fragment_api_v1_processes__process_id__fragments__fragment_id__patch"];
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/directions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Directions
+         * @description Куда МОЖНО завести сообщение — сразу для всех пар участников процесса.
+         *
+         *     Композитор спрашивает про одну пару (/channels); индикации при протягивании
+         *     нужна вся картина, и считать её на клиенте нельзя: проекция концов связи через
+         *     предков живёт здесь, и вторая реализация неизбежно разошлась бы с валидатором.
+         */
+        get: operations["list_directions_api_v1_processes__process_id__directions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/channels": {
         parameters: {
             query?: never;
@@ -956,6 +1131,11 @@ export interface components {
              * @default []
              */
             isolated_groups: components["schemas"]["IsolatedGroupAlert"][];
+            /**
+             * Container Own Docs
+             * @default []
+             */
+            container_own_docs: components["schemas"]["ContainerOwnDocsAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1017,51 +1197,24 @@ export interface components {
             legs: components["schemas"]["LegOut"][];
         };
         /**
-         * ContextEdgeResponse
-         * @description Ребро контекст-схемы: концы СПРОЕЦИРОВАНЫ сервером (внутренний конец →
-         *     фокус), original_* — реальные узлы для деталей связи. Контекст сознательно
-         *     остаётся серверной проекцией (Д5 аудита); геометрия не отдаётся — раскладка
-         *     звезды эфемерна и живёт в своей системе координат.
+         * ContainerOwnDocsAlert
+         * @description Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): узел стал
+         *     контейнером (появились дети), но логика/спека остались на нём самом.
+         *     Правила контейнеров: логика и спеки живут на атомарных детях — такие
+         *     доки надо распределить по детям (модалка «Распределить по детям»).
          */
-        ContextEdgeResponse: {
+        ContainerOwnDocsAlert: {
             /**
-             * Id
+             * Node Id
              * Format: uuid
              */
-            id: string;
-            /** Label */
-            label: string | null;
-            /** Technology */
-            technology: string | null;
-            /**
-             * Source Id
-             * Format: uuid
-             */
-            source_id: string;
-            /**
-             * Target Id
-             * Format: uuid
-             */
-            target_id: string;
-            /**
-             * Original Source Id
-             * Format: uuid
-             */
-            original_source_id: string;
-            /**
-             * Original Target Id
-             * Format: uuid
-             */
-            original_target_id: string;
-            /** Original Source Name */
-            original_source_name: string;
-            /** Original Target Name */
-            original_target_name: string;
-            /**
-             * Version
-             * @default 1
-             */
-            version: number;
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /** Has Docs */
+            has_docs: boolean;
+            /** Has Spec */
+            has_spec: boolean;
         };
         /**
          * DeletionSnapshot
@@ -1086,6 +1239,22 @@ export interface components {
             node_docs: components["schemas"]["NodeDocSnapshot"][];
         };
         /**
+         * DirectionOut
+         * @description Куда можно завести сообщение: пара участников с плечом в эту сторону.
+         */
+        DirectionOut: {
+            /**
+             * From Id
+             * Format: uuid
+             */
+            from_id: string;
+            /**
+             * To Id
+             * Format: uuid
+             */
+            to_id: string;
+        };
+        /**
          * DisconnectedNodeAlert
          * @description Атомарный узел без единой связи («подвисший»).
          */
@@ -1097,6 +1266,49 @@ export interface components {
             node_id: string;
             /** Node Name */
             node_name: string;
+        };
+        /**
+         * DistributeDocAssignment
+         * @description Назначение одного собственного дока контейнера конкретному ребёнку.
+         */
+        DistributeDocAssignment: {
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /**
+             * Child Id
+             * Format: uuid
+             */
+            child_id: string;
+        };
+        /**
+         * DistributeDocsIn
+         * @description Вход переноса: маппинг доков по детям + опциональный ребёнок для спеки.
+         *
+         *     openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
+         *     (spec_child_id). Если детей несколько и спека есть — пользователь в
+         *     модалке выбирает, кому она отойдёт.
+         */
+        DistributeDocsIn: {
+            /**
+             * Doc Assignments
+             * @default []
+             */
+            doc_assignments: components["schemas"]["DistributeDocAssignment"][];
+            /** Spec Child Id */
+            spec_child_id?: string | null;
+        };
+        /**
+         * DistributeDocsOut
+         * @description Отчёт переноса.
+         */
+        DistributeDocsOut: {
+            /** Moved Docs */
+            moved_docs: number;
+            /** Spec Moved */
+            spec_moved: boolean;
         };
         /**
          * DocsFileIn
@@ -1118,6 +1330,12 @@ export interface components {
              * @default false
              */
             overwrite: boolean;
+            /** Only */
+            only?: ("logic" | "api") | null;
+            /** Node Id */
+            node_id?: string | null;
+            /** Overrides */
+            overrides?: components["schemas"]["DocsOverrideIn"][];
         };
         /**
          * DocsImportReport
@@ -1174,6 +1392,8 @@ export interface components {
         DocsLogicItem: {
             /** Node Path */
             node_path: string;
+            /** Source */
+            source: string;
             /** Name */
             name: string;
             /**
@@ -1190,6 +1410,23 @@ export interface components {
             action: "create" | "overwrite" | "skip" | "unchanged";
             /** Mermaid */
             mermaid: string;
+        };
+        /**
+         * DocsOverrideIn
+         * @description Правка строки превью: пользователь исправил имя/вид/адрес перед записью.
+         *
+         *     Нужна с переездом на .mmd: раньше вид схемы правился ПЕРЕЗАПИСЬЮ текста
+         *     манифеста на фронте, а манифеста больше нет — правка едет отдельным полем.
+         */
+        DocsOverrideIn: {
+            /** File */
+            file: string;
+            /** Name */
+            name?: string | null;
+            /** Kind */
+            kind?: ("overview" | "operation" | "worker") | null;
+            /** Node */
+            node?: string | null;
         };
         /** DocsPromptOut */
         DocsPromptOut: {
@@ -1491,6 +1728,16 @@ export interface components {
              * @default 0
              */
             graph_rev: number;
+            /**
+             * Meta Rev
+             * @default 0
+             */
+            meta_rev: number;
+            /**
+             * Has Status Info
+             * @default false
+             */
+            has_status_info: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1701,32 +1948,6 @@ export interface components {
             /** Order */
             order?: number | null;
         };
-        /**
-         * NodeContextResponse
-         * @description «Контекстная схема» узла: сам узел + его прямые соседи.
-         *     Сосед — другой конец любой связи, у которой ровно один конец лежит в поддереве
-         *     фокуса (сам узел или любой его потомок). Рёбра спроецированы: конец внутри
-         *     поддерева свёрнут на фокус, внешний конец указывает на узел-соседа.
-         *     Соседи отдаются как «гости» (пунктир), focus_ancestors — для рамок предков.
-         */
-        NodeContextResponse: {
-            focus: components["schemas"]["NodeResponse"];
-            /**
-             * Focus Ancestors
-             * @default []
-             */
-            focus_ancestors: components["schemas"]["AncestorRef"][];
-            /**
-             * Neighbors
-             * @default []
-             */
-            neighbors: components["schemas"]["GhostNodeResponse"][];
-            /**
-             * Edges
-             * @default []
-             */
-            edges: components["schemas"]["ContextEdgeResponse"][];
-        };
         /** NodeCreate */
         NodeCreate: {
             /** Name */
@@ -1784,6 +2005,8 @@ export interface components {
         /**
          * NodeDocMeta
          * @description Лёгкая мета дока для NodeResponse (без content — контент лениво GET-ом).
+         *     version — для сигнатуры меты поллинга страницы: правка КОНТЕНТА доков
+         *     (без смены имени/вида) тоже видна как изменение данных (V53).
          */
         NodeDocMeta: {
             /**
@@ -1800,6 +2023,11 @@ export interface components {
             kind: "overview" | "operation" | "worker";
             /** Operation */
             operation: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
         };
         /** NodeDocResponse */
         NodeDocResponse: {
@@ -1958,6 +2186,8 @@ export interface components {
              * @default false
              */
             has_children: boolean;
+            /** Source Ref */
+            source_ref?: string | null;
             /**
              * Version
              * @default 1
@@ -2237,6 +2467,210 @@ export interface components {
             ids: string[];
         };
         /**
+         * SyncApplyIn
+         * @description Применение прогона. Вход тот же, что у превью (план ПЕРЕСЧИТЫВАЕТСЯ на
+         *     сервере — клиентскому плану не доверяем), плюс курсор схемы, увиденный в
+         *     превью: если схема успела измениться, применение отклоняется, а не пишет
+         *     вслепую то, чего пользователь не видел.
+         */
+        SyncApplyIn: {
+            /** Contents */
+            contents: string[];
+            /**
+             * Update Descriptions
+             * @default false
+             */
+            update_descriptions: boolean;
+            /**
+             * Update Names
+             * @default false
+             */
+            update_names: boolean;
+            /**
+             * Sync Components
+             * @default false
+             */
+            sync_components: boolean;
+            /**
+             * Mark Missing Deprecated
+             * @default false
+             */
+            mark_missing_deprecated: boolean;
+            /**
+             * Restore Returned
+             * @default false
+             */
+            restore_returned: boolean;
+            /** Base Graph Rev */
+            base_graph_rev?: number | null;
+        };
+        /**
+         * SyncApplyOut
+         * @description Что реально записано. Списки путей — для тоста и журнала, не для сверки:
+         *     сверка была на превью.
+         */
+        SyncApplyOut: {
+            /**
+             * Created Nodes
+             * @default []
+             */
+            created_nodes: string[];
+            /**
+             * Updated Nodes
+             * @default []
+             */
+            updated_nodes: string[];
+            /**
+             * Deprecated Nodes
+             * @default []
+             */
+            deprecated_nodes: string[];
+            /**
+             * Created Edges
+             * @default []
+             */
+            created_edges: string[];
+            /**
+             * Skipped
+             * @default []
+             */
+            skipped: string[];
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
+        };
+        /** SyncEdgeActionOut */
+        SyncEdgeActionOut: {
+            /** Source Path */
+            source_path: string;
+            /** Target Path */
+            target_path: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "unchanged" | "missing";
+        };
+        /** SyncNodeActionOut */
+        SyncNodeActionOut: {
+            /** Path */
+            path: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "update" | "unchanged" | "missing";
+            /** Node Id */
+            node_id?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /**
+             * Fields
+             * @default []
+             */
+            fields: string[];
+            /** Matched By */
+            matched_by?: ("source" | "name") | null;
+            /**
+             * Returned
+             * @default false
+             */
+            returned: boolean;
+        };
+        /**
+         * SyncPreviewIn
+         * @description YAML свежего прогона агента для dry-run синхронизации ЖИВОГО проекта.
+         *     Формат входа тот же, что у импорта (мульти-репо сливается merge_imports);
+         *     отличаются только политики — что синку разрешено трогать.
+         */
+        SyncPreviewIn: {
+            /** Contents */
+            contents: string[];
+            /**
+             * Update Descriptions
+             * @default false
+             */
+            update_descriptions: boolean;
+            /**
+             * Update Names
+             * @default false
+             */
+            update_names: boolean;
+            /**
+             * Sync Components
+             * @default false
+             */
+            sync_components: boolean;
+            /**
+             * Mark Missing Deprecated
+             * @default false
+             */
+            mark_missing_deprecated: boolean;
+            /**
+             * Restore Returned
+             * @default false
+             */
+            restore_returned: boolean;
+        };
+        /**
+         * SyncPreviewOut
+         * @description Что изменится в живой схеме, если применить прогон. Ничего не записано —
+         *     применение отдельным вызовом (Фаза 2 docs/plan-arch-sync.md).
+         */
+        SyncPreviewOut: {
+            /** Ok */
+            ok: boolean;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Files
+             * @default 0
+             */
+            files: number;
+            /**
+             * Nodes
+             * @default []
+             */
+            nodes: components["schemas"]["SyncNodeActionOut"][];
+            /**
+             * Edges
+             * @default []
+             */
+            edges: components["schemas"]["SyncEdgeActionOut"][];
+            /**
+             * Conflicts
+             * @default []
+             */
+            conflicts: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Summary
+             * @default {}
+             */
+            summary: {
+                [key: string]: number;
+            };
+            /**
+             * Is Noop
+             * @default false
+             */
+            is_noop: boolean;
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
+        };
+        /**
          * TemplateEdgeOut
          * @description Связь стартового шаблона: source/target — ключи узлов того же шаблона.
          */
@@ -2305,6 +2739,82 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+        };
+        /**
+         * TransitionApplyIn
+         * @description Курсор схемы, увиденный в превью: если схему успели изменить, применение
+         *     отклоняется, а не выполняет вслепую не то, что человек видел.
+         */
+        TransitionApplyIn: {
+            /** Base Graph Rev */
+            base_graph_rev?: number | null;
+        };
+        /** TransitionApplyOut */
+        TransitionApplyOut: {
+            /** Deleted Nodes */
+            deleted_nodes: number;
+            /** Promoted Nodes */
+            promoted_nodes: number;
+        };
+        /**
+         * TransitionNodeOut
+         * @description Объект в плане перехода: показываем именем и путём — id нужен только коду.
+         */
+        TransitionNodeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+        };
+        /**
+         * TransitionPreviewOut
+         * @description Что произойдёт, если принять переход. Ничего не записано.
+         */
+        TransitionPreviewOut: {
+            /** Graph Rev */
+            graph_rev: number;
+            /** Is Noop */
+            is_noop: boolean;
+            /**
+             * Delete
+             * @default []
+             */
+            delete: components["schemas"]["TransitionNodeOut"][];
+            /**
+             * Delete Total
+             * @default 0
+             */
+            delete_total: number;
+            /**
+             * Collateral
+             * @default []
+             */
+            collateral: components["schemas"]["TransitionNodeOut"][];
+            /**
+             * Delete Edges
+             * @default 0
+             */
+            delete_edges: number;
+            /**
+             * Delete Docs
+             * @default 0
+             */
+            delete_docs: number;
+            /**
+             * Delete Specs
+             * @default 0
+             */
+            delete_specs: number;
+            /**
+             * Promote
+             * @default []
+             */
+            promote: components["schemas"]["TransitionNodeOut"][];
         };
         /** UserCreate */
         UserCreate: {
@@ -2396,13 +2906,18 @@ export interface components {
         };
         /**
          * ViewStateResponse
-         * @description Лёгкий опрос свежести (этап 1): версия вида + курсор проекта.
+         * @description Лёгкий опрос свежести (этап 1): версия вида + курсоры проекта (схема/мета).
          */
         ViewStateResponse: {
             /** Version */
             version: number;
             /** Graph Rev */
             graph_rev: number;
+            /**
+             * Meta Rev
+             * @default 0
+             */
+            meta_rev: number;
         };
     };
     responses: never;
@@ -2617,6 +3132,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_preview_api_v1_projects__project_id__sync_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncPreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_apply_api_v1_projects__project_id__sync_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncApplyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncApplyOut"];
                 };
             };
             /** @description Validation Error */
@@ -2985,6 +3570,72 @@ export interface operations {
             };
         };
     };
+    transition_preview_api_v1_nodes_transition_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transition_apply_api_v1_nodes_transition_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionApplyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransitionApplyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_alerts_api_v1_nodes_alerts_get: {
         parameters: {
             query?: never;
@@ -3282,7 +3933,7 @@ export interface operations {
             };
         };
     };
-    get_node_context_api_v1_nodes__node_id__context_get: {
+    get_node_context_graph_api_v1_nodes__node_id__context_graph_get: {
         parameters: {
             query?: never;
             header?: {
@@ -3301,7 +3952,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeContextResponse"];
+                    "application/json": components["schemas"]["GraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_node_processes_api_v1_nodes__node_id__processes_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessListItem"][];
                 };
             };
             /** @description Validation Error */
@@ -3352,6 +4036,37 @@ export interface operations {
             };
             path: {
                 container_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    relayout_context_api_v1_nodes__node_id__context_relayout_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
             };
             cookie?: never;
         };
@@ -3515,6 +4230,43 @@ export interface operations {
             };
         };
     };
+    distribute_docs_api_v1_nodes__node_id__docs_distribute_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DistributeDocsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DistributeDocsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     docs_prompt_api_v1_docs_import_prompt_get: {
         parameters: {
             query?: {
@@ -3522,6 +4274,7 @@ export interface operations {
                 include?: "logic" | "api" | "both";
                 lang?: string;
                 hints?: string | null;
+                target?: string | null;
             };
             header?: {
                 "X-Project-Id"?: string | null;
@@ -4429,6 +5182,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FragmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_directions_api_v1_processes__process_id__directions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectionOut"][];
                 };
             };
             /** @description Validation Error */

@@ -76,3 +76,25 @@ def test_prompt_endpoint(db):
     user = ensure_architect(db)
     out = import_prompt(system_name="Ярмарка", depth=3, lang="ru", hints=None, _user=user)
     assert "«Ярмарка»" in out.prompt and "```yaml\nnodes:" in out.prompt
+
+
+def test_example_carries_source_anchors():
+    """Пример учит конвенции якорей (Фаза 0 синка): свой сервис — repo + host,
+    чужой — только host. Тест держит пример и парсер синхронными: правило из
+    промпта обязано разбираться в ключи identity."""
+    for depth in (2, 3):
+        parsed, errors = parse_import(example_yaml(depth))
+        assert errors == [] and parsed is not None
+        keys = {n.name: n.source_keys for n in parsed.nodes if n.source_keys}
+        assert keys["orders"] == ["git:github.com/org/orders", "host:orders"]
+        # Сервис из чужого репозитория — только сетевое имя, ничего выдуманного.
+        assert keys["payments"] == ["host:payments"]
+        # Корню-системе и людям-акторам якорь не нужен.
+        assert "Ярмарка" not in keys and "Покупатель" not in keys
+
+
+def test_prompt_explains_source_field():
+    text = build_import_prompt("Ярмарка")
+    assert "## Поле source" in text
+    for field in ("repo", "path", "image", "deployment", "host"):
+        assert field in text

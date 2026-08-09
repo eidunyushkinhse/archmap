@@ -283,7 +283,8 @@ export function buildAutoRoutes(params: {
       continue;
     }
     // какие порты выбраны — по совпадению концов маршрута с точками стыковки
-    const ports = portsById.get(g.id)!;
+    const ports = portsById.get(g.id);
+    if (!ports) continue; // portsById заполнен для всех groups — недостижимо
     const sPort = ports.s.find((p) => near(route[0], p.point)) ?? ports.s[0];
     const tPort = ports.t.find((p) => near(route[route.length - 1], p.point)) ?? ports.t[0];
     const free = !rails.get(g.id);
@@ -299,7 +300,8 @@ export function buildAutoRoutes(params: {
   // слотов: RF стыкует на своём слоте.
   const dockOf = new Map<string, { s?: Dock; t?: Dock }>();
   for (const d of docks) {
-    const rec = dockOf.get(d.edgeId) ?? dockOf.set(d.edgeId, {}).get(d.edgeId)!;
+    let rec = dockOf.get(d.edgeId);
+    if (!rec) { rec = {}; dockOf.set(d.edgeId, rec); }
     if (d.end === "s") rec.s = d; else rec.t = d;
   }
   for (const g of groups) {
@@ -349,7 +351,9 @@ function distributeSlots(docks: Dock[], routes: Map<string, EdgePoint[]>, rects:
   const byNodeSide = new Map<string, Dock[]>();
   for (const d of docks) {
     const k = `${d.nodeId}|${d.side}`;
-    (byNodeSide.get(k) ?? byNodeSide.set(k, []).get(k)!).push(d);
+    let arr = byNodeSide.get(k);
+    if (!arr) { arr = []; byNodeSide.set(k, arr); }
+    arr.push(d);
   }
   for (const [k, group] of [...byNodeSide.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const dirs = new Set(group.map((d) => d.end));
@@ -367,7 +371,8 @@ function distributeSlots(docks: Dock[], routes: Map<string, EdgePoint[]>, rects:
       .filter((g) => g.docks.length > 0)
       // большая группа первой — ей центр; тай-брейк: исходящие
       .sort((a, b) => b.docks.length - a.docks.length || (a.dir === "s" ? -1 : 1));
-    const taken = new Set(groupsByDir.filter((g) => g.pinned != null).map((g) => g.pinned!));
+    // filter + flatMap: TypeScript сужает тип без non-null assertion
+    const taken = new Set(groupsByDir.flatMap((g) => g.pinned != null ? [g.pinned] : []));
     const pool = [1, 0, 2].filter((s) => !taken.has(s));
     for (const g of groupsByDir) {
       const slot = g.pinned ?? pool.shift();

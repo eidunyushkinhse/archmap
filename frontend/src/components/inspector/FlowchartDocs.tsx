@@ -3,9 +3,9 @@
 // при открытии (в Node.docs едет только мета), держит активный док и панель
 // управления (переключатель, имя, вид, операция, создать/удалить); тело —
 // прежний FlowchartDoc активного дока. Мутации уходят в API сразу (PATCH — под
-// optimistic CAS) и репортятся наверх событием NodeDocEvent: TreePage кладёт
+// optimistic CAS) и репортятся наверх событием NodeDocEvent: MapEditorPage кладёт
 // компенсации в Undo/Redo и освежает мету узла в стейте уровня.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeDoc, NodeDocKind } from "../../types";
 import { nodeDocsApi } from "../../api/nodes";
 import { isConflict } from "../../api/client";
@@ -23,6 +23,10 @@ interface Props {
   isArchitect: boolean;
   showCode: boolean; // наблюдатель нажал «Показать код» (пробрасывается в FlowchartDoc)
   onDocEvent: (evt: NodeDocEvent) => void;
+  // «+ Добавить» со страницы узла: создать новую схему сразу при открытии
+  autoCreate?: boolean;
+  // Клик по конкретной схеме в секции «Логика»: открыть её активной
+  initialDocId?: string;
 }
 
 const KIND_LABEL: Record<NodeDocKind, string> = {
@@ -47,7 +51,7 @@ function freshName(docs: NodeDoc[]): string {
   return `Новая схема ${i}`;
 }
 
-export default function FlowchartDocs({ nodeId, isArchitect, showCode, onDocEvent }: Props) {
+export default function FlowchartDocs({ nodeId, isArchitect, showCode, onDocEvent, autoCreate, initialDocId }: Props) {
   const [docs, setDocs] = useState<NodeDoc[] | null>(null); // null — загрузка
   const [activeId, setActiveId] = useState<string | null>(null);
   // Ремаунт FlowchartDoc/полей меты после подтяжки свежего с сервера (409):
@@ -65,11 +69,27 @@ export default function FlowchartDocs({ nodeId, isArchitect, showCode, onDocEven
       .then((got) => {
         if (!alive) return;
         setDocs(got);
-        setActiveId(sortDocs(got)[0]?.id ?? null);
+        // Активная: запрошенная со страницы (если есть), иначе первая по сортировке
+        const target = initialDocId && got.some((d) => d.id === initialDocId)
+          ? initialDocId
+          : sortDocs(got)[0]?.id ?? null;
+        setActiveId(target);
       })
       .catch(() => { if (alive) { setDocs([]); setNotice("Не удалось загрузить схемы"); } });
     return () => { alive = false; };
+    // initialDocId — разовый курсор открытия, намеренно вне зависимостей
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeId]);
+
+  // «+ Добавить» со страницы: создать схему сразу, как загрузился список
+  const autoCreatedRef = useRef(false);
+  useEffect(() => {
+    if (!autoCreate || !isArchitect || docs === null || autoCreatedRef.current) return;
+    autoCreatedRef.current = true;
+    void createDoc();
+    // createDoc стабильна по смыслу (замыкание на sorted), повтор — под запретом ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCreate, isArchitect, docs]);
 
   async function refetchAfterConflict(message: string) {
     setNotice(message);

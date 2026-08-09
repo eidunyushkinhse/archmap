@@ -258,5 +258,9 @@ export function placeLabels(
     });
   }
 
-  return labels.map((l) => chosen.get(l.id)!);
+  // chosen заполнен для каждой плашки в цикле выше — filter лишь гарантирует тип
+  return labels.flatMap((l) => {
+    const c = chosen.get(l.id);
+    return c ? [c] : [];
+  });
 }

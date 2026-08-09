@@ -12,3 +12,14 @@ ignore = ["B008"]
 [tool.ruff.lint.per-file-ignores]
 # env.py настраивает sys.path до импортов — E402 здесь ожидаем.
 "alembic/env.py" = ["E402"]
+
+[tool.mypy]
+# Статическая типизация бэкенда (гейт pre-commit/CI: `mypy app/`).
+python_version = "3.11"
+# Pydantic-плагин: учит mypy, что BaseSettings берёт поля из окружения (.env),
+# поэтому Settings() без аргументов валиден (секреты/адреса — fail-fast, без дефолтов).
+plugins = ["pydantic.mypy"]
+# Сторонние библиотеки без стабов (psycopg2 и т.п.) не блокируют проверку.
+ignore_missing_imports = true
+# Цель проверки — пакет app (миграции Alembic автогенерированы, не типизируем).
+files = ["app"]

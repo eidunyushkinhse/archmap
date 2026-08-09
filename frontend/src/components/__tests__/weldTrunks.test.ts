@@ -1,4 +1,4 @@
-// Ф2 эпика «общие плечи v2» (docs/plan-arrow-trunks.md): сварка исходящих стволов.
+// Ф2 эпика «общие плечи v2» (docs/archive/plan-arrow-trunks.md): сварка исходящих стволов.
 import { describe, expect, it } from "vitest";
 import { weldTrunks } from "../graph/layout/weldTrunks";
 import type { EdgePoint } from "../../types";
@@ -155,5 +155,93 @@ describe("weldTrunks — сварка исходящих стволов (E78)", 
     weldTrunks({ routes: r1, routableIds: new Set(r1.keys()), obstacles: [] });
     weldTrunks({ routes: r2, routableIds: new Set(r2.keys()), obstacles: [] });
     expect(JSON.parse(JSON.stringify([...r1]))).toEqual(JSON.parse(JSON.stringify([...r2])));
+  });
+});
+
+// Детектор ТРОЙНИКА: осевая прямая, где интервалы ≥ 3 маршрутов имеют общий
+// пробел > 0.5px. Общее плечо легально только ПОПАРНО (E25) — тройник на одной
+// линии означает, что какая-то пара едет вместе без общего порта.
+function tripleLines(routes: Map<string, EdgePoint[]>): Array<{ line: string; ids: string[] }> {
+  const lines = new Map<string, Array<{ lo: number; hi: number; id: string }>>();
+  for (const [id, pts] of routes) {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const horiz = Math.abs(b.y - a.y) <= 0.5;
+      const vert = Math.abs(b.x - a.x) <= 0.5;
+      if (horiz === vert) continue;
+      if (Math.abs(b.x - a.x) + Math.abs(b.y - a.y) <= 3) continue;
+      const k = `${horiz ? "h" : "v"}|${Math.round((horiz ? a.y : a.x) * 2) / 2}`;
+      const lo = horiz ? Math.min(a.x, b.x) : Math.min(a.y, b.y);
+      const hi = horiz ? Math.max(a.x, b.x) : Math.max(a.y, b.y);
+      (lines.get(k) ?? lines.set(k, []).get(k)!).push({ lo, hi, id });
+    }
+  }
+  const out: Array<{ line: string; ids: string[] }> = [];
+  for (const [line, segs] of lines) {
+    const events: Array<[number, number, string]> = [];
+    for (const s of segs) { events.push([s.lo, 1, s.id], [s.hi, -1, s.id]); }
+    events.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+    const active = new Set<string>();
+    let prev: number | null = null;
+    for (const [x, d, id] of events) {
+      if (prev !== null && x - prev > 0.5 && active.size >= 3) out.push({ line, ids: [...active] });
+      if (d === 1) active.add(id); else active.delete(id);
+      prev = x;
+    }
+  }
+  return out;
+}
+
+describe("weldTrunks — граница тройника (E25: общее плечо — попарно)", () => {
+  // Диагноз 2026-08-01: носитель-прямая, чей «префикс от источника» и «суффикс к
+  // цели» — один и тот же сегмент; два веера (исходящий и входящий) свариваются на
+  // нём с перехлёстом → третья пара без общего порта едет вместе. Граница: перенятый
+  // кусок не заходит в зону, где по носителю едет связь, не родственный follower-у.
+
+  it("out-сварка укорачивается до зоны неродственного всадника", () => {
+    // m — прямая (0,0)→(300,0). a (общая ЦЕЛЬ (300,0) с m) уже едет по суффиксу
+    // [150,300]. c (общий ИСТОЧНИК (0,0) с m) перенимает префикс — но a и c не делят
+    // ничего: кусок c обрывается на (150,0), тройник не возникает.
+    const routes = new Map<string, EdgePoint[]>([
+      ["m", [P(0, 0), P(300, 0)]],
+      ["a", [P(150, -150), P(150, 0), P(300, 0)]],
+      ["c", [P(0, 0), P(0, 150), P(250, 150)]],
+    ]);
+    const welded = weldTrunks({ routes, routableIds: new Set(["c", "a"]), obstacles: [] });
+    expect(welded.has("c")).toBe(true);
+    // расставание на границе зоны a — перпендикулярно стволу, без заезда в зону
+    expect(routes.get("c")).toEqual([P(0, 0), P(150, 0), P(150, 150), P(250, 150)]);
+    expect(tripleLines(routes)).toEqual([]);
+  });
+
+  it("in-сварка укорачивается до зоны неродственного всадника (зеркально)", () => {
+    // c первым легально забирает весь префикс m (док напротив (250,0)); a сваривает
+    // суффикс — но c и a не делят ничего: слияние a усекается к границе зоны c,
+    // подходя к шву перпендикулярно (чистый T-стык в точке (250,0)).
+    const routes = new Map<string, EdgePoint[]>([
+      ["m", [P(0, 0), P(300, 0)]],
+      ["c", [P(0, 0), P(0, 150), P(250, 150)]],
+      ["a", [P(150, -150), P(150, -75), P(300, -75), P(300, 0)]],
+    ]);
+    const welded = weldTrunks({ routes, routableIds: new Set(["c", "a"]), obstacles: [] });
+    expect(welded.has("c")).toBe(true);
+    expect(welded.has("a")).toBe(true);
+    expect(routes.get("c")).toEqual([P(0, 0), P(250, 0), P(250, 150)]);
+    expect(routes.get("a")).toEqual([P(150, -150), P(250, -150), P(250, 0), P(300, 0)]);
+    expect(tripleLines(routes)).toEqual([]);
+  });
+
+  it("легальная тройка веера из одного порта границей не режется", () => {
+    // m, a, c делят ИСТОЧНИК (0,0): a едет по m легально относительно c (общий порт
+    // — их собственный префикс покроет перекрытие) — границы нет, c перенимает
+    // префикс целиком.
+    const routes = new Map<string, EdgePoint[]>([
+      ["m", [P(0, 0), P(300, 0), P(300, 200)]],
+      ["a", [P(0, 0), P(300, 0)]],
+      ["c", [P(0, 0), P(0, 150), P(250, 150)]],
+    ]);
+    const welded = weldTrunks({ routes, routableIds: new Set(["c"]), obstacles: [] });
+    expect(welded.has("c")).toBe(true);
+    expect(routes.get("c")).toEqual([P(0, 0), P(250, 0), P(250, 150)]);
   });
 });

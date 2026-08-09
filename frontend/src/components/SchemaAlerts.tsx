@@ -19,7 +19,9 @@ import "./schemaAlerts.css";
  * Категории (формулировки на «объект», не «узел»):
  *  1) Объекты без связей — атомарные объекты без единой связи;
  *  2) Связи в промежуточный объект — связь упирается в контейнер, а не в атомарный;
- *  3) Изолированные группы — схема распалась на ≥2 несвязанных кластера.
+ *  3) Изолированные группы — схема распалась на ≥2 несвязанных кластера;
+ *  4) Контейнеры со своими схемами — у контейнера остались собственные
+ *     (grandfather) схемы логики и/или спека; их надо распределить по детям.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -31,7 +33,7 @@ export type LocateTarget =
 interface Props {
   alerts: Alerts;
   // Переход к проблемному объекту/связи на схеме (pan + подсветка) — реализуется
-  // вызывающей стороной (TreePage). Если не передан — пункты не кликабельны.
+  // вызывающей стороной (MapEditorPage). Если не передан — пункты не кликабельны.
   onLocate?: (target: LocateTarget) => void;
 }
 
@@ -56,6 +58,8 @@ const sIco = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLin
 const IcoUnlink = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="4.2" /><path d="M3.2 12.8 12.8 3.2" /></svg>;
 const IcoArrowBox = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="9" y="3.4" width="3.8" height="9.2" rx="1" /><path d="M2 8h5.2" /><path d="M5.2 5.6 7.6 8l-2.4 2.4" /></svg>;
 const IcoScatter = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="4.2" cy="5" r="1.9" /><circle cx="11.6" cy="4.4" r="1.9" /><circle cx="8" cy="11.4" r="1.9" /></svg>;
+// Контейнер со своими схемами: бокс-контейнер с точкой («своя» схема внутри)
+const IcoBoxDocs = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="2.4" y="3" width="11.2" height="10" rx="1.6" /><path d="M2.4 6.2h11.2" /><circle cx="8" cy="9.8" r="1.2" fill="currentColor" stroke="none" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
 
 export default function SchemaAlerts({ alerts, onLocate }: Props) {
@@ -68,12 +72,15 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
   const disconnected = alerts.disconnected_nodes;
   const intermediate = alerts.intermediate_edges;
   const isolated = alerts.isolated_groups;
+  // Правила контейнеров: контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather) —
+  // каждая такая запись = 1 проблема (схемы/спеку надо распределить по детям).
+  const containerOwn = alerts.container_own_docs;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
   // показываются как «2», но в сумму незавершённости дают «1».
   const isolatedProblems = Math.max(0, isolated.length - 1);
-  const total = disconnected.length + intermediate.length + isolatedProblems;
+  const total = disconnected.length + intermediate.length + isolatedProblems + containerOwn.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -105,6 +112,13 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  // Клик по пункту ведёт к цели (на страницу объекта или в редактор) — переход
+  // уводит с текущего экрана, поэтому панель сразу закрываем.
+  const locate = (target: LocateTarget) => {
+    setOpen(false);
+    onLocate?.(target);
+  };
 
   // Ничего активного и тост отыграл — не рендерим
   if (total === 0 && !toast) return null;
@@ -145,7 +159,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
 
           <Section icon={IcoUnlink(13)} title="Объекты без связей" count={disconnected.length}>
             {disconnected.map((d) => (
-              <Item key={d.node_id} onClick={onLocate && (() => onLocate({ kind: "node", id: d.node_id }))}>
+              <Item key={d.node_id} onClick={onLocate && (() => locate({ kind: "node", id: d.node_id }))}>
                 {d.node_name}
               </Item>
             ))}
@@ -153,7 +167,7 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
 
           <Section icon={IcoArrowBox(13)} title="Связи в промежуточный объект" count={intermediate.length}>
             {intermediate.map((e) => (
-              <Item key={e.edge_id} onClick={onLocate && (() => onLocate({ kind: "edge", id: e.edge_id }))}>
+              <Item key={e.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: e.edge_id }))}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                   <span style={e.source_is_intermediate ? badEnd : undefined}>{e.source_name}</span>
                   <span style={{ color: "#9ca3af" }}>→</span>
@@ -165,8 +179,16 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
 
           <Section icon={IcoScatter(13)} title="Изолированные группы" count={isolated.length}>
             {isolated.map((grp, i) => (
-              <Item key={i} onClick={onLocate && (() => onLocate({ kind: "group", ids: grp.node_ids }))}>
+              <Item key={i} onClick={onLocate && (() => locate({ kind: "group", ids: grp.node_ids }))}>
                 <span style={{ color: "#6b7280", fontWeight: 600 }}>Группа {i + 1}:</span> {grp.node_names.join(", ")}
+              </Item>
+            ))}
+          </Section>
+
+          <Section icon={IcoBoxDocs(13)} title="Контейнеры со своими схемами" count={containerOwn.length}>
+            {containerOwn.map((c) => (
+              <Item key={c.node_id} onClick={onLocate && (() => locate({ kind: "node", id: c.node_id }))}>
+                {c.node_name}{c.has_spec ? " + спека" : ""}
               </Item>
             ))}
           </Section>
@@ -208,7 +230,7 @@ function Item({ children, onClick }: { children: ReactNode; onClick?: (() => voi
 }
 
 /* --------------------------------- стили --------------------------------- */
-// Позиционирует рейл тостов холста (TreePage.toastRail); relative — якорь для
+// Позиционирует рейл тостов холста (MapEditorPage.toastRail); relative — якорь для
 // выпадающей панели. pointerEvents возвращаем: рейл прозрачен для мыши, а знак
 // и панель — интерактивные.
 const wrap: CSSProperties = { position: "relative", pointerEvents: "auto" };
@@ -222,8 +244,14 @@ const count: CSSProperties = {
   borderRadius: 10, background: "#fff", color: "#b45309", border: "1.5px solid #f59e0b",
   fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box",
 };
+// Панель поверх содержимого страницы: у соседей z-index задан явно (меню ⋯ и
+// выпадающие списки страницы объекта — 20/15/14), а холст React Flow расставляет
+// свои значения элементам схемы. Без z-index панель уходила под них (находка
+// ручной проверки 2026-08-08). 50 — выше содержимого, но ниже тостов (60);
+// модалки живут в top-layer <dialog> и вне этой шкалы.
 const menu: CSSProperties = {
-  position: "absolute", top: "calc(100% + 8px)", right: 0, width: 296, maxHeight: 460, overflowY: "auto",
+  position: "absolute", zIndex: 50,
+  top: "calc(100% + 8px)", right: 0, width: 296, maxHeight: 460, overflowY: "auto",
   background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, boxShadow: "0 12px 32px rgba(17,24,39,.16)", padding: "0 0 6px",
 };
 const menuHead: CSSProperties = {

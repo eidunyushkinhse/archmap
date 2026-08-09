@@ -338,11 +338,14 @@ function WrappedLabelEdge({
           {/* data-lg-edge: адрес плашки для императивного панельного выделения (LevelGraph) */}
           <div className={boxCls} onDoubleClick={boxDouble} data-lg-edge={id}
             style={{ ...boxBase, padding: "4px 8px", textAlign: "left", maxWidth: capW ?? 240, whiteSpace: "normal", ...boxInteract, ...dimStyle }}>
-            {items.map((it, i) => (
-              <div key={i} style={{ display: "flex", gap: 4 }}>
-                <span>•</span><span>{it}</span>
-              </div>
-            ))}
+            {/* AN28б: быстрое плавное появление плашки при монтировании */}
+            <div className="lg-label-in">
+              {items.map((it, i) => (
+                <div key={i} style={{ display: "flex", gap: 4 }}>
+                  <span>•</span><span>{it}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </EdgeLabelRenderer>
       ) : lines.length > 0 ? (
@@ -351,7 +354,10 @@ function WrappedLabelEdge({
               ширине, чтобы влезть в зазор между фокусом и колонкой и не лезть на узлы */}
           <div className={boxCls} onDoubleClick={boxDouble} data-lg-edge={id}
             style={{ ...boxBase, padding: "2px 7px", textAlign: "center", whiteSpace: capW ? "normal" : "nowrap", maxWidth: capW, ...boxInteract, ...dimStyle }}>
-            {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
+            {/* AN28б: быстрое плавное появление плашки при монтировании */}
+            <div className="lg-label-in">
+              {capW ? labelText : lines.map((line, i) => <div key={i}>{line}</div>)}
+            </div>
           </div>
         </EdgeLabelRenderer>
       ) : clickable && d?.editable ? (
@@ -360,7 +366,8 @@ function WrappedLabelEdge({
         <EdgeLabelRenderer>
           <div className={boxCls} title="Открыть связь (двойной клик)" onDoubleClick={boxDouble} data-lg-edge={id}
             style={{ ...boxBase, padding: "0 6px", color: "#9ca3af", fontSize: 13, lineHeight: "16px", cursor: "pointer", pointerEvents: "all", ...boxInteract, ...dimStyle }}>
-            •••
+            {/* AN28б: быстрое плавное появление плашки при монтировании */}
+            <div className="lg-label-in">•••</div>
           </div>
         </EdgeLabelRenderer>
       ) : null}

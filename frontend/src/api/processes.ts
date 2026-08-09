@@ -4,6 +4,7 @@ import type {
   FragmentCreate,
   FragmentUpdate,
   MessageCreate,
+  MessageDirection,
   MessageUpdate,
   ParticipantCreate,
   ProcessCreate,
@@ -53,6 +54,11 @@ export const processesApi = {
   // Композитор: каналы между парой участников (узлы a и b)
   channels: (id: string, a: string, b: string): Promise<Channel[]> =>
     api.get<Channel[]>(`/processes/${id}/channels?a=${a}&b=${b}`),
+  // Куда МОЖНО завести сообщение — сразу по всем парам участников. Считает бэк:
+  // проекция концов связи через предков живёт там, и вторая реализация на клиенте
+  // неизбежно разошлась бы с валидатором.
+  directions: (id: string): Promise<MessageDirection[]> =>
+    api.get<MessageDirection[]>(`/processes/${id}/directions`),
 
   // Дублирование процесса — оркестрация существующих эндпоинтов (не бизнес-логика):
   // копируем участников (запоминая node_id → новый participant_id), затем сообщения

@@ -43,5 +43,6 @@ export function framedBlockRefs(
   };
   return rfNodes
     .filter((b) => b.type === "block" && b.parentId && frameNodes.has(b.parentId))
-    .map((b) => ({ id: b.id, ancestors: [...bcRefs, ...frameChain(b.parentId!)] }));
+    // frameChain принимает string | undefined — «!» не нужен, undefined безопасен
+    .map((b) => ({ id: b.id, ancestors: [...bcRefs, ...frameChain(b.parentId)] }));
 }

@@ -150,3 +150,10 @@ class ChannelOut(BaseModel):
     label: str | None
     synchronous: bool
     legs: list[LegOut]
+
+
+class DirectionOut(BaseModel):
+    """Куда можно завести сообщение: пара участников с плечом в эту сторону."""
+
+    from_id: uuid.UUID
+    to_id: uuid.UUID

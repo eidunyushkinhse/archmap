@@ -1,6 +1,6 @@
 # ArchMap — QWEN.md
 
-Стек (проверено 2026-07-21 по package.json / requirements.txt / pyproject.toml)
+Стек (проверено 2026-08-01 по package.json / requirements.txt / pyproject.toml)
 - Frontend: React 19 + Vite 8 + TypeScript 6
 - Backend: Python 3.11 + FastAPI 0.111
 - БД: PostgreSQL (localhost:5432, БД `archmap`)
@@ -8,9 +8,10 @@
 - Аутентификация: JWT (PyJWT + pwdlib[bcrypt])
 - Тесты: vitest (фронт), pytest (бэк)
 - Линтеры: eslint + tsc (фронт), ruff (бэк)
+- CI: GitHub Actions (.github/workflows/ci.yml) — зеркало pre-commit-гейта
 - Деплой: Railway (не настроен)
 
-Структура проекта (проверено 2026-07-21)
+Структура проекта (проверено 2026-08-01)
 archmap/
 ├── frontend/              # React + Vite
 │   ├── src/
@@ -23,10 +24,10 @@ archmap/
 │   │   │   ├── docsImport/# модалка «Доки от агента» (BYOA)
 │   │   │   ├── __tests__/ # vitest-тесты (чистые функции раскладки/проекции)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
-│   │   │   └── ...        # модалки, дерево, алерты, фильтр вида, палитра
-│   │   ├── pages/         # LoginPage, ProjectsPage (лендинг), TreePage (схема+процессы)
+│   │   │   └── ...        # модалки, дерево (NodeTreePanel), алерты, фильтр вида, палитра
+│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), LoginPage; TreePage — легаси за фиче-флагом
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
-│   │   └── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили
+│   │   └── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили, plural.ts
 │   ├── package.json
 │   └── vite.config.ts     # прокси /api → localhost:8000, vitest (jsdom)
 ├── backend/               # FastAPI
@@ -48,18 +49,19 @@ archmap/
 │   └── pyproject.toml     # ruff config
 ├── docs/
 │   ├── specs/             # нормативные спеки движка (10 файлов + README)
-│   ├── archive/           # рабочие доки закрытых эпиков
+│   ├── archive/           # рабочие доки закрытых эпиков (включая планы)
 │   ├── tasks-archive.md   # журнал закрытых задач
-│   └── plan-*.md          # планы текущих/завершённых эпиков
+│   └── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
 ├── scripts/
 │   ├── git-hooks/pre-commit  # гейт: tsc+eslint+vitest (фронт) / ruff+pytest (бэк)
-│   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs  # полигонные скрипты
+│   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs / drift-probe.mjs / triple-probe.mjs / fps-probe.mjs  # полигонные зонды
 │   └── setup-hooks.sh
+├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
 ├── spec.md                # продуктовая спецификация
 ├── tasks.md               # живые задачи и бэклог
 ├── .mcp.json              # MCP-серверы LSP (python-lsp, typescript-lsp)
-└── CLAUDE.md              # аналогичный файл для Claude Code
+└── CLAUDE.md              # аналогичный файл для Claude Code (держать синхронным с этим!)
 
 Команды
 - Поднять весь сервис:   ./dev.sh         (бэк+фронт+миграции одной командой)
@@ -170,15 +172,29 @@ BusinessProcess / ProcessParticipant / ProcessMessage / ProcessFragment
 - Документация всегда актуальна (кроме чисто косметических изменений):
   при появлении новой фичи — сразу обновить spec.md;
   при её реализации — отметить в tasks.md.
+- QWEN.md и CLAUDE.md — аналоги для разных ИИ-агентов: менять ОБА одновременно.
 
 Архитектурные привычки (фронтенд)
 - Дефолты, реагирующие на видимый «смелл», а НЕ чек-лист.
 - Один модуль — одна ответственность. Смелл: файл > ~400 строк, либо в нём
   одновременно рендер + вычисления + сайд-эффекты. Реакция: вынести по границе
-  ответственности сразу.
+  ответственности сразу. LevelGraph разобран (1678→1055, пропсы 43→19, 7 хуков
+  useLevel* в graph/interaction/) — эталон декомпозиции.
+- God-компонент разбирать ТОЛЬКО после поведенческих тестов (characterization-
+  тесты на оркестрацию как страховка). Порядок выноса: сначала изолированные хуки
+  (только читают: locate/selection), потом центральные узлы (persistence/commitLayout),
+  потом зависимые (drill); один хук — один коммит, новые хуки в тестах НЕ мокаются.
+  Пропсы — в доменные бандлы с useMemo (без ре-рендеров канваса); общие типы — в
+  graph/types.ts (без type-only циклов). Атомарные ядра с инвариантом порядка
+  эффектов (конвейер раскладки) НЕ выносить. Playbook: docs/refactoring-lessons.md.
 - Производное состояние — в рендере (useMemo), не в useEffect. Смелл: эффект,
   заканчивающийся setState.
-- Сломанные контракты ловит гейт «зелёный билд/тесты перед коммитом».
+- Строгость типов/линтеров в гейте (TS strict + eslint strict + mypy на бэке) дёшева
+  при дисциплине «без any»: код был strict-чист ДО включения флага (0 ошибок).
+- Сломанные контракты ловит гейт «зелёный билд/тесты перед коммитом» (pre-commit
+  гоняет ВСЕ тесты + CI-зеркало; --no-verify не используется).
+- Коммитить и пушить по фазам: фоновые сессии могут встать при обрыве сети —
+  запушенный в origin прогресс не теряется.
 
 Спецификации движка (docs/specs)
 - docs/specs/ — нормативный реестр поведения движка/холста, 10 спек: edge,
@@ -214,4 +230,5 @@ LSP-навигация
 - tasks.md         — текущие задачи и бэклог (только живое)
 - docs/tasks-archive.md — журнал закрытых задач (история решений)
 - docs/archive/    — рабочие доки закрытых эпиков
+- docs/plan-refactoring.md — план рефакторинга (аудит 2026-08-01: метрики, риски, фазы)
 - DEV.md           — инструкция локального запуска

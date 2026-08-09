@@ -5,6 +5,7 @@
 import type { CSSProperties } from "react";
 import type { NodeStatus } from "../../types";
 import { getNodeColors } from "../graph/colors";
+import { plural } from "../../ui/plural";
 import { BPT, withAlpha } from "./tokens";
 
 export type BadgeTone = "planned" | "deprecated" | "neutral";
@@ -34,11 +35,7 @@ export function pillStyle(tone: BadgeTone): CSSProperties {
   return { ...base, color: sc.border, background: withAlpha(sc.bg, 0.12), border: "1px solid " + withAlpha(sc.border, 0.4) };
 }
 
-// Падежи «сообщение/сообщения/сообщений» для счётчика.
+// Падежи «сообщение/сообщения/сообщений» для счётчика — общий хелпер склонений.
 export function pluralMessages(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return "сообщение";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "сообщения";
-  return "сообщений";
+  return plural(n, ["сообщение", "сообщения", "сообщений"]);
 }

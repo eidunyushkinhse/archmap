@@ -1,16 +1,16 @@
 // Мета связи в правой панели: просмотр (наблюдатель) и inline-правка (архитектор).
-// Перенос ветки «просмотр/правка» из бывшей EdgeDetailModal (модалка удалена
-// 2026-07-16: её последний потребитель — путь деталей в контекст-схеме — был
-// недостижим). Inline-правка коммитится по blur/смене конца и ложится в
-// Undo/Redo через onEdgeSaved.
-import { useEffect, useRef, useState } from "react";
+// Inline-правка коммитится по blur/смене конца и ложится в Undo/Redo через
+// onEdgeSaved. Вся механика правки (черновики, CAS-коммит, 409, инверсия) —
+// в общем хуке useEdgeEdit: его же переиспользует модалка связи на странице
+// объекта (EdgeEditModal).
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { DeletionSnapshot, Edge, EdgeUpdate, LevelEdge, Node } from "../../types";
 import { canHaveChildren } from "../../types";
 import { edgesApi, nodesApi } from "../../api/nodes";
-import { isConflict } from "../../api/client";
 import NodeSearchPicker from "../NodeSearchPicker";
 import { ShapeGlyph } from "../nodeTree.shared";
+import { useEdgeEdit } from "./useEdgeEdit";
 import "./inspector.css";
 
 interface Props {
@@ -21,27 +21,27 @@ interface Props {
 }
 
 export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDeleted }: Props) {
-  const [labelText, setLabelText] = useState(edge.label ?? "");
-  const [technology, setTechnology] = useState(edge.technology ?? "");
-  // Концы: РЕАЛЬНЫЕ (original_*), а не их проекция на уровень — иначе правка затёрла бы
-  // концы спроецированными значениями.
-  const [sourceId, setSourceId] = useState(edge.original_source_id);
-  const [targetId, setTargetId] = useState(edge.original_target_id);
-  const [srcLabel, setSrcLabel] = useState(edge.original_source_name);
-  const [tgtLabel, setTgtLabel] = useState(edge.original_target_name);
-  const [error, setError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  // Состояние ДО последней правки — для обратимой записи в историю (undoPayload).
-  // Хэндлов в контракте связи больше нет (R3): геометрия живёт на пучке в view_layout.
-  const beforeRef = useRef<EdgeUpdate>({
+  // Концы: РЕАЛЬНЫЕ (original_*), а не их проекция на уровень — иначе правка
+  // затёрла бы концы спроецированными значениями.
+  const {
+    labelText, setLabelText,
+    technology, setTechnology,
+    sourceId, setSourceId,
+    targetId, setTargetId,
+    srcLabel, setSrcLabel,
+    tgtLabel, setTgtLabel,
+    error, setError, commit,
+  } = useEdgeEdit({
+    id: edge.id,
     label: edge.label ?? null,
     technology: edge.technology ?? null,
     source_id: edge.original_source_id,
     target_id: edge.original_target_id,
-  });
-  // Версия связи для CAS (этап 0 конкурентности): правка от устаревшей → 409.
-  const versionRef = useRef(edge.version);
+    version: edge.version,
+    source_name: edge.original_source_name,
+    target_name: edge.original_target_name,
+  }, onEdgeSaved);
+  const [deleting, setDeleting] = useState(false);
 
   // Узлы-концы (read-only) для глифа формы рядом с «Откуда/Куда». Концы off-level,
   // поэтому фетч по id (контракт связи формы концов не несёт).
@@ -65,68 +65,6 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
     if (!n) return null;
     return <ShapeGlyph container={canHaveChildren(n.shape) && !!n.has_children} shape={n.shape} />;
   };
-
-  async function commit(over: Partial<{ label: string; technology: string; source_id: string; target_id: string }>) {
-    const src = over.source_id ?? sourceId;
-    const tgt = over.target_id ?? targetId;
-    if (!src || !tgt) { setError("Выберите исходный и целевой объекты"); return; }
-    if (src === tgt) { setError("Объект не может ссылаться сам на себя"); return; }
-    setError(null);
-    const redo: EdgeUpdate = {
-      label: (over.label ?? labelText) || null,
-      technology: (over.technology ?? technology) || null,
-      source_id: src,
-      target_id: tgt,
-    };
-    const before = beforeRef.current;
-    // no-op: ничего не изменилось — не плодим записи истории
-    if (redo.label === (before.label ?? null) && redo.technology === (before.technology ?? null)
-      && redo.source_id === before.source_id && redo.target_id === before.target_id) return;
-    const undo: EdgeUpdate = { ...before };
-    try {
-      // CAS: base_version — версия последнего сохранённого; в историю (undo/redo)
-      // уходят payload'ы БЕЗ base_version — компенсации не фенсятся (U24).
-      const updated = await edgesApi.update(edge.id, { ...redo, base_version: versionRef.current });
-      onEdgeSaved(updated, undo, redo);
-      versionRef.current = updated.version;
-      beforeRef.current = {
-        label: updated.label ?? null,
-        technology: updated.technology ?? null,
-        source_id: updated.source_id,
-        target_id: updated.target_id,
-      };
-    } catch (e: unknown) {
-      if (isConflict(e)) {
-        // Связь изменена в другой сессии: правка не применилась — подтягиваем
-        // свежие данные (включая имена концов) и просим повторить поверх них.
-        try {
-          const fresh = await edgesApi.get(edge.id);
-          versionRef.current = fresh.version;
-          beforeRef.current = {
-            label: fresh.label ?? null,
-            technology: fresh.technology ?? null,
-            source_id: fresh.source_id,
-            target_id: fresh.target_id,
-          };
-          setLabelText(fresh.label ?? "");
-          setTechnology(fresh.technology ?? "");
-          setSourceId(fresh.source_id);
-          setTargetId(fresh.target_id);
-          const [s, t] = await Promise.all([
-            nodesApi.get(fresh.source_id).catch(() => null),
-            nodesApi.get(fresh.target_id).catch(() => null),
-          ]);
-          if (s) setSrcLabel(s.name);
-          if (t) setTgtLabel(t.name);
-        } catch {
-          // связь могли удалить — уровень догонит поллинг/ресинк
-        }
-        setError("Связь изменена в другой сессии — данные обновлены, повторите правку");
-        return;
-      }
-      setError(e instanceof Error ? e.message : "Ошибка сохранения");
-    }
-  }
 
   async function handleDelete() {
     setDeleting(true);

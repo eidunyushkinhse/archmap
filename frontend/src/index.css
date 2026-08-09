@@ -113,3 +113,52 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Кнопки: курсор и единое состояние «неактивна». Инлайн-стили не умеют
+   псевдоклассов, поэтому :disabled задаётся только здесь — зато сразу для ВСЕХ
+   кнопок приложения (находка ручной проверки 2026-08-08: неактивная кнопка
+   «Применить» выглядела обычной, о запрете сообщал лишь текст рядом). */
+button {
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Кнопка-действие второго плана: «Загрузить файлы…», «Вставить текст».
+   Задана классом ЦЕЛИКОМ, а не спредом инлайн-стилей: инлайн-фон бьёт по
+   приоритету любой :hover/:active, поэтому кнопка, собранная спредом, не может
+   отзываться на наведение и нажатие (находка ручной проверки 2026-08-08). */
+.btn-soft {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  padding: 4px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #475569;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.btn-soft:hover:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+.btn-soft:active:not(:disabled) {
+  background: #cbd5e1;
+  border-color: #94a3b8;
+}
+
+/* Зона приёма файлов перетаскиванием (docsImport/useFileDrop.ts): кольцо
+   подсветки, пока курсор с файлами над ней. Внутри зоны может лежать textarea
+   со своим фоном, поэтому сигнал даёт именно outline, а не фон.
+   Кольцо рисуется ВНУТРЬ (отрицательный offset): снаружи его срезал ближайший
+   предок с overflow — в окне создания проекта у кольца пропадали левый и правый
+   края (находка ручной проверки 2026-08-08). */
+.drop-zone--over {
+  outline: 2px dashed #2563eb;
+  outline-offset: -2px;
+  border-radius: 10px;
+}

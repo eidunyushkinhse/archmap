@@ -31,6 +31,11 @@ interface Props {
   // Пользователь протянул стрелку из кружка одного участника к другому: создаём
   // сообщение между ними (id = node_id). Источник = откуда тянули, цель = куда отпустили.
   onConnect?: (fromId: string, toId: string) => void;
+  // Можно ли завести сообщение из одного участника в другого — ответ БЭКА
+  // (/processes/{id}/directions). Считать это на клиенте нельзя: проекция концов
+  // связи через предков живёт на сервере, и вторая реализация разошлась бы с
+  // валидатором. Не передан — индикации нет, поведение как раньше.
+  canConnect?: (fromId: string, toId: string) => boolean;
   // Дроп на отдельный хэндл «себе» (появляется под источником при старте драга) —
   // рефлексивное сообщение (внутренняя операция участника).
   onSelfConnect?: (id: string) => void;
@@ -57,6 +62,7 @@ export default function SequenceDiagram({
   ghost,
   view = "all",
   onConnect,
+  canConnect,
   onSelfConnect,
   onMessageClick,
   onDeleteParticipant,
@@ -804,6 +810,36 @@ export default function SequenceDiagram({
               >
                 <IcoPlus s={15} />
               </button>
+            );
+          })}
+          {/* Маркеры-цели: на время драга под КАЖДЫМ участником загорается кружок —
+              зелёный, если связь между парой в эту сторону задокументирована, серо-
+              красный, если нет. Красный НЕ блокирует: отпустить можно куда угодно,
+              композитор объяснит, чего не хватает (находка проверки 2026-08-08). */}
+          {drag && canConnect && participants.map((p, k) => {
+            if (p.id === drag.from) return null; // у источника своя цель «себе»
+            const ok = canConnect(drag.from, p.id);
+            const isHover = hover === p.id;
+            return (
+              <span
+                key={`aim-${p.id}`}
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  left: PX(k),
+                  top: ghostY + SELF_OFF,
+                  width: isHover ? 15 : 11,
+                  height: isHover ? 15 : 11,
+                  borderRadius: "50%",
+                  transform: "translate(-50%,-50%)",
+                  background: ok ? BPT.okBg : BPT.badBg,
+                  border: "2px solid " + (ok ? BPT.okLine : BPT.badLine),
+                  boxShadow: isHover ? "0 0 0 4px " + (ok ? BPT.okWash : BPT.badWash) : undefined,
+                  transition: "width .1s, height .1s, box-shadow .1s",
+                  pointerEvents: "none",
+                  zIndex: 6,
+                }}
+              />
             );
           })}
           {/* Хэндл «себе» — выезжает под кружок-источник на время драга; дроп на него

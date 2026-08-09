@@ -374,3 +374,90 @@ def test_import_over_file_limit_rejected():
     """Больше MAX_IMPORT_FILES документов — ошибка валидации контракта."""
     with pytest.raises(ValidationError):
         ImportPreviewIn(contents=["nodes: []"] * (MAX_IMPORT_FILES + 1))
+
+
+def test_source_block_parsed_into_keys():
+    """Блок source узла → канонические ключи идентичности (Фаза 0 синка).
+    Форма записи git-remote роли не играет — ключ один и тот же."""
+    content = (
+        "nodes:\n"
+        "  - name: payments\n"
+        "    source:\n"
+        "      repo: git@github.com:Org/Payments.git\n"
+        "      image: reg.io/org/payments:1.4\n"
+        "      host: payments\n"
+    )
+    parsed, errors = parse_import(content)
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == [
+        "git:github.com/org/payments",
+        "img:reg.io/org/payments",
+        "host:payments",
+    ]
+
+
+def test_source_block_optional_and_tolerant():
+    """Якорей нет — узел живёт как раньше (пустой набор ключей). Кривой блок —
+    ошибка формата, но узел не пропадает: якоря необязательны."""
+    parsed, errors = parse_import("nodes:\n  - name: A\n")
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == []
+
+    parsed, errors = parse_import("nodes:\n  - name: A\n    source: github.com/org/a\n")
+    assert parsed is None  # ошибки формата валят импорт целиком
+    assert any("source: ожидается словарь" in e for e in errors)
+
+
+def test_source_unknown_subkeys_ignored():
+    """Неизвестные вложенные ключи — как и на верхнем уровне, молча игнорируются
+    (формат форвард-совместим: агент мог прислать больше, чем мы читаем)."""
+    content = "nodes:\n  - name: A\n    source:\n      repo: github.com/org/a\n      branch: main\n"
+    parsed, errors = parse_import(content)
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == ["git:github.com/org/a"]
+
+
+def test_source_ref_persisted_on_import(db):
+    """Якорь доезжает до БД: в nodes.source_ref ложится сильнейший ключ прогона —
+    по нему будущий синк узнает узел даже после переименования сервиса."""
+    user = ensure_architect(db)
+    content = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {repo: git@github.com:Org/Payments.git, host: payments}\n"
+        "      - name: legacy\n"
+    )
+    p = create_project(
+        ProjectCreate(name="Из репозитория", start="import", import_yaml=content),
+        db=db, user=user,
+    )
+    refs = {n.name: n.source_ref for n in db.query(Node).filter(Node.project_id == p.id)}
+    assert refs == {
+        "Система": None,  # у корня-системы якоря нет
+        "payments": "git:github.com/org/payments",
+        "legacy": None,  # узел без блока source
+    }
+
+
+def test_связь_путём_со_слэшем_без_пробелов_находит_узел():
+    # Слабые модели пишут «worker/queue-reader» вместо «worker / queue-reader».
+    # Стало важно, когда промпт начал требовать адресовать связи компонентов:
+    # до этого рёбра ссылались на голые имена и слэшей в них не бывало.
+    parsed, errors = parse_import(
+        "nodes:\n"
+        "- name: Система\n"
+        "  children:\n"
+        "  - name: worker\n"
+        "    children:\n"
+        "    - name: queue-reader\n"
+        "  - name: redis\n"
+        "edges:\n"
+        "- from: worker/queue-reader\n"
+        "  to: redis\n"
+    )
+
+    assert errors == [] and parsed is not None
+    src = parsed.nodes[parsed.edges[0].source_idx].name
+    assert src == "queue-reader"

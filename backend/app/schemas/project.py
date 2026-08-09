@@ -56,6 +56,76 @@ class ImportPreviewOut(BaseModel):
     dropped_edges: int = 0  # выброшенные точные дубли рёбер
 
 
+class SyncPreviewIn(BaseModel):
+    """YAML свежего прогона агента для dry-run синхронизации ЖИВОГО проекта.
+    Формат входа тот же, что у импорта (мульти-репо сливается merge_imports);
+    отличаются только политики — что синку разрешено трогать."""
+
+    contents: list[_ImportDoc] = Field(min_length=1, max_length=MAX_IMPORT_FILES)
+    update_descriptions: bool = False
+    update_names: bool = False
+    sync_components: bool = False
+    mark_missing_deprecated: bool = False
+    # Снимать «устаревший» с вернувшихся в YAML. Симметрично пометке; см.
+    # SyncPolicies — дефолт консервативный, потому что пометка могла быть ручной.
+    restore_returned: bool = False
+
+
+class SyncApplyIn(SyncPreviewIn):
+    """Применение прогона. Вход тот же, что у превью (план ПЕРЕСЧИТЫВАЕТСЯ на
+    сервере — клиентскому плану не доверяем), плюс курсор схемы, увиденный в
+    превью: если схема успела измениться, применение отклоняется, а не пишет
+    вслепую то, чего пользователь не видел."""
+
+    base_graph_rev: int | None = None
+
+
+class SyncNodeActionOut(BaseModel):
+    path: str
+    action: Literal["create", "update", "unchanged", "missing"]
+    node_id: uuid.UUID | None = None
+    source_ref: str | None = None
+    fields: list[str] = []  # какие поля изменит update
+    matched_by: Literal["source", "name"] | None = None  # чем опознан живой узел
+    # Узел был помечен устаревшим, а в YAML снова есть. Показывается ВСЕГДА,
+    # даже когда статус не трогаем.
+    returned: bool = False
+
+
+class SyncEdgeActionOut(BaseModel):
+    source_path: str
+    target_path: str
+    action: Literal["create", "unchanged", "missing"]
+
+
+class SyncPreviewOut(BaseModel):
+    """Что изменится в живой схеме, если применить прогон. Ничего не записано —
+    применение отдельным вызовом (Фаза 2 docs/plan-arch-sync.md)."""
+
+    ok: bool
+    errors: list[str] = []  # пусто при ok=true (ошибки разбора/лимитов)
+    files: int = 0
+    nodes: list[SyncNodeActionOut] = []
+    edges: list[SyncEdgeActionOut] = []
+    conflicts: list[str] = []  # решённые правилом расхождения (переименование, переезд)
+    warnings: list[str] = []  # слияние файлов + тёзки из другого источника
+    summary: dict[str, int] = {}  # счётчики действий для шапки превью
+    is_noop: bool = False  # ничего не изменится (фикспойнт)
+    graph_rev: int = 0  # курсор схемы на момент расчёта — вернуть в apply
+
+
+class SyncApplyOut(BaseModel):
+    """Что реально записано. Списки путей — для тоста и журнала, не для сверки:
+    сверка была на превью."""
+
+    created_nodes: list[str] = []
+    updated_nodes: list[str] = []
+    deprecated_nodes: list[str] = []
+    created_edges: list[str] = []
+    skipped: list[str] = []  # действия, потерявшие цель между расчётом и записью
+    graph_rev: int = 0  # новый курсор схемы
+
+
 class ImportPromptOut(BaseModel):
     """Текст универсального промпта «Из репозитория» для ИИ-агента пользователя."""
 

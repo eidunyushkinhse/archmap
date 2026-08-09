@@ -68,6 +68,9 @@ class NodeResponse(BaseModel):
     # их наличия. child_count — для ранжирования узлов в дереве UI («главное» сверху).
     child_count: int = 0
     has_children: bool = False
+    # Канонический ключ источника (импорт/синк из репозитория). Только на чтение:
+    # ставится прогоном агента, в NodeUpdate его нет.
+    source_ref: str | None = None
     # Версия для optimistic CAS: клиент шлёт её обратно как base_version в PATCH.
     version: int = 1
     created_at: datetime
@@ -142,9 +145,12 @@ class ViewLayoutResult(BaseModel):
 
 
 class ViewStateResponse(BaseModel):
-    """Лёгкий опрос свежести (этап 1): версия вида + курсор проекта."""
+    """Лёгкий опрос свежести (этап 1): версия вида + курсоры проекта (схема/мета)."""
     version: int
     graph_rev: int
+    # Курсор меты (атрибуты узлов/доки) — поллинг страницы объекта: «данные
+    # изменились в другой сессии» vs «схема изменилась» (graph_rev).
+    meta_rev: int = 0
 
 
 class GraphEdgeResponse(BaseModel):
@@ -165,26 +171,6 @@ class GraphEdgeResponse(BaseModel):
     version: int = 1
 
 
-class ContextEdgeResponse(BaseModel):
-    """Ребро контекст-схемы: концы СПРОЕЦИРОВАНЫ сервером (внутренний конец →
-    фокус), original_* — реальные узлы для деталей связи. Контекст сознательно
-    остаётся серверной проекцией (Д5 аудита); геометрия не отдаётся — раскладка
-    звезды эфемерна и живёт в своей системе координат.
-    """
-    id: uuid.UUID
-    label: str | None
-    technology: str | None
-    source_id: uuid.UUID
-    target_id: uuid.UUID
-    original_source_id: uuid.UUID
-    original_target_id: uuid.UUID
-    original_source_name: str
-    original_target_name: str
-    # Версия связи (единообразно с GraphEdgeResponse; контекст read-only, но
-    # LevelEdge на фронте один для уровня и контекста).
-    version: int = 1
-
-
 class GraphResponse(BaseModel):
     nodes: list[NodeResponse]
     edges: list[GraphEdgeResponse]
@@ -198,23 +184,15 @@ class GraphResponse(BaseModel):
     # полей (например, пучки "b:") в отдачу не попадают — отфильтрованы.
     # Какая проекция показана — решает фронт; лишние ключи безвредны (F6а).
     layout: dict[str, ViewLayoutPayload] = {}
-    # Версия вида (fence записей раскладки) и курсор изменений проекта (поллинг):
+    # Версия вида (fence записей раскладки) и курсоры изменений проекта (поллинг):
     # базовая точка отсчёта клиента при загрузке уровня (этапы 0/1 конкурентности).
     version: int = 0
     graph_rev: int = 0
-
-
-class NodeContextResponse(BaseModel):
-    """«Контекстная схема» узла: сам узел + его прямые соседи.
-    Сосед — другой конец любой связи, у которой ровно один конец лежит в поддереве
-    фокуса (сам узел или любой его потомок). Рёбра спроецированы: конец внутри
-    поддерева свёрнут на фокус, внешний конец указывает на узел-соседа.
-    Соседи отдаются как «гости» (пунктир), focus_ancestors — для рамок предков.
-    """
-    focus: NodeResponse
-    focus_ancestors: list[AncestorRef] = []
-    neighbors: list[GhostNodeResponse] = []
-    edges: list[ContextEdgeResponse] = []
+    meta_rev: int = 0
+    # Есть ли в ПРОЕКТЕ узлы planned/deprecated. Признак проектный (не уровневый):
+    # им фронт решает, показывать ли «Вид схемы» и «Принять переход» — обе вещи
+    # относятся ко всему проекту. Считает project_has_status_info.
+    has_status_info: bool = False
 
 
 class NodeEdgeInfo(BaseModel):
@@ -258,7 +236,81 @@ class IsolatedGroupAlert(BaseModel):
     node_names: list[str]
 
 
+class ContainerOwnDocsAlert(BaseModel):
+    """Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): узел стал
+    контейнером (появились дети), но логика/спека остались на нём самом.
+    Правила контейнеров: логика и спеки живут на атомарных детях — такие
+    доки надо распределить по детям (модалка «Распределить по детям»)."""
+    node_id: uuid.UUID
+    node_name: str
+    has_docs: bool
+    has_spec: bool
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
     isolated_groups: list[IsolatedGroupAlert] = []
+    container_own_docs: list[ContainerOwnDocsAlert] = []
+
+
+# --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---
+
+class DistributeDocAssignment(BaseModel):
+    """Назначение одного собственного дока контейнера конкретному ребёнку."""
+    doc_id: uuid.UUID
+    child_id: uuid.UUID
+
+
+class DistributeDocsIn(BaseModel):
+    """Вход переноса: маппинг доков по детям + опциональный ребёнок для спеки.
+
+    openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
+    (spec_child_id). Если детей несколько и спека есть — пользователь в
+    модалке выбирает, кому она отойдёт."""
+    doc_assignments: list[DistributeDocAssignment] = []
+    spec_child_id: uuid.UUID | None = None
+
+
+class DistributeDocsOut(BaseModel):
+    """Отчёт переноса."""
+    moved_docs: int
+    spec_moved: bool
+
+
+class TransitionNodeOut(BaseModel):
+    """Объект в плане перехода: показываем именем и путём — id нужен только коду."""
+
+    id: uuid.UUID
+    name: str
+    path: str
+
+
+class TransitionPreviewOut(BaseModel):
+    """Что произойдёт, если принять переход. Ничего не записано."""
+
+    graph_rev: int
+    is_noop: bool
+    # Верхние выводимые узлы (их поддеревья уедут каскадом).
+    delete: list[TransitionNodeOut] = []
+    # Сколько узлов исчезнет ВСЕГО, вместе с потомками.
+    delete_total: int = 0
+    # Уезжающие ЗАОДНО: устаревшими их никто не помечал, они просто лежат внутри.
+    # Главное, что должно быть видно до подтверждения.
+    collateral: list[TransitionNodeOut] = []
+    delete_edges: int = 0
+    delete_docs: int = 0
+    delete_specs: int = 0
+    promote: list[TransitionNodeOut] = []
+
+
+class TransitionApplyIn(BaseModel):
+    """Курсор схемы, увиденный в превью: если схему успели изменить, применение
+    отклоняется, а не выполняет вслепую не то, что человек видел."""
+
+    base_graph_rev: int | None = None
+
+
+class TransitionApplyOut(BaseModel):
+    deleted_nodes: int
+    promoted_nodes: int

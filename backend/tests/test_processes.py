@@ -22,6 +22,7 @@ from app.routers.processes import (
     delete_message,
     get_process,
     list_channels,
+    list_directions,
     reorder_participants,
 )
 from app.schemas.process import MessageCreate, ParticipantCreate, ReorderPayload
@@ -175,6 +176,43 @@ def test_channels_legs_count_and_empty(db):
     assert len(async_ch) == 1 and len(async_ch[0].legs) == 1 and not async_ch[0].synchronous
 
     assert list_channels(proc.id, a=a.id, b=d.id, db=db, project=ensure_project(db)) == []
+
+
+# ── 4б. /directions: куда МОЖНО тянуть — сразу по всем парам ──────────────────
+def test_directions_учитывают_направление_и_асинхронность(db):
+    a, b, c, d = _node(db, "A"), _node(db, "B"), _node(db, "C"), _node(db, "D")
+    _edge(db, a, b)                 # sync: есть и forward, и ответ
+    _edge(db, c, d, is_sync=False)  # async: ответного плеча не бывает
+    proc = _process(db)
+    db.commit()
+    _participants(db, proc, [a, b, c, d])
+
+    pairs = {
+        (x.from_id, x.to_id)
+        for x in list_directions(proc.id, db=db, project=ensure_project(db))
+    }
+
+    assert (a.id, b.id) in pairs and (b.id, a.id) in pairs  # синхронный — обе стороны
+    assert (c.id, d.id) in pairs and (d.id, c.id) not in pairs  # асинхронный — только вперёд
+    assert (a.id, d.id) not in pairs  # связи между парой нет вовсе
+
+
+def test_directions_проецируют_сквозную_связь_на_участника(db):
+    # Тот же резолв, что у валидатора: конец вглубь чужого поддерева проецируется
+    # на предка-участника. Ради этого индикация и считается на бэке.
+    a, b = _node(db, "A"), _node(db, "B")
+    inner = _node(db, "B-inner", parent=b)
+    _edge(db, a, inner)
+    proc = _process(db)
+    db.commit()
+    _participants(db, proc, [a, b])
+
+    pairs = {
+        (x.from_id, x.to_id)
+        for x in list_directions(proc.id, db=db, project=ensure_project(db))
+    }
+
+    assert (a.id, b.id) in pairs
 
 
 # ── 5. сквозная связь A→C (C под B): канал A–B, фиксирует from=A,to=B ──────────

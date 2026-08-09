@@ -157,7 +157,8 @@ class MinHeap {
   }
   pop(): number {
     const top = this.keys[0];
-    const k = this.keys.pop()!; const p = this.prio.pop()!;
+    // Вызывающий гарантирует size > 0, поэтому pop() вернёт определённое значение
+    const k = this.keys.pop() ?? 0; const p = this.prio.pop() ?? 0;
     if (this.keys.length > 0) {
       this.keys[0] = k; this.prio[0] = p;
       const n = this.keys.length; let i = 0;
@@ -259,11 +260,12 @@ export function routePorts(
   const stub = opts?.stub ?? EDGE_STUB;
 
   // Подготовленная сетка терминала — из кэша вызывающего (если дан) или свежая.
-  const cacheKey = opts?.cacheKey != null && opts?.gridCache ? `${opts.cacheKey}@${margin}` : null;
-  let grid = cacheKey ? opts!.gridCache!.get(cacheKey) : undefined;
+  const gridCache = opts?.gridCache;
+  const cacheKey = opts?.cacheKey != null && gridCache ? `${opts.cacheKey}@${margin}` : null;
+  let grid = cacheKey ? gridCache?.get(cacheKey) : undefined;
   if (!grid) {
     grid = prepareGrid(starts, ends, obstacles, margin, stub, opts?.extraXs, opts?.extraYs);
-    if (cacheKey) opts!.gridCache!.set(cacheKey, grid);
+    if (cacheKey) gridCache?.set(cacheKey, grid);
   }
   const { xs, ys, grown, sOrigins, eOrigins, goals, hPass, vPass, hMemo } = grid;
   const NX = xs.length, NY = ys.length;

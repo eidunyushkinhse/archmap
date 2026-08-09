@@ -1,45 +1,82 @@
 # ArchMap — CLAUDE.md
 
-Стек
-- Frontend: React 19 + Vite + TypeScript
-- Backend: Python 3.11 + FastAPI
-- БД: PostgreSQL 15
-- ORM: SQLAlchemy + Alembic (миграции)
+Стек (проверено 2026-08-01 по package.json / requirements.txt / pyproject.toml)
+- Frontend: React 19 + Vite 8 + TypeScript 6
+- Backend: Python 3.11 + FastAPI 0.111
+- БД: PostgreSQL (localhost:5432, БД `archmap`)
+- ORM: SQLAlchemy 2.0 + Alembic (миграции)
 - Аутентификация: JWT (PyJWT + pwdlib[bcrypt])
-- Деплой: Railway (позже)
+- Тесты: vitest (фронт), pytest (бэк)
+- Линтеры: eslint + tsc (фронт), ruff (бэк)
+- CI: GitHub Actions (.github/workflows/ci.yml) — зеркало pre-commit-гейта
+- Деплой: Railway (не настроен)
 
-Структура проекта
+Структура проекта (проверено 2026-08-01)
 archmap/
-├── frontend/          # React + Vite
+├── frontend/              # React + Vite
 │   ├── src/
+│   │   ├── api/           # клиент для бэкенда (auth, nodes, processes, projects, docsImport, projectScope)
 │   │   ├── components/
-│   │   ├── pages/
-│   │   ├── api/       # клиент для бэкенда
-│   │   └── types/     # TypeScript-типы
-│   └── package.json
-├── backend/           # FastAPI
+│   │   │   ├── graph/     # движок холста: layout/ (роутер, раскладка, VPSC, ELK), interaction/ (драг, снап, анимации, undo)
+│   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, DocOverlay
+│   │   │   ├── processes/ # бизнес-процессы: sequence-диаграммы, рейл, композитор
+│   │   │   ├── project/   # создание/редактирование проектов, импорт YAML, превью
+│   │   │   ├── docsImport/# модалка «Доки от агента» (BYOA)
+│   │   │   ├── __tests__/ # vitest-тесты (чистые функции раскладки/проекции)
+│   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
+│   │   │   └── ...        # модалки, дерево (NodeTreePanel), алерты, фильтр вида, палитра
+│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), LoginPage; TreePage — легаси за фиче-флагом
+│   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
+│   │   └── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили, plural.ts
+│   ├── package.json
+│   └── vite.config.ts     # прокси /api → localhost:8000, vitest (jsdom)
+├── backend/               # FastAPI
 │   ├── app/
-│   │   ├── models/    # SQLAlchemy-модели
-│   │   ├── routers/   # API-эндпоинты
-│   │   ├── schemas/   # Pydantic-схемы
-│   │   └── main.py
-│   ├── alembic/       # миграции БД
-│   └── requirements.txt
-├── spec.md
-├── tasks.md
-└── CLAUDE.md
+│   │   ├── models/        # SQLAlchemy: node, edge, project, user, node_doc, view_layout, view_state, business_process, process_*
+│   │   ├── routers/       # API: auth, nodes, edges, projects, views, export, processes, node_docs, docs_import
+│   │   ├── schemas/       # Pydantic: node, edge, project, auth, process, export, node_doc, docs_import, restore
+│   │   ├── main.py        # FastAPI app, CORS, роутеры /api/v1
+│   │   ├── config.py      # Settings (database_url, secret_key, cors_origins)
+│   │   ├── export.py / import_yaml.py / import_merge.py / import_prompt.py  # экспорт/импорт YAML
+│   │   ├── docs_import.py / docs_prompt.py  # BYOA-дозаливка доков
+│   │   ├── templates.py   # каталог шаблонов проектов (6 пресетов C4)
+│   │   ├── processes.py   # доменная логика бизнес-процессов
+│   │   └── tree.py / projects.py / restore.py / view_state.py / auth.py / database.py / deps.py
+│   ├── alembic/           # миграции БД
+│   ├── tests/             # pytest (24 тестовых файла, in-memory SQLite)
+│   ├── requirements.txt
+│   └── pyproject.toml     # ruff config
+├── docs/
+│   ├── specs/             # нормативные спеки движка (10 файлов + README)
+│   ├── archive/           # рабочие доки закрытых эпиков (включая планы)
+│   ├── tasks-archive.md   # журнал закрытых задач
+│   └── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
+├── scripts/
+│   ├── git-hooks/pre-commit  # гейт: tsc+eslint+vitest (фронт) / ruff+pytest (бэк)
+│   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs / drift-probe.mjs / triple-probe.mjs / fps-probe.mjs  # полигонные зонды
+│   └── setup-hooks.sh
+├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
+├── dev.sh / stop.sh       # запуск/остановка всего стека
+├── spec.md                # продуктовая спецификация
+├── tasks.md               # живые задачи и бэклог
+├── .mcp.json              # MCP-серверы LSP (python-lsp, typescript-lsp)
+└── QWEN.md                # аналогичный файл для Qwen Code (держать синхронным с этим!)
 
 Команды
-- Поднять весь сервис:  ./dev.sh         (бэк+фронт+миграции одной командой)
-- Остановить:           ./stop.sh        (или Ctrl+C в терминале с dev.sh)
-- Запуск фронта:       cd frontend && npm run dev
-- Запуск бэкенда:      cd backend && uvicorn app.main:app --reload
-- Миграции (создать):  cd backend && alembic revision --autogenerate -m "название"
-- Миграции (применить):cd backend && alembic upgrade head
-- Тесты бэкенда:       cd backend && pytest
-- Генерация типов фронта из OpenAPI: cd frontend && npm run gen:api
-    (дамп app.openapi() бэкендовым venv-python без запуска сервера |
-     openapi-typescript → src/types/api.gen.ts). Файл коммитится, идемпотентен.
+- Поднять весь сервис:   ./dev.sh         (бэк+фронт+миграции одной командой)
+- Остановить:            ./stop.sh        (или Ctrl+C в терминале с dev.sh)
+- Запуск фронта:         cd frontend && npm run dev
+- Запуск бэкенда:        cd backend && ./venv/bin/uvicorn app.main:app --reload
+- Миграции (создать):    cd backend && ./venv/bin/alembic revision --autogenerate -m "название"
+- Миграции (применить):  cd backend && ./venv/bin/alembic upgrade head
+- Тесты бэкенда:         cd backend && ./venv/bin/python -m pytest -q
+- Тесты фронта:          cd frontend && npx vitest run
+- Типизация фронта:      cd frontend && npx tsc -b
+- Линтер фронта:         cd frontend && npx eslint .
+- Линтер бэкенда:        cd backend && ./venv/bin/ruff check .
+- Генерация типов из OpenAPI: cd frontend && npm run gen:api
+    (дамп app.openapi() бэкендовым venv-python | openapi-typescript → src/types/api.gen.ts).
+    Файл коммитится, идемпотентен.
 
 Запуск сервиса (ВАЖНО)
 - Поднимать сервис ТОЛЬКО через ./dev.sh — НЕ запускать uvicorn/vite вслепую
@@ -47,19 +84,22 @@ archmap/
   ставит зависимости и поднимает оба процесса согласованно. Подробности и
   ручной режим — в DEV.md.
 - Claude запускает его как фоновую задачу (run_in_background) — так процесс
-  переживает teardown харнесса; старый костыль с setsid больше не нужен.
+  переживает teardown харнесса.
 - Останавливать через ./stop.sh. Если порт занят — сначала ./stop.sh, потом
   ./dev.sh; либо другие порты: BACKEND_PORT=8001 FRONTEND_PORT=5174 ./dev.sh.
 
 Git
-- Проект под git с 2026-06-07, ветка main. Remote: github.com/eidunyushkinhse/archmap
+- Проект под git с 2026-06-07. Remote: github.com/eidunyushkinhse/archmap
   (приватный, создан 2026-07-21). Пушить можно (пользователь дал разрешение).
+- Текущая рабочая ветка — feat/pages-pivot (пивот страниц объектов); main —
+  основная ветка (solo-проект).
 - ПОСТОЯННОЕ РАЗРЕШЕНИЕ коммитить самому: после каждого логически
   завершённого и проверенного изменения сразу делать коммит, НЕ дожидаясь
   отдельной просьбы. Это переопределяет дефолт «коммитить только по запросу».
-- Коммитить ПРЯМО в main (solo-проект, фича-ветки не заводить).
-- Перед коммитом убедиться, что приложение запускается / тесты проходят
-  (см. правило ниже); заведомо сломанное состояние не коммитить.
+- Перед коммитом убедиться, что приложение запускается / тесты проходят;
+  заведомо сломанное состояние не коммитить. Pre-commit хук (scripts/git-hooks/)
+  автоматически гоняет tsc+eslint+vitest (фронт) и ruff+pytest (бэк) по
+  staged-файлам. CI (.github/workflows/ci.yml) дублирует гейт на сервере.
 - Коммиты маленькие, по одной логической правке. Сообщения на русском,
   формат: "feat: …" / "fix: …" / "chore: …" / "docs: …". Последней строкой:
   Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
@@ -69,24 +109,56 @@ Git
 - Не коммитить: node_modules, venv, dist, .claude/mcp-servers/{venv,
   node_modules}, **/settings.local.json, реальные .env — уже в .gitignore.
 
-Ключевые сущности
+Ключевые сущности (проверено 2026-08-01 по моделям SQLAlchemy)
+
+Project (проект — изолированная схема)
+- id UUID, name, description, archived_at (null = активен)
+- created_at, updated_at, created_by_id, updated_by_id → User
+- graph_rev — курсор изменений СХЕМЫ (узлы/рёбра/раскладка), meta_rev — курсор
+  изменений МЕТЫ (атрибуты узла/доки/openapi); поллинг конкурентных сессий
+- Все доменные сущности несут project_id (NOT NULL, каскад)
+
 Node (узел)
-- id, name, description
-- role        — свободная строка: "сервис", "база данных", "брокер" и т.д.
+- id UUID, project_id → Project, name, description
+- role        — свободная строка: "сервис", "БД", "брокер"
 - technology  — свободная строка: "Python", "Kafka", "Redis"
 - parent_id   — ссылка на родителя (null = корень дерева)
-- flowchart   — Mermaid-разметка (опционально)
+- shape       — форма C4: service | database | broker | person
+- is_external — флаг «внешний узел» (на чужих уровнях — «гость»)
+- status      — жизненный цикл: existing | planned | deprecated
 - openapi_spec — OpenAPI YAML (опционально)
+- version     — CAS-версия для optimistic concurrency
+- docs        — коллекция NodeDoc (именованные схемы логики, lazy="selectin")
+- created_at, updated_at
+- has_children — вычисляемое поле в API
+
+NodeDoc (схема логики узла; прежнее единственное поле Node.flowchart перенесено сюда)
+- id, node_id → Node, name (уникально в пределах узла)
+- kind — обзор | операция | воркер
+- operation — привязка к операции спеки («METHOD /path»), опционально
+- content — текст Mermaid
+- version — CAS
 
 Edge (связь)
-- id, label, technology
-- source_id, target_id — ссылки на Node
+- id UUID, project_id → Project
+- label, technology
+- source_id, target_id → Node
+- is_synchronous — тип канала (null = дефолт синхронный)
+- version — CAS
+- created_at
+
+ViewLayout / ViewState
+- view_layout: project_id, view_id, item_id, payload JSONB {x, y, expanded}
+- view_state: version (fence для CAS батчей layout)
+
+BusinessProcess / ProcessParticipant / ProcessMessage / ProcessFragment
+- Бизнес-процессы — sequence-конструктор поверх C4
 
 Архитектурные правила
 - API всегда версионируется: /api/v1/...
 - Все эндпоинты возвращают JSON
 - Ошибки возвращаются в формате {"detail": "..."}
-- Фронт общается с бэком только через /api/v1/
+- Фронт общается с бэком только через /api/v1/ (прокси Vite)
 - Никаких бизнес-логики на фронте — только отображение и запросы
 - Миграции БД только через Alembic, не трогать схему руками
 
@@ -110,11 +182,12 @@ Edge (связь)
   сразу `cd frontend && npm run gen:api`, проверь `tsc -b` и закоммить
   обновлённый api.gen.ts вместе с правкой схем. Если генерат вышел слабее нужного —
   чинить Pydantic-схему (Literal/required), а НЕ накладывать патчи на фронте.
-- Работа с git — см. секцию «Git» выше (коммитить самому на чекпойнтах в main)
+- Работа с git — см. секцию «Git» выше (коммитить самому на чекпойнтах)
 - Документация всегда актуальна (кроме чисто косметических изменений):
     при появлении новой фичи — сразу обновить spec.md;
     при её реализации — отметить в tasks.md (перенести в «Сделано» / обновить статус).
     Косметику (правки стиля, отступы, переименования подписей и т.п.) можно не документировать.
+- QWEN.md и CLAUDE.md — аналоги для разных ИИ-агентов: менять ОБА одновременно.
 
 Архитектурные привычки (фронтенд)
 - Это дефолты, реагирующие на видимый «смелл» в коде, а НЕ чек-лист для сверки
@@ -122,13 +195,35 @@ Edge (связь)
 - Один модуль — одна ответственность. Смелл: файл > ~400 строк, либо в нём
   одновременно рендер + вычисления + сайд-эффекты, либо скроллишь в поисках
   функции. Реакция: вынести по границе ответственности сразу, не ждать God
-  Component (ориентир — разбивка graph/* из Фазы 2).
+  Component (ориентир — разбивка graph/* из Фазы 2). LevelGraph разобран
+  (1678→1055, пропсы 43→19, 7 хуков useLevel* в graph/interaction/) — эталон;
+  NodePage тоже похудел. Уроки и playbook — docs/refactoring-lessons.md.
+- God-компонент разбирать ТОЛЬКО после поведенческих тестов: characterization-
+  тесты на оркестрацию (рендер внутреннего компонента с моком тяжёлых зависимостей,
+  перехват колбэков) — страховочная сетка; без неё разбор вслепую ломает ядро
+  (кейс LevelGraph — фаза 3а). Порядок выноса: сначала изолированные хуки (только
+  читают: locate/selection), потом центральные узлы (persistence/commitLayout —
+  точка схождения), потом зависимые (drill). Один хук — один коммит; новые хуки в
+  тестах НЕ мокаются (исполняются по-настоящему), иначе тесты ничего не ловят.
+- Пропсы god-компонента группировать в НЕСКОЛЬКО связных доменных бандлов
+  (persistence/mode/drill/edgeCallbacks/delete/drop/undo), в точках вызова — через
+  useMemo (ссылочная стабильность, без ре-рендеров канваса). Общие типы — в общий
+  модуль (graph/types.ts), чтобы не было type-only циклов компонент↔хуки.
+- Атомарные ядра с инвариантом порядка эффектов НЕ выносить: конвейер раскладки
+  LevelGraph (сборщик обязан быть объявлен до data→computeNow эффекта; частичный
+  вынос молча ломает батчинг анимации, тесты не ловят). Чистый пол LevelGraph
+  ~1055 строк; <800 достижимо только фрагментацией JSX (осознанно не делалось).
 - Производное состояние — в рендере (useMemo), не в useEffect. Смелл: эффект,
   заканчивающийся setState. Зеркалирование пропсов/стейта в стейт через эффект —
-  источник рассинхрона (так правка хэндлов рёбер ломала контекст-схему).
+  источник рассинхрона.
+- Строгость типов/линтеров в гейте (TS strict + eslint strict + mypy на бэке с
+  pydantic-плагином) дёшева при дисциплине «без any»: код был strict-чист ДО
+  включения флага (0 ошибок). Что машина может проверить — отдаём машине.
 - Сломанные контракты (обязательный проп без обновления вызовов и т.п.) НЕ держим
-  в голове — их ловит гейт «зелёный билд/тесты перед коммитом». Что машина может
-  проверить — отдаём машине.
+  в голове — их ловит гейт «зелёный билд/тесты перед коммитом» (pre-commit гоняет
+  ВСЕ тесты + CI-зеркало; --no-verify не используется).
+- Коммитить и пушить по фазам: долгие фоновые ИИ-сессии могут встать при обрыве
+  сети — запушенный в origin прогресс не теряется.
 
 Спецификации движка (docs/specs)
 - docs/specs/ — нормативный реестр поведения движка/холста, 10 спек: edge
@@ -180,4 +275,5 @@ LSP-навигация
 - docs/specs/ — нормативные спеки поведения сущностей движка (реестр инвариантов)
 - tasks.md  — текущие задачи и бэклог (только живое)
 - docs/tasks-archive.md — журнал закрытых задач (история решений)
-- docs/archive/ — рабочие доки закрытых эпиков (аудиты, планы рефакторингов)
+- docs/archive/ — рабочие доки закрытых эпиков (аудиты, планы)
+- docs/plan-refactoring.md — план рефакторинга (аудит 2026-08-01: метрики, риски, фазы)

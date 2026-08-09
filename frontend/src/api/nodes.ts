@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeContext, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, SchemaAlerts, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -25,9 +25,22 @@ export const nodesApi = {
       : api.get<GraphResponse>(`/nodes/graph`),
   search: (q: string): Promise<Node[]> =>
     api.get<Node[]>(`/nodes/search?q=${encodeURIComponent(q)}`),
-  // Контекстная схема узла: фокус + прямые соседи + спроецированные рёбра
-  getContext: (id: string): Promise<NodeContext> =>
-    api.get<NodeContext>(`/nodes/${id}/context`),
+  // «Схема» страницы объекта (single-schema): контекст в формате СЫРОГО графа
+  // уровня — виртуальный корневой уровень (фокус + представители соседей +
+  // сырые рёбра + реестр концов + раскладка корневого вида). Рендерится тем же
+  // level-конвейером, что и обычный уровень.
+  getContextGraph: (id: string): Promise<GraphResponse> =>
+    api.get<GraphResponse>(`/nodes/${id}/context-graph`),
+  // «Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
+  // (view_id = id узла) — позиции и инлайн-раскрытия → свежий ELK. Соседние виды
+  // (другие страницы, уровни редактора) нетронуты. 204 No Content; после вызова
+  // контекст нужно перезагрузить (getContextGraph).
+  relayoutContext: (id: string): Promise<void> =>
+    api.post(`/nodes/${id}/context-relayout`, {}),
+  // Процессы с участием узла или его поддерева — секция «Участвует в процессах»
+  // страницы объекта (форма — ProcessListItem, как у списка процессов).
+  getNodeProcesses: (id: string): Promise<ProcessListItem[]> =>
+    api.get<ProcessListItem[]>(`/nodes/${id}/processes`),
   // Глобальные алерты незавершённости схемы (только архитектор)
   getAlerts: (): Promise<SchemaAlerts> =>
     api.get<SchemaAlerts>(`/nodes/alerts`),
@@ -40,8 +53,9 @@ export const nodesApi = {
   deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
     api.get<DeletionSnapshot>(`/nodes/${id}/deletion-snapshot`),
   // Восстановить удалённое поддерево из снимка (Undo удаления) — с исходными id.
+  // undefined (не void): void как type-parameter нарушает no-invalid-void-type
   restore: (snapshot: DeletionSnapshot): Promise<void> =>
-    api.post<void>(`/nodes/restore`, snapshot),
+    api.post<undefined>(`/nodes/restore`, snapshot),
   // «Переразложить уровень»: стирает ВСЕ строки view_layout уровня (позиции
   // локалов и гостей, раскрытия expanded, легаси) → возврат к авто-виду.
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.
@@ -60,6 +74,10 @@ export const nodeDocsApi = {
     api.patch<NodeDoc>(`/nodes/${nodeId}/docs/${docId}`, data),
   delete: (nodeId: string, docId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/docs/${docId}`),
+  // «Распределить по детям» (правила контейнеров): перенос grandfather-доков/спеки
+  // контейнера на его непосредственных детей.
+  distribute: (nodeId: string, data: DistributeDocsIn): Promise<DistributeDocsOut> =>
+    api.post<DistributeDocsOut>(`/nodes/${nodeId}/docs/distribute`, data),
 };
 
 export const viewsApi = {
@@ -81,6 +99,14 @@ export const viewsApi = {
   // Лёгкий опрос свежести вида/проекта (поллинг этапа 1; доступен обеим ролям).
   state: (viewId: string | null): Promise<ViewState> =>
     api.get<ViewState>(`/views/${viewId ?? "root"}/state`),
+};
+
+// «Принять переход»: превью (что уедет и что повысится) и применение с курсором
+// схемы — если схему изменили после показа плана, бэк отвечает 409.
+export const transitionApi = {
+  preview: (): Promise<TransitionPreview> => api.get<TransitionPreview>("/nodes/transition"),
+  apply: (baseGraphRev: number): Promise<TransitionApplyOut> =>
+    api.post<TransitionApplyOut>("/nodes/transition", { base_graph_rev: baseGraphRev }),
 };
 
 export const exportApi = {

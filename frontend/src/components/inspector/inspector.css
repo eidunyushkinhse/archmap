@@ -53,6 +53,24 @@
 .insp-seg-btn.is-active .insp-seg-sub {
   color: #7591b4;
 }
+
+/* Вариант для горизонтального тулбара: одна строка, кнопки по содержимому.
+   Здесь у переключателя нет своей колонки — он стоит в ряд с другими
+   элементами, поэтому не тянется во всю ширину и не задаёт высоту строки. */
+.insp-seg--inline {
+  flex: none;
+  padding: 2px;
+  border-radius: 8px;
+}
+.insp-seg--inline .insp-seg-btn {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.insp-seg--inline .insp-seg-main {
+  font-size: 12px;
+  white-space: nowrap;
+}
 .insp-rule {
   height: 1px;
   background: #eef0f2;
@@ -243,9 +261,6 @@
   font-size: 13.5px;
   color: #1e293b;
 }
-.insp-value--block {
-  display: block;
-}
 .insp-value--empty {
   color: #9ca3af;
   font-style: italic;
@@ -374,6 +389,27 @@
   transform: translateX(14px);
 }
 
+/* Строка «Логика»/«OpenAPI» + меню «+ Добавить» (BYOA): кнопка-строка
+   растягивается, меню прижато к правому краю панели (список — right-aligned). */
+.insp-docrow {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 8px;
+}
+.insp-docrow .insp-heavy {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+}
+.insp-docrow .adm-wrap {
+  margin-top: 0;
+  flex: none;
+}
+.insp-docrow .adm-btn {
+  height: 100%;
+}
+
 /* Тяжёлые поля — кнопки-строки */
 .insp-heavy {
   display: flex;
@@ -411,6 +447,49 @@
   white-space: nowrap;
 }
 
+/* Раздел «Документация»: кнопка-строка «Открыть» (управление схемами — на странице узла) */
+.insp-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.insp-doc-item:hover {
+  border-color: #c4cdd8;
+  background: #fbfcfd;
+}
+.insp-doc-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.insp-doc-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.insp-doc-chip--overview { background: #eff6ff; color: #1d4ed8; }
+.insp-doc-chip--operation { background: #f0fdf4; color: #166534; }
+.insp-doc-chip--worker { background: #fdf4ff; color: #86198f; }
+
 /* Удаление */
 .insp-del {
   display: flex;
@@ -434,43 +513,3 @@
   background: #fef2f2;
 }
 
-/* Легенда статусов в панели */
-.insp-legend {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.insp-legend-head {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #94a3b8;
-  margin-bottom: 4px;
-}
-.insp-legend-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 0;
-}
-.insp-swatch {
-  width: 13px;
-  height: 13px;
-  border-radius: 3px;
-  border: 1px solid;
-  flex: none;
-}
-.insp-legend-label {
-  font-size: 12px;
-  color: #374151;
-  flex: 1;
-}
-.insp-legend-count {
-  font-size: 12px;
-  font-weight: 700;
-  color: #6b7280;
-  min-width: 14px;
-  text-align: right;
-}

@@ -17,9 +17,8 @@ interface Props {
 /**
  * Модалка экспорта в текст для скармливания LLM: C4-схема (или поддерево) в YAML
  * либо бизнес-процесс в Mermaid sequenceDiagram — определяется загрузчиком load.
- * Сама грузит документ (по той же схеме, что NodeContextModal: эффект только
- * фетчит, loading/error/content — производные от привязанного к loadKey стейта),
- * показывает его в <pre> и даёт кнопку «Скопировать».
+ * Сама грузит документ (эффект только фетчит, loading/error/content — производные
+ * от привязанного к loadKey стейта), показывает его в <pre> и даёт кнопку «Скопировать».
  */
 export default function ExportModal({ title, loadKey, load, onClose }: Props) {
   const [state, setState] = useState<{ forKey: string; content?: string; error?: string } | null>(

@@ -1,10 +1,10 @@
 """CRUD именованных схем логики узла (node_docs, этап 1 plan-agent-docs.md).
 
 Мутации — только архитектору; чтение — обеим ролям (наблюдатель смотрит доки в
-оверлее). Каждая мутация бампает graph_rev: мета доков едет в graph-выдаче
-(NodeResponse.docs), поллинг конкурентных сессий должен увидеть изменение.
-PATCH под optimistic CAS — паттерн update_node (устаревший base_version → 409,
-None = компенсация undo без проверки).
+оверлее). Каждая мутация бампает meta_rev: доки — МЕТА узла (видны на странице
+объекта, не на схеме), поллинг страницы отличает их от изменений схемы
+(graph_rev). PATCH под optimistic CAS — паттерн update_node (устаревший
+base_version → 409, None = компенсация undo без проверки).
 """
 
 import uuid
@@ -19,8 +19,9 @@ from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
+from app.schemas.node import DistributeDocsIn, DistributeDocsOut
 from app.schemas.node_doc import NodeDocCreate, NodeDocResponse, NodeDocUpdate
-from app.view_state import bump_graph_rev
+from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/nodes/{node_id}/docs", tags=["node-docs"])
 
@@ -79,7 +80,7 @@ def create_doc(
         content=payload.content,
     )
     db.add(doc)
-    bump_graph_rev(db, project)
+    bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(doc)
@@ -109,7 +110,7 @@ def update_doc(
         for field, value in data.items():
             setattr(doc, field, value)
         doc.version += 1
-        bump_graph_rev(db, project)
+        bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(doc)
@@ -127,6 +128,60 @@ def delete_doc(
     node = _get_node(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id)
     db.delete(doc)
-    bump_graph_rev(db, project)
+    bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
+
+
+@router.post("/distribute", response_model=DistributeDocsOut)
+def distribute_docs(
+    node_id: uuid.UUID,
+    payload: DistributeDocsIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> DistributeDocsOut:
+    """«Распределить по детям» (правила контейнеров, grandfather): переносит
+    СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
+    его openapi_spec — целиком одному ребёнку. Вызывается из модалки
+    распределения на странице контейнера. Доки — МЕТА узла: бампаем meta_rev."""
+    node = _get_node(db, node_id, project)
+    children = db.query(Node).filter(Node.parent_id == node.id).all()
+    child_ids = {c.id for c in children}
+    if not child_ids:
+        raise HTTPException(status_code=409, detail="У контейнера нет детей для распределения")
+
+    moved_docs = 0
+    for a in payload.doc_assignments:
+        doc = db.get(NodeDoc, a.doc_id)
+        # Переносим только СВОИ доки контейнера (grandfather), не чужие/детские.
+        if doc is None or doc.node_id != node.id:
+            raise HTTPException(status_code=404, detail=f"Схема {a.doc_id} не найдена среди собственных доков узла")
+        if a.child_id not in child_ids:
+            raise HTTPException(status_code=409, detail=f"Цель {a.child_id} не является непосредственным ребёнком узла")
+        if _name_taken(db, a.child_id, doc.name, None):
+            raise HTTPException(status_code=409, detail=f"У ребёнка уже есть схема с именем «{doc.name}»")
+        doc.node_id = a.child_id
+        doc.version += 1
+        moved_docs += 1
+
+    spec_moved = False
+    if payload.spec_child_id is not None:
+        if not node.openapi_spec:
+            raise HTTPException(status_code=409, detail="У узла нет OpenAPI-спеки для переноса")
+        if payload.spec_child_id not in child_ids:
+            raise HTTPException(status_code=409, detail="Цель для спеки не является непосредственным ребёнком узла")
+        child = next(c for c in children if c.id == payload.spec_child_id)
+        if child.openapi_spec:
+            raise HTTPException(status_code=409, detail="У выбранного ребёнка уже есть OpenAPI-спека")
+        child.openapi_spec = node.openapi_spec
+        node.openapi_spec = None
+        child.version += 1
+        node.version += 1
+        spec_moved = True
+
+    if moved_docs or spec_moved:
+        bump_meta_rev(db, project)
+    touch_project(db, project, user.id)
+    db.commit()
+    return DistributeDocsOut(moved_docs=moved_docs, spec_moved=spec_moved)

@@ -7,7 +7,7 @@ from app.database import Base
 
 
 class ViewState(Base):
-    """Версия вида — fence конкурентных записей раскладки (docs/plan-concurrency.md).
+    """Версия вида — fence конкурентных записей раскладки (docs/archive/plan-concurrency.md).
 
     Строка = счётчик изменений одного вида (view_id — контейнер уровня, NULL —
     корневой вид проекта). Инкрементируется каждой мутацией, меняющей мир вида:

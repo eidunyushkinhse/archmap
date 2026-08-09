@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import {
-  planExpand, planCollapse, markDrawIn, clearDrawIn, changedEdgeIds,
+  planExpand, planCollapse, planRelayout, markDrawIn, clearDrawIn, changedEdgeIds,
   drawSpanMs, ANIM_DRAW_MS, DRAW_CASCADE, DRAW_WAVE_SIZE, DRAW_WAVE_STEP_MS,
 } from "../graph/interaction/layoutAnimation";
 import { NODE_W, NODE_H } from "../graph/constants";
@@ -270,5 +270,50 @@ describe("changedEdgeIds (дифф геометрии рёбер для пере
     const next = [node("F", "frame", 60, 100), node("k", "block", 60, 20, { parentId: "F" }), nodes[1]];
     const prevEdges = [{ ...edge("e1", "k", "b") }];
     expect(changedEdgeIds(prev, prevEdges, next, prevEdges).size).toBe(0);
+  });
+});
+
+describe("planRelayout («Переразложить» без сворачивания раскрытий)", () => {
+  // Состав до и после идентичен (раскрытия переживают сброс) — меняется только
+  // раскладка: узлы и рамка едут, стрелки прячутся на переезд.
+  const prev = [
+    node("F", "frame", 100, 100, { w: 400, h: 300 }),
+    node("k1", "block", 20, 20, { parentId: "F" }),
+    node("k2", "block", 220, 160, { parentId: "F" }),
+    node("S", "block", 700, 100),
+  ];
+  const next = [
+    node("F", "frame", 300, 200, { w: 420, h: 310 }),
+    node("k1", "block", 30, 30, { parentId: "F" }),
+    node("k2", "block", 240, 170, { parentId: "F" }),
+    node("S", "block", 900, 150),
+  ];
+  const prevEdges = [edge("e1", "k1", "S"), edge("e2", "k1", "k2")];
+
+  it("состав не меняется, узлы едут — спрятаны все стрелки с изменившейся геометрией", () => {
+    const plan = planRelayout(prev, prevEdges, next, prevEdges)!;
+    expect(plan).not.toBeNull();
+    expect(plan.hiddenEdgeIds).toEqual(new Set(["e1", "e2"]));
+  });
+
+  it("ничего реально не сдвинулось (повторная переразкладка) — режиссуры нет", () => {
+    expect(planRelayout(prev, prevEdges, prev, prevEdges)).toBeNull();
+  });
+
+  it("первый рендер (prev пуст) — режиссуры нет", () => {
+    expect(planRelayout([], prevEdges, next, prevEdges)).toBeNull();
+  });
+
+  it("состав изменился (параллельная структурная правка) — режиссуры нет", () => {
+    const nextPlus = [...next, node("N", "block", 0, 0)];
+    expect(planRelayout(prev, prevEdges, nextPlus, prevEdges)).toBeNull();
+    const nextMinus = next.slice(0, 3);
+    expect(planRelayout(prev, prevEdges, nextMinus, prevEdges)).toBeNull();
+  });
+
+  it("новое ребро (появилось в свежей раскладке) тоже прячется на переезд", () => {
+    const nextEdges = [...prevEdges, edge("eNew", "k2", "S")];
+    const plan = planRelayout(prev, prevEdges, next, nextEdges)!;
+    expect(plan.hiddenEdgeIds).toEqual(new Set(["e1", "e2", "eNew"]));
   });
 });

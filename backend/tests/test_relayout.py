@@ -1,8 +1,10 @@
 """Тесты команды «Переразложить уровень» (own-on-first-render, Ф2 + R3).
 
-Эндпоинт стирает ВЕСЬ ручной layout одного вида → авто-раскладка: удаляются все
-строки view_layout этого вида (позиции локалов/гостей и геометрия пучков разом).
-Слой соседнего вида и другие виды не трогаются (скоуп строго по view_id).
+Эндпоинт стирает ручной layout одного вида → авто-раскладка: удаляются строки
+view_layout этого вида (позиции локалов/гостей и геометрия пучков разом).
+Строки с флагом expanded СОХРАНЯЮТСЯ без координат — раскрытия переживают
+сброс (решение 2026-08-05). Слой соседнего вида и другие виды не трогаются
+(скоуп строго по view_id).
 """
 
 import uuid
@@ -53,6 +55,14 @@ def _view_items(db, view_id):
     return q.count()
 
 
+def _view_rows(db, view_id):
+    q = db.query(ViewLayoutItem)
+    q = q.filter(ViewLayoutItem.view_id.is_(None)) if view_id is None else q.filter(
+        ViewLayoutItem.view_id == view_id
+    )
+    return q.all()
+
+
 def test_relayout_level_clears_only_this_view(db):
     # Вид контейнера C: позиции локалов c1/c2, позиция гостя g и геометрия пучка.
     # Соседний вид D со своими строками и корневой вид — должны выжить.
@@ -73,9 +83,54 @@ def test_relayout_level_clears_only_this_view(db):
 
     relayout_level(c.id, db=db, project=ensure_project(db))
 
-    assert _view_items(db, c.id) == 0        # вид C очищен целиком
+    assert _view_items(db, c.id) == 0        # вид C очищен (раскрытий в нём не было)
     assert _view_items(db, d.id) == 1        # соседний вид не тронут
     assert _view_items(db, None) == 1        # корневой вид не тронут
+
+
+def test_relayout_preserves_expanded_rows(db):
+    # Раскрытия переживают сброс: строка с expanded=True остаётся БЕЗ координат
+    # (фронт пересевает позиции ELK'ом, флаг читается из view_layout); строки
+    # позиций и легаси-геометрия пучков удаляются. Проверяем на корневом виде.
+    cont = _node(db, "Cont")
+    _node(db, "Child", cont)
+    other = _node(db, "Other")
+    db.commit()
+
+    _layout(db, None, str(cont.id), {"x": 10, "y": 20, "expanded": True})
+    _layout(db, None, str(other.id), {"x": 30, "y": 40})
+    _layout(db, None, f"b:{cont.id}>{other.id}", {"waypoints": [{"x": 5, "y": 6}]})
+    db.commit()
+
+    relayout_root_level(db=db, project=ensure_project(db))
+
+    rows = _view_rows(db, None)
+    assert len(rows) == 1                    # выжила только expanded-строка
+    kept = rows[0]
+    assert kept.item_id == str(cont.id)
+    assert kept.payload == {"expanded": True}  # координаты и прочее стерты
+
+
+def test_relayout_keeps_expanded_inside_level_view(db):
+    # То же для уровня контейнера: раскрытый локал вида C переживает его сброс.
+    c = _node(db, "C")
+    inner = _node(db, "Inner", c)
+    inner_kid = _node(db, "InnerKid", inner)
+    _node(db, "Plain", c)
+    db.commit()
+
+    _layout(db, c.id, str(inner.id), {"x": 1, "y": 2, "expanded": True})
+    _layout(db, c.id, str(inner_kid.id), {"x": 3, "y": 4})
+    db.commit()
+
+    relayout_level(c.id, db=db, project=ensure_project(db))
+
+    rows = _view_rows(db, c.id)
+    assert len(rows) == 1
+    assert rows[0].item_id == str(inner.id)
+    assert rows[0].payload == {"expanded": True}
+    # дети раскрытого контейнера positions потеряли — пересеются авто-раскладкой
+    assert _view_items(db, c.id) == 1
 
 
 def test_relayout_root_clears_root_view_only(db):

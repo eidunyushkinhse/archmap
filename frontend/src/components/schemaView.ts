@@ -37,6 +37,20 @@ export function viewShows(view: SchemaView, st: NodeStatus): boolean {
   return VIEW_BY_ID[view].show.has(st);
 }
 
+// Показывать ли управление статусами («Вид схемы», «Принять переход»).
+//
+// Истина — ПРОЕКТНАЯ: обе вещи относятся ко всему проекту, поэтому основа ответа —
+// признак с сервера (GraphResponse.has_status_info). Состав текущего уровня
+// добавлен вторым слагаемым не для полноты, а ради мгновенной реакции: правка
+// статуса узла в редакторе меняет только локальный стейт, уровень при этом НЕ
+// перезагружается, и серверный признак остаётся протухшим до следующей загрузки.
+export function showStatusControls(
+  projectHasStatuses: boolean,
+  ...levelItems: { status: NodeStatus }[][]
+): boolean {
+  return projectHasStatuses || levelItems.some((arr) => arr.some((i) => i.status !== "existing"));
+}
+
 // Ключ localStorage для выбранного вида. Глобальный, не по проектам: вид — привычка
 // пользователя, не свойство конкретной схемы.
 export const SCHEMA_VIEW_KEY = "archmap-schema-view";

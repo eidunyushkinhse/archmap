@@ -36,6 +36,20 @@ if ! PGPASSWORD="${DB_PASSWORD:-postgres}" psql -h "$DB_HOST" -p "$DB_PORT" -U "
   PGPASSWORD="${DB_PASSWORD:-postgres}" createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" "$DB_NAME"
 fi
 
+# --- 2b. Проверка/создание backend/.env (fail-fast конфиг требует SECRET_KEY) ---
+if [ ! -f backend/.env ]; then
+  say "backend/.env не найден — создаю со случайным SECRET_KEY."
+  GEN_SECRET="$(openssl rand -hex 32)"
+  cat > backend/.env <<EOF
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD:-postgres}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+SECRET_KEY=${GEN_SECRET}
+CORS_ORIGINS=http://localhost:${FRONTEND_PORT}
+EOF
+elif grep -q "change-me-in-production-needs-32-bytes" backend/.env; then
+  err "В backend/.env секрет-заглушка. Замените SECRET_KEY: openssl rand -hex 32."
+  exit 1
+fi
+
 # --- 3. Бэкенд: venv + миграции ---
 if [ ! -x backend/venv/bin/uvicorn ]; then
   err "Не найден backend/venv. Создай окружение:"

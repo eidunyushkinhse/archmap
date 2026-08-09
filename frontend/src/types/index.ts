@@ -31,16 +31,34 @@ export type TemplateEdge = Schemas["TemplateEdgeOut"];
 export type ImportPreviewOut = Schemas["ImportPreviewOut"];
 export type ImportPromptOut = Schemas["ImportPromptOut"];
 
+// Синхронизация живого проекта со свежим прогоном агента (docs/plan-arch-sync.md):
+// dry-run плана и отчёт применения.
+// Пара участников, между которыми есть плечо канала (индикация в композиторе).
+export type MessageDirection = Schemas["DirectionOut"];
+export type SyncPreviewOut = Schemas["SyncPreviewOut"];
+// «Принять переход»: план стал фактом (новое → существующее, выводимое → удалить).
+export type TransitionPreview = Schemas["TransitionPreviewOut"];
+export type TransitionApplyOut = Schemas["TransitionApplyOut"];
+export type SyncApplyOut = Schemas["SyncApplyOut"];
+export type SyncNodeAction = Schemas["SyncNodeActionOut"];
+export type SyncEdgeAction = Schemas["SyncEdgeActionOut"];
+
 export type Node = Schemas["NodeResponse"];
 
-// Порядок узлов-сиблингов в дереве: сначала ВНУТРЕННИЕ, потом внешние (по
-// собственному is_external узла, не его детей — пограничный «внешний с внутренними
-// детьми» допустим, но на него не ориентируемся). Внутри каждой группы «главное»
-// (с бОльшим числом прямых детей) — выше; при равенстве — по алфавиту. child_count
-// считает бэкенд (_mark_has_children). Наследуется на всех уровнях дерева.
+// Порядок узлов-сиблингов в дереве: РАНГ ФОРМЫ — сервисы с детьми (ядро системы),
+// затем атомарные сервисы, затем БД, брокеры и персоны (без разделов — одним
+// списком). Внутри ранга — ВНУТРЕННИЕ раньше внешних (по собственному is_external
+// узла), при равенстве — по алфавиту. child_count считает бэкенд
+// (_mark_has_children). Наследуется на всех уровнях дерева.
+const siblingRank = (n: Node): number =>
+  n.shape === "service" ? (n.child_count > 0 ? 0 : 1)
+  : n.shape === "database" ? 2
+  : n.shape === "broker" ? 3
+  : 4; // person
+
 export const compareByRank = (a: Node, b: Node): number =>
+  siblingRank(a) - siblingRank(b) ||
   Number(a.is_external) - Number(b.is_external) ||
-  b.child_count - a.child_count ||
   a.name.localeCompare(b.name);
 
 // Узлы-«пользователи» (shape: person) в дереве-навигаторе не показываем: дерево —
@@ -59,6 +77,12 @@ export type NodeDocMeta = Schemas["NodeDocMeta"];
 export type NodeDocKind = NodeDocMeta["kind"];
 export type NodeDocCreate = Schemas["NodeDocCreate"];
 export type NodeDocUpdate = Schemas["NodeDocUpdate"];
+
+// «Распределить по детям» (правила контейнеров): перенос grandfather-доков/спеки
+// контейнера на его непосредственных детей.
+export type DistributeDocAssignment = Schemas["DistributeDocAssignment"];
+export type DistributeDocsIn = Schemas["DistributeDocsIn"];
+export type DistributeDocsOut = Schemas["DistributeDocsOut"];
 
 // Дозаливка доков от ИИ-агента: отчёт превью/применения пакета archmap-docs.
 export type DocsImportReport = Schemas["DocsImportReport"];
@@ -100,14 +124,11 @@ export type GhostNode = Schemas["GhostNodeResponse"];
 // СЫРОЕ ребро графа уровня (R2): source_id/target_id — реальные концы; проекцию
 // на видимые сущности делает graph/projection.ts на фронте.
 export type GraphEdge = Schemas["GraphEdgeResponse"];
-// Ребро контекст-схемы: концы спроецированы сервером + original_* (реальные).
-export type ContextEdge = Schemas["ContextEdgeResponse"];
 
-// Ребро в стейте уровня/контекста: EdgeResponse-подобное (source_id/target_id —
-// РЕАЛЬНЫЕ концы, R2) плюс синтезируемые original_* — те же реальные концы с
-// именами для деталей связи. Поля original_* остаются в типе ради панели
-// EdgeInspector; на уровне их заполняет TreePage.load из реестра endpoints,
-// в контексте — сервер (ContextEdgeResponse), но там детализации нет.
+// Ребро в стейте уровня: EdgeResponse-подобное (source_id/target_id — РЕАЛЬНЫЕ
+// концы, R2) плюс синтезируемые original_* — те же реальные концы с именами для
+// деталей связи. Поля original_* остаются в типе ради панели EdgeInspector;
+// заполняются из реестра endpoints (toLevelEdges в pageSchema.ts).
 export type LevelEdge = Edge & {
   original_source_id: string;
   original_target_id: string;
@@ -115,12 +136,12 @@ export type LevelEdge = Edge & {
   original_target_name: string;
 };
 export type GraphResponse = Schemas["GraphResponse"];
-export type NodeContext = Schemas["NodeContextResponse"];
 export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];
 
 export type DisconnectedNodeAlert = Schemas["DisconnectedNodeAlert"];
 export type IntermediateEdgeAlert = Schemas["IntermediateEdgeAlert"];
 export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
+export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];

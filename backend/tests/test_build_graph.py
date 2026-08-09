@@ -10,10 +10,10 @@ import uuid
 
 from conftest import ensure_project
 
+from app.graph_queries import build_graph as _build_graph
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.view_layout import ViewLayoutItem
-from app.routers.nodes import _build_graph
 from app.tree import collect_subtree_ids_db
 
 
@@ -186,3 +186,36 @@ def test_read_returns_all_rows_and_does_not_mutate_db(db):
     # чтение НЕ мутировало БД (F6а): обе строки на месте
     remaining = {r.item_id for r in db.query(ViewLayoutItem).all()}
     assert remaining == {str(b.id), str(other.id)}
+
+
+# =================== has_status_info: признак ПРОЕКТНЫЙ, не уровневый ===================
+
+def test_has_status_info_true_when_statuses_lежат_глубже(db):
+    # Сценарий пользователя (2026-08-09): переключатель «Вид схемы» пропадал, когда
+    # architect стоял на уровне, где все узлы existing, а planned/deprecated лежали
+    # уровнем ниже. Признак считается по ВСЕМУ проекту, поэтому здесь он True.
+    root = _node(db, "Система")
+    child = _node(db, "PWA", root)
+    child.status = "planned"
+    db.commit()
+
+    graph = _build_graph(
+        local_nodes=[root], container_id=None,
+        all_nodes=_all_nodes(root, child), all_edges=[], db=db,
+    )
+
+    assert all(n.status == "existing" for n in graph.nodes)  # на уровне статусов нет
+    assert graph.has_status_info is True
+
+
+def test_has_status_info_false_когда_проект_без_статусов(db):
+    root = _node(db, "Система")
+    _node(db, "API", root)
+    db.commit()
+
+    graph = _build_graph(
+        local_nodes=[root], container_id=None,
+        all_nodes=_all_nodes(root), all_edges=[], db=db,
+    )
+
+    assert graph.has_status_info is False

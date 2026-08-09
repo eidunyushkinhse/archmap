@@ -18,7 +18,9 @@
 
 from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
+from typing import TypeGuard
 
+from app.identity import compare_identity, merge_key_sets
 from app.import_yaml import (
     MAX_EDGES,
     MAX_NODES,
@@ -54,7 +56,9 @@ def _norm(name: str) -> str:
     return " ".join(name.split()).casefold()
 
 
-def _fill(val: str | None) -> bool:
+def _fill(val: str | None) -> TypeGuard[str]:
+    # TypeGuard: после проверки val сужается до str (используется в _merge_str
+    # для безопасного .strip() и передачи в _conflict без повторных null-чеков).
     return val is not None and val.strip() != ""
 
 
@@ -77,7 +81,14 @@ class _Merger:
         self.nodes: list[_ImpNode] = []  # копии узлов, порядок «родители раньше детей»
         self.paths: list[str] = []  # полный путь merged-узла (для отчёта)
         self.sources: list[set[int]] = []  # какие файлы внесли вклад в узел
-        self.by_key: dict[tuple[int | None, str], int] = {}  # (merged-родитель, норм-имя) → idx
+        # (merged-родитель, норм-имя) → кандидаты. Список, а не один idx: якорь
+        # может РАЗВЕСТИ двух тёзок в одном родителе (разные репозитории), и оба
+        # обязаны остаться адресуемыми для следующих файлов.
+        self.by_key: dict[tuple[int | None, str], list[int]] = {}
+        # канонический ключ источника → idx узла. Индекс ГЛОБАЛЬНЫЙ (не в пределах
+        # родителя): якорь сильнее иерархии — им ловится сервис, которого разные
+        # прогоны положили под разных родителей или назвали по-разному.
+        self.by_source: dict[str, int] = {}
         self.edges: list[_ImpEdge] = []
         self.edge_seen: set[tuple[int, int, str, str]] = set()
         # (src, dst) → [(label, файл)] — для предупреждения о похожих рёбрах.
@@ -112,21 +123,95 @@ class _Merger:
             return
         self._conflict(idx, fld, cur, new, fi)
 
+    def _match_by_source(self, node: _ImpNode, fi: int) -> int | None:
+        """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии. Кандидат по слабому
+        ключу отбрасывается, если по сильному он противоречит (общий host «api»
+        при разных git — разные сервисы двух команд).
+
+        Узлы ОДНОГО файла не склеиваются никогда, даже при совпавшем якоре: внутри
+        файла агент развёл их осознанно (тот же принцип, что в warn_fuzzy_siblings).
+        Без этого монорепо схлопывалось — агент вешает один git-remote на все свои
+        сервисы, и «backend» вместе с поддеревом растворялся во «frontend»
+        (найдено прогоном на реальном репозитории 2026-08-07)."""
+        for k in node.source_keys:
+            hit = self.by_source.get(k)
+            if hit is None or fi in self.sources[hit]:
+                continue
+            if compare_identity(self.nodes[hit].source_keys, node.source_keys) != "different":
+                return hit
+        return None
+
+    def _match_by_name(self, node: _ImpNode, parent_m: int | None) -> int | None:
+        """Матч по имени в пределах слитого родителя — прежнее поведение, но с
+        предохранителем: тёзка с противоречащим якорем НЕ склеивается."""
+        for idx in self.by_key.get((parent_m, _norm(node.name)), []):
+            if compare_identity(self.nodes[idx].source_keys, node.source_keys) == "different":
+                self.report.warnings.append(
+                    f"«{node.name}» ({self._where(parent_m)}) встречается в файлах как РАЗНЫЕ "
+                    f"объекты (различаются источники) — оставлены раздельно"
+                )
+                continue
+            return idx
+        return None
+
+    def _where(self, parent_m: int | None) -> str:
+        return f"внутри «{self.paths[parent_m]}»" if parent_m is not None else "на верхнем уровне"
+
+    def _register(self, idx: int, node: _ImpNode, parent_m: int | None, fi: int) -> None:
+        """Узел адресуем и по имени в родителе, и по каждому своему якорю."""
+        self.by_key.setdefault((parent_m, _norm(node.name)), []).append(idx)
+        for k in self.nodes[idx].source_keys:
+            taken = self.by_source.get(k)
+            if taken is not None and fi in self.sources[taken]:
+                # Один якорь на два узла ОДНОГО файла: агент повесил общий
+                # git-remote на все сервисы монорепо, не различив их путями.
+                # Склеивать нельзя (см. _match_by_source), но следующие файлы
+                # найдут по этому ключу только первого — предупреждаем.
+                self.report.warnings.append(
+                    f"«{self.nodes[taken].name}» и «{node.name}» указывают один источник "
+                    f"({k}) — уточните source.path у каждого, иначе следующие файлы "
+                    f"свяжутся только с первым"
+                )
+                continue
+            self.by_source.setdefault(k, idx)
+
     def add_node(self, node: _ImpNode, parent_m: int | None, fi: int) -> int:
-        key = (parent_m, _norm(node.name))
-        hit = self.by_key.get(key)
+        hit = self._match_by_source(node, fi)
+        if hit is None:
+            hit = self._match_by_name(node, parent_m)
         if hit is None:
             idx = len(self.nodes)
             self.nodes.append(replace(node, parent_idx=parent_m))
             prefix = f"{self.paths[parent_m]} / " if parent_m is not None else ""
             self.paths.append(prefix + node.name)
             self.sources.append({fi})
-            self.by_key[key] = idx
+            self._register(idx, node, parent_m, fi)
             return idx
         # Узел уже есть — склейка полей. Имя оставляем первое встреченное
         # (различие лишь в регистре/пробелах — в отчёт не шумим).
         if fi not in self.sources[hit] and len(self.sources[hit]) == 1:
             self.report.merged_paths.append(self.paths[hit])
+        # Якорь связал узлы, названные ПО-РАЗНОМУ (в своём репозитории сервис зовётся
+        # «app», вызывающие ходят на «payments») либо положенные под разных родителей.
+        # Оставляем первое — перевешивать поддерево по позднему файлу опаснее, чем
+        # оставить расхождение видимым в отчёте.
+        if _norm(node.name) != _norm(self.nodes[hit].name):
+            self._conflict(hit, "имя", self.nodes[hit].name, node.name, fi)
+        kept_parent = self.nodes[hit].parent_idx
+        if parent_m != kept_parent:
+            top = "верхний уровень"
+            self._conflict(
+                hit,
+                "родитель",
+                self.paths[kept_parent] if kept_parent is not None else top,
+                self.paths[parent_m] if parent_m is not None else top,
+                fi,
+            )
+        # Грани источника у прогонов разные — склеенный узел наследует все, иначе
+        # следующий файл не найдёт его по той грани, которой не досталось.
+        self.nodes[hit].source_keys = merge_key_sets(self.nodes[hit].source_keys, node.source_keys)
+        for k in self.nodes[hit].source_keys:
+            self.by_source.setdefault(k, hit)
         self._merge_str(hit, "role", node.role, fi)
         self._merge_str(hit, "technology", node.technology, fi)
         self._merge_str(hit, "description", node.description, fi)
@@ -239,6 +324,43 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
     return m.finish(parts)
 
 
+def warn_content(merged: ParsedImport, report: MergeReport) -> None:
+    """Проверки СОДЕРЖАНИЯ схемы, не полагающиеся на аккуратность агента.
+
+    Обе находки ручной проверки 2026-08-08: агент кладёт людей внутрь системы
+    (3 прогона из 4) и создаёт компоненты, не связанные ни с чем (2 объекта из
+    10). Промпт про это говорит, но соблюдает его модель через раз — поэтому
+    предупреждаем ЗДЕСЬ, до создания проекта.
+
+    Только предупреждения: тихо перестраивать чужое дерево (поднимать актора в
+    корень) хуже, чем строка в отчёте, — пользователь не поймёт, что произошло.
+    """
+    actors = [n.name for n in merged.nodes if n.shape == "person" and n.parent_idx is not None]
+    if actors:
+        report.warnings.append(
+            f"внутри системы оказались люди ({', '.join(f'«{a}»' for a in actors[:6])}) — "
+            f"по C4 человек пользуется системой, а не входит в неё; перенесите их в корень"
+        )
+    # «Подвисшим» считается ТОЛЬКО атомарный узел: у контейнера прямых связей и
+    # быть не должно — их несут его дети, а связь, упирающаяся в контейнер, ловится
+    # отдельным алертом. Зеркалим определение из app/alerts.compute_alerts, иначе
+    # превью пугало бы тем, чего схема потом не показывает.
+    parents = {n.parent_idx for n in merged.nodes if n.parent_idx is not None}
+    linked = {e.source_idx for e in merged.edges} | {e.target_idx for e in merged.edges}
+    lonely = [
+        n.name
+        for i, n in enumerate(merged.nodes)
+        if i not in linked and i not in parents and n.parent_idx is not None
+    ]
+    if lonely:
+        names = ", ".join(f"«{x}»" for x in lonely[:6])
+        tail = f" и ещё {len(lonely) - 6}" if len(lonely) > 6 else ""
+        report.warnings.append(
+            f"объектов без единой связи: {len(lonely)} ({names}{tail}) — проверьте, "
+            f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»"
+        )
+
+
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:
     """Общий путь превью и создания: разобрать N текстов и слить. Возвращает
     (результат, отчёт, ошибки); при любых ошибках результат None. Ошибки
@@ -257,4 +379,5 @@ def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport,
     merged, report = merge_imports(parts)
     if report.errors:
         return None, report, list(report.errors)
+    warn_content(merged, report)
     return merged, report, []

@@ -1,19 +1,18 @@
 // Мета узла в правой панели: просмотр (наблюдатель) и inline-правка (архитектор).
 // Перенос ветки «просмотр/правка» из NodeModal (создание осталось в модалке). Inline-
 // правка коммитится по blur (тексты) / сразу (toggle/статус) и ложится в Undo/Redo через
-// тот же onNodeSaved, что и модалка. Тяжёлые поля (Flowchart/OpenAPI) — оверлеем DocOverlay.
-import { useCallback, useEffect, useRef, useState } from "react";
+// тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
+// не управляется — единый раздел «Документация» ведёт на страницу узла.
+import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DeletionSnapshot, Node, NodeShape, NodeStatus, NodeUpdate } from "../../types";
-import { canHaveChildren, compareByRank, withoutPersons } from "../../types";
+import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
 import { isConflict } from "../../api/client";
-import { ShapeGlyph, Chevron } from "../nodeTree.shared";
+import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
-import DocOverlay from "./DocOverlay";
-import type { NodeDocEvent } from "./FlowchartDocs";
-import "../NodeTreePanel.css"; // классы nt-tree/nt-row для справочной ветки детей
+import { useContainerChildren } from "../../pages/useContainerChildren";
 import "./inspector.css";
 
 interface Props {
@@ -22,14 +21,13 @@ interface Props {
   // Тот же обработчик, что у модалки: кладёт правку в Undo/Redo. before — узел ДО правки.
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
-  // Мутации схем логики (node_docs) из оверлея: TreePage кладёт компенсации в
-  // Undo/Redo и освежает мету node.docs в стейте уровня.
-  onDocEvent: (evt: NodeDocEvent) => void;
+  // Переход на страницу узла (раздел «Документация» → «Открыть»).
+  onNavigateNode: (nodeId: string) => void;
 }
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
-export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onDocEvent }: Props) {
+export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode }: Props) {
   // Локальные значения полей. Сбрасываются на смену выбора: ObjectInspector монтирует
   // NodeInspector с key=node.id, поэтому при выборе другого узла компонент перемонтируется.
   const [name, setName] = useState(node.name);
@@ -40,21 +38,25 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const [status, setStatus] = useState<NodeStatus>(node.status);
   const [statusOpen, setStatusOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [doc, setDoc] = useState<"flowchart" | "openapi" | null>(null);
   // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
   // обновлены с сервера — пользователь повторяет правку поверх свежего.
   const [conflict, setConflict] = useState<string | null>(null);
 
   // Узел ДО последней правки — для обратимой записи в историю. Обновляем после
-  // успешного коммита (тяжёлые поля правит DocOverlay тем же save → ref не отстаёт).
+  // успешного коммита.
   const beforeRef = useRef<Node>(node);
   const shape = node.shape;
   const isPerson = shape === "person";
+  const isContainer = canHaveChildren(shape) && node.has_children;
+  // Агрегированная технология потомков для контейнера: по правилам у контейнера
+  // нет своей технологии — показываем сумму технологий потомков, read-only
+  // (как на странице узла). Для не-контейнеров хук ничего не фетчит.
+  const container = useContainerChildren(node.id, isContainer);
 
   // Единый коммит: собирает полный NodeUpdate из локального состояния + правленого поля
-  // (over перекрывает то, что ещё не доехало в стейт на момент blur). Тяжёлое поле
-  // openapi_spec берём из beforeRef (последнее сохранённое) — его меняет только
-  // DocOverlay через over; схемы логики живут отдельным API (node_docs), не здесь.
+  // (over перекрывает то, что ещё не доехало в стейт на момент blur). openapi_spec
+  // переносим из beforeRef без изменений — документацией управляет страница узла;
+  // схемы логики живут отдельным API (node_docs), не здесь.
   const save = useCallback(
     async (over: Partial<NodeUpdate>) => {
       const before = beforeRef.current;
@@ -130,13 +132,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
     setStatus(st);
     void save({ status: st });
   };
-  const commitOpenapi = (value: string) => {
-    if (value === (beforeRef.current.openapi_spec ?? "")) return;
-    void save({ openapi_spec: value || null });
-  };
 
   const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
-  const isContainer = canHaveChildren(shape) && node.has_children;
 
   return (
     <div>
@@ -265,7 +262,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
         {!isPerson && (
           <Row icon={META_ICON.tech} label="Технология">
-            {isArchitect ? (
+            {isContainer ? (
+              // Контейнер: агрегированная технология потомков, только чтение.
+              <span className={"insp-value" + (container.aggTech ? "" : " insp-value--empty")}>
+                {container.loading ? "…" : container.aggTech || "не указана"}
+              </span>
+            ) : isArchitect ? (
               <span className="insp-value">
                 <input
                   className="insp-field"
@@ -282,30 +284,16 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             )}
           </Row>
         )}
-
-        <ChildrenRow node={node} />
       </dl>
 
-      {/* Тяжёлые поля — оверлеем по кнопке-строке */}
+      {/* Документация: управление схемами логики и спеками — только на странице
+          узла; из редактора ведёт туда единая точка входа «Открыть». */}
       {!isPerson && (
         <>
           <div className="insp-block-label">Документация</div>
-          {(isArchitect || node.docs.length > 0) && (
-            <button type="button" className="insp-heavy" onClick={() => setDoc("flowchart")}>
-              <span className="insp-heavy-ico">{META_ICON.flow}</span>
-              <span className="insp-heavy-name">Логика</span>
-              <span className="insp-heavy-status">
-                {node.docs.length > 0 ? `${node.docs.length} ${pluralScheme(node.docs.length)} →` : "не задано"}
-              </span>
-            </button>
-          )}
-          {(isArchitect || node.openapi_spec) && (
-            <button type="button" className="insp-heavy" onClick={() => setDoc("openapi")}>
-              <span className="insp-heavy-ico">{META_ICON.api}</span>
-              <span className="insp-heavy-name">OpenAPI</span>
-              <span className="insp-heavy-status">{node.openapi_spec ? "открыть →" : "не задано"}</span>
-            </button>
-          )}
+          <button type="button" className="insp-doc-item" onClick={() => onNavigateNode(node.id)}>
+            <span className="insp-doc-name">Открыть</span>
+          </button>
         </>
       )}
 
@@ -321,20 +309,6 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           node={node}
           onCancel={() => setConfirming(false)}
           onDeleted={(id, snapshot) => { setConfirming(false); onNodeDeleted(id, snapshot); }}
-        />
-      )}
-
-      {doc && (
-        <DocOverlay
-          mode={doc}
-          nodeId={node.id}
-          nodeName={node.name}
-          openapi={node.openapi_spec ?? ""}
-          isArchitect={isArchitect}
-          onCommitOpenapi={commitOpenapi}
-          onDocEvent={onDocEvent}
-          onClose={() => setDoc(null)}
-          notice={conflict}
         />
       )}
     </div>
@@ -355,100 +329,6 @@ function Row({ icon, label, children }: { icon: ReactNode; label: string; childr
   );
 }
 
-// Строка «Дочерние объекты»: счётчик + справочная ветка дерева (только просмотр).
-function ChildrenRow({ node }: { node: Node }) {
-  const [kids, setKids] = useState<Node[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    nodesApi.getChildren(node.id)
-      .then((cs) => { if (alive) setKids(withoutPersons(cs).sort(compareByRank)); })
-      .catch(() => { if (alive) setKids([]); });
-    return () => { alive = false; };
-  }, [node.id]);
-  const loading = kids === null;
-  const list = kids ?? [];
-  const hasKids = list.length > 0;
-  return (
-    <div className={"insp-row" + (hasKids ? " insp-row--top" : "")}>
-      <dt className="insp-term">
-        <span className="insp-term-ico">{META_ICON.children}</span>
-        Дочерние
-      </dt>
-      <dd className="insp-value insp-value--block" style={{ padding: 0 }}>
-        {loading ? (
-          <span className="insp-value--empty">загрузка…</span>
-        ) : hasKids ? (
-          <>
-            <div style={{ marginBottom: 6 }}>{list.length} {pluralObj(list.length)}</div>
-            <div className="nt-tree nt-tree--inline">
-              {list.map((k) => <TreeRow key={k.id} node={k} />)}
-            </div>
-          </>
-        ) : (
-          <span className="insp-value--empty">Нет</span>
-        )}
-      </dd>
-    </div>
-  );
-}
-
-// Строка справочной ветки детей (мини-аналог дерева, без drill/контекста). Порт из NodeModal.
-function TreeRow({ node }: { node: Node }) {
-  const [open, setOpen] = useState(false);
-  const [kids, setKids] = useState<Node[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const expandable = canHaveChildren(node.shape) && node.has_children;
-
-  async function toggle() {
-    if (open) { setOpen(false); return; }
-    if (kids === null) {
-      setLoading(true);
-      try {
-        const got = withoutPersons(await nodesApi.getChildren(node.id)).sort(compareByRank);
-        setKids(got);
-        if (got.length === 0) return;
-      } finally { setLoading(false); }
-    } else if (kids.length === 0) { return; }
-    setOpen(true);
-  }
-
-  return (
-    <>
-      <div className="nt-row">
-        {expandable ? (
-          <button className="nt-chevzone" onClick={toggle} aria-label={open ? "Свернуть ветку" : "Развернуть ветку"} aria-expanded={open}>
-            <span className="nt-chevhit">
-              <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>
-                {loading ? "⋯" : <Chevron />}
-              </span>
-            </span>
-          </button>
-        ) : <span className="nt-chevspacer" />}
-        <ShapeGlyph container={expandable} shape={node.shape} />
-        <span className={expandable ? "nt-name nt-name--container" : "nt-name"}>{node.name}</span>
-      </div>
-      {open && kids && kids.length > 0 && (
-        <div className="nt-children">{kids.map((k) => <TreeRow key={k.id} node={k} />)}</div>
-      )}
-    </>
-  );
-}
-
-function pluralObj(n: number): string {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return "объект";
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "объекта";
-  return "объектов";
-}
-
-// «1 схема / 2 схемы / 5 схем» — счётчик доков логики в строке «Документация».
-function pluralScheme(n: number): string {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return "схема";
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "схемы";
-  return "схем";
-}
-
 // Форма узла → человекочитаемая подпись типа.
 const SHAPE_LABEL: Record<NodeShape, string> = {
   service: "Сервис",
@@ -462,18 +342,12 @@ const ms = {
   width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
   stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
 } as const;
-const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "children" | "flow" | "api" | "trash", ReactNode> = {
+const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "flow" | "api" | "trash", ReactNode> = {
   type: <svg {...ms}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
   placement: <svg {...ms}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
   status: <svg {...ms}><path d="M1.75 8h2.5l1.6-3.8 2.2 7.2 1.7-5 1 1.6h3.5" /></svg>,
   role: <svg {...ms}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
   tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
-  children: <svg {...ms}>
-    <rect x="6" y="2.5" width="4" height="3" rx="0.6" />
-    <rect x="1.75" y="10.5" width="4" height="3" rx="0.6" />
-    <rect x="10.25" y="10.5" width="4" height="3" rx="0.6" />
-    <path d="M8 5.5V8 M3.75 8H12.25 M3.75 8V10.5 M12.25 8V10.5" />
-  </svg>,
   flow: <svg {...ms}><circle cx="4" cy="4" r="1.8" /><circle cx="12" cy="8" r="1.8" /><circle cx="4" cy="12" r="1.8" /><path d="M5.6 4H9a1.7 1.7 0 0 1 1.7 1.7v.6 M5.6 12H9a1.7 1.7 0 0 0 1.7-1.7v-.6" /></svg>,
   api: <svg {...ms}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M5 6.5 3.5 8 5 9.5 M11 6.5 12.5 8 11 9.5 M8.6 5.7 7.4 10.3" /></svg>,
   trash: <svg {...ms} width={15} height={15}><path d="M3 4.2h10 M5.5 4.2V3h5v1.2 M4.2 4.2l.6 8.3a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.3" /></svg>,

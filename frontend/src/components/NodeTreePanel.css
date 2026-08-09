@@ -90,8 +90,18 @@
 .nt-row--clickable:hover .nt-glyph {
   color: #1d4ed8;
 }
-.nt-row--clickable:hover .nt-action {
-  display: inline-flex;
+
+/* Текущая открытая страница (п.1): устойчивая подсветка строки — голубой фон,
+   синие имя/глиф, левый акцент. Сильнее hover, чтобы текущий узел читался всегда. */
+.nt-row--current,
+.nt-row--current:hover {
+  background: #dbeafe;
+  box-shadow: inset 2px 0 0 #2563eb;
+}
+.nt-row--current .nt-name,
+.nt-row--current .nt-glyph {
+  color: #1d4ed8;
+  font-weight: 600;
 }
 
 /* Имя узла — усечение в узкой панели. Контейнеры выделены жирнее и темнее. */
@@ -155,18 +165,6 @@
   flex: none;
 }
 
-/* Подпись действия справа в строке — видна только на hover (см. .nt-row--clickable:hover). */
-.nt-action {
-  display: none;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex: none;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: #2563eb;
-}
-
 /* Направляющая вложенности: дети раскрытого узла со сдвигом и левой линией. */
 .nt-children {
   margin-left: 21px;
@@ -214,4 +212,29 @@
 .nt-collapse:hover {
   background: #f1f5f9;
   color: #334155;
+}
+
+/* «+» на строке дерева (pages_pivot) — виден только при hover строки */
+.nt-add-child {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  margin-left: auto;
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+}
+.nt-row:hover .nt-add-child {
+  display: inline-flex;
+}
+.nt-add-child:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
 }

@@ -1,37 +1,45 @@
 import uuid
-from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import restore, tree
+from app.alerts import compute_alerts
 from app.auth import get_current_user, require_architect
+from app.context_graph import build_context_graph
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
+from app.graph_queries import build_graph, project_has_status_info
+from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
+from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
-    ContextEdgeResponse,
-    DisconnectedNodeAlert,
-    GhostNodeResponse,
-    GraphEdgeResponse,
     GraphResponse,
-    IntermediateEdgeAlert,
-    IsolatedGroupAlert,
-    NodeContextResponse,
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
     NodeUpdate,
-    ViewLayoutPayload,
+    TransitionApplyIn,
+    TransitionApplyOut,
+    TransitionNodeOut,
+    TransitionPreviewOut,
 )
+from app.schemas.process import ProcessListItem
 from app.schemas.restore import DeletionSnapshot
-from app.view_state import bump_graph_rev, bump_view_version, current_version
+from app.transition import apply_transition, build_transition, cleanup_layout
+from app.view_state import (
+    bump_graph_rev,
+    bump_meta_rev,
+    bump_view_version,
+    current_version,
+)
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
@@ -42,115 +50,21 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
     if not nodes:
         return
     ids = [n.id for n in nodes]
-    counts = dict(
-        db.query(Node.parent_id, func.count(Node.id))
-        .filter(Node.parent_id.in_(ids))
-        .group_by(Node.parent_id)
-        .all()
-    )
+    # Ключ — parent_id (UUID | None), значение — число детей. Comprehension с
+    # распаковкой строк: dict(Row...) не типизируется (Row не подтип tuple для
+    # mypy), а {pid: cnt for ...} выводится чисто.
+    counts: dict[uuid.UUID | None, int] = {
+        pid: cnt
+        for pid, cnt in (
+            db.query(Node.parent_id, func.count(Node.id))
+            .filter(Node.parent_id.in_(ids))
+            .group_by(Node.parent_id)
+            .all()
+        )
+    }
     for n in nodes:
         n.child_count = counts.get(n.id, 0)
         n.has_children = n.child_count > 0
-
-
-def _build_graph(
-    local_nodes: list[Node],
-    container_id: uuid.UUID | None,
-    all_nodes: dict[uuid.UUID, Node],
-    all_edges: list[Edge],
-    db: Session,
-) -> GraphResponse:
-    """Собирает СЫРОЙ граф уровня (R2 вид-центричного движка).
-
-    Отдаёт: детей контейнера, рёбра, затрагивающие его поддерево (с РЕАЛЬНЫМИ
-    концами), реестр не-локальных концов с цепочками предков и пер-уровневый слой
-    раскладки. Проекцию концов на видимые сущности («подъём к ближайшему видимому
-    представителю») делает фронтенд (graph/projection.ts) — она зависит от
-    expand/collapse-состояния, известного только ему.
-    """
-    local_ids: set[uuid.UUID] = {n.id for n in local_nodes}
-    subtree = (
-        tree.subtree_ids(all_nodes, container_id)
-        if container_id is not None
-        else set(all_nodes)
-    )
-
-    result_edges: list[GraphEdgeResponse] = []
-    endpoint_ids: set[uuid.UUID] = set()
-    for edge in all_edges:
-        # ребро относится к уровню, если затрагивает его поддерево хотя бы одним концом
-        if edge.source_id not in subtree and edge.target_id not in subtree:
-            continue
-        result_edges.append(
-            GraphEdgeResponse(
-                id=edge.id,
-                label=edge.label,
-                technology=edge.technology,
-                source_id=edge.source_id,
-                target_id=edge.target_id,
-                version=edge.version,
-            )
-        )
-        for nid in (edge.source_id, edge.target_id):
-            if nid not in local_ids:
-                endpoint_ids.add(nid)
-
-    # Раскладка вида как есть: ВСЕ строки view_layout этого вида (у корня view IS
-    # NULL — позиции корневых узлов теперь тоже здесь). Строки «не показанных
-    # сейчас» проекций безвредны (какая проекция видна — решает фронт) и живут
-    # намеренно: при возврате проекции геометрия воскресает. Инвариант F6а —
-    # ЧТЕНИЕ НЕ ПИШЕТ В БД; реальных сирот чистят каскад view_id и delete_node.
-    layout: dict[str, ViewLayoutPayload] = {}
-    project_id = local_nodes[0].project_id
-    view_filter = (
-        ViewLayoutItem.view_id.is_(None)
-        if container_id is None
-        else ViewLayoutItem.view_id == container_id
-    )
-    for r in (
-        db.query(ViewLayoutItem)
-        .filter(ViewLayoutItem.project_id == project_id, view_filter)
-        .all()
-    ):
-        payload = ViewLayoutPayload(**r.payload)
-        # легаси-строки пучков (ручной слой стрелок, удалён 2026-07-09): все живые
-        # поля пусты — не отдаём мусор
-        if payload.x is None and payload.y is None and payload.expanded is None:
-            continue
-        layout[r.item_id] = payload
-
-    # Число прямых детей у каждого родителя — одним проходом по всем узлам.
-    # Питает бейдж «есть дети (N)» и кнопку «Войти» и у концов-реестра, и у локалов.
-    child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
-    # Реестр не-локальных концов рёбер (сортировка по id — детерминизм ответа).
-    endpoints = [
-        GhostNodeResponse(
-            id=all_nodes[nid].id,
-            name=all_nodes[nid].name,
-            role=all_nodes[nid].role,
-            technology=all_nodes[nid].technology,
-            is_external=all_nodes[nid].is_external,
-            shape=all_nodes[nid].shape,
-            status=all_nodes[nid].status,
-            node_depth=tree.node_depth(all_nodes, nid),
-            has_children=child_counts.get(nid, 0) > 0,
-            child_count=child_counts.get(nid, 0),
-            ancestors=tree.ancestors(all_nodes, nid),
-        )
-        for nid in sorted(endpoint_ids, key=str)
-        if nid in all_nodes
-    ]
-    # child_count/has_children локальных узлов — из того же Counter
-    # (карта всех узлов уже в памяти; отдельный SQL _mark_has_children здесь лишний).
-    for n in local_nodes:
-        n.child_count = child_counts.get(n.id, 0)
-        n.has_children = n.child_count > 0
-    return GraphResponse(
-        nodes=local_nodes,
-        edges=result_edges,
-        endpoints=endpoints,
-        layout=layout,
-    )
 
 
 @router.get("/", response_model=list[NodeResponse])
@@ -308,17 +222,86 @@ def get_root_graph(
     version = current_version(db, project.id, None)
     if not local_nodes:
         return GraphResponse(
-            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev
+            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev,
+            meta_rev=project.meta_rev,
+            has_status_info=project_has_status_info(db, project.id),
         )
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    graph = _build_graph(local_nodes, None, all_nodes, all_edges, db)
+    graph = build_graph(local_nodes, None, all_nodes, all_edges, db)
     graph.version = version
     graph.graph_rev = project.graph_rev
+    graph.meta_rev = project.meta_rev
     return graph
 
 
-# Должен быть объявлен до /{node_id}, иначе FastAPI примет "alerts" за node_id
+# Должен быть объявлен до /{node_id}, иначе FastAPI примет "transition" за node_id
+@router.get("/transition", response_model=TransitionPreviewOut)
+def transition_preview(
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> TransitionPreviewOut:
+    """Что произойдёт при принятии перехода (новое → существующее, выводимое →
+    удалить). Ничего не записывает."""
+    plan = build_transition(db, project)
+    paths = _node_paths(db, project)
+    return TransitionPreviewOut(
+        graph_rev=project.graph_rev,
+        is_noop=plan.is_noop,
+        delete=[_transition_node(n, paths) for n in plan.delete_roots],
+        delete_total=len(plan.delete_ids),
+        collateral=[_transition_node(n, paths) for n in plan.collateral],
+        delete_edges=plan.edges,
+        delete_docs=plan.docs,
+        delete_specs=plan.specs,
+        promote=[_transition_node(n, paths) for n in plan.promote],
+    )
+
+
+@router.post("/transition", response_model=TransitionApplyOut)
+def transition_apply(
+    payload: TransitionApplyIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> TransitionApplyOut:
+    """Принять переход. План ПЕРЕСЧИТЫВАЕТСЯ здесь — клиентскому не доверяем; при
+    расхождении курсора схемы отказываем, а не пишем вслепую."""
+    if payload.base_graph_rev is not None and payload.base_graph_rev != project.graph_rev:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Схема изменилась с момента показа плана",
+        )
+    plan = build_transition(db, project)
+    deleted, promoted = apply_transition(db, project, plan)
+    if deleted or promoted:
+        bump_graph_rev(db, project)
+        touch_project(db, project, user.id)
+    db.commit()
+    return TransitionApplyOut(deleted_nodes=deleted, promoted_nodes=promoted)
+
+
+def _node_paths(db: Session, project: Project) -> dict[uuid.UUID, str]:
+    """Полные пути узлов проекта — «Система / payments / api»."""
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    by_id = {n.id: n for n in nodes}
+
+    def full(n: Node) -> str:
+        parts = [n.name]
+        cur = by_id.get(n.parent_id) if n.parent_id else None
+        while cur is not None:
+            parts.append(cur.name)
+            cur = by_id.get(cur.parent_id) if cur.parent_id else None
+        return " / ".join(reversed(parts))
+
+    return {n.id: full(n) for n in nodes}
+
+
+def _transition_node(n: Node, paths: dict[uuid.UUID, str]) -> TransitionNodeOut:
+    return TransitionNodeOut(id=n.id, name=n.name, path=paths.get(n.id, n.name))
+
+
 @router.get("/alerts", response_model=AlertsResponse)
 def get_alerts(
     db: Session = Depends(get_db),
@@ -328,96 +311,10 @@ def get_alerts(
     """Глобальные алерты незавершённости схемы (только архитектор):
     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
     2) связи, у которых хотя бы один конец упирается в промежуточный
-       (контейнерный) узел, а не в атомарный.
-    Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
-    (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
-    """
-    all_nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    name_by_id = {n.id: n.name for n in all_nodes}
-
-    # Промежуточные узлы = те, что являются чьим-то родителем (есть дети)
-    intermediate_ids = {
-        pid
-        for (pid,) in db.query(Node.parent_id)
-        .filter(Node.project_id == project.id, Node.parent_id.isnot(None))
-        .distinct()
-        .all()
-    }
-
-    # Узлы, у которых есть хоть одна связь (по сырым концам рёбер)
-    connected_ids: set[uuid.UUID] = set()
-    for e in all_edges:
-        connected_ids.add(e.source_id)
-        connected_ids.add(e.target_id)
-
-    disconnected = [
-        DisconnectedNodeAlert(node_id=n.id, node_name=n.name)
-        for n in all_nodes
-        if n.id not in intermediate_ids and n.id not in connected_ids
-    ]
-
-    intermediate_edges: list[IntermediateEdgeAlert] = []
-    for e in all_edges:
-        src_inter = e.source_id in intermediate_ids
-        tgt_inter = e.target_id in intermediate_ids
-        if src_inter or tgt_inter:
-            intermediate_edges.append(
-                IntermediateEdgeAlert(
-                    edge_id=e.id,
-                    label=e.label,
-                    source_id=e.source_id,
-                    source_name=name_by_id.get(e.source_id, "?"),
-                    target_id=e.target_id,
-                    target_name=name_by_id.get(e.target_id, "?"),
-                    source_is_intermediate=src_inter,
-                    target_is_intermediate=tgt_inter,
-                )
-            )
-
-    # 3) Изолированные группы — связные компоненты графа РЁБЕР (иерархию
-    #    parent_id игнорируем: иначе всё связано через дерево). Узлы без
-    #    единой связи сюда не попадают (их ловит проверка 1). Алерт зажигаем,
-    #    только если связных групп (≥2 узла) больше одной — иначе это просто
-    #    единственный кластер плюс висячие узлы, и фрагментации нет.
-    adjacency: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for e in all_edges:
-        adjacency.setdefault(e.source_id, set()).add(e.target_id)
-        adjacency.setdefault(e.target_id, set()).add(e.source_id)
-
-    visited: set[uuid.UUID] = set()
-    components: list[list[uuid.UUID]] = []
-    for start in adjacency:
-        if start in visited:
-            continue
-        stack = [start]
-        visited.add(start)
-        comp: list[uuid.UUID] = []
-        while stack:
-            cur = stack.pop()
-            comp.append(cur)
-            for nxt in adjacency[cur]:
-                if nxt not in visited:
-                    visited.add(nxt)
-                    stack.append(nxt)
-        if len(comp) >= 2:
-            components.append(comp)
-
-    isolated_groups: list[IsolatedGroupAlert] = []
-    if len(components) >= 2:
-        for comp in components:
-            isolated_groups.append(
-                IsolatedGroupAlert(
-                    node_ids=comp,
-                    node_names=[name_by_id.get(nid, "?") for nid in comp],
-                )
-            )
-
-    return AlertsResponse(
-        disconnected_nodes=disconnected,
-        intermediate_edges=intermediate_edges,
-        isolated_groups=isolated_groups,
-    )
+       (контейнерный) узел, а не в атомарный;
+    3) изолированные группы — связные компоненты графа рёбер.
+    Доменный алгоритм — в app/alerts.compute_alerts."""
+    return compute_alerts(db, project.id)
 
 
 @router.get("/{node_id}", response_model=NodeResponse)
@@ -452,6 +349,13 @@ def update_node(
         raise HTTPException(status_code=409, detail="Узел изменён в другой сессии")
     if data:
         old_parent = node.parent_id
+        # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:
+        # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
+        # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост
+        # схемы в той же сессии, V48/V53).
+        structural = {"parent_id", "name", "shape"}
+        struct_changed = any(data[f] != getattr(node, f) for f in data.keys() & structural)
+        meta_changed = any(data[f] != getattr(node, f) for f in data.keys() - structural)
         for field, value in data.items():
             setattr(node, field, value)
         node.version += 1
@@ -459,7 +363,13 @@ def update_node(
             # перенос между уровнями меняет членство ОБОИХ видов — fence обоим
             bump_view_version(db, project.id, old_parent)
             bump_view_version(db, project.id, data["parent_id"])
-        bump_graph_rev(db, project)
+        # Структурные поля двигают СХЕМУ (имя/форма/иерархия видны на холсте);
+        # мета (роль/технология/статус/описание/внешность/openapi) — курсор меты:
+        # поллинг страницы отличает «данные обновлены» от «схема обновлена».
+        if struct_changed:
+            bump_graph_rev(db, project)
+        if meta_changed:
+            bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(node)
@@ -496,30 +406,9 @@ def delete_node(
     # Удаляем узел со всем поддеревом (потомки любой глубины) и их рёбрами — это
     # делает БД-каскад (ondelete="CASCADE" на parent_id, source_id/target_id), а
     # passive_deletes на связях Node не даёт ORM лезть в эти строки в Python.
-    #
-    # Раскладка: строки view_layout СВОИХ видов поддерева умирают каскадом view_id,
-    # но строки, ссылающиеся на поддерево из ДРУГИХ видов (гостевые позиции, ключи
-    # пучков "b:<src>><tgt>"), FK не накрыты (item_id — строка) — чистим явно по
-    # вхождению uuid в ключ.
-    subtree = tree.collect_subtree_ids_db(db, node_id)
-    like_filter = or_(*[ViewLayoutItem.item_id.like(f"%{sid}%") for sid in subtree])
-    # Виды, из которых чистка вычистит строки (гостевые позиции и т.п.), — их мир
-    # меняется, fence должен это увидеть. Виды ВНУТРИ поддерева умирают каскадом —
-    # им версию не бампаем (строка view_state уйдёт тем же каскадом view_id).
-    touched_views = {
-        vid
-        for (vid,) in db.query(ViewLayoutItem.view_id)
-        .filter(ViewLayoutItem.project_id == project.id, like_filter)
-        .distinct()
-        .all()
-        if vid is None or vid not in subtree
-    }
-    db.query(ViewLayoutItem).filter(
-        ViewLayoutItem.project_id == project.id, like_filter
-    ).delete(synchronize_session=False)
-    touched_views.add(node.parent_id)  # членство родительского вида изменилось
-    for vid in touched_views:
-        bump_view_version(db, project.id, vid)
+    # Строки раскладки чужих видов каскадом не накрыты — их чистит cleanup_layout
+    # (тот же помощник использует «принять переход», чтобы логика не разошлась).
+    cleanup_layout(db, project, node)
     bump_graph_rev(db, project)
     touch_project(db, project, user.id)
     db.delete(node)
@@ -625,97 +514,65 @@ def get_node_graph(
     version = current_version(db, project.id, node_id)
     if not local_nodes:
         return GraphResponse(
-            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev
+            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev,
+            meta_rev=project.meta_rev,
+            has_status_info=project_has_status_info(db, project.id),
         )
 
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    graph = _build_graph(local_nodes, node_id, all_nodes, all_edges, db)
+    graph = build_graph(local_nodes, node_id, all_nodes, all_edges, db)
     graph.version = version
     graph.graph_rev = project.graph_rev
+    graph.meta_rev = project.meta_rev
     return graph
 
 
-@router.get("/{node_id}/context", response_model=NodeContextResponse)
-def get_node_context(
+@router.get("/{node_id}/context-graph", response_model=GraphResponse)
+def get_node_context_graph(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
-) -> NodeContextResponse:
-    """Контекстная схема узла: сам узел + его прямые соседи.
-    Сосед — другой конец связи, у которой ровно один конец лежит в поддереве
-    фокуса (сам узел ИЛИ любой его потомок на любой глубине). Конец внутри
-    поддерева проецируется на фокус, внешний конец — это узел-сосед.
-    """
+) -> GraphResponse:
+    """Контекст объекта в формате СЫРОГО графа уровня — «Схема» страницы объекта
+    (single-schema): виртуальный корневой уровень «фокус + представители соседей»,
+    который фронт рендерит тем же level-конвейером, что и обычный уровень.
+    Доменный алгоритм сборки — в app/context_graph.build_context_graph."""
     focus = scoped_node(db, node_id, project)
     if not focus:
         raise HTTPException(status_code=404, detail="Узел не найден")
+    return build_context_graph(db, project, focus)
 
+
+@router.get("/{node_id}/processes", response_model=list[ProcessListItem])
+def get_node_processes(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[ProcessListItem]:
+    """Процессы, в которых участвует узел ИЛИ его поддерево — секция «Участвует
+    в процессах» страницы объекта (single-schema): участник-потомок считает
+    процесс участием своего контейнера-предка. Форма ответа — тот же
+    ProcessListItem, что у GET /processes (счётчик сообщений, статусы)."""
+    focus = scoped_node(db, node_id, project)
+    if not focus:
+        raise HTTPException(status_code=404, detail="Узел не найден")
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
-    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-
-    # Поддерево фокуса = он сам + все потомки (карта всех узлов уже на руках).
-    subtree = tree.subtree_ids(all_nodes, focus.id)
-
-    result_edges: list[ContextEdgeResponse] = []
-    neighbor_ids: set[uuid.UUID] = set()
-    for e in all_edges:
-        s_in = e.source_id in subtree
-        t_in = e.target_id in subtree
-        # Оба внутри (внутренняя связь ветки) или оба снаружи — не наш случай
-        if s_in == t_in:
-            continue
-        if s_in:
-            neigh = e.target_id
-            src, tgt = focus.id, neigh
-        else:
-            neigh = e.source_id
-            src, tgt = neigh, focus.id
-        if neigh not in all_nodes:
-            continue
-        neighbor_ids.add(neigh)
-        # Контекст остаётся серверной проекцией (Д5 аудита): концы уже свёрнуты на
-        # фокус/соседа. Геометрия сознательно НЕ отдаётся — раскладка звезды
-        # эфемерна и живёт в своей системе координат.
-        result_edges.append(
-            ContextEdgeResponse(
-                id=e.id,
-                label=e.label,
-                technology=e.technology,
-                source_id=src,
-                target_id=tgt,
-                original_source_id=e.source_id,
-                original_target_id=e.target_id,
-                original_source_name=all_nodes[e.source_id].name,
-                original_target_name=all_nodes[e.target_id].name,
-                version=e.version,
-            )
+    node_ids = tree.subtree_ids(all_nodes, focus.id)
+    proc_ids = {
+        row[0]
+        for row in (
+            db.query(ProcessParticipant.process_id)
+            .join(BusinessProcess, BusinessProcess.id == ProcessParticipant.process_id)
+            .filter(BusinessProcess.project_id == project.id)
+            .filter(ProcessParticipant.node_id.in_(node_ids))
+            .distinct()
+            .all()
         )
-
-    neighbors = [
-        GhostNodeResponse(
-            id=all_nodes[nid].id,
-            name=all_nodes[nid].name,
-            role=all_nodes[nid].role,
-            technology=all_nodes[nid].technology,
-            is_external=all_nodes[nid].is_external,
-            shape=all_nodes[nid].shape,
-            status=all_nodes[nid].status,
-            node_depth=tree.node_depth(all_nodes, nid),
-            ancestors=tree.ancestors(all_nodes, nid),
-        )
-        for nid in sorted(neighbor_ids, key=str)
-    ]
-    # has_children фокуса — по карте всех узлов, без отдельного SQL.
-    focus.child_count = sum(1 for n in all_nodes.values() if n.parent_id == focus.id)
-    focus.has_children = focus.child_count > 0
-    return NodeContextResponse(
-        focus=focus,
-        focus_ancestors=tree.ancestors(all_nodes, focus.id),
-        neighbors=neighbors,
-        edges=result_edges,
-    )
+    }
+    return process_list_items(db, project.id, all_nodes, only_ids=proc_ids)
 
 
 
@@ -723,19 +580,29 @@ def get_node_context(
 def _clear_level_layout(
     db: Session, container_id: uuid.UUID | None, project: Project
 ) -> None:
-    """Сбрасывает ВЕСЬ ручной layout вида в авто (own-on-first-render, Ф2):
-    удаляем все строки view_layout этого вида — позиции локалов/гостей/контейнеров
-    и геометрию пучков разом (R3: единое хранилище). После сброса уровень выглядит
-    как при первом открытии (ELK + кольца + авто-маршруты + пере-засев владения).
-    Скоуп строго по виду: соседние уровни и другие виды нетронуты."""
+    """Сбрасывает ручной layout вида в авто (own-on-first-render, Ф2):
+    удаляем строки view_layout этого вида — позиции локалов/гостей/контейнеров
+    и геометрию пучков разом (R3: единое хранилище). Строки с флагом expanded
+    СОХРАНЯЕМ без координат: раскрытия переживают сброс (решение 2026-08-05 —
+    «Переразложить» расставляет видимые узлы на авто-позиции, но контейнеры не
+    сворачивает; до фикса раскрытия держались лишь эфемерно в сессии и терялись
+    при перезагрузке). После сброса уровень выглядит как при первом открытии
+    (ELK + кольца + авто-маршруты + пере-засев владения) с сохранёнными
+    раскрытиями. Скоуп строго по виду: соседние уровни и другие виды нетронуты."""
     view_filter = (
         ViewLayoutItem.view_id.is_(None)
         if container_id is None
         else ViewLayoutItem.view_id == container_id
     )
-    db.query(ViewLayoutItem).filter(
-        ViewLayoutItem.project_id == project.id, view_filter
-    ).delete(synchronize_session=False)
+    for it in (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id == project.id, view_filter)
+        .all()
+    ):
+        if isinstance(it.payload, dict) and it.payload.get("expanded") is True:
+            it.payload = {"expanded": True}
+        else:
+            db.delete(it)
     # relayout меняет мир вида: fence должен отсечь отставшие батчи (например,
     # дроп драга из сессии, не видевшей перераскладку), поллинг — увидеть сброс
     bump_view_version(db, project.id, container_id)
@@ -749,7 +616,7 @@ def relayout_root_level(
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> None:
-    """«Переразложить» корневой уровень: позиции корневых узлов → авто (dagre)."""
+    """«Переразложить» корневой уровень: позиции корневых узлов → авто (ELK)."""
     _clear_level_layout(db, None, project)
 
 
@@ -767,3 +634,21 @@ def relayout_level(
     if not scoped_node(db, container_id, project):
         raise HTTPException(status_code=404, detail="Уровень не найден")
     _clear_level_layout(db, container_id, project)
+
+
+@router.post(
+    "/{node_id}/context-relayout",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def relayout_context(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> None:
+    """«Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
+    (view_id = node_id) — позиции и инлайн-раскрытия → свежий ELK. Соседние
+    виды (другие страницы, уровни редактора) нетронуты."""
+    if not scoped_node(db, node_id, project):
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    _clear_level_layout(db, node_id, project)

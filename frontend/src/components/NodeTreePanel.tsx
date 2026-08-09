@@ -2,53 +2,50 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
-import { canHaveChildren, compareByRank, withoutPersons } from "../types";
+import { canHaveChildren, compareByRank } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
-
-/**
- * Боковая панель слева. Состоит из сворачиваемых секций (аккордеон, каждая
- * открывается/закрывается независимо):
- *  1. «Дерево узлов» — навигатор по иерархии (как было, в духе дерева Confluence);
- *  2. «Добавить узел» — палитра из четырёх шаблонов-форм (сервис/БД/брокер/
- *     пользователь). Архитектор перетаскивает пустой шаблон на схему: при отпускании
- *     открывается модалка создания узла уже с выбранной формой (поэтому в самой
- *     модалке поля «Отображение» больше нет). Видна только архитектору;
- *  3. «Бизнес-процессы» — заглушка под будущий раздел.
- *
- * Вся панель целиком сворачивается в узкую полосу футером-кнопкой внизу.
- */
 
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
 // читается выбранная форма из dataTransfer.
 export const NODE_DRAG_MIME = "application/archmap-node-shape";
 
 /**
- * Дерево узлов отражает иерархию по parent_id. По умолчанию видны только корни;
- * детей подгружаем лениво по клику на шеврон. Клик по строке:
- *  - промежуточный узел (has_children) → провалиться на его слой ОСНОВНОЙ схемы
- *    (onDrillTo получает полный путь от корня до узла);
- *  - лист (детей нет) → открыть контекстную схему узла (onNodeContext).
- * Узлы-«пользователи» (shape: person) в дереве не показываем (общий отсев
- * withoutPersons в nodeTree.shared): дерево — навигатор детализации, «провалиться»
- * внутрь пользователя нечего.
+ * Дерево объектов отражает иерархию по parent_id. По умолчанию видны только
+ * корни; дети подгружаются лениво по клику на шеврон. Клик по строке ведёт на
+ * страницу объекта (onNodePage) либо навигирует внутри редактора-карты
+ * (контейнер → onDrillTo, лист → onPickLeaf); выбор узла с детьми попутно
+ * раскрывает его ветку. Персоны стоят в общей иерархии наравне с прочими.
+ * В редакторе внизу добавляется секция-палитра «Добавить объект» (единственное
+ * отличие от дерева страниц).
  */
 
 interface Props {
   // клик по промежуточному узлу (есть дети) → провалиться на его слой основной схемы;
   // path — полный путь от корня до узла включительно
   onDrillTo?: (path: Node[]) => void;
-  // клик по листу (детей нет) → открыть контекстную схему узла
-  onNodeContext?: (node: Node) => void;
+  // pages_pivot: клик по ЛЮБОМУ узлу → его страница (включает плоский дизайн)
+  onNodePage?: (node: Node) => void;
+  // редактор-карта: клик по листу → показать на холсте (прыжок на слой узла,
+  // выделение, locate). Включает тот же плоский дизайн, что и страничный режим
+  // (поиск, «+», персоны, подсветка текущего узла), но клик навигирует внутри
+  // редактора: контейнер → onDrillTo(path), лист → onPickLeaf(node).
+  onPickLeaf?: (node: Node) => void;
+  // pages_pivot: «+» на строке → создать дочерний объект (модалка, авто-позиция)
+  onCreateChild?: (parentId: string) => void;
   // секция «Добавить узел» показывается только архитектору
   isArchitect: boolean;
   // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
   // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
   onTemplateDrag?: (shape: NodeShape | null) => void;
   // сигнал внешней перезагрузки дерева (инкремент после создания/удаления узла в
-  // TreePage): дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
+  // MapEditorPage): дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
   reloadToken?: number;
+  // pages_pivot: id узла, чья страница СЕЙЧАС открыта (из ProjectShell.nodeId;
+  // null — домашняя страница проекта). Дерево подсвечивает его строку и при смене
+  // автоматически раскрывает ветку до этого узла (переход двойным кликом со схемы).
+  currentNodeId?: string | null;
 }
 
 // Прозрачная 1×1 картинка вместо стандартного drag-image: прячем «снимок» плитки —
@@ -108,33 +105,6 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
   );
 }
 
-// Подпись действия справа в строке (видна только на hover). Контейнер → стрелка
-// вправо + «компоненты» (drill на слой); лист → кольцо с точкой + «контекст».
-function ActionLabel({ container }: { container: boolean }) {
-  return (
-    <span className="nt-action">
-      {container ? (
-        <>
-          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 12 H20" />
-            <path d="M14 6 L20 12 L14 18" />
-          </svg>
-          компоненты
-        </>
-      ) : (
-        <>
-          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <circle cx={12} cy={12} r={8} />
-            <circle cx={12} cy={12} r={2.4} fill="currentColor" stroke="none" />
-          </svg>
-          контекст
-        </>
-      )}
-    </span>
-  );
-}
-
 // Иконка корзины для оверлея отмены драга. Темнеет при наведении (drop = отмена).
 function TrashIcon({ active }: { active: boolean }) {
   const c = active ? "#475569" : "#94a3b8";
@@ -176,7 +146,12 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, onTemplateDrag, reloadToken }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCreateChild, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
+  // pages_pivot: плоское дерево без секций/палитры, с поиском, «+» и персонами
+  const pagesMode = !!onNodePage;
+  // редактор-карта: тот же плоский дизайн, но клик — навигация внутри редактора
+  const editorMode = !!onPickLeaf;
+
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
@@ -205,6 +180,11 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
       return next;
     });
 
+  // ── Поиск (pages_pivot) ──────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Node[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
   // Все загруженные узлы по id (корни + подгруженные дети). Чтобы узел был виден и
   // кликабелен в дереве, все его предки раскрыты → их Node-объекты уже здесь.
   const allById = useMemo(() => {
@@ -227,11 +207,23 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     return path;
   };
 
+  // Единый клик строки в плоском дизайне: страница → переход на страницу объекта;
+  // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
+  const navigateFlat = (node: Node) => {
+    if (onNodePage) { onNodePage(node); return; }
+    if (canHaveChildren(node.shape) && node.has_children) onDrillTo?.(pathTo(node));
+    else onPickLeaf?.(node);
+  };
+
+  // Персоны отсеиваются только в legacy-аккордеоне (дерево про детализацию);
+  // в плоском дереве (страницы/редактор) стоят в общей иерархии наравне с прочими.
+  const fitNodes = (ns: Node[]): Node[] => ns.sort(compareByRank);
+
   useEffect(() => {
     let alive = true;
     nodesApi
       .list(null)
-      .then((ns) => { if (alive) setRoots(withoutPersons(ns).sort(compareByRank)); })
+      .then((ns) => { if (alive) setRoots(fitNodes(ns)); })
       .finally(() => { if (alive) setLoadingRoots(false); });
     return () => { alive = false; };
   }, []);
@@ -246,14 +238,14 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     if (!reloadSkipRef.current) { reloadSkipRef.current = true; return; }
     let alive = true;
     (async () => {
-      const ns = withoutPersons(await nodesApi.list(null)).sort(compareByRank);
+      const ns = fitNodes(await nodesApi.list(null));
       if (!alive) return;
       setRoots(ns);
       const ids = [...expanded];
       const fetched = await Promise.all(
         ids.map((id) =>
           nodesApi.getChildren(id)
-            .then((k) => [id, withoutPersons(k).sort(compareByRank)] as const)
+            .then((k) => [id, fitNodes(k)] as const)
             .catch(() => [id, [] as Node[]] as const),
         ),
       );
@@ -268,29 +260,115 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken]);
 
-  async function toggle(node: Node) {
+  // Поиск (pages_pivot / редактор): debounce 250ms, результат — плоский список совпадений.
+  useEffect(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) { setSearchResults(null); return; }
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      nodesApi.search(searchQuery.trim())
+        .then((ns) => setSearchResults(ns))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
+  // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+  // id узла, к которому уже скроллили (не дёргаем скролл повторно при каждом
+  // изменении expanded/childrenById в ходе автораскрытия).
+  const scrolledToRef = useRef<string | null>(null);
+
+  // При смене открытой страницы раскрываем ветку до этого узла: обход вверх через
+  // nodesApi.get (parent_id) собирает цепочку предков, затем сверху вниз догружаем
+  // детей каждого предка (тем же путём, что и toggle) и раскрываем их. Ленивая
+  // загрузка дерева при этом сохраняется — тянем только нужную ветку.
+  useEffect(() => {
+    if (!currentNodeId) return;
+    let alive = true;
+    void (async () => {
+      // 1. Цепочка id от корня до текущего узла (включительно).
+      const chain: string[] = [];
+      const guard = new Set<string>();
+      let curId: string | null = currentNodeId;
+      while (curId && !guard.has(curId)) {
+        guard.add(curId);
+        chain.unshift(curId);
+        const n: Node = allById.get(curId) ?? (await nodesApi.get(curId));
+        if (!alive) return;
+        curId = n.parent_id;
+      }
+      // 2. Предки (все, кроме самого узла) — раскрыть сверху вниз.
+      for (const id of chain.slice(0, -1)) {
+        if (!alive) return;
+        let kids = childrenById[id];
+        if (kids === undefined) {
+          // Фиксируем в const: TS не сужает let-переменную внутри замыкания
+          const fetched = fitNodes(await nodesApi.getChildren(id));
+          if (!alive) return;
+          setChildrenById((p) => ({ ...p, [id]: fetched }));
+          kids = fetched;
+        }
+        if (kids.length > 0) setExpanded((p) => new Set(p).add(id));
+        else setLeaves((p) => new Set(p).add(id));
+      }
+    })();
+    return () => { alive = false; };
+    // allById/childrenById читаются снимком на момент смены страницы (свежесть не
+    // критична: промах по кэшу = лишний fetch, не некорректность) — как в reload-эффекте.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentNodeId]);
+
+  // Скролл к подсвеченной строке — когда узел стал видим (после автораскрытия).
+  // Повторяем на изменениях expanded/childrenById, пока строка не появится; скроллим
+  // один раз на узел (scrolledToRef).
+  useEffect(() => {
+    if (!currentNodeId) { scrolledToRef.current = null; return; }
+    if (scrolledToRef.current === currentNodeId) return;
+    const raf = requestAnimationFrame(() => {
+      const el = treeScrollRef.current?.querySelector(".nt-row--current");
+      if (el) {
+        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        scrolledToRef.current = currentNodeId;
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [currentNodeId, expanded, childrenById]);
+
+  // Раскрыть ветку (дети подгружаются лениво). Идемпотентна: уже раскрытую ветку
+  // не сворачивает (сворачивание — только шевроном).
+  async function expandBranch(node: Node) {
     const id = node.id;
-    if (expanded.has(id)) {
-      setExpanded((p) => { const n = new Set(p); n.delete(id); return n; });
-      return;
-    }
-    // Дети ещё не загружены — тянем с бэка и сразу отсеиваем персон
+    if (expanded.has(id)) return;
     let kids = childrenById[id];
     if (kids === undefined) {
       setLoadingId((p) => new Set(p).add(id));
       try {
-        kids = withoutPersons(await nodesApi.getChildren(id)).sort(compareByRank);
-        setChildrenById((p) => ({ ...p, [id]: kids! }));
+        // Фиксируем в const: TS не сужает let-переменную внутри замыкания
+        const fetched = fitNodes(await nodesApi.getChildren(id));
+        setChildrenById((p) => ({ ...p, [id]: fetched }));
+        kids = fetched;
       } finally {
         setLoadingId((p) => { const n = new Set(p); n.delete(id); return n; });
       }
     }
-    // После отсева персон показывать нечего — помечаем узел как лист, не раскрываем
+    // После отсева персон показывать нечего (legacy) — помечаем узел листом
     if (kids.length === 0) {
       setLeaves((p) => new Set(p).add(id));
       return;
     }
     setExpanded((p) => new Set(p).add(id));
+  }
+
+  // Клик по шеврону: раскрыть/свернуть.
+  async function toggle(node: Node) {
+    if (expanded.has(node.id)) {
+      setExpanded((p) => { const n = new Set(p); n.delete(node.id); return n; });
+      return;
+    }
+    await expandBranch(node);
   }
 
   function Row({ node }: { node: Node }) {
@@ -303,20 +381,24 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
     const drillable = canHaveChildren(node.shape);
     // шеврон скрываем, если все дети узла оказались персонами (узел стал листом)
     const hasChildren = drillable && node.has_children && !leaves.has(id);
-    // промежуточный узел (есть дети в системе) → редирект на его слой; иначе → контекст.
-    // Опираемся на has_children, а не на скрытие шеврона: узел с детьми-персонами в дереве
-    // выглядит листом, но на основной схеме его дети (персоны) есть — туда и проваливаемся.
+    // pages_pivot: клик по любому узлу → его страница (единообразно).
+    // редактор: контейнер → дрилл на слой, лист → показать на холсте.
+    // В обоих режимах выбор узла с детьми РАСКРЫВАЕТ его ветку (дети видны
+    // сразу, без отдельного клика по шеврону).
+    // Старое поведение: промежуточный → слой, лист → контекст.
     const isIntermediate = drillable && node.has_children;
-    const handler = isIntermediate
-      ? (onDrillTo ? () => onDrillTo(pathTo(node)) : undefined)
-      : (onNodeContext ? () => onNodeContext(node) : undefined);
-    const title = !handler
-      ? node.name
-      : isIntermediate ? `Открыть слой: ${node.name}` : `Контекст: ${node.name}`;
+    const handler = () => { navigateFlat(node); if (isIntermediate) void expandBranch(node); };
+    const title = pagesMode
+        ? `Страница: ${node.name}`
+        : isIntermediate
+          ? `Открыть слой: ${node.name}`
+          : `Показать на схеме: ${node.name}`;
+    // Текущая открытая страница — подсветка строки (п.1).
+    const isCurrent = node.id === currentNodeId;
     return (
       <>
         <div
-          className={handler ? "nt-row nt-row--clickable" : "nt-row"}
+          className={"nt-row nt-row--clickable" + (isCurrent ? " nt-row--current" : "")}
           onClick={handler}
           title={title}
         >
@@ -344,7 +426,16 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
           <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
             {node.name}
           </span>
-          {handler && <ActionLabel container={isIntermediate} />}
+          {/* «+» — создать дочерний объект (pages_pivot / редактор, архитектор, только сервисы) */}
+          {isArchitect && onCreateChild && node.shape === "service" && (
+            <button
+              className="nt-add-child"
+              onClick={(e) => { e.stopPropagation(); onCreateChild(node.id); }}
+              title={`Создать объект внутри «${node.name}»`}
+            >
+              <PlusIcon />
+            </button>
+          )}
         </div>
         {/* Дети раскрытого узла — с направляющей вложенности (border-left). */}
         {isExpanded && kids.length > 0 && (
@@ -423,50 +514,79 @@ export default function NodeTreePanel({ onDrillTo, onNodeContext, isArchitect, o
         </div>
       ) : (
       <div style={content}>
-        {/* Секция 1: дерево объектов */}
-        <Section
-          title="Дерево объектов"
-          grow
-          open={openSections.has("tree")}
-          onToggle={() => toggleSection("tree")}
-        >
-          <div style={treeList}>
-            {loadingRoots ? (
-              <div style={hint}>Загрузка…</div>
-            ) : roots.length === 0 ? (
-              <div style={hint}>Нет объектов</div>
-            ) : (
-              roots.map((n) => <Row key={n.id} node={n} />)
-            )}
-          </div>
-        </Section>
-
-        {/* Секция 2: палитра шаблонов для создания объекта (только архитектор) */}
-        {isArchitect && (
-          <Section
-            title="Добавить объект"
-            open={openSections.has("add")}
-            onToggle={() => toggleSection("add")}
-          >
-            <div style={paletteHint}>Перетащите форму на схему</div>
-            <div style={palette}>
-              {NODE_TEMPLATES.map((t) => (
-                <div
-                  key={t.shape}
-                  className="template-card"
-                  draggable
-                  onDragStart={(e) => onTemplateDragStart(e, t.shape)}
-                  onDragEnd={onTemplateDragEnd}
-                  style={templateCard}
-                  title={`Перетащить «${t.label}» на схему`}
-                >
-                  <ShapeIcon shape={t.shape} />
-                  <span style={templateLabel}>{t.label}</span>
-                </div>
-              ))}
+          <>
+            {/* Поиск */}
+            <div style={searchWrap}>
+              <input
+                style={searchInput}
+                type="text"
+                placeholder="Поиск по имени…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button style={searchClear} onClick={() => setSearchQuery("")} title="Очистить">×</button>
+              )}
             </div>
-          </Section>
-        )}
+
+            {/* Результаты поиска или дерево */}
+            <div ref={treeScrollRef} style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {searchResults !== null ? (
+                searching ? (
+                  <div style={hint}>Поиск…</div>
+                ) : searchResults.length === 0 ? (
+                  <div style={hint}>Ничего не найдено</div>
+                ) : (
+                  searchResults.map((n) => (
+                    <div
+                      key={n.id}
+                      className="nt-row nt-row--clickable"
+                      onClick={() => navigateFlat(n)}
+                      title={pagesMode ? `Страница: ${n.name}` : canHaveChildren(n.shape) && n.has_children ? `Открыть слой: ${n.name}` : `Показать на схеме: ${n.name}`}
+                    >
+                      <span className="nt-chevspacer" />
+                      <ShapeGlyph container={canHaveChildren(n.shape) && n.has_children} shape={n.shape} />
+                      <span className="nt-name">{n.name}</span>
+                    </div>
+                  ))
+                )
+              ) : loadingRoots ? (
+                <div style={hint}>Загрузка…</div>
+              ) : roots.length === 0 ? (
+                <div style={hint}>Нет объектов</div>
+              ) : (
+                roots.map((n) => <Row key={n.id} node={n} />)
+              )}
+            </div>
+
+            {/* Палитра «Добавить объект» — только в редакторе; ЕДИНСТВЕННОЕ
+                отличие плоского дерева редактора от дерева страниц. */}
+            {editorMode && isArchitect && (
+              <Section
+                title="Добавить объект"
+                open={openSections.has("add")}
+                onToggle={() => toggleSection("add")}
+              >
+                <div style={paletteHint}>Перетащите форму на схему</div>
+                <div style={palette}>
+                  {NODE_TEMPLATES.map((t) => (
+                    <div
+                      key={t.shape}
+                      className="template-card"
+                      draggable
+                      onDragStart={(e) => onTemplateDragStart(e, t.shape)}
+                      onDragEnd={onTemplateDragEnd}
+                      style={templateCard}
+                      title={`Перетащить «${t.label}» на схему`}
+                    >
+                      <ShapeIcon shape={t.shape} />
+                      <span style={templateLabel}>{t.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+          </>
       </div>
       )}
 
@@ -616,4 +736,37 @@ const trashInner: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   pointerEvents: "none",
+};
+
+// ── Стили pages_pivot (поиск, персоны, «+») ────────────────────────
+const searchWrap: CSSProperties = {
+  position: "relative",
+  padding: "10px 12px 6px",
+  flexShrink: 0,
+};
+const searchInput: CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "7px 28px 7px 10px",
+  border: "1px solid #e2e8f0",
+  borderRadius: 8,
+  fontSize: 13,
+  color: "#0f172a",
+  background: "#fff",
+  outline: "none",
+  boxSizing: "border-box",
+  fontFamily: "inherit",
+};
+const searchClear: CSSProperties = {
+  position: "absolute",
+  right: 18,
+  top: "50%",
+  transform: "translateY(-50%)",
+  background: "none",
+  border: "none",
+  fontSize: 16,
+  color: "#94a3b8",
+  cursor: "pointer",
+  padding: "2px 4px",
+  lineHeight: 1,
 };

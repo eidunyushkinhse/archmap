@@ -40,11 +40,18 @@ class Project(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
-    # Курсор изменений схемы (этап 1 конкурентности, docs/plan-concurrency.md):
+    # Курсор изменений схемы (этап 1 конкурентности, docs/archive/plan-concurrency.md):
     # инкремент на КАЖДУЮ мутацию узлов/рёбер/раскладки — в отличие от updated_at,
     # который раскладку сознательно игнорирует. Клиент поллит его и перечитывает
     # уровень при росте. Инкремент — только через view_state.bump_graph_rev.
     graph_rev: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # Курсор изменений МЕТЫ (2026-08-01): атрибуты узла (роль/технология/статус/
+    # описание/внешность/openapi) и доки (node_docs) — то, что видно на странице
+    # объекта, но НЕ на схеме. Поллинг страницы отличает «данные изменились» от
+    # «схема изменилась» (graph_rev). Инкремент — только через bump_meta_rev.
+    meta_rev: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(

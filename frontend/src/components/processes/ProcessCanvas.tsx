@@ -57,6 +57,12 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [error, setError] = useState<string | null>(null);
   // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
   const [composer, setComposer] = useState<{ from: string; to: string } | null>(null);
+  // Куда можно завести сообщение — ключи «откуда>куда». Ответ БЭКА: проекция
+  // концов связи через предков живёт там, и вторая реализация на клиенте
+  // разошлась бы с валидатором. Обновляем, когда картина могла измениться:
+  // вход в правку, закрытие композитора (там же переключают тип канала),
+  // перезагрузка процесса.
+  const [directions, setDirections] = useState<Set<string>>(new Set());
   // Самосообщение (внутренняя операция): node_id участника, на котором его создаём.
   const [selfMsg, setSelfMsg] = useState<string | null>(null);
   const [selfCaption, setSelfCaption] = useState("");
@@ -279,6 +285,17 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setDelPartBusy(false);
     }
   }
+  // Перечитать карту направлений. Вне режима правки индикация не нужна — не ходим.
+  const reloadDirections = useCallback(() => {
+    if (!editing) return;
+    processesApi
+      .directions(id)
+      .then((rows) => setDirections(new Set(rows.map((r) => `${r.from_id}>${r.to_id}`))))
+      .catch(() => setDirections(new Set()));
+  }, [editing, id]);
+
+  useEffect(() => { reloadDirections(); }, [reloadDirections, detail]);
+
   function handleMessageAdded(created: ProcessMessage, payload: MessageCreate) {
     let mid = created.id;
     hist.push({
@@ -498,6 +515,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               } : undefined}
               onFragmentClick={editing ? (fid) => setDelFrag(fid) : undefined}
               onConnect={editing ? (from, to) => setComposer({ from, to }) : undefined}
+              canConnect={editing ? (from, to) => directions.has(`${from}>${to}`) : undefined}
               onSelfConnect={editing ? (nodeId) => { setSelfMsg(nodeId); setSelfCaption(""); } : undefined}
               onMessageClick={editing ? (mid) => setDelMsg(mid) : undefined}
               onDeleteParticipant={editing ? (nodeId) => {
@@ -533,7 +551,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 fromNode={composer.from}
                 toNode={composer.to}
                 defaultOrder={nextOrder}
-                onClose={() => setComposer(null)}
+                onClose={() => { setComposer(null); reloadDirections(); }}
                 onAdded={handleMessageAdded}
               />
             </div>

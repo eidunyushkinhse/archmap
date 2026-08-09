@@ -4,9 +4,10 @@
 (React Flow), вьюпорт, выделение, подсветки, направляющие, рейл тостов,
 клавиши. Формат — [README.md](README.md). Смежное: снап и клампы драга —
 [node.md](node.md) §6; undo/redo — [history.md](history.md); фокусировка
-locate — [alerts.md](alerts.md) §4; контекст-модалка — [context.md](context.md).
+locate — [alerts.md](alerts.md) §4; контекст-схема страницы объекта —
+[context.md](context.md).
 
-Код: `components/LevelGraph.tsx` + `LevelGraph.css`, `pages/TreePage.tsx`
+Код: `components/LevelGraph.tsx` + `LevelGraph.css`, `pages/MapEditorPage.tsx`
 (рейл тостов, panel-выделение), `graph/{assembleRf.ts,shapes.tsx,boundaries.tsx}`,
 `graph/interaction/{useAlignmentGuides,useSnapAlignment,useCanvasDelete,useEdgeConnect,useTemplateDrop}.ts`,
 `components/EmptyLevelHint.tsx`. Библиотека `@xyflow/react` 12 со штатным
