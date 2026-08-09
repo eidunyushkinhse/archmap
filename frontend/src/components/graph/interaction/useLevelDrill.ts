@@ -38,8 +38,9 @@ interface UseLevelDrillArgs {
   // LevelGraphInner: там же эффект авто-центрирования, который его гасит, и второй
   // источник запроса («Переразложить»). Хук только взводит при раскрытии/сворачивании.
   autoFitRef: { current: number | null };
-  // таргетный рефреш кэша детей одного контейнера (дроп/откат узла в его рамке)
-  refreshChildrenOf?: { id: string; token: number } | null;
+  // счётчик чтений уровня с сервера: растёт на каждую мутацию — сигнал «кэш детей
+  // раскрытых рамок протух, перечитать» (см. эффект ниже)
+  childrenRev: number;
   // единая запись раскладки (useLevelPersistence) — персист expanded + own-on-expand
   commitLayout: LevelPersistence["commitLayout"];
   // анимационные ноты раскрытия/сворачивания (useLayoutAnimation)
@@ -80,7 +81,7 @@ export function useLevelDrill({
   isReadOnly,
   fitOnExpand,
   autoFitRef,
-  refreshChildrenOf,
+  childrenRev,
   commitLayout,
   noteExpand,
   noteCollapse,
@@ -217,19 +218,33 @@ export function useLevelDrill({
     }
   }, [expanded, nodes, localChildren, isReadOnly]);
 
-  // Таргетный рефреш кэша детей одного контейнера (дроп нового узла в его раскрытую рамку /
-  // откат такого дропа): перечитываем список и ПЕРЕЗАПИСЫВАЕМ (в отличие от ленивой догрузки
-  // выше — та не трогает уже заполненный ключ). token гарантирует срабатывание на повтор.
-  const refreshTokenRef = useRef(0);
+  // Протухание кэша детей рамок. Уровень перечитывается с сервера при КАЖДОЙ мутации
+  // (создание/удаление, undo/redo, remote-sync), но ответ /graph несёт только прямых
+  // детей контейнера — дети раскрытых рамок в него не входят и молча остаются
+  // прежними. Поэтому владелец уровня бампает childrenRev на каждое чтение, а мы
+  // перечитываем ВСЕ закэшированные рамки и ПЕРЕЗАПИСЫВАЕМ ключи (ленивая догрузка
+  // выше заполненный ключ не трогает).
+  //
+  // Раньше здесь был таргетный канал «обнови рамку X», и дёргало его ровно одно место —
+  // дроп нового узла в рамку. Удаление узла из рамки его не дёргало, и удалённый
+  // объект оставался нарисованным внутри рамки до ухода с уровня (находка 2026-08-09).
+  // Канал «перечитали уровень» забыть нельзя: он один на все мутации.
+  //
+  // Перечитываем и СВЁРНУТЫЕ рамки: кэш переживает сворачивание (повторное раскрытие
+  // мгновенно), и без этого оно показало бы протухший состав.
+  const childrenRevRef = useRef(0);
   useEffect(() => {
-    if (isReadOnly || !refreshChildrenOf) return;
-    if (refreshChildrenOf.token === refreshTokenRef.current) return;
-    refreshTokenRef.current = refreshChildrenOf.token;
-    const { id } = refreshChildrenOf;
-    void nodesApi.list(id).then((kids) => {
-      setLocalChildren((cur) => ({ ...cur, [id]: kids }));
-    });
-  }, [refreshChildrenOf, isReadOnly]);
+    if (isReadOnly) return;
+    // Эффект перезапускается и на смену localChildren (свои же setState) — реальную
+    // работу делает только рост childrenRev.
+    if (childrenRev === childrenRevRef.current) return;
+    childrenRevRef.current = childrenRev;
+    for (const id of Object.keys(localChildren)) {
+      void nodesApi.list(id).then((kids) => {
+        setLocalChildren((cur) => ({ ...cur, [id]: kids }));
+      });
+    }
+  }, [childrenRev, localChildren, isReadOnly]);
 
   // Drill из узла, раскрытого ИНЛАЙН глубже текущего уровня (R5): в breadcrumb входят
   // промежуточные контейнеры (фактическая архитектура: Контекст > HelixMon > ObsCore >

@@ -73,8 +73,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     pos?: { x: number; y: number } | null;
     parentId?: string | null; posView?: string | null;
   }>({ open: false, node: null });
-  const [childRefresh, setChildRefresh] = useState<{ id: string; token: number } | null>(null);
-  const childRefreshTok = useRef(0);
+  // Счётчик чтений уровня с сервера. Растёт на каждый успешный load — холст по нему
+  // перечитывает кэш детей раскрытых рамок: ответ /graph детей рамок не несёт, и без
+  // сигнала удалённый внутри рамки объект остаётся нарисованным (находка 2026-08-09).
+  const [childrenRev, setChildrenRev] = useState(0);
   const [intoPicker, setIntoPicker] = useState<{
     sourceId: string; containerId: string; containerName: string;
     sourceHandle: string | null; sourceName?: string;
@@ -146,6 +148,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       setViewLayout(graph.layout ?? {});
       setEdges(toLevelEdges(graph));
       setProjectHasStatuses(graph.has_status_info);
+      setChildrenRev((r) => r + 1); // кэш детей раскрытых рамок протух — перечитать
       reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
       return graph.nodes;
     } finally {
@@ -330,13 +333,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     if (isCreate && nodeModal.pos) {
       handleLayoutChanged({ [saved.id]: { x: nodeModal.pos.x, y: nodeModal.pos.y } });
     }
-    if (intoFrame) {
-      childRefreshTok.current += 1;
-      // parent_id !== null гарантирован условием intoFrame; явная проверка для сужения TS
-      if (saved.parent_id !== null) {
-        setChildRefresh({ id: saved.parent_id, token: childRefreshTok.current });
-      }
-    } else {
+    // Узел, созданный ВНУТРИ раскрытой рамки, в nodes уровня не входит — он ребёнок
+    // рамки, и покажет его перечитанный кэш детей (childrenRev растёт в load ниже).
+    if (!intoFrame) {
       setNodes((prev) => prev.some((n) => n.id === saved.id) ? prev.map((n) => (n.id === saved.id ? saved : n)) : [...prev, saved]);
     }
     setNodeModal({ open: false, node: null });
@@ -352,14 +351,19 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       load(currentParentId);
       setTreeReload((t) => t + 1);
       const levelAtCreate = currentParentId;
-      const frameParent = intoFrame ? saved.parent_id : null;
-      const refetch = () => { refetchLevel(levelAtCreate)(); if (frameParent) { childRefreshTok.current += 1; setChildRefresh({ id: frameParent, token: childRefreshTok.current }); } };
+      // Откат/повтор создания в рамке отдельного канала не требует: load бампает
+      // childrenRev, и кэш детей рамок перечитывается вместе с уровнем.
+      const refetch = refetchLevel(levelAtCreate);
       let snap: DeletionSnapshot | null = null;
       history.push({ label: "Создание объекта", level: levelAtCreate,
         undo: () => { guardPersist(nodesApi.deletionSnapshot(saved.id).then((s) => { snap = s; return nodesApi.delete(saved.id); }).then(refetch), resyncOnPersistError); },
         redo: () => { guardPersist((snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch), resyncOnPersistError); },
       });
     } else if (before) {
+      // Правка ребёнка раскрытой рамки: в nodes уровня его нет, оптимистичный патч
+      // выше прошёл мимо — просим холст перечитать кэш детей рамок (load здесь не
+      // зовём осознанно: правка не должна дёргать весь уровень).
+      if (!nodes.some((n) => n.id === saved.id)) setChildrenRev((r) => r + 1);
       const apply = (n: Node) => { setNodes((prev) => prev.map((x) => (x.id === n.id ? n : x))); };
       history.push({ label: "Правка объекта", level: currentParentId,
         undo: () => { apply(before); guardPersist(nodesApi.update(before.id, nodeFields(before)), resyncOnPersistError); },
@@ -638,7 +642,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
               isArchitect={isArchitect}
               linkedHighlight={linkedHighlight}
-              refreshChildrenOf={childRefresh}
+              childrenRev={childrenRev}
               locate={locate}
               drill={drill}
               edgeCallbacks={edgeCallbacks}

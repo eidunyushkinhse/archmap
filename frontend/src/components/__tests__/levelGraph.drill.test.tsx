@@ -13,9 +13,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import type { Node as AppNode, AncestorRef } from "../../types";
 import {
-  resetHarness, layoutAnimMock, apiNodesMock, pipeline, settle,
+  resetHarness, layoutAnimMock, apiNodesMock, pipeline, pipelineClientMock, settle,
 } from "./levelGraphHarness";
 import { renderGraph, getCb, baseProps } from "./levelGraphRender";
+
+// Кэш детей раскрытых рамок наружу не торчит — читаем его через вход конвейера.
+function lastLocalChildren(): Record<string, AppNode[]> {
+  const calls = pipelineClientMock.computeViewLayoutOffThread.mock.calls;
+  const last = calls[calls.length - 1][0] as { localChildren: Record<string, AppNode[]> };
+  return last.localChildren;
+}
 
 // --- vi.mock: зависимости LevelGraph → реализации из общего harness ---
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
@@ -179,6 +186,42 @@ describe("LevelGraph orchestration: drill / expand", () => {
     expect(apiNodesMock.nodesApi.list).toHaveBeenCalledWith("c1");
     expect(layoutAnimMock.noteExpand).toHaveBeenCalledWith("c1");
     expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ c1: { expanded: true } });
+  });
+
+  it("childrenRev: перечитывает кэш детей раскрытых рамок — удалённый ребёнок уходит", async () => {
+    // Находка 2026-08-09: узел удалили внутри раскрытой рамки, связи с холста ушли,
+    // а сам объект остался — кэш детей рамки инвалидировался только при создании.
+    // Ответ /graph детей рамок не несёт, поэтому единственный сигнал — childrenRev,
+    // который владелец уровня бампает на каждое чтение с сервера.
+    const kid = appNode("kid", { parent_id: "c1" });
+    apiNodesMock.nodesApi.list.mockResolvedValueOnce([kid]);
+    const { rerenderWith } = await renderGraph({});
+
+    await act(async () => { getCb().expandLocalContainer("c1"); });
+    await settle();
+    expect(lastLocalChildren()).toEqual({ c1: [kid] });
+
+    apiNodesMock.nodesApi.list.mockResolvedValueOnce([]); // ребёнка удалили
+    await act(async () => { rerenderWith({ childrenRev: 1 }); });
+    await settle();
+
+    expect(apiNodesMock.nodesApi.list).toHaveBeenLastCalledWith("c1");
+    expect(lastLocalChildren()).toEqual({ c1: [] });
+  });
+
+  it("childrenRev без изменения кэш не трогает (лишних запросов нет)", async () => {
+    const kid = appNode("kid", { parent_id: "c1" });
+    apiNodesMock.nodesApi.list.mockResolvedValueOnce([kid]);
+    const { rerenderWith } = await renderGraph({});
+
+    await act(async () => { getCb().expandLocalContainer("c1"); });
+    await settle();
+    const calls = apiNodesMock.nodesApi.list.mock.calls.length;
+
+    await act(async () => { rerenderWith({ isArchitect: true }); }); // перерисовка без чтения уровня
+    await settle();
+
+    expect(apiNodesMock.nodesApi.list.mock.calls.length).toBe(calls);
   });
 
   it("expandLocalContainer в read-only: нерелевантные дети (нет рёбер) → не раскрываем", async () => {

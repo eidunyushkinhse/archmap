@@ -52,6 +52,8 @@ export function baseProps(): LevelGraphProps {
 
 export interface RenderGraphResult extends RenderResult {
   props: LevelGraphProps;
+  /** Перерисовать с изменёнными пропсами (смена данных уровня «снаружи»). */
+  rerenderWith: (over: Partial<LevelGraphProps>) => void;
 }
 
 // Рендер + оседание раскладки. `over` сливается поверх базовых пропсов.
@@ -59,7 +61,11 @@ export async function renderGraph(over: Partial<LevelGraphProps> = {}): Promise<
   const props: LevelGraphProps = { ...baseProps(), ...over };
   const utils = render(<LevelGraph {...props} />);
   await settle();
-  return { ...utils, props };
+  return {
+    ...utils,
+    props,
+    rerenderWith: (next) => utils.rerender(<LevelGraph {...props} {...next} />),
+  };
 }
 
 // Доступ к перехваченным оркестрационным колбэкам (после renderGraph).

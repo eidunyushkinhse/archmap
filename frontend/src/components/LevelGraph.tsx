@@ -115,9 +115,10 @@ interface LevelGraphProps {
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
   // стрелка+оба узла). Гость сводится к kind:"node". Считается в MapEditorPage из selectedObject.
   linkedHighlight?: { kind: "node" | "edge"; id: string } | null;
-  // Обновить кэш детей раскрытого контейнера (после создания/отката ребёнка в его рамке
-  // на ЭТОМ же уровне — localChildren иначе держит устаревший список). token — триггер.
-  refreshChildrenOf?: { id: string; token: number } | null;
+  // Счётчик чтений уровня с сервера (растёт на каждую мутацию): сигнал «кэш детей
+  // раскрытых рамок протух». Ответ /graph детей рамок не несёт, поэтому без него
+  // удалённый/созданный внутри рамки объект остаётся на холсте до ухода с уровня.
+  childrenRev?: number;
   // Запрос «показать на схеме» из индикатора незавершённости (SchemaAlerts → MapEditorPage).
   // MapEditorPage сперва приводит холст к нужному уровню (navigateToLevel), затем кладёт сюда
   // запрос. Холст центрируется на цели и коротко её подсвечивает. token меняется на
@@ -170,7 +171,7 @@ function LevelGraphInner({
   ancestorIds,
   isArchitect,
   linkedHighlight,
-  refreshChildrenOf,
+  childrenRev = 0,
   locate,
   persistence,
   mode,
@@ -340,7 +341,7 @@ function LevelGraphInner({
   } = useLevelDrill({
     containerId, nodes, edges, endpoints, ancestorIds, ancestorNames,
     onDrillDown, onEnterNode, viewLayout, ignorePersistedExpanded, isReadOnly,
-    fitOnExpand, autoFitRef, refreshChildrenOf, commitLayout, noteExpand, noteCollapse,
+    fitOnExpand, autoFitRef, childrenRev, commitLayout, noteExpand, noteCollapse,
     layoutLatestRef,
   });
 
