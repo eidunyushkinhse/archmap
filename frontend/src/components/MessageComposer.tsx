@@ -46,6 +46,11 @@ export default function MessageComposer({
   const [busy, setBusy] = useState(false);
   // edge_id связи, у которой сейчас переключаем тип (на время запроса блокируем тумблеры).
   const [syncEdge, setSyncEdge] = useState<string | null>(null);
+  // Поля достраиваемой связи. Живут здесь, а не в отдельной модалке: композитор —
+  // окно про СООБЩЕНИЕ, и уводить из него ради трёх полей значит рвать поток.
+  const [newLabel, setNewLabel] = useState("");
+  const [newTech, setNewTech] = useState("");
+  const [newSync, setNewSync] = useState(true);
 
   const partByNode = useMemo(() => {
     const m: Record<string, ProcessParticipant> = {};
@@ -85,9 +90,18 @@ export default function MessageComposer({
     setError(null);
     try {
       // «Достроить схему»: документируем связь source→target — она тут же появится
-      // как плечо (канал). Новая связь по умолчанию синхронная; переключить в
-      // асинхронную можно тумблером в шапке канала (когда он появится в списке).
-      await edgesApi.create({ source_id: fromNode, target_id: toNode });
+      // как плечо (канал). Поля заполняются ЗДЕСЬ же: раньше связь рождалась
+      // безымянной, без технологии и всегда синхронной, и за правкой приходилось
+      // уходить в редактор-карту — из того самого процесса, ради которого всё и
+      // затевалось. Подпись важна вдвойне: default_caption плеча forward берётся
+      // из edge.label, поэтому пустой label оставлял без подписи и сообщение.
+      await edgesApi.create({
+        source_id: fromNode,
+        target_id: toNode,
+        label: newLabel.trim() || null,
+        technology: newTech.trim() || null,
+        is_synchronous: newSync,
+      });
       const ch = await processesApi.channels(processId, fromNode, toNode);
       setResult({ key: pairKey, data: ch });
     } catch (e: unknown) {
@@ -182,19 +196,52 @@ export default function MessageComposer({
                 Между ними нет задокументированной связи
               </div>
               <div style={{ fontSize: 12, color: "#92591a", lineHeight: 1.5 }}>
-                Процесс не может отправить сообщение, которого нет в архитектуре. Добавьте связь
-                «{nameOf(fromNode)} → {nameOf(toNode)}» в схему — и она появится здесь как плечо.
+                Процесс не может отправить сообщение, которого нет в архитектуре. Опишите связь
+                «{nameOf(fromNode)} → {nameOf(toNode)}» — она появится и в схеме, и здесь как плечо.
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+
+          {/* Поля связи. «Что передаётся» = label связи: из него берётся подпись
+              плеча, поэтому поле стоит первым и получает фокус. */}
+          <div style={{ marginTop: 12 }}>
+            <label className="bp-field-label" htmlFor="bp-new-label">Что передаётся</label>
+            <input
+              id="bp-new-label"
+              className="bp-input"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="создать заказ, событие оплаты…"
+              disabled={busy}
+              autoFocus
+            />
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "flex-end" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <label className="bp-field-label" htmlFor="bp-new-tech">Технология</label>
+              <input
+                id="bp-new-tech"
+                className="bp-input"
+                value={newTech}
+                onChange={(e) => setNewTech(e.target.value)}
+                placeholder="REST, gRPC, Kafka…"
+                disabled={busy}
+              />
+            </div>
+            <div style={{ flex: "none" }}>
+              <span className="bp-field-label">Тип канала</span>
+              <SyncSegmented value={newSync} onChange={setNewSync} disabled={busy} compact />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
             <button className="bp-btn-ghost" onClick={onClose}>
               Отмена
             </button>
             <button className="bp-btn-primary" onClick={() => void addSchemaEdge()} disabled={busy}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <IcoLink s={14} />
-                Добавить связь в схему
+                {busy ? "Добавляем…" : "Добавить связь в схему"}
               </span>
             </button>
           </div>
