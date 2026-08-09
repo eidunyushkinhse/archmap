@@ -21,7 +21,9 @@ import "./schemaAlerts.css";
  *  2) Связи в промежуточный объект — связь упирается в контейнер, а не в атомарный;
  *  3) Изолированные группы — схема распалась на ≥2 несвязанных кластера;
  *  4) Контейнеры со своими схемами — у контейнера остались собственные
- *     (grandfather) схемы логики и/или спека; их надо распределить по детям.
+ *     (grandfather) схемы логики и/или спека; их надо распределить по детям;
+ *  5) Пользователи внутри системы — узел-человек вложен в другой объект, а по C4
+ *     люди живут на контекстном уровне, ЗА границей системы.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -60,6 +62,8 @@ const IcoArrowBox = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {.
 const IcoScatter = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="4.2" cy="5" r="1.9" /><circle cx="11.6" cy="4.4" r="1.9" /><circle cx="8" cy="11.4" r="1.9" /></svg>;
 // Контейнер со своими схемами: бокс-контейнер с точкой («своя» схема внутри)
 const IcoBoxDocs = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="2.4" y="3" width="11.2" height="10" rx="1.6" /><path d="M2.4 6.2h11.2" /><circle cx="8" cy="9.8" r="1.2" fill="currentColor" stroke="none" /></svg>;
+// Пользователь внутри системы: фигурка человека внутри рамки-границы.
+const IcoPersonBox = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="2.2" y="2.6" width="11.6" height="10.8" rx="1.8" /><circle cx="8" cy="6.6" r="1.5" /><path d="M5.6 11.2c0-1.4 1.1-2.3 2.4-2.3s2.4.9 2.4 2.3" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
 
 export default function SchemaAlerts({ alerts, onLocate }: Props) {
@@ -75,12 +79,15 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
   // Правила контейнеров: контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather) —
   // каждая такая запись = 1 проблема (схемы/спеку надо распределить по детям).
   const containerOwn = alerts.container_own_docs;
+  // Люди внутри системы: каждый вложенный человек — одна проблема (вынести в корень).
+  const personsInside = alerts.persons_inside;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
   // показываются как «2», но в сумму незавершённости дают «1».
   const isolatedProblems = Math.max(0, isolated.length - 1);
-  const total = disconnected.length + intermediate.length + isolatedProblems + containerOwn.length;
+  const total =
+    disconnected.length + intermediate.length + isolatedProblems + containerOwn.length + personsInside.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -189,6 +196,18 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
             {containerOwn.map((c) => (
               <Item key={c.node_id} onClick={onLocate && (() => locate({ kind: "node", id: c.node_id }))}>
                 {c.node_name}{c.has_spec ? " + спека" : ""}
+              </Item>
+            ))}
+          </Section>
+
+          <Section icon={IcoPersonBox(13)} title="Пользователи внутри системы" count={personsInside.length}>
+            {personsInside.map((p) => (
+              <Item key={p.node_id} onClick={onLocate && (() => locate({ kind: "node", id: p.node_id }))}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                  <span style={badEnd}>{p.node_name}</span>
+                  <span style={{ color: "#9ca3af" }}>внутри</span>
+                  <span>{p.parent_name}</span>
+                </span>
               </Item>
             ))}
           </Section>

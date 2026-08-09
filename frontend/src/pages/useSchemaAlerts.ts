@@ -13,7 +13,7 @@ import type { LocateTarget } from "../components/SchemaAlerts";
 import type { LocateRequest } from "../components/graph/types";
 import { nodesApi } from "../api/nodes";
 
-const EMPTY: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [] };
+const EMPTY: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [] };
 
 // Ключ sessionStorage для передачи цели алерта из шапки в редактор-карту.
 export const PENDING_ALERT_LOCATE_KEY = "archmap.pendingAlertLocate";

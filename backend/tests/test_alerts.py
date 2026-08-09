@@ -93,3 +93,41 @@ def test_single_cluster_plus_dangling_is_not_fragmented(db):
 
     assert res.isolated_groups == []
     assert len(res.disconnected_nodes) == 2
+
+
+# =================== 5) Люди внутри системы ===================
+
+def _person(db, name, parent=None):
+    n = _node(db, name, parent)
+    n.shape = "person"
+    return n
+
+
+def test_человек_внутри_контейнера_попадает_в_алерт(db):
+    # C4: актор живёт на контекстном уровне, ВНЕ границы системы. Промпт импорта
+    # это требует, а объекты, заведённые руками, до этой проверки не ловил никто.
+    система = _node(db, "Маркетплейс")
+    _person(db, "Покупатель", система)
+    db.commit()
+
+    out = get_alerts(db=db, project=ensure_project(db), _=None)
+
+    assert [(p.node_name, p.parent_name) for p in out.persons_inside] == [("Покупатель", "Маркетплейс")]
+
+
+def test_человек_в_корне_алерт_не_зажигает(db):
+    система = _node(db, "Маркетплейс")
+    _person(db, "Покупатель")
+    _edge(db, _person(db, "Продавец"), система)
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).persons_inside == []
+
+
+def test_обычный_узел_внутри_контейнера_не_человек(db):
+    # Проверка бьёт именно по форме узла, а не по вложенности как таковой.
+    система = _node(db, "Маркетплейс")
+    _node(db, "Сервис заказов", система)
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).persons_inside == []

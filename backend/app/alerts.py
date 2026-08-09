@@ -19,6 +19,7 @@ from app.schemas.node import (
     DisconnectedNodeAlert,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
+    PersonInsideAlert,
 )
 
 
@@ -29,7 +30,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
        (контейнерный) узел, а не в атомарный;
     3) изолированные группы — связные компоненты графа рёбер;
     4) контейнеры с СОБСТВЕННЫМИ доками/спекой (grandfather) — логика и спеки
-       должны жить на атомарных детях, такие доки распределяют по детям.
+       должны жить на атомарных детях, такие доки распределяют по детям;
+    5) люди (shape=person), вложенные в другой узел — по C4 актор живёт на
+       контекстном уровне, ВНЕ границы системы.
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -139,9 +142,24 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
                 )
             )
 
+    # 5) Люди внутри системы. Правило C4: актор не может быть частью контейнера.
+    #    Промпт импорта его требует, отчёт слияния предупреждает — но объекты,
+    #    заведённые РУКАМИ, не проверял никто (остаток находки 2026-08-08).
+    persons_inside = [
+        PersonInsideAlert(
+            node_id=n.id,
+            node_name=n.name,
+            parent_id=n.parent_id,
+            parent_name=name_by_id.get(n.parent_id, "?"),
+        )
+        for n in all_nodes
+        if n.shape == "person" and n.parent_id is not None
+    ]
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
         isolated_groups=isolated_groups,
         container_own_docs=container_own_docs,
+        persons_inside=persons_inside,
     )

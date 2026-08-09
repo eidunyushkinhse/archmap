@@ -16,7 +16,7 @@ function node(id: string, parent_id: string | null): Node {
 }
 const ALL: Node[] = [node("A", null), node("A1", "A"), node("B", null)];
 
-const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [] };
+const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [] };
 
 describe("resolveAlertLocate", () => {
   it("узел: уровень = родитель, запрос node", () => {
@@ -68,7 +68,7 @@ describe("useSchemaAlerts", () => {
       disconnected_nodes: [{ node_id: "x", node_name: "X" }],
       intermediate_edges: [],
       isolated_groups: [],
-      container_own_docs: [],
+      container_own_docs: [], persons_inside: [],
     } as Alerts;
     vi.mocked(nodesApi.getAlerts).mockResolvedValue(alerts);
     const { result } = renderHook(() => useSchemaAlerts(true));

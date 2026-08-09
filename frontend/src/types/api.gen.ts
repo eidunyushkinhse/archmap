@@ -1136,6 +1136,11 @@ export interface components {
              * @default []
              */
             container_own_docs: components["schemas"]["ContainerOwnDocsAlert"][];
+            /**
+             * Persons Inside
+             * @default []
+             */
+            persons_inside: components["schemas"]["PersonInsideAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -2304,6 +2309,29 @@ export interface components {
             status: "existing" | "planned" | "deprecated";
             /** Order */
             order: number;
+        };
+        /**
+         * PersonInsideAlert
+         * @description Узел-человек (shape=person), вложенный в другой узел. По C4 люди живут на
+         *     контекстном уровне, ВНЕ границы системы: актор не может быть частью
+         *     контейнера. Правило уже требует промпт импорта и предупреждает отчёт
+         *     слияния, но объекты, заведённые РУКАМИ, до этого алерта не проверял никто.
+         */
+        PersonInsideAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Parent Id
+             * Format: uuid
+             */
+            parent_id: string;
+            /** Parent Name */
+            parent_name: string;
         };
         /** ProcessCreate */
         ProcessCreate: {

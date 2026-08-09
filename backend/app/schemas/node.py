@@ -247,11 +247,23 @@ class ContainerOwnDocsAlert(BaseModel):
     has_spec: bool
 
 
+class PersonInsideAlert(BaseModel):
+    """Узел-человек (shape=person), вложенный в другой узел. По C4 люди живут на
+    контекстном уровне, ВНЕ границы системы: актор не может быть частью
+    контейнера. Правило уже требует промпт импорта и предупреждает отчёт
+    слияния, но объекты, заведённые РУКАМИ, до этого алерта не проверял никто."""
+    node_id: uuid.UUID
+    node_name: str
+    parent_id: uuid.UUID
+    parent_name: str
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
     isolated_groups: list[IsolatedGroupAlert] = []
     container_own_docs: list[ContainerOwnDocsAlert] = []
+    persons_inside: list[PersonInsideAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---
