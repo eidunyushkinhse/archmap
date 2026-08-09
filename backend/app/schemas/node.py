@@ -258,12 +258,28 @@ class PersonInsideAlert(BaseModel):
     parent_name: str
 
 
+class DanglingMessageAlert(BaseModel):
+    """Сообщение процесса, потерявшее опору в схеме: связь, которой оно шло,
+    удалили (edge_id → NULL по ON DELETE SET NULL — удаление связи НЕ сносит
+    сообщение, чтобы расхождение было видно, а не происходило тихо).
+
+    Самосообщения сюда не попадают: у внутренней операции участника связи C4 и
+    не было (valid всегда true)."""
+    process_id: uuid.UUID
+    process_name: str
+    message_id: uuid.UUID
+    caption: str | None
+    from_name: str
+    to_name: str
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
     isolated_groups: list[IsolatedGroupAlert] = []
     container_own_docs: list[ContainerOwnDocsAlert] = []
     persons_inside: list[PersonInsideAlert] = []
+    dangling_messages: list[DanglingMessageAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

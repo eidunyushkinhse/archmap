@@ -1141,6 +1141,11 @@ export interface components {
              * @default []
              */
             persons_inside: components["schemas"]["PersonInsideAlert"][];
+            /**
+             * Dangling Messages
+             * @default []
+             */
+            dangling_messages: components["schemas"]["DanglingMessageAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1220,6 +1225,35 @@ export interface components {
             has_docs: boolean;
             /** Has Spec */
             has_spec: boolean;
+        };
+        /**
+         * DanglingMessageAlert
+         * @description Сообщение процесса, потерявшее опору в схеме: связь, которой оно шло,
+         *     удалили (edge_id → NULL по ON DELETE SET NULL — удаление связи НЕ сносит
+         *     сообщение, чтобы расхождение было видно, а не происходило тихо).
+         *
+         *     Самосообщения сюда не попадают: у внутренней операции участника связи C4 и
+         *     не было (valid всегда true).
+         */
+        DanglingMessageAlert: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /** Caption */
+            caption: string | null;
+            /** From Name */
+            from_name: string;
+            /** To Name */
+            to_name: string;
         };
         /**
          * DeletionSnapshot

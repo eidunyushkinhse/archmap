@@ -131,3 +131,62 @@ def test_обычный_узел_внутри_контейнера_не_чело
     db.commit()
 
     assert get_alerts(db=db, project=ensure_project(db), _=None).persons_inside == []
+
+
+# =================== 6) Повисшие сообщения процессов ===================
+
+def test_удаление_связи_делает_сообщение_повисшим_в_алертах(db):
+    # Полный путь, а не подложенный NULL: создаём сообщение по живой связи, затем
+    # удаляем связь из схемы. ON DELETE SET NULL сохраняет сообщение — расхождение
+    # процесса со схемой должно быть ВИДНО, и теперь видно на уровне схемы.
+    from app.models.business_process import BusinessProcess
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    покупатель = _node(db, "Покупатель")
+    заказы = _node(db, "Сервис заказов")
+    связь = _edge(db, покупатель, заказы)
+    процесс = BusinessProcess(id=uuid.uuid4(), name="Оформление заказа", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    отправитель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=покупатель.id, order=0)
+    получатель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=заказы.id, order=1)
+    db.add_all([отправитель, получатель])
+    db.flush()
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=процесс.id, order=0, edge_id=связь.id, leg="forward",
+        from_participant_id=отправитель.id, to_participant_id=получатель.id, caption="создать заказ",
+    ))
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).dangling_messages == []
+
+    db.delete(связь)
+    db.commit()
+
+    out = get_alerts(db=db, project=ensure_project(db), _=None).dangling_messages
+    assert len(out) == 1
+    assert (out[0].process_name, out[0].caption) == ("Оформление заказа", "создать заказ")
+    assert (out[0].from_name, out[0].to_name) == ("Покупатель", "Сервис заказов")
+
+
+def test_самосообщение_повисшим_не_считается(db):
+    # У внутренней операции участника связи C4 не было — терять нечего.
+    from app.models.business_process import BusinessProcess
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    сервис = _node(db, "Сервис заказов")
+    процесс = BusinessProcess(id=uuid.uuid4(), name="P", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    участник = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=сервис.id, order=0)
+    db.add(участник)
+    db.flush()
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=процесс.id, order=0, edge_id=None, leg="forward",
+        from_participant_id=участник.id, to_participant_id=участник.id, caption="посчитать скидку",
+    ))
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).dangling_messages == []

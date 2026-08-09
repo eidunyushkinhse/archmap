@@ -23,7 +23,11 @@ import "./schemaAlerts.css";
  *  4) Контейнеры со своими схемами — у контейнера остались собственные
  *     (grandfather) схемы логики и/или спека; их надо распределить по детям;
  *  5) Пользователи внутри системы — узел-человек вложен в другой объект, а по C4
- *     люди живут на контекстном уровне, ЗА границей системы.
+ *     люди живут на контекстном уровне, ЗА границей системы;
+ *  6) Повисшие сообщения процессов — связь, которой шло сообщение, удалена из
+ *     схемы. Клик ведёт В ПРОЦЕСС (чинить на холсте нечего), поэтому строки
+ *     кликабельны только там, где переход возможен — в оболочке страниц;
+ *     редактор-карта живёт отдельным роутом и обработчик не передаёт.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -34,6 +38,9 @@ export type LocateTarget =
 
 interface Props {
   alerts: Alerts;
+  // Открыть процесс с повисшим сообщением. Не часть onLocate: цель не на схеме,
+  // а в другом режиме — и передаётся только там, где такой переход существует.
+  onOpenProcess?: (processId: string) => void;
   // Переход к проблемному объекту/связи на схеме (pan + подсветка) — реализуется
   // вызывающей стороной (MapEditorPage). Если не передан — пункты не кликабельны.
   onLocate?: (target: LocateTarget) => void;
@@ -64,9 +71,11 @@ const IcoScatter = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {..
 const IcoBoxDocs = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="2.4" y="3" width="11.2" height="10" rx="1.6" /><path d="M2.4 6.2h11.2" /><circle cx="8" cy="9.8" r="1.2" fill="currentColor" stroke="none" /></svg>;
 // Пользователь внутри системы: фигурка человека внутри рамки-границы.
 const IcoPersonBox = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="2.2" y="2.6" width="11.6" height="10.8" rx="1.8" /><circle cx="8" cy="6.6" r="1.5" /><path d="M5.6 11.2c0-1.4 1.1-2.3 2.4-2.3s2.4.9 2.4 2.3" /></svg>;
+// Повисшее сообщение: стрелка с разрывом посередине.
+const IcoBrokenArrow = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M1.8 8h3.4" /><path d="M10.8 8h3.4" /><path d="M11.4 5.6 13.8 8l-2.4 2.4" /><path d="M7.4 5.4 8.6 10.6" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
 
-export default function SchemaAlerts({ alerts, onLocate }: Props) {
+export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props) {
   const [open, setOpen] = useState(false);
   const [pulseKey, setPulseKey] = useState(0);
   const [toast, setToast] = useState(false);
@@ -81,13 +90,16 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
   const containerOwn = alerts.container_own_docs;
   // Люди внутри системы: каждый вложенный человек — одна проблема (вынести в корень).
   const personsInside = alerts.persons_inside;
+  // Повисшие сообщения процессов: связь под сообщением удалили из схемы.
+  const dangling = alerts.dangling_messages;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
   // показываются как «2», но в сумму незавершённости дают «1».
   const isolatedProblems = Math.max(0, isolated.length - 1);
   const total =
-    disconnected.length + intermediate.length + isolatedProblems + containerOwn.length + personsInside.length;
+    disconnected.length + intermediate.length + isolatedProblems +
+    containerOwn.length + personsInside.length + dangling.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -196,6 +208,23 @@ export default function SchemaAlerts({ alerts, onLocate }: Props) {
             {containerOwn.map((c) => (
               <Item key={c.node_id} onClick={onLocate && (() => locate({ kind: "node", id: c.node_id }))}>
                 {c.node_name}{c.has_spec ? " + спека" : ""}
+              </Item>
+            ))}
+          </Section>
+
+          <Section icon={IcoBrokenArrow(13)} title="Сообщения без связи" count={dangling.length}>
+            {dangling.map((m) => (
+              <Item
+                key={m.message_id}
+                onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
+              >
+                <span style={{ display: "block", lineHeight: 1.35 }}>
+                  <span style={{ color: "#6b7280", fontWeight: 600 }}>{m.process_name}:</span>{" "}
+                  {m.caption ? `«${m.caption}»` : "без подписи"}
+                </span>
+                <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", lineHeight: 1.35 }}>
+                  {m.from_name} → {m.to_name}
+                </span>
               </Item>
             ))}
           </Section>

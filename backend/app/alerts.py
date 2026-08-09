@@ -8,14 +8,18 @@
 
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
+from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.process_message import ProcessMessage
+from app.models.process_participant import ProcessParticipant
 from app.schemas.node import (
     AlertsResponse,
     ContainerOwnDocsAlert,
+    DanglingMessageAlert,
     DisconnectedNodeAlert,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
@@ -32,7 +36,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     4) контейнеры с СОБСТВЕННЫМИ доками/спекой (grandfather) — логика и спеки
        должны жить на атомарных детях, такие доки распределяют по детям;
     5) люди (shape=person), вложенные в другой узел — по C4 актор живёт на
-       контекстном уровне, ВНЕ границы системы.
+       контекстном уровне, ВНЕ границы системы;
+    6) повисшие сообщения процессов — связь, которой шло сообщение, удалена
+       из схемы (edge_id = NULL).
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -156,10 +162,49 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         if n.shape == "person" and n.parent_id is not None
     ]
 
+    # 6) Повисшие сообщения процессов. Удаление связи из схемы НЕ сносит сообщение
+    #    (ON DELETE SET NULL) — расхождение процесса со схемой должно быть видно, а
+    #    не происходить тихо. До сих пор оно было видно только ВНУТРИ окна процесса;
+    #    здесь тот же факт поднимается на уровень схемы. Самосообщения исключены:
+    #    у внутренней операции участника связи C4 и не было.
+    from_p = aliased(ProcessParticipant)
+    to_p = aliased(ProcessParticipant)
+    dangling_messages = [
+        DanglingMessageAlert(
+            process_id=proc_id,
+            process_name=proc_name,
+            message_id=msg_id,
+            caption=caption,
+            from_name=name_by_id.get(from_node, "?"),
+            to_name=name_by_id.get(to_node, "?"),
+        )
+        for proc_id, proc_name, msg_id, caption, from_node, to_node in (
+            db.query(
+                BusinessProcess.id,
+                BusinessProcess.name,
+                ProcessMessage.id,
+                ProcessMessage.caption,
+                from_p.node_id,
+                to_p.node_id,
+            )
+            .join(ProcessMessage, ProcessMessage.process_id == BusinessProcess.id)
+            .join(from_p, from_p.id == ProcessMessage.from_participant_id)
+            .join(to_p, to_p.id == ProcessMessage.to_participant_id)
+            .filter(
+                BusinessProcess.project_id == project_id,
+                ProcessMessage.edge_id.is_(None),
+                ProcessMessage.from_participant_id != ProcessMessage.to_participant_id,
+            )
+            .order_by(BusinessProcess.name, ProcessMessage.order)
+            .all()
+        )
+    ]
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
         isolated_groups=isolated_groups,
         container_own_docs=container_own_docs,
         persons_inside=persons_inside,
+        dangling_messages=dangling_messages,
     )

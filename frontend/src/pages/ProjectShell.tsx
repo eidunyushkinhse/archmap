@@ -136,7 +136,15 @@ export default function ProjectShell({
           <ModeSwitch mode={mode} onChange={(m) => { setMode(m); setProcInitial(null); }} />
           {/* Индикатор незавершённости схемы (архитектор): знак в шапке для
               глобальной видимости; клик по пункту ведёт в редактор-карту. */}
-          {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleAlertLocate} />}
+          {isArchitect && (
+            <SchemaAlerts
+              alerts={alerts}
+              onLocate={handleAlertLocate}
+              // Повисшее сообщение чинят в процессе, а не на схеме: открываем его
+              // тем же путём, что клик по процессу на странице объекта.
+              onOpenProcess={(processId) => { setProcInitial(processId); setMode("proc"); }}
+            />
+          )}
           <SchemaActions
             projectId={projectId}
             isArchitect={isArchitect}
