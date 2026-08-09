@@ -9,7 +9,7 @@ import { processesApi } from "../api/processes";
 import { nodesApi } from "../api/nodes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import type { LevelPersistenceProps } from "../components/graph/types";
-import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
+import { readSchemaView, SCHEMA_VIEW_KEY, showStatusControls, type SchemaView } from "../components/schemaView";
 import { useLevelSchema } from "./useLevelSchema";
 import { useToast } from "./useToast";
 import { useRemoteSync } from "./useRemoteSync";
@@ -131,9 +131,8 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const graphNodes = lvl.nodes;
   const endpoints = lvl.endpoints;
   const hasNodes = graphNodes.length + endpoints.length > 0;
-  const hasStatusInfo =
-    graphNodes.some((n) => n.status !== "existing") ||
-    endpoints.some((g) => g.status !== "existing");
+  // Признак проектный, с сервера: статусы обычно лежат не на корневом уровне.
+  const hasStatusInfo = showStatusControls(lvl.hasStatusInfo, graphNodes, endpoints);
   const height = projectSchemaHeight(graphNodes.length);
 
   return (

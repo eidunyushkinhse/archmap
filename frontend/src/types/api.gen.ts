@@ -1733,6 +1733,11 @@ export interface components {
              * @default 0
              */
             meta_rev: number;
+            /**
+             * Has Status Info
+             * @default false
+             */
+            has_status_info: boolean;
         };
         /** HTTPValidationError */
         HTTPValidationError: {

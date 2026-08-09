@@ -10,7 +10,7 @@ from app.auth import get_current_user, require_architect
 from app.context_graph import build_context_graph
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
-from app.graph_queries import build_graph
+from app.graph_queries import build_graph, project_has_status_info
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -224,6 +224,7 @@ def get_root_graph(
         return GraphResponse(
             nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev,
             meta_rev=project.meta_rev,
+            has_status_info=project_has_status_info(db, project.id),
         )
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
@@ -515,6 +516,7 @@ def get_node_graph(
         return GraphResponse(
             nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev,
             meta_rev=project.meta_rev,
+            has_status_info=project_has_status_info(db, project.id),
         )
 
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}

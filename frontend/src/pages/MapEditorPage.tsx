@@ -35,7 +35,7 @@ import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY } from ".
 import { toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
-import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
+import { readSchemaView, SCHEMA_VIEW_KEY, showStatusControls, type SchemaView } from "../components/schemaView";
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
@@ -57,6 +57,11 @@ interface Props {
 export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone, onNavigateNode }: Props) {
   // ── Стейт уровня (адаптация TreePage) ────────────────────────────
   const [nodes, setNodes] = useState<Node[]>([]);
+  // Ведёт ли ПРОЕКТ переход (есть planned/deprecated) — приходит с сервера вместе с
+  // уровнем. Считать по составу текущего уровня нельзя: и «Вид схемы», и «Принять
+  // переход» относятся ко всему проекту, а статусы обычно лежат уровнем глубже
+  // (находка 2026-08-09). Итоговое условие показа собирает showStatusControls.
+  const [projectHasStatuses, setProjectHasStatuses] = useState(false);
   const [endpoints, setEndpoints] = useState<GhostNode[]>([]);
   const [viewLayout, setViewLayout] = useState<ViewLayout>({});
   const [edges, setEdges] = useState<LevelEdge[]>([]);
@@ -140,6 +145,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       setEndpoints(graph.endpoints);
       setViewLayout(graph.layout ?? {});
       setEdges(toLevelEdges(graph));
+      setProjectHasStatuses(graph.has_status_info);
       reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
       return graph.nodes;
     } finally {
@@ -466,7 +472,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     : { key: "all", title: "Экспорт схемы", load: () => exportApi.all() };
 
   const hasNodes = nodes.length + levelGhosts.length > 0;
-  const hasStatusInfo = nodes.some((n) => n.status !== "existing") || levelGhosts.some((g) => g.status !== "existing");
+  const hasStatusInfo = showStatusControls(projectHasStatuses, nodes, levelGhosts);
 
   const inspectEdge = (edge: LevelEdge) => { setSelectedObject({ kind: "edge", edge }); };
   // Выбор связи (общая оркестрация с просмотром — useEdgeChoice): модалки выбора

@@ -19,6 +19,9 @@ export function useLevelSchema({ containerId }: Args) {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [viewLayout, setViewLayout] = useState<ViewLayout>({});
   const [loading, setLoading] = useState(true);
+  // Ведёт ли ПРОЕКТ переход (есть planned/deprecated) — приходит с сервера, потому
+  // что по составу одного уровня этого не видно: статусы обычно лежат глубже.
+  const [hasStatusInfo, setHasStatusInfo] = useState(false);
 
   // Курсор изменений для remote-sync (version/graph_rev из ответа getGraph).
   const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
@@ -37,6 +40,7 @@ export function useLevelSchema({ containerId }: Args) {
       setEndpoints(graph.endpoints);
       setViewLayout(graph.layout ?? {});
       setEdges(toLevelEdges(graph));
+      setHasStatusInfo(graph.has_status_info);
     } finally {
       if (opts?.foreground) setLoading(false);
     }
@@ -59,7 +63,7 @@ export function useLevelSchema({ containerId }: Args) {
   }, []);
 
   return {
-    nodes, endpoints, edges, viewLayout, loading,
+    nodes, endpoints, edges, viewLayout, loading, hasStatusInfo,
     viewMetaRef, gestureActiveRef, mergeLayout,
     // Перезагрузка уровня (фон, без заглушки). Возвращает промис — ресинк персиста
     // (409 retry-after-resync) ждёт свежих данных перед переигровкой патча.

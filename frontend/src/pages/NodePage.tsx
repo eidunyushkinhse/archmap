@@ -22,7 +22,7 @@ import SpecAgentModal from "../components/docsImport/SpecAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
-import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../components/schemaView";
+import { readSchemaView, SCHEMA_VIEW_KEY, showStatusControls, type SchemaView } from "../components/schemaView";
 import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/types";
 import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
 import { plural } from "../ui/plural";
@@ -1297,9 +1297,9 @@ function SchemaSection({
 
   // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
   const height = schemaSectionHeight(visibleEntityGuess(graph));
-  const hasStatusInfo =
-    graph.nodes.some((n) => n.status !== "existing") ||
-    graph.endpoints.some((ep) => ep.status !== "existing");
+  // Признак проектный, с сервера: на схеме одного объекта статусов может не быть,
+  // а в проекте переход идёт — переключатель вида нужен и здесь.
+  const hasStatusInfo = showStatusControls(graph.has_status_info, graph.nodes, graph.endpoints);
 
   // «Редактировать» / «Открыть в карте» → родительский слой + подсветка + возврат (Ф11/Ф12).
   const onEdit = onNavigateMap

@@ -189,6 +189,10 @@ class GraphResponse(BaseModel):
     version: int = 0
     graph_rev: int = 0
     meta_rev: int = 0
+    # Есть ли в ПРОЕКТЕ узлы planned/deprecated. Признак проектный (не уровневый):
+    # им фронт решает, показывать ли «Вид схемы» и «Принять переход» — обе вещи
+    # относятся ко всему проекту. Считает project_has_status_info.
+    has_status_info: bool = False
 
 
 class NodeEdgeInfo(BaseModel):

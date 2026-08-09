@@ -29,6 +29,23 @@ from app.schemas.node import (
 )
 
 
+def project_has_status_info(db: Session, project_id: uuid.UUID) -> bool:
+    """Ведёт ли проект переход — есть ли в нём хоть один узел не-existing.
+
+    Признак ПРОЕКТНЫЙ, а не уровневый, и потому едет в ответе КАЖДОГО уровня.
+    Им фронт решает, показывать ли «Вид схемы» и «Принять переход»: и настройка
+    вида (localStorage), и сам переход относятся ко всему проекту, а считать их
+    по составу текущего уровня — значит прятать управление ровно тогда, когда
+    пользователь стоит уровнем выше или ниже своих planned/deprecated узлов
+    (находка 2026-08-09).
+    """
+    return db.query(
+        db.query(Node)
+        .filter(Node.project_id == project_id, Node.status != "existing")
+        .exists()
+    ).scalar() or False
+
+
 def read_view_layout(
     db: Session, project_id: uuid.UUID, container_id: uuid.UUID | None
 ) -> dict[str, ViewLayoutPayload]:
@@ -149,4 +166,5 @@ def build_graph(
         edges=result_edges,
         endpoints=endpoints,
         layout=layout,
+        has_status_info=project_has_status_info(db, local_nodes[0].project_id),
     )

@@ -14,7 +14,7 @@ from typing import cast
 from sqlalchemy.orm import Session
 
 from app import tree
-from app.graph_queries import ghost_registry, read_view_layout
+from app.graph_queries import ghost_registry, project_has_status_info, read_view_layout
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
@@ -107,4 +107,5 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
         version=current_version(db, project.id, focus.id),
         graph_rev=project.graph_rev,
         meta_rev=project.meta_rev,
+        has_status_info=project_has_status_info(db, project.id),
     )

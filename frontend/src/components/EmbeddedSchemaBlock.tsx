@@ -55,7 +55,8 @@ interface Props {
   height: number;
   // Заголовок тулбара (счётчик компонентов и т.п.)
   toolbarHint?: string;
-  // Показывать ли SchemaViewFilter (только если на уровне есть не-existing узлы)
+  // Показывать ли SchemaViewFilter (условие собирает showStatusControls: ведёт ли
+  // переход ПРОЕКТ — состава одного уровня для этого мало)
   showViewFilter: boolean;
   // Пустое состояние (вместо схемы)
   empty?: React.ReactNode;
