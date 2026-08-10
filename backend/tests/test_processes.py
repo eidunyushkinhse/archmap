@@ -20,6 +20,7 @@ from app.models.process_message import ProcessMessage
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
+    create_fragment,
     create_message,
     delete_message,
     get_process,
@@ -27,8 +28,15 @@ from app.routers.processes import (
     list_directions,
     reorder_messages,
     reorder_participants,
+    update_fragment,
 )
-from app.schemas.process import MessageCreate, ParticipantCreate, ReorderPayload
+from app.schemas.process import (
+    FragmentCreate,
+    FragmentUpdate,
+    MessageCreate,
+    ParticipantCreate,
+    ReorderPayload,
+)
 
 
 # ── Хелперы ───────────────────────────────────────────────────────────────────
@@ -502,3 +510,57 @@ def test_границы_фрагмента_остаются_на_месте(db):
     # На позициях 1..2 теперь шаг0 и шаг1 — состав блока изменился осознанно.
     inside = [m.caption for m in sorted(proc.messages, key=lambda m: m.order)[1:3]]
     assert inside == ["шаг0", "шаг1"]
+
+
+# ── Ветка «иначе» у alt (2026-08-10) ──────────────────────────────────────────
+def _фрагмент(db, proc, **over):
+    payload = dict(kind="alt", from_order=0, to_order=2, guard=None, else_guard=None, else_order=None)
+    payload.update(over)
+    return create_fragment(
+        proc.id, FragmentCreate(**payload),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+
+def test_ветка_иначе_внутри_охвата_принимается(db):
+    proc, _ = _три_шага(db)
+
+    out = _фрагмент(db, proc, else_order=1, else_guard="отказ")
+
+    assert (out.else_order, out.else_guard) == (1, "отказ")
+
+
+@pytest.mark.parametrize("bad", [0, 3, 9])
+def test_ветка_вне_охвата_отклоняется(db, bad):
+    # else == from оставил бы первую половину пустой, else > to — ветка вне рамки.
+    proc, _ = _три_шага(db)
+
+    with pytest.raises(HTTPException) as exc:
+        _фрагмент(db, proc, else_order=bad)
+
+    assert exc.value.status_code == 422
+
+
+def test_ветка_только_у_alt(db):
+    proc, _ = _три_шага(db)
+
+    with pytest.raises(HTTPException) as exc:
+        _фрагмент(db, proc, kind="loop", else_order=1)
+
+    assert exc.value.status_code == 422
+
+
+def test_правка_охвата_не_может_выбросить_ветку_наружу(db):
+    # Частичный патч не упоминает else_order, но ломает инвариант — проверяем
+    # РЕЗУЛЬТАТ, а не вход.
+    proc, _ = _три_шага(db)
+    frag = _фрагмент(db, proc, else_order=2, else_guard="отказ")
+
+    with pytest.raises(HTTPException) as exc:
+        update_fragment(
+            proc.id, frag.id, FragmentUpdate(to_order=1),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 422
+    assert db.query(ProcessFragment).one().to_order == 2  # откат, ничего не записано

@@ -73,6 +73,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [pendingFrag, setPendingFrag] = useState<{ kind: FragmentKind; fromRow: number; toRow: number } | null>(null);
   const [fragGuard, setFragGuard] = useState("");
   const [delFrag, setDelFrag] = useState<string | null>(null);
+  // Карточка ветки «иначе»: id фрагмента + условие. elseRow=null — ветки ещё нет,
+  // заводим её (границу ставим посередине охвата).
+  const [elseEdit, setElseEdit] = useState<{ fid: string; elseRow: number | null } | null>(null);
+  const [elseGuard, setElseGuard] = useState("");
   const [delMsg, setDelMsg] = useState<string | null>(null);
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
@@ -458,6 +462,63 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     }
   }
 
+  // Общая запись правки ветки «иначе»: и границы, и условия, и снятия. Один канал —
+  // чтобы откат всегда возвращал обе величины разом (иначе undo половинчатый).
+  async function patchElse(fid: string, next: { else_order: number | null; else_guard: string | null }) {
+    if (!detail) return;
+    const frag = detail.fragments.find((x) => x.id === fid);
+    if (!frag) return;
+    const prev = { else_order: frag.else_order, else_guard: frag.else_guard };
+    setDetail({
+      ...detail,
+      fragments: detail.fragments.map((x) => (x.id === fid ? { ...x, ...next } : x)),
+    });
+    try {
+      await processesApi.updateFragment(id, fid, next);
+      hist.push({
+        label: "Ветка «иначе»",
+        undo: async () => { await processesApi.updateFragment(id, fid, prev); },
+        redo: async () => { await processesApi.updateFragment(id, fid, next); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось изменить ветку «иначе»");
+    }
+  }
+
+  // Перенос границы ветки: строка → order (как и у охвата).
+  async function moveElse(fid: string, elseRow: number) {
+    if (!detail) return;
+    const frag = detail.fragments.find((x) => x.id === fid);
+    if (!frag) return;
+    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    if (elseRow < 0 || elseRow >= sorted.length) return;
+    await patchElse(fid, { else_order: sorted[elseRow].order, else_guard: frag.else_guard });
+  }
+
+  // Сохранение карточки: заводим ветку (границу — посередине охвата) либо правим
+  // условие существующей.
+  async function saveElse() {
+    if (!elseEdit || !detail) return;
+    const frag = detail.fragments.find((x) => x.id === elseEdit.fid);
+    if (!frag) return;
+    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    const rowOf = (order: number) => sorted.findIndex((m) => m.order === order);
+    let row = elseEdit.elseRow;
+    if (row == null) {
+      const from = rowOf(frag.from_order);
+      const to = rowOf(frag.to_order);
+      if (from < 0 || to <= from) return;
+      row = from + Math.ceil((to - from) / 2); // середина охвата, строго внутри
+    }
+    setElseEdit(null);
+    await patchElse(elseEdit.fid, {
+      else_order: sorted[row].order,
+      else_guard: elseGuard.trim() || null,
+    });
+  }
+
   async function removeFragment(fid: string) {
     const f = detail?.fragments.find((x) => x.id === fid);
     try {
@@ -574,6 +635,12 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               } : undefined}
               onFragmentClick={editing ? (fid) => setDelFrag(fid) : undefined}
               onResizeFragment={editing ? (fid, from, to) => void resizeFragment(fid, from, to) : undefined}
+              onMoveElse={editing ? (fid, row) => void moveElse(fid, row) : undefined}
+              onEditElse={editing ? (fid, row) => {
+                const frag = detail.fragments.find((x) => x.id === fid);
+                setElseGuard(frag?.else_guard ?? "");
+                setElseEdit({ fid, elseRow: row });
+              } : undefined}
               onConnect={editing ? (from, to) => setComposer({ from, to }) : undefined}
               canConnect={editing ? (from, to) => directions.has(`${from}>${to}`) : undefined}
               onSelfConnect={editing ? (nodeId) => { setSelfMsg(nodeId); setSelfCaption(""); } : undefined}
@@ -681,6 +748,52 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 onConfirm={() => void confirmRemoveParticipant()}
                 onCancel={() => setDelPart(null)}
               />
+            </div>
+          </>
+        )}
+
+        {/* Ветка «иначе»: условие + снятие ветки */}
+        {elseEdit && detail && (
+          <>
+            <div style={overlayDim} onClick={() => setElseEdit(null)} />
+            <div style={overlayCenter}>
+              <div style={confirmCard}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
+                  {elseEdit.elseRow == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
+                </div>
+                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
+                  {elseEdit.elseRow == null
+                    ? "Граница встанет посередине охвата — потом её можно перетащить."
+                    : `Начинается с сообщения ${elseEdit.elseRow + 1}`}
+                </div>
+                <input
+                  className="bp-input"
+                  value={elseGuard}
+                  onChange={(e) => setElseGuard(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void saveElse(); }}
+                  placeholder="условие ветки, напр. «отказ»"
+                  autoFocus
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                  {elseEdit.elseRow != null && (
+                    <button
+                      className="bp-btn-ghost"
+                      style={{ marginRight: "auto", color: "#dc2626" }}
+                      onClick={() => {
+                        const fid = elseEdit.fid;
+                        setElseEdit(null);
+                        void patchElse(fid, { else_order: null, else_guard: null });
+                      }}
+                    >
+                      Убрать ветку
+                    </button>
+                  )}
+                  <button className="bp-btn-ghost" onClick={() => setElseEdit(null)}>Отмена</button>
+                  <button className="bp-btn-primary" onClick={() => void saveElse()}>
+                    {elseEdit.elseRow == null ? "Добавить" : "Сохранить"}
+                  </button>
+                </div>
+              </div>
             </div>
           </>
         )}

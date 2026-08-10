@@ -70,6 +70,10 @@ interface Props {
   // Отдаёт новые индексы строк; ширина рамки во время жеста пересчитывается сама —
   // она выводится из самой широкой стрелки внутри охвата.
   onResizeFragment?: (id: string, fromRow: number, toRow: number) => void;
+  // Ветка «иначе» у alt: перенос её границы (строка, с которой ветка начинается).
+  onMoveElse?: (id: string, elseRow: number) => void;
+  // Завести ветку (elseRow == null у фрагмента) либо открыть правку её условия.
+  onEditElse?: (id: string, elseRow: number | null) => void;
   // Режим выбора диапазона под новый фрагмент: курсором протягиваем по строкам
   // сообщений, на отпускании отдаём [fromRow, toRow]. null — обычный режим.
   selectMode?: FragmentKind | null;
@@ -93,6 +97,8 @@ export default function SequenceDiagram({
   onReorderParticipants,
   onReorderMessages,
   onResizeFragment,
+  onMoveElse,
+  onEditElse,
   selectMode = null,
   onSelectRange,
   onFragmentClick,
@@ -120,7 +126,7 @@ export default function SequenceDiagram({
   // Протягивание границы фрагмента: какой фрагмент, какая грань и на какую строку
   // она сейчас метит. moved — порог пройден (иначе это клик по шапке/рамке).
   const [fragDrag, setFragDrag] = useState<
-    { id: string; edge: "top" | "bottom"; row: number; y0: number; moved: boolean } | null
+    { id: string; edge: "top" | "bottom" | "else"; row: number; y0: number; moved: boolean } | null
   >(null);
   // «Липкость» шапок: в самом верху диаграммы разделительная грань скрыта, появляется
   // при прилипании. Следим за невидимой sentinel-точкой на верху диаграммы: как только
@@ -224,9 +230,23 @@ export default function SequenceDiagram({
     if (!fragDrag || !fragDrag.moved || fragDrag.id !== f.id) {
       return { from: f.fromRow, to: f.toRow };
     }
+    if (fragDrag.edge === "else") return { from: f.fromRow, to: f.toRow };
+    // Грань не заходит за противоположную И не проглатывает ветку «иначе»: та обязана
+    // остаться строго внутри охвата (бэк держит то же правило).
+    const loEdge = f.elseRow != null ? Math.min(f.elseRow - 1, f.toRow) : f.toRow;
+    const hiEdge = f.elseRow != null ? Math.max(f.elseRow, f.fromRow) : f.fromRow;
     return fragDrag.edge === "top"
-      ? { from: Math.min(fragDrag.row, f.toRow), to: f.toRow }
-      : { from: f.fromRow, to: Math.max(fragDrag.row, f.fromRow) };
+      ? { from: Math.min(fragDrag.row, loEdge), to: f.toRow }
+      : { from: f.fromRow, to: Math.max(fragDrag.row, hiEdge) };
+  };
+  // Действующая строка ветки «иначе»: во время её протягивания — живая, в границах
+  // (fromRow, toRow]. elseRow == fromRow оставил бы первую половину пустой.
+  const fragElseRow = (f: SeqFragment): number | null => {
+    if (f.elseRow == null) return null;
+    if (!fragDrag || !fragDrag.moved || fragDrag.id !== f.id || fragDrag.edge !== "else") {
+      return f.elseRow;
+    }
+    return Math.min(Math.max(fragDrag.row, f.fromRow + 1), f.toRow);
   };
   // Каждый фрагмент, начавшийся на/до строки r, добавляет высоту своей шапки (а ветка
   // else — свой зазор). Так несколько/вложенные фрагменты раздвигают строки корректно.
@@ -234,7 +254,8 @@ export default function SequenceDiagram({
     let off = 0;
     for (const f of fragments) {
       if (r >= fragRows(f).from) off += SQ.FRAG_HEAD;
-      if (f.elseRow != null && r >= f.elseRow) off += SQ.ELSE_GAP;
+      const er = fragElseRow(f);
+      if (er != null && r >= er) off += SQ.ELSE_GAP;
     }
     return off;
   };
@@ -298,7 +319,8 @@ export default function SequenceDiagram({
         right: Math.max(...xs) + 38 - inset,
         top: rowY(rows.from) - 26,
         bottom: rowY(rows.to) + 18,
-        elseY: f.elseRow != null ? rowY(f.elseRow) - 16 : null,
+        elseRow: fragElseRow(f),
+        elseY: fragElseRow(f) != null ? rowY(fragElseRow(f) as number) - 16 : null,
       };
     })
     .filter((b): b is NonNullable<typeof b> => b !== null);
@@ -315,9 +337,10 @@ export default function SequenceDiagram({
   // Начало протягивания грани фрагмента. Порог тот же, что у шага: без него клик по
   // шапке (удаление фрагмента) иногда читался бы как микро-жест.
   function onFragEdgeDown(
-    e: ReactPointerEvent<HTMLDivElement>, id: string, edge: "top" | "bottom", row: number,
+    e: ReactPointerEvent<HTMLDivElement>, id: string, edge: "top" | "bottom" | "else", row: number,
   ) {
-    if (!onResizeFragment || selectMode) return;
+    if (selectMode) return;
+    if (edge === "else" ? !onMoveElse : !onResizeFragment) return;
     const root = rootRef.current;
     if (!root) return;
     e.stopPropagation(); // рамка лежит под шапкой — не даём жесту уйти в клик по ней
@@ -428,11 +451,20 @@ export default function SequenceDiagram({
   function onRootUp() {
     if (fragDrag) {
       const f = fragments.find((x) => x.id === fragDrag.id);
+      if (f && fragDrag.moved && fragDrag.edge === "else") {
+        const row = fragElseRow(f);
+        if (row != null && row !== f.elseRow) {
+          suppressClick.current = true;
+          onMoveElse?.(f.id, row);
+        }
+        setFragDrag(null);
+        return;
+      }
       if (f && fragDrag.moved) {
-        // Схлопывание грани за противоположную не даём: диапазон минимум в одну
-        // строку (бэк тоже держит from_order ≤ to_order).
-        const from = fragDrag.edge === "top" ? Math.min(fragDrag.row, f.toRow) : f.fromRow;
-        const to = fragDrag.edge === "bottom" ? Math.max(fragDrag.row, f.fromRow) : f.toRow;
+        // Ровно те границы, что показаны на экране: fragRows уже держит и запрет
+        // схлопывания, и запрет проглотить ветку «иначе». Считать их здесь заново
+        // значит завести второй источник правды — он и разъехался бы с картинкой.
+        const { from, to } = fragRows(f);
         if (from !== f.fromRow || to !== f.toRow) {
           suppressClick.current = true; // следом придёт click по рамке — гасим
           onResizeFragment?.(f.id, from, to);
@@ -550,7 +582,35 @@ export default function SequenceDiagram({
               </span>
               {f.guard && <span style={{ fontSize: 11, fontWeight: 600, color: BPT.amber }}>{f.guard}</span>}
             </div>
-            {box.elseY != null && (
+            {/* «+ иначе» — только у alt, только пока ветки нет и только если охват
+                шире одного шага: делить нечего, а elseRow == fromRow оставил бы
+                первую половину пустой. */}
+            {onEditElse && f.kind === "alt" && box.elseRow == null &&
+              box.rows.to > box.rows.from && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onEditElse(f.id, null); }}
+                title="Добавить ветку «иначе»"
+                style={{
+                  position: "absolute",
+                  left: box.right - 76,
+                  top: box.top - 11,
+                  height: 20,
+                  padding: "0 8px",
+                  zIndex: 4,
+                  background: BPT.amberBg,
+                  border: "1px solid " + BPT.amberLine,
+                  borderRadius: 5,
+                  color: BPT.amber,
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                + иначе
+              </button>
+            )}
+            {box.elseY != null && box.elseRow != null && (
               <div
                 style={{
                   position: "absolute",
@@ -559,10 +619,32 @@ export default function SequenceDiagram({
                   width: box.right - box.left,
                   borderTop: "1.5px dashed " + BPT.amberLine,
                   zIndex: 2,
+                  transition: fragDrag?.id === f.id ? undefined : "top .15s ease, width .15s ease",
                 }}
               >
+                {onMoveElse && !selectMode && (
+                  <div
+                    onPointerDown={(e) =>
+                      onFragEdgeDown(e, f.id, "else", box.elseRow as number)
+                    }
+                    title="Потянуть границу ветки"
+                    style={fragEdgeStyle(0, 0, box.right - box.left)}
+                  />
+                )}
                 <span
+                  onClick={
+                    onEditElse
+                      ? (e) => {
+                          e.stopPropagation();
+                          if (suppressClick.current) { suppressClick.current = false; return; }
+                          onEditElse(f.id, box.elseRow);
+                        }
+                      : undefined
+                  }
+                  title={onEditElse ? "Правка ветки «иначе»" : undefined}
                   style={{
+                    cursor: onEditElse ? "pointer" : "default",
+                    zIndex: 3,
                     position: "absolute",
                     left: 10,
                     top: -10,

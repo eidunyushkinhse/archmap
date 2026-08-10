@@ -388,6 +388,28 @@ def delete_message(
 
 
 # ── Фрагменты (свободный слой) ────────────────────────────────────────────────
+def _check_fragment(kind: str, from_order: int, to_order: int, else_order: int | None) -> None:
+    """Границы фрагмента. Проверяется РЕЗУЛЬТАТ (после применения патча), а не вход:
+    частичная правка может сломать инвариант, не упоминая нарушенного поля.
+
+    Ветка «иначе» — только у alt (у opt/loop/par альтернативы нет) и строго ВНУТРИ
+    охвата: else_order == from_order оставил бы первую половину пустой, за to_order —
+    ветку вне рамки. До 2026-08-10 не проверялось вовсе: авторинга в интерфейсе не
+    было, и невалидную ветку мог принести только импорт.
+    """
+    if from_order > to_order:
+        raise HTTPException(status_code=422, detail="from_order должен быть ≤ to_order")
+    if else_order is None:
+        return
+    if kind != "alt":
+        raise HTTPException(status_code=422, detail="Ветка «иначе» бывает только у alt")
+    if not (from_order < else_order <= to_order):
+        raise HTTPException(
+            status_code=422,
+            detail="else_order должен быть строго внутри охвата: from_order < else_order ≤ to_order",
+        )
+
+
 @router.post(
     "/{process_id}/fragments",
     response_model=FragmentOut,
@@ -401,8 +423,7 @@ def create_fragment(
     user: User = Depends(require_architect),
 ) -> FragmentOut:
     proc = _get_process(db, process_id, project)
-    if payload.from_order > payload.to_order:
-        raise HTTPException(status_code=422, detail="from_order должен быть ≤ to_order")
+    _check_fragment(payload.kind, payload.from_order, payload.to_order, payload.else_order)
     frag = ProcessFragment(
         process_id=proc.id,
         kind=payload.kind,
@@ -441,10 +462,16 @@ def update_fragment(
     if frag is None or frag.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Фрагмент не найден")
     data = payload.model_dump(exclude_unset=True)
+    # Проверяем БУДУЩЕЕ состояние до записи в объект: иначе отказ оставляет в сессии
+    # грязный фрагмент с невалидными границами (в БД он не уедет — коммита нет, — но
+    # рассчитывать на это незачем).
+    merged = {
+        field: data.get(field, getattr(frag, field))
+        for field in ("kind", "from_order", "to_order", "else_order")
+    }
+    _check_fragment(merged["kind"], merged["from_order"], merged["to_order"], merged["else_order"])
     for field, value in data.items():
         setattr(frag, field, value)
-    if frag.from_order > frag.to_order:
-        raise HTTPException(status_code=422, detail="from_order должен быть ≤ to_order")
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(frag)

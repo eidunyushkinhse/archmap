@@ -126,3 +126,115 @@ describe("охват фрагмента: протягивание грани", (
     }
   });
 });
+
+// ── Ветка «иначе» (2026-08-10) ────────────────────────────────────────────────
+const FE = (fromRow: number, toRow: number, elseRow: number | null, kind = "alt"): SeqFragment =>
+  ({ id: "f1", kind, fromRow, toRow, guard: "успех", elseRow, elseGuard: elseRow != null ? "отказ" : null }) as unknown as SeqFragment;
+
+function renderWithElse(over: {
+  frag?: SeqFragment;
+  onMoveElse?: (id: string, row: number) => void;
+  onEditElse?: (id: string, row: number | null) => void;
+} = {}) {
+  return render(
+    <SequenceDiagram
+      participants={PARTICIPANTS}
+      messages={MESSAGES}
+      fragments={[over.frag ?? FE(0, 2, 1)]}
+      ghost
+      onResizeFragment={vi.fn()}
+      onMoveElse={over.onMoveElse}
+      onEditElse={over.onEditElse}
+    />,
+  );
+}
+
+const elseButton = (c: HTMLElement) =>
+  Array.from(c.querySelectorAll("button")).find((b) => b.textContent === "+ иначе");
+
+describe("ветка «иначе» у alt", () => {
+  it("«+ иначе» предлагается, пока ветки нет", () => {
+    const { container } = renderWithElse({ frag: FE(0, 2, null), onEditElse: vi.fn() });
+    expect(elseButton(container)).toBeTruthy();
+  });
+
+  it("у фрагмента с веткой кнопки уже нет", () => {
+    const { container } = renderWithElse({ frag: FE(0, 2, 1), onEditElse: vi.fn() });
+    expect(elseButton(container)).toBeUndefined();
+  });
+
+  it("не-alt ветку не предлагает", () => {
+    const { container } = renderWithElse({ frag: FE(0, 2, null, "loop"), onEditElse: vi.fn() });
+    expect(elseButton(container)).toBeUndefined();
+  });
+
+  it("охват в один шаг делить нечем — кнопки нет", () => {
+    const { container } = renderWithElse({ frag: FE(1, 1, null), onEditElse: vi.fn() });
+    expect(elseButton(container)).toBeUndefined();
+  });
+
+  it("у ветки своя ручка: всего три грани", () => {
+    const { container } = renderWithElse({ onMoveElse: vi.fn() });
+    expect(edges(container)).toHaveLength(3); // верх, низ, ветка
+  });
+
+  it("протягивание границы ветки отдаёт новую строку", () => {
+    const onMoveElse = vi.fn();
+    const { container } = renderWithElse({ onMoveElse });
+    const elseGrip = edges(container)[2];
+
+    fireEvent.pointerDown(elseGrip, { clientY: 300 });
+    fireEvent.pointerMove(container.firstChild!, { clientY: 900 });
+    fireEvent.pointerUp(container.firstChild!);
+
+    expect(onMoveElse).toHaveBeenCalledWith("f1", 2);
+  });
+
+  it("ветка не поднимается на первую строку охвата", () => {
+    // elseRow == fromRow оставил бы первую половину пустой (бэк такое отклоняет).
+    const onMoveElse = vi.fn();
+    const { container } = renderWithElse({ onMoveElse });
+
+    fireEvent.pointerDown(edges(container)[2], { clientY: 300 });
+    fireEvent.pointerMove(container.firstChild!, { clientY: 0 });
+    fireEvent.pointerUp(container.firstChild!);
+
+    // Либо не двинулась вовсе, либо осталась строго внутри охвата.
+    if (onMoveElse.mock.calls.length) {
+      expect(onMoveElse.mock.calls[0][1]).toBeGreaterThan(0);
+    }
+  });
+
+  it("нижняя грань не проглатывает ветку", () => {
+    const onResize = vi.fn();
+    const { container } = render(
+      <SequenceDiagram
+        participants={PARTICIPANTS}
+        messages={MESSAGES}
+        fragments={[FE(0, 2, 2)]}
+        ghost
+        onResizeFragment={onResize}
+        onMoveElse={vi.fn()}
+      />,
+    );
+
+    fireEvent.pointerDown(edges(container)[1], { clientY: 900 }); // низ рамки
+    fireEvent.pointerMove(container.firstChild!, { clientY: 0 }); // тянем вверх
+    fireEvent.pointerUp(container.firstChild!);
+
+    if (onResize.mock.calls.length) {
+      const [, , to] = onResize.mock.calls[0];
+      expect(to).toBeGreaterThanOrEqual(2); // ветка на строке 2 осталась внутри
+    }
+  });
+
+  it("клик по условию ветки открывает её правку", () => {
+    const onEditElse = vi.fn();
+    const { container } = renderWithElse({ onEditElse });
+    const chip = Array.from(container.querySelectorAll("span")).find((x) => x.textContent === "отказ");
+
+    fireEvent.click(chip!);
+
+    expect(onEditElse).toHaveBeenCalledWith("f1", 1);
+  });
+});
