@@ -28,7 +28,15 @@ interface EditorProps {
   // markdown-обёртки). Применяется ТОЛЬКО к файлу: то же самое, набранное руками,
   // трогать нельзя — человек написал это сознательно.
   prepareFile?: (text: string) => string;
+  // Первая фраза подсказки кнопки — что именно тут берут из файла и в каком виде.
+  // Знает это вызывающий: колонка одна на оба режима, и зашитый текст врал бы в
+  // одном из них. Про перетаскивание дописывается общей частью (см. ниже).
+  fileTitle?: string;
 }
+
+// Вторая половина подсказки — общая: перетаскивание работает одинаково в обоих
+// режимах, дублировать её по вызывающим нечего.
+const DROP_HINT = "Файл можно и перетащить на поле";
 
 // Потолок размера файла: спеки бывают в несколько мегабайт (Stripe ~5 МБ), но
 // десятки — это уже не спека, а промах в диалоге. Читать такое в textarea значит
@@ -48,6 +56,7 @@ export function DocEditorColumn({
   fileAccept,
   onFileError,
   prepareFile,
+  fileTitle,
 }: EditorProps) {
   // На маунте value == сохранённому значению из БД
   const committedRef = useRef(value);
@@ -135,7 +144,7 @@ export function DocEditorColumn({
                 type="button"
                 className="doc-savebtn doc-filebtn"
                 onClick={() => fileRef.current?.click()}
-                title="Взять спеку из файла (.yaml / .yml / .json). Файл можно и перетащить на поле"
+                title={fileTitle ? `${fileTitle} ${DROP_HINT}` : DROP_HINT}
               >
                 Загрузить файл
               </button>

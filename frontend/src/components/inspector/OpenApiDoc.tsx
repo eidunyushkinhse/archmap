@@ -125,6 +125,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
           // Спеку обычно не пишут руками, а берут готовым файлом. JSON тоже
           // принимаем: js-yaml разбирает его тем же парсером (JSON — подмножество YAML).
           fileAccept=".yaml,.yml,.json,text/yaml,application/json"
+          fileTitle="Взять спеку из файла (.yaml / .yml / .json)."
           onFileError={setFileError}
         />
       )}

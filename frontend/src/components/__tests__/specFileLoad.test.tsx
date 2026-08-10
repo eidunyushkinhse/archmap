@@ -45,6 +45,14 @@ describe("OpenAPI: загрузка спеки из файла", () => {
     expect(loadBtn()).toBeNull();
   });
 
+  it("подсказка говорит про спеку и её форматы", () => {
+    renderDoc();
+    const hint = loadBtn()?.getAttribute("title") ?? "";
+    expect(hint).toContain("спеку");
+    expect(hint).toContain(".yaml");
+    expect(hint).not.toContain(".mmd"); // колонка общая — чужой текст сюда не подставляется
+  });
+
   it("выбранный файл попадает в поле редактора", async () => {
     const { container } = renderDoc();
 
@@ -166,6 +174,21 @@ describe("Логика: загрузка mermaid-схемы из файла", ()
   it("наблюдателю — нет", () => {
     renderChart({ isArchitect: false });
     expect(loadBtn()).toBeNull();
+  });
+
+  it("подсказка говорит про схему и её форматы, а не про спеку", () => {
+    // Колонка редактора общая на оба режима: зашитый в неё текст врал бы в одном.
+    renderChart();
+    const hint = loadBtn()?.getAttribute("title") ?? "";
+    expect(hint).toContain("схему");
+    expect(hint).toContain(".mmd");
+    expect(hint).not.toContain("спеку");
+    expect(hint).not.toContain(".yaml");
+  });
+
+  it("про перетаскивание сказано в обоих режимах", () => {
+    renderChart();
+    expect(loadBtn()?.getAttribute("title")).toContain("перетащить");
   });
 
   it("выбранный файл попадает в поле редактора", async () => {

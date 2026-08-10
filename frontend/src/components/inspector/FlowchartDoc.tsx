@@ -125,6 +125,7 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
           // .md в маске не случайно: схемы чаще всего лежат кусочком markdown —
           // обёртку ```mermaid снимаем при загрузке (prepareFile).
           fileAccept=".mmd,.mermaid,.md,.txt,text/plain,text/markdown"
+          fileTitle="Взять схему из файла (.mmd / .mermaid / .md / .txt). Обёртка ```mermaid снимается."
           onFileError={setFileError}
           prepareFile={unfenceMermaid}
         />
