@@ -31,6 +31,26 @@ if (!globalThis.ResizeObserver) {
   } as unknown as typeof ResizeObserver;
 }
 
+// IntersectionObserver — SequenceDiagram следит им за «липкостью» шапок участников.
+if (!globalThis.IntersectionObserver) {
+  globalThis.IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return []; }
+    root = null;
+    rootMargin = "";
+    thresholds = [];
+  } as unknown as typeof IntersectionObserver;
+}
+
+// Pointer capture — жесты канваса и sequence-диаграммы держат указатель за собой.
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+}
+
 // scrollTo / scrollIntoView — jsdom не реализует.
 if (!window.scrollTo) window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = vi.fn();

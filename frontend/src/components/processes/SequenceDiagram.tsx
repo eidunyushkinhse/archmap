@@ -19,6 +19,7 @@ const LABEL_PAD = 26; // запас в шаге строки сверх высо
 const SELF_OFF = 46; // вертикальный сдвиг хэндла «себе» под кружком-источником
 const SELF_HIT = 22; // радиус попадания курсора по хэндлу «себе»
 const DRAG_SLOP = 4; // порог сдвига, отделяющий перетаскивание шага от клика по подписи
+const GRAB_W = 16; // толщина невидимой полосы захвата поверх стрелки (сама она 1.7px)
 const STATUSES: NodeStatus[] = ["existing", "planned", "deprecated"];
 
 interface Props {
@@ -269,9 +270,23 @@ export default function SequenceDiagram({
     e.currentTarget.setPointerCapture(e.pointerId);
     setReorder({ fromK: k, px: PX(k) });
   }
+  // Стрелку тянут так же, как подпись: пользователь инстинктивно берётся за неё.
+  // Тонкая линия (1.7px) курсором не ловится, поэтому поверх неё кладём невидимую
+  // полосу той же геометрии с толстой обводкой — она и принимает жест.
+  // pointerEvents="stroke": реагирует обводка, а не пустой прямоугольник вокруг.
+  const grabbable = (m: SeqMessage) => !!onReorderMessages && !selectMode && !dimMsg(m);
+  const grabProps = (r: number) => ({
+    fill: "none" as const,
+    stroke: "transparent",
+    strokeWidth: GRAB_W,
+    strokeLinecap: "round" as const,
+    style: { pointerEvents: "stroke" as const, cursor: "grab" },
+    onPointerDown: (e: ReactPointerEvent<SVGElement>) => onLabelDown(e, r),
+  });
+
   // Начало перетаскивания ШАГА за его подпись. Порог сдвига (DRAG_SLOP) отделяет
   // драг от клика: подпись открывает правку сообщения, и жест не должен её отбирать.
-  function onLabelDown(e: ReactPointerEvent<HTMLDivElement>, r: number) {
+  function onLabelDown(e: ReactPointerEvent<HTMLDivElement | SVGElement>, r: number) {
     if (!onReorderMessages || selectMode) return;
     const root = rootRef.current;
     if (!root) return;
@@ -528,16 +543,20 @@ export default function SequenceDiagram({
             const loopH = 15;
             const d = `M ${x} ${y - loopH / 2} h ${loopW} v ${loopH} h ${-loopW}`;
             return (
-              <path
-                key={m.id}
-                d={d}
-                fill="none"
-                stroke={color}
-                strokeWidth="1.7"
-                strokeDasharray={dash === "none" ? undefined : dash}
-                markerEnd={marker}
-                opacity={dimMsg(m) ? 0.12 : 1}
-              />
+              <g key={m.id}>
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="1.7"
+                  strokeDasharray={dash === "none" ? undefined : dash}
+                  markerEnd={marker}
+                  opacity={dimMsg(m) ? 0.12 : 1}
+                />
+                {grabbable(m) && (
+                  <path d={d} {...grabProps(m.r)} />
+                )}
+              </g>
             );
           }
           // Направление — по дисплейным колонкам: при перетаскивании конец может
@@ -546,8 +565,8 @@ export default function SequenceDiagram({
           const x1 = xFrom + dir * (SQ.ACT_W / 2);
           const x2 = xTo - dir * (SQ.ACT_W / 2);
           return (
+            <g key={m.id}>
             <line
-              key={m.id}
               x1={x1}
               y1={y}
               x2={x2}
@@ -559,6 +578,10 @@ export default function SequenceDiagram({
               opacity={dimMsg(m) ? 0.12 : 1}
               style={{ transition: dragged ? undefined : "x1 .15s ease, x2 .15s ease" }}
             />
+            {grabbable(m) && (
+              <line x1={x1} y1={y} x2={x2} y2={y} {...grabProps(m.r)} />
+            )}
+            </g>
           );
         })}
       </svg>
