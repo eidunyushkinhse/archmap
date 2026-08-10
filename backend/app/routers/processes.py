@@ -57,6 +57,7 @@ from app.schemas.process import (
     ProcessDetail,
     ProcessListItem,
     ProcessUpdate,
+    ReattachResult,
     ReorderPayload,
 )
 from app.schemas.process_import import (
@@ -286,13 +287,57 @@ def bind_participant(
     part.node_id = node.id
     part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
     db.flush()  # подхват смотрит на уже привязанного участника
-    attached, dangling = reattach_dangling(db, proc, part, all_nodes)
+    attached, dangling, _ids = reattach_dangling(db, proc, all_nodes, part)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(part)
     return BindResult(
         participant=participant_out(part, node), attached=attached, dangling=dangling
     )
+
+
+@router.post("/{process_id}/reattach", response_model=ReattachResult)
+def reattach_process(
+    process_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> ReattachResult:
+    """Прогнать ВСЕ повисшие шаги процесса через подбор канала.
+
+    Нужен после правки схемы: пользователь чинит канал (например, делает его
+    синхронным — у асинхронного нет плеча «ответ»), а процесс об этом не узнаёт.
+    Прежде подхват случался только при привязке участника, то есть починить схему и
+    подхватить шаги было двумя несвязанными действиями.
+    """
+    proc = _get_process(db, process_id, project)
+    attached, dangling, ids = reattach_dangling(db, proc, load_nodes(db, project.id))
+    touch_project(db, project, user.id)
+    db.commit()
+    return ReattachResult(attached=attached, dangling=dangling, attached_ids=ids)
+
+
+@router.post("/{process_id}/messages/detach", status_code=status.HTTP_204_NO_CONTENT)
+def detach_messages_endpoint(
+    process_id: uuid.UUID,
+    payload: ReorderPayload,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> None:
+    """Отцепить перечисленные шаги от каналов — компенсация подхвата для undo.
+
+    Объявлен ДО /{message_id}: иначе FastAPI принял бы «detach» за uuid сообщения.
+    """
+    proc = _get_process(db, process_id, project)
+    by_id = {m.id: m for m in proc.messages}
+    for mid in payload.ids:
+        msg = by_id.get(mid)
+        if msg is None:
+            raise HTTPException(status_code=422, detail="Сообщение не из этого процесса")
+        msg.edge_id = None
+    touch_project(db, project, user.id)
+    db.commit()
 
 
 @router.delete(

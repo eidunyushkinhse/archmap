@@ -40,7 +40,7 @@ vi.mock("../MessageComposer", () => ({
 }));
 vi.mock("../processes/ParticipantPicker", () => ({ default: () => null }));
 vi.mock("../../api/processes", () => ({
-  processesApi: { get: vi.fn(), directions: vi.fn(), addMessage: vi.fn(), removeParticipant: vi.fn() },
+  processesApi: { get: vi.fn(), directions: vi.fn(), addMessage: vi.fn(), removeParticipant: vi.fn(), reattach: vi.fn(), detachMessages: vi.fn() },
 }));
 vi.mock("../../api/nodes", () => ({ nodesApi: { get: vi.fn() } }));
 
@@ -125,5 +125,63 @@ describe("ProcessCanvas: перевод участников в узлы на г
 
     // У участника нет сообщений — удаляется сразу, без окна подтверждения.
     await waitFor(() => expect(processesApi.removeParticipant).toHaveBeenCalledWith("p1", "pa"));
+  });
+});
+
+// ── Подхват каналов по процессу ───────────────────────────────────────────────
+// Кейс с живых данных: пользователь импортировал процесс, увидел повисший ответ,
+// сделал канал синхронным (у асинхронного нет плеча «ответ») — и шаг остался
+// сломанным, потому что процесс о правке схемы не узнаёт.
+const withDangling = {
+  ...DETAIL,
+  messages: [
+    { id: "m1", order: 0, edge_id: null, leg: "return", kind: "return", caption: "ответ",
+      technology: null, from_participant_id: "pb", to_participant_id: "pa", valid: false },
+    // Самосообщение: связи C4 у него и не было, поэтому бэк помечает его valid=true —
+    // в счётчик оно не попадает по контракту, а не по отдельной проверке.
+    { id: "m2", order: 1, edge_id: null, leg: "forward", kind: "self", caption: "проверка",
+      technology: null, from_participant_id: "pa", to_participant_id: "pa", valid: true },
+  ],
+} as unknown as ProcessDetail;
+
+const reattachBtn = () => screen.queryByRole("button", { name: /Подхватить каналы/ });
+
+describe("ProcessCanvas: подхват каналов", () => {
+  it("кнопки нет, когда чинить нечего", async () => {
+    await renderCanvas();
+    expect(reattachBtn()).toBeNull();
+  });
+
+  it("кнопка считает шаги без связи, не считая самосообщений", async () => {
+    vi.mocked(processesApi.get).mockResolvedValue(withDangling);
+    await renderCanvas();
+
+    expect((await screen.findByRole("button", { name: /Подхватить каналы/ })).textContent)
+      .toContain("(1)");
+  });
+
+  it("нажатие прогоняет процесс и показывает итог", async () => {
+    vi.mocked(processesApi.get).mockResolvedValue(withDangling);
+    vi.mocked(processesApi.reattach).mockResolvedValue(
+      { attached: 1, dangling: 0, attached_ids: ["m1"] } as never,
+    );
+    await renderCanvas();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Подхватить каналы/ }));
+
+    await waitFor(() => expect(processesApi.reattach).toHaveBeenCalledWith("p1"));
+    await screen.findByText("Подхвачено каналов: 1");
+  });
+
+  it("когда каналов не нашлось — говорим почему, а не молчим", async () => {
+    vi.mocked(processesApi.get).mockResolvedValue(withDangling);
+    vi.mocked(processesApi.reattach).mockResolvedValue(
+      { attached: 0, dangling: 1, attached_ids: [] } as never,
+    );
+    await renderCanvas();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Подхватить каналы/ }));
+
+    await screen.findByText(/подходящих несколько/);
   });
 });

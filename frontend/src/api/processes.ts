@@ -1,6 +1,7 @@
 import { api } from "./client";
 import type {
   BindResult,
+  ReattachResult,
   Channel,
   FragmentCreate,
   FragmentUpdate,
@@ -62,6 +63,13 @@ export const processesApi = {
     api.patch<ProcessFragment>(`/processes/${id}/fragments/${fragmentId}`, body),
   removeFragment: (id: string, fragmentId: string): Promise<void> =>
     api.delete(`/processes/${id}/fragments/${fragmentId}`),
+
+  // Подхват каналов для повисших шагов процесса — после правки схемы. detach —
+  // компенсация для undo: отцепляет ровно то, что прицепил подхват.
+  reattach: (id: string): Promise<ReattachResult> =>
+    api.post<ReattachResult>(`/processes/${id}/reattach`, {}),
+  detachMessages: (id: string, ids: string[]): Promise<void> =>
+    api.post(`/processes/${id}/messages/detach`, { ids }),
 
   // Импорт процесса из mermaid: превью ничего не пишет, применение создаёт НОВЫЙ
   // процесс (слияние с существующим — отдельная задача).

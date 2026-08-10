@@ -121,6 +121,15 @@ class BindResult(BaseModel):
     dangling: int  # осталось повисшими (канала нет либо кандидатов несколько)
 
 
+class ReattachResult(BaseModel):
+    """Итог подхвата каналов по процессу. attached_ids нужен откату: он отцепляет
+    ровно то, что прицепила эта операция, а не всё подряд."""
+
+    attached: int
+    dangling: int
+    attached_ids: list[uuid.UUID]
+
+
 class ParticipantBind(BaseModel):
     """Привязка непривязанного участника к узлу схемы.
 

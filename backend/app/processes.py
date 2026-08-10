@@ -291,10 +291,13 @@ def message_out(
 def reattach_dangling(
     db: Session,
     proc: BusinessProcess,
-    part: ProcessParticipant,
     all_nodes: dict[uuid.UUID, Node],
-) -> tuple[int, int]:
-    """Подхват каналов для повисших шагов участника. Возвращает (подхвачено, осталось).
+    part: ProcessParticipant | None = None,
+) -> tuple[int, int, list[uuid.UUID]]:
+    """Подхват каналов для повисших шагов. part=None — по всему процессу.
+
+    Возвращает (подхвачено, осталось, id подхваченных). Список нужен откату: он
+    отцепляет ровно то, что прицепила эта операция.
 
     Зачем: пока участник был непривязан, его шаги существовать как плечи канала не
     могли — узла-то не было. После привязки канал в схеме может найтись, и шаг обязан
@@ -308,14 +311,14 @@ def reattach_dangling(
     part_by_id = {p.id: p for p in proc.participants}
     participant_ids = bound_node_ids(proc.participants)
     edges = db.query(Edge).filter(Edge.project_id == proc.project_id).all()
-    attached = 0
+    attached: list[uuid.UUID] = []
     left = 0
     for msg in proc.messages:
         if msg.edge_id is not None:
             continue
         if msg.from_participant_id == msg.to_participant_id:
             continue  # самосообщение — канала у него и не было
-        if part.id not in (msg.from_participant_id, msg.to_participant_id):
+        if part is not None and part.id not in (msg.from_participant_id, msg.to_participant_id):
             continue
         frm = part_by_id.get(msg.from_participant_id)
         to = part_by_id.get(msg.to_participant_id)
@@ -330,12 +333,13 @@ def reattach_dangling(
             and resolve_to_participant(leg.from_id, participant_ids, all_nodes) == frm.node_id
             and resolve_to_participant(leg.to_id, participant_ids, all_nodes) == to.node_id
         ]
+
         if len(candidates) == 1:
             msg.edge_id = candidates[0].id
-            attached += 1
+            attached.append(msg.id)
         else:
             left += 1
-    return attached, left
+    return len(attached), left, attached
 
 
 def detach_messages(proc: BusinessProcess, part: ProcessParticipant) -> int:

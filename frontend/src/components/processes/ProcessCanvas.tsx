@@ -149,6 +149,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     return c;
   }, [detail]);
   const hasStatus = counts.planned + counts.deprecated > 0;
+  // Сколько шагов без связи. Самосообщения сюда не попадают сами: у внутренней
+  // операции связи C4 не было, и бэк отдаёт им valid=true — отдельная проверка была бы
+  // мёртвым кодом.
+  const danglingCount = useMemo(
+    () => (detail ? detail.messages.filter((m) => !m.valid).length : 0),
+    [detail],
+  );
   const nextOrder = useMemo(
     () => (detail ? detail.messages.reduce((mx, m) => Math.max(mx, m.order), -1) + 1 : 0),
     [detail],
@@ -308,6 +315,34 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setBindPart(null); // узел не прочитался — привяжем и покажем ошибку бэка, если что
     }
     await bindParticipant(participantId, nodeId);
+  }
+
+  // Подхват каналов по всему процессу — после того как пользователь починил схему.
+  // Кнопка появляется только когда чинить есть что: повисшие шаги видны на диаграмме.
+  async function reattachChannels() {
+    try {
+      const res = await processesApi.reattach(id);
+      setBindNote(
+        res.attached === 0
+          ? "Каналов для повисших шагов не нашлось — либо связи нет, либо подходящих несколько"
+          : res.dangling === 0
+            ? `Подхвачено каналов: ${res.attached}`
+            : `Подхвачено каналов: ${res.attached}, осталось без связи: ${res.dangling}`,
+      );
+      if (res.attached_ids.length) {
+        const ids = res.attached_ids;
+        hist.push({
+          label: "Подхват каналов",
+          // Откат отцепляет РОВНО подхваченное: остальные шаги на своих каналах.
+          undo: async () => { await processesApi.detachMessages(id, ids); },
+          redo: async () => { await processesApi.reattach(id); },
+        });
+      }
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось подхватить каналы");
+    }
   }
 
   async function bindParticipant(participantId: string, nodeId: string) {
@@ -652,6 +687,19 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       <b style={{ fontSize: 15, color: BPT.head }}>{detail?.name ?? "Процесс"}</b>
       <span style={scopeChip}>область: {detail?.scope_name ?? "Вся схема"}</span>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {editing && danglingCount > 0 && (
+          <>
+            <button
+              className="bp-btn-ghost"
+              style={{ height: 26, padding: "0 10px", color: BROKEN.ink, borderColor: BROKEN.border }}
+              title="Найти каналы схемы для шагов без связи (например, после правки схемы)"
+              onClick={() => void reattachChannels()}
+            >
+              Подхватить каналы ({danglingCount})
+            </button>
+            <span style={divider} />
+          </>
+        )}
         {editing && (
           <>
             <span style={{ fontSize: 11, color: BPT.mut }}>Фрагмент:</span>

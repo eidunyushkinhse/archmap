@@ -1031,6 +1031,53 @@ export interface paths {
         patch: operations["bind_participant_api_v1_processes__process_id__participants__participant_id__patch"];
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/reattach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reattach Process
+         * @description Прогнать ВСЕ повисшие шаги процесса через подбор канала.
+         *
+         *     Нужен после правки схемы: пользователь чинит канал (например, делает его
+         *     синхронным — у асинхронного нет плеча «ответ»), а процесс об этом не узнаёт.
+         *     Прежде подхват случался только при привязке участника, то есть починить схему и
+         *     подхватить шаги было двумя несвязанными действиями.
+         */
+        post: operations["reattach_process_api_v1_processes__process_id__reattach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/messages/detach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detach Messages Endpoint
+         * @description Отцепить перечисленные шаги от каналов — компенсация подхвата для undo.
+         *
+         *     Объявлен ДО /{message_id}: иначе FastAPI принял бы «detach» за uuid сообщения.
+         */
+        post: operations["detach_messages_endpoint_api_v1_processes__process_id__messages_detach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/messages": {
         parameters: {
             query?: never;
@@ -2731,6 +2778,19 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
+        };
+        /**
+         * ReattachResult
+         * @description Итог подхвата каналов по процессу. attached_ids нужен откату: он отцепляет
+         *     ровно то, что прицепила эта операция, а не всё подряд.
+         */
+        ReattachResult: {
+            /** Attached */
+            attached: number;
+            /** Dangling */
+            dangling: number;
+            /** Attached Ids */
+            attached_ids: string[];
         };
         /** ReorderPayload */
         ReorderPayload: {
@@ -5374,6 +5434,74 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BindResult"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reattach_process_api_v1_processes__process_id__reattach_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReattachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detach_messages_endpoint_api_v1_processes__process_id__messages_detach_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
