@@ -64,7 +64,7 @@ export const processesApi = {
   removeFragment: (id: string, fragmentId: string): Promise<void> =>
     api.delete(`/processes/${id}/fragments/${fragmentId}`),
 
-  // Подхват каналов для повисших шагов процесса — после правки схемы. detach —
+  // Восстановление связей для повисших шагов процесса — после правки схемы. detach —
   // компенсация для undo: отцепляет ровно то, что прицепил подхват.
   reattach: (id: string): Promise<ReattachResult> =>
     api.post<ReattachResult>(`/processes/${id}/reattach`, {}),

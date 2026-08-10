@@ -128,7 +128,7 @@ describe("ProcessCanvas: перевод участников в узлы на г
   });
 });
 
-// ── Подхват каналов по процессу ───────────────────────────────────────────────
+// ── Восстановление связей по процессу ───────────────────────────────────────────────
 // Кейс с живых данных: пользователь импортировал процесс, увидел повисший ответ,
 // сделал канал синхронным (у асинхронного нет плеча «ответ») — и шаг остался
 // сломанным, потому что процесс о правке схемы не узнаёт.
@@ -144,7 +144,7 @@ const withDangling = {
   ],
 } as unknown as ProcessDetail;
 
-const reattachBtn = () => screen.queryByRole("button", { name: /Подхватить каналы/ });
+const reattachBtn = () => screen.queryByRole("button", { name: /Восстановить связи/ });
 
 describe("ProcessCanvas: подхват каналов", () => {
   it("кнопки нет, когда чинить нечего", async () => {
@@ -156,7 +156,7 @@ describe("ProcessCanvas: подхват каналов", () => {
     vi.mocked(processesApi.get).mockResolvedValue(withDangling);
     await renderCanvas();
 
-    expect((await screen.findByRole("button", { name: /Подхватить каналы/ })).textContent)
+    expect((await screen.findByRole("button", { name: /Восстановить связи/ })).textContent)
       .toContain("(1)");
   });
 
@@ -167,10 +167,10 @@ describe("ProcessCanvas: подхват каналов", () => {
     );
     await renderCanvas();
 
-    await userEvent.click(await screen.findByRole("button", { name: /Подхватить каналы/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Восстановить связи/ }));
 
     await waitFor(() => expect(processesApi.reattach).toHaveBeenCalledWith("p1"));
-    await screen.findByText("Подхвачено каналов: 1");
+    await screen.findByText("Восстановлено связей: 1");
   });
 
   it("когда каналов не нашлось — говорим почему, а не молчим", async () => {
@@ -180,7 +180,7 @@ describe("ProcessCanvas: подхват каналов", () => {
     );
     await renderCanvas();
 
-    await userEvent.click(await screen.findByRole("button", { name: /Подхватить каналы/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Восстановить связи/ }));
 
     await screen.findByText(/подходящих несколько/);
   });

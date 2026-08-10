@@ -317,22 +317,22 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     await bindParticipant(participantId, nodeId);
   }
 
-  // Подхват каналов по всему процессу — после того как пользователь починил схему.
+  // Восстановление связей по всему процессу — после того как пользователь починил схему.
   // Кнопка появляется только когда чинить есть что: повисшие шаги видны на диаграмме.
   async function reattachChannels() {
     try {
       const res = await processesApi.reattach(id);
       setBindNote(
         res.attached === 0
-          ? "Каналов для повисших шагов не нашлось — либо связи нет, либо подходящих несколько"
+          ? "Связей для шагов не нашлось — либо связи нет в схеме, либо подходящих несколько"
           : res.dangling === 0
-            ? `Подхвачено каналов: ${res.attached}`
-            : `Подхвачено каналов: ${res.attached}, осталось без связи: ${res.dangling}`,
+            ? `Восстановлено связей: ${res.attached}`
+            : `Восстановлено связей: ${res.attached}, осталось без связи: ${res.dangling}`,
       );
       if (res.attached_ids.length) {
         const ids = res.attached_ids;
         hist.push({
-          label: "Подхват каналов",
+          label: "Восстановление связей",
           // Откат отцепляет РОВНО подхваченное: остальные шаги на своих каналах.
           undo: async () => { await processesApi.detachMessages(id, ids); },
           redo: async () => { await processesApi.reattach(id); },
@@ -354,8 +354,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         res.attached === 0 && res.dangling === 0
           ? null
           : res.dangling === 0
-            ? `Подхвачено каналов: ${res.attached}`
-            : `Подхвачено каналов: ${res.attached}, осталось без связи: ${res.dangling}`,
+            ? `Восстановлено связей: ${res.attached}`
+            : `Восстановлено связей: ${res.attached}, осталось без связи: ${res.dangling}`,
       );
       hist.push({
         label: "Привязка участника",
@@ -692,10 +692,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             <button
               className="bp-btn-ghost"
               style={{ height: 26, padding: "0 10px", color: BROKEN.ink, borderColor: BROKEN.border }}
-              title="Найти каналы схемы для шагов без связи (например, после правки схемы)"
+              title="Найти связи схемы для шагов без связи (например, после правки схемы)"
               onClick={() => void reattachChannels()}
             >
-              Подхватить каналы ({danglingCount})
+              Восстановить связи ({danglingCount})
             </button>
             <span style={divider} />
           </>
