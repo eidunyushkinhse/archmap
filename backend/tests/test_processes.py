@@ -796,8 +796,8 @@ def test_привязка_возвращает_участника_в_схему(
         db=db, project=ensure_project(db), user=ensure_architect(db),
     )
 
-    assert out.node_id == новый.id
-    assert out.shape is not None  # свойства узла снова есть
+    assert out.participant.node_id == новый.id
+    assert out.participant.shape is not None  # свойства узла снова есть
     # Имя-запас обновилось: оно про НОВЫЙ узел. Видно это только когда узел исчезнет —
     # в ответе имя всегда живое, из самого узла.
     db.delete(новый)
@@ -846,8 +846,8 @@ def test_снятие_привязки_оставляет_имя(db):
         db=db, project=ensure_project(db), user=ensure_architect(db),
     )
 
-    assert out.node_id is None
-    assert out.name == "A"
+    assert out.participant.node_id is None
+    assert out.participant.name == "A"
 
 
 def test_привязка_к_несуществующему_узлу(db):
@@ -876,3 +876,118 @@ def test_привязка_чужого_участника_не_проходит(
         )
 
     assert exc.value.status_code == 404
+
+
+def test_привязка_подхватывает_канал_повисшего_шага(db):
+    """Пока участник был непривязан, его шаги не могли опираться на канал — узла не
+    было. После привязки канал нашёлся, и шаг обязан перестать быть повисшим: иначе
+    пользователь видит сломанные стрелки при живых каналах и починить их нечем."""
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    # Снимаем привязку у A: шаги отцепляются от канала и повисают.
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+    bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert all(m.edge_id is None for m in proc.messages)
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=a.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (3, 0)
+    assert all(m.edge_id is not None for m in proc.messages)
+
+
+def test_подхват_не_выбирает_из_нескольких_каналов(db):
+    # Между парой узлов бывает два канала (REST и Kafka) — молча решать за
+    # пользователя нельзя, шаг остаётся повисшим и попадает в отчёт числом.
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    b = db.query(Node).filter(Node.name == "B").one()
+    _edge(db, a, b, technology="Kafka", is_sync=False)  # второй канал той же пары
+    db.commit()
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+    bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=a.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (0, 3)
+    assert all(m.edge_id is None for m in proc.messages)
+
+
+def test_подхват_не_трогает_шаги_без_канала(db):
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+    bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    db.query(Edge).delete()  # канала в схеме больше нет
+    db.commit()
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=a.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (0, 3)
+
+
+def test_снятие_привязки_отцепляет_шаги(db):
+    # Компенсация подхвата: иначе undo оставил бы шаги на каналах узла, которого у
+    # участника уже нет — концы плеча перестали бы на него проецироваться.
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.dangling == 3
+    assert all(m.edge_id is None for m in proc.messages)
+
+
+def test_подхват_различает_плечи_встречных_каналов(db):
+    """Два узла, зовущие друг друга: A→B и B→A, оба синхронные. Шаг «вызов из B в A»
+    должен встать на канал B→A, а не на ПЛЕЧО ОТВЕТА канала A→B — направление у них
+    одинаковое, различает их только тип плеча."""
+    a, b = _node(db, "A"), _node(db, "B")
+    туда = _edge(db, a, b, technology="REST", is_sync=True)
+    обратно = _edge(db, b, a, technology="gRPC", is_sync=True)
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=обратно.id, leg="forward",
+                      from_participant_id=parts[b.id], to_participant_id=parts[a.id],
+                      order=0, caption="вызов назад"),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert msg.edge_id == обратно.id
+    участник = next(p for p in proc.participants if p.node_id == b.id)
+    bind_participant(  # снимаем привязку → шаг повисает
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=b.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (1, 0)
+    assert db.query(ProcessMessage).one().edge_id == обратно.id  # именно тот канал
+    assert туда.id != обратно.id

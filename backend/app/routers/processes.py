@@ -23,6 +23,7 @@ from app.models.user import User
 from app.processes import (
     bound_node_ids,
     build_process_detail,
+    detach_messages,
     edge_is_synchronous,
     fragment_out,
     legal_directions,
@@ -32,10 +33,12 @@ from app.processes import (
     participant_node,
     participant_out,
     process_list_items,
+    reattach_dangling,
     resolve_to_participant,
     scope_node_ids,
 )
 from app.schemas.process import (
+    BindResult,
     BranchIn,
     ChannelOut,
     DirectionOut,
@@ -203,7 +206,7 @@ def reorder_participants(
 
 @router.patch(
     "/{process_id}/participants/{participant_id}",
-    response_model=ParticipantOut,
+    response_model=BindResult,
 )
 def bind_participant(
     process_id: uuid.UUID,
@@ -212,7 +215,7 @@ def bind_participant(
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     user: User = Depends(require_architect),
-) -> ParticipantOut:
+) -> BindResult:
     """Привязать непривязанного участника к узлу схемы (или снять привязку — для undo).
 
     Объявлен ПОСЛЕ /participants/reorder: иначе FastAPI принял бы «reorder» за
@@ -224,10 +227,11 @@ def bind_participant(
         raise HTTPException(status_code=404, detail="Участник не найден")
     if payload.node_id is None:
         part.node_id = None  # имя остаётся: без него линия жизни стала бы безымянной
+        detached = detach_messages(proc, part)
         touch_project(db, project, user.id)
         db.commit()
         db.refresh(part)
-        return participant_out(part, None)
+        return BindResult(participant=participant_out(part, None), attached=0, dangling=detached)
     if part.node_id is not None:
         raise HTTPException(
             status_code=409,
@@ -244,10 +248,14 @@ def bind_participant(
         raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
     part.node_id = node.id
     part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
+    db.flush()  # подхват смотрит на уже привязанного участника
+    attached, dangling = reattach_dangling(db, proc, part, all_nodes)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(part)
-    return participant_out(part, node)
+    return BindResult(
+        participant=participant_out(part, node), attached=attached, dangling=dangling
+    )
 
 
 @router.delete(

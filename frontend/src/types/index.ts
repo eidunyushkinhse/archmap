@@ -173,6 +173,7 @@ export type MessageUpdate = Schemas["MessageUpdate"];
 export type FragmentCreate = Schemas["FragmentCreate"];
 export type FragmentUpdate = Schemas["FragmentUpdate"];
 // Ветвь [иначе] у alt: со второй и дальше (первая начинается с from_order фрагмента).
+export type BindResult = Schemas["BindResult"];
 export type FragmentBranch = Schemas["BranchOut"];
 export type BranchIn = Schemas["BranchIn"];
 // Плечо сообщения (хранимое) и стиль стрелки (производный) — Literal из контракта.

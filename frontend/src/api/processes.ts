@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type {
+  BindResult,
   Channel,
   FragmentCreate,
   FragmentUpdate,
@@ -31,8 +32,8 @@ export const processesApi = {
   addParticipant: (id: string, body: ParticipantCreate): Promise<ProcessParticipant> =>
     api.post<ProcessParticipant>(`/processes/${id}/participants`, body),
   // Привязка непривязанного участника к узлу схемы (node_id = null — снятие, для undo).
-  bindParticipant: (id: string, participantId: string, nodeId: string | null): Promise<ProcessParticipant> =>
-    api.patch<ProcessParticipant>(`/processes/${id}/participants/${participantId}`, { node_id: nodeId }),
+  bindParticipant: (id: string, participantId: string, nodeId: string | null): Promise<BindResult> =>
+    api.patch<BindResult>(`/processes/${id}/participants/${participantId}`, { node_id: nodeId }),
   removeParticipant: (id: string, participantId: string): Promise<void> =>
     api.delete(`/processes/${id}/participants/${participantId}`),
   reorderParticipants: (id: string, ids: string[]): Promise<ProcessParticipant[]> =>

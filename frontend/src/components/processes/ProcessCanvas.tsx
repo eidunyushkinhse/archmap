@@ -5,6 +5,7 @@
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
 import { RedoIcon, UndoIcon } from "../../ui/icons";
@@ -79,6 +80,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [branchGuard, setBranchGuard] = useState("");
   // Привязка непривязанного участника: id участника, которому ищем узел.
   const [bindPart, setBindPart] = useState<string | null>(null);
+  // Расхождение имён: узел выбран, но зовётся иначе, чем участник в диаграмме.
+  // Спрашиваем до записи — иначе имя из диаграммы исчезло бы молча.
+  const [bindConfirm, setBindConfirm] = useState<
+    { participantId: string; nodeId: string; nodeName: string; partName: string } | null
+  >(null);
+  // Итог подхвата каналов — показываем строкой: молча подхватить и промолчать значит
+  // скрыть, что часть шагов осталась сломанной.
+  const [bindNote, setBindNote] = useState<string | null>(null);
   const [delMsg, setDelMsg] = useState<string | null>(null);
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
@@ -285,10 +294,34 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       (m) => nodeOfPart(m.from_participant_id) === nodeId || nodeOfPart(m.to_participant_id) === nodeId,
     );
   }
+  // Узел выбран: если зовётся иначе — сперва показываем расхождение.
+  async function requestBind(participantId: string, nodeId: string) {
+    const partName = partById[participantId]?.name ?? "";
+    try {
+      const node = await nodesApi.get(nodeId);
+      setBindPart(null);
+      if (node.name !== partName) {
+        setBindConfirm({ participantId, nodeId, nodeName: node.name, partName });
+        return;
+      }
+    } catch {
+      setBindPart(null); // узел не прочитался — привяжем и покажем ошибку бэка, если что
+    }
+    await bindParticipant(participantId, nodeId);
+  }
+
   async function bindParticipant(participantId: string, nodeId: string) {
     setBindPart(null);
+    setBindConfirm(null);
     try {
-      await processesApi.bindParticipant(id, participantId, nodeId);
+      const res = await processesApi.bindParticipant(id, participantId, nodeId);
+      setBindNote(
+        res.attached === 0 && res.dangling === 0
+          ? null
+          : res.dangling === 0
+            ? `Подхвачено каналов: ${res.attached}`
+            : `Подхвачено каналов: ${res.attached}, осталось без связи: ${res.dangling}`,
+      );
       hist.push({
         label: "Привязка участника",
         // Обратная операция — снятие привязки: id участника при этом не меняется,
@@ -670,6 +703,15 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       {hasStatus && <ViewHint view={view} />}
       <div className="bp-canvas" style={{ flex: 1, overflow: "auto", position: "relative" }}>
         {error && <div style={{ padding: "8px 14px 0", color: "#dc2626", fontSize: 12 }}>{error}</div>}
+        {/* Итог подхвата каналов: гасится кликом — это не ошибка, а сводка. */}
+        {bindNote && (
+          <div
+            onClick={() => setBindNote(null)}
+            style={{ padding: "8px 14px 0", color: BROKEN.ink, fontSize: 12, cursor: "pointer" }}
+          >
+            {bindNote}
+          </div>
+        )}
         {!detail || !seq ? (
           <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>Загрузка…</div>
         ) : seq.participants.length === 0 ? (
@@ -919,6 +961,35 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         )}
 
         {/* Управление участниками */}
+        {/* Расхождение имён: спрашиваем ДО записи, иначе имя из диаграммы пропало бы
+            молча. После привязки действует имя узла — схема источник истины. */}
+        {bindConfirm && (
+          <>
+            <div style={overlayDim} onClick={() => setBindConfirm(null)} />
+            <div style={overlayCenter}>
+              <div style={confirmCard}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 6 }}>
+                  Имена расходятся
+                </div>
+                <div style={{ fontSize: 12.5, color: BPT.mut, marginBottom: 14, lineHeight: 1.5 }}>
+                  В диаграмме участник назывался «{bindConfirm.partName}», а узел схемы —
+                  «{bindConfirm.nodeName}». После привязки будет действовать имя узла:
+                  схема — источник истины.
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="bp-btn-ghost" onClick={() => setBindConfirm(null)}>Отмена</button>
+                  <button
+                    className="bp-btn-primary"
+                    onClick={() => void bindParticipant(bindConfirm.participantId, bindConfirm.nodeId)}
+                  >
+                    Привязать
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Привязка непривязанного участника: тот же пикер дерева, что и у добавления —
             выбранный узел не добавляет линию жизни, а достаётся существующей. */}
         {bindPart && detail && (
@@ -940,7 +1011,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 </div>
                 <ParticipantPicker
                   added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
-                  onAdd={(ids) => { if (ids[0]) void bindParticipant(bindPart, ids[0]); }}
+                  onAdd={(ids) => { if (ids[0]) void requestBind(bindPart, ids[0]); }}
                 />
               </div>
             </div>

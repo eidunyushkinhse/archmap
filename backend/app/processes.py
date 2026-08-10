@@ -288,6 +288,70 @@ def message_out(
     )
 
 
+def reattach_dangling(
+    db: Session,
+    proc: BusinessProcess,
+    part: ProcessParticipant,
+    all_nodes: dict[uuid.UUID, Node],
+) -> tuple[int, int]:
+    """Подхват каналов для повисших шагов участника. Возвращает (подхвачено, осталось).
+
+    Зачем: пока участник был непривязан, его шаги существовать как плечи канала не
+    могли — узла-то не было. После привязки канал в схеме может найтись, и шаг обязан
+    перестать быть повисшим: иначе пользователь видит сломанные стрелки при живых
+    каналах и починить их нечем (edge_id не патчится ни через API, ни в интерфейсе).
+
+    Подхватываем ТОЛЬКО при единственном кандидате. Между парой узлов бывает несколько
+    каналов (REST и Kafka), и выбирать за пользователя нельзя — такой шаг остаётся
+    повисшим и попадает в отчёт числом.
+    """
+    part_by_id = {p.id: p for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
+    edges = db.query(Edge).filter(Edge.project_id == proc.project_id).all()
+    attached = 0
+    left = 0
+    for msg in proc.messages:
+        if msg.edge_id is not None:
+            continue
+        if msg.from_participant_id == msg.to_participant_id:
+            continue  # самосообщение — канала у него и не было
+        if part.id not in (msg.from_participant_id, msg.to_participant_id):
+            continue
+        frm = part_by_id.get(msg.from_participant_id)
+        to = part_by_id.get(msg.to_participant_id)
+        if frm is None or to is None or frm.node_id is None or to.node_id is None:
+            left += 1  # второй конец всё ещё непривязан — цеплять не к чему
+            continue
+        candidates = [
+            edge
+            for edge in edges
+            for leg in legs_for_edge(edge)
+            if leg.leg == msg.leg
+            and resolve_to_participant(leg.from_id, participant_ids, all_nodes) == frm.node_id
+            and resolve_to_participant(leg.to_id, participant_ids, all_nodes) == to.node_id
+        ]
+        if len(candidates) == 1:
+            msg.edge_id = candidates[0].id
+            attached += 1
+        else:
+            left += 1
+    return attached, left
+
+
+def detach_messages(proc: BusinessProcess, part: ProcessParticipant) -> int:
+    """Отцепить шаги участника от каналов — компенсация подхвата при снятии привязки.
+    Без неё undo оставил бы шаги привязанными к каналам узла, которого у участника уже
+    нет: концы плеча перестали бы проецироваться на него."""
+    detached = 0
+    for msg in proc.messages:
+        if msg.edge_id is None:
+            continue
+        if part.id in (msg.from_participant_id, msg.to_participant_id):
+            msg.edge_id = None
+            detached += 1
+    return detached
+
+
 def fragment_out(frag: ProcessFragment) -> FragmentOut:
     """Фрагмент в контракт. Ветви — по возрастанию границы (порядок держит relationship),
     первой ветви среди них нет: она начинается с from_order, её условие — в guard."""

@@ -1197,6 +1197,19 @@ export interface components {
              */
             is_external: boolean;
         };
+        /**
+         * BindResult
+         * @description Итог привязки: сам участник + сколько его повисших шагов подхватило каналы.
+         *     Числа нужны интерфейсу: молча подхватывать и молчать — значит скрывать, что часть
+         *     шагов осталась сломанной.
+         */
+        BindResult: {
+            participant: components["schemas"]["ParticipantOut"];
+            /** Attached */
+            attached: number;
+            /** Dangling */
+            dangling: number;
+        };
         /** Body_login_api_v1_auth_login_post */
         Body_login_api_v1_auth_login_post: {
             /** Grant Type */
@@ -5129,7 +5142,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParticipantOut"];
+                    "application/json": components["schemas"]["BindResult"];
                 };
             };
             /** @description Validation Error */
