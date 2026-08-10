@@ -20,6 +20,7 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
+from app.process_import import apply_import, build_preview
 from app.processes import (
     bound_node_ids,
     build_process_detail,
@@ -57,6 +58,12 @@ from app.schemas.process import (
     ProcessListItem,
     ProcessUpdate,
     ReorderPayload,
+)
+from app.schemas.process_import import (
+    ProcessImportApply,
+    ProcessImportIn,
+    ProcessImportPreview,
+    ProcessImportResult,
 )
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -101,6 +108,36 @@ def create_process(
     db.commit()
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
+
+
+@router.post("/import/preview", response_model=ProcessImportPreview)
+def preview_process_import(
+    payload: ProcessImportIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> ProcessImportPreview:
+    """Что получится из текста диаграммы и с чем сопоставились имена. Ничего не пишет.
+
+    Объявлен ДО /{process_id}: иначе FastAPI принял бы «import» за uuid процесса.
+    """
+    return build_preview(db, project.id, payload.text, payload.name)
+
+
+@router.post(
+    "/import", response_model=ProcessImportResult, status_code=status.HTTP_201_CREATED
+)
+def import_process(
+    payload: ProcessImportApply,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> ProcessImportResult:
+    """Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача)."""
+    _, result = apply_import(db, project.id, payload.text, payload.name, payload.mapping)
+    touch_project(db, project, user.id)
+    db.commit()
+    return result
 
 
 @router.get("/{process_id}", response_model=ProcessDetail)
