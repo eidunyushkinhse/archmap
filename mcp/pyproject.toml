@@ -1,0 +1,17 @@
+# Пакет MCP-сервера ArchMap: живёт по тем же правилам строгости, что бэкенд
+# (ruff + mypy в гейте), но зависимостей у него две — mcp и httpx.
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+files = ["archmap_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -29,8 +29,10 @@ fi
 
 touch_front=false
 touch_back=false
+touch_mcp=false
 if grep -q '^frontend/' <<<"$staged"; then touch_front=true; fi
 if grep -q '^backend/'  <<<"$staged"; then touch_back=true;  fi
+if grep -q '^mcp/'      <<<"$staged"; then touch_mcp=true;   fi
 
 # --- Фронтенд: типы + тесты ---
 if $touch_front; then
@@ -64,6 +66,21 @@ if $touch_back; then
     say "Бэк: pytest…"
     ( cd backend && ./venv/bin/python -m pytest -q )
     ok "Бэк-гейт зелёный."
+  fi
+fi
+
+# --- MCP-сервер: та же строгость, что у бэкенда ---
+if $touch_mcp; then
+  if [ ! -x mcp/venv/bin/python ]; then
+    warn "mcp/venv нет — пропускаю MCP-гейт (см. mcp/README.md)."
+  else
+    say "MCP: ruff check…"
+    ( cd mcp && ./venv/bin/ruff check . )
+    say "MCP: mypy…"
+    ( cd mcp && ./venv/bin/mypy )
+    say "MCP: pytest…"
+    ( cd mcp && ./venv/bin/python -m pytest -q )
+    ok "MCP-гейт зелёный."
   fi
 fi
 

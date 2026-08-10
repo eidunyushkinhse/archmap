@@ -51,15 +51,20 @@ archmap/
 │   ├── archive/           # рабочие доки закрытых эпиков (включая планы)
 │   ├── tasks-archive.md   # журнал закрытых задач
 │   └── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
+├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки)
+│   ├── archmap_mcp/       # client.py (логин+скоуп+ошибки), tools.py (18 инструментов), render.py, server.py
+│   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
+│   ├── .env.example       # ARCHMAP_URL/USERNAME/PASSWORD → копировать в mcp/.env (в .gitignore)
+│   └── README.md          # каталог инструментов, подключение, сценарии
 ├── scripts/
-│   ├── git-hooks/pre-commit  # гейт: tsc+eslint+vitest (фронт) / ruff+pytest (бэк)
+│   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
 │   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs / drift-probe.mjs / triple-probe.mjs / fps-probe.mjs  # полигонные зонды
 │   └── setup-hooks.sh
 ├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
 ├── spec.md                # продуктовая спецификация
 ├── tasks.md               # живые задачи и бэклог
-├── .mcp.json              # MCP-серверы LSP (python-lsp, typescript-lsp)
+├── .mcp.json              # MCP-серверы: LSP (python-lsp, typescript-lsp) + archmap (учётка — в mcp/.env)
 └── QWEN.md                # аналогичный файл для Qwen Code (держать синхронным с этим!)
 
 Команды
@@ -74,6 +79,7 @@ archmap/
 - Типизация фронта:      cd frontend && npx tsc -b
 - Линтер фронта:         cd frontend && npx eslint .
 - Линтер бэкенда:        cd backend && ./venv/bin/ruff check .
+- Гейт MCP-сервера:      cd mcp && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
 - Генерация типов из OpenAPI: cd frontend && npm run gen:api
     (дамп app.openapi() бэкендовым venv-python | openapi-typescript → src/types/api.gen.ts).
     Файл коммитится, идемпотентен.
