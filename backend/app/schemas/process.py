@@ -68,14 +68,24 @@ class MessageOut(BaseModel):
     valid: bool  # edge_id is not None (false → связь удалена из схемы)
 
 
+class BranchOut(BaseModel):
+    """Ветвь [иначе] у alt: начинается со start_order и идёт до следующей ветви.
+
+    Первой ветви в списке НЕТ — она начинается с from_order фрагмента, её условие
+    лежит в guard самого фрагмента. Здесь ветви со второй и дальше, по возрастанию.
+    """
+
+    start_order: int
+    guard: str | None
+
+
 class FragmentOut(BaseModel):
     id: uuid.UUID
     kind: FragmentKind
     from_order: int
     to_order: int
     guard: str | None
-    else_guard: str | None
-    else_order: int | None
+    branches: list[BranchOut]
 
 
 class ProcessDetail(BaseModel):
@@ -115,13 +125,17 @@ class MessageUpdate(BaseModel):
 
 
 # ── Фрагменты ─────────────────────────────────────────────────────────────────
+class BranchIn(BaseModel):
+    start_order: int
+    guard: str | None = None
+
+
 class FragmentCreate(BaseModel):
     kind: FragmentKind
     from_order: int
     to_order: int
     guard: str | None = None
-    else_guard: str | None = None
-    else_order: int | None = None
+    branches: list[BranchIn] = []
 
 
 class FragmentUpdate(BaseModel):
@@ -129,8 +143,9 @@ class FragmentUpdate(BaseModel):
     from_order: int | None = None
     to_order: int | None = None
     guard: str | None = None
-    else_guard: str | None = None
-    else_order: int | None = None
+    # Ветви правятся ЦЕЛИКОМ (как и порядок сообщений): пришёл список — он и станет
+    # новым набором; не пришёл — ветви не трогаем.
+    branches: list[BranchIn] | None = None
 
 
 # ── Композитор: каналы между парой участников ─────────────────────────────────

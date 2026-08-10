@@ -96,8 +96,7 @@ export const processesApi = {
         from_order: f.from_order,
         to_order: f.to_order,
         guard: f.guard,
-        else_guard: f.else_guard,
-        else_order: f.else_order,
+        branches: f.branches.map((b) => ({ start_order: b.start_order, guard: b.guard })),
       });
     }
     return processesApi.get(copy.id);

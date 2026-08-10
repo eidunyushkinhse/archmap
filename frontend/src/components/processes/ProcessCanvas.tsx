@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { processesApi } from "../../api/processes";
-import type { FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
+import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
 import { RedoIcon, UndoIcon } from "../../ui/icons";
 import MessageComposer from "../MessageComposer";
 import ParticipantDeleteConfirm from "./ParticipantDeleteConfirm";
@@ -14,8 +14,8 @@ import ParticipantPicker from "./ParticipantPicker";
 import { C4Glyph, IcoClose, IcoEdit, IcoPlus } from "./icons";
 import { SchemaViewSeg, ViewHint } from "./SchemaViewChrome";
 import SequenceDiagram from "./SequenceDiagram";
-import { deriveActivations } from "./sequence/layout";
-import { detailToSeq } from "./sequence/fromDetail";
+import { deriveActivations, newBranchRow } from "./sequence/layout";
+import { detailToSeq, orderedBranches } from "./sequence/fromDetail";
 import { BPT } from "./tokens";
 import { useProcessHistory } from "./useProcessHistory";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../schemaView";
@@ -73,10 +73,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [pendingFrag, setPendingFrag] = useState<{ kind: FragmentKind; fromRow: number; toRow: number } | null>(null);
   const [fragGuard, setFragGuard] = useState("");
   const [delFrag, setDelFrag] = useState<string | null>(null);
-  // Карточка ветки «иначе»: id фрагмента + условие. elseRow=null — ветки ещё нет,
-  // заводим её (границу ставим посередине охвата).
-  const [elseEdit, setElseEdit] = useState<{ fid: string; elseRow: number | null } | null>(null);
-  const [elseGuard, setElseGuard] = useState("");
+  // Карточка ветви «иначе»: id фрагмента + номер ветви. index=null — заводим НОВУЮ
+  // (границу ставим сами, см. saveBranch).
+  const [branchEdit, setBranchEdit] = useState<{ fid: string; index: number | null } | null>(null);
+  const [branchGuard, setBranchGuard] = useState("");
   const [delMsg, setDelMsg] = useState<string | null>(null);
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
@@ -412,7 +412,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
     if (fromRow < 0 || toRow >= sorted.length || fromRow > toRow) return;
     const payload = {
-      kind, from_order: sorted[fromRow].order, to_order: sorted[toRow].order, guard: guard.trim() || null, else_guard: null, else_order: null,
+      kind, from_order: sorted[fromRow].order, to_order: sorted[toRow].order, guard: guard.trim() || null, branches: [],
     };
     try {
       const created = await processesApi.addFragment(id, payload);
@@ -462,61 +462,78 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     }
   }
 
-  // Общая запись правки ветки «иначе»: и границы, и условия, и снятия. Один канал —
-  // чтобы откат всегда возвращал обе величины разом (иначе undo половинчатый).
-  async function patchElse(fid: string, next: { else_order: number | null; else_guard: string | null }) {
+  // Общая запись правки ветвей: и границы, и условия, и снятие. Ветви правятся
+  // ЦЕЛИКОМ одним списком — тогда откат возвращает набор разом (иначе undo половинчатый).
+  async function patchBranches(fid: string, branches: BranchIn[]) {
     if (!detail) return;
     const frag = detail.fragments.find((x) => x.id === fid);
     if (!frag) return;
-    const prev = { else_order: frag.else_order, else_guard: frag.else_guard };
+    // Единственная точка записи — здесь же держим порядок: бэк требует строго
+    // возрастающих границ, а новая ветвь не обязана быть последней.
+    const next = orderedBranches(branches);
+    const prev = frag.branches.map((b) => ({ start_order: b.start_order, guard: b.guard }));
     setDetail({
       ...detail,
-      fragments: detail.fragments.map((x) => (x.id === fid ? { ...x, ...next } : x)),
+      fragments: detail.fragments.map((x) =>
+        x.id === fid ? { ...x, branches: next.map((b) => ({ start_order: b.start_order, guard: b.guard ?? null })) } : x,
+      ),
     });
     try {
-      await processesApi.updateFragment(id, fid, next);
+      await processesApi.updateFragment(id, fid, { branches: next });
       hist.push({
-        label: "Ветка «иначе»",
-        undo: async () => { await processesApi.updateFragment(id, fid, prev); },
-        redo: async () => { await processesApi.updateFragment(id, fid, next); },
+        label: "Ветки «иначе»",
+        undo: async () => { await processesApi.updateFragment(id, fid, { branches: prev }); },
+        redo: async () => { await processesApi.updateFragment(id, fid, { branches: next }); },
       });
       reload();
     } catch (e: unknown) {
       reload();
-      setError(e instanceof Error ? e.message : "Не удалось изменить ветку «иначе»");
+      setError(e instanceof Error ? e.message : "Не удалось изменить ветки «иначе»");
     }
   }
 
-  // Перенос границы ветки: строка → order (как и у охвата).
-  async function moveElse(fid: string, elseRow: number) {
+  // Перенос границы ветви: строка → order (как и у охвата). Остальные ветви на месте.
+  async function moveBranch(fid: string, index: number, row: number) {
     if (!detail) return;
     const frag = detail.fragments.find((x) => x.id === fid);
-    if (!frag) return;
+    if (!frag || index < 0 || index >= frag.branches.length) return;
     const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
-    if (elseRow < 0 || elseRow >= sorted.length) return;
-    await patchElse(fid, { else_order: sorted[elseRow].order, else_guard: frag.else_guard });
+    if (row < 0 || row >= sorted.length) return;
+    await patchBranches(
+      fid,
+      frag.branches.map((b, k) => (k === index ? { ...b, start_order: sorted[row].order } : b)),
+    );
   }
 
-  // Сохранение карточки: заводим ветку (границу — посередине охвата) либо правим
-  // условие существующей.
-  async function saveElse() {
-    if (!elseEdit || !detail) return;
-    const frag = detail.fragments.find((x) => x.id === elseEdit.fid);
+  // Сохранение карточки: заводим НОВУЮ ветвь либо правим условие существующей.
+  async function saveBranch() {
+    if (!branchEdit || !detail) return;
+    const frag = detail.fragments.find((x) => x.id === branchEdit.fid);
     if (!frag) return;
     const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
-    const rowOf = (order: number) => sorted.findIndex((m) => m.order === order);
-    let row = elseEdit.elseRow;
-    if (row == null) {
-      const from = rowOf(frag.from_order);
-      const to = rowOf(frag.to_order);
-      if (from < 0 || to <= from) return;
-      row = from + Math.ceil((to - from) / 2); // середина охвата, строго внутри
+    // Строка = число сообщений с меньшим order — ровно как в проекции диаграммы
+    // (fromDetail). findIndex здесь врал бы: order удалённого сообщения дал бы −1.
+    const rowOf = (order: number) => sorted.filter((m) => m.order < order).length;
+    const guard = branchGuard.trim() || null;
+    if (branchEdit.index != null) {
+      setBranchEdit(null);
+      await patchBranches(
+        branchEdit.fid,
+        frag.branches.map((b, k) => (k === branchEdit.index ? { ...b, guard } : b)),
+      );
+      return;
     }
-    setElseEdit(null);
-    await patchElse(elseEdit.fid, {
-      else_order: sorted[row].order,
-      else_guard: elseGuard.trim() || null,
-    });
+    const row = newBranchRow(
+      rowOf(frag.from_order),
+      rowOf(frag.to_order),
+      frag.branches.map((b) => rowOf(b.start_order)),
+    );
+    if (row == null || row >= sorted.length) return;
+    setBranchEdit(null);
+    await patchBranches(branchEdit.fid, [
+      ...frag.branches,
+      { start_order: sorted[row].order, guard },
+    ]);
   }
 
   async function removeFragment(fid: string) {
@@ -526,7 +543,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setDelFrag(null);
       if (f) {
         const payload = {
-          kind: f.kind, from_order: f.from_order, to_order: f.to_order, guard: f.guard, else_guard: f.else_guard, else_order: f.else_order,
+          kind: f.kind, from_order: f.from_order, to_order: f.to_order, guard: f.guard,
+          // Ветви восстанавливаем вместе с фрагментом: без них undo вернул бы alt
+          // без ветвлений, и это выглядело бы как потеря работы.
+          branches: f.branches.map((b) => ({ start_order: b.start_order, guard: b.guard })),
         };
         let restoredId: string | null = null;
         hist.push({
@@ -635,11 +655,11 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               } : undefined}
               onFragmentClick={editing ? (fid) => setDelFrag(fid) : undefined}
               onResizeFragment={editing ? (fid, from, to) => void resizeFragment(fid, from, to) : undefined}
-              onMoveElse={editing ? (fid, row) => void moveElse(fid, row) : undefined}
-              onEditElse={editing ? (fid, row) => {
+              onMoveBranch={editing ? (fid, index, row) => void moveBranch(fid, index, row) : undefined}
+              onEditBranch={editing ? (fid, index) => {
                 const frag = detail.fragments.find((x) => x.id === fid);
-                setElseGuard(frag?.else_guard ?? "");
-                setElseEdit({ fid, elseRow: row });
+                setBranchGuard(index != null ? (frag?.branches[index]?.guard ?? "") : "");
+                setBranchEdit({ fid, index });
               } : undefined}
               onConnect={editing ? (from, to) => setComposer({ from, to }) : undefined}
               canConnect={editing ? (from, to) => directions.has(`${from}>${to}`) : undefined}
@@ -752,45 +772,46 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           </>
         )}
 
-        {/* Ветка «иначе»: условие + снятие ветки */}
-        {elseEdit && detail && (
+        {/* Ветвь «иначе»: условие + снятие ветви */}
+        {branchEdit && detail && (
           <>
-            <div style={overlayDim} onClick={() => setElseEdit(null)} />
+            <div style={overlayDim} onClick={() => setBranchEdit(null)} />
             <div style={overlayCenter}>
               <div style={confirmCard}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                  {elseEdit.elseRow == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
+                  {branchEdit.index == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
                 </div>
                 <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  {elseEdit.elseRow == null
-                    ? "Граница встанет посередине охвата — потом её можно перетащить."
-                    : `Начинается с сообщения ${elseEdit.elseRow + 1}`}
+                  {branchEdit.index == null
+                    ? "Граница встанет в свободном месте охвата — потом её можно перетащить."
+                    : `Ветка ${branchEdit.index + 2} у этого alt`}
                 </div>
                 <input
                   className="bp-input"
-                  value={elseGuard}
-                  onChange={(e) => setElseGuard(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void saveElse(); }}
+                  value={branchGuard}
+                  onChange={(e) => setBranchGuard(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void saveBranch(); }}
                   placeholder="условие ветки, напр. «отказ»"
                   autoFocus
                 />
                 <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  {elseEdit.elseRow != null && (
+                  {branchEdit.index != null && (
                     <button
                       className="bp-btn-ghost"
                       style={{ marginRight: "auto", color: "#dc2626" }}
                       onClick={() => {
-                        const fid = elseEdit.fid;
-                        setElseEdit(null);
-                        void patchElse(fid, { else_order: null, else_guard: null });
+                        const { fid, index } = branchEdit;
+                        const frag = detail.fragments.find((x) => x.id === fid);
+                        setBranchEdit(null);
+                        if (frag) void patchBranches(fid, frag.branches.filter((_, k) => k !== index));
                       }}
                     >
                       Убрать ветку
                     </button>
                   )}
-                  <button className="bp-btn-ghost" onClick={() => setElseEdit(null)}>Отмена</button>
-                  <button className="bp-btn-primary" onClick={() => void saveElse()}>
-                    {elseEdit.elseRow == null ? "Добавить" : "Сохранить"}
+                  <button className="bp-btn-ghost" onClick={() => setBranchEdit(null)}>Отмена</button>
+                  <button className="bp-btn-primary" onClick={() => void saveBranch()}>
+                    {branchEdit.index == null ? "Добавить" : "Сохранить"}
                   </button>
                 </div>
               </div>

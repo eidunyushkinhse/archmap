@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ProcessFragment, ProcessMessage, ProcessParticipant } from "../../types";
-import { toSeqFragments, toSeqParticipants } from "../processes/sequence/fromDetail";
-import { arrayMove } from "../processes/sequence/layout";
+import { orderedBranches, toSeqFragments, toSeqParticipants } from "../processes/sequence/fromDetail";
+import { arrayMove, newBranchRow } from "../processes/sequence/layout";
 
 // Минимальные фикстуры: toSeqFragments читает у сообщения только order, у фрагмента —
-// kind/диапазон/else. Остальные поля контракта не нужны (каст через unknown).
+// kind/диапазон/ветви. Остальные поля контракта не нужны (каст через unknown).
 const msg = (order: number): ProcessMessage => ({ order } as unknown as ProcessMessage);
 const frag = (
   id: string,
@@ -12,7 +12,7 @@ const frag = (
   to_order: number,
   extra: Partial<ProcessFragment> = {},
 ): ProcessFragment =>
-  ({ id, kind: "alt", from_order, to_order, guard: null, else_guard: null, else_order: null, ...extra } as ProcessFragment);
+  ({ id, kind: "alt", from_order, to_order, guard: null, branches: [], ...extra } as ProcessFragment);
 
 describe("toSeqFragments — проекция order→строка и множественные фрагменты", () => {
   // Сообщения с разреженными order: индекс строки = число сообщений с меньшим order.
@@ -36,10 +36,28 @@ describe("toSeqFragments — проекция order→строка и множе
     expect(out.map((f) => f.id)).toEqual(["outer", "inner"]);
   });
 
-  it("ветка else проецируется в elseRow", () => {
-    const [f] = toSeqFragments([frag("f", 0, 7, { else_order: 5, else_guard: "иначе" })], messages);
-    expect(f.elseRow).toBe(2); // order 5 → строка 2
-    expect(f.elseGuard).toBe("иначе");
+  it("ветвь else проецируется в строку", () => {
+    const [f] = toSeqFragments(
+      [frag("f", 0, 7, { branches: [{ start_order: 5, guard: "иначе" }] })],
+      messages,
+    );
+    expect(f.branches).toEqual([{ row: 2, guard: "иначе" }]); // order 5 → строка 2
+  });
+
+  it("несколько ветвей проецируются каждая в свою строку", () => {
+    const [f] = toSeqFragments(
+      [frag("f", 0, 7, {
+        branches: [
+          { start_order: 2, guard: "отказ" },
+          { start_order: 5, guard: "таймаут" },
+        ],
+      })],
+      messages,
+    );
+    expect(f.branches).toEqual([
+      { row: 1, guard: "отказ" },
+      { row: 2, guard: "таймаут" },
+    ]);
   });
 
   it("пустой список фрагментов → пустой массив", () => {
@@ -86,6 +104,52 @@ describe("arrayMove — перестановка одного элемента (
   });
 });
 
+describe("orderedBranches — набор ветвей всегда по возрастанию границы", () => {
+  it("новая ветвь встаёт на своё место, а не в конец", () => {
+    // Вырожденный случай newBranchRow: свободная строка нашлась ВЫШЕ существующих.
+    // Дописанный в конец список бэк отверг бы — границы обязаны строго возрастать.
+    const out = orderedBranches([
+      { start_order: 5, guard: "таймаут" },
+      { start_order: 2, guard: "новая" },
+    ]);
+    expect(out.map((b) => b.start_order)).toEqual([2, 5]);
+  });
+
+  it("не мутирует исходный список", () => {
+    const src = [{ start_order: 5, guard: null }, { start_order: 2, guard: null }];
+    orderedBranches(src);
+    expect(src.map((b) => b.start_order)).toEqual([5, 2]);
+  });
+});
+
+describe("newBranchRow — куда встанет новая ветвь [иначе]", () => {
+  it("первая ветвь делит охват пополам", () => {
+    expect(newBranchRow(0, 3, [])).toBe(2);
+  });
+
+  it("следующая дописывается в хвост, за последней", () => {
+    expect(newBranchRow(0, 4, [2])).toBe(3);
+  });
+
+  it("охват в два шага: единственная свободная строка", () => {
+    expect(newBranchRow(0, 1, [])).toBe(1);
+  });
+
+  it("ветви сбились в низ охвата — берём свободную строку сверху", () => {
+    // Вырожденный случай: в хвосте места нет, но дырки выше остались.
+    expect(newBranchRow(0, 3, [3])).toBe(1);
+  });
+
+  it("свободных строк не осталось — null", () => {
+    expect(newBranchRow(0, 2, [1, 2])).toBeNull();
+  });
+
+  it("никогда не возвращает строку начала охвата", () => {
+    // row == fromRow оставил бы ПЕРВУЮ ветвь пустой — бэк такое отклоняет.
+    for (const to of [1, 2, 3, 4]) expect(newBranchRow(0, to, [])).toBeGreaterThan(0);
+  });
+});
+
 // Перестановка шагов (2026-08-10). Решение пользователя: фрагмент — диапазон
 // ПОЗИЦИЙ, границы за содержимым не едут. Здесь это закреплено на проекции: после
 // перестановки блок накрывает тех, кто въехал в его строки.
@@ -109,9 +173,12 @@ describe("перестановка шагов: фрагмент держит п�
     expect(moved.slice(1, 3).map((m) => m.id)).toEqual(["d", "b"]); // внутри — другие шаги
   });
 
-  it("ветка else тоже держится за позицию", () => {
+  it("ветвь else тоже держится за позицию", () => {
     const msgs = [captioned("a", 0), captioned("b", 1), captioned("c", 2)];
-    const [f] = toSeqFragments([frag("f", 0, 2, { else_order: 2 })], msgs);
-    expect(f.elseRow).toBe(2);
+    const [f] = toSeqFragments(
+      [frag("f", 0, 2, { branches: [{ start_order: 2, guard: null }] })],
+      msgs,
+    );
+    expect(f.branches[0].row).toBe(2);
   });
 });

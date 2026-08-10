@@ -50,18 +50,20 @@ export function detailToMermaid(detail: ProcessDetail): string {
     fromRow: rowOf(f.from_order),
     toRow: rowOf(f.to_order),
     guard: clean(f.guard),
-    elseRow: f.else_order != null ? rowOf(f.else_order) : null,
-    elseGuard: clean(f.else_guard),
+    // Ветви [иначе] со второй и дальше: у alt их сколько угодно (mermaid принимает
+    // цепочку else любой длины — проверено парсером 11.15.0).
+    branches: f.branches.map((b) => ({ row: rowOf(b.start_order), guard: clean(b.guard) })),
   }));
 
   // depth — текущая глубина вложенности (1 = верхний уровень тела диаграммы).
   let depth = 1;
 
   for (let i = 0; i < msgs.length; i++) {
-    // 1) Ветка [else] для alt, начинающаяся на строке i, — на отступ родителя.
+    // 1) Ветви [else] для alt, начинающиеся на строке i, — на отступ родителя.
     for (const f of frags) {
-      if (f.kind === "alt" && f.elseRow === i) {
-        lines.push(`${indent(depth - 1)}else${f.elseGuard ? " " + f.elseGuard : ""}`);
+      if (f.kind !== "alt") continue;
+      for (const b of f.branches) {
+        if (b.row === i) lines.push(`${indent(depth - 1)}else${b.guard ? " " + b.guard : ""}`);
       }
     }
 

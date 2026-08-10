@@ -1208,6 +1208,26 @@ export interface components {
             /** Client Secret */
             client_secret?: string | null;
         };
+        /** BranchIn */
+        BranchIn: {
+            /** Start Order */
+            start_order: number;
+            /** Guard */
+            guard?: string | null;
+        };
+        /**
+         * BranchOut
+         * @description Ветвь [иначе] у alt: начинается со start_order и идёт до следующей ветви.
+         *
+         *     Первой ветви в списке НЕТ — она начинается с from_order фрагмента, её условие
+         *     лежит в guard самого фрагмента. Здесь ветви со второй и дальше, по возрастанию.
+         */
+        BranchOut: {
+            /** Start Order */
+            start_order: number;
+            /** Guard */
+            guard: string | null;
+        };
         /** ChannelOut */
         ChannelOut: {
             /**
@@ -1640,10 +1660,11 @@ export interface components {
             to_order: number;
             /** Guard */
             guard?: string | null;
-            /** Else Guard */
-            else_guard?: string | null;
-            /** Else Order */
-            else_order?: number | null;
+            /**
+             * Branches
+             * @default []
+             */
+            branches: components["schemas"]["BranchIn"][];
         };
         /** FragmentOut */
         FragmentOut: {
@@ -1663,10 +1684,8 @@ export interface components {
             to_order: number;
             /** Guard */
             guard: string | null;
-            /** Else Guard */
-            else_guard: string | null;
-            /** Else Order */
-            else_order: number | null;
+            /** Branches */
+            branches: components["schemas"]["BranchOut"][];
         };
         /** FragmentUpdate */
         FragmentUpdate: {
@@ -1678,10 +1697,8 @@ export interface components {
             to_order?: number | null;
             /** Guard */
             guard?: string | null;
-            /** Else Guard */
-            else_guard?: string | null;
-            /** Else Order */
-            else_order?: number | null;
+            /** Branches */
+            branches?: components["schemas"]["BranchIn"][] | null;
         };
         /** GhostNodeResponse */
         GhostNodeResponse: {

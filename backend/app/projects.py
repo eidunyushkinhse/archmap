@@ -12,7 +12,7 @@ from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
-from app.models.process_fragment import ProcessFragment
+from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.view_layout import ViewLayoutItem
@@ -138,8 +138,12 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                     from_order=frag.from_order,
                     to_order=frag.to_order,
                     guard=frag.guard,
-                    else_guard=frag.else_guard,
-                    else_order=frag.else_order,
+                    # Ветви [иначе] — тоже часть фрагмента: без них копия молча теряет
+                    # ветвления alt.
+                    branches=[
+                        ProcessFragmentBranch(start_order=b.start_order, guard=b.guard)
+                        for b in frag.branches
+                    ],
                 )
             )
 
