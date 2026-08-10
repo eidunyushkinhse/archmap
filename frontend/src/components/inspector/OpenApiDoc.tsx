@@ -31,6 +31,9 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
     return { status: s, lastGood: s.kind === "ok" ? { spec: s.spec, time: null } : null };
   });
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
+  // правки: как только в поле что-то меняется, статус снова про разбор спеки.
+  const [fileError, setFileError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Версию для тега шапки сообщаем на маунте (первичный парс) и при каждом
@@ -60,6 +63,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
   const handleChange = useCallback(
     (v: string) => {
       setCode(v);
+      setFileError(null);
       window.clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => applyText(v), 500);
     },
@@ -77,8 +81,12 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
 
   const { status, lastGood } = st;
 
+  // Отказ по файлу перекрывает статус разбора: пока он висит, в поле лежит не то,
+  // что пользователь выбрал, и сообщать про синтаксис старого текста — врать.
   const statusRow = !isArchitect ? (
     <StatusReadOnly />
+  ) : fileError ? (
+    <StatusError text={fileError} />
   ) : status.kind === "yaml-error" ? (
     <StatusError
       text={(status.line ? `Строка ${status.line}: ` : "") + status.message.replace(/\s+/g, " ").trim()}
@@ -114,6 +122,10 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
           onCommitValue={isArchitect ? commit : undefined}
           status={statusRow}
           taRef={taRef}
+          // Спеку обычно не пишут руками, а берут готовым файлом. JSON тоже
+          // принимаем: js-yaml разбирает его тем же парсером (JSON — подмножество YAML).
+          fileAccept=".yaml,.yml,.json,text/yaml,application/json"
+          onFileError={setFileError}
         />
       )}
       <div className="doc-pv">

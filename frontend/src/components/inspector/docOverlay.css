@@ -193,6 +193,30 @@
 .doc-savebtn:not(:disabled):hover {
   background: #dbeafe;
 }
+/* Кнопки шапки редактора: «Загрузить файл» + «Сохранить» */
+.doc-edact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Загрузка спеки нейтральнее сохранения: она ничего не пишет в БД, только
+   подставляет текст в поле. */
+.doc-filebtn {
+  border-color: #e5e7eb;
+  background: #f9fafb;
+  color: #475569;
+}
+.doc-filebtn:not(:disabled):hover {
+  background: #f3f4f6;
+}
+.doc-filein {
+  display: none;
+}
+/* Файл тащат на поле — подсвечиваем, что его тут примут. */
+.doc-edta--drop {
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 2px #bfdbfe;
+}
 .doc-edta {
   flex: 1;
   min-height: 0;

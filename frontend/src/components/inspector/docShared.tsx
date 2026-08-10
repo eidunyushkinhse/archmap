@@ -17,7 +17,19 @@ interface EditorProps {
   onCommitValue?: (v: string) => void;
   status: ReactNode; // готовая статус-строка (Часть D)
   taRef?: RefObject<HTMLTextAreaElement | null>; // для каретки по клику на ошибку
+  // Приём файла — маска для диалога выбора. Передан (и колонка редактируемая) →
+  // в шапке кнопка «Загрузить файл», поле принимает перетаскивание. Не передан —
+  // ни кнопки, ни drop-зоны (у схем логики файла обычно нет — там пишут руками).
+  fileAccept?: string;
+  // Отказ принять файл. Снимать сообщение — забота вызывающего: оно гаснет на
+  // следующей правке (иначе висело бы поверх нормального статуса разбора).
+  onFileError?: (message: string) => void;
 }
+
+// Потолок размера файла: спеки бывают в несколько мегабайт (Stripe ~5 МБ), но
+// десятки — это уже не спека, а промах в диалоге. Читать такое в textarea значит
+// подвесить вкладку.
+const FILE_LIMIT = 8 * 1024 * 1024;
 
 export function DocEditorColumn({
   width,
@@ -29,6 +41,8 @@ export function DocEditorColumn({
   onCommitValue,
   status,
   taRef,
+  fileAccept,
+  onFileError,
 }: EditorProps) {
   // На маунте value == сохранённому значению из БД
   const committedRef = useRef(value);
@@ -51,6 +65,38 @@ export function DocEditorColumn({
   // onChange, гасится в коммите; ремаунт по key (смена дока/409) сбрасывает сам.
   const [dirty, setDirty] = useState(false);
 
+  // ── Загрузка из файла ──────────────────────────────────────────────────────
+  // Содержимое кладётся в редактор ОБЫЧНОЙ правкой (тот же onChange, что у
+  // печати), поэтому дальше работает всё привычное: разбор с превью, статус-строка,
+  // «Сохранить»/blur-коммит, страховка при закрытии. Отдельного канала записи нет
+  // намеренно — иначе файл затирал бы спеку молча, до того как её увидели.
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [overDrop, setOverDrop] = useState(false);
+  const canLoadFile = !!fileAccept && !readOnly && !!onChange;
+
+  const loadFile = async (file: File | undefined | null) => {
+    if (!file || !onChange) return;
+    if (file.size > FILE_LIMIT) {
+      onFileError?.(`Файл больше ${FILE_LIMIT / 1024 / 1024} МБ — это не похоже на спеку`);
+      return;
+    }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      onFileError?.("Не удалось прочитать файл");
+      return;
+    }
+    // Двоичное содержимое (перетащили картинку/архив) в поле не льём: разбор бы
+    // его отверг, но в редакторе остался бы мусор вместо спеки.
+    if (text.includes("\u0000")) {
+      onFileError?.("Это не текстовый файл");
+      return;
+    }
+    onChange(text);
+    setDirty(true);
+  };
+
   // Страховка A3: dirty-значение коммитится из cleanup, если blur не успел
   useEffect(
     () => () => {
@@ -67,22 +113,53 @@ export function DocEditorColumn({
     <div className="doc-edcol" style={{ width }}>
       <div className="doc-edhead">
         <span>{title}</span>
-        {/* Явное сохранение (архитектор): дублирует blur-коммит — финализирует
-            новую схему/версию/спеку без ухода фокусом. Неактивна без правок. */}
-        {!readOnly && onCommitValue && (
-          <button type="button" className="doc-savebtn" onClick={commitBlur} disabled={!dirty}>
-            Сохранить
-          </button>
-        )}
+        <div className="doc-edact">
+          {canLoadFile && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                className="doc-filein"
+                accept={fileAccept}
+                onChange={(e) => {
+                  void loadFile(e.target.files?.[0]);
+                  e.target.value = ""; // тот же файл должен выбираться повторно
+                }}
+              />
+              <button
+                type="button"
+                className="doc-savebtn doc-filebtn"
+                onClick={() => fileRef.current?.click()}
+                title="Взять спеку из файла (.yaml / .yml / .json). Файл можно и перетащить на поле"
+              >
+                Загрузить файл
+              </button>
+            </>
+          )}
+          {/* Явное сохранение (архитектор): дублирует blur-коммит — финализирует
+              новую схему/версию/спеку без ухода фокусом. Неактивна без правок. */}
+          {!readOnly && onCommitValue && (
+            <button type="button" className="doc-savebtn" onClick={commitBlur} disabled={!dirty}>
+              Сохранить
+            </button>
+          )}
+        </div>
       </div>
       <textarea
         ref={taRef}
-        className="doc-edta"
+        className={"doc-edta" + (overDrop ? " doc-edta--drop" : "")}
         value={value}
         placeholder={placeholder}
         readOnly={readOnly}
         onChange={onChange ? (e) => { onChange(e.target.value); setDirty(true); } : undefined}
         onBlur={readOnly ? undefined : commitBlur}
+        onDragOver={canLoadFile ? (e) => { e.preventDefault(); setOverDrop(true); } : undefined}
+        onDragLeave={canLoadFile ? () => setOverDrop(false) : undefined}
+        onDrop={canLoadFile ? (e) => {
+          e.preventDefault();
+          setOverDrop(false);
+          void loadFile(e.dataTransfer.files?.[0]);
+        } : undefined}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
