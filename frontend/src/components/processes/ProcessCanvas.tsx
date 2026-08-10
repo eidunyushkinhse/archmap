@@ -428,6 +428,36 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setError(e instanceof Error ? e.message : "Не удалось добавить фрагмент");
     }
   }
+  // Правка охвата фрагмента протягиванием грани. Диаграмма отдаёт индексы СТРОК —
+  // переводим их в order сообщений (фрагмент хранит диапазон позиций, как и при
+  // создании). Границы держит бэк: from_order ≤ to_order.
+  async function resizeFragment(fid: string, fromRow: number, toRow: number) {
+    if (!detail) return;
+    const frag = detail.fragments.find((x) => x.id === fid);
+    if (!frag) return;
+    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    if (fromRow < 0 || toRow >= sorted.length || fromRow > toRow) return;
+    const next = { from_order: sorted[fromRow].order, to_order: sorted[toRow].order };
+    const prev = { from_order: frag.from_order, to_order: frag.to_order };
+    // Оптимистично: рамка остаётся на новом месте, не мигая обратно до ответа.
+    setDetail({
+      ...detail,
+      fragments: detail.fragments.map((x) => (x.id === fid ? { ...x, ...next } : x)),
+    });
+    try {
+      await processesApi.updateFragment(id, fid, next);
+      hist.push({
+        label: "Охват фрагмента",
+        undo: async () => { await processesApi.updateFragment(id, fid, prev); },
+        redo: async () => { await processesApi.updateFragment(id, fid, next); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload(); // откат оптимистичной рамки к истинной (БД не изменилась)
+      setError(e instanceof Error ? e.message : "Не удалось изменить охват фрагмента");
+    }
+  }
+
   async function removeFragment(fid: string) {
     const f = detail?.fragments.find((x) => x.id === fid);
     try {
@@ -543,6 +573,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 });
               } : undefined}
               onFragmentClick={editing ? (fid) => setDelFrag(fid) : undefined}
+              onResizeFragment={editing ? (fid, from, to) => void resizeFragment(fid, from, to) : undefined}
               onConnect={editing ? (from, to) => setComposer({ from, to }) : undefined}
               canConnect={editing ? (from, to) => directions.has(`${from}>${to}`) : undefined}
               onSelfConnect={editing ? (nodeId) => { setSelfMsg(nodeId); setSelfCaption(""); } : undefined}

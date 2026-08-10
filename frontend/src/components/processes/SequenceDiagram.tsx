@@ -18,6 +18,19 @@ const LABEL_GAP = 10; // зазор между низом подписи и ст
 const LABEL_PAD = 26; // запас в шаге строки сверх высоты подписи (одна строка → шаг ROW_GAP)
 const SELF_OFF = 46; // вертикальный сдвиг хэндла «себе» под кружком-источником
 const SELF_HIT = 22; // радиус попадания курсора по хэндлу «себе»
+// Ручка грани фрагмента: полоса поверх ребра рамки. Само ребро 1.5px — курсором
+// в него не попасть, поэтому зона захвата толще и центрирована по ребру.
+const FRAG_EDGE_H = 11;
+const fragEdgeStyle = (left: number, y: number, width: number): CSSProperties => ({
+  position: "absolute",
+  left,
+  top: y - FRAG_EDGE_H / 2,
+  width,
+  height: FRAG_EDGE_H,
+  zIndex: 2,
+  cursor: "ns-resize",
+});
+
 const DRAG_SLOP = 4; // порог сдвига, отделяющий перетаскивание шага от клика по подписи
 const GRAB_W = 16; // толщина невидимой полосы захвата поверх стрелки (сама она 1.7px)
 const STATUSES: NodeStatus[] = ["existing", "planned", "deprecated"];
@@ -53,6 +66,10 @@ interface Props {
   // (фрагмент = диапазон позиций, решение пользователя 2026-08-10): шаг, въехавший
   // в строки блока, оказывается внутри него — это видно прямо во время жеста.
   onReorderMessages?: (ids: string[]) => void;
+  // Правка охвата существующего фрагмента протягиванием его верхней/нижней границы.
+  // Отдаёт новые индексы строк; ширина рамки во время жеста пересчитывается сама —
+  // она выводится из самой широкой стрелки внутри охвата.
+  onResizeFragment?: (id: string, fromRow: number, toRow: number) => void;
   // Режим выбора диапазона под новый фрагмент: курсором протягиваем по строкам
   // сообщений, на отпускании отдаём [fromRow, toRow]. null — обычный режим.
   selectMode?: FragmentKind | null;
@@ -75,6 +92,7 @@ export default function SequenceDiagram({
   onDeleteParticipant,
   onReorderParticipants,
   onReorderMessages,
+  onResizeFragment,
   selectMode = null,
   onSelectRange,
   onFragmentClick,
@@ -98,6 +116,11 @@ export default function SequenceDiagram({
   // открывает правку сообщения, и драг не должен её отбирать).
   const [rowDrag, setRowDrag] = useState<
     { fromR: number; py: number; y0: number; moved: boolean } | null
+  >(null);
+  // Протягивание границы фрагмента: какой фрагмент, какая грань и на какую строку
+  // она сейчас метит. moved — порог пройден (иначе это клик по шапке/рамке).
+  const [fragDrag, setFragDrag] = useState<
+    { id: string; edge: "top" | "bottom"; row: number; y0: number; moved: boolean } | null
   >(null);
   // «Липкость» шапок: в самом верху диаграммы разделительная грань скрыта, появляется
   // при прилипании. Следим за невидимой sentinel-точкой на верху диаграммы: как только
@@ -193,12 +216,24 @@ export default function SequenceDiagram({
     const lh = r < R ? rowLabelH[r] : DEFAULT_LH;
     rowOff[r] = rowOff[r - 1] + Math.max(SQ.ROW_GAP, lh + LABEL_PAD);
   }
+  // Действующие границы фрагмента: во время протягивания грани — живые, иначе свои.
+  // Через них проходит ВСЯ геометрия (смещения строк, рамка, ширина), поэтому картина
+  // во время жеста согласована: рамка едет, строки раздвигаются, ширина подстраивается
+  // под самую широкую стрелку внутри нового охвата.
+  const fragRows = (f: SeqFragment): { from: number; to: number } => {
+    if (!fragDrag || !fragDrag.moved || fragDrag.id !== f.id) {
+      return { from: f.fromRow, to: f.toRow };
+    }
+    return fragDrag.edge === "top"
+      ? { from: Math.min(fragDrag.row, f.toRow), to: f.toRow }
+      : { from: f.fromRow, to: Math.max(fragDrag.row, f.fromRow) };
+  };
   // Каждый фрагмент, начавшийся на/до строки r, добавляет высоту своей шапки (а ветка
   // else — свой зазор). Так несколько/вложенные фрагменты раздвигают строки корректно.
   const fragHeadOff = (r: number) => {
     let off = 0;
     for (const f of fragments) {
-      if (r >= f.fromRow) off += SQ.FRAG_HEAD;
+      if (r >= fragRows(f).from) off += SQ.FRAG_HEAD;
       if (f.elseRow != null && r >= f.elseRow) off += SQ.ELSE_GAP;
     }
     return off;
@@ -241,21 +276,28 @@ export default function SequenceDiagram({
   const NEST_INSET = 10;
   const fragBoxes = fragments
     .map((f) => {
-      const inner = messages.filter((m) => m.r >= f.fromRow && m.r <= f.toRow);
+      const rows = fragRows(f);
+      // Ширина рамки выводится из охвата: берём крайние колонки сообщений внутри.
+      // Поэтому при протягивании грани она подстраивается под самую широкую стрелку
+      // нового охвата сама — отдельного пересчёта не нужно.
+      const inner = messages.filter((m) => m.r >= rows.from && m.r <= rows.to);
       if (!inner.length) return null;
       const xs = inner.flatMap((m) => [colX(m.from), colX(m.to)]);
       // depth = сколько ДРУГИХ фрагментов строго охватывают диапазон этого (вложенность).
-      const span = f.toRow - f.fromRow;
-      const depth = fragments.filter(
-        (g) => g !== f && g.fromRow <= f.fromRow && g.toRow >= f.toRow && g.toRow - g.fromRow > span,
-      ).length;
+      const span = rows.to - rows.from;
+      const depth = fragments.filter((g) => {
+        if (g === f) return false;
+        const gr = fragRows(g);
+        return gr.from <= rows.from && gr.to >= rows.to && gr.to - gr.from > span;
+      }).length;
       const inset = depth * NEST_INSET;
       return {
         f,
+        rows,
         left: Math.min(...xs) - 38 + inset,
         right: Math.max(...xs) + 38 - inset,
-        top: rowY(f.fromRow) - 26,
-        bottom: rowY(f.toRow) + 18,
+        top: rowY(rows.from) - 26,
+        bottom: rowY(rows.to) + 18,
         elseY: f.elseRow != null ? rowY(f.elseRow) - 16 : null,
       };
     })
@@ -270,6 +312,19 @@ export default function SequenceDiagram({
     e.currentTarget.setPointerCapture(e.pointerId);
     setReorder({ fromK: k, px: PX(k) });
   }
+  // Начало протягивания грани фрагмента. Порог тот же, что у шага: без него клик по
+  // шапке (удаление фрагмента) иногда читался бы как микро-жест.
+  function onFragEdgeDown(
+    e: ReactPointerEvent<HTMLDivElement>, id: string, edge: "top" | "bottom", row: number,
+  ) {
+    if (!onResizeFragment || selectMode) return;
+    const root = rootRef.current;
+    if (!root) return;
+    e.stopPropagation(); // рамка лежит под шапкой — не даём жесту уйти в клик по ней
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setFragDrag({ id, edge, row, y0: e.clientY - root.getBoundingClientRect().top, moved: false });
+  }
+
   // Стрелку тянут так же, как подпись: пользователь инстинктивно берётся за неё.
   // Тонкая линия (1.7px) курсором не ловится, поэтому поверх неё кладём невидимую
   // полосу той же геометрии с толстой обводкой — она и принимает жест.
@@ -323,6 +378,15 @@ export default function SequenceDiagram({
   // приоритетная цель при попадании курсора; иначе подсвечиваем ближайший ДРУГОЙ участник
   // (источник из колонок-целей исключён — у него своя цель «себе»).
   function onRootMove(e: ReactPointerEvent<HTMLDivElement>) {
+    // Протягивание грани фрагмента: грань метит в ближайшую строку сообщения.
+    if (fragDrag && rootRef.current) {
+      const y = e.clientY - rootRef.current.getBoundingClientRect().top;
+      const row = rowFromY(y);
+      setFragDrag((d) =>
+        d ? { ...d, row, moved: d.moved || Math.abs(y - d.y0) > DRAG_SLOP } : d,
+      );
+      return;
+    }
     // Живой reorder ШАГОВ: подпись идёт за курсором по вертикали.
     if (rowDrag && rootRef.current) {
       const y = e.clientY - rootRef.current.getBoundingClientRect().top;
@@ -362,6 +426,21 @@ export default function SequenceDiagram({
   // Отпускание: reorder — фиксируем новый порядок, если шапка ушла в другую колонку;
   // drag-to-connect — на хэндле «себе» рефлексивное сообщение, над другим участником — связь.
   function onRootUp() {
+    if (fragDrag) {
+      const f = fragments.find((x) => x.id === fragDrag.id);
+      if (f && fragDrag.moved) {
+        // Схлопывание грани за противоположную не даём: диапазон минимум в одну
+        // строку (бэк тоже держит from_order ≤ to_order).
+        const from = fragDrag.edge === "top" ? Math.min(fragDrag.row, f.toRow) : f.fromRow;
+        const to = fragDrag.edge === "bottom" ? Math.max(fragDrag.row, f.fromRow) : f.toRow;
+        if (from !== f.fromRow || to !== f.toRow) {
+          suppressClick.current = true; // следом придёт click по рамке — гасим
+          onResizeFragment?.(f.id, from, to);
+        }
+      }
+      setFragDrag(null);
+      return;
+    }
     if (rowDrag) {
       // Порога не прошли — это был клик по подписи, порядок не трогаем.
       if (rowDrag.moved) {
@@ -414,8 +493,30 @@ export default function SequenceDiagram({
                 borderRadius: 8,
                 background: "rgba(255,251,235,.45)",
                 zIndex: 1,
+                // Ширина рамки выводится из охвата, поэтому при переносе грани она
+                // меняется скачком — анимируем, чтобы подстройка читалась как
+                // движение, а не мигание. Тянущуюся грань (top/height) не
+                // анимируем: она обязана идти за курсором без запаздывания.
+                transition: fragDrag?.id === f.id
+                  ? "left .12s ease, width .12s ease"
+                  : "left .15s ease, width .15s ease, top .15s ease, height .15s ease",
               }}
             />
+            {/* Ручки граней: тонкие полосы поверх верхнего и нижнего рёбер рамки. */}
+            {onResizeFragment && !selectMode && (
+              <>
+                <div
+                  onPointerDown={(e) => onFragEdgeDown(e, f.id, "top", box.rows.from)}
+                  title="Потянуть верхнюю границу"
+                  style={fragEdgeStyle(box.left, box.top, box.right - box.left)}
+                />
+                <div
+                  onPointerDown={(e) => onFragEdgeDown(e, f.id, "bottom", box.rows.to)}
+                  title="Потянуть нижнюю границу"
+                  style={fragEdgeStyle(box.left, box.bottom, box.right - box.left)}
+                />
+              </>
+            )}
             <div
               onClick={onFragmentClick ? () => onFragmentClick(f.id) : undefined}
               title={onFragmentClick ? "Удалить фрагмент" : undefined}
