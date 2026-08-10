@@ -1181,6 +1181,11 @@ export interface components {
              * @default []
              */
             dangling_messages: components["schemas"]["DanglingMessageAlert"][];
+            /**
+             * Unbound Participants
+             * @default []
+             */
+            unbound_participants: components["schemas"]["UnboundParticipantAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -2952,6 +2957,32 @@ export interface components {
              * @default []
              */
             promote: components["schemas"]["TransitionNodeOut"][];
+        };
+        /**
+         * UnboundParticipantAlert
+         * @description Участник процесса без узла схемы (node_id = NULL). Появляется двумя путями:
+         *     импортом диаграммы, где имя не сопоставили ни с одним узлом, и удалением узла —
+         *     FK гасит ссылку (SET NULL), процесс переживает удаление вместо того, чтобы молча
+         *     лишиться участника и всех его шагов.
+         *
+         *     Вторая ось «незадокументированности», симметричная повисшему сообщению: линия
+         *     жизни на схеме процесса есть, а объекта архитектуры за ней нет.
+         */
+        UnboundParticipantAlert: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /**
+             * Participant Id
+             * Format: uuid
+             */
+            participant_id: string;
+            /** Name */
+            name: string;
         };
         /** UserCreate */
         UserCreate: {

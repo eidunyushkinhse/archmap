@@ -24,6 +24,7 @@ from app.schemas.node import (
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
     PersonInsideAlert,
+    UnboundParticipantAlert,
 )
 
 
@@ -175,10 +176,12 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
             process_name=proc_name,
             message_id=msg_id,
             caption=caption,
-            from_name=name_by_id.get(from_node, "?"),
-            to_name=name_by_id.get(to_node, "?"),
+            # Живое имя узла, а у непривязанного участника — его собственное:
+            # иначе конец повисшего шага показывался бы как «?».
+            from_name=name_by_id.get(from_node) or from_own,
+            to_name=name_by_id.get(to_node) or to_own,
         )
-        for proc_id, proc_name, msg_id, caption, from_node, to_node in (
+        for proc_id, proc_name, msg_id, caption, from_node, to_node, from_own, to_own in (
             db.query(
                 BusinessProcess.id,
                 BusinessProcess.name,
@@ -186,6 +189,8 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
                 ProcessMessage.caption,
                 from_p.node_id,
                 to_p.node_id,
+                from_p.name,
+                to_p.name,
             )
             .join(ProcessMessage, ProcessMessage.process_id == BusinessProcess.id)
             .join(from_p, from_p.id == ProcessMessage.from_participant_id)
@@ -200,6 +205,30 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         )
     ]
 
+    # 7) Участники процессов без узла схемы (AL27). Симметрично повисшему сообщению:
+    #    линия жизни на диаграмме есть, объекта архитектуры за ней нет. Путь
+    #    исправления — привязка участника к узлу прямо на его шапке.
+    unbound_participants = [
+        UnboundParticipantAlert(
+            process_id=proc_id, process_name=proc_name, participant_id=part_id, name=name
+        )
+        for proc_id, proc_name, part_id, name in (
+            db.query(
+                BusinessProcess.id,
+                BusinessProcess.name,
+                ProcessParticipant.id,
+                ProcessParticipant.name,
+            )
+            .join(ProcessParticipant, ProcessParticipant.process_id == BusinessProcess.id)
+            .filter(
+                BusinessProcess.project_id == project_id,
+                ProcessParticipant.node_id.is_(None),
+            )
+            .order_by(BusinessProcess.name, ProcessParticipant.order)
+            .all()
+        )
+    ]
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
@@ -207,4 +236,5 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         container_own_docs=container_own_docs,
         persons_inside=persons_inside,
         dangling_messages=dangling_messages,
+        unbound_participants=unbound_participants,
     )

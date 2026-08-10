@@ -190,3 +190,78 @@ def test_самосообщение_повисшим_не_считается(db)
     db.commit()
 
     assert get_alerts(db=db, project=ensure_project(db), _=None).dangling_messages == []
+
+
+# =================== 7) Участники процессов без узла (AL27) ===================
+
+def test_удаление_узла_даёт_участника_без_узла_в_алертах(db):
+    """Полный путь, а не подложенный NULL: заводим участника на живом узле и удаляем
+    узел. FK гасит ссылку (SET NULL), процесс переживает удаление — и расхождение со
+    схемой обязано быть видно, иначе линия жизни висит в пустоте молча."""
+    from app.models.business_process import BusinessProcess
+    from app.models.process_participant import ProcessParticipant
+
+    сервис = _node(db, "Сервис заказов")
+    процесс = BusinessProcess(id=uuid.uuid4(), name="Оформление заказа", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    db.add(ProcessParticipant(
+        id=uuid.uuid4(), process_id=процесс.id, node_id=сервис.id, name=сервис.name, order=0,
+    ))
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).unbound_participants == []
+
+    db.delete(сервис)
+    db.commit()
+
+    out = get_alerts(db=db, project=ensure_project(db), _=None).unbound_participants
+    assert len(out) == 1
+    assert (out[0].process_name, out[0].name) == ("Оформление заказа", "Сервис заказов")
+
+
+def test_привязанный_участник_в_алерт_не_попадает(db):
+    from app.models.business_process import BusinessProcess
+    from app.models.process_participant import ProcessParticipant
+
+    сервис = _node(db, "Сервис")
+    процесс = BusinessProcess(id=uuid.uuid4(), name="P", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    db.add(ProcessParticipant(
+        id=uuid.uuid4(), process_id=процесс.id, node_id=сервис.id, name=сервис.name, order=0,
+    ))
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).unbound_participants == []
+
+
+def test_повисший_шаг_непривязанного_показывает_его_имя(db):
+    """Регрессия смены модели: конец повисшего шага брался только из имён УЗЛОВ, и у
+    непривязанного участника показался бы «?»."""
+    from app.models.business_process import BusinessProcess
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    покупатель = _node(db, "Покупатель")
+    заказы = _node(db, "Сервис заказов")
+    связь = _edge(db, покупатель, заказы)
+    процесс = BusinessProcess(id=uuid.uuid4(), name="P", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    отправитель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=покупатель.id, name=покупатель.name, order=0)
+    получатель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=заказы.id, name=заказы.name, order=1)
+    db.add_all([отправитель, получатель])
+    db.flush()
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=процесс.id, order=0, edge_id=связь.id, leg="forward",
+        from_participant_id=отправитель.id, to_participant_id=получатель.id, caption="создать заказ",
+    ))
+    db.commit()
+
+    db.delete(покупатель)  # узел ушёл: участник осиротел, шаг повис
+    db.commit()
+
+    out = get_alerts(db=db, project=ensure_project(db), _=None).dangling_messages
+    assert len(out) == 1
+    assert out[0].from_name == "Покупатель"  # а не «?»
