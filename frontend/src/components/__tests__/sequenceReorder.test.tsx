@@ -68,3 +68,61 @@ describe("перетаскивание шага за стрелку", () => {
     expect(onReorder).not.toHaveBeenCalled();
   });
 });
+
+describe("клик по стрелке равен клику по подписи", () => {
+  it("клик по стрелке дёргает onMessageClick с её id", () => {
+    // Раньше стрелка не делала ничего: одна сущность вела себя по-разному в
+    // зависимости от того, куда попал курсор.
+    const onMessageClick = vi.fn();
+    const { container } = render(
+      <SequenceDiagram
+        participants={[P("a"), P("b")]}
+        messages={[M("m0", 0), M("m1", 1)]}
+        ghost
+        onMessageClick={onMessageClick}
+      />,
+    );
+
+    fireEvent.click(grabStrips(container)[1]);
+
+    expect(onMessageClick).toHaveBeenCalledWith("m1");
+  });
+
+  it("после перетаскивания клик гасится", () => {
+    // Иначе каждая перестановка заканчивалась бы окном «Удалить сообщение?».
+    const onMessageClick = vi.fn();
+    const { container } = render(
+      <SequenceDiagram
+        participants={[P("a"), P("b")]}
+        messages={[M("m0", 0), M("m1", 1), M("m2", 2)]}
+        ghost
+        onMessageClick={onMessageClick}
+        onReorderMessages={vi.fn()}
+      />,
+    );
+    const strip = grabStrips(container)[2];
+
+    fireEvent.pointerDown(strip, { clientY: 400 });
+    fireEvent.pointerMove(container.firstChild!, { clientY: 60 });
+    fireEvent.pointerUp(container.firstChild!);
+    fireEvent.click(strip); // браузер шлёт его следом за pointerup
+
+    expect(onMessageClick).not.toHaveBeenCalled();
+  });
+
+  it("стрелка кликабельна и без права перестановки (только просмотр правок)", () => {
+    const onMessageClick = vi.fn();
+    const { container } = render(
+      <SequenceDiagram
+        participants={[P("a"), P("b")]}
+        messages={[M("m0", 0)]}
+        ghost
+        onMessageClick={onMessageClick}
+      />,
+    );
+
+    expect(grabStrips(container)).toHaveLength(1);
+    fireEvent.click(grabStrips(container)[0]);
+    expect(onMessageClick).toHaveBeenCalledWith("m0");
+  });
+});

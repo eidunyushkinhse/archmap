@@ -274,14 +274,31 @@ export default function SequenceDiagram({
   // Тонкая линия (1.7px) курсором не ловится, поэтому поверх неё кладём невидимую
   // полосу той же геометрии с толстой обводкой — она и принимает жест.
   // pointerEvents="stroke": реагирует обводка, а не пустой прямоугольник вокруг.
-  const grabbable = (m: SeqMessage) => !!onReorderMessages && !selectMode && !dimMsg(m);
-  const grabProps = (r: number) => ({
+  // Полоса нужна и под клик: раньше подпись открывала «Удалить сообщение?», а
+  // стрелка не делала ничего — одна и та же сущность вела себя по-разному в
+  // зависимости от того, куда попал курсор (выровнено 2026-08-10).
+  const grabbable = (m: SeqMessage) =>
+    (!!onReorderMessages || !!onMessageClick) && !selectMode && !dimMsg(m);
+  const grabProps = (m: SeqMessage) => ({
     fill: "none" as const,
     stroke: "transparent",
     strokeWidth: GRAB_W,
     strokeLinecap: "round" as const,
-    style: { pointerEvents: "stroke" as const, cursor: "grab" },
-    onPointerDown: (e: ReactPointerEvent<SVGElement>) => onLabelDown(e, r),
+    style: {
+      pointerEvents: "stroke" as const,
+      cursor: onReorderMessages ? "grab" : onMessageClick ? "pointer" : "default",
+    },
+    onPointerDown: onReorderMessages
+      ? (e: ReactPointerEvent<SVGElement>) => onLabelDown(e, m.r)
+      : undefined,
+    onClick: onMessageClick
+      ? () => {
+          // Перетаскивание завершилось сдвигом — click, который браузер шлёт следом,
+          // не должен открывать удаление (та же защита, что у подписи).
+          if (suppressClick.current) { suppressClick.current = false; return; }
+          onMessageClick(m.id);
+        }
+      : undefined,
   });
 
   // Начало перетаскивания ШАГА за его подпись. Порог сдвига (DRAG_SLOP) отделяет
@@ -554,7 +571,7 @@ export default function SequenceDiagram({
                   opacity={dimMsg(m) ? 0.12 : 1}
                 />
                 {grabbable(m) && (
-                  <path d={d} {...grabProps(m.r)} />
+                  <path d={d} {...grabProps(m)} />
                 )}
               </g>
             );
@@ -579,7 +596,7 @@ export default function SequenceDiagram({
               style={{ transition: dragged ? undefined : "x1 .15s ease, x2 .15s ease" }}
             />
             {grabbable(m) && (
-              <line x1={x1} y1={y} x2={x2} y2={y} {...grabProps(m.r)} />
+              <line x1={x1} y1={y} x2={x2} y2={y} {...grabProps(m)} />
             )}
             </g>
           );
