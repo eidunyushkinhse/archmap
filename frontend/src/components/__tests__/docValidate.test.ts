@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseOpenApiText } from "../inspector/docValidate";
+import { parseOpenApiText, unfenceMermaid } from "../inspector/docValidate";
 
 describe("parseOpenApiText", () => {
   it("корректная YAML-спека → ok с версией и объектом", () => {
@@ -69,5 +69,51 @@ describe("parseOpenApiText", () => {
   it("пустая строка и пробелы → empty", () => {
     expect(parseOpenApiText("").kind).toBe("empty");
     expect(parseOpenApiText("   \n\t").kind).toBe("empty");
+  });
+});
+
+describe("unfenceMermaid — снятие markdown-обёртки с загруженного файла", () => {
+  const CHART = "graph TD\n  A[Старт] --> B[Конец]";
+
+  it("файл целиком в блоке ```mermaid → обёртка снята", () => {
+    expect(unfenceMermaid("```mermaid\n" + CHART + "\n```")).toBe(CHART);
+  });
+
+  it("блок без указания языка тоже снимается", () => {
+    expect(unfenceMermaid("```\n" + CHART + "\n```")).toBe(CHART);
+  });
+
+  it("хвостовые переводы строк вокруг блока не мешают", () => {
+    expect(unfenceMermaid("\n```mermaid\n" + CHART + "\n```\n\n")).toBe(CHART);
+  });
+
+  it("блок ЧУЖОГО языка не трогаем", () => {
+    // ```yaml с mermaid внутри — скорее всего человек ошибся файлом; молча
+    // распаковывать чужой формат нельзя.
+    const src = "```yaml\nopenapi: 3.0.0\n```";
+    expect(unfenceMermaid(src)).toBe(src);
+  });
+
+  it("документ из НЕСКОЛЬКИХ блоков не трогаем", () => {
+    // Файл начинается и кончается ```, но блоков внутри два: выдернуть первый
+    // значило бы молча выбросить остальное. Пусть лучше разбор честно пожалуется,
+    // а человек решит сам.
+    const doc = "```mermaid\n" + CHART + "\n```\n\nи ещё:\n\n```mermaid\ngraph LR\n```";
+    expect(unfenceMermaid(doc)).toBe(doc);
+  });
+
+  it("документ с прозой вокруг блока не трогаем", () => {
+    const doc = "# Логика\n\n```mermaid\n" + CHART + "\n```\n\nконец";
+    expect(unfenceMermaid(doc)).toBe(doc);
+  });
+
+  it("обычная схема без обёртки остаётся собой", () => {
+    expect(unfenceMermaid(CHART)).toBe(CHART);
+  });
+
+  it("обрывки не ломают функцию", () => {
+    expect(unfenceMermaid("```")).toBe("```");
+    expect(unfenceMermaid("```mermaid")).toBe("```mermaid");
+    expect(unfenceMermaid("")).toBe("");
   });
 });

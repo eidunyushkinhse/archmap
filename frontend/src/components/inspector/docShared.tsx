@@ -24,6 +24,10 @@ interface EditorProps {
   // Отказ принять файл. Снимать сообщение — забота вызывающего: оно гаснет на
   // следующей правке (иначе висело бы поверх нормального статуса разбора).
   onFileError?: (message: string) => void;
+  // Подготовка содержимого файла перед укладкой в редактор (у логики — снятие
+  // markdown-обёртки). Применяется ТОЛЬКО к файлу: то же самое, набранное руками,
+  // трогать нельзя — человек написал это сознательно.
+  prepareFile?: (text: string) => string;
 }
 
 // Потолок размера файла: спеки бывают в несколько мегабайт (Stripe ~5 МБ), но
@@ -43,6 +47,7 @@ export function DocEditorColumn({
   taRef,
   fileAccept,
   onFileError,
+  prepareFile,
 }: EditorProps) {
   // На маунте value == сохранённому значению из БД
   const committedRef = useRef(value);
@@ -93,7 +98,7 @@ export function DocEditorColumn({
       onFileError?.("Это не текстовый файл");
       return;
     }
-    onChange(text);
+    onChange(prepareFile ? prepareFile(text) : text);
     setDirty(true);
   };
 

@@ -7,7 +7,7 @@ import MermaidRenderer from "../MermaidRenderer";
 import type { MmdStatus } from "../MermaidRenderer";
 import { usePanZoom } from "../usePanZoom";
 import { DocEditorColumn, StatusError, StatusNote, StatusOk, StatusReadOnly } from "./docShared";
-import { nowHHMM } from "./docValidate";
+import { nowHHMM, unfenceMermaid } from "./docValidate";
 
 interface Props {
   initial: string; // сохранённый flowchart
@@ -33,6 +33,7 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
   const [code, setCode] = useState(initial);
   const [status, setStatus] = useState<MmdStatus>({ kind: "loading" });
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -77,14 +78,25 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
     [onCommit],
   );
 
+  // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
+  // правки: как только в поле что-то меняется, статус снова про разбор схемы.
+  const handleChange = useCallback((v: string) => {
+    setCode(v);
+    setFileError(null);
+  }, []);
+
   const hasChart = code.trim().length > 0;
   // Пустой код — не ошибка: статус от последнего рендера уже неактуален
   const shown: MmdStatus = hasChart ? status : { kind: "ok" };
   // Наблюдатель с невалидной сохранённой диаграммой: вместо рендера — заглушка с ошибкой
   const observerError = !isArchitect && shown.kind === "error";
 
+  // Отказ по файлу перекрывает статус разбора: пока он висит, в поле лежит не то,
+  // что пользователь выбрал, и сообщать про синтаксис старой схемы — врать.
   const statusRow = !isArchitect ? (
     <StatusReadOnly />
+  ) : fileError ? (
+    <StatusError text={fileError} />
   ) : shown.kind === "error" ? (
     <StatusError
       text={(shown.line ? `Строка ${shown.line}: ` : "") + shown.message.replace(/\s+/g, " ").trim()}
@@ -106,10 +118,15 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
           placeholder={"graph TD\n  A[Старт] --> B[Конец]"}
           value={code}
           readOnly={!isArchitect}
-          onChange={isArchitect ? setCode : undefined}
+          onChange={isArchitect ? handleChange : undefined}
           onCommitValue={isArchitect ? commit : undefined}
           status={statusRow}
           taRef={taRef}
+          // .md в маске не случайно: схемы чаще всего лежат кусочком markdown —
+          // обёртку ```mermaid снимаем при загрузке (prepareFile).
+          fileAccept=".mmd,.mermaid,.md,.txt,text/plain,text/markdown"
+          onFileError={setFileError}
+          prepareFile={unfenceMermaid}
         />
       )}
       <div className="doc-pv">

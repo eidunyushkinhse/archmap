@@ -19,6 +19,28 @@ export function nowHHMM(): string {
   return new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Снятие обёртки ```mermaid … ``` с содержимого ЗАГРУЖЕННОГО файла: схемы часто
+ * хранят кусочком markdown, и без этого пользователь получал бы ошибку разбора на
+ * первой же строке.
+ *
+ * Снимаем, только если файл ЦЕЛИКОМ — один такой блок: ничего не теряется. Настоящий
+ * markdown-документ (проза и несколько блоков) не трогаем — выдернуть из него первый
+ * блок значило бы молча выбросить остальное. Пусть лучше разбор честно пожалуется, а
+ * человек решит сам.
+ */
+export function unfenceMermaid(text: string): string {
+  const t = text.trim();
+  if (!t.startsWith("```") || !t.endsWith("```") || t.length < 6) return text;
+  const nl = t.indexOf("\n");
+  if (nl < 0) return text;
+  const lang = t.slice(3, nl).trim(); // язык блока: «mermaid» либо пусто
+  if (lang && lang.toLowerCase() !== "mermaid") return text;
+  const body = t.slice(nl + 1, -3);
+  if (body.includes("```")) return text; // блоков несколько — это документ, не схема
+  return body.replace(/\s+$/, "");
+}
+
 export function parseOpenApiText(text: string): SpecStatus {
   if (!text.trim()) return { kind: "empty" };
   let parsed: unknown;
