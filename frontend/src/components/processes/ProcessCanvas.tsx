@@ -412,9 +412,11 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     });
     reload();
   }
-  async function createSelfMessage(nodeId: string, caption: string) {
+  async function createSelfMessage(participantId: string, caption: string) {
     if (!detail) return;
-    const part = detail.participants.find((p) => p.node_id === nodeId);
+    // Самосообщение — внутренняя операция участника: связи C4 у него нет, узел не
+    // нужен вовсе. Поэтому адресуемся участником и работаем даже у непривязанного.
+    const part = partById[participantId];
     if (!part) return;
     const payload: MessageCreate = {
       leg: "forward",
@@ -430,8 +432,12 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         label: "Самосообщение",
         undo: () => processesApi.removeMessage(id, mid),
         redo: async () => {
-          const partByNode = await freshPartByNode();
-          const pid = partByNode[nodeId];
+          // Участника могли пересоздать (undo его удаления) — тогда id сменился, а
+          // node_id нет. У непривязанного узла нет, но и пересоздать его нечем:
+          // держимся за его собственный id.
+          const pid = part.node_id
+            ? (await freshPartByNode())[part.node_id]
+            : participantId;
           if (!pid) return;
           const r = await processesApi.addMessage(id, { ...payload, from_participant_id: pid, to_participant_id: pid });
           mid = r.id;
@@ -744,13 +750,25 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 setBranchGuard(index != null ? (frag?.branches[index]?.guard ?? "") : "");
                 setBranchEdit({ fid, index });
               } : undefined}
-              onConnect={editing ? (from, to) => setComposer({ from, to }) : undefined}
-              canConnect={editing ? (from, to) => directions.has(`${from}>${to}`) : undefined}
-              onSelfConnect={editing ? (nodeId) => { setSelfMsg(nodeId); setSelfCaption(""); } : undefined}
+              onConnect={editing ? (fromPid, toPid) => {
+                // Граница слоёв: диаграмма говорит УЧАСТНИКАМИ, композитор и
+                // направления — узлами C4. Перевод делаем здесь, в одном месте.
+                const from = nodeOfPart(fromPid);
+                const to = nodeOfPart(toPid);
+                // У непривязанного участника узла нет, значит нет и каналов — открывать
+                // композитор не на чем.
+                if (from && to) setComposer({ from, to });
+              } : undefined}
+              canConnect={editing ? (fromPid, toPid) => {
+                const from = nodeOfPart(fromPid);
+                const to = nodeOfPart(toPid);
+                return !!from && !!to && directions.has(`${from}>${to}`);
+              } : undefined}
+              onSelfConnect={editing ? (pid) => { setSelfMsg(pid); setSelfCaption(""); } : undefined}
               onMessageClick={editing ? (mid) => setDelMsg(mid) : undefined}
               onBindParticipant={editing ? (pid) => setBindPart(pid) : undefined}
-              onDeleteParticipant={editing ? (nodeId) => {
-                const p = detail.participants.find((pp) => pp.node_id === nodeId);
+              onDeleteParticipant={editing ? (pid) => {
+                const p = partById[pid];
                 if (p) requestRemoveParticipant(p);
               } : undefined}
               onReorderParticipants={editing ? (nodeIds) => void reorderParticipants(nodeIds) : undefined}
