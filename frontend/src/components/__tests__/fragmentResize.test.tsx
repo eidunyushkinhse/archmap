@@ -15,7 +15,7 @@ const M = (id: string, r: number, from: string, to: string): SeqMessage =>
   ({ id, r, from, to, kind: "call", valid: true, caption: id }) as unknown as SeqMessage;
 
 const F = (fromRow: number, toRow: number): SeqFragment =>
-  ({ id: "f1", kind: "alt", fromRow, toRow, guard: "успех", elseRow: null, elseGuard: null }) as unknown as SeqFragment;
+  ({ id: "f1", kind: "alt", fromRow, toRow, guard: "успех", branches: [] }) as unknown as SeqFragment;
 
 // Три участника: строка 0 — короткая стрелка a→b, строка 1 — длинная a→c.
 const PARTICIPANTS = [P("a"), P("b"), P("c")];
@@ -127,94 +127,125 @@ describe("охват фрагмента: протягивание грани", (
   });
 });
 
-// ── Ветка «иначе» (2026-08-10) ────────────────────────────────────────────────
-const FE = (fromRow: number, toRow: number, elseRow: number | null, kind = "alt"): SeqFragment =>
-  ({ id: "f1", kind, fromRow, toRow, guard: "успех", elseRow, elseGuard: elseRow != null ? "отказ" : null }) as unknown as SeqFragment;
+// ── Ветви «иначе» (2026-08-10) ────────────────────────────────────────────────
+// Ветвей у alt может быть сколько угодно: первая начинается с fromRow (её условие —
+// guard фрагмента), остальные заданы своими строками.
+const FB = (fromRow: number, toRow: number, rows: number[], kind = "alt"): SeqFragment =>
+  ({
+    id: "f1", kind, fromRow, toRow, guard: "успех",
+    branches: rows.map((row, i) => ({ row, guard: ["отказ", "таймаут", "отмена"][i] ?? "иначе" })),
+  }) as unknown as SeqFragment;
 
-function renderWithElse(over: {
+function renderWithBranches(over: {
   frag?: SeqFragment;
-  onMoveElse?: (id: string, row: number) => void;
-  onEditElse?: (id: string, row: number | null) => void;
+  messages?: SeqMessage[];
+  onMoveBranch?: (id: string, index: number, row: number) => void;
+  onEditBranch?: (id: string, index: number | null) => void;
 } = {}) {
   return render(
     <SequenceDiagram
       participants={PARTICIPANTS}
-      messages={MESSAGES}
-      fragments={[over.frag ?? FE(0, 2, 1)]}
+      messages={over.messages ?? MESSAGES}
+      fragments={[over.frag ?? FB(0, 2, [1])]}
       ghost
       onResizeFragment={vi.fn()}
-      onMoveElse={over.onMoveElse}
-      onEditElse={over.onEditElse}
+      onMoveBranch={over.onMoveBranch}
+      onEditBranch={over.onEditBranch}
     />,
   );
 }
 
 const elseButton = (c: HTMLElement) =>
   Array.from(c.querySelectorAll("button")).find((b) => b.textContent === "+ иначе");
+const chip = (c: HTMLElement, text: string) =>
+  Array.from(c.querySelectorAll("span")).find((x) => x.textContent === text);
 
-describe("ветка «иначе» у alt", () => {
-  it("«+ иначе» предлагается, пока ветки нет", () => {
-    const { container } = renderWithElse({ frag: FE(0, 2, null), onEditElse: vi.fn() });
+describe("ветви «иначе» у alt", () => {
+  it("«+ иначе» предлагается, пока ветвей нет", () => {
+    const { container } = renderWithBranches({ frag: FB(0, 2, []), onEditBranch: vi.fn() });
     expect(elseButton(container)).toBeTruthy();
   });
 
-  it("у фрагмента с веткой кнопки уже нет", () => {
-    const { container } = renderWithElse({ frag: FE(0, 2, 1), onEditElse: vi.fn() });
+  it("кнопка остаётся, пока под новую ветвь хватает шагов", () => {
+    // Требование пользователя: не прятать «+ иначе», пока стрелок хватает.
+    const { container } = renderWithBranches({ frag: FB(0, 2, [1]), onEditBranch: vi.fn() });
+    expect(elseButton(container)).toBeTruthy();
+  });
+
+  it("когда свободных строк не осталось — кнопки нет", () => {
+    // Охват из трёх шагов держит три ветви: первая + две строки.
+    const { container } = renderWithBranches({ frag: FB(0, 2, [1, 2]), onEditBranch: vi.fn() });
     expect(elseButton(container)).toBeUndefined();
   });
 
-  it("не-alt ветку не предлагает", () => {
-    const { container } = renderWithElse({ frag: FE(0, 2, null, "loop"), onEditElse: vi.fn() });
+  it("не-alt ветви не предлагает", () => {
+    const { container } = renderWithBranches({ frag: FB(0, 2, [], "loop"), onEditBranch: vi.fn() });
     expect(elseButton(container)).toBeUndefined();
   });
 
   it("охват в один шаг делить нечем — кнопки нет", () => {
-    const { container } = renderWithElse({ frag: FE(1, 1, null), onEditElse: vi.fn() });
+    const { container } = renderWithBranches({ frag: FB(1, 1, []), onEditBranch: vi.fn() });
     expect(elseButton(container)).toBeUndefined();
   });
 
-  it("у ветки своя ручка: всего три грани", () => {
-    const { container } = renderWithElse({ onMoveElse: vi.fn() });
-    expect(edges(container)).toHaveLength(3); // верх, низ, ветка
+  it("у каждой ветви своя ручка", () => {
+    const { container } = renderWithBranches({ frag: FB(0, 2, [1, 2]), onMoveBranch: vi.fn() });
+    expect(edges(container)).toHaveLength(4); // верх, низ и две ветви
   });
 
-  it("протягивание границы ветки отдаёт новую строку", () => {
-    const onMoveElse = vi.fn();
-    const { container } = renderWithElse({ onMoveElse });
-    const elseGrip = edges(container)[2];
+  it("каждая ветвь показывает своё условие", () => {
+    const { container } = renderWithBranches({ frag: FB(0, 2, [1, 2]) });
+    expect(chip(container, "отказ")).toBeTruthy();
+    expect(chip(container, "таймаут")).toBeTruthy();
+  });
 
-    fireEvent.pointerDown(elseGrip, { clientY: 300 });
+  it("протягивание границы ветви отдаёт её номер и новую строку", () => {
+    const onMoveBranch = vi.fn();
+    const { container } = renderWithBranches({ onMoveBranch });
+
+    fireEvent.pointerDown(edges(container)[2], { clientY: 300 });
     fireEvent.pointerMove(container.firstChild!, { clientY: 900 });
     fireEvent.pointerUp(container.firstChild!);
 
-    expect(onMoveElse).toHaveBeenCalledWith("f1", 2);
+    expect(onMoveBranch).toHaveBeenCalledWith("f1", 0, 2);
   });
 
-  it("ветка не поднимается на первую строку охвата", () => {
-    // elseRow == fromRow оставил бы первую половину пустой (бэк такое отклоняет).
-    const onMoveElse = vi.fn();
-    const { container } = renderWithElse({ onMoveElse });
+  it("ветвь не перепрыгивает соседнюю", () => {
+    // Порядок ветвей строгий: вторая не может уехать выше первой.
+    const onMoveBranch = vi.fn();
+    const { container } = renderWithBranches({ frag: FB(0, 2, [1, 2]), onMoveBranch });
+
+    fireEvent.pointerDown(edges(container)[3], { clientY: 900 }); // ручка ВТОРОЙ ветви
+    fireEvent.pointerMove(container.firstChild!, { clientY: 0 }); // тянем в самый верх
+    fireEvent.pointerUp(container.firstChild!);
+
+    // Соседка стоит вплотную (строка 1), двигаться некуда — записывать нечего.
+    expect(onMoveBranch).not.toHaveBeenCalled();
+  });
+
+  it("ветвь не поднимается на первую строку охвата", () => {
+    // row == fromRow оставил бы ПЕРВУЮ ветвь пустой (бэк такое отклоняет).
+    const onMoveBranch = vi.fn();
+    const { container } = renderWithBranches({ onMoveBranch });
 
     fireEvent.pointerDown(edges(container)[2], { clientY: 300 });
     fireEvent.pointerMove(container.firstChild!, { clientY: 0 });
     fireEvent.pointerUp(container.firstChild!);
 
-    // Либо не двинулась вовсе, либо осталась строго внутри охвата.
-    if (onMoveElse.mock.calls.length) {
-      expect(onMoveElse.mock.calls[0][1]).toBeGreaterThan(0);
-    }
+    // Единственная возможная строка — своя же (1), так что записывать нечего.
+    expect(onMoveBranch).not.toHaveBeenCalled();
   });
 
-  it("нижняя грань не проглатывает ветку", () => {
+  it("нижняя грань не проглатывает последнюю ветвь", () => {
     const onResize = vi.fn();
     const { container } = render(
       <SequenceDiagram
         participants={PARTICIPANTS}
         messages={MESSAGES}
-        fragments={[FE(0, 2, 2)]}
+        fragments={[FB(0, 2, [1, 2])]}
         ghost
         onResizeFragment={onResize}
-        onMoveElse={vi.fn()}
+        onMoveBranch={vi.fn()}
       />,
     );
 
@@ -222,19 +253,55 @@ describe("ветка «иначе» у alt", () => {
     fireEvent.pointerMove(container.firstChild!, { clientY: 0 }); // тянем вверх
     fireEvent.pointerUp(container.firstChild!);
 
-    if (onResize.mock.calls.length) {
-      const [, , to] = onResize.mock.calls[0];
-      expect(to).toBeGreaterThanOrEqual(2); // ветка на строке 2 осталась внутри
-    }
+    // Нижняя ветвь стоит на последней строке охвата — грань упирается в неё и
+    // остаётся на месте, менять нечего.
+    expect(onResize).not.toHaveBeenCalled();
   });
 
-  it("клик по условию ветки открывает её правку", () => {
-    const onEditElse = vi.fn();
-    const { container } = renderWithElse({ onEditElse });
-    const chip = Array.from(container.querySelectorAll("span")).find((x) => x.textContent === "отказ");
+  it("верхняя грань не проглатывает первую ветвь", () => {
+    const onResize = vi.fn();
+    const { container } = render(
+      <SequenceDiagram
+        participants={PARTICIPANTS}
+        messages={MESSAGES}
+        fragments={[FB(0, 2, [1, 2])]}
+        ghost
+        onResizeFragment={onResize}
+        onMoveBranch={vi.fn()}
+      />,
+    );
 
-    fireEvent.click(chip!);
+    fireEvent.pointerDown(edges(container)[0], { clientY: 0 }); // верх рамки
+    fireEvent.pointerMove(container.firstChild!, { clientY: 900 }); // тянем вниз
+    fireEvent.pointerUp(container.firstChild!);
 
-    expect(onEditElse).toHaveBeenCalledWith("f1", 1);
+    // Первая ветвь на строке 1 — верхней грани дальше строки 0 хода нет.
+    expect(onResize).not.toHaveBeenCalled();
+  });
+
+  it("клик по условию ветви открывает правку именно её", () => {
+    const onEditBranch = vi.fn();
+    const { container } = renderWithBranches({ frag: FB(0, 2, [1, 2]), onEditBranch });
+
+    fireEvent.click(chip(container, "таймаут")!);
+
+    expect(onEditBranch).toHaveBeenCalledWith("f1", 1);
+  });
+
+  it("каждая ветвь раздвигает строки на свой зазор", () => {
+    // Молчаливый риск: без зазора на КАЖДУЮ ветвь разделители наезжают на стрелки —
+    // ошибка не падает, а тихо смещает геометрию.
+    const yOfLast = (c: HTMLElement) => {
+      const ys = Array.from(c.querySelectorAll("line"))
+        .map((l) => parseFloat(l.getAttribute("y1") ?? "0"))
+        .filter((y) => y > 0);
+      return Math.max(...ys);
+    };
+    const one = renderWithBranches({ frag: FB(0, 2, [1]) });
+    const yOne = yOfLast(one.container);
+    one.unmount();
+    const two = renderWithBranches({ frag: FB(0, 2, [1, 2]) });
+
+    expect(yOfLast(two.container)).toBeGreaterThan(yOne);
   });
 });

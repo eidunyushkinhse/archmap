@@ -22,9 +22,11 @@ from sqlalchemy.orm import Session
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.process_fragment import ProcessFragment
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.schemas.process import (
+    BranchOut,
     FragmentOut,
     MessageOut,
     ParticipantOut,
@@ -258,6 +260,19 @@ def message_out(
     )
 
 
+def fragment_out(frag: ProcessFragment) -> FragmentOut:
+    """Фрагмент в контракт. Ветви — по возрастанию границы (порядок держит relationship),
+    первой ветви среди них нет: она начинается с from_order, её условие — в guard."""
+    return FragmentOut(
+        id=frag.id,
+        kind=frag.kind,  # type: ignore[arg-type]
+        from_order=frag.from_order,
+        to_order=frag.to_order,
+        guard=frag.guard,
+        branches=[BranchOut(start_order=b.start_order, guard=b.guard) for b in frag.branches],
+    )
+
+
 def build_process_detail(
     db: Session, proc: BusinessProcess, all_nodes: dict[uuid.UUID, Node]
 ) -> ProcessDetail:
@@ -279,18 +294,7 @@ def build_process_detail(
         message_out(m, edge_of(m.edge_id), part_by_id)
         for m in sorted(proc.messages, key=lambda m: m.order)
     ]
-    fragments = [
-        FragmentOut(
-            id=f.id,
-            kind=f.kind,  # type: ignore[arg-type]
-            from_order=f.from_order,
-            to_order=f.to_order,
-            guard=f.guard,
-            else_guard=f.else_guard,
-            else_order=f.else_order,
-        )
-        for f in sorted(proc.fragments, key=lambda f: f.from_order)
-    ]
+    fragments = [fragment_out(f) for f in sorted(proc.fragments, key=lambda f: f.from_order)]
     scope_node = all_nodes.get(proc.scope_node_id) if proc.scope_node_id else None
     return ProcessDetail(
         id=proc.id,

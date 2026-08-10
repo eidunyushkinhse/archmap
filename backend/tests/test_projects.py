@@ -11,8 +11,10 @@ import pytest
 from conftest import ensure_architect
 from fastapi import HTTPException
 
+from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.routers.projects import (
     archive_project,
     create_project,
@@ -164,6 +166,34 @@ def test_deep_copy_keeps_node_status(db):
         n.name: n.status for n in db.query(Node).filter(Node.project_id == copy.id).all()
     }
     assert statuses == {"Планируемый": "planned", "Уходящий": "deprecated"}
+
+
+def test_deep_copy_keeps_alt_branches(db):
+    """Ветви [иначе] — часть фрагмента, а копируются они отдельными строками: без
+    явного переноса копия молча теряла бы ветвления alt (тестов на это не было)."""
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-ветви"), db=db, user=user)
+    proc = BusinessProcess(id=uuid.uuid4(), name="Оплата", project_id=src.id)
+    db.add(proc)
+    db.add(
+        ProcessFragment(
+            id=uuid.uuid4(), process_id=proc.id, kind="alt",
+            from_order=0, to_order=2, guard="успех",
+            branches=[
+                ProcessFragmentBranch(start_order=1, guard="отказ"),
+                ProcessFragmentBranch(start_order=2, guard="таймаут"),
+            ],
+        )
+    )
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-ветви", start=f"copy:{src.id}"), db=db, user=user
+    )
+
+    copy_proc = db.query(BusinessProcess).filter(BusinessProcess.project_id == copy.id).one()
+    frag = db.query(ProcessFragment).filter(ProcessFragment.process_id == copy_proc.id).one()
+    assert [(b.start_order, b.guard) for b in frag.branches] == [(1, "отказ"), (2, "таймаут")]
 
 
 def test_copy_unknown_source_404(db):

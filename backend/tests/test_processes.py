@@ -15,13 +15,14 @@ from fastapi import HTTPException
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
-from app.models.process_fragment import ProcessFragment
+from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
     create_fragment,
     create_message,
+    delete_fragment,
     delete_message,
     get_process,
     list_channels,
@@ -31,6 +32,7 @@ from app.routers.processes import (
     update_fragment,
 )
 from app.schemas.process import (
+    BranchIn,
     FragmentCreate,
     FragmentUpdate,
     MessageCreate,
@@ -512,9 +514,12 @@ def test_границы_фрагмента_остаются_на_месте(db):
     assert inside == ["шаг0", "шаг1"]
 
 
-# ── Ветка «иначе» у alt (2026-08-10) ──────────────────────────────────────────
+# ── Ветви «иначе» у alt (2026-08-10) ──────────────────────────────────────────
+# Ветвей может быть сколько угодно (mermaid их числом не ограничивает — проверено
+# парсером 11.15.0). Первая ветвь строкой не является: она начинается с from_order,
+# её условие лежит в guard самого фрагмента.
 def _фрагмент(db, proc, **over):
-    payload = dict(kind="alt", from_order=0, to_order=2, guard=None, else_guard=None, else_order=None)
+    payload = dict(kind="alt", from_order=0, to_order=2, guard=None, branches=[])
     payload.update(over)
     return create_fragment(
         proc.id, FragmentCreate(**payload),
@@ -522,39 +527,92 @@ def _фрагмент(db, proc, **over):
     )
 
 
-def test_ветка_иначе_внутри_охвата_принимается(db):
+def _ветвь(start_order, guard=None):
+    return BranchIn(start_order=start_order, guard=guard)
+
+
+def test_ветвь_внутри_охвата_принимается(db):
     proc, _ = _три_шага(db)
 
-    out = _фрагмент(db, proc, else_order=1, else_guard="отказ")
+    out = _фрагмент(db, proc, branches=[_ветвь(1, "отказ")])
 
-    assert (out.else_order, out.else_guard) == (1, "отказ")
+    assert [(b.start_order, b.guard) for b in out.branches] == [(1, "отказ")]
+
+
+def test_несколько_ветвей_принимаются(db):
+    # Ради этого весь эпик: у alt их столько, сколько влезает шагов в охват.
+    proc, _ = _три_шага(db)
+
+    out = _фрагмент(db, proc, guard="успех", branches=[_ветвь(1, "отказ"), _ветвь(2, "таймаут")])
+
+    assert [(b.start_order, b.guard) for b in out.branches] == [(1, "отказ"), (2, "таймаут")]
 
 
 @pytest.mark.parametrize("bad", [0, 3, 9])
-def test_ветка_вне_охвата_отклоняется(db, bad):
-    # else == from оставил бы первую половину пустой, else > to — ветка вне рамки.
+def test_ветвь_вне_охвата_отклоняется(db, bad):
+    # start == from оставил бы первую ветвь пустой, start > to — ветвь вне рамки.
     proc, _ = _три_шага(db)
 
     with pytest.raises(HTTPException) as exc:
-        _фрагмент(db, proc, else_order=bad)
+        _фрагмент(db, proc, branches=[_ветвь(bad)])
 
     assert exc.value.status_code == 422
 
 
-def test_ветка_только_у_alt(db):
+@pytest.mark.parametrize("плохие", [[1, 1], [2, 1]])
+def test_границы_ветвей_обязаны_строго_возрастать(db, плохие):
+    # Две ветви с одной границей неразличимы, убывающие — перепутаны местами.
     proc, _ = _три_шага(db)
 
     with pytest.raises(HTTPException) as exc:
-        _фрагмент(db, proc, kind="loop", else_order=1)
+        _фрагмент(db, proc, branches=[_ветвь(s) for s in плохие])
 
     assert exc.value.status_code == 422
 
 
-def test_правка_охвата_не_может_выбросить_ветку_наружу(db):
-    # Частичный патч не упоминает else_order, но ломает инвариант — проверяем
-    # РЕЗУЛЬТАТ, а не вход.
+def test_ветвей_не_больше_чем_шагов_в_охвате(db):
+    """Ветвь без единого шага бессмысленна: первая ветвь тоже занимает шаг, поэтому
+    строк должно быть строго меньше, чем шагов в охвате.
+
+    Проверка кусается только на РАЗРЕЖЕННЫХ order (сюда приводит удаление сообщений:
+    нумерация после него дыр не закрывает). При плотных order то же самое уже держит
+    строгое возрастание границ — свободных значений внутри охвата просто нет.
+    """
+    proc, msgs = _три_шага(db)  # order 0,1,2
+    pid = {p.node_id: p.id for p in proc.participants}
+    create_message(  # четвёртый шаг далеко впереди — между 2 и 10 дыра
+        proc.id,
+        MessageCreate(edge_id=msgs[0].edge_id, leg="forward",
+                      from_participant_id=pid[msgs[0].from_id], to_participant_id=pid[msgs[0].to_id],
+                      order=10, caption="далёкий"),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    # Охват 0..10 накрывает 4 шага → максимум 3 строки ветвей.
+    ok = _фрагмент(db, proc, from_order=0, to_order=10, branches=[_ветвь(4), _ветвь(5), _ветвь(6)])
+    assert len(ok.branches) == 3
+
+    with pytest.raises(HTTPException) as exc:
+        _фрагмент(db, proc, from_order=0, to_order=10,
+                  branches=[_ветвь(4), _ветвь(5), _ветвь(6), _ветвь(7)])
+
+    assert exc.value.status_code == 422
+
+
+def test_ветви_только_у_alt(db):
     proc, _ = _три_шага(db)
-    frag = _фрагмент(db, proc, else_order=2, else_guard="отказ")
+
+    with pytest.raises(HTTPException) as exc:
+        _фрагмент(db, proc, kind="loop", branches=[_ветвь(1)])
+
+    assert exc.value.status_code == 422
+
+
+def test_правка_охвата_не_может_выбросить_ветвь_наружу(db):
+    # Частичный патч не упоминает ветви, но ломает инвариант — проверяем РЕЗУЛЬТАТ,
+    # а не вход.
+    proc, _ = _три_шага(db)
+    frag = _фрагмент(db, proc, branches=[_ветвь(2, "отказ")])
 
     with pytest.raises(HTTPException) as exc:
         update_fragment(
@@ -564,3 +622,64 @@ def test_правка_охвата_не_может_выбросить_ветку
 
     assert exc.value.status_code == 422
     assert db.query(ProcessFragment).one().to_order == 2  # откат, ничего не записано
+
+
+def test_фрагмент_остаётся_правимым_когда_шаги_из_под_него_удалили(db):
+    """Счётную проверку применяем только к ПРИСЛАННОМУ списку ветвей.
+
+    Иначе так: у alt три ветви, пользователь удаляет пару шагов внутри охвата — и
+    фрагмент запирается насмерть, потому что любой патч (хоть правка условия) упирался
+    бы в старые ветви, которых стало больше, чем шагов.
+    """
+    proc, msgs = _три_шага(db)
+    frag = _фрагмент(db, proc, branches=[_ветвь(1, "отказ"), _ветвь(2, "таймаут")])
+    delete_message(
+        proc.id, msgs[1].id,
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    out = update_fragment(
+        proc.id, frag.id, FragmentUpdate(guard="успех"),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.guard == "успех"
+    assert len(out.branches) == 2  # ветви на месте, править фрагмент по-прежнему можно
+
+
+def test_патч_без_ветвей_их_не_трогает(db):
+    proc, _ = _три_шага(db)
+    frag = _фрагмент(db, proc, branches=[_ветвь(1, "отказ")])
+
+    out = update_fragment(
+        proc.id, frag.id, FragmentUpdate(guard="успех"),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.guard == "успех"
+    assert [(b.start_order, b.guard) for b in out.branches] == [(1, "отказ")]
+
+
+def test_присланный_список_ветвей_заменяет_прежний_целиком(db):
+    proc, _ = _три_шага(db)
+    frag = _фрагмент(db, proc, branches=[_ветвь(1, "отказ"), _ветвь(2, "таймаут")])
+
+    out = update_fragment(
+        proc.id, frag.id, FragmentUpdate(branches=[_ветвь(2, "иначе")]),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert [(b.start_order, b.guard) for b in out.branches] == [(2, "иначе")]
+    assert db.query(ProcessFragmentBranch).count() == 1  # прежние строки удалены
+
+
+def test_удаление_фрагмента_уносит_ветви(db):
+    proc, _ = _три_шага(db)
+    frag = _фрагмент(db, proc, branches=[_ветвь(1), _ветвь(2)])
+
+    delete_fragment(
+        proc.id, frag.id,
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert db.query(ProcessFragmentBranch).count() == 0

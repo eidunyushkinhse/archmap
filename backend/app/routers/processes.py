@@ -15,7 +15,7 @@ from app.database import get_db
 from app.deps import get_current_project, scoped_edge, touch_project
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
-from app.models.process_fragment import ProcessFragment
+from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
@@ -23,6 +23,7 @@ from app.models.user import User
 from app.processes import (
     build_process_detail,
     edge_is_synchronous,
+    fragment_out,
     legal_directions,
     legs_for_edge,
     load_nodes,
@@ -33,6 +34,7 @@ from app.processes import (
     scope_node_ids,
 )
 from app.schemas.process import (
+    BranchIn,
     ChannelOut,
     DirectionOut,
     FragmentCreate,
@@ -388,25 +390,60 @@ def delete_message(
 
 
 # ── Фрагменты (свободный слой) ────────────────────────────────────────────────
-def _check_fragment(kind: str, from_order: int, to_order: int, else_order: int | None) -> None:
-    """Границы фрагмента. Проверяется РЕЗУЛЬТАТ (после применения патча), а не вход:
-    частичная правка может сломать инвариант, не упоминая нарушенного поля.
+def _span_steps(db: Session, process_id: uuid.UUID, from_order: int, to_order: int) -> int:
+    """Сколько шагов накрывает охват — верхняя граница на число ветвей."""
+    return (
+        db.query(ProcessMessage)
+        .filter(
+            ProcessMessage.process_id == process_id,
+            ProcessMessage.order >= from_order,
+            ProcessMessage.order <= to_order,
+        )
+        .count()
+    )
 
-    Ветка «иначе» — только у alt (у opt/loop/par альтернативы нет) и строго ВНУТРИ
-    охвата: else_order == from_order оставил бы первую половину пустой, за to_order —
-    ветку вне рамки. До 2026-08-10 не проверялось вовсе: авторинга в интерфейсе не
-    было, и невалидную ветку мог принести только импорт.
+
+def _check_fragment(
+    kind: str,
+    from_order: int,
+    to_order: int,
+    branches: list[BranchIn],
+    span_steps: int | None,
+) -> None:
+    """Границы фрагмента и его ветвей. Проверяется РЕЗУЛЬТАТ (после применения патча),
+    а не вход: частичная правка может сломать инвариант, не упоминая нарушенного поля.
+
+    Ветви [иначе] — только у alt (у opt/loop/par альтернативы нет), строго ВНУТРИ
+    охвата (start == from_order оставил бы первую ветвь пустой, за to_order — ветвь
+    вне рамки) и строго по возрастанию (две ветви с одной границей неразличимы).
+
+    span_steps — сколько шагов накрывает охват; None означает «ветви в запросе не
+    приходили, считать их нечего». Ограничение «ветвей не больше, чем шагов» держим
+    ТОЛЬКО на явно присланном списке: иначе фрагмент, из-под которого удалили шаги,
+    стало бы невозможно править вовсе — любой патч упирался бы в старые ветви.
     """
     if from_order > to_order:
         raise HTTPException(status_code=422, detail="from_order должен быть ≤ to_order")
-    if else_order is None:
+    if not branches:
         return
     if kind != "alt":
-        raise HTTPException(status_code=422, detail="Ветка «иначе» бывает только у alt")
-    if not (from_order < else_order <= to_order):
+        raise HTTPException(status_code=422, detail="Ветки «иначе» бывают только у alt")
+    prev = from_order
+    for b in branches:
+        if not (prev < b.start_order <= to_order):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Границы ветвей обязаны строго возрастать и лежать внутри охвата: "
+                    "from_order < start_order ≤ to_order"
+                ),
+            )
+        prev = b.start_order
+    # Первая ветвь тоже занимает шаг, поэтому строк должно быть строго меньше шагов.
+    if span_steps is not None and len(branches) >= span_steps:
         raise HTTPException(
             status_code=422,
-            detail="else_order должен быть строго внутри охвата: from_order < else_order ≤ to_order",
+            detail="Ветвей больше, чем шагов в охвате: последней не досталось бы ни одного",
         )
 
 
@@ -423,29 +460,29 @@ def create_fragment(
     user: User = Depends(require_architect),
 ) -> FragmentOut:
     proc = _get_process(db, process_id, project)
-    _check_fragment(payload.kind, payload.from_order, payload.to_order, payload.else_order)
+    _check_fragment(
+        payload.kind,
+        payload.from_order,
+        payload.to_order,
+        payload.branches,
+        _span_steps(db, proc.id, payload.from_order, payload.to_order),
+    )
     frag = ProcessFragment(
         process_id=proc.id,
         kind=payload.kind,
         from_order=payload.from_order,
         to_order=payload.to_order,
         guard=payload.guard,
-        else_guard=payload.else_guard,
-        else_order=payload.else_order,
+        branches=[
+            ProcessFragmentBranch(start_order=b.start_order, guard=b.guard)
+            for b in payload.branches
+        ],
     )
     db.add(frag)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(frag)
-    return FragmentOut(
-        id=frag.id,
-        kind=frag.kind,  # type: ignore[arg-type]
-        from_order=frag.from_order,
-        to_order=frag.to_order,
-        guard=frag.guard,
-        else_guard=frag.else_guard,
-        else_order=frag.else_order,
-    )
+    return fragment_out(frag)
 
 
 @router.patch("/{process_id}/fragments/{fragment_id}", response_model=FragmentOut)
@@ -467,23 +504,38 @@ def update_fragment(
     # рассчитывать на это незачем).
     merged = {
         field: data.get(field, getattr(frag, field))
-        for field in ("kind", "from_order", "to_order", "else_order")
+        for field in ("kind", "from_order", "to_order")
     }
-    _check_fragment(merged["kind"], merged["from_order"], merged["to_order"], merged["else_order"])
+    # Ветви: пришли — заменяем целиком, не пришли — берём текущие (охват мог сдвинуться,
+    # и они обязаны остаться внутри него — это и ловит проверка).
+    new_branches = payload.branches if "branches" in data else None
+    branches = (
+        new_branches
+        if new_branches is not None
+        else [BranchIn(start_order=b.start_order, guard=b.guard) for b in frag.branches]
+    )
+    _check_fragment(
+        merged["kind"],
+        merged["from_order"],
+        merged["to_order"],
+        branches,
+        _span_steps(db, proc.id, merged["from_order"], merged["to_order"])
+        if new_branches is not None
+        else None,
+    )
     for field, value in data.items():
-        setattr(frag, field, value)
+        if field != "branches":
+            setattr(frag, field, value)
+    if new_branches is not None:
+        # delete-orphan снимет прежние строки; порядок в БД не важен — relationship
+        # отдаёт их по возрастанию границы.
+        frag.branches = [
+            ProcessFragmentBranch(start_order=b.start_order, guard=b.guard) for b in new_branches
+        ]
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(frag)
-    return FragmentOut(
-        id=frag.id,
-        kind=frag.kind,  # type: ignore[arg-type]
-        from_order=frag.from_order,
-        to_order=frag.to_order,
-        guard=frag.guard,
-        else_guard=frag.else_guard,
-        else_order=frag.else_order,
-    )
+    return fragment_out(frag)
 
 
 @router.delete(

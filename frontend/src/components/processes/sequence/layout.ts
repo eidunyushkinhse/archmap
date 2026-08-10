@@ -33,16 +33,23 @@ export interface SeqActivation {
   to: number;
 }
 
+// Ветвь [иначе] у alt: начинается со строки row и идёт до следующей ветви. ПЕРВОЙ
+// ветви в списке нет — она начинается с fromRow, её условие лежит в guard фрагмента.
+export interface SeqBranch {
+  row: number;
+  guard: string | null;
+}
+
 // Управляющий фрагмент (рамка). Движок рендерит ЛЮБОЕ число фрагментов (в т.ч.
-// вложенных); строки заданы индексами r. elseRow — начало ветки [иначе] (только alt).
+// вложенных); строки заданы индексами r. branches — ветви [иначе] по возрастанию
+// строки (только у alt; сколько угодно — mermaid их числом не ограничивает).
 export interface SeqFragment {
   id: string; // id сущности (для клика-удаления)
   kind: FragmentKind;
   fromRow: number;
   toRow: number;
   guard: string | null;
-  elseRow: number | null;
-  elseGuard: string | null;
+  branches: SeqBranch[];
 }
 
 /**
@@ -56,6 +63,24 @@ export interface SeqFragment {
 const STATUS_RANK: Record<NodeStatus, number> = { existing: 0, planned: 1, deprecated: 2 };
 export function strongestStatus(a: NodeStatus, b: NodeStatus): NodeStatus {
   return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
+}
+
+/**
+ * Строка под НОВУЮ ветвь [иначе] у alt. `taken` — строки уже заведённых ветвей по
+ * возрастанию.
+ *
+ * Обычный случай: середина последней секции (после последней ветви) — новая ветвь
+ * дописывается в хвост, как её и ждут. Вырожденный: последняя ветвь стоит на нижней
+ * строке охвата, места в хвосте нет — берём первую свободную строку сверху.
+ * null — свободных строк не осталось вовсе (кнопку «+ иначе» в этом случае не
+ * показываем, но проверить дешевле, чем полагаться на вызывающего).
+ */
+export function newBranchRow(fromRow: number, toRow: number, taken: number[]): number | null {
+  const last = taken.length ? taken[taken.length - 1] : fromRow;
+  if (last < toRow) return last + Math.ceil((toRow - last) / 2);
+  const busy = new Set(taken);
+  for (let r = fromRow + 1; r <= toRow; r++) if (!busy.has(r)) return r;
+  return null;
 }
 
 /**

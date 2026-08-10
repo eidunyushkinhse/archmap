@@ -39,8 +39,7 @@ export function toSeqFragments(fragments: ProcessFragment[], messages: ProcessMe
       fromRow: rowOf(f.from_order),
       toRow: rowOf(f.to_order),
       guard: f.guard,
-      elseRow: f.else_order != null ? rowOf(f.else_order) : null,
-      elseGuard: f.else_guard,
+      branches: f.branches.map((b) => ({ row: rowOf(b.start_order), guard: b.guard })),
     }));
 }
 

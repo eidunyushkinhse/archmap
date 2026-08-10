@@ -19,7 +19,7 @@ const frag = (
   to_order: number,
   extra: Partial<ProcessFragment> = {},
 ): ProcessFragment =>
-  ({ kind: "alt", from_order, to_order, guard: null, else_guard: null, else_order: null, ...extra } as ProcessFragment);
+  ({ kind: "alt", from_order, to_order, guard: null, branches: [], ...extra } as ProcessFragment);
 
 const detail = (
   participants: ProcessParticipant[],
@@ -68,7 +68,7 @@ describe("detailToMermaid — экспорт процесса в Mermaid sequenc
           msg(0, "a", "b", "forward", "первое"),
           msg(1, "a", "b", "forward", "второе"),
         ],
-        [frag(0, 1, { guard: "успех", else_order: 1, else_guard: "ошибка" })],
+        [frag(0, 1, { guard: "успех", branches: [{ start_order: 1, guard: "ошибка" }] })],
       ),
     );
     expect(out).toBe(
@@ -80,6 +80,41 @@ describe("detailToMermaid — экспорт процесса в Mermaid sequenc
         "        P1->>P2: первое",
         "    else ошибка",
         "        P1->>P2: второе",
+        "    end",
+      ].join("\n"),
+    );
+  });
+
+  it("несколько веток else выводятся цепочкой", () => {
+    // Ради этого весь эпик: mermaid принимает цепочку else любой длины.
+    const out = detailToMermaid(
+      detail(
+        [part("a", "A", 0), part("b", "B", 1)],
+        [
+          msg(0, "a", "b", "forward", "первое"),
+          msg(1, "a", "b", "forward", "второе"),
+          msg(2, "a", "b", "forward", "третье"),
+        ],
+        [frag(0, 2, {
+          guard: "успех",
+          branches: [
+            { start_order: 1, guard: "отказ" },
+            { start_order: 2, guard: "таймаут" },
+          ],
+        })],
+      ),
+    );
+    expect(out).toBe(
+      [
+        "sequenceDiagram",
+        "    participant P1 as A",
+        "    participant P2 as B",
+        "    alt успех",
+        "        P1->>P2: первое",
+        "    else отказ",
+        "        P1->>P2: второе",
+        "    else таймаут",
+        "        P1->>P2: третье",
         "    end",
       ].join("\n"),
     );
