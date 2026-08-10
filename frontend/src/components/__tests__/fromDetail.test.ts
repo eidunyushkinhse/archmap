@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProcessFragment, ProcessMessage, ProcessParticipant } from "../../types";
-import { toSeqFragments, toSeqParticipants } from "../processes/sequence/fromDetail";
+import { orderedBranches, toSeqFragments, toSeqParticipants } from "../processes/sequence/fromDetail";
 import { arrayMove, newBranchRow } from "../processes/sequence/layout";
 
 // Минимальные фикстуры: toSeqFragments читает у сообщения только order, у фрагмента —
@@ -101,6 +101,24 @@ describe("arrayMove — перестановка одного элемента (
     const src = ["A", "B", "C"];
     arrayMove(src, 0, 2);
     expect(src).toEqual(["A", "B", "C"]);
+  });
+});
+
+describe("orderedBranches — набор ветвей всегда по возрастанию границы", () => {
+  it("новая ветвь встаёт на своё место, а не в конец", () => {
+    // Вырожденный случай newBranchRow: свободная строка нашлась ВЫШЕ существующих.
+    // Дописанный в конец список бэк отверг бы — границы обязаны строго возрастать.
+    const out = orderedBranches([
+      { start_order: 5, guard: "таймаут" },
+      { start_order: 2, guard: "новая" },
+    ]);
+    expect(out.map((b) => b.start_order)).toEqual([2, 5]);
+  });
+
+  it("не мутирует исходный список", () => {
+    const src = [{ start_order: 5, guard: null }, { start_order: 2, guard: null }];
+    orderedBranches(src);
+    expect(src.map((b) => b.start_order)).toEqual([5, 2]);
   });
 });
 

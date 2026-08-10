@@ -15,7 +15,7 @@ import { C4Glyph, IcoClose, IcoEdit, IcoPlus } from "./icons";
 import { SchemaViewSeg, ViewHint } from "./SchemaViewChrome";
 import SequenceDiagram from "./SequenceDiagram";
 import { deriveActivations, newBranchRow } from "./sequence/layout";
-import { detailToSeq } from "./sequence/fromDetail";
+import { detailToSeq, orderedBranches } from "./sequence/fromDetail";
 import { BPT } from "./tokens";
 import { useProcessHistory } from "./useProcessHistory";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../schemaView";
@@ -464,10 +464,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   // Общая запись правки ветвей: и границы, и условия, и снятие. Ветви правятся
   // ЦЕЛИКОМ одним списком — тогда откат возвращает набор разом (иначе undo половинчатый).
-  async function patchBranches(fid: string, next: BranchIn[]) {
+  async function patchBranches(fid: string, branches: BranchIn[]) {
     if (!detail) return;
     const frag = detail.fragments.find((x) => x.id === fid);
     if (!frag) return;
+    // Единственная точка записи — здесь же держим порядок: бэк требует строго
+    // возрастающих границ, а новая ветвь не обязана быть последней.
+    const next = orderedBranches(branches);
     const prev = frag.branches.map((b) => ({ start_order: b.start_order, guard: b.guard }));
     setDetail({
       ...detail,
