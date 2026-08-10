@@ -54,7 +54,7 @@ export default function MessageComposer({
 
   const partByNode = useMemo(() => {
     const m: Record<string, ProcessParticipant> = {};
-    for (const p of participants) m[p.node_id] = p;
+    for (const p of participants) if (p.node_id) m[p.node_id] = p;
     return m;
   }, [participants]);
   const nameOf = (nodeId: string) => partByNode[nodeId]?.name ?? nodeId;
@@ -64,7 +64,9 @@ export default function MessageComposer({
   // source→target: если цель правее источника — стрелка вправо, иначе влево.
   const colIdx = useMemo(() => {
     const m: Record<string, number> = {};
-    [...participants].sort((a, b) => a.order - b.order).forEach((p, k) => (m[p.node_id] = k));
+    [...participants].sort((a, b) => a.order - b.order).forEach((p, k) => {
+      if (p.node_id) m[p.node_id] = k;
+    });
     return m;
   }, [participants]);
   const targetRight = (colIdx[toNode] ?? 0) > (colIdx[fromNode] ?? 0);

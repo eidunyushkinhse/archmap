@@ -17,6 +17,7 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
+from app.models.process_participant import ProcessParticipant
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
@@ -164,9 +165,9 @@ def test_legal_forward_and_return(db):
         user=ensure_architect(db),
     )
     assert fwd.kind == "forward" and fwd.caption == "POST /x"
-    assert fwd.from_id == a.id and fwd.to_id == b.id
+    assert fwd.from_participant_id == parts[a.id] and fwd.to_participant_id == parts[b.id]
     assert ret.kind == "return" and ret.caption == "ответ"
-    assert ret.from_id == b.id and ret.to_id == a.id
+    assert ret.from_participant_id == parts[b.id] and ret.to_participant_id == parts[a.id]
 
     detail = get_process(proc.id, db=db, project=ensure_project(db))
     assert [m.kind for m in detail.messages] == ["forward", "return"]
@@ -251,9 +252,10 @@ def test_cross_level_channel_and_message(db):
         project=ensure_project(db),
         user=ensure_architect(db),
     )
-    assert msg.from_id == a.id and msg.to_id == b.id
+    assert msg.from_participant_id == parts[a.id] and msg.to_participant_id == parts[b.id]
     detail = get_process(proc.id, db=db, project=ensure_project(db))
-    assert detail.messages[0].from_id == a.id and detail.messages[0].to_id == b.id
+    got = detail.messages[0]
+    assert got.from_participant_id == parts[a.id] and got.to_participant_id == parts[b.id]
 
     # Если же участник — сам C, канал идёт A→C напрямую
     proc2 = _process(db, name="P2")
@@ -348,7 +350,7 @@ def test_self_message_created_without_edge(db):
     assert msg.kind == "self"
     assert msg.valid is True  # это не повисшая связь — её тут и не было
     assert msg.edge_id is None
-    assert msg.from_id == a.id and msg.to_id == a.id
+    assert msg.from_participant_id == msg.to_participant_id == parts[a.id]
     assert msg.caption == "валидация"
 
 
@@ -579,11 +581,11 @@ def test_ветвей_не_больше_чем_шагов_в_охвате(db):
     строгое возрастание границ — свободных значений внутри охвата просто нет.
     """
     proc, msgs = _три_шага(db)  # order 0,1,2
-    pid = {p.node_id: p.id for p in proc.participants}
     create_message(  # четвёртый шаг далеко впереди — между 2 и 10 дыра
         proc.id,
         MessageCreate(edge_id=msgs[0].edge_id, leg="forward",
-                      from_participant_id=pid[msgs[0].from_id], to_participant_id=pid[msgs[0].to_id],
+                      from_participant_id=msgs[0].from_participant_id,
+                      to_participant_id=msgs[0].to_participant_id,
                       order=10, caption="далёкий"),
         db=db, project=ensure_project(db), user=ensure_architect(db),
     )
@@ -683,3 +685,88 @@ def test_удаление_фрагмента_уносит_ветви(db):
     )
 
     assert db.query(ProcessFragmentBranch).count() == 0
+
+
+# ── Непривязанный участник (2026-08-10) ───────────────────────────────────────
+# Участник перестал быть обязательно узлом C4: node_id может быть NULL. Так бывает
+# после удаления узла (FK гасит ссылку) и после импорта диаграммы, где имя не
+# сопоставили. Вторая ось «незадокументированности», симметричная повисшему сообщению.
+def test_участник_запоминает_имя_узла(db):
+    # Имя нужно осиротевшему участнику: удаление узла делает БД-каскад по поддереву,
+    # перехватить имя в тот момент негде.
+    proc, _ = _три_шага(db)
+
+    part = db.query(ProcessParticipant).filter(ProcessParticipant.order == 0).one()
+
+    assert part.name == "A"
+
+
+def test_удаление_узла_оставляет_участника_непривязанным(db):
+    """Смена принятого поведения (решение пользователя 2026-08-10): было CASCADE —
+    участник и все его шаги молча исчезали. Стало SET NULL: процесс переживает
+    удаление узла, а расхождение со схемой остаётся видимым."""
+    proc, _ = _три_шага(db)
+    узел_a = db.query(Node).filter(Node.name == "A").one()
+
+    db.delete(узел_a)
+    db.commit()
+
+    parts = db.query(ProcessParticipant).filter(ProcessParticipant.process_id == proc.id).all()
+    assert len(parts) == 2  # участник на месте, а не снесён каскадом
+    осиротевший = next(p for p in parts if p.node_id is None)
+    assert осиротевший.name == "A"  # имя не потерялось
+    # Шаги живы и стали повисшими: связи узла ушли вместе с ним (SET NULL у edge_id).
+    шаги = db.query(ProcessMessage).filter(ProcessMessage.process_id == proc.id).all()
+    assert len(шаги) == 3
+    assert all(m.edge_id is None for m in шаги)
+
+
+def test_детали_процесса_отдают_непривязанного_участника(db):
+    proc, _ = _три_шага(db)
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+
+    detail = get_process(proc.id, db=db, project=ensure_project(db), _=ensure_architect(db))
+
+    p = next(p for p in detail.participants if p.node_id is None)
+    assert p.name == "A"
+    # Свойств узла нет и придумывать их нельзя: «сервис existing» по умолчанию
+    # выглядел бы на схеме как настоящий узел.
+    assert (p.shape, p.status, p.is_external, p.role) == (None, None, None, None)
+
+
+def test_перестановка_переживает_непривязанного(db):
+    # Тихая мина: до этой правки reorder_participants индексировал all_nodes[p.node_id].
+    proc, _ = _три_шага(db)
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+    parts = sorted(proc.participants, key=lambda p: p.order)
+
+    out = reorder_participants(
+        proc.id, ReorderPayload(ids=[parts[1].id, parts[0].id]),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert [p.name for p in out] == ["B", "A"]
+
+
+def test_сообщение_на_непривязанного_отклоняется_внятно(db):
+    proc, _ = _три_шага(db)
+    b_id = db.query(Node).filter(Node.name == "B").one().id
+    edge_id = db.query(Edge).one().id  # запоминаем ДО удаления: каскад унесёт связь
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+    parts = {p.node_id: p for p in proc.participants}
+    непривязанный = next(p for p in proc.participants if p.node_id is None)
+
+    with pytest.raises(HTTPException) as exc:
+        create_message(
+            proc.id,
+            MessageCreate(edge_id=edge_id, leg="forward",
+                          from_participant_id=непривязанный.id,
+                          to_participant_id=parts[b_id].id, order=9),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 422
+    assert "не привязан" in exc.value.detail

@@ -21,6 +21,7 @@ from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
 from app.processes import (
+    bound_node_ids,
     build_process_detail,
     edge_is_synchronous,
     fragment_out,
@@ -28,6 +29,7 @@ from app.processes import (
     legs_for_edge,
     load_nodes,
     message_out,
+    participant_node,
     participant_out,
     process_list_items,
     resolve_to_participant,
@@ -165,7 +167,10 @@ def add_participant(
         raise HTTPException(status_code=422, detail="Узел вне области процесса")
     if any(p.node_id == payload.node_id for p in proc.participants):
         raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
-    part = ProcessParticipant(process_id=proc.id, node_id=payload.node_id, order=payload.order)
+    # Имя кладём запасом: узел могут удалить, и тогда участник останется без него.
+    part = ProcessParticipant(
+        process_id=proc.id, node_id=payload.node_id, name=node.name, order=payload.order
+    )
     db.add(part)
     touch_project(db, project, user.id)
     db.commit()
@@ -192,7 +197,7 @@ def reorder_participants(
     db.commit()
     all_nodes = load_nodes(db, project.id)
     parts = sorted(proc.participants, key=lambda p: p.order)
-    return [participant_out(p, all_nodes[p.node_id]) for p in parts]
+    return [participant_out(p, participant_node(p, all_nodes)) for p in parts]
 
 
 @router.delete(
@@ -255,6 +260,17 @@ def create_message(
         return message_out(msg, None, part_by_id)
     if payload.edge_id is None:
         raise HTTPException(status_code=422, detail="Не указана связь")
+    # Непривязанный участник узла не имеет, значит и канала к нему в C4 нет — плечу
+    # не на что опереться. Говорим это прямо: иначе пользователь упёрся бы в
+    # «концы связи не проецируются» и гадал, что не так.
+    for pid in (payload.from_participant_id, payload.to_participant_id):
+        part = db.get(ProcessParticipant, pid)
+        if part is not None and part.process_id == proc.id and part.node_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Участник не привязан к узлу схемы — у него нет каналов. "
+                "Сначала привяжите его к узлу",
+            )
     edge = scoped_edge(db, payload.edge_id, project)
     if edge is None:
         raise HTTPException(status_code=404, detail="Связь не найдена")
@@ -270,7 +286,7 @@ def create_message(
         raise HTTPException(status_code=422, detail="Получатель не участник процесса")
     # 4) проекция сырых концов плеча сходится именно на этих участников
     all_nodes = load_nodes(db, project.id)
-    participant_ids = {p.node_id for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
     leg = next((leg for leg in legs_for_edge(edge) if leg.leg == payload.leg), None)
     if leg is None:
         raise HTTPException(status_code=422, detail="Недопустимое плечо для этой связи")
@@ -574,7 +590,7 @@ def list_directions(
     """
     proc = _get_process(db, process_id, project)
     all_nodes = load_nodes(db, project.id)
-    participant_ids = {p.node_id for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return [
         DirectionOut(from_id=f, to_id=t)
@@ -593,7 +609,7 @@ def list_channels(
 ) -> list[ChannelOut]:
     proc = _get_process(db, process_id, project)
     all_nodes = load_nodes(db, project.id)
-    participant_ids = {p.node_id for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
     pair = {a, b}
     out: list[ChannelOut] = []
     for edge in db.query(Edge).filter(Edge.project_id == project.id).all():

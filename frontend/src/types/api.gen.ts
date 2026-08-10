@@ -2013,15 +2013,15 @@ export interface components {
             /** Technology */
             technology: string | null;
             /**
-             * From Id
+             * From Participant Id
              * Format: uuid
              */
-            from_id: string;
+            from_participant_id: string;
             /**
-             * To Id
+             * To Participant Id
              * Format: uuid
              */
-            to_id: string;
+            to_participant_id: string;
             /** Valid */
             valid: boolean;
         };
@@ -2358,34 +2358,31 @@ export interface components {
             /** Order */
             order: number;
         };
-        /** ParticipantOut */
+        /**
+         * ParticipantOut
+         * @description Линия жизни процесса. НЕПРИВЯЗАННЫЙ участник (node_id = null) узла в схеме не
+         *     имеет: имя у него своё, а свойства узла (роль/форма/статус) взять неоткуда —
+         *     поэтому все они nullable. Фронт по node_id == null рисует «сломанный» стиль, как у
+         *     повисшей стрелки.
+         */
         ParticipantOut: {
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /**
-             * Node Id
-             * Format: uuid
-             */
-            node_id: string;
+            /** Node Id */
+            node_id: string | null;
             /** Name */
             name: string;
             /** Role */
             role: string | null;
-            /**
-             * Shape
-             * @enum {string}
-             */
-            shape: "service" | "database" | "broker" | "person";
+            /** Shape */
+            shape: ("service" | "database" | "broker" | "person") | null;
             /** Is External */
-            is_external: boolean;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "existing" | "planned" | "deprecated";
+            is_external: boolean | null;
+            /** Status */
+            status: ("existing" | "planned" | "deprecated") | null;
             /** Order */
             order: number;
         };

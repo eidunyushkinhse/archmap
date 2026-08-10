@@ -14,6 +14,7 @@ HTTP-слой лишь валидирует вход, зовёт домен и �
 """
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from sqlalchemy import func
@@ -214,8 +215,19 @@ def _default_caption(leg: str, edge: Edge | None) -> str | None:
     return edge.label if edge is not None else None
 
 
-def participant_out(p: ProcessParticipant, node: Node) -> ParticipantOut:
-    """Сериализация участника процесса (линия жизни) из пары участник + узел."""
+def participant_out(p: ProcessParticipant, node: Node | None) -> ParticipantOut:
+    """Сериализация участника процесса (линия жизни).
+
+    Узла может не быть — участник непривязан (имя не сопоставили при импорте) или
+    осиротел (узел удалили, FK погасил ссылку). Тогда имя берём у самого участника,
+    а свойств узла нет вовсе — их неоткуда взять, и придумывать нельзя: «сервис
+    existing» по умолчанию выглядел бы как настоящий узел.
+    """
+    if node is None:
+        return ParticipantOut(
+            id=p.id, node_id=None, name=p.name,
+            role=None, shape=None, is_external=None, status=None, order=p.order,
+        )
     return ParticipantOut(
         id=p.id,
         node_id=p.node_id,
@@ -226,6 +238,18 @@ def participant_out(p: ProcessParticipant, node: Node) -> ParticipantOut:
         status=node.status,  # type: ignore[arg-type]
         order=p.order,
     )
+
+
+def participant_node(p: ProcessParticipant, all_nodes: dict[uuid.UUID, Node]) -> Node | None:
+    """Узел участника, если он есть и жив. Единая точка — иначе индексация
+    all_nodes[p.node_id] падала бы на непривязанных."""
+    return all_nodes.get(p.node_id) if p.node_id else None
+
+
+def bound_node_ids(participants: Iterable[ProcessParticipant]) -> set[uuid.UUID]:
+    """Узлы участников для проекции концов связи. Непривязанные исключены: плечо
+    канала на них не приземляется — у них нет узла, к которому канал мог бы вести."""
+    return {p.node_id for p in participants if p.node_id is not None}
 
 
 def message_out(
@@ -254,8 +278,12 @@ def message_out(
         kind=kind,  # type: ignore[arg-type]
         caption=caption,
         technology=edge.technology if edge is not None else None,
-        from_id=part_by_id[msg.from_participant_id].node_id,
-        to_id=part_by_id[msg.to_participant_id].node_id,
+        # Концы — УЧАСТНИКИ, а не узлы: у непривязанного узла нет, и два таких конца
+        # были бы неразличимы. Граница слоёв: C4 (каналы, плечи, направления) говорит
+        # узлами, слой процесса — участниками. Заодно ушла лишняя конвертация:
+        # id участника лежит прямо в строке сообщения.
+        from_participant_id=msg.from_participant_id,
+        to_participant_id=msg.to_participant_id,
         valid=valid,
     )
 
@@ -301,7 +329,7 @@ def build_process_detail(
         name=proc.name,
         scope_node_id=proc.scope_node_id,
         scope_name=scope_node.name if scope_node else None,
-        participants=[participant_out(p, all_nodes[p.node_id]) for p in parts],
+        participants=[participant_out(p, participant_node(p, all_nodes)) for p in parts],
         messages=messages,
         fragments=fragments,
     )

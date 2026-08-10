@@ -3,14 +3,20 @@
 // в SequenceDiagram, активации выводим здесь простым стеком.
 import type { FragmentKind, MessageKind, NodeShape, NodeStatus } from "../../../types";
 
-// Участник = линия жизни. id — node_id узла C4 (он же ключ дорожки для сообщений).
+// Участник = линия жизни. id — id УЧАСТНИКА процесса (он же ключ дорожки для
+// сообщений), а НЕ узла: участник может быть непривязанным, и тогда узла у него нет
+// вовсе, а два таких участника по node_id были бы неразличимы.
+// nodeId — узел C4, если участник привязан (для перехода на объект и свойств).
+// shape/status = null у непривязанного: свойств узла взять неоткуда, а подставлять
+// «сервис existing» нельзя — на схеме он притворился бы настоящим узлом.
 export interface SeqParticipant {
   id: string;
-  shape: NodeShape;
+  nodeId: string | null;
+  shape: NodeShape | null;
   name: string;
   role: string | null;
   external: boolean;
-  status: NodeStatus; // статус узла-участника (existing | planned | deprecated)
+  status: NodeStatus | null;
 }
 
 // Сообщение = горизонтальная стрелка. r — индекс строки (время, 0..R-1), n — номер

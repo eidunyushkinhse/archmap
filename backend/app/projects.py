@@ -111,7 +111,10 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
                 ProcessParticipant(
                     id=partmap[part.id],
                     process_id=pmap[part.process_id],
-                    node_id=nmap[part.node_id],
+                    # Непривязанный участник переносится как есть: узла у него нет,
+                    # ремапить нечего, а имя он несёт в себе.
+                    node_id=nmap[part.node_id] if part.node_id else None,
+                    name=part.name,
                     order=part.order,
                 )
             )

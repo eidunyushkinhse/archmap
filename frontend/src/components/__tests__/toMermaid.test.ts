@@ -5,15 +5,17 @@ import { detailToMermaid } from "../processes/sequence/toMermaid";
 // Минимальные фикстуры: конвертер читает у участника node_id/name/order, у сообщения —
 // order/from_id/to_id/kind/caption, у фрагмента — kind/диапазон/guard/else. Остальные
 // поля контракта не нужны (каст через unknown).
-const part = (node_id: string, name: string, order: number): ProcessParticipant =>
-  ({ node_id, name, order } as unknown as ProcessParticipant);
+// Участник адресуется СВОИМ id (не узла): у непривязанного узла нет вовсе.
+const part = (id: string, name: string, order: number): ProcessParticipant =>
+  ({ id, node_id: id, name, order } as unknown as ProcessParticipant);
 const msg = (
   order: number,
-  from_id: string,
-  to_id: string,
+  from_participant_id: string,
+  to_participant_id: string,
   kind: ProcessMessage["kind"],
   caption: string | null,
-): ProcessMessage => ({ order, from_id, to_id, kind, caption } as unknown as ProcessMessage);
+): ProcessMessage =>
+  ({ order, from_participant_id, to_participant_id, kind, caption } as unknown as ProcessMessage);
 const frag = (
   from_order: number,
   to_order: number,

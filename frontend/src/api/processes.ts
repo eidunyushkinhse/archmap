@@ -73,19 +73,25 @@ export const processesApi = {
       name: `${src.name} (копия)`,
       scope_node_id: src.scope_node_id,
     });
-    const newPartByNode: Record<string, string> = {};
+    // Старый участник → новый. Непривязанных не переносим: addParticipant требует
+    // узел, а у них его нет (перенос таких — задача импорта, не дублирования).
+    const newPartByOld: Record<string, string> = {};
     for (const p of [...src.participants].sort((a, b) => a.order - b.order)) {
+      if (!p.node_id) continue;
       const np = await processesApi.addParticipant(copy.id, { node_id: p.node_id, order: p.order });
-      newPartByNode[p.node_id] = np.id;
+      newPartByOld[p.id] = np.id;
     }
     for (const m of src.messages) {
-      const isSelf = m.from_id === m.to_id;
+      const isSelf = m.from_participant_id === m.to_participant_id;
       if (!m.edge_id && !isSelf) continue; // повисшее (не self) — переносить нечего
+      const from = newPartByOld[m.from_participant_id];
+      const to = newPartByOld[m.to_participant_id];
+      if (!from || !to) continue; // конец был непривязанным — переносить нечего
       await processesApi.addMessage(copy.id, {
         edge_id: m.edge_id,
         leg: m.leg,
-        from_participant_id: newPartByNode[m.from_id],
-        to_participant_id: newPartByNode[m.to_id],
+        from_participant_id: from,
+        to_participant_id: to,
         caption: m.caption,
         order: m.order,
       });
