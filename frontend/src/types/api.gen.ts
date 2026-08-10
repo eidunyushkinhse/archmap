@@ -912,6 +912,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/processes/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Process Import
+         * @description Что получится из текста диаграммы и с чем сопоставились имена. Ничего не пишет.
+         *
+         *     Объявлен ДО /{process_id}: иначе FastAPI принял бы «import» за uuid процесса.
+         */
+        post: operations["preview_process_import_api_v1_processes_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Process
+         * @description Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача).
+         */
+        post: operations["import_process_api_v1_processes_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}": {
         parameters: {
             query?: never;
@@ -1854,6 +1896,33 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * ImportNodeCandidate
+         * @description Узел-кандидат под имя из диаграммы. Имена узлов НЕ уникальны, поэтому
+         *     кандидатов может быть несколько — тогда выбирает пользователь, а не мы.
+         */
+        ImportNodeCandidate: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Parent Name */
+            parent_name: string | null;
+        };
+        /** ImportParticipantPreview */
+        ImportParticipantPreview: {
+            /** Alias */
+            alias: string;
+            /** Name */
+            name: string;
+            /** Node Id */
+            node_id: string | null;
+            /** Candidates */
+            candidates: components["schemas"]["ImportNodeCandidate"][];
+        };
+        /**
          * ImportPreviewIn
          * @description YAML для dry-run проверки импорта (без записи в БД): один текст (content)
          *     либо несколько (contents — мульти-репо, сливаются merge_imports).
@@ -2473,6 +2542,66 @@ export interface components {
             messages: components["schemas"]["MessageOut"][];
             /** Fragments */
             fragments: components["schemas"]["FragmentOut"][];
+        };
+        /**
+         * ProcessImportApply
+         * @description Применение. mapping: алиас участника → узел; отсутствующий или null означает
+         *     «оставить непривязанным» — пользователь НЕ обязан сопоставить каждого.
+         */
+        ProcessImportApply: {
+            /** Text */
+            text: string;
+            /** Name */
+            name?: string | null;
+            /**
+             * Mapping
+             * @default {}
+             */
+            mapping: {
+                [key: string]: string | null;
+            };
+        };
+        /** ProcessImportIn */
+        ProcessImportIn: {
+            /** Text */
+            text: string;
+            /** Name */
+            name?: string | null;
+        };
+        /** ProcessImportPreview */
+        ProcessImportPreview: {
+            /** Name */
+            name: string;
+            /** Participants */
+            participants: components["schemas"]["ImportParticipantPreview"][];
+            /** Message Count */
+            message_count: number;
+            /** Fragment Count */
+            fragment_count: number;
+            /** Unsupported */
+            unsupported: string[];
+        };
+        /** ProcessImportResult */
+        ProcessImportResult: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Participants */
+            participants: number;
+            /** Unbound */
+            unbound: number;
+            /** Messages */
+            messages: number;
+            /** Attached */
+            attached: number;
+            /** Dangling */
+            dangling: number;
+            /** Fragments */
+            fragments: number;
+            /** Unsupported */
+            unsupported: string[];
         };
         /** ProcessListItem */
         ProcessListItem: {
@@ -4929,6 +5058,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_process_import_api_v1_processes_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessImportPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_process_api_v1_processes_import_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessImportApply"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessImportResult"];
                 };
             };
             /** @description Validation Error */

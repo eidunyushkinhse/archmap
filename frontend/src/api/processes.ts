@@ -11,6 +11,10 @@ import type {
   ProcessCreate,
   ProcessDetail,
   ProcessFragment,
+  ProcessImportApply,
+  ProcessImportIn,
+  ProcessImportPreview,
+  ProcessImportResult,
   ProcessListItem,
   ProcessMessage,
   ProcessParticipant,
@@ -58,6 +62,13 @@ export const processesApi = {
     api.patch<ProcessFragment>(`/processes/${id}/fragments/${fragmentId}`, body),
   removeFragment: (id: string, fragmentId: string): Promise<void> =>
     api.delete(`/processes/${id}/fragments/${fragmentId}`),
+
+  // Импорт процесса из mermaid: превью ничего не пишет, применение создаёт НОВЫЙ
+  // процесс (слияние с существующим — отдельная задача).
+  importPreview: (body: ProcessImportIn): Promise<ProcessImportPreview> =>
+    api.post<ProcessImportPreview>(`/processes/import/preview`, body),
+  importProcess: (body: ProcessImportApply): Promise<ProcessImportResult> =>
+    api.post<ProcessImportResult>(`/processes/import`, body),
 
   // Композитор: каналы между парой участников (узлы a и b)
   channels: (id: string, a: string, b: string): Promise<Channel[]> =>
