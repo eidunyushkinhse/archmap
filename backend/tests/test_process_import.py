@@ -320,3 +320,89 @@ def test_импорт_отбрасывает_ветвь_на_первой_стр
     frag = db.query(ProcessFragment).one()
     assert (frag.from_order, frag.to_order) == (0, 0)
     assert frag.branches == []  # ветвь была бы пустой — не заводим
+
+
+# ── Подписи: своя или выводимая из канала ─────────────────────────────────────
+# API отдаёт наружу УЖЕ ВЫЧИСЛЕННУЮ подпись и не сообщает, своя она или выведенная.
+# Экспорт пишет её как есть — и импорт, приняв за свою, замораживал бы копию: шаг
+# переставал следовать за каналом.
+def test_подпись_равная_метке_канала_не_замораживается(db):
+    покупатель = _узел(db, "Покупатель")
+    заказы = _узел(db, "Сервис заказов")
+    _связь(db, покупатель, заказы, sync=True)
+    db.commit()
+    # Экспорт вызова без своей подписи пишет метку канала.
+    текст = ("sequenceDiagram\n participant P1 as Покупатель\n"
+             " participant P2 as Сервис заказов\n P1->>P2: связь\n")
+    db.query(Edge).one().label = "связь"
+    db.commit()
+    preview = build_preview(db, ensure_project(db).id, текст, None)
+    mapping = {p.alias: p.node_id for p in preview.participants}
+
+    apply_import(db, ensure_project(db).id, текст, None, mapping)
+    db.commit()
+
+    assert db.query(ProcessMessage).one().caption is None  # снова следует за каналом
+
+
+def test_ответ_со_словом_ответ_не_замораживается(db):
+    # «ответ» — дефолт плеча ответа, а не текст пользователя.
+    покупатель = _узел(db, "Покупатель")
+    заказы = _узел(db, "Сервис заказов")
+    _связь(db, покупатель, заказы, sync=True)
+    db.commit()
+    текст = ("sequenceDiagram\n participant P1 as Покупатель\n"
+             " participant P2 as Сервис заказов\n P2-->>P1: ответ\n")
+    preview = build_preview(db, ensure_project(db).id, текст, None)
+
+    apply_import(db, ensure_project(db).id, текст, None,
+                 {p.alias: p.node_id for p in preview.participants})
+    db.commit()
+
+    assert db.query(ProcessMessage).one().caption is None
+
+
+def test_своя_подпись_сохраняется(db):
+    покупатель = _узел(db, "Покупатель")
+    заказы = _узел(db, "Сервис заказов")
+    _связь(db, покупатель, заказы, sync=True)
+    db.query(Edge).one().label = "REST"
+    db.commit()
+    текст = ("sequenceDiagram\n participant P1 as Покупатель\n"
+             " participant P2 as Сервис заказов\n P1->>P2: создать заказ\n")
+    preview = build_preview(db, ensure_project(db).id, текст, None)
+
+    apply_import(db, ensure_project(db).id, текст, None,
+                 {p.alias: p.node_id for p in preview.participants})
+    db.commit()
+
+    assert db.query(ProcessMessage).one().caption == "создать заказ"
+
+
+def test_прочерк_читается_как_отсутствие_подписи(db):
+    # Экспорт ставит «—» вместо пустой подписи; это заглушка, а не текст из тире.
+    текст = "sequenceDiagram\n A->>B: —\n"
+
+    apply_import(db, ensure_project(db).id, текст, None, {})
+    db.commit()
+
+    assert db.query(ProcessMessage).one().caption is None
+
+
+def test_сравнение_идёт_по_очищенному_тексту(db):
+    # Экспорт схлопывает пробелы и меняет «;» на «,» — сверять надо по той же норме,
+    # иначе подпись «замёрзнет» из-за форматирования метки.
+    покупатель = _узел(db, "Покупатель")
+    заказы = _узел(db, "Сервис заказов")
+    _связь(db, покупатель, заказы, sync=True)
+    db.query(Edge).one().label = "чтение;  запись"
+    db.commit()
+    текст = ("sequenceDiagram\n participant P1 as Покупатель\n"
+             " participant P2 as Сервис заказов\n P1->>P2: чтение, запись\n")
+    preview = build_preview(db, ensure_project(db).id, текст, None)
+
+    apply_import(db, ensure_project(db).id, текст, None,
+                 {p.alias: p.node_id for p in preview.participants})
+    db.commit()
+
+    assert db.query(ProcessMessage).one().caption is None

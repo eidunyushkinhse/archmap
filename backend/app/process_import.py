@@ -23,7 +23,7 @@ from app.models.node import Node
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
-from app.processes import legs_for_edge, resolve_to_participant
+from app.processes import _default_caption, legs_for_edge, resolve_to_participant
 from app.schemas.process_import import (
     ImportNodeCandidate,
     ImportParticipantPreview,
@@ -180,6 +180,31 @@ def parse_sequence(text: str) -> ParsedDiagram:
     return out
 
 
+# Экспорт чистит текст так же (схлопывает пробелы, «;» → «,») и подставляет прочерк
+# вместо пустой подписи — сверяем по той же норме, иначе сравнение врало бы.
+_EXPORT_PLACEHOLDER = "—"
+
+
+def _clean(text: str | None) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text).replace(";", ",").strip()
+
+
+def caption_for_import(raw: str | None, leg: str, edge: Edge | None) -> str | None:
+    """Подпись шага, какой её сохранять. None — «своей подписи нет», и шаг показывает
+    то, что даёт канал (метку у вызова, «ответ» у ответа).
+
+    Зачем: наружу API отдаёт УЖЕ ВЫЧИСЛЕННУЮ подпись и не сообщает, своя она или
+    выведенная. Экспорт пишет её как есть — и импорт, приняв за свою, замораживал бы
+    копию: шаг переставал следовать за каналом (переименовали связь — текст остался
+    старым). Поэтому: пришло ровно то, что дал бы канал, — своей подписи не заводим.
+    """
+    if raw is None or _clean(raw) in ("", _EXPORT_PLACEHOLDER):
+        return None  # прочерк — это «подписи нет», а не текст из тире
+    return None if _clean(raw) == _clean(_default_caption(leg, edge)) else raw
+
+
 def find_channel(
     edges: list[Edge],
     all_nodes: dict[uuid.UUID, Node],
@@ -323,7 +348,7 @@ def apply_import(
                 leg=msg.leg,
                 from_participant_id=frm.id,
                 to_participant_id=to.id,
-                caption=msg.caption,
+                caption=caption_for_import(msg.caption, msg.leg, edge),
             )
         )
 
