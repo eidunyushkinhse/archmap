@@ -69,7 +69,12 @@ export default function ProjectShell({
 
   // Алерты незавершённости схемы: знак в шапке (глобальная видимость, архитектор).
   // In-context рейл с locate живёт в редакторе-карте (MapEditorPage).
-  const { alerts } = useSchemaAlerts(isArchitect);
+  const { alerts, reload: reloadAlerts } = useSchemaAlerts(isArchitect);
+  // Знак незавершённости считается по ВСЕМУ проекту и грузится один раз на маунте,
+  // а оболочка живёт всё время работы — значит после каждой мутации он протухает.
+  // Освежаем по двум поводам: явный сигнал мутации от содержимого (ниже) и смена
+  // страницы/режима — дешёвая страховка для правок, у которых своего канала нет.
+  useEffect(() => { reloadAlerts(); }, [mode, nodeId, reloadAlerts]);
 
   // Подтверждение «Открыть в редакторе?» — для алертов про несколько объектов
   // (связь/группа), по которым одну страницу выбрать невозможно.
@@ -167,6 +172,7 @@ export default function ProjectShell({
             isArchitect={isArchitect}
             initialProcessId={procInitial ?? undefined}
             onSelectedChange={setProcSelection}
+            onChanged={reloadAlerts}
           />
         ) : (
           <>
@@ -191,6 +197,7 @@ export default function ProjectShell({
                 }}
                 onNodeDeleted={(parentId) => {
                   setTreeReload((t) => t + 1);
+                  reloadAlerts();
                   if (parentId) onNavigateNode(parentId);
                   else onNavigateProject();
                 }}

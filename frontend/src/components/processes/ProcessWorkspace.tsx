@@ -20,6 +20,11 @@ interface Props {
   // Уведомление родителя (ProjectShell) о выбранном процессе — чтобы кнопка экспорта
   // в шапке знала, какой процесс выгружать в Mermaid. null = ничего не выбрано.
   onSelectedChange?: (sel: { id: string; name: string } | null) => void;
+  // Процесс изменили (любая мутация канваса). Оболочке это нужно, чтобы освежить
+  // знак «Незавершённость схемы»: класс «Сообщения без связи» считается по
+  // сообщениям, а они живут здесь — без сигнала знак висел бы протухшим
+  // (находка 2026-08-10).
+  onChanged?: () => void;
 }
 
 const LS_KEY = "bp_workspace_v1";
@@ -35,7 +40,9 @@ function readPrefs(): Prefs {
   }
 }
 
-export default function ProcessWorkspace({ isArchitect, initialProcessId, onSelectedChange }: Props) {
+export default function ProcessWorkspace({
+  isArchitect, initialProcessId, onSelectedChange, onChanged,
+}: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Явно выбранный процесс. null → берём первый из списка (derived ниже), без эффекта.
@@ -148,7 +155,7 @@ export default function ProcessWorkspace({ isArchitect, initialProcessId, onSele
           isArchitect={isArchitect}
           editing={editing}
           onToggleEditing={(v) => setEditingPref(v)}
-          onChanged={() => void reload()}
+          onChanged={() => { void reload(); onChanged?.(); }}
         />
       ) : (
         <div style={emptyWrap}>
