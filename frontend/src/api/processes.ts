@@ -42,6 +42,10 @@ export const processesApi = {
     api.patch<ProcessMessage>(`/processes/${id}/messages/${messageId}`, body),
   removeMessage: (id: string, messageId: string): Promise<void> =>
     api.delete(`/processes/${id}/messages/${messageId}`),
+  // Новый порядок шагов одной транзакцией: ids сверху вниз → order 0..N-1. Бэк
+  // требует ПОЛНЫЙ перечень (по позициям фрагменты держат свой диапазон).
+  reorderMessages: (id: string, ids: string[]): Promise<ProcessMessage[]> =>
+    api.patch<ProcessMessage[]>(`/processes/${id}/messages/reorder`, { ids }),
 
   // Фрагменты (свободный слой)
   addFragment: (id: string, body: FragmentCreate): Promise<ProcessFragment> =>

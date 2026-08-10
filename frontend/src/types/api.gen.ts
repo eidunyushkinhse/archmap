@@ -999,6 +999,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/messages/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Reorder Messages
+         * @description Новый порядок шагов сценария одной транзакцией: ids сверху вниз → order 0..N-1.
+         *
+         *     Требуем ПОЛНЫЙ перечень (в отличие от перестановки участников): у сообщений
+         *     order структурен — по нему фрагменты (alt/opt/loop) держат свой диапазон, и
+         *     частичный список оставил бы дубли позиций, то есть блок, накрывающий не то,
+         *     что видел пользователь.
+         *
+         *     Границы фрагментов НЕ пересчитываем — решение пользователя 2026-08-10:
+         *     фрагмент это диапазон ПОЗИЦИЙ, и кто въехал в строки блока, тот в нём и есть.
+         */
+        patch: operations["reorder_messages_api_v1_processes__process_id__messages_reorder_patch"];
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/messages/{message_id}": {
         parameters: {
             query?: never;
@@ -5067,6 +5095,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reorder_messages_api_v1_processes__process_id__messages_reorder_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"][];
                 };
             };
             /** @description Validation Error */

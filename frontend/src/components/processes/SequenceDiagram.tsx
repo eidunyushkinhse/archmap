@@ -18,6 +18,7 @@ const LABEL_GAP = 10; // зазор между низом подписи и ст
 const LABEL_PAD = 26; // запас в шаге строки сверх высоты подписи (одна строка → шаг ROW_GAP)
 const SELF_OFF = 46; // вертикальный сдвиг хэндла «себе» под кружком-источником
 const SELF_HIT = 22; // радиус попадания курсора по хэндлу «себе»
+const DRAG_SLOP = 4; // порог сдвига, отделяющий перетаскивание шага от клика по подписи
 const STATUSES: NodeStatus[] = ["existing", "planned", "deprecated"];
 
 interface Props {
@@ -46,6 +47,11 @@ interface Props {
   // Перестановка участников перетаскиванием шапки (живой reorder). nodeIds — новый
   // порядок линий жизни слева-направо (id = node_id). Только в режиме редактирования.
   onReorderParticipants?: (nodeIds: string[]) => void;
+  // Перестановка ШАГОВ сценария перетаскиванием подписи вверх-вниз. ids — новый
+  // порядок сообщений сверху вниз. Границы фрагментов при этом стоят на месте
+  // (фрагмент = диапазон позиций, решение пользователя 2026-08-10): шаг, въехавший
+  // в строки блока, оказывается внутри него — это видно прямо во время жеста.
+  onReorderMessages?: (ids: string[]) => void;
   // Режим выбора диапазона под новый фрагмент: курсором протягиваем по строкам
   // сообщений, на отпускании отдаём [fromRow, toRow]. null — обычный режим.
   selectMode?: FragmentKind | null;
@@ -67,6 +73,7 @@ export default function SequenceDiagram({
   onMessageClick,
   onDeleteParticipant,
   onReorderParticipants,
+  onReorderMessages,
   selectMode = null,
   onSelectRange,
   onFragmentClick,
@@ -85,9 +92,18 @@ export default function SequenceDiagram({
   // x курсора (в координатах контейнера). Шапка следует за курсором, остальные
   // разъезжаются; отпускание фиксирует новый порядок (onReorderParticipants).
   const [reorder, setReorder] = useState<{ fromK: number; px: number } | null>(null);
+  // Живой reorder ШАГОВ: fromR — исходная строка тянущейся подписи, py — текущий y
+  // курсора. moved — курсор ушёл дальше порога: до него жест считаем кликом (подпись
+  // открывает правку сообщения, и драг не должен её отбирать).
+  const [rowDrag, setRowDrag] = useState<
+    { fromR: number; py: number; y0: number; moved: boolean } | null
+  >(null);
   // «Липкость» шапок: в самом верху диаграммы разделительная грань скрыта, появляется
   // при прилипании. Следим за невидимой sentinel-точкой на верху диаграммы: как только
   // она заклиппилась скролл-контейнером (ушла из виду) — шапки прилипли к верху.
+  // Перетаскивание завершилось сдвигом → гасим click, который браузер пошлёт следом
+  // (иначе после каждой перестановки открывалась бы правка сообщения).
+  const suppressClick = useRef(false);
   const [stuck, setStuck] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -198,6 +214,23 @@ export default function SequenceDiagram({
     return best;
   };
 
+  // Куда встанет тянущийся шаг, если отпустить сейчас, и как из-за этого едут
+  // остальные строки. Фрагменты СВОИ строки не меняют: они держат диапазон позиций,
+  // поэтому во время жеста видно, как шаг въезжает в блок или покидает его.
+  const dropRow = rowDrag && rowDrag.moved ? rowFromY(rowDrag.py) : null;
+  const shownRow = (r: number): number => {
+    if (dropRow === null || rowDrag === null) return r;
+    const from = rowDrag.fromR;
+    if (r === from) return dropRow;
+    if (from < dropRow && r > from && r <= dropRow) return r - 1;
+    if (from > dropRow && r >= dropRow && r < from) return r + 1;
+    return r;
+  };
+  // Y строки сообщения с учётом жеста: тянущаяся идёт за курсором, прочие — по своей
+  // новой строке.
+  const msgY = (r: number): number =>
+    rowDrag && rowDrag.moved && r === rowDrag.fromR ? rowDrag.py : rowY(shownRow(r));
+
   const ghostY = ghost ? rowY(R) - 6 : 0;
   const W = SQ.MARGIN * 2 + Math.max(0, n - 1) * SQ.COL_W;
   const contentBottom = R > 0 ? rowY(R - 1) : lifeTop + SQ.ROW0;
@@ -236,6 +269,16 @@ export default function SequenceDiagram({
     e.currentTarget.setPointerCapture(e.pointerId);
     setReorder({ fromK: k, px: PX(k) });
   }
+  // Начало перетаскивания ШАГА за его подпись. Порог сдвига (DRAG_SLOP) отделяет
+  // драг от клика: подпись открывает правку сообщения, и жест не должен её отбирать.
+  function onLabelDown(e: ReactPointerEvent<HTMLDivElement>, r: number) {
+    if (!onReorderMessages || selectMode) return;
+    const root = rootRef.current;
+    if (!root) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const y = e.clientY - root.getBoundingClientRect().top;
+    setRowDrag({ fromR: r, py: y, y0: y, moved: false });
+  }
   // Начало драга из кружка участника k: захватываем указатель (чтобы движения шли
   // даже за пределами кружка) и фиксируем источник.
   function onCircleDown(e: ReactPointerEvent<HTMLButtonElement>, id: string, k: number) {
@@ -248,6 +291,12 @@ export default function SequenceDiagram({
   // приоритетная цель при попадании курсора; иначе подсвечиваем ближайший ДРУГОЙ участник
   // (источник из колонок-целей исключён — у него своя цель «себе»).
   function onRootMove(e: ReactPointerEvent<HTMLDivElement>) {
+    // Живой reorder ШАГОВ: подпись идёт за курсором по вертикали.
+    if (rowDrag && rootRef.current) {
+      const y = e.clientY - rootRef.current.getBoundingClientRect().top;
+      setRowDrag((d) => (d ? { ...d, py: y, moved: d.moved || Math.abs(y - d.y0) > DRAG_SLOP } : d));
+      return;
+    }
     // Живой reorder: шапка следует за курсором (целевая колонка — в onRootUp/colX).
     if (reorder && rootRef.current) {
       const r = rootRef.current.getBoundingClientRect();
@@ -281,6 +330,18 @@ export default function SequenceDiagram({
   // Отпускание: reorder — фиксируем новый порядок, если шапка ушла в другую колонку;
   // drag-to-connect — на хэндле «себе» рефлексивное сообщение, над другим участником — связь.
   function onRootUp() {
+    if (rowDrag) {
+      // Порога не прошли — это был клик по подписи, порядок не трогаем.
+      if (rowDrag.moved) {
+        suppressClick.current = true;
+        const to = rowFromY(rowDrag.py);
+        if (to !== rowDrag.fromR) {
+          onReorderMessages?.(arrayMove(messages.map((m) => m.id), rowDrag.fromR, to));
+        }
+      }
+      setRowDrag(null);
+      return;
+    }
     if (reorder) {
       const to = Math.max(0, Math.min(n - 1, Math.round((reorder.px - SQ.MARGIN) / SQ.COL_W)));
       if (to !== reorder.fromK) {
@@ -435,9 +496,9 @@ export default function SequenceDiagram({
             <rect
               key={i}
               x={colX(a.lane) - SQ.ACT_W / 2}
-              y={rowY(a.from) - 7}
+              y={rowY(shownRow(a.from)) - 7}
               width={SQ.ACT_W}
-              height={rowY(a.to) - rowY(a.from) + 14}
+              height={rowY(shownRow(a.to)) - rowY(shownRow(a.from)) + 14}
               rx="2"
               fill={fill}
               stroke={stroke}
@@ -449,7 +510,7 @@ export default function SequenceDiagram({
         })}
         {/* стрелки сообщений — цвет по «сильнейшему» статусу концов, форма по типу плеча */}
         {messages.map((m) => {
-          const y = rowY(m.r);
+          const y = msgY(m.r);
           const shape = legMeta(m.kind);
           const st = strongestStatus(statusOf(m.from), statusOf(m.to));
           const color = m.valid ? STATUS_LEG[st] : BROKEN.ln;
@@ -527,12 +588,20 @@ export default function SequenceDiagram({
             key={"l" + m.id}
             data-mid={m.id}
             ref={bindLabel}
-            onClick={onMessageClick ? () => onMessageClick(m.id) : undefined}
+            onPointerDown={onReorderMessages ? (e) => onLabelDown(e, m.r) : undefined}
+            onClick={
+              onMessageClick
+                ? () => {
+                    if (suppressClick.current) { suppressClick.current = false; return; }
+                    onMessageClick(m.id);
+                  }
+                : undefined
+            }
             style={{
               position: "absolute",
               left: left + 8,
               // подпись висит над стрелкой: её низ — на LABEL_GAP выше линии
-              top: rowY(m.r) - lhOf(m.id) - LABEL_GAP,
+              top: msgY(m.r) - lhOf(m.id) - LABEL_GAP,
               width: w - 16,
               display: "flex",
               alignItems: "flex-start",
@@ -542,7 +611,15 @@ export default function SequenceDiagram({
               opacity: dimMsg(m) ? 0.12 : 1,
               pointerEvents: dimMsg(m) ? "none" : onMessageClick ? "auto" : "none",
               cursor: onMessageClick ? "pointer" : "default",
-              transition: dragged ? undefined : "left .15s ease, width .15s ease",
+              transition:
+                dragged || rowDrag ? undefined : "left .15s ease, width .15s ease, top .15s ease",
+              // Тянущаяся подпись поверх остальных, чтобы не ныряла под соседние.
+              ...(rowDrag?.fromR === m.r && rowDrag.moved
+                ? { zIndex: 6, cursor: "grabbing" }
+                : onReorderMessages
+                  ? { cursor: "grab" }
+                  : null),
+              userSelect: onReorderMessages ? "none" : undefined,
             }}
           >
             <span

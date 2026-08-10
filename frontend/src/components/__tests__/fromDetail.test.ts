@@ -85,3 +85,33 @@ describe("arrayMove — перестановка одного элемента (
     expect(src).toEqual(["A", "B", "C"]);
   });
 });
+
+// Перестановка шагов (2026-08-10). Решение пользователя: фрагмент — диапазон
+// ПОЗИЦИЙ, границы за содержимым не едут. Здесь это закреплено на проекции: после
+// перестановки блок накрывает тех, кто въехал в его строки.
+describe("перестановка шагов: фрагмент держит позиции, а не содержимое", () => {
+  // Плотная нумерация — такую пишет reorder на бэке (order 0..N-1).
+  const captioned = (id: string, order: number) =>
+    ({ id, order } as unknown as ProcessMessage);
+
+  it("блок остаётся на своих строках, состав меняется", () => {
+    const before = [captioned("a", 0), captioned("b", 1), captioned("c", 2), captioned("d", 3)];
+    const alt = frag("f", 1, 2); // накрывает b и c
+
+    const [rowsBefore] = toSeqFragments([alt], before);
+    expect([rowsBefore.fromRow, rowsBefore.toRow]).toEqual([1, 2]);
+
+    // Перетащили d наверх, на позицию 1: порядок стал a, d, b, c.
+    const moved = arrayMove(before, 3, 1).map((m, i) => captioned(m.id, i));
+    const [rowsAfter] = toSeqFragments([alt], moved);
+
+    expect([rowsAfter.fromRow, rowsAfter.toRow]).toEqual([1, 2]); // границы на месте
+    expect(moved.slice(1, 3).map((m) => m.id)).toEqual(["d", "b"]); // внутри — другие шаги
+  });
+
+  it("ветка else тоже держится за позицию", () => {
+    const msgs = [captioned("a", 0), captioned("b", 1), captioned("c", 2)];
+    const [f] = toSeqFragments([frag("f", 0, 2, { else_order: 2 })], msgs);
+    expect(f.elseRow).toBe(2);
+  });
+});

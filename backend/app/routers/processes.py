@@ -297,6 +297,53 @@ def create_message(
     return message_out(msg, edge, part_by_id)
 
 
+# Объявлен ДО /{message_id}, иначе FastAPI примет "reorder" за message_id.
+@router.patch("/{process_id}/messages/reorder", response_model=list[MessageOut])
+def reorder_messages(
+    process_id: uuid.UUID,
+    payload: ReorderPayload,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> list[MessageOut]:
+    """Новый порядок шагов сценария одной транзакцией: ids сверху вниз → order 0..N-1.
+
+    Требуем ПОЛНЫЙ перечень (в отличие от перестановки участников): у сообщений
+    order структурен — по нему фрагменты (alt/opt/loop) держат свой диапазон, и
+    частичный список оставил бы дубли позиций, то есть блок, накрывающий не то,
+    что видел пользователь.
+
+    Границы фрагментов НЕ пересчитываем — решение пользователя 2026-08-10:
+    фрагмент это диапазон ПОЗИЦИЙ, и кто въехал в строки блока, тот в нём и есть.
+    """
+    proc = _get_process(db, process_id, project)
+    by_id = {m.id: m for m in proc.messages}
+    if len(payload.ids) != len(by_id) or set(payload.ids) != set(by_id):
+        raise HTTPException(
+            status_code=422,
+            detail="Новый порядок должен перечислять все сообщения процесса ровно по разу",
+        )
+    for index, mid in enumerate(payload.ids):
+        by_id[mid].order = index
+    touch_project(db, project, user.id)
+    db.commit()
+
+    part_by_id = {p.id: p for p in proc.participants}
+    edge_cache: dict[uuid.UUID, Edge | None] = {}
+
+    def edge_of(eid: uuid.UUID | None) -> Edge | None:
+        if eid is None:
+            return None
+        if eid not in edge_cache:
+            edge_cache[eid] = db.get(Edge, eid)
+        return edge_cache[eid]
+
+    return [
+        message_out(m, edge_of(m.edge_id), part_by_id)
+        for m in sorted(proc.messages, key=lambda m: m.order)
+    ]
+
+
 @router.patch("/{process_id}/messages/{message_id}", response_model=MessageOut)
 def update_message(
     process_id: uuid.UUID,

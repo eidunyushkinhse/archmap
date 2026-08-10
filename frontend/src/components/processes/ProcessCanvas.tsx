@@ -216,6 +216,35 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setError(e instanceof Error ? e.message : "Не удалось переставить участников");
     }
   }
+  // Перестановка ШАГОВ сценария. id сообщений стабильны (меняется только order),
+  // поэтому undo/redo бьют по тем же id — как и у перестановки участников.
+  // Границы фрагментов бэк намеренно не двигает: фрагмент — диапазон позиций.
+  async function reorderMessages(ids: string[]) {
+    if (!detail) return;
+    const prevIds = [...detail.messages].sort((a, b) => a.order - b.order).map((m) => m.id);
+    if (ids.length !== prevIds.length) return; // страховка неполного порядка
+    // Оптимистично: сразу переписываем order в detail, иначе диаграмма мигнула бы
+    // на прежний порядок между отпусканием и ответом API (onRootUp синхронно
+    // сбрасывает состояние жеста).
+    const orderById = new Map(ids.map((mid, i) => [mid, i]));
+    setDetail({
+      ...detail,
+      messages: detail.messages.map((m) => ({ ...m, order: orderById.get(m.id) ?? m.order })),
+    });
+    try {
+      await processesApi.reorderMessages(id, ids);
+      hist.push({
+        label: "Перестановка шагов",
+        undo: async () => { await processesApi.reorderMessages(id, prevIds); },
+        redo: async () => { await processesApi.reorderMessages(id, ids); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload(); // откат оптимистичного порядка к истинному (БД не изменилась)
+      setError(e instanceof Error ? e.message : "Не удалось переставить шаги");
+    }
+  }
+
   function captureMessages(nodeId: string): MessageSnapshot[] {
     return messagesThrough(nodeId).map((m) => ({
       edge_id: m.edge_id, leg: m.leg, from_id: m.from_id, to_id: m.to_id, caption: m.caption, order: m.order,
@@ -523,6 +552,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 if (p) requestRemoveParticipant(p);
               } : undefined}
               onReorderParticipants={editing ? (nodeIds) => void reorderParticipants(nodeIds) : undefined}
+              onReorderMessages={editing ? (ids) => void reorderMessages(ids) : undefined}
             />
           </div>
         )}

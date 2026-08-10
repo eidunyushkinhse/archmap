@@ -15,6 +15,8 @@ from fastapi import HTTPException
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.process_fragment import ProcessFragment
+from app.models.process_message import ProcessMessage
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
@@ -23,6 +25,7 @@ from app.routers.processes import (
     get_process,
     list_channels,
     list_directions,
+    reorder_messages,
     reorder_participants,
 )
 from app.schemas.process import MessageCreate, ParticipantCreate, ReorderPayload
@@ -400,3 +403,102 @@ def test_reorder_rejects_foreign_participant(db):
             user=ensure_architect(db),
         )
     assert exc.value.status_code == 422
+
+
+# ── Перестановка шагов сценария (2026-08-10) ──────────────────────────────────
+def _три_шага(db):
+    """Процесс из трёх сообщений A→B: возвращает (proc, [msg0, msg1, msg2])."""
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, technology="REST", is_sync=False)  # async: только forward
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msgs = [
+        create_message(
+            proc.id,
+            MessageCreate(edge_id=edge.id, leg="forward",
+                          from_participant_id=parts[a.id], to_participant_id=parts[b.id],
+                          order=i, caption=f"шаг{i}"),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+        for i in range(3)
+    ]
+    return proc, msgs
+
+
+def test_перестановка_шагов_переписывает_order_подряд(db):
+    proc, msgs = _три_шага(db)
+
+    out = reorder_messages(
+        proc.id,
+        ReorderPayload(ids=[msgs[2].id, msgs[0].id, msgs[1].id]),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert [m.caption for m in out] == ["шаг2", "шаг0", "шаг1"]
+    assert [m.order for m in out] == [0, 1, 2]  # плотная нумерация, без дыр
+
+
+def test_неполный_перечень_отклоняется(db):
+    # Частичный список оставил бы дубли позиций — а по позициям фрагменты держат
+    # свой диапазон, и блок накрыл бы не то, что видел пользователь.
+    proc, msgs = _три_шага(db)
+
+    with pytest.raises(HTTPException) as exc:
+        reorder_messages(
+            proc.id,
+            ReorderPayload(ids=[msgs[1].id, msgs[0].id]),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 422
+    assert [m.order for m in db.query(ProcessMessage).all()] == [0, 1, 2]  # ничего не тронуто
+
+
+def test_дубль_в_перечне_отклоняется(db):
+    proc, msgs = _три_шага(db)
+
+    with pytest.raises(HTTPException) as exc:
+        reorder_messages(
+            proc.id,
+            ReorderPayload(ids=[msgs[0].id, msgs[0].id, msgs[1].id]),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 422
+
+
+def test_чужое_сообщение_в_перечне_отклоняется(db):
+    proc, msgs = _три_шага(db)
+
+    with pytest.raises(HTTPException) as exc:
+        reorder_messages(
+            proc.id,
+            ReorderPayload(ids=[msgs[0].id, msgs[1].id, uuid.uuid4()]),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 422
+
+
+def test_границы_фрагмента_остаются_на_месте(db):
+    # Решение пользователя 2026-08-10: фрагмент — диапазон ПОЗИЦИЙ. Кто въехал в
+    # строки блока, тот в нём и есть; границы за содержимым не едут.
+    proc, msgs = _три_шага(db)
+    db.add(ProcessFragment(
+        id=uuid.uuid4(), process_id=proc.id, kind="alt",
+        from_order=1, to_order=2, guard="успех",
+    ))
+    db.commit()
+
+    reorder_messages(
+        proc.id,
+        ReorderPayload(ids=[msgs[2].id, msgs[0].id, msgs[1].id]),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    frag = db.query(ProcessFragment).one()
+    assert (frag.from_order, frag.to_order) == (1, 2)
+    # На позициях 1..2 теперь шаг0 и шаг1 — состав блока изменился осознанно.
+    inside = [m.caption for m in sorted(proc.messages, key=lambda m: m.order)[1:3]]
+    assert inside == ["шаг0", "шаг1"]
