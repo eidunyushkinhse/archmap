@@ -111,6 +111,18 @@ class ParticipantCreate(BaseModel):
     order: int
 
 
+class ParticipantBind(BaseModel):
+    """Привязка непривязанного участника к узлу схемы.
+
+    node_id = null — снятие привязки; нужно как компенсирующая операция для undo
+    (иначе привязку нельзя было бы откатить). ПЕРЕпривязка привязанного запрещена:
+    сообщения участника опираются на плечи каналов ЕГО узла, и подмена узла молча
+    сделала бы их бессмысленными.
+    """
+
+    node_id: uuid.UUID | None
+
+
 class ReorderPayload(BaseModel):
     ids: list[uuid.UUID]
 

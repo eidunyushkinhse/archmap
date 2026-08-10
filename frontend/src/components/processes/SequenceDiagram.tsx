@@ -55,9 +55,12 @@ interface Props {
   // рефлексивное сообщение (внутренняя операция участника).
   onSelfConnect?: (id: string) => void;
   onMessageClick?: (id: string) => void;
-  // Удаление участника со схемы (крестик по ховеру на шапке). id = node_id.
+  // Удаление участника со схемы (крестик по ховеру на шапке). id — УЧАСТНИКА.
   // Передаётся только в режиме редактирования — в read-only окне крестика нет.
-  onDeleteParticipant?: (nodeId: string) => void;
+  onDeleteParticipant?: (participantId: string) => void;
+  // Привязать непривязанного участника (nodeId == null) к узлу схемы. Кнопка живёт
+  // на его шапке: расхождение и путь исправления должны быть в одном месте.
+  onBindParticipant?: (participantId: string) => void;
   // Перестановка участников перетаскиванием шапки (живой reorder). nodeIds — новый
   // порядок линий жизни слева-направо (id = node_id). Только в режиме редактирования.
   onReorderParticipants?: (nodeIds: string[]) => void;
@@ -94,6 +97,7 @@ export default function SequenceDiagram({
   onSelfConnect,
   onMessageClick,
   onDeleteParticipant,
+  onBindParticipant,
   onReorderParticipants,
   onReorderMessages,
   onResizeFragment,
@@ -1048,6 +1052,33 @@ export default function SequenceDiagram({
                 style={pheadDel}
               >
                 <IcoClose s={11} />
+              </button>
+            )}
+            {/* Непривязанному — путь исправления прямо на месте: алерт без него был
+                бы тупиком («вижу расхождение, сделать ничего не могу»). */}
+            {unbound && onBindParticipant && (
+              <button
+                type="button"
+                title={`Привязать «${p.name}» к узлу схемы`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onBindParticipant(p.id); }}
+                style={{
+                  position: "absolute",
+                  left: 6,
+                  top: -9,
+                  height: 18,
+                  padding: "0 7px",
+                  background: BROKEN.soft,
+                  border: "1px solid " + BROKEN.border,
+                  borderRadius: 5,
+                  color: BROKEN.ink,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  zIndex: 6,
+                }}
+              >
+                привязать
               </button>
             )}
             <span

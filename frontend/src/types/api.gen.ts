@@ -979,7 +979,14 @@ export interface paths {
         delete: operations["delete_participant_api_v1_processes__process_id__participants__participant_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Bind Participant
+         * @description Привязать непривязанного участника к узлу схемы (или снять привязку — для undo).
+         *
+         *     Объявлен ПОСЛЕ /participants/reorder: иначе FastAPI принял бы «reorder» за
+         *     participant_id (та же грабля была с /messages/reorder и /nodes/transition).
+         */
+        patch: operations["bind_participant_api_v1_processes__process_id__participants__participant_id__patch"];
         trace?: never;
     };
     "/api/v1/processes/{process_id}/messages": {
@@ -2347,6 +2354,19 @@ export interface components {
             status?: ("existing" | "planned" | "deprecated") | null;
             /** Base Version */
             base_version?: number | null;
+        };
+        /**
+         * ParticipantBind
+         * @description Привязка непривязанного участника к узлу схемы.
+         *
+         *     node_id = null — снятие привязки; нужно как компенсирующая операция для undo
+         *     (иначе привязку нельзя было бы откатить). ПЕРЕпривязка привязанного запрещена:
+         *     сообщения участника опираются на плечи каналов ЕГО узла, и подмена узла молча
+         *     сделала бы их бессмысленными.
+         */
+        ParticipantBind: {
+            /** Node Id */
+            node_id: string | null;
         };
         /** ParticipantCreate */
         ParticipantCreate: {
@@ -5073,6 +5093,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bind_participant_api_v1_processes__process_id__participants__participant_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantBind"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantOut"];
+                };
             };
             /** @description Validation Error */
             422: {

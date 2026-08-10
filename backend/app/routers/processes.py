@@ -46,6 +46,7 @@ from app.schemas.process import (
     MessageCreate,
     MessageOut,
     MessageUpdate,
+    ParticipantBind,
     ParticipantCreate,
     ParticipantOut,
     ProcessCreate,
@@ -198,6 +199,55 @@ def reorder_participants(
     all_nodes = load_nodes(db, project.id)
     parts = sorted(proc.participants, key=lambda p: p.order)
     return [participant_out(p, participant_node(p, all_nodes)) for p in parts]
+
+
+@router.patch(
+    "/{process_id}/participants/{participant_id}",
+    response_model=ParticipantOut,
+)
+def bind_participant(
+    process_id: uuid.UUID,
+    participant_id: uuid.UUID,
+    payload: ParticipantBind,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> ParticipantOut:
+    """Привязать непривязанного участника к узлу схемы (или снять привязку — для undo).
+
+    Объявлен ПОСЛЕ /participants/reorder: иначе FastAPI принял бы «reorder» за
+    participant_id (та же грабля была с /messages/reorder и /nodes/transition).
+    """
+    proc = _get_process(db, process_id, project)
+    part = db.get(ProcessParticipant, participant_id)
+    if part is None or part.process_id != proc.id:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+    if payload.node_id is None:
+        part.node_id = None  # имя остаётся: без него линия жизни стала бы безымянной
+        touch_project(db, project, user.id)
+        db.commit()
+        db.refresh(part)
+        return participant_out(part, None)
+    if part.node_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Участник уже привязан к узлу: сообщения опираются на каналы именно "
+            "этого узла, подменять его нельзя",
+        )
+    all_nodes = load_nodes(db, project.id)
+    node = all_nodes.get(payload.node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    if payload.node_id not in scope_node_ids(all_nodes, proc.scope_node_id):
+        raise HTTPException(status_code=422, detail="Узел вне области процесса")
+    if any(p.node_id == payload.node_id for p in proc.participants):
+        raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
+    part.node_id = node.id
+    part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
+    touch_project(db, project, user.id)
+    db.commit()
+    db.refresh(part)
+    return participant_out(part, node)
 
 
 @router.delete(

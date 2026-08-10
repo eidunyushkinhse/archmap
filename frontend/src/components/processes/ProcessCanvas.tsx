@@ -77,6 +77,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // (границу ставим сами, см. saveBranch).
   const [branchEdit, setBranchEdit] = useState<{ fid: string; index: number | null } | null>(null);
   const [branchGuard, setBranchGuard] = useState("");
+  // Привязка непривязанного участника: id участника, которому ищем узел.
+  const [bindPart, setBindPart] = useState<string | null>(null);
   const [delMsg, setDelMsg] = useState<string | null>(null);
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
@@ -283,6 +285,24 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       (m) => nodeOfPart(m.from_participant_id) === nodeId || nodeOfPart(m.to_participant_id) === nodeId,
     );
   }
+  async function bindParticipant(participantId: string, nodeId: string) {
+    setBindPart(null);
+    try {
+      await processesApi.bindParticipant(id, participantId, nodeId);
+      hist.push({
+        label: "Привязка участника",
+        // Обратная операция — снятие привязки: id участника при этом не меняется,
+        // поэтому откат бьёт точно по тому же участнику.
+        undo: async () => { await processesApi.bindParticipant(id, participantId, null); },
+        redo: async () => { await processesApi.bindParticipant(id, participantId, nodeId); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось привязать участника к узлу");
+    }
+  }
+
   async function doRemoveParticipant(p: ProcessParticipant) {
     const { node_id, order } = p;
     if (!node_id) {
@@ -686,6 +706,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               canConnect={editing ? (from, to) => directions.has(`${from}>${to}`) : undefined}
               onSelfConnect={editing ? (nodeId) => { setSelfMsg(nodeId); setSelfCaption(""); } : undefined}
               onMessageClick={editing ? (mid) => setDelMsg(mid) : undefined}
+              onBindParticipant={editing ? (pid) => setBindPart(pid) : undefined}
               onDeleteParticipant={editing ? (nodeId) => {
                 const p = detail.participants.find((pp) => pp.node_id === nodeId);
                 if (p) requestRemoveParticipant(p);
@@ -898,6 +919,34 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         )}
 
         {/* Управление участниками */}
+        {/* Привязка непривязанного участника: тот же пикер дерева, что и у добавления —
+            выбранный узел не добавляет линию жизни, а достаётся существующей. */}
+        {bindPart && detail && (
+          <>
+            <div style={overlayDim} onClick={() => setBindPart(null)} />
+            <div style={overlayCenter}>
+              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>
+                    Привязать «{partById[bindPart]?.name ?? "участника"}»
+                  </div>
+                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => setBindPart(null)}>
+                    <IcoClose s={14} />
+                  </button>
+                </div>
+                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
+                  Участник пришёл из импорта или потерял узел при удалении. Выберите, какому
+                  объекту схемы он соответствует.
+                </div>
+                <ParticipantPicker
+                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                  onAdd={(ids) => { if (ids[0]) void bindParticipant(bindPart, ids[0]); }}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
         {partPanel && detail && (
           <>
             <div style={overlayDim} onClick={() => setPartPanel(false)} />

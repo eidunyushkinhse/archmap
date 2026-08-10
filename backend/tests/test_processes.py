@@ -21,6 +21,7 @@ from app.models.process_participant import ProcessParticipant
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
+    bind_participant,
     create_fragment,
     create_message,
     delete_fragment,
@@ -37,6 +38,7 @@ from app.schemas.process import (
     FragmentCreate,
     FragmentUpdate,
     MessageCreate,
+    ParticipantBind,
     ParticipantCreate,
     ReorderPayload,
 )
@@ -770,3 +772,107 @@ def test_сообщение_на_непривязанного_отклоняет
 
     assert exc.value.status_code == 422
     assert "не привязан" in exc.value.detail
+
+
+# ── Привязка непривязанного участника к узлу (Ф4) ─────────────────────────────
+# Без неё алерт «участник без узла» был бы тупиком: расхождение видно, исправить
+# нечем — ровно то, на что пользователь указывал на приёмке алерта про людей
+# внутри системы.
+def _осиротить(db):
+    """Процесс из трёх шагов, у которого удалили узел A: возвращает (proc, участник)."""
+    proc, _ = _три_шага(db)
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+    return proc, next(p for p in proc.participants if p.node_id is None)
+
+
+def test_привязка_возвращает_участника_в_схему(db):
+    proc, сирота = _осиротить(db)
+    новый = _node(db, "A2")
+    db.commit()
+
+    out = bind_participant(
+        proc.id, сирота.id, ParticipantBind(node_id=новый.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.node_id == новый.id
+    assert out.shape is not None  # свойства узла снова есть
+    # Имя-запас обновилось: оно про НОВЫЙ узел. Видно это только когда узел исчезнет —
+    # в ответе имя всегда живое, из самого узла.
+    db.delete(новый)
+    db.commit()
+    assert db.get(ProcessParticipant, сирота.id).name == "A2"
+
+
+def test_привязка_к_занятому_узлу_отклоняется(db):
+    # Узел уже участвует в процессе — второй линии жизни того же узла быть не может.
+    proc, сирота = _осиротить(db)
+    b = db.query(Node).filter(Node.name == "B").one()
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            proc.id, сирота.id, ParticipantBind(node_id=b.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_перепривязка_привязанного_запрещена(db):
+    """Сообщения участника опираются на плечи каналов ЕГО узла: подмена узла молча
+    сделала бы их бессмысленными."""
+    proc, _ = _три_шага(db)
+    привязанный = next(p for p in proc.participants if p.node_id is not None)
+    другой = _node(db, "Другой")
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            proc.id, привязанный.id, ParticipantBind(node_id=другой.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_снятие_привязки_оставляет_имя(db):
+    # Компенсирующая операция для undo. Без имени линия жизни стала бы безымянной.
+    proc, _ = _три_шага(db)
+    привязанный = next(p for p in proc.participants if p.name == "A")
+
+    out = bind_participant(
+        proc.id, привязанный.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.node_id is None
+    assert out.name == "A"
+
+
+def test_привязка_к_несуществующему_узлу(db):
+    proc, сирота = _осиротить(db)
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            proc.id, сирота.id, ParticipantBind(node_id=uuid.uuid4()),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 404
+
+
+def test_привязка_чужого_участника_не_проходит(db):
+    proc, сирота = _осиротить(db)
+    другой_процесс = _process(db, name="Другой")
+    db.commit()
+    узел = _node(db, "A2")
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            другой_процесс.id, сирота.id, ParticipantBind(node_id=узел.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 404
