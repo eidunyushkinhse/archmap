@@ -40,7 +40,7 @@ describe("SchemaAlerts: сообщения без связи", () => {
     // Знак есть только при ненулевом total — значит новый класс в сумму входит.
     expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
     await openPanel();
-    expect(screen.getByText("Сообщения без связи")).toBeTruthy();
+    expect(screen.getByText("Незадокументированные сообщения")).toBeTruthy();
     expect(screen.getByText(/Оформление заказа/)).toBeTruthy();
     expect(screen.getByText("Покупатель → Сервис заказов")).toBeTruthy();
   });
@@ -73,7 +73,7 @@ describe("SchemaAlerts: сообщения без связи", () => {
   });
 });
 
-// ── Участники без узла схемы (AL27) ───────────────────────────────────────────
+// ── Незадокументированные участники (AL27) ───────────────────────────────────
 // Симметрия повисшему сообщению: линия жизни на диаграмме есть, объекта архитектуры
 // за ней нет. Чинится привязкой на шапке участника — поэтому строка ведёт В ПРОЦЕСС,
 // а не на холст: на холсте этого участника попросту нет.
@@ -90,7 +90,7 @@ describe("SchemaAlerts: участники без узла схемы", () => {
 
     expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
     await openPanel();
-    expect(screen.getByText("Участники без узла схемы")).toBeTruthy();
+    expect(screen.getByText("Незадокументированные участники")).toBeTruthy();
     expect(screen.getByText("Биллинг")).toBeTruthy();
   });
 

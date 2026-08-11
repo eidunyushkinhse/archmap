@@ -561,7 +561,7 @@ function NodePageInner({
                 {node.docs.length > 0 && (
                   <>
                     <p className="np-warn">
-                      У контейнера остались собственные схемы логики — распределите их по детям.
+                      У контейнера остались собственные логические диаграммы, распределите их по дочерним сервисам
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {node.docs.map((d) => (
@@ -679,7 +679,7 @@ function NodePageInner({
                 {node.openapi_spec && (
                   <>
                     <p className="np-warn">
-                      У контейнера осталась собственная OpenAPI-спека — распределите её по детям.
+                      У контейнера осталась собственная OpenAPI-спецификация, распределите её по дочерним сервисам
                     </p>
                     <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
                       <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>

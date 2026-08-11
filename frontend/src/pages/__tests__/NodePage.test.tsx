@@ -263,7 +263,7 @@ describe("NodePage: правила контейнеров", () => {
 
   it("свои схемы: предупреждение и «Распределить по детям», создание скрыто", async () => {
     setupContainer({ own: { docs: [docMeta()] } });
-    await screen.findByText(/остались собственные схемы логики/);
+    await screen.findByText(/остались собственные логические диаграммы/);
     expect(screen.getByRole("button", { name: "Распределить по детям" })).toBeInTheDocument();
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });

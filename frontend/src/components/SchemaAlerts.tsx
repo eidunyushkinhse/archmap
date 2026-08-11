@@ -18,13 +18,15 @@ import "./schemaAlerts.css";
  *
  * Категории (формулировки на «объект», не «узел»):
  *  1) Объекты без связей — атомарные объекты без единой связи;
- *  2) Связи в промежуточный объект — связь упирается в контейнер, а не в атомарный;
+ *  2) Связи в контейнер — связь упирается в контейнер, а не в атомарный объект;
  *  3) Изолированные группы — схема распалась на ≥2 несвязанных кластера;
- *  4) Контейнеры со своими схемами — у контейнера остались собственные
- *     (grandfather) схемы логики и/или спека; их надо распределить по детям;
- *  5) Пользователи внутри системы — узел-человек вложен в другой объект, а по C4
+ *  4) Контейнер со своей документацией — у контейнера остались собственные
+ *     (grandfather) логические диаграммы и/или спека; их надо распределить по
+ *     дочерним сервисам. ЧТО ИМЕННО осталось, строка не уточняет: конкретное
+ *     предупреждение с путём исправления живёт на странице объекта;
+ *  5) Пользователи внутри контейнера — узел-человек вложен в другой объект, а по C4
  *     люди живут на контекстном уровне, ЗА границей системы;
- *  6) Повисшие сообщения процессов — связь, которой шло сообщение, удалена из
+ *  6) Незадокументированные сообщения — связь, которой шло сообщение, удалена из
  *     схемы. Клик ведёт В ПРОЦЕСС (чинить на холсте нечего), поэтому строки
  *     кликабельны только там, где переход возможен — в оболочке страниц;
  *     редактор-карта живёт отдельным роутом и обработчик не передаёт.
@@ -195,7 +197,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
             ))}
           </Section>
 
-          <Section icon={IcoArrowBox(13)} title="Связи в промежуточный объект" count={intermediate.length}>
+          <Section icon={IcoArrowBox(13)} title="Связи в контейнер" count={intermediate.length}>
             {intermediate.map((e) => (
               <Item key={e.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: e.edge_id }))}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
@@ -215,15 +217,17 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
             ))}
           </Section>
 
-          <Section icon={IcoBoxDocs(13)} title="Контейнеры со своими схемами" count={containerOwn.length}>
+          <Section icon={IcoBoxDocs(13)} title="Контейнер со своей документацией" count={containerOwn.length}>
+            {/* Что именно осталось (доки/спека) в строке НЕ уточняем: конкретное
+                предупреждение с путём исправления ждёт на странице объекта. */}
             {containerOwn.map((c) => (
               <Item key={c.node_id} onClick={onLocate && (() => locate({ kind: "node", id: c.node_id }))}>
-                {c.node_name}{c.has_spec ? " + спека" : ""}
+                {c.node_name}
               </Item>
             ))}
           </Section>
 
-          <Section icon={IcoBrokenArrow(13)} title="Сообщения без связи" count={dangling.length}>
+          <Section icon={IcoBrokenArrow(13)} title="Незадокументированные сообщения" count={dangling.length}>
             {dangling.map((m) => (
               <Item
                 key={m.message_id}
@@ -258,7 +262,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
             ))}
           </Section>
 
-          <Section icon={IcoBrokenLifeline(13)} title="Участники без узла схемы" count={unbound.length}>
+          <Section icon={IcoBrokenLifeline(13)} title="Незадокументированные участники" count={unbound.length}>
             {unbound.map((p) => (
               <Item
                 key={p.participant_id}
@@ -272,7 +276,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
             ))}
           </Section>
 
-          <Section icon={IcoPersonBox(13)} title="Пользователи внутри системы" count={personsInside.length}>
+          <Section icon={IcoPersonBox(13)} title="Пользователи внутри контейнера" count={personsInside.length}>
             {personsInside.map((p) => (
               <Item key={p.node_id} onClick={onLocate && (() => locate({ kind: "node", id: p.node_id }))}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>

@@ -107,7 +107,7 @@ def alerts(data: dict[str, Any]) -> str:
 
     add("Объекты без связей", [str(d["node_name"]) for d in data.get("disconnected_nodes", [])])
     add(
-        "Связи в промежуточный объект",
+        "Связи в контейнер",
         [f"{e['source_name']} → {e['target_name']}" for e in data.get("intermediate_edges", [])],
     )
     add(
@@ -115,15 +115,15 @@ def alerts(data: dict[str, Any]) -> str:
         [", ".join(str(x) for x in g.get("node_names", [])) for g in data.get("isolated_groups", [])],
     )
     add(
-        "Контейнеры со своими схемами",
+        "Контейнер со своей документацией",
         [str(c["node_name"]) for c in data.get("container_own_docs", [])],
     )
     add(
-        "Пользователи внутри системы",
+        "Пользователи внутри контейнера",
         [f"{p['node_name']} внутри {p['parent_name']}" for p in data.get("persons_inside", [])],
     )
     add(
-        "Сообщения без связи",
+        "Незадокументированные сообщения",
         [
             f"{m['process_name']}: {m.get('caption') or 'без подписи'} ({m['from_name']} → {m['to_name']})"
             for m in data.get("dangling_messages", [])
