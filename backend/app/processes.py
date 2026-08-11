@@ -14,6 +14,7 @@ HTTP-слой лишь валидирует вход, зовёт домен и �
 """
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from sqlalchemy import func
@@ -208,14 +209,30 @@ def _message_kind(leg: str, edge: Edge | None) -> str:
     return "forward"
 
 
-def _default_caption(leg: str, edge: Edge | None) -> str | None:
+def default_caption(leg: str, edge: Edge | None) -> str | None:
+    """Подпись, которую канал даёт плечу: метка связи у вызова, «ответ» у ответа.
+
+    Точка применения ОДНА — создание шага (create_message замораживает это значение
+    в собственную подпись). При чтении подпись больше не выводится: см. message_out.
+    """
     if leg == "return":
         return "ответ"
     return edge.label if edge is not None else None
 
 
-def participant_out(p: ProcessParticipant, node: Node) -> ParticipantOut:
-    """Сериализация участника процесса (линия жизни) из пары участник + узел."""
+def participant_out(p: ProcessParticipant, node: Node | None) -> ParticipantOut:
+    """Сериализация участника процесса (линия жизни).
+
+    Узла может не быть — участник непривязан (имя не сопоставили при импорте) или
+    осиротел (узел удалили, FK погасил ссылку). Тогда имя берём у самого участника,
+    а свойств узла нет вовсе — их неоткуда взять, и придумывать нельзя: «сервис
+    existing» по умолчанию выглядел бы как настоящий узел.
+    """
+    if node is None:
+        return ParticipantOut(
+            id=p.id, node_id=None, name=p.name,
+            role=None, shape=None, is_external=None, status=None, order=p.order,
+        )
     return ParticipantOut(
         id=p.id,
         node_id=p.node_id,
@@ -228,23 +245,41 @@ def participant_out(p: ProcessParticipant, node: Node) -> ParticipantOut:
     )
 
 
+def participant_node(p: ProcessParticipant, all_nodes: dict[uuid.UUID, Node]) -> Node | None:
+    """Узел участника, если он есть и жив. Единая точка — иначе индексация
+    all_nodes[p.node_id] падала бы на непривязанных."""
+    return all_nodes.get(p.node_id) if p.node_id else None
+
+
+def bound_node_ids(participants: Iterable[ProcessParticipant]) -> set[uuid.UUID]:
+    """Узлы участников для проекции концов связи. Непривязанные исключены: плечо
+    канала на них не приземляется — у них нет узла, к которому канал мог бы вести."""
+    return {p.node_id for p in participants if p.node_id is not None}
+
+
 def message_out(
     msg: ProcessMessage, edge: Edge | None, part_by_id: dict[uuid.UUID, ProcessParticipant]
 ) -> MessageOut:
     """Сериализация сообщения процесса.
 
+    ПОДПИСЬ У ШАГА ВСЕГДА СВОЯ (решение пользователя 2026-08-11): отдаём ровно то,
+    что лежит в строке, и ничего не выводим из канала. Прежде пустая подпись значила
+    «показывать то, что даёт канал», и два неотличимых на вид шага вели себя
+    по-разному — ради чего всё и менялось. Дефолт канала теперь ЗАМОРАЖИВАЕТСЯ ОДИН
+    РАЗ, при создании шага (create_message), и дальше живёт как обычный текст.
+    Цена решения принята сознательно: переименование связи в схеме до процессов
+    больше не доезжает — подписи правятся руками.
+
     Самосообщение (внутренняя операция участника): концы совпадают, связи C4 нет.
-    kind="self", подпись — свободный текст (дефолта из плеча нет), valid всегда true
-    (это не повисшая связь — её тут и не было).
+    kind="self", valid всегда true (это не повисшая связь — её тут и не было).
     """
     is_self = msg.from_participant_id == msg.to_participant_id
+    caption = msg.caption
     if is_self:
         kind = "self"
-        caption = msg.caption
         valid = True
     else:
         kind = _message_kind(msg.leg, edge)
-        caption = msg.caption if msg.caption is not None else _default_caption(msg.leg, edge)
         valid = msg.edge_id is not None
     return MessageOut(
         id=msg.id,
@@ -254,10 +289,82 @@ def message_out(
         kind=kind,  # type: ignore[arg-type]
         caption=caption,
         technology=edge.technology if edge is not None else None,
-        from_id=part_by_id[msg.from_participant_id].node_id,
-        to_id=part_by_id[msg.to_participant_id].node_id,
+        # Концы — УЧАСТНИКИ, а не узлы: у непривязанного узла нет, и два таких конца
+        # были бы неразличимы. Граница слоёв: C4 (каналы, плечи, направления) говорит
+        # узлами, слой процесса — участниками. Заодно ушла лишняя конвертация:
+        # id участника лежит прямо в строке сообщения.
+        from_participant_id=msg.from_participant_id,
+        to_participant_id=msg.to_participant_id,
         valid=valid,
     )
+
+
+def reattach_dangling(
+    db: Session,
+    proc: BusinessProcess,
+    all_nodes: dict[uuid.UUID, Node],
+    part: ProcessParticipant | None = None,
+) -> tuple[int, int, list[uuid.UUID]]:
+    """Подхват каналов для повисших шагов. part=None — по всему процессу.
+
+    Возвращает (подхвачено, осталось, id подхваченных). Список нужен откату: он
+    отцепляет ровно то, что прицепила эта операция.
+
+    Зачем: пока участник был непривязан, его шаги существовать как плечи канала не
+    могли — узла-то не было. После привязки канал в схеме может найтись, и шаг обязан
+    перестать быть повисшим: иначе пользователь видит сломанные стрелки при живых
+    каналах и починить их нечем (edge_id не патчится ни через API, ни в интерфейсе).
+
+    Подхватываем ТОЛЬКО при единственном кандидате. Между парой узлов бывает несколько
+    каналов (REST и Kafka), и выбирать за пользователя нельзя — такой шаг остаётся
+    повисшим и попадает в отчёт числом.
+    """
+    part_by_id = {p.id: p for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
+    edges = db.query(Edge).filter(Edge.project_id == proc.project_id).all()
+    attached: list[uuid.UUID] = []
+    left = 0
+    for msg in proc.messages:
+        if msg.edge_id is not None:
+            continue
+        if msg.from_participant_id == msg.to_participant_id:
+            continue  # самосообщение — канала у него и не было
+        if part is not None and part.id not in (msg.from_participant_id, msg.to_participant_id):
+            continue
+        frm = part_by_id.get(msg.from_participant_id)
+        to = part_by_id.get(msg.to_participant_id)
+        if frm is None or to is None or frm.node_id is None or to.node_id is None:
+            left += 1  # второй конец всё ещё непривязан — цеплять не к чему
+            continue
+        candidates = [
+            edge
+            for edge in edges
+            for leg in legs_for_edge(edge)
+            if leg.leg == msg.leg
+            and resolve_to_participant(leg.from_id, participant_ids, all_nodes) == frm.node_id
+            and resolve_to_participant(leg.to_id, participant_ids, all_nodes) == to.node_id
+        ]
+
+        if len(candidates) == 1:
+            msg.edge_id = candidates[0].id
+            attached.append(msg.id)
+        else:
+            left += 1
+    return len(attached), left, attached
+
+
+def detach_messages(proc: BusinessProcess, part: ProcessParticipant) -> int:
+    """Отцепить шаги участника от каналов — компенсация подхвата при снятии привязки.
+    Без неё undo оставил бы шаги привязанными к каналам узла, которого у участника уже
+    нет: концы плеча перестали бы проецироваться на него."""
+    detached = 0
+    for msg in proc.messages:
+        if msg.edge_id is None:
+            continue
+        if part.id in (msg.from_participant_id, msg.to_participant_id):
+            msg.edge_id = None
+            detached += 1
+    return detached
 
 
 def fragment_out(frag: ProcessFragment) -> FragmentOut:
@@ -301,7 +408,7 @@ def build_process_detail(
         name=proc.name,
         scope_node_id=proc.scope_node_id,
         scope_name=scope_node.name if scope_node else None,
-        participants=[participant_out(p, all_nodes[p.node_id]) for p in parts],
+        participants=[participant_out(p, participant_node(p, all_nodes)) for p in parts],
         messages=messages,
         fragments=fragments,
     )

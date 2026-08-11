@@ -273,6 +273,20 @@ class DanglingMessageAlert(BaseModel):
     to_name: str
 
 
+class UnboundParticipantAlert(BaseModel):
+    """Участник процесса без узла схемы (node_id = NULL). Появляется двумя путями:
+    импортом диаграммы, где имя не сопоставили ни с одним узлом, и удалением узла —
+    FK гасит ссылку (SET NULL), процесс переживает удаление вместо того, чтобы молча
+    лишиться участника и всех его шагов.
+
+    Вторая ось «незадокументированности», симметричная повисшему сообщению: линия
+    жизни на схеме процесса есть, а объекта архитектуры за ней нет."""
+    process_id: uuid.UUID
+    process_name: str
+    participant_id: uuid.UUID
+    name: str  # имя из диаграммы либо имя узла на момент, когда он ещё был
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
@@ -280,6 +294,7 @@ class AlertsResponse(BaseModel):
     container_own_docs: list[ContainerOwnDocsAlert] = []
     persons_inside: list[PersonInsideAlert] = []
     dangling_messages: list[DanglingMessageAlert] = []
+    unbound_participants: list[UnboundParticipantAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

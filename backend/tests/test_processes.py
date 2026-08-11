@@ -17,25 +17,32 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
+from app.models.process_participant import ProcessParticipant
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
+    bind_participant,
     create_fragment,
     create_message,
     delete_fragment,
     delete_message,
+    detach_messages_endpoint,
     get_process,
     list_channels,
     list_directions,
+    reattach_process,
     reorder_messages,
     reorder_participants,
     update_fragment,
+    update_message,
 )
 from app.schemas.process import (
     BranchIn,
     FragmentCreate,
     FragmentUpdate,
     MessageCreate,
+    MessageUpdate,
+    ParticipantBind,
     ParticipantCreate,
     ReorderPayload,
 )
@@ -164,13 +171,83 @@ def test_legal_forward_and_return(db):
         user=ensure_architect(db),
     )
     assert fwd.kind == "forward" and fwd.caption == "POST /x"
-    assert fwd.from_id == a.id and fwd.to_id == b.id
+    assert fwd.from_participant_id == parts[a.id] and fwd.to_participant_id == parts[b.id]
     assert ret.kind == "return" and ret.caption == "ответ"
-    assert ret.from_id == b.id and ret.to_id == a.id
+    assert ret.from_participant_id == parts[b.id] and ret.to_participant_id == parts[a.id]
 
     detail = get_process(proc.id, db=db, project=ensure_project(db))
     assert [m.kind for m in detail.messages] == ["forward", "return"]
     assert detail.messages[0].valid and detail.messages[1].valid
+
+
+# ── 3б. подпись у шага ВСЕГДА своя: дефолт канала замораживается при создании ──
+def test_подпись_замораживается_при_создании_и_не_следует_за_каналом(db):
+    """Решение пользователя 2026-08-11. Прежде подпись выводилась при КАЖДОМ чтении,
+    поэтому переименование связи доезжало до процессов; теперь дефолт канала берётся
+    один раз, при создании шага, и дальше это обычный текст."""
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    создан = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert создан.caption == "создать заказ"  # заморозили метку канала
+
+    edge.label = "оформить заказ"  # переименовали связь в схеме
+    db.commit()
+
+    detail = get_process(proc.id, db=db, project=ensure_project(db))
+    assert detail.messages[0].caption == "создать заказ"  # шаг за каналом НЕ следует
+
+
+def test_своя_подпись_при_создании_дефолт_не_перебивает(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+
+    создан = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", caption="проверка лимита",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert создан.caption == "проверка лимита"
+
+
+def test_подпись_правится_и_снимается(db):
+    """Путь карточки шага. Снятие подписи — ЯВНЫЙ null: у Pydantic «не прислали» и
+    «прислали null» различаются (exclude_unset), иначе очистка поля молча ничего не
+    делала бы."""
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    def правка(body):
+        return update_message(
+            proc.id, msg.id, body, db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert правка(MessageUpdate(caption="проверка лимита")).caption == "проверка лимита"
+    # Поле не прислали — подпись на месте (иначе любая правка порядка стирала бы её).
+    assert правка(MessageUpdate(order=0)).caption == "проверка лимита"
+    # Прислали null — подпись снята и НЕ выведена заново из канала.
+    assert правка(MessageUpdate(caption=None)).caption is None
 
 
 # ── 4. /channels: 2 плеча для sync, 1 для async, пусто без рёбер ───────────────
@@ -251,9 +328,10 @@ def test_cross_level_channel_and_message(db):
         project=ensure_project(db),
         user=ensure_architect(db),
     )
-    assert msg.from_id == a.id and msg.to_id == b.id
+    assert msg.from_participant_id == parts[a.id] and msg.to_participant_id == parts[b.id]
     detail = get_process(proc.id, db=db, project=ensure_project(db))
-    assert detail.messages[0].from_id == a.id and detail.messages[0].to_id == b.id
+    got = detail.messages[0]
+    assert got.from_participant_id == parts[a.id] and got.to_participant_id == parts[b.id]
 
     # Если же участник — сам C, канал идёт A→C напрямую
     proc2 = _process(db, name="P2")
@@ -348,7 +426,7 @@ def test_self_message_created_without_edge(db):
     assert msg.kind == "self"
     assert msg.valid is True  # это не повисшая связь — её тут и не было
     assert msg.edge_id is None
-    assert msg.from_id == a.id and msg.to_id == a.id
+    assert msg.from_participant_id == msg.to_participant_id == parts[a.id]
     assert msg.caption == "валидация"
 
 
@@ -579,11 +657,11 @@ def test_ветвей_не_больше_чем_шагов_в_охвате(db):
     строгое возрастание границ — свободных значений внутри охвата просто нет.
     """
     proc, msgs = _три_шага(db)  # order 0,1,2
-    pid = {p.node_id: p.id for p in proc.participants}
     create_message(  # четвёртый шаг далеко впереди — между 2 и 10 дыра
         proc.id,
         MessageCreate(edge_id=msgs[0].edge_id, leg="forward",
-                      from_participant_id=pid[msgs[0].from_id], to_participant_id=pid[msgs[0].to_id],
+                      from_participant_id=msgs[0].from_participant_id,
+                      to_participant_id=msgs[0].to_participant_id,
                       order=10, caption="далёкий"),
         db=db, project=ensure_project(db), user=ensure_architect(db),
     )
@@ -683,3 +761,427 @@ def test_удаление_фрагмента_уносит_ветви(db):
     )
 
     assert db.query(ProcessFragmentBranch).count() == 0
+
+
+# ── Непривязанный участник (2026-08-10) ───────────────────────────────────────
+# Участник перестал быть обязательно узлом C4: node_id может быть NULL. Так бывает
+# после удаления узла (FK гасит ссылку) и после импорта диаграммы, где имя не
+# сопоставили. Вторая ось «незадокументированности», симметричная повисшему сообщению.
+def test_участник_запоминает_имя_узла(db):
+    # Имя нужно осиротевшему участнику: удаление узла делает БД-каскад по поддереву,
+    # перехватить имя в тот момент негде.
+    proc, _ = _три_шага(db)
+
+    part = db.query(ProcessParticipant).filter(ProcessParticipant.order == 0).one()
+
+    assert part.name == "A"
+
+
+def test_удаление_узла_оставляет_участника_непривязанным(db):
+    """Смена принятого поведения (решение пользователя 2026-08-10): было CASCADE —
+    участник и все его шаги молча исчезали. Стало SET NULL: процесс переживает
+    удаление узла, а расхождение со схемой остаётся видимым."""
+    proc, _ = _три_шага(db)
+    узел_a = db.query(Node).filter(Node.name == "A").one()
+
+    db.delete(узел_a)
+    db.commit()
+
+    parts = db.query(ProcessParticipant).filter(ProcessParticipant.process_id == proc.id).all()
+    assert len(parts) == 2  # участник на месте, а не снесён каскадом
+    осиротевший = next(p for p in parts if p.node_id is None)
+    assert осиротевший.name == "A"  # имя не потерялось
+    # Шаги живы и стали повисшими: связи узла ушли вместе с ним (SET NULL у edge_id).
+    шаги = db.query(ProcessMessage).filter(ProcessMessage.process_id == proc.id).all()
+    assert len(шаги) == 3
+    assert all(m.edge_id is None for m in шаги)
+
+
+def test_детали_процесса_отдают_непривязанного_участника(db):
+    proc, _ = _три_шага(db)
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+
+    detail = get_process(proc.id, db=db, project=ensure_project(db), _=ensure_architect(db))
+
+    p = next(p for p in detail.participants if p.node_id is None)
+    assert p.name == "A"
+    # Свойств узла нет и придумывать их нельзя: «сервис existing» по умолчанию
+    # выглядел бы на схеме как настоящий узел.
+    assert (p.shape, p.status, p.is_external, p.role) == (None, None, None, None)
+
+
+def test_перестановка_переживает_непривязанного(db):
+    # Тихая мина: до этой правки reorder_participants индексировал all_nodes[p.node_id].
+    proc, _ = _три_шага(db)
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+    parts = sorted(proc.participants, key=lambda p: p.order)
+
+    out = reorder_participants(
+        proc.id, ReorderPayload(ids=[parts[1].id, parts[0].id]),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert [p.name for p in out] == ["B", "A"]
+
+
+def test_сообщение_на_непривязанного_отклоняется_внятно(db):
+    proc, _ = _три_шага(db)
+    b_id = db.query(Node).filter(Node.name == "B").one().id
+    edge_id = db.query(Edge).one().id  # запоминаем ДО удаления: каскад унесёт связь
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+    parts = {p.node_id: p for p in proc.participants}
+    непривязанный = next(p for p in proc.participants if p.node_id is None)
+
+    with pytest.raises(HTTPException) as exc:
+        create_message(
+            proc.id,
+            MessageCreate(edge_id=edge_id, leg="forward",
+                          from_participant_id=непривязанный.id,
+                          to_participant_id=parts[b_id].id, order=9),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 422
+    assert "не привязан" in exc.value.detail
+
+
+# ── Привязка непривязанного участника к узлу (Ф4) ─────────────────────────────
+# Без неё алерт «участник без узла» был бы тупиком: расхождение видно, исправить
+# нечем — ровно то, на что пользователь указывал на приёмке алерта про людей
+# внутри системы.
+def _осиротить(db):
+    """Процесс из трёх шагов, у которого удалили узел A: возвращает (proc, участник)."""
+    proc, _ = _три_шага(db)
+    db.delete(db.query(Node).filter(Node.name == "A").one())
+    db.commit()
+    return proc, next(p for p in proc.participants if p.node_id is None)
+
+
+def test_привязка_возвращает_участника_в_схему(db):
+    proc, сирота = _осиротить(db)
+    новый = _node(db, "A2")
+    db.commit()
+
+    out = bind_participant(
+        proc.id, сирота.id, ParticipantBind(node_id=новый.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.participant.node_id == новый.id
+    assert out.participant.shape is not None  # свойства узла снова есть
+    # Имя-запас обновилось: оно про НОВЫЙ узел. Видно это только когда узел исчезнет —
+    # в ответе имя всегда живое, из самого узла.
+    db.delete(новый)
+    db.commit()
+    assert db.get(ProcessParticipant, сирота.id).name == "A2"
+
+
+def test_привязка_к_занятому_узлу_отклоняется(db):
+    # Узел уже участвует в процессе — второй линии жизни того же узла быть не может.
+    proc, сирота = _осиротить(db)
+    b = db.query(Node).filter(Node.name == "B").one()
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            proc.id, сирота.id, ParticipantBind(node_id=b.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_перепривязка_привязанного_запрещена(db):
+    """Сообщения участника опираются на плечи каналов ЕГО узла: подмена узла молча
+    сделала бы их бессмысленными."""
+    proc, _ = _три_шага(db)
+    привязанный = next(p for p in proc.participants if p.node_id is not None)
+    другой = _node(db, "Другой")
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            proc.id, привязанный.id, ParticipantBind(node_id=другой.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_снятие_привязки_оставляет_имя(db):
+    # Компенсирующая операция для undo. Без имени линия жизни стала бы безымянной.
+    proc, _ = _три_шага(db)
+    привязанный = next(p for p in proc.participants if p.name == "A")
+
+    out = bind_participant(
+        proc.id, привязанный.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.participant.node_id is None
+    assert out.participant.name == "A"
+
+
+def test_привязка_к_несуществующему_узлу(db):
+    proc, сирота = _осиротить(db)
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            proc.id, сирота.id, ParticipantBind(node_id=uuid.uuid4()),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 404
+
+
+def test_привязка_чужого_участника_не_проходит(db):
+    proc, сирота = _осиротить(db)
+    другой_процесс = _process(db, name="Другой")
+    db.commit()
+    узел = _node(db, "A2")
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        bind_participant(
+            другой_процесс.id, сирота.id, ParticipantBind(node_id=узел.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 404
+
+
+def test_привязка_подхватывает_канал_повисшего_шага(db):
+    """Пока участник был непривязан, его шаги не могли опираться на канал — узла не
+    было. После привязки канал нашёлся, и шаг обязан перестать быть повисшим: иначе
+    пользователь видит сломанные стрелки при живых каналах и починить их нечем."""
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    # Снимаем привязку у A: шаги отцепляются от канала и повисают.
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+    bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert all(m.edge_id is None for m in proc.messages)
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=a.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (3, 0)
+    assert all(m.edge_id is not None for m in proc.messages)
+
+
+def test_подхват_не_выбирает_из_нескольких_каналов(db):
+    # Между парой узлов бывает два канала (REST и Kafka) — молча решать за
+    # пользователя нельзя, шаг остаётся повисшим и попадает в отчёт числом.
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    b = db.query(Node).filter(Node.name == "B").one()
+    _edge(db, a, b, technology="Kafka", is_sync=False)  # второй канал той же пары
+    db.commit()
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+    bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=a.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (0, 3)
+    assert all(m.edge_id is None for m in proc.messages)
+
+
+def test_подхват_не_трогает_шаги_без_канала(db):
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+    bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    db.query(Edge).delete()  # канала в схеме больше нет
+    db.commit()
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=a.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (0, 3)
+
+
+def test_снятие_привязки_отцепляет_шаги(db):
+    # Компенсация подхвата: иначе undo оставил бы шаги на каналах узла, которого у
+    # участника уже нет — концы плеча перестали бы на него проецироваться.
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    участник = next(p for p in proc.participants if p.node_id == a.id)
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert out.dangling == 3
+    assert all(m.edge_id is None for m in proc.messages)
+
+
+def test_подхват_различает_плечи_встречных_каналов(db):
+    """Два узла, зовущие друг друга: A→B и B→A, оба синхронные. Шаг «вызов из B в A»
+    должен встать на канал B→A, а не на ПЛЕЧО ОТВЕТА канала A→B — направление у них
+    одинаковое, различает их только тип плеча."""
+    a, b = _node(db, "A"), _node(db, "B")
+    туда = _edge(db, a, b, technology="REST", is_sync=True)
+    обратно = _edge(db, b, a, technology="gRPC", is_sync=True)
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=обратно.id, leg="forward",
+                      from_participant_id=parts[b.id], to_participant_id=parts[a.id],
+                      order=0, caption="вызов назад"),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert msg.edge_id == обратно.id
+    участник = next(p for p in proc.participants if p.node_id == b.id)
+    bind_participant(  # снимаем привязку → шаг повисает
+        proc.id, участник.id, ParticipantBind(node_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    out = bind_participant(
+        proc.id, участник.id, ParticipantBind(node_id=b.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (1, 0)
+    assert db.query(ProcessMessage).one().edge_id == обратно.id  # именно тот канал
+    assert туда.id != обратно.id
+
+
+# ── Подхват каналов по всему процессу (после правки схемы) ────────────────────
+def test_подхват_по_процессу_чинит_шаги_после_правки_схемы(db):
+    """Кейс с живых данных 2026-08-10: пользователь импортировал процесс, увидел
+    повисший ответ, СДЕЛАЛ КАНАЛ СИНХРОННЫМ (у асинхронного нет плеча «ответ») — и шаг
+    остался сломанным, потому что процесс о правке схемы не узнаёт."""
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    b = db.query(Node).filter(Node.name == "B").one()
+    edge = db.query(Edge).one()
+    parts = {p.node_id: p for p in proc.participants}
+    # Ответ на асинхронном канале завести нельзя — кладём шаг повисшим напрямую,
+    # ровно как это делает импорт.
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=proc.id, order=9, edge_id=None, leg="return",
+        from_participant_id=parts[b.id].id, to_participant_id=parts[a.id].id,
+        caption="ответ",
+    ))
+    db.commit()
+
+    # Пользователь чинит схему: канал становится синхронным → плечо «ответ» появилось.
+    edge.is_synchronous = True
+    db.commit()
+
+    out = reattach_process(
+        proc.id, db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert (out.attached, out.dangling) == (1, 0)
+    assert len(out.attached_ids) == 1
+    assert db.query(ProcessMessage).filter(ProcessMessage.leg == "return").one().edge_id == edge.id
+
+
+def test_подхват_идёт_по_всему_процессу_а_не_по_одному_участнику(db):
+    """Починка схемы не связана ни с какой привязкой — подхват обязан смотреть на весь
+    процесс. Две повисшие пары БЕЗ ОБЩИХ участников: подхват в границах одного
+    участника не мог бы вылечить обе."""
+    proc, _ = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    b = db.query(Node).filter(Node.name == "B").one()
+    c, d = _node(db, "C"), _node(db, "D")
+    ab = db.query(Edge).one()
+    ab.is_synchronous = True  # у асинхронного канала плеча «ответ» нет
+    cd = _edge(db, c, d, technology="REST", is_sync=True)
+    db.commit()
+    pc = add_participant(proc.id, ParticipantCreate(node_id=c.id, order=2),
+                         db=db, project=ensure_project(db), user=ensure_architect(db))
+    pd = add_participant(proc.id, ParticipantCreate(node_id=d.id, order=3),
+                         db=db, project=ensure_project(db), user=ensure_architect(db))
+    parts = {p.node_id: p for p in proc.participants}
+    db.add_all([
+        ProcessMessage(id=uuid.uuid4(), process_id=proc.id, order=9, edge_id=None, leg="return",
+                       from_participant_id=parts[b.id].id, to_participant_id=parts[a.id].id,
+                       caption="ответ"),
+        ProcessMessage(id=uuid.uuid4(), process_id=proc.id, order=10, edge_id=None, leg="forward",
+                       from_participant_id=pc.id, to_participant_id=pd.id, caption="запрос"),
+    ])
+    db.commit()
+
+    out = reattach_process(proc.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+
+    assert (out.attached, out.dangling) == (2, 0)
+    прицеплено = {m.order: m.edge_id for m in db.query(ProcessMessage).filter(
+        ProcessMessage.order.in_([9, 10]))}
+    assert прицеплено == {9: ab.id, 10: cd.id}
+
+
+def test_подхват_не_трогает_самосообщения(db):
+    # У внутренней операции связи C4 не было — её незачем ни цеплять, ни считать.
+    proc, _ = _три_шага(db)
+    part = proc.participants[0]
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=proc.id, order=9, edge_id=None, leg="forward",
+        from_participant_id=part.id, to_participant_id=part.id, caption="проверка",
+    ))
+    db.commit()
+
+    out = reattach_process(proc.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+
+    assert (out.attached, out.dangling) == (0, 0)
+
+
+def test_откат_подхвата_отцепляет_ровно_подхваченное(db):
+    proc, msgs = _три_шага(db)
+    a = db.query(Node).filter(Node.name == "A").one()
+    b = db.query(Node).filter(Node.name == "B").one()
+    edge = db.query(Edge).one()
+    parts = {p.node_id: p for p in proc.participants}
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=proc.id, order=9, edge_id=None, leg="return",
+        from_participant_id=parts[b.id].id, to_participant_id=parts[a.id].id, caption="ответ",
+    ))
+    edge.is_synchronous = True
+    db.commit()
+    out = reattach_process(proc.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+
+    detach_messages_endpoint(
+        proc.id, ReorderPayload(ids=out.attached_ids),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    # Отцепился только подхваченный; исходные три шага остались на своём канале.
+    assert db.query(ProcessMessage).filter(ProcessMessage.edge_id.is_(None)).count() == 1
+    assert db.query(ProcessMessage).filter(ProcessMessage.id.in_([m.id for m in msgs])).count() == 3
+    assert all(db.get(ProcessMessage, m.id).edge_id is not None for m in msgs)
+
+
+def test_отцепление_чужого_сообщения_отклоняется(db):
+    proc, _ = _три_шага(db)
+    другой = _process(db, name="Другой")
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        detach_messages_endpoint(
+            другой.id, ReorderPayload(ids=[uuid.uuid4()]),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert exc.value.status_code == 422

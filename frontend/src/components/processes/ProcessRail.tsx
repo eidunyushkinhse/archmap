@@ -15,6 +15,8 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
+  // Импорт процесса из текста mermaid — рядом с созданием: оба заводят новый процесс.
+  onImport: () => void;
   expanded: boolean;
   onToggle: () => void;
   isArchitect: boolean;
@@ -46,6 +48,7 @@ export default function ProcessRail({
   selectedId,
   onSelect,
   onNew,
+  onImport,
   expanded,
   onToggle,
   isArchitect,
@@ -89,10 +92,13 @@ export default function ProcessRail({
         <span style={{ marginLeft: "auto", fontSize: 11, color: BPT.mut }}>{processes?.length ?? ""}</span>
       </div>
       {isArchitect && (
-        <div style={{ padding: "0 10px 10px" }}>
+        <div style={{ padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
           <button onClick={onNew} className="bp-newproc">
             <IcoPlus s={15} />
             <span>Новый процесс</span>
+          </button>
+          <button onClick={onImport} className="bp-btn-ghost" style={{ height: 28, fontSize: 12 }}>
+            Импорт из Mermaid
           </button>
         </div>
       )}

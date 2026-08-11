@@ -17,6 +17,7 @@ const EMPTY: Alerts = {
   container_own_docs: [],
   persons_inside: [],
   dangling_messages: [],
+  unbound_participants: [],
 };
 
 const DANGLING = {
@@ -69,5 +70,50 @@ describe("SchemaAlerts: сообщения без связи", () => {
     await openPanel();
 
     expect(screen.getByText(/без подписи/)).toBeTruthy();
+  });
+});
+
+// ── Участники без узла схемы (AL27) ───────────────────────────────────────────
+// Симметрия повисшему сообщению: линия жизни на диаграмме есть, объекта архитектуры
+// за ней нет. Чинится привязкой на шапке участника — поэтому строка ведёт В ПРОЦЕСС,
+// а не на холст: на холсте этого участника попросту нет.
+const UNBOUND = {
+  process_id: "p1",
+  process_name: "Оформление заказа",
+  participant_id: "u1",
+  name: "Биллинг",
+};
+
+describe("SchemaAlerts: участники без узла схемы", () => {
+  it("зажигает знак и считается в общем счётчике", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, unbound_participants: [UNBOUND] }} />);
+
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    await openPanel();
+    expect(screen.getByText("Участники без узла схемы")).toBeTruthy();
+    expect(screen.getByText("Биллинг")).toBeTruthy();
+  });
+
+  it("ведёт в процесс, а не на холст", async () => {
+    const onOpenProcess = vi.fn();
+    render(
+      <SchemaAlerts
+        alerts={{ ...EMPTY, unbound_participants: [UNBOUND] }}
+        onLocate={vi.fn()}
+        onOpenProcess={onOpenProcess}
+      />,
+    );
+    await openPanel();
+
+    await userEvent.click(screen.getByText("Биллинг"));
+
+    expect(onOpenProcess).toHaveBeenCalledWith("p1");
+  });
+
+  it("без обработчика перехода строка НЕ кликабельна", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, unbound_participants: [UNBOUND] }} onLocate={vi.fn()} />);
+    await openPanel();
+
+    expect(screen.getByText("Биллинг").closest(".sa-item")?.getAttribute("role")).toBeNull();
   });
 });

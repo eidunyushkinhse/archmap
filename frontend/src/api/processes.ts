@@ -1,5 +1,7 @@
 import { api } from "./client";
 import type {
+  BindResult,
+  ReattachResult,
   Channel,
   FragmentCreate,
   FragmentUpdate,
@@ -10,6 +12,10 @@ import type {
   ProcessCreate,
   ProcessDetail,
   ProcessFragment,
+  ProcessImportApply,
+  ProcessImportIn,
+  ProcessImportPreview,
+  ProcessImportResult,
   ProcessListItem,
   ProcessMessage,
   ProcessParticipant,
@@ -30,6 +36,9 @@ export const processesApi = {
   // Участники
   addParticipant: (id: string, body: ParticipantCreate): Promise<ProcessParticipant> =>
     api.post<ProcessParticipant>(`/processes/${id}/participants`, body),
+  // Привязка непривязанного участника к узлу схемы (node_id = null — снятие, для undo).
+  bindParticipant: (id: string, participantId: string, nodeId: string | null): Promise<BindResult> =>
+    api.patch<BindResult>(`/processes/${id}/participants/${participantId}`, { node_id: nodeId }),
   removeParticipant: (id: string, participantId: string): Promise<void> =>
     api.delete(`/processes/${id}/participants/${participantId}`),
   reorderParticipants: (id: string, ids: string[]): Promise<ProcessParticipant[]> =>
@@ -55,6 +64,20 @@ export const processesApi = {
   removeFragment: (id: string, fragmentId: string): Promise<void> =>
     api.delete(`/processes/${id}/fragments/${fragmentId}`),
 
+  // Восстановление связей для повисших шагов процесса — после правки схемы. detach —
+  // компенсация для undo: отцепляет ровно то, что прицепил подхват.
+  reattach: (id: string): Promise<ReattachResult> =>
+    api.post<ReattachResult>(`/processes/${id}/reattach`, {}),
+  detachMessages: (id: string, ids: string[]): Promise<void> =>
+    api.post(`/processes/${id}/messages/detach`, { ids }),
+
+  // Импорт процесса из mermaid: превью ничего не пишет, применение создаёт НОВЫЙ
+  // процесс (слияние с существующим — отдельная задача).
+  importPreview: (body: ProcessImportIn): Promise<ProcessImportPreview> =>
+    api.post<ProcessImportPreview>(`/processes/import/preview`, body),
+  importProcess: (body: ProcessImportApply): Promise<ProcessImportResult> =>
+    api.post<ProcessImportResult>(`/processes/import`, body),
+
   // Композитор: каналы между парой участников (узлы a и b)
   channels: (id: string, a: string, b: string): Promise<Channel[]> =>
     api.get<Channel[]>(`/processes/${id}/channels?a=${a}&b=${b}`),
@@ -73,19 +96,25 @@ export const processesApi = {
       name: `${src.name} (копия)`,
       scope_node_id: src.scope_node_id,
     });
-    const newPartByNode: Record<string, string> = {};
+    // Старый участник → новый. Непривязанных не переносим: addParticipant требует
+    // узел, а у них его нет (перенос таких — задача импорта, не дублирования).
+    const newPartByOld: Record<string, string> = {};
     for (const p of [...src.participants].sort((a, b) => a.order - b.order)) {
+      if (!p.node_id) continue;
       const np = await processesApi.addParticipant(copy.id, { node_id: p.node_id, order: p.order });
-      newPartByNode[p.node_id] = np.id;
+      newPartByOld[p.id] = np.id;
     }
     for (const m of src.messages) {
-      const isSelf = m.from_id === m.to_id;
+      const isSelf = m.from_participant_id === m.to_participant_id;
       if (!m.edge_id && !isSelf) continue; // повисшее (не self) — переносить нечего
+      const from = newPartByOld[m.from_participant_id];
+      const to = newPartByOld[m.to_participant_id];
+      if (!from || !to) continue; // конец был непривязанным — переносить нечего
       await processesApi.addMessage(copy.id, {
         edge_id: m.edge_id,
         leg: m.leg,
-        from_participant_id: newPartByNode[m.from_id],
-        to_participant_id: newPartByNode[m.to_id],
+        from_participant_id: from,
+        to_participant_id: to,
         caption: m.caption,
         order: m.order,
       });

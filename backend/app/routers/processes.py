@@ -20,20 +20,27 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
+from app.process_import import apply_import, build_preview
 from app.processes import (
+    bound_node_ids,
     build_process_detail,
+    default_caption,
+    detach_messages,
     edge_is_synchronous,
     fragment_out,
     legal_directions,
     legs_for_edge,
     load_nodes,
     message_out,
+    participant_node,
     participant_out,
     process_list_items,
+    reattach_dangling,
     resolve_to_participant,
     scope_node_ids,
 )
 from app.schemas.process import (
+    BindResult,
     BranchIn,
     ChannelOut,
     DirectionOut,
@@ -44,13 +51,21 @@ from app.schemas.process import (
     MessageCreate,
     MessageOut,
     MessageUpdate,
+    ParticipantBind,
     ParticipantCreate,
     ParticipantOut,
     ProcessCreate,
     ProcessDetail,
     ProcessListItem,
     ProcessUpdate,
+    ReattachResult,
     ReorderPayload,
+)
+from app.schemas.process_import import (
+    ProcessImportApply,
+    ProcessImportIn,
+    ProcessImportPreview,
+    ProcessImportResult,
 )
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -95,6 +110,36 @@ def create_process(
     db.commit()
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
+
+
+@router.post("/import/preview", response_model=ProcessImportPreview)
+def preview_process_import(
+    payload: ProcessImportIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> ProcessImportPreview:
+    """Что получится из текста диаграммы и с чем сопоставились имена. Ничего не пишет.
+
+    Объявлен ДО /{process_id}: иначе FastAPI принял бы «import» за uuid процесса.
+    """
+    return build_preview(db, project.id, payload.text, payload.name)
+
+
+@router.post(
+    "/import", response_model=ProcessImportResult, status_code=status.HTTP_201_CREATED
+)
+def import_process(
+    payload: ProcessImportApply,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> ProcessImportResult:
+    """Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача)."""
+    _, result = apply_import(db, project.id, payload.text, payload.name, payload.mapping)
+    touch_project(db, project, user.id)
+    db.commit()
+    return result
 
 
 @router.get("/{process_id}", response_model=ProcessDetail)
@@ -165,7 +210,10 @@ def add_participant(
         raise HTTPException(status_code=422, detail="Узел вне области процесса")
     if any(p.node_id == payload.node_id for p in proc.participants):
         raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
-    part = ProcessParticipant(process_id=proc.id, node_id=payload.node_id, order=payload.order)
+    # Имя кладём запасом: узел могут удалить, и тогда участник останется без него.
+    part = ProcessParticipant(
+        process_id=proc.id, node_id=payload.node_id, name=node.name, order=payload.order
+    )
     db.add(part)
     touch_project(db, project, user.id)
     db.commit()
@@ -192,7 +240,105 @@ def reorder_participants(
     db.commit()
     all_nodes = load_nodes(db, project.id)
     parts = sorted(proc.participants, key=lambda p: p.order)
-    return [participant_out(p, all_nodes[p.node_id]) for p in parts]
+    return [participant_out(p, participant_node(p, all_nodes)) for p in parts]
+
+
+@router.patch(
+    "/{process_id}/participants/{participant_id}",
+    response_model=BindResult,
+)
+def bind_participant(
+    process_id: uuid.UUID,
+    participant_id: uuid.UUID,
+    payload: ParticipantBind,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> BindResult:
+    """Привязать непривязанного участника к узлу схемы (или снять привязку — для undo).
+
+    Объявлен ПОСЛЕ /participants/reorder: иначе FastAPI принял бы «reorder» за
+    participant_id (та же грабля была с /messages/reorder и /nodes/transition).
+    """
+    proc = _get_process(db, process_id, project)
+    part = db.get(ProcessParticipant, participant_id)
+    if part is None or part.process_id != proc.id:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+    if payload.node_id is None:
+        part.node_id = None  # имя остаётся: без него линия жизни стала бы безымянной
+        detached = detach_messages(proc, part)
+        touch_project(db, project, user.id)
+        db.commit()
+        db.refresh(part)
+        return BindResult(participant=participant_out(part, None), attached=0, dangling=detached)
+    if part.node_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Участник уже привязан к узлу: сообщения опираются на каналы именно "
+            "этого узла, подменять его нельзя",
+        )
+    all_nodes = load_nodes(db, project.id)
+    node = all_nodes.get(payload.node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    if payload.node_id not in scope_node_ids(all_nodes, proc.scope_node_id):
+        raise HTTPException(status_code=422, detail="Узел вне области процесса")
+    if any(p.node_id == payload.node_id for p in proc.participants):
+        raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
+    part.node_id = node.id
+    part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
+    db.flush()  # подхват смотрит на уже привязанного участника
+    attached, dangling, _ids = reattach_dangling(db, proc, all_nodes, part)
+    touch_project(db, project, user.id)
+    db.commit()
+    db.refresh(part)
+    return BindResult(
+        participant=participant_out(part, node), attached=attached, dangling=dangling
+    )
+
+
+@router.post("/{process_id}/reattach", response_model=ReattachResult)
+def reattach_process(
+    process_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> ReattachResult:
+    """Прогнать ВСЕ повисшие шаги процесса через подбор канала.
+
+    Нужен после правки схемы: пользователь чинит канал (например, делает его
+    синхронным — у асинхронного нет плеча «ответ»), а процесс об этом не узнаёт.
+    Прежде подхват случался только при привязке участника, то есть починить схему и
+    подхватить шаги было двумя несвязанными действиями.
+    """
+    proc = _get_process(db, process_id, project)
+    attached, dangling, ids = reattach_dangling(db, proc, load_nodes(db, project.id))
+    touch_project(db, project, user.id)
+    db.commit()
+    return ReattachResult(attached=attached, dangling=dangling, attached_ids=ids)
+
+
+@router.post("/{process_id}/messages/detach", status_code=status.HTTP_204_NO_CONTENT)
+def detach_messages_endpoint(
+    process_id: uuid.UUID,
+    payload: ReorderPayload,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> None:
+    """Отцепить перечисленные шаги от каналов — компенсация подхвата для undo.
+
+    Объявлен ДО /{message_id}: иначе FastAPI принял бы «detach» за uuid сообщения.
+    """
+    proc = _get_process(db, process_id, project)
+    by_id = {m.id: m for m in proc.messages}
+    for mid in payload.ids:
+        msg = by_id.get(mid)
+        if msg is None:
+            raise HTTPException(status_code=422, detail="Сообщение не из этого процесса")
+        msg.edge_id = None
+    touch_project(db, project, user.id)
+    db.commit()
 
 
 @router.delete(
@@ -255,6 +401,17 @@ def create_message(
         return message_out(msg, None, part_by_id)
     if payload.edge_id is None:
         raise HTTPException(status_code=422, detail="Не указана связь")
+    # Непривязанный участник узла не имеет, значит и канала к нему в C4 нет — плечу
+    # не на что опереться. Говорим это прямо: иначе пользователь упёрся бы в
+    # «концы связи не проецируются» и гадал, что не так.
+    for pid in (payload.from_participant_id, payload.to_participant_id):
+        part = db.get(ProcessParticipant, pid)
+        if part is not None and part.process_id == proc.id and part.node_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Участник не привязан к узлу схемы — у него нет каналов. "
+                "Сначала привяжите его к узлу",
+            )
     edge = scoped_edge(db, payload.edge_id, project)
     if edge is None:
         raise HTTPException(status_code=404, detail="Связь не найдена")
@@ -270,7 +427,7 @@ def create_message(
         raise HTTPException(status_code=422, detail="Получатель не участник процесса")
     # 4) проекция сырых концов плеча сходится именно на этих участников
     all_nodes = load_nodes(db, project.id)
-    participant_ids = {p.node_id for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
     leg = next((leg for leg in legs_for_edge(edge) if leg.leg == payload.leg), None)
     if leg is None:
         raise HTTPException(status_code=422, detail="Недопустимое плечо для этой связи")
@@ -289,7 +446,10 @@ def create_message(
         leg=payload.leg,
         from_participant_id=frm.id,
         to_participant_id=to.id,
-        caption=payload.caption,
+        # Подпись у шага всегда СВОЯ: дефолт канала (метка связи у вызова, «ответ» у
+        # ответа) замораживается здесь, один раз, и дальше живёт обычным текстом.
+        # Пустую подпись присылает композитор — он и означает «возьми дефолт».
+        caption=payload.caption if payload.caption is not None else default_caption(payload.leg, edge),
     )
     db.add(msg)
     touch_project(db, project, user.id)
@@ -574,7 +734,7 @@ def list_directions(
     """
     proc = _get_process(db, process_id, project)
     all_nodes = load_nodes(db, project.id)
-    participant_ids = {p.node_id for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return [
         DirectionOut(from_id=f, to_id=t)
@@ -593,7 +753,7 @@ def list_channels(
 ) -> list[ChannelOut]:
     proc = _get_process(db, process_id, project)
     all_nodes = load_nodes(db, project.id)
-    participant_ids = {p.node_id for p in proc.participants}
+    participant_ids = bound_node_ids(proc.participants)
     pair = {a, b}
     out: list[ChannelOut] = []
     for edge in db.query(Edge).filter(Edge.project_id == project.id).all():

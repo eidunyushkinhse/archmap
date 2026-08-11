@@ -32,10 +32,11 @@ export function detailToMermaid(detail: ProcessDetail): string {
 
   // Участники в порядке order → алиасы P1, P2…
   const parts = [...detail.participants].sort((a, b) => a.order - b.order);
-  const alias = new Map<string, string>(); // node_id → Pn
+  const alias = new Map<string, string>(); // id участника → Pn (не узла: у
+  // непривязанного участника узла нет, а имя он несёт в себе)
   parts.forEach((p, i) => {
     const id = `P${i + 1}`;
-    alias.set(p.node_id, id);
+    alias.set(p.id, id);
     lines.push(`${indent(1)}participant ${id} as ${clean(p.name) || id}`);
   });
 
@@ -76,8 +77,8 @@ export function detailToMermaid(detail: ProcessDetail): string {
 
     // 3) Само сообщение.
     const m = msgs[i];
-    const from = alias.get(m.from_id);
-    const to = alias.get(m.to_id);
+    const from = alias.get(m.from_participant_id);
+    const to = alias.get(m.to_participant_id);
     if (from && to) {
       lines.push(`${indent(depth)}${from}${arrow(m.kind)}${to}: ${clean(m.caption) || "—"}`);
     }

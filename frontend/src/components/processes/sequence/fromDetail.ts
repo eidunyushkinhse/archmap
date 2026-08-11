@@ -16,7 +16,17 @@ export function orderedBranches(branches: readonly BranchIn[]): BranchIn[] {
 export function toSeqParticipants(participants: ProcessParticipant[]): SeqParticipant[] {
   return [...participants]
     .sort((a, b) => a.order - b.order)
-    .map((p) => ({ id: p.node_id, shape: p.shape, name: p.name, role: p.role, external: p.is_external, status: p.status }));
+    .map((p) => ({
+      id: p.id, // ключ дорожки — участник, а не узел (у непривязанного узла нет)
+      nodeId: p.node_id,
+      shape: p.shape,
+      name: p.name,
+      role: p.role,
+      // «Внешний» — свойство узла; у непривязанного его нет, а на раскладку оно не
+      // влияет, поэтому здесь безопасный дефолт.
+      external: p.is_external ?? false,
+      status: p.status,
+    }));
 }
 
 export function toSeqMessages(messages: ProcessMessage[]): SeqMessage[] {
@@ -26,8 +36,8 @@ export function toSeqMessages(messages: ProcessMessage[]): SeqMessage[] {
       id: m.id,
       r: i,
       n: i + 1,
-      from: m.from_id,
-      to: m.to_id,
+      from: m.from_participant_id,
+      to: m.to_participant_id,
       kind: m.kind,
       label: m.caption ?? "",
       tech: m.technology,

@@ -75,12 +75,24 @@ const part = (id: string, node_id: string, order: number): ProcessParticipant =>
 describe("toSeqParticipants — порядок линий жизни из поля order", () => {
   it("сортирует по order независимо от порядка в ответе API", () => {
     const out = toSeqParticipants([part("p2", "B", 1), part("p1", "A", 0), part("p3", "C", 2)]);
-    expect(out.map((p) => p.id)).toEqual(["A", "B", "C"]);
+    expect(out.map((p) => p.name)).toEqual(["A", "B", "C"]);
   });
 
-  it("id линии жизни = node_id узла (не id сущности-участника)", () => {
+  it("id линии жизни = id УЧАСТНИКА, узел отдельным полем", () => {
+    // Было наоборот (ключом служил node_id), пока участник обязан был быть узлом.
+    // Непривязанному узла не досталось бы вовсе, а двое таких стали бы неразличимы.
     const [p] = toSeqParticipants([part("participant-uuid", "node-uuid", 0)]);
-    expect(p.id).toBe("node-uuid");
+    expect(p.id).toBe("participant-uuid");
+    expect(p.nodeId).toBe("node-uuid");
+  });
+
+  it("непривязанный участник несёт своё имя и не имеет свойств узла", () => {
+    const [p] = toSeqParticipants([
+      { id: "p1", node_id: null, name: "Биллинг", role: null, shape: null,
+        is_external: null, status: null, order: 0 } as ProcessParticipant,
+    ]);
+    expect([p.id, p.nodeId, p.name]).toEqual(["p1", null, "Биллинг"]);
+    expect([p.shape, p.status]).toEqual([null, null]);
   });
 });
 

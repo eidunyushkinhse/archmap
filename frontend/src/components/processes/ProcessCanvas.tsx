@@ -5,18 +5,19 @@
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
 import { RedoIcon, UndoIcon } from "../../ui/icons";
 import MessageComposer from "../MessageComposer";
 import ParticipantDeleteConfirm from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
-import { C4Glyph, IcoClose, IcoEdit, IcoPlus } from "./icons";
+import { C4Glyph, IcoBrokenLink, IcoClose, IcoEdit, IcoPlus } from "./icons";
 import { SchemaViewSeg, ViewHint } from "./SchemaViewChrome";
 import SequenceDiagram from "./SequenceDiagram";
 import { deriveActivations, newBranchRow } from "./sequence/layout";
 import { detailToSeq, orderedBranches } from "./sequence/fromDetail";
-import { BPT } from "./tokens";
+import { BPT, BROKEN } from "./tokens";
 import { useProcessHistory } from "./useProcessHistory";
 import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../schemaView";
 import "./processes.css";
@@ -77,7 +78,20 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // (границу ставим сами, см. saveBranch).
   const [branchEdit, setBranchEdit] = useState<{ fid: string; index: number | null } | null>(null);
   const [branchGuard, setBranchGuard] = useState("");
-  const [delMsg, setDelMsg] = useState<string | null>(null);
+  // Привязка непривязанного участника: id участника, которому ищем узел.
+  const [bindPart, setBindPart] = useState<string | null>(null);
+  // Расхождение имён: узел выбран, но зовётся иначе, чем участник в диаграмме.
+  // Спрашиваем до записи — иначе имя из диаграммы исчезло бы молча.
+  const [bindConfirm, setBindConfirm] = useState<
+    { participantId: string; nodeId: string; nodeName: string; partName: string } | null
+  >(null);
+  // Итог подхвата каналов — показываем строкой: молча подхватить и промолчать значит
+  // скрыть, что часть шагов осталась сломанной.
+  const [bindNote, setBindNote] = useState<string | null>(null);
+  // Карточка шага: правка подписи + удаление. Клик по стрелке/подписи ведёт сюда —
+  // раньше он открывал ТОЛЬКО «Удалить сообщение?», и задать подпись было нечем.
+  const [msgEdit, setMsgEdit] = useState<string | null>(null);
+  const [msgCaption, setMsgCaption] = useState("");
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
   const [delPartErr, setDelPartErr] = useState<string | null>(null);
@@ -105,10 +119,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
+  // Узел → участник в СВЕЖЕМ состоянии: нужен для восстановления сообщений после
+  // undo (id участника при пересоздании меняется, node_id — нет). Непривязанных
+  // участников тут нет: восстанавливать их шаги всё равно нечем.
   const freshPartByNode = useCallback(async () => {
     const fresh = await processesApi.get(id);
     const m: Record<string, string> = {};
-    for (const p of fresh.participants) m[p.node_id] = p.id;
+    for (const p of fresh.participants) if (p.node_id) m[p.node_id] = p.id;
     return m;
   }, [id]);
   // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) — только в режиме правки. Не перехватываем в полях.
@@ -130,34 +147,44 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const activations = useMemo(() => (seq ? deriveActivations(seq.messages) : []), [seq]);
   const counts = useMemo<Record<NodeStatus, number>>(() => {
     const c: Record<NodeStatus, number> = { existing: 0, planned: 0, deprecated: 0 };
-    if (detail) for (const p of detail.participants) c[p.status]++;
+    // У непривязанного участника статуса нет — в бейдж вида он не попадает.
+    if (detail) for (const p of detail.participants) if (p.status) c[p.status]++;
     return c;
   }, [detail]);
   const hasStatus = counts.planned + counts.deprecated > 0;
+  // Сколько шагов без связи. Самосообщения сюда не попадают сами: у внутренней
+  // операции связи C4 не было, и бэк отдаёт им valid=true — отдельная проверка была бы
+  // мёртвым кодом.
+  const danglingCount = useMemo(
+    () => (detail ? detail.messages.filter((m) => !m.valid).length : 0),
+    [detail],
+  );
   const nextOrder = useMemo(
     () => (detail ? detail.messages.reduce((mx, m) => Math.max(mx, m.order), -1) + 1 : 0),
     [detail],
   );
-  const nameByNode = useMemo(() => {
-    const m: Record<string, string> = {};
-    if (detail) for (const p of detail.participants) m[p.node_id] = p.name;
+  // Участник по id и его узел: сообщения теперь ссылаются на УЧАСТНИКОВ.
+  const partById = useMemo(() => {
+    const m: Record<string, ProcessParticipant> = {};
+    if (detail) for (const p of detail.participants) m[p.id] = p;
     return m;
   }, [detail]);
+  const nodeOfPart = useCallback((pid: string) => partById[pid]?.node_id ?? null, [partById]);
   const delLinks = useMemo(() => {
     if (!detail || !delPart) return [];
     return detail.messages
-      .filter((m) => m.from_id === delPart.node_id || m.to_id === delPart.node_id)
+      .filter((m) => m.from_participant_id === delPart.id || m.to_participant_id === delPart.id)
       .map((m) => {
-        const outgoing = m.from_id === delPart.node_id;
-        const other = outgoing ? m.to_id : m.from_id;
+        const outgoing = m.from_participant_id === delPart.id;
+        const other = outgoing ? m.to_participant_id : m.from_participant_id;
         return {
           id: m.id,
           label: m.caption || m.technology || "сообщение",
           dir: (outgoing ? "к" : "от") as "к" | "от",
-          other: nameByNode[other] ?? other,
+          other: partById[other]?.name ?? other,
         };
       });
-  }, [detail, delPart, nameByNode]);
+  }, [detail, delPart, partById]);
 
   async function addParticipant(nodeId: string, order: number) {
     let pid = (await processesApi.addParticipant(id, { node_id: nodeId, order })).id;
@@ -186,25 +213,22 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Перестановка участников (живой reorder в SequenceDiagram): новый порядок node_id
   // маппим на participant.id и персистим существующим reorder-эндпоинтом. id участников
   // стабильны (reorder меняет только поле order), поэтому undo/redo бьют по тем же id.
-  async function reorderParticipants(nodeIds: string[]) {
+  async function reorderParticipants(ids: string[]) {
     if (!detail) return;
     const prevIds = [...detail.participants].sort((a, b) => a.order - b.order).map((p) => p.id);
-    const idByNode = new Map(detail.participants.map((p) => [p.node_id, p.id]));
-    const newIds = nodeIds.flatMap((nid) => {
-      const pid = idByNode.get(nid);
-      return pid ? [pid] : [];
-    });
+    const newIds = ids;
     if (newIds.length !== detail.participants.length) return; // страховка неполного порядка
     // Оптимистично: сразу пересобираем order в detail, чтобы диаграмма показала новый
     // порядок БЕЗ отката на старый (onRootUp синхронно сбрасывает reorder-состояние,
     // и без этого шапки мигнули бы на прежние места до прихода ответа). reload() после
     // API подтвердит порядок; ошибка — перечитает истинное состояние (БД не менялась).
-    const orderByNode = new Map(nodeIds.map((nid, i) => [nid, i]));
+    const orderById = new Map<string, number>(ids.map((pid, i) => [pid, i]));
     setDetail({
       ...detail,
       participants: detail.participants.map((p) => ({
         ...p,
-        order: orderByNode.get(p.node_id) ?? p.order,
+        order: orderById.get(p.id) ?? p.order,
+        // (order — number: Map строго типизирована ниже)
       })),
     });
     try {
@@ -249,10 +273,16 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     }
   }
 
+  // Снимок хранит УЗЛЫ, а не участников: при пересоздании участника его id меняется,
+  // node_id — нет. Шаги непривязанных участников в снимок не попадают: восстановить
+  // их всё равно нечем (узла, к которому цеплять, не существует).
   function captureMessages(nodeId: string): MessageSnapshot[] {
-    return messagesThrough(nodeId).map((m) => ({
-      edge_id: m.edge_id, leg: m.leg, from_id: m.from_id, to_id: m.to_id, caption: m.caption, order: m.order,
-    }));
+    return messagesThrough(nodeId).flatMap((m) => {
+      const from = nodeOfPart(m.from_participant_id);
+      const to = nodeOfPart(m.to_participant_id);
+      if (!from || !to) return [];
+      return [{ edge_id: m.edge_id, leg: m.leg, from_id: from, to_id: to, caption: m.caption, order: m.order }];
+    });
   }
   async function restoreMessages(snaps: MessageSnapshot[]) {
     if (snaps.length === 0) return;
@@ -269,10 +299,89 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     }
   }
   function messagesThrough(nodeId: string) {
-    return detail ? detail.messages.filter((m) => m.from_id === nodeId || m.to_id === nodeId) : [];
+    if (!detail) return [];
+    return detail.messages.filter(
+      (m) => nodeOfPart(m.from_participant_id) === nodeId || nodeOfPart(m.to_participant_id) === nodeId,
+    );
   }
+  // Узел выбран: если зовётся иначе — сперва показываем расхождение.
+  async function requestBind(participantId: string, nodeId: string) {
+    const partName = partById[participantId]?.name ?? "";
+    try {
+      const node = await nodesApi.get(nodeId);
+      setBindPart(null);
+      if (node.name !== partName) {
+        setBindConfirm({ participantId, nodeId, nodeName: node.name, partName });
+        return;
+      }
+    } catch {
+      setBindPart(null); // узел не прочитался — привяжем и покажем ошибку бэка, если что
+    }
+    await bindParticipant(participantId, nodeId);
+  }
+
+  // Восстановление связей по всему процессу — после того как пользователь починил схему.
+  // Кнопка появляется только когда чинить есть что: повисшие шаги видны на диаграмме.
+  async function reattachChannels() {
+    try {
+      const res = await processesApi.reattach(id);
+      setBindNote(
+        res.attached === 0
+          ? "Связей для шагов не нашлось — либо связи нет в схеме, либо подходящих несколько"
+          : res.dangling === 0
+            ? `Восстановлено связей: ${res.attached}`
+            : `Восстановлено связей: ${res.attached}, осталось без связи: ${res.dangling}`,
+      );
+      if (res.attached_ids.length) {
+        const ids = res.attached_ids;
+        hist.push({
+          label: "Восстановление связей",
+          // Откат отцепляет РОВНО подхваченное: остальные шаги на своих каналах.
+          undo: async () => { await processesApi.detachMessages(id, ids); },
+          redo: async () => { await processesApi.reattach(id); },
+        });
+      }
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось подхватить каналы");
+    }
+  }
+
+  async function bindParticipant(participantId: string, nodeId: string) {
+    setBindPart(null);
+    setBindConfirm(null);
+    try {
+      const res = await processesApi.bindParticipant(id, participantId, nodeId);
+      setBindNote(
+        res.attached === 0 && res.dangling === 0
+          ? null
+          : res.dangling === 0
+            ? `Восстановлено связей: ${res.attached}`
+            : `Восстановлено связей: ${res.attached}, осталось без связи: ${res.dangling}`,
+      );
+      hist.push({
+        label: "Привязка участника",
+        // Обратная операция — снятие привязки: id участника при этом не меняется,
+        // поэтому откат бьёт точно по тому же участнику.
+        undo: async () => { await processesApi.bindParticipant(id, participantId, null); },
+        redo: async () => { await processesApi.bindParticipant(id, participantId, nodeId); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось привязать участника к узлу");
+    }
+  }
+
   async function doRemoveParticipant(p: ProcessParticipant) {
     const { node_id, order } = p;
+    if (!node_id) {
+      // Непривязанного просто удаляем: undo пересоздал бы его через addParticipant,
+      // а тому нужен узел. Восстановление таких — задача привязки, не истории.
+      await processesApi.removeParticipant(id, p.id);
+      return;
+    }
     const snaps = captureMessages(node_id);
     await processesApi.removeParticipant(id, p.id);
     hist.push({
@@ -289,7 +398,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     });
   }
   function requestRemoveParticipant(p: ProcessParticipant) {
-    if (messagesThrough(p.node_id).length === 0) {
+    if (!p.node_id || messagesThrough(p.node_id).length === 0) {
       void removeParticipant(p);
       return;
     }
@@ -341,9 +450,11 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     });
     reload();
   }
-  async function createSelfMessage(nodeId: string, caption: string) {
+  async function createSelfMessage(participantId: string, caption: string) {
     if (!detail) return;
-    const part = detail.participants.find((p) => p.node_id === nodeId);
+    // Самосообщение — внутренняя операция участника: связи C4 у него нет, узел не
+    // нужен вовсе. Поэтому адресуемся участником и работаем даже у непривязанного.
+    const part = partById[participantId];
     if (!part) return;
     const payload: MessageCreate = {
       leg: "forward",
@@ -359,8 +470,12 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         label: "Самосообщение",
         undo: () => processesApi.removeMessage(id, mid),
         redo: async () => {
-          const partByNode = await freshPartByNode();
-          const pid = partByNode[nodeId];
+          // Участника могли пересоздать (undo его удаления) — тогда id сменился, а
+          // node_id нет. У непривязанного узла нет, но и пересоздать его нечем:
+          // держимся за его собственный id.
+          const pid = part.node_id
+            ? (await freshPartByNode())[part.node_id]
+            : participantId;
           if (!pid) return;
           const r = await processesApi.addMessage(id, { ...payload, from_participant_id: pid, to_participant_id: pid });
           mid = r.id;
@@ -373,14 +488,44 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setError(e instanceof Error ? e.message : "Не удалось добавить рефлексивное сообщение");
     }
   }
+  // Правка подписи шага. Подпись у шага всегда СВОЯ (вывод из канала снят), поэтому
+  // пустое поле означает ровно «подписи нет», а не «взять метку связи».
+  async function saveCaption(mid: string) {
+    if (!detail) return;
+    const m = detail.messages.find((x) => x.id === mid);
+    if (!m) return;
+    const next = msgCaption.trim() || null;
+    setMsgEdit(null);
+    if (next === m.caption) return; // ничего не меняли — не мусорим в истории
+    const prev = m.caption;
+    setDetail({
+      ...detail,
+      messages: detail.messages.map((x) => (x.id === mid ? { ...x, caption: next } : x)),
+    });
+    try {
+      await processesApi.updateMessage(id, mid, { caption: next });
+      hist.push({
+        label: "Подпись шага",
+        undo: async () => { await processesApi.updateMessage(id, mid, { caption: prev }); },
+        redo: async () => { await processesApi.updateMessage(id, mid, { caption: next }); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось изменить подпись шага");
+    }
+  }
   async function removeMessage(mid: string) {
     const m = detail?.messages.find((x) => x.id === mid);
     try {
       await processesApi.removeMessage(id, mid);
-      setDelMsg(null);
+      setMsgEdit(null);
       if (m) {
+        const fromNode = nodeOfPart(m.from_participant_id);
+        const toNode = nodeOfPart(m.to_participant_id);
+        if (!fromNode || !toNode) return; // повисший шаг непривязанного — восстанавливать нечем
         const snap: MessageSnapshot = {
-          edge_id: m.edge_id, leg: m.leg, from_id: m.from_id, to_id: m.to_id, caption: m.caption, order: m.order,
+          edge_id: m.edge_id, leg: m.leg, from_id: fromNode, to_id: toNode, caption: m.caption, order: m.order,
         };
         let restoredId: string | null = null;
         hist.push({
@@ -572,6 +717,19 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       <b style={{ fontSize: 15, color: BPT.head }}>{detail?.name ?? "Процесс"}</b>
       <span style={scopeChip}>область: {detail?.scope_name ?? "Вся схема"}</span>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {editing && danglingCount > 0 && (
+          <>
+            <button
+              className="bp-btn-ghost"
+              style={{ height: 26, padding: "0 10px", color: BROKEN.ink, borderColor: BROKEN.border }}
+              title="Найти связи схемы для шагов без связи (например, после правки схемы)"
+              onClick={() => void reattachChannels()}
+            >
+              Восстановить связи ({danglingCount})
+            </button>
+            <span style={divider} />
+          </>
+        )}
         {editing && (
           <>
             <span style={{ fontSize: 11, color: BPT.mut }}>Фрагмент:</span>
@@ -629,6 +787,15 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       {hasStatus && <ViewHint view={view} />}
       <div className="bp-canvas" style={{ flex: 1, overflow: "auto", position: "relative" }}>
         {error && <div style={{ padding: "8px 14px 0", color: "#dc2626", fontSize: 12 }}>{error}</div>}
+        {/* Итог подхвата каналов: гасится кликом — это не ошибка, а сводка. */}
+        {bindNote && (
+          <div
+            onClick={() => setBindNote(null)}
+            style={{ padding: "8px 14px 0", color: BROKEN.ink, fontSize: 12, cursor: "pointer" }}
+          >
+            {bindNote}
+          </div>
+        )}
         {!detail || !seq ? (
           <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>Загрузка…</div>
         ) : seq.participants.length === 0 ? (
@@ -661,12 +828,28 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 setBranchGuard(index != null ? (frag?.branches[index]?.guard ?? "") : "");
                 setBranchEdit({ fid, index });
               } : undefined}
-              onConnect={editing ? (from, to) => setComposer({ from, to }) : undefined}
-              canConnect={editing ? (from, to) => directions.has(`${from}>${to}`) : undefined}
-              onSelfConnect={editing ? (nodeId) => { setSelfMsg(nodeId); setSelfCaption(""); } : undefined}
-              onMessageClick={editing ? (mid) => setDelMsg(mid) : undefined}
-              onDeleteParticipant={editing ? (nodeId) => {
-                const p = detail.participants.find((pp) => pp.node_id === nodeId);
+              onConnect={editing ? (fromPid, toPid) => {
+                // Граница слоёв: диаграмма говорит УЧАСТНИКАМИ, композитор и
+                // направления — узлами C4. Перевод делаем здесь, в одном месте.
+                const from = nodeOfPart(fromPid);
+                const to = nodeOfPart(toPid);
+                // У непривязанного участника узла нет, значит нет и каналов — открывать
+                // композитор не на чем.
+                if (from && to) setComposer({ from, to });
+              } : undefined}
+              canConnect={editing ? (fromPid, toPid) => {
+                const from = nodeOfPart(fromPid);
+                const to = nodeOfPart(toPid);
+                return !!from && !!to && directions.has(`${from}>${to}`);
+              } : undefined}
+              onSelfConnect={editing ? (pid) => { setSelfMsg(pid); setSelfCaption(""); } : undefined}
+              onMessageClick={editing ? (mid) => {
+                setMsgCaption(detail?.messages.find((m) => m.id === mid)?.caption ?? "");
+                setMsgEdit(mid);
+              } : undefined}
+              onBindParticipant={editing ? (pid) => setBindPart(pid) : undefined}
+              onDeleteParticipant={editing ? (pid) => {
+                const p = partById[pid];
                 if (p) requestRemoveParticipant(p);
               } : undefined}
               onReorderParticipants={editing ? (nodeIds) => void reorderParticipants(nodeIds) : undefined}
@@ -713,7 +896,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             <div style={overlayCenter}>
               <div style={confirmCard}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                  Рефлексивное сообщение · {nameByNode[selfMsg] ?? selfMsg}
+                  Рефлексивное сообщение · {partById[selfMsg]?.name ?? selfMsg}
                 </div>
                 <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
                   Действие участника над самим собой (без связи в C4) — внутренняя операция.
@@ -737,17 +920,35 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           </>
         )}
 
-        {/* Подтверждение удаления сообщения */}
-        {delMsg && (
+        {/* Карточка шага: подпись + удаление (устройство то же, что у ветви «иначе») */}
+        {msgEdit && detail && (
           <>
-            <div style={overlayDim} onClick={() => setDelMsg(null)} />
+            <div style={overlayDim} onClick={() => setMsgEdit(null)} />
             <div style={overlayCenter}>
               <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head }}>Удалить сообщение?</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
+                  Шаг сценария
+                </div>
+                <input
+                  className="bp-input"
+                  value={msgCaption}
+                  onChange={(e) => setMsgCaption(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void saveCaption(msgEdit); }}
+                  placeholder="что происходит на этом шаге"
+                  maxLength={256}
+                  autoFocus
+                />
                 <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => setDelMsg(null)}>Отмена</button>
-                  <button className="bp-btn-primary" style={{ background: "#dc2626", borderColor: "#dc2626" }} onClick={() => void removeMessage(delMsg)}>
+                  <button
+                    className="bp-btn-ghost"
+                    style={{ marginRight: "auto", color: "#dc2626" }}
+                    onClick={() => void removeMessage(msgEdit)}
+                  >
                     Удалить
+                  </button>
+                  <button className="bp-btn-ghost" onClick={() => setMsgEdit(null)}>Отмена</button>
+                  <button className="bp-btn-primary" onClick={() => void saveCaption(msgEdit)}>
+                    Сохранить
                   </button>
                 </div>
               </div>
@@ -877,6 +1078,63 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         )}
 
         {/* Управление участниками */}
+        {/* Расхождение имён: спрашиваем ДО записи, иначе имя из диаграммы пропало бы
+            молча. После привязки действует имя узла — схема источник истины. */}
+        {bindConfirm && (
+          <>
+            <div style={overlayDim} onClick={() => setBindConfirm(null)} />
+            <div style={overlayCenter}>
+              <div style={confirmCard}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 6 }}>
+                  Имена расходятся
+                </div>
+                <div style={{ fontSize: 12.5, color: BPT.mut, marginBottom: 14, lineHeight: 1.5 }}>
+                  В диаграмме участник назывался «{bindConfirm.partName}», а узел схемы —
+                  «{bindConfirm.nodeName}». После привязки будет действовать имя узла:
+                  схема — источник истины.
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="bp-btn-ghost" onClick={() => setBindConfirm(null)}>Отмена</button>
+                  <button
+                    className="bp-btn-primary"
+                    onClick={() => void bindParticipant(bindConfirm.participantId, bindConfirm.nodeId)}
+                  >
+                    Привязать
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Привязка непривязанного участника: тот же пикер дерева, что и у добавления —
+            выбранный узел не добавляет линию жизни, а достаётся существующей. */}
+        {bindPart && detail && (
+          <>
+            <div style={overlayDim} onClick={() => setBindPart(null)} />
+            <div style={overlayCenter}>
+              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>
+                    Привязать «{partById[bindPart]?.name ?? "участника"}»
+                  </div>
+                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => setBindPart(null)}>
+                    <IcoClose s={14} />
+                  </button>
+                </div>
+                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
+                  Участник пришёл из импорта или потерял узел при удалении. Выберите, какому
+                  объекту схемы он соответствует.
+                </div>
+                <ParticipantPicker
+                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                  onAdd={(ids) => { if (ids[0]) void requestBind(bindPart, ids[0]); }}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
         {partPanel && detail && (
           <>
             <div style={overlayDim} onClick={() => setPartPanel(false)} />
@@ -894,8 +1152,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                       .sort((a, b) => a.order - b.order)
                       .map((p) => (
                         <div key={p.id} style={partRow}>
-                          <span style={{ color: p.is_external ? BPT.mut : BPT.sec, display: "inline-flex" }}>
-                            <C4Glyph shape={p.shape} s={15} />
+                          <span style={{ color: p.node_id ? (p.is_external ? BPT.mut : BPT.sec) : BROKEN.ink, display: "inline-flex" }}>
+                            {p.shape ? <C4Glyph shape={p.shape} s={15} /> : <IcoBrokenLink s={13} />}
                           </span>
                           <span style={{ fontSize: 13, color: BPT.head, flex: 1 }}>{p.name}</span>
                           <button style={partX} title="Убрать" onClick={() => requestRemoveParticipant(p)}>
@@ -909,7 +1167,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                   Добавить из дерева схемы
                 </div>
                 <ParticipantPicker
-                  added={new Set(detail.participants.map((p) => p.node_id))}
+                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
                   onAdd={(ids) => void addParticipants(ids)}
                 />
               </div>

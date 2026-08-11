@@ -7,6 +7,7 @@ import type { CSSProperties } from "react";
 import { processesApi } from "../../api/processes";
 import type { ProcessListItem } from "../../types";
 import ProcessCanvas from "./ProcessCanvas";
+import ProcessImportModal from "./ProcessImportModal";
 import ProcessRail from "./ProcessRail";
 import { IcoFlow } from "./icons";
 import { BPT } from "./tokens";
@@ -47,6 +48,8 @@ export default function ProcessWorkspace({
   const [error, setError] = useState<string | null>(null);
   // Явно выбранный процесс. null → берём первый из списка (derived ниже), без эффекта.
   const [picked, setPicked] = useState<string | null>(initialProcessId ?? null);
+  // Импорт из mermaid: заводит НОВЫЙ процесс (слияние с существующим — отдельная задача).
+  const [importing, setImporting] = useState(false);
   const [railOpen, setRailOpen] = useState<boolean>(() => readPrefs().railOpen ?? true);
   const [editingPref, setEditingPref] = useState<boolean>(() => readPrefs().editing ?? false);
 
@@ -121,11 +124,23 @@ export default function ProcessWorkspace({
 
   return (
     <div style={workspace}>
+      {importing && (
+        <ProcessImportModal
+          onClose={() => setImporting(false)}
+          onImported={(pid) => {
+            setImporting(false);
+            setPicked(pid);
+            void reload();
+            onChanged?.();  // импорт создал участников/шаги — знак алертов протух
+          }}
+        />
+      )}
       <ProcessRail
         processes={items}
         selectedId={selectedId}
         onSelect={(id) => setPicked(id)}
         onNew={() => void onNew()}
+        onImport={() => setImporting(true)}
         expanded={railOpen}
         onToggle={() => setRailOpen((o) => !o)}
         isArchitect={isArchitect}

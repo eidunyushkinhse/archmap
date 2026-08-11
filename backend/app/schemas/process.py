@@ -45,13 +45,18 @@ class ProcessListItem(BaseModel):
 
 
 class ParticipantOut(BaseModel):
+    """Линия жизни процесса. НЕПРИВЯЗАННЫЙ участник (node_id = null) узла в схеме не
+    имеет: имя у него своё, а свойства узла (роль/форма/статус) взять неоткуда —
+    поэтому все они nullable. Фронт по node_id == null рисует «сломанный» стиль, как у
+    повисшей стрелки."""
+
     id: uuid.UUID
-    node_id: uuid.UUID
-    name: str
+    node_id: uuid.UUID | None
+    name: str  # живое имя узла, а у непривязанного — своё (из импорта / до удаления узла)
     role: str | None
-    shape: Shape
-    is_external: bool
-    status: NodeStatus  # статус жизненного цикла узла-участника (цвет плеча/линии жизни)
+    shape: Shape | None
+    is_external: bool | None
+    status: NodeStatus | None  # статус узла-участника (цвет плеча/линии жизни)
     order: int
 
 
@@ -63,8 +68,10 @@ class MessageOut(BaseModel):
     kind: Kind
     caption: str | None  # caption ?? default (из edge.label + плеча)
     technology: str | None  # технология канала (для tech-chip); null у повисшего
-    from_id: uuid.UUID  # node_id спроецированного отправителя
-    to_id: uuid.UUID  # node_id спроецированного получателя
+    # Концы — УЧАСТНИКИ процесса, не узлы: у непривязанного участника узла нет.
+    # Граница слоёв: C4 (каналы/плечи/направления) говорит узлами, процесс — участниками.
+    from_participant_id: uuid.UUID
+    to_participant_id: uuid.UUID
     valid: bool  # edge_id is not None (false → связь удалена из схемы)
 
 
@@ -102,6 +109,37 @@ class ProcessDetail(BaseModel):
 class ParticipantCreate(BaseModel):
     node_id: uuid.UUID
     order: int
+
+
+class BindResult(BaseModel):
+    """Итог привязки: сам участник + сколько его повисших шагов подхватило каналы.
+    Числа нужны интерфейсу: молча подхватывать и молчать — значит скрывать, что часть
+    шагов осталась сломанной."""
+
+    participant: "ParticipantOut"
+    attached: int  # шагов подхватило канал
+    dangling: int  # осталось повисшими (канала нет либо кандидатов несколько)
+
+
+class ReattachResult(BaseModel):
+    """Итог подхвата каналов по процессу. attached_ids нужен откату: он отцепляет
+    ровно то, что прицепила эта операция, а не всё подряд."""
+
+    attached: int
+    dangling: int
+    attached_ids: list[uuid.UUID]
+
+
+class ParticipantBind(BaseModel):
+    """Привязка непривязанного участника к узлу схемы.
+
+    node_id = null — снятие привязки; нужно как компенсирующая операция для undo
+    (иначе привязку нельзя было бы откатить). ПЕРЕпривязка привязанного запрещена:
+    сообщения участника опираются на плечи каналов ЕГО узла, и подмена узла молча
+    сделала бы их бессмысленными.
+    """
+
+    node_id: uuid.UUID | None
 
 
 class ReorderPayload(BaseModel):

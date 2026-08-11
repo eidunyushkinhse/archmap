@@ -173,6 +173,13 @@ export type MessageUpdate = Schemas["MessageUpdate"];
 export type FragmentCreate = Schemas["FragmentCreate"];
 export type FragmentUpdate = Schemas["FragmentUpdate"];
 // Ветвь [иначе] у alt: со второй и дальше (первая начинается с from_order фрагмента).
+export type BindResult = Schemas["BindResult"];
+export type ReattachResult = Schemas["ReattachResult"];
+// Импорт процесса из mermaid: превью → применение.
+export type ProcessImportIn = Schemas["ProcessImportIn"];
+export type ProcessImportApply = Schemas["ProcessImportApply"];
+export type ProcessImportPreview = Schemas["ProcessImportPreview"];
+export type ProcessImportResult = Schemas["ProcessImportResult"];
 export type FragmentBranch = Schemas["BranchOut"];
 export type BranchIn = Schemas["BranchIn"];
 // Плечо сообщения (хранимое) и стиль стрелки (производный) — Literal из контракта.

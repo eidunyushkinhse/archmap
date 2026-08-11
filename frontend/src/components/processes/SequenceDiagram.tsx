@@ -55,9 +55,12 @@ interface Props {
   // рефлексивное сообщение (внутренняя операция участника).
   onSelfConnect?: (id: string) => void;
   onMessageClick?: (id: string) => void;
-  // Удаление участника со схемы (крестик по ховеру на шапке). id = node_id.
+  // Удаление участника со схемы (крестик по ховеру на шапке). id — УЧАСТНИКА.
   // Передаётся только в режиме редактирования — в read-only окне крестика нет.
-  onDeleteParticipant?: (nodeId: string) => void;
+  onDeleteParticipant?: (participantId: string) => void;
+  // Привязать непривязанного участника (nodeId == null) к узлу схемы. Кнопка живёт
+  // на его шапке: расхождение и путь исправления должны быть в одном месте.
+  onBindParticipant?: (participantId: string) => void;
   // Перестановка участников перетаскиванием шапки (живой reorder). nodeIds — новый
   // порядок линий жизни слева-направо (id = node_id). Только в режиме редактирования.
   onReorderParticipants?: (nodeIds: string[]) => void;
@@ -94,6 +97,7 @@ export default function SequenceDiagram({
   onSelfConnect,
   onMessageClick,
   onDeleteParticipant,
+  onBindParticipant,
   onReorderParticipants,
   onReorderMessages,
   onResizeFragment,
@@ -372,8 +376,8 @@ export default function SequenceDiagram({
   // Тонкая линия (1.7px) курсором не ловится, поэтому поверх неё кладём невидимую
   // полосу той же геометрии с толстой обводкой — она и принимает жест.
   // pointerEvents="stroke": реагирует обводка, а не пустой прямоугольник вокруг.
-  // Полоса нужна и под клик: раньше подпись открывала «Удалить сообщение?», а
-  // стрелка не делала ничего — одна и та же сущность вела себя по-разному в
+  // Полоса нужна и под клик (он открывает карточку шага): раньше подпись отзывалась,
+  // а стрелка не делала ничего — одна и та же сущность вела себя по-разному в
   // зависимости от того, куда попал курсор (выровнено 2026-08-10).
   const grabbable = (m: SeqMessage) =>
     (!!onReorderMessages || !!onMessageClick) && !selectMode && !dimMsg(m);
@@ -708,9 +712,13 @@ export default function SequenceDiagram({
         </defs>
         {/* линии жизни — цвет/прозрачность по статусу участника */}
         {participants.map((p, k) => {
-          const st = p.status;
+          const st = statusOf(p.id);
           const dimmed = dimP(p.id);
-          const stroke = st === "existing" ? "#94a3b8" : STATUS_LEG[st];
+          // Непривязанный участник (узла в схеме нет) — тем же янтарным, что повисшая
+          // стрелка: расхождение со схемой выглядит одинаково, где бы ни встретилось.
+          const stroke = p.nodeId === null
+            ? BROKEN.ln
+            : st === "existing" ? "#94a3b8" : STATUS_LEG[st];
           const op = dimmed ? 0.12 : st === "existing" ? 0.85 : 0.7;
           const x = colX(p.id);
           return (
@@ -969,8 +977,11 @@ export default function SequenceDiagram({
         }}
       >
       {participants.map((p, k) => {
-        const st = p.status;
-        const isStatus = st !== "existing";
+        // Непривязанный участник: узла в схеме нет, значит нет ни статуса, ни формы.
+        // Шапка красится «сломанным» янтарным — тем же, что повисшая стрелка.
+        const unbound = p.nodeId === null;
+        const st = statusOf(p.id);
+        const isStatus = !unbound && st !== "existing";
         const sc = getNodeColors(false, 0, st);
         const badge = STATUS_META[st].badge;
         const dimmed = dimP(p.id);
@@ -986,8 +997,8 @@ export default function SequenceDiagram({
               top: SQ.TOP,
               width: 156,
               height: SQ.PHEAD_H,
-              background: isStatus ? withAlpha(sc.bg, 0.1) : "#fff",
-              border: "1px solid " + (isStatus ? sc.border : p.external ? BPT.line : "#d6dee8"),
+              background: unbound ? BROKEN.soft : isStatus ? withAlpha(sc.bg, 0.1) : "#fff",
+              border: "1px solid " + (unbound ? BROKEN.border : isStatus ? sc.border : p.external ? BPT.line : "#d6dee8"),
               borderRadius: 9,
               boxShadow: isDragged ? "0 6px 18px rgba(15,23,42,.22)" : "0 1px 3px rgba(15,23,42,.06)",
               display: "flex",
@@ -1043,27 +1054,56 @@ export default function SequenceDiagram({
                 <IcoClose s={11} />
               </button>
             )}
+            {/* Непривязанному — путь исправления прямо на месте: алерт без него был
+                бы тупиком («вижу расхождение, сделать ничего не могу»). */}
+            {unbound && onBindParticipant && (
+              <button
+                type="button"
+                title={`Привязать «${p.name}» к узлу схемы`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onBindParticipant(p.id); }}
+                style={{
+                  position: "absolute",
+                  left: 6,
+                  top: -9,
+                  height: 18,
+                  padding: "0 7px",
+                  background: BROKEN.soft,
+                  border: "1px solid " + BROKEN.border,
+                  borderRadius: 5,
+                  color: BROKEN.ink,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  zIndex: 6,
+                }}
+              >
+                привязать
+              </button>
+            )}
             <span
               style={{
                 width: 28,
                 height: 28,
                 borderRadius: 7,
-                background: isStatus ? sc.bg : p.external ? "#f8fafc" : BPT.wash,
-                color: isStatus ? "#fff" : p.external ? BPT.mut : BPT.accent,
+                background: unbound ? BROKEN.soft : isStatus ? sc.bg : p.external ? "#f8fafc" : BPT.wash,
+                color: unbound ? BROKEN.ink : isStatus ? "#fff" : p.external ? BPT.mut : BPT.accent,
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
                 flex: "none",
               }}
             >
-              <C4Glyph shape={p.shape} s={17} />
+              {/* Формы у непривязанного нет — вместо неё знак разрыва, как у
+                  повисшей стрелки. */}
+              {p.shape ? <C4Glyph shape={p.shape} s={17} /> : <IcoBrokenLink s={15} />}
             </span>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: BPT.head, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {p.name}
               </div>
               <div style={{ fontSize: 9.5, color: BPT.mut, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {p.role}
+                {unbound ? "нет узла в схеме" : p.role}
                 {p.external ? " · внеш." : ""}
               </div>
             </div>

@@ -912,6 +912,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/processes/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Process Import
+         * @description Что получится из текста диаграммы и с чем сопоставились имена. Ничего не пишет.
+         *
+         *     Объявлен ДО /{process_id}: иначе FastAPI принял бы «import» за uuid процесса.
+         */
+        post: operations["preview_process_import_api_v1_processes_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Process
+         * @description Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача).
+         */
+        post: operations["import_process_api_v1_processes_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}": {
         parameters: {
             query?: never;
@@ -977,6 +1019,60 @@ export interface paths {
         post?: never;
         /** Delete Participant */
         delete: operations["delete_participant_api_v1_processes__process_id__participants__participant_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Bind Participant
+         * @description Привязать непривязанного участника к узлу схемы (или снять привязку — для undo).
+         *
+         *     Объявлен ПОСЛЕ /participants/reorder: иначе FastAPI принял бы «reorder» за
+         *     participant_id (та же грабля была с /messages/reorder и /nodes/transition).
+         */
+        patch: operations["bind_participant_api_v1_processes__process_id__participants__participant_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/reattach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reattach Process
+         * @description Прогнать ВСЕ повисшие шаги процесса через подбор канала.
+         *
+         *     Нужен после правки схемы: пользователь чинит канал (например, делает его
+         *     синхронным — у асинхронного нет плеча «ответ»), а процесс об этом не узнаёт.
+         *     Прежде подхват случался только при привязке участника, то есть починить схему и
+         *     подхватить шаги было двумя несвязанными действиями.
+         */
+        post: operations["reattach_process_api_v1_processes__process_id__reattach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/messages/detach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detach Messages Endpoint
+         * @description Отцепить перечисленные шаги от каналов — компенсация подхвата для undo.
+         *
+         *     Объявлен ДО /{message_id}: иначе FastAPI принял бы «detach» за uuid сообщения.
+         */
+        post: operations["detach_messages_endpoint_api_v1_processes__process_id__messages_detach_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1174,6 +1270,11 @@ export interface components {
              * @default []
              */
             dangling_messages: components["schemas"]["DanglingMessageAlert"][];
+            /**
+             * Unbound Participants
+             * @default []
+             */
+            unbound_participants: components["schemas"]["UnboundParticipantAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1189,6 +1290,19 @@ export interface components {
              * @default false
              */
             is_external: boolean;
+        };
+        /**
+         * BindResult
+         * @description Итог привязки: сам участник + сколько его повисших шагов подхватило каналы.
+         *     Числа нужны интерфейсу: молча подхватывать и молчать — значит скрывать, что часть
+         *     шагов осталась сломанной.
+         */
+        BindResult: {
+            participant: components["schemas"]["ParticipantOut"];
+            /** Attached */
+            attached: number;
+            /** Dangling */
+            dangling: number;
         };
         /** Body_login_api_v1_auth_login_post */
         Body_login_api_v1_auth_login_post: {
@@ -1829,6 +1943,33 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * ImportNodeCandidate
+         * @description Узел-кандидат под имя из диаграммы. Имена узлов НЕ уникальны, поэтому
+         *     кандидатов может быть несколько — тогда выбирает пользователь, а не мы.
+         */
+        ImportNodeCandidate: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Parent Name */
+            parent_name: string | null;
+        };
+        /** ImportParticipantPreview */
+        ImportParticipantPreview: {
+            /** Alias */
+            alias: string;
+            /** Name */
+            name: string;
+            /** Node Id */
+            node_id: string | null;
+            /** Candidates */
+            candidates: components["schemas"]["ImportNodeCandidate"][];
+        };
+        /**
          * ImportPreviewIn
          * @description YAML для dry-run проверки импорта (без записи в БД): один текст (content)
          *     либо несколько (contents — мульти-репо, сливаются merge_imports).
@@ -2013,15 +2154,15 @@ export interface components {
             /** Technology */
             technology: string | null;
             /**
-             * From Id
+             * From Participant Id
              * Format: uuid
              */
-            from_id: string;
+            from_participant_id: string;
             /**
-             * To Id
+             * To Participant Id
              * Format: uuid
              */
-            to_id: string;
+            to_participant_id: string;
             /** Valid */
             valid: boolean;
         };
@@ -2348,6 +2489,19 @@ export interface components {
             /** Base Version */
             base_version?: number | null;
         };
+        /**
+         * ParticipantBind
+         * @description Привязка непривязанного участника к узлу схемы.
+         *
+         *     node_id = null — снятие привязки; нужно как компенсирующая операция для undo
+         *     (иначе привязку нельзя было бы откатить). ПЕРЕпривязка привязанного запрещена:
+         *     сообщения участника опираются на плечи каналов ЕГО узла, и подмена узла молча
+         *     сделала бы их бессмысленными.
+         */
+        ParticipantBind: {
+            /** Node Id */
+            node_id: string | null;
+        };
         /** ParticipantCreate */
         ParticipantCreate: {
             /**
@@ -2358,34 +2512,31 @@ export interface components {
             /** Order */
             order: number;
         };
-        /** ParticipantOut */
+        /**
+         * ParticipantOut
+         * @description Линия жизни процесса. НЕПРИВЯЗАННЫЙ участник (node_id = null) узла в схеме не
+         *     имеет: имя у него своё, а свойства узла (роль/форма/статус) взять неоткуда —
+         *     поэтому все они nullable. Фронт по node_id == null рисует «сломанный» стиль, как у
+         *     повисшей стрелки.
+         */
         ParticipantOut: {
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /**
-             * Node Id
-             * Format: uuid
-             */
-            node_id: string;
+            /** Node Id */
+            node_id: string | null;
             /** Name */
             name: string;
             /** Role */
             role: string | null;
-            /**
-             * Shape
-             * @enum {string}
-             */
-            shape: "service" | "database" | "broker" | "person";
+            /** Shape */
+            shape: ("service" | "database" | "broker" | "person") | null;
             /** Is External */
-            is_external: boolean;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "existing" | "planned" | "deprecated";
+            is_external: boolean | null;
+            /** Status */
+            status: ("existing" | "planned" | "deprecated") | null;
             /** Order */
             order: number;
         };
@@ -2438,6 +2589,71 @@ export interface components {
             messages: components["schemas"]["MessageOut"][];
             /** Fragments */
             fragments: components["schemas"]["FragmentOut"][];
+        };
+        /**
+         * ProcessImportApply
+         * @description Применение. mapping: алиас участника → узел; отсутствующий или null означает
+         *     «оставить непривязанным» — пользователь НЕ обязан сопоставить каждого.
+         */
+        ProcessImportApply: {
+            /** Text */
+            text: string;
+            /** Name */
+            name?: string | null;
+            /**
+             * Mapping
+             * @default {}
+             */
+            mapping: {
+                [key: string]: string | null;
+            };
+        };
+        /** ProcessImportIn */
+        ProcessImportIn: {
+            /** Text */
+            text: string;
+            /** Name */
+            name?: string | null;
+        };
+        /** ProcessImportPreview */
+        ProcessImportPreview: {
+            /** Name */
+            name: string;
+            /** Participants */
+            participants: components["schemas"]["ImportParticipantPreview"][];
+            /** Message Count */
+            message_count: number;
+            /** Fragment Count */
+            fragment_count: number;
+            /** Unsupported */
+            unsupported: string[];
+        };
+        /** ProcessImportResult */
+        ProcessImportResult: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Participants */
+            participants: number;
+            /** Unbound */
+            unbound: number;
+            /** Messages */
+            messages: number;
+            /** Attached */
+            attached: number;
+            /** Dangling */
+            dangling: number;
+            /**
+             * Self Messages
+             * @default 0
+             */
+            self_messages: number;
+            /** Fragments */
+            fragments: number;
+            /** Unsupported */
+            unsupported: string[];
         };
         /** ProcessListItem */
         ProcessListItem: {
@@ -2567,6 +2783,19 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
+        };
+        /**
+         * ReattachResult
+         * @description Итог подхвата каналов по процессу. attached_ids нужен откату: он отцепляет
+         *     ровно то, что прицепила эта операция, а не всё подряд.
+         */
+        ReattachResult: {
+            /** Attached */
+            attached: number;
+            /** Dangling */
+            dangling: number;
+            /** Attached Ids */
+            attached_ids: string[];
         };
         /** ReorderPayload */
         ReorderPayload: {
@@ -2922,6 +3151,32 @@ export interface components {
              * @default []
              */
             promote: components["schemas"]["TransitionNodeOut"][];
+        };
+        /**
+         * UnboundParticipantAlert
+         * @description Участник процесса без узла схемы (node_id = NULL). Появляется двумя путями:
+         *     импортом диаграммы, где имя не сопоставили ни с одним узлом, и удалением узла —
+         *     FK гасит ссылку (SET NULL), процесс переживает удаление вместо того, чтобы молча
+         *     лишиться участника и всех его шагов.
+         *
+         *     Вторая ось «незадокументированности», симметричная повисшему сообщению: линия
+         *     жизни на схеме процесса есть, а объекта архитектуры за ней нет.
+         */
+        UnboundParticipantAlert: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /**
+             * Participant Id
+             * Format: uuid
+             */
+            participant_id: string;
+            /** Name */
+            name: string;
         };
         /** UserCreate */
         UserCreate: {
@@ -4881,6 +5136,76 @@ export interface operations {
             };
         };
     };
+    preview_process_import_api_v1_processes_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessImportPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_process_api_v1_processes_import_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcessImportApply"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_process_api_v1_processes__process_id__get: {
         parameters: {
             query?: never;
@@ -5069,6 +5394,112 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bind_participant_api_v1_processes__process_id__participants__participant_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+                participant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantBind"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reattach_process_api_v1_processes__process_id__reattach_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReattachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detach_messages_endpoint_api_v1_processes__process_id__messages_detach_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderPayload"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             204: {
