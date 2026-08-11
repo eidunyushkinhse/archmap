@@ -136,11 +136,23 @@ const withDangling = {
   ...DETAIL,
   messages: [
     { id: "m1", order: 0, edge_id: null, leg: "return", kind: "return", caption: "ответ",
-      technology: null, from_participant_id: "pb", to_participant_id: "pa", valid: false },
+      technology: null, from_participant_id: "pb", to_participant_id: "pa",
+      valid: false, invalid_reason: "edge_deleted" },
     // Самосообщение: связи C4 у него и не было, поэтому бэк помечает его valid=true —
     // в счётчик оно не попадает по контракту, а не по отдельной проверке.
     { id: "m2", order: 1, edge_id: null, leg: "forward", kind: "self", caption: "проверка",
       technology: null, from_participant_id: "pa", to_participant_id: "pa", valid: true },
+  ],
+} as unknown as ProcessDetail;
+
+// Шаг, потерявший ПЛЕЧО: связь на месте, но канал стал асинхронным — «ответа» у него
+// больше нет. Сломан, но подхватывать нечего: кнопка его чинить не умеет (AL28).
+const withOrphanLeg = {
+  ...DETAIL,
+  messages: [
+    { id: "m3", order: 0, edge_id: "e1", leg: "return", kind: "return", caption: "ответ",
+      technology: null, from_participant_id: "pb", to_participant_id: "pa",
+      valid: false, invalid_reason: "leg_gone" },
   ],
 } as unknown as ProcessDetail;
 
@@ -158,6 +170,16 @@ describe("ProcessCanvas: подхват каналов", () => {
 
     expect((await screen.findByRole("button", { name: /Восстановить связи/ })).textContent)
       .toContain("(1)");
+  });
+
+  it("шаг с пропавшим плечом кнопку НЕ зажигает", async () => {
+    // Он сломан, но связь у него на месте — подхватывать нечего. Попади он в счётчик,
+    // кнопка обещала бы починку, которой не умеет (чинится возвратом синхронности
+    // канала либо удалением шага).
+    vi.mocked(processesApi.get).mockResolvedValue(withOrphanLeg);
+    await renderCanvas();
+
+    expect(reattachBtn()).toBeNull();
   });
 
   it("нажатие прогоняет процесс и показывает итог", async () => {

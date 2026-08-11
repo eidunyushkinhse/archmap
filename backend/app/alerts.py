@@ -23,6 +23,7 @@ from app.schemas.node import (
     DisconnectedNodeAlert,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
+    OrphanLegAlert,
     PersonInsideAlert,
     UnboundParticipantAlert,
 )
@@ -229,6 +230,46 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         )
     ]
 
+    # 8) Шаги, у которых пропало ПЛЕЧО канала (AL28). Связь на месте — исчезло
+    #    именно плечо: канал сменили на асинхронный уже после создания шага-ответа.
+    #    Сравнение с False, а не «not True»: is_synchronous nullable, и NULL значит
+    #    синхронный по умолчанию (edge_is_synchronous) — такой шаг цел.
+    orphan_legs = [
+        OrphanLegAlert(
+            process_id=proc_id,
+            process_name=proc_name,
+            message_id=msg_id,
+            caption=caption,
+            edge_label=edge_label,
+            from_name=name_by_id.get(from_node) or from_own,
+            to_name=name_by_id.get(to_node) or to_own,
+        )
+        for proc_id, proc_name, msg_id, caption, edge_label, from_node, to_node, from_own, to_own in (
+            db.query(
+                BusinessProcess.id,
+                BusinessProcess.name,
+                ProcessMessage.id,
+                ProcessMessage.caption,
+                Edge.label,
+                from_p.node_id,
+                to_p.node_id,
+                from_p.name,
+                to_p.name,
+            )
+            .join(ProcessMessage, ProcessMessage.process_id == BusinessProcess.id)
+            .join(Edge, Edge.id == ProcessMessage.edge_id)
+            .join(from_p, from_p.id == ProcessMessage.from_participant_id)
+            .join(to_p, to_p.id == ProcessMessage.to_participant_id)
+            .filter(
+                BusinessProcess.project_id == project_id,
+                ProcessMessage.leg == "return",
+                Edge.is_synchronous.is_(False),
+            )
+            .order_by(BusinessProcess.name, ProcessMessage.order)
+            .all()
+        )
+    ]
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
@@ -237,4 +278,5 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         persons_inside=persons_inside,
         dangling_messages=dangling_messages,
         unbound_participants=unbound_participants,
+        orphan_legs=orphan_legs,
     )

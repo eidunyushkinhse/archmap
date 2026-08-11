@@ -929,7 +929,7 @@ export default function SequenceDiagram({
                   whiteSpace: "nowrap",
                 }}
               >
-                связь удалена
+                {m.invalidReason === "leg_gone" ? "канал без ответа" : "связь удалена"}
               </span>
             )}
             {m.valid && m.tech && (

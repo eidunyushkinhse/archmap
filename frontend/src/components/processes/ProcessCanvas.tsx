@@ -152,11 +152,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     return c;
   }, [detail]);
   const hasStatus = counts.planned + counts.deprecated > 0;
-  // Сколько шагов без связи. Самосообщения сюда не попадают сами: у внутренней
-  // операции связи C4 не было, и бэк отдаёт им valid=true — отдельная проверка была бы
-  // мёртвым кодом.
+  // Сколько шагов кнопка «Восстановить связи» реально может починить: она ищет канал
+  // ПОВИСШЕМУ шагу, поэтому считаем только их. Шаг, потерявший плечо (канал стал
+  // асинхронным), тоже показан сломанным, но связь у него на месте — подхватывать
+  // нечего, и попади он в счётчик, кнопка обещала бы починку, которой не умеет.
+  // Самосообщения не попадают сами: у внутренней операции связи C4 не было.
   const danglingCount = useMemo(
-    () => (detail ? detail.messages.filter((m) => !m.valid).length : 0),
+    () => (detail ? detail.messages.filter((m) => m.invalid_reason === "edge_deleted").length : 0),
     [detail],
   );
   const nextOrder = useMemo(

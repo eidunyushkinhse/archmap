@@ -17,6 +17,8 @@ Leg = Literal["forward", "return"]
 # совпадают (from==to), edge_id отсутствует. Производный kind, как и остальные.
 Kind = Literal["forward", "return", "async", "self"]
 FragmentKind = Literal["alt", "opt", "loop", "par"]
+# Чем именно сломан шаг (см. MessageOut.invalid_reason).
+MessageInvalidReason = Literal["edge_deleted", "leg_gone"]
 Shape = Literal["service", "database", "broker", "person"]
 
 
@@ -72,7 +74,14 @@ class MessageOut(BaseModel):
     # Граница слоёв: C4 (каналы/плечи/направления) говорит узлами, процесс — участниками.
     from_participant_id: uuid.UUID
     to_participant_id: uuid.UUID
-    valid: bool  # edge_id is not None (false → связь удалена из схемы)
+    # Шаг опирается на СУЩЕСТВУЮЩЕЕ плечо канала. Ломается двумя способами, и их
+    # обязательно различать: «Восстановить связи» умеет чинить только первый.
+    valid: bool
+    # Почему шаг сломан (null — цел):
+    #   edge_deleted — связь удалили из схемы (edge_id → NULL);
+    #   leg_gone     — связь на месте, но плеча больше нет: канал сменил синхронность
+    #                  на асинхронную, а у такого «ответа» не бывает.
+    invalid_reason: MessageInvalidReason | None = None
 
 
 class BranchOut(BaseModel):

@@ -74,6 +74,8 @@ const IcoPersonBox = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {
 // Повисшее сообщение: стрелка с разрывом посередине.
 const IcoBrokenLifeline = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="4.5" y="1.8" width="7" height="3.4" rx="1" /><path d="M8 5.6v2.2" /><path d="M8 10.4v3.8" /></svg>;
 const IcoBrokenArrow = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M1.8 8h3.4" /><path d="M10.8 8h3.4" /><path d="M11.4 5.6 13.8 8l-2.4 2.4" /><path d="M7.4 5.4 8.6 10.6" /></svg>;
+// Ответное плечо, которого больше нет: дуга возврата, перечёркнутая косой.
+const IcoNoReturn = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M13.2 3.8H6.2a3 3 0 0 0 0 6h3.4" /><path d="M7.6 7.6 5.6 9.8l2 2.2" /><path d="M2.6 2.6l10.8 10.8" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
 
 export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props) {
@@ -96,6 +98,10 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // Участники процессов без узла схемы: линия жизни есть, объекта архитектуры за ней
   // нет (импорт не сопоставил имя либо узел удалили). Чинится привязкой на шапке.
   const unbound = alerts.unbound_participants;
+  // Шаги, у которых пропало ПЛЕЧО канала: связь на месте, но она стала асинхронной,
+  // а у такой «ответа» не бывает. Отдельно от повисших: «Восстановить связи» тут
+  // бессильна — чинится возвратом синхронности либо удалением шага.
+  const orphanLegs = alerts.orphan_legs;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
@@ -103,7 +109,8 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   const isolatedProblems = Math.max(0, isolated.length - 1);
   const total =
     disconnected.length + intermediate.length + isolatedProblems +
-    containerOwn.length + personsInside.length + dangling.length + unbound.length;
+    containerOwn.length + personsInside.length + dangling.length + unbound.length +
+    orphanLegs.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -228,6 +235,24 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
                 </span>
                 <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", lineHeight: 1.35 }}>
                   {m.from_name} → {m.to_name}
+                </span>
+              </Item>
+            ))}
+          </Section>
+
+          <Section icon={IcoNoReturn(13)} title="Ответ на асинхронном канале" count={orphanLegs.length}>
+            {orphanLegs.map((m) => (
+              <Item
+                key={m.message_id}
+                onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
+              >
+                <span style={{ display: "block", lineHeight: 1.35 }}>
+                  <span style={{ color: "#6b7280", fontWeight: 600 }}>{m.process_name}:</span>{" "}
+                  {m.caption ? `«${m.caption}»` : "без подписи"}
+                </span>
+                <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", lineHeight: 1.35 }}>
+                  {m.from_name} → {m.to_name}
+                  {m.edge_label ? ` · канал «${m.edge_label}»` : ""}
                 </span>
               </Item>
             ))}

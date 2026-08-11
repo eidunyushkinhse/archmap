@@ -287,6 +287,26 @@ class UnboundParticipantAlert(BaseModel):
     name: str  # имя из диаграммы либо имя узла на момент, когда он ещё был
 
 
+class OrphanLegAlert(BaseModel):
+    """Шаг процесса, чьё ПЛЕЧО у канала исчезло, хотя сама связь на месте.
+
+    Единственный способ это получить — сменить синхронность канала на асинхронную
+    после того, как шаг-ответ уже создан: у асинхронного канала плеча «ответ» нет
+    (legs_for_edge), и create_message такое отклоняет, а существующее переживало
+    смену молча. Отдельно от «сообщений без связи» (AL26) потому, что чинится
+    иначе: «Восстановить связи» тут бессильна — она ищет канал повисшему шагу, а
+    здесь канал есть.
+    """
+    process_id: uuid.UUID
+    process_name: str
+    message_id: uuid.UUID
+    caption: str | None
+    # Метка канала, у которого пропало плечо — по ней связь узнают на схеме.
+    edge_label: str | None
+    from_name: str
+    to_name: str
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
@@ -295,6 +315,7 @@ class AlertsResponse(BaseModel):
     persons_inside: list[PersonInsideAlert] = []
     dangling_messages: list[DanglingMessageAlert] = []
     unbound_participants: list[UnboundParticipantAlert] = []
+    orphan_legs: list[OrphanLegAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

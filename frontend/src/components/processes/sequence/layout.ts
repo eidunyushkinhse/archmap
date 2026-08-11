@@ -20,7 +20,10 @@ export interface SeqParticipant {
 }
 
 // Сообщение = горизонтальная стрелка. r — индекс строки (время, 0..R-1), n — номер
-// в подписи. from/to — id участников (node_id). valid=false → связь удалена из схемы.
+// в подписи. from/to — id участников (node_id).
+// valid=false → шаг не опирается на существующее плечо канала; ЧЕМ именно сломан,
+// говорит invalidReason: связь удалили из схемы либо канал стал асинхронным и
+// потерял плечо «ответ». Разница видна пользователю — чинится это по-разному.
 export interface SeqMessage {
   id: string;
   r: number;
@@ -31,6 +34,7 @@ export interface SeqMessage {
   label: string;
   tech: string | null;
   valid: boolean;
+  invalidReason: "edge_deleted" | "leg_gone" | null;
 }
 
 export interface SeqActivation {

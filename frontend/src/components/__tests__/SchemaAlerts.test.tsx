@@ -17,7 +17,7 @@ const EMPTY: Alerts = {
   container_own_docs: [],
   persons_inside: [],
   dangling_messages: [],
-  unbound_participants: [],
+  unbound_participants: [], orphan_legs: [],
 };
 
 const DANGLING = {
@@ -115,5 +115,46 @@ describe("SchemaAlerts: участники без узла схемы", () => {
     await openPanel();
 
     expect(screen.getByText("Биллинг").closest(".sa-item")?.getAttribute("role")).toBeNull();
+  });
+});
+
+// ── Ответ на асинхронном канале (AL28) ───────────────────────────────────────
+// Связь на месте, а плеча «ответ» у неё больше нет: канал сменили на асинхронный
+// уже после того, как шаг создан. Отдельный класс от «сообщений без связи» —
+// «Восстановить связи» такой шаг не чинит.
+const ORPHAN_LEG = {
+  process_id: "proc-9",
+  process_name: "Оформление заказа",
+  message_id: "msg-9",
+  caption: "номер заказа",
+  edge_label: "оформить заказ",
+  from_name: "Сервис заказов",
+  to_name: "Покупатель",
+};
+
+describe("SchemaAlerts: ответ на асинхронном канале", () => {
+  it("строка называет процесс, шаг и канал", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, orphan_legs: [ORPHAN_LEG] }} />);
+    await openPanel();
+
+    expect(screen.getByText(/«номер заказа»/)).toBeTruthy();
+    expect(screen.getByText(/канал «оформить заказ»/)).toBeTruthy();
+  });
+
+  it("считается в общей незавершённости", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, orphan_legs: [ORPHAN_LEG] }} />);
+
+    expect(screen.getByRole("button", { name: /Незавершённость схемы/i }).textContent)
+      .toContain("1");
+  });
+
+  it("строка ведёт В ПРОЦЕСС — чинить на холсте нечего", async () => {
+    const onOpenProcess = vi.fn();
+    render(<SchemaAlerts alerts={{ ...EMPTY, orphan_legs: [ORPHAN_LEG] }} onOpenProcess={onOpenProcess} />);
+    await openPanel();
+
+    await userEvent.click(screen.getByText(/«номер заказа»/));
+
+    expect(onOpenProcess).toHaveBeenCalledWith("proc-9");
   });
 });

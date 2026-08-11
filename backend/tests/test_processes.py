@@ -250,6 +250,56 @@ def test_подпись_правится_и_снимается(db):
     assert правка(MessageUpdate(caption=None)).caption is None
 
 
+def test_ответ_на_ставшем_асинхронным_канале_перестаёт_быть_корректным(db):
+    """Находка приёмки 2026-08-10. Смена синхронности убирает у канала плечо «ответ»
+    (legs_for_edge), create_message такое отклоняет — а уже созданный шаг переживал
+    смену и продолжал считаться корректным. Причина отдельная от «связь удалена»:
+    связь на месте, и «Восстановить связи» тут бессильна."""
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b)  # sync по умолчанию
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="return",
+                      from_participant_id=parts[b.id], to_participant_id=parts[a.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    цел = get_process(proc.id, db=db, project=ensure_project(db)).messages[0]
+    assert (цел.valid, цел.invalid_reason) == (True, None)
+
+    edge.is_synchronous = False
+    db.commit()
+
+    сломан = get_process(proc.id, db=db, project=ensure_project(db)).messages[0]
+    assert сломан.valid is False
+    assert сломан.invalid_reason == "leg_gone"
+    assert сломан.edge_id is not None  # связь на месте — это не «связь удалена»
+
+
+def test_удалённая_связь_даёт_другую_причину(db):
+    """Две поломки обязаны различаться: их чинят по-разному, и на счётчике кнопки
+    «Восстановить связи» должна висеть только эта."""
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b)
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    db.delete(edge)
+    db.commit()
+
+    сломан = get_process(proc.id, db=db, project=ensure_project(db)).messages[0]
+    assert (сломан.valid, сломан.invalid_reason) == (False, "edge_deleted")
+
+
 # ── 4. /channels: 2 плеча для sync, 1 для async, пусто без рёбер ───────────────
 def test_channels_legs_count_and_empty(db):
     a, b, c, d = _node(db, "A"), _node(db, "B"), _node(db, "C"), _node(db, "D")

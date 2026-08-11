@@ -1275,6 +1275,11 @@ export interface components {
              * @default []
              */
             unbound_participants: components["schemas"]["UnboundParticipantAlert"][];
+            /**
+             * Orphan Legs
+             * @default []
+             */
+            orphan_legs: components["schemas"]["OrphanLegAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -2165,6 +2170,8 @@ export interface components {
             to_participant_id: string;
             /** Valid */
             valid: boolean;
+            /** Invalid Reason */
+            invalid_reason?: ("edge_deleted" | "leg_gone") | null;
         };
         /** MessageUpdate */
         MessageUpdate: {
@@ -2488,6 +2495,39 @@ export interface components {
             status?: ("existing" | "planned" | "deprecated") | null;
             /** Base Version */
             base_version?: number | null;
+        };
+        /**
+         * OrphanLegAlert
+         * @description Шаг процесса, чьё ПЛЕЧО у канала исчезло, хотя сама связь на месте.
+         *
+         *     Единственный способ это получить — сменить синхронность канала на асинхронную
+         *     после того, как шаг-ответ уже создан: у асинхронного канала плеча «ответ» нет
+         *     (legs_for_edge), и create_message такое отклоняет, а существующее переживало
+         *     смену молча. Отдельно от «сообщений без связи» (AL26) потому, что чинится
+         *     иначе: «Восстановить связи» тут бессильна — она ищет канал повисшему шагу, а
+         *     здесь канал есть.
+         */
+        OrphanLegAlert: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /** Caption */
+            caption: string | null;
+            /** Edge Label */
+            edge_label: string | null;
+            /** From Name */
+            from_name: string;
+            /** To Name */
+            to_name: string;
         };
         /**
          * ParticipantBind

@@ -265,3 +265,98 @@ def test_повисший_шаг_непривязанного_показывае
     out = get_alerts(db=db, project=ensure_project(db), _=None).dangling_messages
     assert len(out) == 1
     assert out[0].from_name == "Покупатель"  # а не «?»
+
+
+# ============ 8) Шаги с исчезнувшим плечом канала (AL28) ============
+
+def test_смена_канала_на_асинхронный_ломает_шаг_ответа(db):
+    """Полный путь, а не подложенное состояние: заводим ответ на СИНХРОННОМ канале и
+    переключаем канал в асинхронный. Плеча «ответ» у такого канала нет
+    (legs_for_edge), create_message его отклоняет — но уже созданный шаг переживал
+    смену молча и продолжал считаться корректным (находка приёмки 2026-08-10)."""
+    from app.models.business_process import BusinessProcess
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    покупатель = _node(db, "Покупатель")
+    заказы = _node(db, "Сервис заказов")
+    связь = _edge(db, покупатель, заказы)
+    связь.is_synchronous = True
+    связь.label = "оформить заказ"
+    процесс = BusinessProcess(id=uuid.uuid4(), name="Оформление заказа", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    отправитель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=покупатель.id, name=покупатель.name, order=0)
+    получатель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=заказы.id, name=заказы.name, order=1)
+    db.add_all([отправитель, получатель])
+    db.flush()
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=процесс.id, order=0, edge_id=связь.id, leg="return",
+        from_participant_id=получатель.id, to_participant_id=отправитель.id, caption="номер заказа",
+    ))
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).orphan_legs == []
+
+    связь.is_synchronous = False  # плечо «ответ» исчезло
+    db.commit()
+
+    out = get_alerts(db=db, project=ensure_project(db), _=None).orphan_legs
+    assert len(out) == 1
+    assert (out[0].process_name, out[0].caption) == ("Оформление заказа", "номер заказа")
+    assert out[0].edge_label == "оформить заказ"  # чем связь узнать на схеме
+    assert (out[0].from_name, out[0].to_name) == ("Сервис заказов", "Покупатель")
+    # Связь на месте — это НЕ «сообщение без связи», и чинится оно иначе.
+    assert get_alerts(db=db, project=ensure_project(db), _=None).dangling_messages == []
+
+
+def test_вызов_на_асинхронном_канале_цел(db):
+    """Плечо forward есть у ЛЮБОГО канала — асинхронность ломает только «ответ»."""
+    from app.models.business_process import BusinessProcess
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    покупатель = _node(db, "Покупатель")
+    заказы = _node(db, "Сервис заказов")
+    связь = _edge(db, покупатель, заказы)
+    связь.is_synchronous = False
+    процесс = BusinessProcess(id=uuid.uuid4(), name="P", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    отправитель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=покупатель.id, name=покупатель.name, order=0)
+    получатель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=заказы.id, name=заказы.name, order=1)
+    db.add_all([отправитель, получатель])
+    db.flush()
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=процесс.id, order=0, edge_id=связь.id, leg="forward",
+        from_participant_id=отправитель.id, to_participant_id=получатель.id, caption="событие",
+    ))
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).orphan_legs == []
+
+
+def test_канал_без_явной_синхронности_плечо_не_теряет(db):
+    """is_synchronous nullable, NULL = синхронный по умолчанию (легаси-связи).
+    Сравнение обязано быть с False, иначе весь легаси разом уехал бы в алерт."""
+    from app.models.business_process import BusinessProcess
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    покупатель = _node(db, "Покупатель")
+    заказы = _node(db, "Сервис заказов")
+    связь = _edge(db, покупатель, заказы)  # is_synchronous не задан → NULL
+    процесс = BusinessProcess(id=uuid.uuid4(), name="P", project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    отправитель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=покупатель.id, name=покупатель.name, order=0)
+    получатель = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id, node_id=заказы.id, name=заказы.name, order=1)
+    db.add_all([отправитель, получатель])
+    db.flush()
+    db.add(ProcessMessage(
+        id=uuid.uuid4(), process_id=процесс.id, order=0, edge_id=связь.id, leg="return",
+        from_participant_id=получатель.id, to_participant_id=отправитель.id, caption="ответ",
+    ))
+    db.commit()
+
+    assert get_alerts(db=db, project=ensure_project(db), _=None).orphan_legs == []

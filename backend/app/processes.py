@@ -29,6 +29,7 @@ from app.models.process_participant import ProcessParticipant
 from app.schemas.process import (
     BranchOut,
     FragmentOut,
+    MessageInvalidReason,
     MessageOut,
     ParticipantOut,
     ProcessDetail,
@@ -275,12 +276,23 @@ def message_out(
     """
     is_self = msg.from_participant_id == msg.to_participant_id
     caption = msg.caption
+    invalid_reason: MessageInvalidReason | None = None
     if is_self:
         kind = "self"
         valid = True
     else:
         kind = _message_kind(msg.leg, edge)
-        valid = msg.edge_id is not None
+        if msg.edge_id is None or edge is None:
+            invalid_reason = "edge_deleted"
+        elif msg.leg == "return" and not edge_is_synchronous(edge):
+            # Канал сменил синхронность уже ПОСЛЕ создания шага: плеча «ответ» у
+            # асинхронного канала нет (legs_for_edge), и create_message такое
+            # отклоняет — но существующий шаг переживал смену молча и продолжал
+            # считаться корректным. Связь при этом на месте, поэтому причина
+            # отдельная: «Восстановить связи» тут бессильна (она чинит только
+            # edge_id IS NULL), лечится возвратом синхронности или удалением шага.
+            invalid_reason = "leg_gone"
+        valid = invalid_reason is None
     return MessageOut(
         id=msg.id,
         order=msg.order,
@@ -296,6 +308,7 @@ def message_out(
         from_participant_id=msg.from_participant_id,
         to_participant_id=msg.to_participant_id,
         valid=valid,
+        invalid_reason=invalid_reason,
     )
 
 

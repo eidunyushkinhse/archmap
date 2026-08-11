@@ -42,6 +42,7 @@ export function toSeqMessages(messages: ProcessMessage[]): SeqMessage[] {
       label: m.caption ?? "",
       tech: m.technology,
       valid: m.valid,
+      invalidReason: m.invalid_reason ?? null,
     }));
 }
 
