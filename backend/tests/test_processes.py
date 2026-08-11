@@ -34,12 +34,14 @@ from app.routers.processes import (
     reorder_messages,
     reorder_participants,
     update_fragment,
+    update_message,
 )
 from app.schemas.process import (
     BranchIn,
     FragmentCreate,
     FragmentUpdate,
     MessageCreate,
+    MessageUpdate,
     ParticipantBind,
     ParticipantCreate,
     ReorderPayload,
@@ -218,6 +220,34 @@ def test_своя_подпись_при_создании_дефолт_не_пе�
     )
 
     assert создан.caption == "проверка лимита"
+
+
+def test_подпись_правится_и_снимается(db):
+    """Путь карточки шага. Снятие подписи — ЯВНЫЙ null: у Pydantic «не прислали» и
+    «прислали null» различаются (exclude_unset), иначе очистка поля молча ничего не
+    делала бы."""
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    def правка(body):
+        return update_message(
+            proc.id, msg.id, body, db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+
+    assert правка(MessageUpdate(caption="проверка лимита")).caption == "проверка лимита"
+    # Поле не прислали — подпись на месте (иначе любая правка порядка стирала бы её).
+    assert правка(MessageUpdate(order=0)).caption == "проверка лимита"
+    # Прислали null — подпись снята и НЕ выведена заново из канала.
+    assert правка(MessageUpdate(caption=None)).caption is None
 
 
 # ── 4. /channels: 2 плеча для sync, 1 для async, пусто без рёбер ───────────────
