@@ -29,6 +29,7 @@ vi.mock("../useSchemaAlerts", () => ({
     reload: vi.fn(),
   }),
   PENDING_ALERT_LOCATE_KEY: "archmap.pendingAlertLocate",
+  PENDING_PROCESS_KEY: "archmap.pendingProcess",
 }));
 
 // Модалка: прозрачная обёртка (jsdom не выставляет содержимое <dialog> в
@@ -204,6 +205,31 @@ describe("ProjectShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "to-proc" }));
     expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
     expect(screen.getByTestId("proc-initial")).toHaveTextContent("p1");
+  });
+
+  // Обратное направление алертов (2026-08-11): процессные классы чинят не на холсте,
+  // поэтому редактор-карта кладёт процесс в sessionStorage и закрывается, а оболочка
+  // должна открыться сразу в «Процессах» на нужном процессе.
+  it("приход из редактора открывает «Процессы» с переданным процессом", () => {
+    sessionStorage.setItem("archmap.pendingProcess", "p9");
+
+    setup(null);
+
+    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
+    expect(screen.getByTestId("proc-initial")).toHaveTextContent("p9");
+  });
+
+  it("ключ прихода одноразовый: следующий маунт не подставляет тот же процесс", () => {
+    // Режим при этом остаётся «Процессы» — он живёт в localStorage и помнит, где
+    // пользователь был в последний раз (приход алертом от переключения вкладки не
+    // отличается). Одноразов именно ВЫБОР процесса: иначе оболочка возвращала бы в
+    // него после каждой перезагрузки.
+    sessionStorage.setItem("archmap.pendingProcess", "p9");
+    setup(null).unmount();
+
+    setup(null);
+
+    expect(screen.getByTestId("proc-initial")).toHaveTextContent("none");
   });
 
   it("удаление узла без родителя ведёт на страницу проекта", async () => {

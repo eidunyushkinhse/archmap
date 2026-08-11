@@ -31,7 +31,7 @@ import type {
 } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
-import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
+import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
@@ -255,6 +255,15 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const { level, request } = resolveAlertLocate(all, target, alerts, ++locateSeq.current);
     if (level !== currentParentId) await navigateToLevel(level);
     setLocate(request);
+  }
+
+  // Строка процессного алерта → режим «Процессы» оболочки с этим процессом. Роут
+  // карты про процессы не знает, поэтому id кладём в sessionStorage (как и шапка
+  // кладёт цель для карты), а уходим обычным закрытием редактора — туда же, куда
+  // ведёт «Готово».
+  function openProcess(processId: string) {
+    sessionStorage.setItem(PENDING_PROCESS_KEY, processId);
+    onDone();
   }
 
   // Цель алерта из шапки ProjectShell (переход «знак → карта»): применяется после
@@ -628,7 +637,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               незавершённости схемы + тост чужой сессии. Прозрачен для мыши,
               интерактивны только знак и панель (pointerEvents у них auto). */}
           <div style={toastRail}>
-            {isArchitect && <SchemaAlerts alerts={alerts} onLocate={handleLocate} />}
+            {isArchitect && (
+              <SchemaAlerts
+                alerts={alerts}
+                onLocate={handleLocate}
+                // Процессные классы (AL26/AL27) на холсте чинить нечем: у повисшего
+                // сообщения связь удалена, у непривязанного участника узла нет —
+                // локализовать нечего. Уводим в процесс, редактор при этом
+                // закрывается (решение пользователя: без вопроса и без возврата).
+                onOpenProcess={openProcess}
+              />
+            )}
             {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
           </div>

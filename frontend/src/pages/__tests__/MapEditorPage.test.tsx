@@ -50,6 +50,7 @@ vi.mock("../useSchemaAlerts", () => ({
   }),
   resolveAlertLocate: vi.fn(() => ({ level: null, request: { kind: "node", ids: [], token: 1 } })),
   PENDING_ALERT_LOCATE_KEY: "archmap.pendingAlertLocate",
+  PENDING_PROCESS_KEY: "archmap.pendingProcess",
 }));
 // Выбор связи: модалка не нужна.
 vi.mock("../../components/graph/interaction/useEdgeChoice", () => ({
@@ -78,7 +79,14 @@ vi.mock("../../components/NodeModal", () => ({ default: () => null }));
 vi.mock("../../components/NodeDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/NodesDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
-vi.mock("../../components/SchemaAlerts", () => ({ default: () => null }));
+// Знак алертов: кнопка дёргает onOpenProcess — как строка процессного класса
+// (AL26/AL27) в настоящей панели.
+vi.mock("../../components/SchemaAlerts", () => ({
+  default: ({ onOpenProcess }: { onOpenProcess?: (id: string) => void }) =>
+    onOpenProcess ? (
+      <button data-testid="alert-proc" onClick={() => onOpenProcess("proc-7")}>алерт-процесс</button>
+    ) : null,
+}));
 vi.mock("../../components/SchemaViewFilter", () => ({ SchemaViewFilter: () => null }));
 
 function node(id: string, over: Partial<Node> = {}): Node {
@@ -204,6 +212,19 @@ describe("MapEditorPage", () => {
     const undo = levelGraphProps.current!.undo as { onRedo: () => void };
     await act(async () => { undo.onRedo(); });
     expect(historyMock.redo).toHaveBeenCalledOnce();
+  });
+
+  // Процессные классы алертов (AL26/AL27) на холсте чинить нечем: у повисшего
+  // сообщения связь удалена, у непривязанного участника узла нет. До 2026-08-11
+  // строка тут вовсе не была кликабельной — замечание видно, а починить нельзя.
+  it("строка процессного алерта закрывает редактор и передаёт процесс оболочке", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+
+    await act(async () => { screen.getByTestId("alert-proc").click(); });
+
+    expect(sessionStorage.getItem("archmap.pendingProcess")).toBe("proc-7");
+    expect(props.onDone).toHaveBeenCalledOnce();
   });
 
   it("undo с командой чужого уровня: сначала навигирует на уровень, потом отменяет", async () => {

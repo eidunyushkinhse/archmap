@@ -16,7 +16,7 @@ import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
-import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY } from "./useSchemaAlerts";
+import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
 import { LogoMark } from "../ui/icons";
@@ -50,15 +50,21 @@ export default function ProjectShell({
   onNavigateMap,
 }: Props) {
   const isArchitect = getUserRole() === "architect";
-  const [mode, setMode] = useState<WorkMode>(
-    () => (localStorage.getItem(MODE_KEY) === "proc" ? "proc" : "schema"),
+  // Пришли из редактора-карты по строке процессного алерта (AL26/AL27)? Ключ
+  // одноразовый, поэтому читаем его при маунте, а гасим эффектом: инициализатор
+  // useState под StrictMode вызывается дважды, и удаление прямо в нём потеряло бы
+  // процесс на втором проходе.
+  const [pendingProc] = useState<string | null>(() => sessionStorage.getItem(PENDING_PROCESS_KEY));
+  useEffect(() => { sessionStorage.removeItem(PENDING_PROCESS_KEY); }, []);
+  const [mode, setMode] = useState<WorkMode>(() =>
+    pendingProc ? "proc" : localStorage.getItem(MODE_KEY) === "proc" ? "proc" : "schema",
   );
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
 
   const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
-  // Процесс, выбранный извне (клик по процессу на странице узла) — стартовый
-  // выбор ProcessWorkspace при входе в режим «Процессы».
-  const [procInitial, setProcInitial] = useState<string | null>(null);
+  // Процесс, выбранный извне (клик по процессу на странице узла либо по строке
+  // процессного алерта в редакторе-карте) — стартовый выбор ProcessWorkspace.
+  const [procInitial, setProcInitial] = useState<string | null>(pendingProc);
   // Сигнал перезагрузки дерева (после создания/удаления узла)
   const [treeReload, setTreeReload] = useState(0);
   // Счётчик применений синка: перемонтирует страницу — схема грузится свежей, не
