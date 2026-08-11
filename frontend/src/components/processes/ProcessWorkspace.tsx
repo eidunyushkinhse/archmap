@@ -18,6 +18,10 @@ interface Props {
   // Стартовый выбор процесса (клик по процессу на странице узла). Применяется
   // только при маунте (воркспейс монтируется на входе в режим «Процессы»).
   initialProcessId?: string;
+  // Пришли по строке алерта из редактора-карты, то есть ЧИНИТЬ, а не смотреть:
+  // открываемся сразу в режиме правки (архитектору), иначе на диаграмме не
+  // кликается ничего и сломанный шаг снова не тронуть.
+  openForFix?: boolean;
   // Уведомление родителя (ProjectShell) о выбранном процессе — чтобы кнопка экспорта
   // в шапке знала, какой процесс выгружать в Mermaid. null = ничего не выбрано.
   onSelectedChange?: (sel: { id: string; name: string } | null) => void;
@@ -42,7 +46,7 @@ function readPrefs(): Prefs {
 }
 
 export default function ProcessWorkspace({
-  isArchitect, initialProcessId, onSelectedChange, onChanged,
+  isArchitect, initialProcessId, openForFix, onSelectedChange, onChanged,
 }: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +55,12 @@ export default function ProcessWorkspace({
   // Импорт из mermaid: заводит НОВЫЙ процесс (слияние с существующим — отдельная задача).
   const [importing, setImporting] = useState(false);
   const [railOpen, setRailOpen] = useState<boolean>(() => readPrefs().railOpen ?? true);
-  const [editingPref, setEditingPref] = useState<boolean>(() => readPrefs().editing ?? false);
+  // Пришли ЧИНИТЬ (строка алерта в редакторе-карте) — открываемся сразу в правке:
+  // иначе человек попадает на диаграмму, где ничего не кликается, и сломанный шаг
+  // по-прежнему не тронуть. Тот же приём уже применён к новому процессу ниже.
+  const [editingPref, setEditingPref] = useState<boolean>(
+    () => openForFix || (readPrefs().editing ?? false),
+  );
 
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify({ railOpen, editing: editingPref }));

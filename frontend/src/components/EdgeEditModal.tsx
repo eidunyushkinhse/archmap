@@ -10,7 +10,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Edge } from "../types";
 import { edgesApi, nodesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
-import { primaryBtn, secondaryBtn } from "../ui/styles";
+import { dangerBtn, primaryBtn, secondaryBtn } from "../ui/styles";
 import NodeSearchPicker from "./NodeSearchPicker";
 import { useEdgeEdit } from "./inspector/useEdgeEdit";
 import "./inspector/inspector.css";
@@ -123,6 +123,24 @@ function EdgeEditForm({ data, onClose, onChanged }: {
     void commit({ label: labelText, technology }).then((ok) => { if (ok) onClose(); });
   };
 
+  // Удаление связи. Подтверждение — ВНУТРИ этой же модалки (вложенные <dialog>
+  // в проекте запрещены: cancel всплывает) и потому, что на СТРАНИЦЕ отката нет —
+  // undo/redo живут в редакторе-карте, а сюда история не доезжает.
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
+  const handleDelete = () => {
+    setDeleting(true);
+    setDelError(null);
+    void edgesApi
+      .delete(data.edge.id)
+      .then(() => { onChanged(); onClose(); })
+      .catch((e: unknown) => {
+        setDelError(e instanceof Error ? e.message : "Не удалось удалить связь");
+        setDeleting(false);
+      });
+  };
+
   return (
     <Modal onClose={onClose} boxStyle={{ width: 480 }}>
       <h3 style={titleStyle}>Редактирование связи</h3>
@@ -185,11 +203,35 @@ function EdgeEditForm({ data, onClose, onChanged }: {
       </dl>
 
       {error && <p style={errText}>{error}</p>}
+      {delError && <p style={errText}>{delError}</p>}
 
-      <div style={footRow}>
-        <button type="button" onClick={handleDone} style={primaryBtn}>Готово</button>
-        <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
-      </div>
+      {confirmDel ? (
+        <>
+          <p style={confirmText}>
+            Удалить связь? Она исчезнет со схемы, а шаги процессов, которые по ней шли,
+            станут повисшими. Отменить со страницы будет нечем.
+          </p>
+          <div style={footRow}>
+            <button type="button" onClick={handleDelete} disabled={deleting} style={dangerBtn}>
+              {deleting ? "Удаление…" : "Удалить"}
+            </button>
+            <button type="button" onClick={() => setConfirmDel(false)} style={secondaryBtn}>Отмена</button>
+          </div>
+        </>
+      ) : (
+        <div style={footRow}>
+          {/* Удаление — слева и поодаль от «Готово»: рядом с ним по нему промахиваются */}
+          <button
+            type="button"
+            onClick={() => setConfirmDel(true)}
+            style={{ ...secondaryBtn, marginRight: "auto", color: "#dc2626" }}
+          >
+            Удалить
+          </button>
+          <button type="button" onClick={handleDone} style={primaryBtn}>Готово</button>
+          <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -215,6 +257,12 @@ const errText: CSSProperties = {
   color: "#dc2626",
   margin: "10px 0 0",
   fontSize: 13,
+};
+const confirmText: CSSProperties = {
+  color: "#475569",
+  margin: "14px 0 0",
+  fontSize: 13,
+  lineHeight: 1.5,
 };
 // Кнопка инверсии: пунктирная плашка между концами и текстовыми полями.
 const invertBtn: CSSProperties = {

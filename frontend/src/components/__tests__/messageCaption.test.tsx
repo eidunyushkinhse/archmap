@@ -21,6 +21,15 @@ vi.mock("../processes/SequenceDiagram", () => ({
   ),
 }));
 vi.mock("../MessageComposer", () => ({ default: () => null }));
+// История: перехватываем push — им проверяем, что в откат попадает только то, что
+// действительно можно восстановить.
+const histPush = vi.fn();
+vi.mock("../processes/useProcessHistory", () => ({
+  useProcessHistory: () => ({
+    push: histPush, undo: vi.fn(), redo: vi.fn(),
+    canUndo: false, canRedo: false, undoLabel: null, redoLabel: null,
+  }),
+}));
 vi.mock("../processes/ParticipantPicker", () => ({ default: () => null }));
 vi.mock("../../api/processes", () => ({
   processesApi: {
@@ -41,6 +50,9 @@ const DETAIL = {
       is_external: false, status: "existing", order: 0 },
     { id: "pb", node_id: "nb", name: "Заказы", role: null, shape: "service",
       is_external: false, status: "existing", order: 1 },
+    // Непривязанный участник (AL27): у него нет узла, значит и канала под шагом нет.
+    { id: "pu", node_id: null, name: "Биллинг", role: null, shape: null,
+      is_external: null, status: null, order: 2 },
   ],
   messages: [
     { ...MSG, id: "m1", order: 0, caption: "создать заказ" },
@@ -137,6 +149,56 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
 
     await waitFor(() => expect(processesApi.removeMessage).toHaveBeenCalledWith("p1", "m1"));
+  });
+
+  // Находки 2026-08-11 (жалоба «повисший шаг не удалить никак»). Шаг без канала
+  // воссоздать нечем — addMessage требует edge_id у всего, кроме самосообщения.
+  it("шаг непривязанного участника удаляется и экран обновляется", async () => {
+    // Именно тут был ранний return: он уносил с собой reload(), шаг оставался на
+    // экране, и удаление выглядело как «не работает вовсе».
+    vi.mocked(processesApi.get).mockResolvedValue({
+      ...DETAIL,
+      messages: [{ ...MSG, id: "m1", order: 0, caption: "мсч",
+        edge_id: null, valid: false, to_participant_id: "pu" }],
+    } as unknown as ProcessDetail);
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    await waitFor(() => expect(processesApi.removeMessage).toHaveBeenCalledWith("p1", "m1"));
+    // Перечитывание списка — то, чего не хватало: без него удалённый шаг оставался
+    // на экране и выглядел как неудаляемый.
+    await waitFor(() => expect(processesApi.get).toHaveBeenCalledTimes(2));
+  });
+
+  it("удаление шага на канале попадает в историю (его есть чем вернуть)", async () => {
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    await waitFor(() => expect(histPush).toHaveBeenCalledOnce());
+  });
+
+  it("удаление повисшего шага в историю НЕ попадает", async () => {
+    // Воссоздать его нечем — addMessage требует edge_id. Прежде запись всё равно
+    // попадала в историю, а её undo молча ничего не делал: кнопка обещала откат,
+    // которого нет.
+    vi.mocked(processesApi.get).mockResolvedValue({
+      ...DETAIL,
+      messages: [{ ...MSG, id: "m1", order: 0, caption: "мсч", edge_id: null, valid: false }],
+    } as unknown as ProcessDetail);
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+
+    await waitFor(() => expect(processesApi.removeMessage).toHaveBeenCalled());
+    expect(histPush).not.toHaveBeenCalled();
   });
 
   it("вне режима правки карточка не открывается", async () => {

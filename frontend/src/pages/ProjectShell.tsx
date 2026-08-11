@@ -177,6 +177,8 @@ export default function ProjectShell({
           <ProcessWorkspace
             isArchitect={isArchitect}
             initialProcessId={procInitial ?? undefined}
+            // Пришли из редактора по строке алерта — значит чинить: открываем правку.
+            openForFix={!!pendingProc}
             onSelectedChange={setProcSelection}
             onChanged={reloadAlerts}
           />

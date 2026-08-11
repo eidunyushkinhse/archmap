@@ -520,10 +520,18 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     try {
       await processesApi.removeMessage(id, mid);
       setMsgEdit(null);
-      if (m) {
-        const fromNode = nodeOfPart(m.from_participant_id);
-        const toNode = nodeOfPart(m.to_participant_id);
-        if (!fromNode || !toNode) return; // повисший шаг непривязанного — восстанавливать нечем
+      // Записываем в историю ТОЛЬКО восстановимое. Шаг без канала (связь удалили из
+      // схемы) и шаг непривязанного участника воссоздать нечем: addMessage требует
+      // edge_id у всего, кроме самосообщения. Прежде запись всё равно попадала в
+      // историю, а её undo молча ничего не делал — кнопка обещала откат, которого нет.
+      // ⚠️ Проверка обязана стоять ПОСЛЕ удаления, но НЕ прерывать функцию: до правки
+      // ранний return уносил с собой reload(), и удалённый шаг оставался на экране —
+      // выглядело как «шаг не удаляется вовсе».
+      const fromNode = m && nodeOfPart(m.from_participant_id);
+      const toNode = m && nodeOfPart(m.to_participant_id);
+      const restorable = !!m && !!fromNode && !!toNode
+        && (!!m.edge_id || m.from_participant_id === m.to_participant_id);
+      if (m && restorable && fromNode && toNode) {
         const snap: MessageSnapshot = {
           edge_id: m.edge_id, leg: m.leg, from_id: fromNode, to_id: toNode, caption: m.caption, order: m.order,
         };
@@ -531,8 +539,6 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         hist.push({
           label: "Удаление сообщения",
           undo: async () => {
-            const isSelf = snap.from_id === snap.to_id;
-            if (!snap.edge_id && !isSelf) return;
             const partByNode = await freshPartByNode();
             const fromP = partByNode[snap.from_id];
             const toP = partByNode[snap.to_id];
