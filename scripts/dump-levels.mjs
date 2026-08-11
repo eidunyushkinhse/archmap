@@ -14,7 +14,15 @@
 //   node scripts/dump-levels.mjs --out scripts/.polygon/baseline.json
 //   node scripts/dump-levels.mjs --check scripts/.polygon/baseline.json
 // Опции: --project <имя> (по умолчанию первый активный), --max-depth N (по умолчанию 2),
-//   --role viewer|architect (по умолчанию viewer).
+//   --role viewer|architect (по умолчанию viewer),
+//   --levels <id|имя,…> — снять ТОЛЬКО эти уровни (плюс корень), вместо обхода по глубине.
+//
+// СЮРФЕЙС (важно, 2026-08-11): дампится РЕДАКТОР-КАРТА — маршрут #/p/<pid>/map/<levelId?>.
+// До этой правки скрипт ходил на #/p/<pid>, и после пивота страниц (2026-08-09) там
+// оказалась ProjectHomePage со ВСТРОЕННОЙ read-only схемой: полигон молча мерил не тот
+// холст (у read-only нет кнопок «Войти» — обход уровней тихо вырождался в один корень).
+// Спуск идёт ПО URL, а не кликами по «Войти»: маршрут принимает id уровня напрямую,
+// это детерминированнее цепочки кликов и позволяет прицелиться в конкретный уровень.
 // РОЛИ (R5): раскрытия контейнеров ПЕРСИСТЯТСЯ (payload.expanded) — обычные
 // дампы/чеки гоняем VIEWER-ом (его раскрытия эфемерны, БД не трогается; в
 // expanded-состояние входят и раскрытые ЛОКАЛЬНЫЕ контейнеры). Прогрев свежей БД
@@ -50,6 +58,7 @@ const checkFile = argOf("--check");
 const projectName = argOf("--project");
 const maxDepth = Number(argOf("--max-depth") ?? 2);
 const role = argOf("--role") ?? "viewer";
+const onlyLevels = (argOf("--levels") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 if (!outFile && !checkFile) {
   console.error("Нужен --out <file> или --check <baseline>");
   process.exit(2);
@@ -79,6 +88,35 @@ async function pickProject(token) {
   const proj = projectName ? active.find((p) => p.name === projectName) : active[0];
   if (!proj) throw new Error(`Проект не найден (${projectName ?? "первый активный"})`);
   return proj;
+}
+
+// Все узлы проекта (id, имя, parent_id) — по ним строится список уровней БЕЗ кликов
+// по холсту: уровень = узел, у которого есть дети.
+async function fetchNodes(token, projectId) {
+  const res = await fetch(`${BACKEND}/api/v1/nodes/all`, {
+    headers: { Authorization: `Bearer ${token}`, "X-Project-Id": projectId },
+  });
+  if (!res.ok) throw new Error(`GET /nodes/all → ${res.status}`);
+  return res.json();
+}
+
+// Уровни для обхода: корень (null) + контейнеры. По умолчанию — все контейнеры не
+// глубже maxDepth; с --levels — только названные (по id или по имени узла).
+function pickLevels(nodes) {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const depthOf = (n) => {
+    let d = 0;
+    for (let p = n.parent_id; p != null; p = byId.get(p)?.parent_id ?? null) {
+      if (++d > 20) break; // страховка от цикла в данных
+    }
+    return d;
+  };
+  const containers = nodes.filter((n) => nodes.some((m) => m.parent_id === n.id));
+  if (onlyLevels.length > 0) {
+    const want = new Set(onlyLevels);
+    return containers.filter((n) => want.has(n.id) || want.has(n.name));
+  }
+  return containers.filter((n) => depthOf(n) < maxDepth);
 }
 
 // --- структурная сигнатура текущего холста ---
@@ -169,39 +207,15 @@ async function expandAllGuests(page) {
   for (let i = 0; i < 30; i++) {
     const btn = page.locator(sel).first();
     if ((await btn.count()) === 0) return i > 0;
-    // раскрытия раздвигают раскладку — очередная лупа может уйти за вьюпорт, а
-    // click по элементу вне окна падает даже с force. Вписываем холст (кнопка
-    // fitView в Controls); на сигнатуру не влияет — она в graph-координатах.
-    await page.locator(".react-flow__controls-fitview").click({ force: true });
+    // Раскрытия раздвигают раскладку — очередная лупа уходит за вьюпорт, и
+    // playwright-клик по ней падает ДАЖЕ с force («outside of the viewport»),
+    // роняя весь дамп. Вписываем холст (кнопка fitView в Controls; на сигнатуру не
+    // влияет — она в graph-координатах), а клик шлём СИНТЕТИЧЕСКИЙ, из DOM: он не
+    // требует видимости, а React ловит его делегированным слушателем корня.
+    await page.locator(".react-flow__controls-fitview").click({ force: true }).catch(() => {});
     await page.waitForTimeout(150);
-    await btn.click({ force: true });
+    await btn.evaluate((el) => el.click());
     await settleSignature(page);
-  }
-  return true;
-}
-
-// Спуститься по пути id узлов от корня (каждый шаг — hover узла + кнопка «Войти»).
-// Перед каждым шагом — fitView: с персистом раскрытий (R5) раскладка корня бывает
-// широкой, узел уходит за вьюпорт, а клик по элементу вне окна МОЛЧА теряется даже с
-// force (та же грабля, что в expandAllGuests) — уровень тихо оставался корнем.
-// Переход ВЕРИФИЦИРУЕТСЯ (сигнатура обязана смениться): узлы внутри раскрытых рамок
-// кликаются ненадёжно — без проверки в дамп молча подкладывалась КОПИЯ КОРНЯ
-// (фантомные уровни). Одна повторная попытка; не вышло → false, уровень пропускаем.
-async function drillPath(page, path) {
-  for (const id of path) {
-    let done = false;
-    for (let attempt = 0; attempt < 2 && !done; attempt++) {
-      const before = JSON.stringify(await readSignature(page));
-      await page.locator(".react-flow__controls-fitview").click({ force: true });
-      await page.waitForTimeout(150);
-      const node = page.locator(`.react-flow__node[data-id="${id}"]`);
-      if ((await node.count()) === 0) return false; // узла нет на этом уровне
-      await node.hover({ force: true });
-      await node.locator('button[title="Войти"]').click({ force: true });
-      await settleSignature(page);
-      done = JSON.stringify(await readSignature(page)) !== before;
-    }
-    if (!done) return false;
   }
   return true;
 }
@@ -218,25 +232,16 @@ async function collapsePanels(page) {
   await page.waitForTimeout(200);
 }
 
-// Свежая загрузка холста проекта (корень). App читает токен только на монтировании.
-async function freshRoot(page, projectId) {
-  await page.goto(`${FRONTEND}/#/p/${projectId}`);
+// Свежая загрузка холста РЕДАКТОРА-КАРТЫ на нужном уровне (levelId = null — корень).
+// App читает токен только на монтировании, поэтому каждый уровень грузим с reload:
+// так между уровнями не протекает состояние (раскрытия, выделение, гистерезис маршрутов).
+async function freshLevel(page, projectId, levelId) {
+  const suffix = levelId ? `/${levelId}` : "";
+  await page.goto(`${FRONTEND}/#/p/${projectId}/map${suffix}`);
   await page.reload();
   await page.waitForSelector(".react-flow", { timeout: 20000 });
   await collapsePanels(page);
   return settleSignature(page);
-}
-
-// id ЛОКАЛЬНЫХ узлов текущего уровня, в которые можно «Войти» (есть drill-кнопка).
-// Гостей/контейнеры не берём: их «Войти» уводит в другую ветку дерева, и такой путь
-// не воспроизвести спуском от корня (drillPath каждый раз стартует с корня).
-async function drillableIds(page) {
-  return page.evaluate(() => {
-    return [...document.querySelectorAll(".react-flow__node.react-flow__node-block")]
-      .filter((n) => n.querySelector('button[title="Войти"]'))
-      .map((n) => n.getAttribute("data-id"))
-      .sort();
-  });
 }
 
 async function main() {
@@ -261,30 +266,22 @@ async function main() {
     [token, project.id],
   );
 
+  // Список уровней берём из ДЕРЕВА проекта, а не из кликов по холсту: корень + контейнеры.
+  const allNodes = await fetchNodes(token, project.id);
+  const targets = [{ id: null, name: "корень" }, ...pickLevels(allNodes)];
+  console.log(`Уровней к снятию: ${targets.length}`);
+
   const levels = [];
-  // BFS путей: [] = корень; путь = последовательность id для drill
-  const queue = [[]];
-  while (queue.length > 0) {
-    const path = queue.shift();
-    const rootSig = await freshRoot(page, project.id);
-    let sig = rootSig;
-    if (path.length > 0) {
-      if (!(await drillPath(page, path))) {
-        console.log(`  уровень [${path.join(" > ")}]: ПРОПУЩЕН (drill не сработал)`);
-        continue;
-      }
-      sig = await settleSignature(page);
-    }
+  for (const t of targets) {
+    const sig = await freshLevel(page, project.id, t.id);
+    // path остаётся массивом (ключ дампа и diff): [] — корень, [levelId] — уровень
+    const path = t.id ? [t.id] : [];
     levels.push({ path, state: "default", sig });
-    const drills = await drillableIds(page);
-    // раскрытые гости — отдельное состояние того же уровня (кумулятивно все лупы)
+    // раскрытые контейнеры — отдельное состояние того же уровня (кумулятивно все лупы)
     if (await expandAllGuests(page)) {
       levels.push({ path, state: "expanded", sig: await readSignature(page) });
     }
-    if (path.length < maxDepth) {
-      for (const id of drills) queue.push([...path, id]);
-    }
-    console.log(`  уровень [${path.join(" > ") || "корень"}]: узлов ${sig.nodes.length}, рёбер ${sig.edges.length}`);
+    console.log(`  уровень ${t.name}: узлов ${sig.nodes.length}, рёбер ${sig.edges.length}`);
   }
   await browser.close();
 
