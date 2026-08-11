@@ -50,6 +50,17 @@ function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
   };
 }
 
+// Точка лежит НА границе прямоугольника (стыковка конца-в-рамку): совпадает с одной из
+// сторон и не выходит за её створ. Допуск 0.5 — тот же EPS, что у роутера.
+function onRectBorder(p: { x: number; y: number }, r: { x: number; y: number; w: number; h: number }): boolean {
+  const E = 0.5;
+  const inX = p.x >= r.x - E && p.x <= r.x + r.w + E;
+  const inY = p.y >= r.y - E && p.y <= r.y + r.h + E;
+  const onV = (Math.abs(p.x - r.x) <= E || Math.abs(p.x - (r.x + r.w)) <= E) && inY;
+  const onH = (Math.abs(p.y - r.y) <= E || Math.abs(p.y - (r.y + r.h)) <= E) && inX;
+  return onV || onH;
+}
+
 // Стабильная сериализация раскладки (Map → отсортированные пары) для сравнения прогонов.
 function sig(l: LayoutResult): string {
   const m = (x?: Map<string, unknown>) => (x ? [...x.entries()].sort((p, q) => p[0].localeCompare(q[0])) : null);
@@ -170,12 +181,11 @@ describe("computeViewLayout — композиция конвейера уров
     expect(seeds.map((s) => s.id).sort()).toEqual(expect.arrayContaining(["B1", "B2"]));
   });
 
-  it("R5-регрессия: единственный ребёнок БЕЗ видимых связей ложится на месте контейнера, рамка вокруг", async () => {
+  it("связь «прямо в раскрытый контейнер» упирается наконечником в его рамку", async () => {
     // Все связи ребёнка ведут в сам раскрытый контейнер (типично для свежей схемы:
-    // пользователь протянул связь к контейнеру, а не к его будущим детям) — проекция
-    // их дропает, ребёнок изолирован. Гарантия: при owned-позиции контейнера (её
-    // закрепляет own-on-expand в LevelGraph) сетка первого показа кладёт ребёнка на
-    // место контейнера, а не оставляет ELK-изолятом в углу канвы.
+    // пользователь протянул связь к контейнеру, а не к его будущим детям). До эпика
+    // «связи, упирающиеся в рамку» проекция такую связь ДРОПАЛА, и от неё на схеме
+    // оставался только висящий сосед; теперь конец — сама рамка (её id = id узла).
     const b1 = { ...appNode("B1"), parent_id: "B" } as AppNode;
     const out = await computeViewLayout(levelInput({
       edges: [edge("eAB", "A", "B", "в контейнер")],
@@ -184,8 +194,8 @@ describe("computeViewLayout — композиция конвейера уров
       expanded: new Set(["B"]),
       localChildren: { B: [b1] },
     }));
-    // связь «прямо в контейнер» при его раскрытии скрыта (алерт-кейс) — рёбер нет
-    expect(out.layout.groupArr).toEqual([]);
+    // связь видна, её конец — контейнер B (он же рамка)
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target])).toEqual([["eAB", "A", "B"]]);
     // ребёнок сел от owned-позиции контейнера (сетка 1×1 = ровно его угол)
     expect(out.layout.positions.get("B1")).toEqual({ x: 400, y: 0 });
     // рамка раскрытия обнимает ребёнка на месте контейнера
@@ -195,6 +205,10 @@ describe("computeViewLayout — композиция конвейера уров
     expect(bf.rect.x).toBeLessThan(400);
     expect(bf.rect.y).toBeLessThan(0);
     expect(bf.rect.x + bf.rect.w).toBeGreaterThan(400 + 190);
+    // маршрут кончается НА ГРАНИЦЕ рамки — не в её центре и не внутри
+    const route = out.layout.autoRoutes?.get("eAB");
+    expect(route?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(onRectBorder(route![route!.length - 1], bf.rect)).toBe(true);
     // и засеян интентом — раскрытие персистит место навсегда
     const seeds = out.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
     expect(seeds.map((s) => s.id)).toContain("B1");
@@ -324,8 +338,12 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.entities.map((e) => e.id)).not.toContain("C");
     const frameIds = out.layout.guestFrames.map((f) => f.id).sort();
     expect(frameIds).toEqual(["C", "P"]);
-    // связь «прямо в раскрытый контейнер» скрыта (алерт-кейс, как у локалов)
-    expect(out.layout.groupArr).toEqual([]);
+    // связь «прямо в раскрытый контейнер» видна и упирается в границу его рамки —
+    // ровно один конец, дубля-узла рядом с рамкой по-прежнему нет
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target])).toEqual([["eXC", "X", "C"]]);
+    const cf = out.layout.guestFrames.find((f) => f.id === "C")!;
+    const route = out.layout.autoRoutes?.get("eXC");
+    expect(onRectBorder(route![route!.length - 1], cf.rect)).toBe(true);
     expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "D", "X"]);
   });
 

@@ -248,7 +248,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // предку уровня; концы вне поддерева остаются гостями.
   // localIds — отображаемые локалы: конец внутри РАСКРЫТОГО контейнера поднимается
   // не к нему, а к его видимому потомку (симметрия со сворачиванием гостей).
-  const { edges: liftedEdges, ghosts } = liftEdgesToLevel({ edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId });
+  // frameIds — поглощённые раскрытием контейнеры: они нарисованы РАМКОЙ, и связь
+  // «прямо в такой контейнер» упирается в её границу вместо того, чтобы пропасть.
+  const { edges: liftedEdges, ghosts } = liftEdgesToLevel({
+    edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId, frameIds: absorbed,
+  });
 
   // ПРОЕКЦИЯ, половина 2: сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
   const { entities: entitiesRaw, ghostToEffective, emergedFrom } = projectGhosts(ghosts, ancestorIds, expanded);
@@ -291,7 +295,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     return { id, savedPos: saved ? { x: saved.pos_x, y: saved.pos_y } : null };
   });
 
-  const displayedIds = new Set<string>([...nodes.map((n) => n.id), ...entities.map((e) => e.id)]);
+  // Отображаемые концы рёбер: узлы, сущности И РАМКИ раскрытых локалов. Рамка — конец
+  // «по-настоящему»: стрелка стыкуется с её границей (id рамки = id контейнера).
+  const displayedIds = new Set<string>([
+    ...nodes.map((n) => n.id), ...entities.map((e) => e.id), ...absorbed,
+  ]);
+  // Конец ребра — рамка, а не узел. Такие рёбра исключены из стадий РАСКЛАДКИ УЗЛОВ
+  // (у рамки нет представителя в ELK, её геометрия производна от детей) и ведутся
+  // только роутером — по прямоугольнику рамки.
+  const isFrameEnd = (g: { source: string; target: string }): boolean =>
+    absorbed.has(g.source) || absorbed.has(g.target);
 
   // Слияние связей одного направления между парой отображаемых узлов в мастер-стрелку
   const groupArr: EdgeGroup[] = [];
@@ -307,7 +320,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   }
 
   // Раскладку/хэндлы считаем на мастер-рёбрах (по одному на направление между парой).
-  const layoutEdges: LayoutEdge[] = groupArr.map((g) => {
+  // Связи-в-рамку сюда не входят: ELK/кольца/разведение/assignEdgeHandles оперируют
+  // УЗЛАМИ, а рамка узлом не является — её rect появляется только после раскладки.
+  const layoutEdges: LayoutEdge[] = groupArr.filter((g) => !isFrameEnd(g)).map((g) => {
     if (g.members.length === 1) return g.members[0];
     const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
     return {
@@ -515,12 +530,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const scopeSet = scopeNodeIds && scopeNodeIds.length > 0 && prevRoutes
     ? new Set(scopeNodeIds)
     : null;
-  const routableIds = new Set<string>();
-  for (const g of groupArr) {
-    if (!positions.get(g.source) || !positions.get(g.target)) continue;
-    if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
-    routableIds.add(g.id);
-  }
   // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
   // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один
   // переход — «ворота» выбирает A*), плашка подписи — жёсткое препятствие. Позиции
@@ -540,6 +549,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   })
     .filter((f) => !f.native)
     .map((f) => ({
+      id: f.id,
       rect: f.rect,
       // плашка подписи: слева-внизу рамки (nodes.tsx FrameNode), ширина — моноширинная
       // оценка «🔍 имя ✕» с паддингами
@@ -551,9 +561,26 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       },
       memberIds: f.memberIds,
     }));
+
+  // КОНЦЫ-РАМКИ: прямоугольник рамки становится телом стыковки — роутер раздаёт по нему
+  // те же 12 портов, что по узлу. В препятствия рамка при этом НЕ идёт (внутри неё живут
+  // её же узлы, и жёсткое тело заперло бы их связи) — она остаётся мягкой границей со
+  // штрафом перехода, как и была.
+  const frameEndpoints = new Map<string, { x: number; y: number; w: number; h: number }>();
+  for (const f of routerFrames) {
+    if (absorbed.has(f.id)) frameEndpoints.set(f.id, f.rect);
+  }
+  const hasGeometry = (id: string): boolean => !!positions.get(id) || frameEndpoints.has(id);
+
+  const routableIds = new Set<string>();
+  for (const g of groupArr) {
+    if (!hasGeometry(g.source) || !hasGeometry(g.target)) continue;
+    if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
+    routableIds.add(g.id);
+  }
   const ar = buildAutoRoutes({
     groups: groupArr, routableIds, positions,
-    displayIds, sizes: sizeMap, frames: routerFrames,
+    displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
     // гистерезис: финальные маршруты/хэндлы прошлого прогона (если вызывающий дал)
     prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
   });

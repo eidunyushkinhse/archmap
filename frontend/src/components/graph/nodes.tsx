@@ -452,6 +452,29 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
 // ИНТЕРЬЕР рамки прозрачен для мыши (pointerEvents:none) — клики/драг проходят к
 // канве, узлам и рёбрам под ней. Рамка НЕ таскается (запрет движения рамок,
 // 2026-07-08): её rect производен от детей; прежние драг-ручки R4.2 сняты.
+// Точки стыковки на границе рамки (эпик «связи, упирающиеся в рамку»): связь, чей конец —
+// раскрытый контейнер, приходит НА РАМКУ, и RF обязан знать хэндл с этим id — иначе ребро
+// молча не отрисуется. Хэндлы инертны: ни дота, ни быстрой связи, начать связь с рамки
+// нельзя (перепривязка конца — отдельная фаза эпика).
+function FrameHandles({ nodeId }: { nodeId: string }) {
+  return (
+    <>
+      {SIDE_HANDLES.flatMap(({ side, pos, offsets }) =>
+        offsets.map((offset, idx) => (
+          <Handle
+            key={hid(nodeId, side, idx)}
+            id={hid(nodeId, side, idx)}
+            type="source"
+            position={pos}
+            isConnectableStart={false}
+            style={{ ...fixedHandleStyle(pos, offset), pointerEvents: "none" }}
+          />
+        ))
+      )}
+    </>
+  );
+}
+
 function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
   return (
     <div
@@ -465,6 +488,7 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
         boxSizing: "border-box", pointerEvents: "none",
       }}
     >
+      <FrameHandles nodeId={id} />
       {/* Плашка подписи: клик по ВСЕЙ плашке сворачивает (крупная цель; раньше был
           только маленький ✕, а плашка занята драгом — драг рамок запрещён, цель
           вернулась клику) */}
