@@ -76,6 +76,12 @@ export function assembleRfGraph(params: {
     for (let f: (typeof guestFrames)[number] | null = f0; f; f = frameOfFrame(f)) n++;
     return n;
   };
+  // Предел инлайн-раскрытия (C8): контейнер внутри рамки, вложенной уже на
+  // MAX_INLINE_DEPTH слоёв, лупой не раскрывается. Лупу при этом НЕ убираем — она
+  // остаётся неактивной и по клику объясняет предел (иначе кнопка просто исчезает и
+  // непонятно, почему у одинаковых с виду контейнеров разный набор действий).
+  const atInlineLimit = (pf: (typeof guestFrames)[number] | null): boolean =>
+    (pf ? frameNesting(pf) : 0) >= MAX_INLINE_DEPTH;
   // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
   // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
   // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
@@ -149,6 +155,8 @@ export function assembleRfGraph(params: {
       // Дети для бейджа/лупы: read-only (страница) — РЕЛЕВАНТНЫЕ (с границей
       // поддерева по рёбрам, X16 v2); редактор — все по child_count (Д3).
       const childCount = relevantCounts ? (relevantCounts.get(n.id) ?? 0) : n.child_count;
+      const hasKids = (relevantCounts ? childCount > 0 : n.has_children) && canHaveChildren(n.shape);
+      const atLimit = atInlineLimit(pf);
       return {
         id: n.id,
         type: "block" as const,
@@ -170,13 +178,13 @@ export function assembleRfGraph(params: {
           // Раскрытие ЛОКАЛЬНОГО контейнера инлайн (R5): лупа у сервиса с детьми.
           // Работает и в read-only блоке (схема на странице) — это просмотр,
           // не правка; расстановка компонентов — только в карте. Глубже
-          // MAX_INLINE_DEPTH слоёв от уровня лупы нет — только «Войти» (C8).
+          // MAX_INLINE_DEPTH слоёв от уровня лупа неактивна и объясняет предел (C8).
           // На странице лупа — только при РЕЛЕВАНТНЫХ детях (childCount, X16 v2):
           // узел без связанных детей ведёт себя как лист.
-          onExpand: (relevantCounts ? childCount > 0 : n.has_children) && canHaveChildren(n.shape)
-            && (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
+          onExpand: hasKids && !atLimit
             ? (id) => getCb().expandLocalContainer(id)
             : undefined,
+          expandLimited: hasKids && atLimit,
           badgeCount: childCount,
         } satisfies BlockData,
       };
@@ -221,10 +229,10 @@ export function assembleRfGraph(params: {
           ancestors: ent.ancestors,
           colors: getNodeColors(ent.is_external, ent.depth),
           // Лупа гостевого контейнера — как у локала, не глубже MAX_INLINE_DEPTH
-          // слоёв от уровня (C8); на пределе глубины — только «Войти к компонентам».
-          onExpand: (pf ? frameNesting(pf) : 0) < MAX_INLINE_DEPTH
-            ? (id) => getCb().expandContainer(id)
-            : undefined,
+          // слоёв от уровня (C8); на пределе глубины лупа неактивна — глубже только
+          // «Войти к компонентам». Свёрнутый контейнер по построению с детьми.
+          onExpand: atInlineLimit(pf) ? undefined : (id) => getCb().expandContainer(id),
+          expandLimited: atInlineLimit(pf),
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
           // «Войти к компонентам» — только в редакторе (drillNav).
           onEnter: drillNav

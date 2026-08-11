@@ -15,6 +15,7 @@ import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
+import { useToast } from "../../pages/useToast";
 
 // Кэш подобранных размеров шрифта (оптимизация 2026-07-21): одинаковые имена/роли
 // при одинаковой ширине узла не пересчитываются. Ключ: `${text}|${width}`.
@@ -274,6 +275,50 @@ function NodeName({ name }: { name: string }) {
   );
 }
 
+// Текст неактивной лупы (C8). Кнопка на предельной глубине остаётся видимой, но не
+// раскрывает: исчезающая кнопка не объясняет себя, а подсказка называет и предел, и
+// выход из него.
+const LENS_LIMIT_HINT =
+  "Контейнеры можно раскрыть только три раза. Чтобы посмотреть состав этого контейнера, спуститесь на слой ниже";
+
+// Лупа «Раскрыть содержимое» — общая для локального блока и гостевого контейнера.
+// Ровно одно из двух: активная (onExpand) или неактивная на пределе глубины (limited).
+function ExpandLens({ onExpand, limited, style }: {
+  onExpand?: () => void;
+  limited?: boolean;
+  style: CSSProperties;
+}) {
+  const [hint, showHint] = useToast(6000);
+  if (!onExpand && !limited) return null;
+  return (
+    <>
+      <button
+        className="nodrag"
+        onClick={(e) => { e.stopPropagation(); if (limited) showHint(); else onExpand?.(); }}
+        style={limited ? { ...style, opacity: 0.45, cursor: "help" } : style}
+        title={limited ? LENS_LIMIT_HINT : "Раскрыть содержимое"}
+        aria-disabled={limited || undefined}
+      >🔍</button>
+      {hint && (
+        // Подсказка висит под рядом кнопок (nodeActions — ближайший позиционированный
+        // предок) и шире узла: выходит за его левый край, зато читается в две строки.
+        // Сама гаснет по таймеру; клик по ней не проваливается в узел (выделение).
+        <div
+          className="nodrag"
+          onClick={(e) => { e.stopPropagation(); }}
+          style={{
+            position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 5,
+            width: 236, padding: "7px 9px", borderRadius: 6,
+            background: "rgba(17,24,39,0.94)", color: "#f9fafb",
+            fontSize: 11, lineHeight: 1.35, fontWeight: 500, textAlign: "left",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.28)", cursor: "default",
+          }}
+        >{LENS_LIMIT_HINT}</div>
+      )}
+    </>
+  );
+}
+
 function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
@@ -286,7 +331,8 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
   const intoZone = drillable && childCount > 0;
   // Кнопки действий: «Войти» (onDrillDown) — только в редакторе, лупа (onExpand) —
   // и на странице объекта (инлайн-раскрытие — просмотрная механика).
-  const hasActions = !data.hideActions && drillable && !!(data.onDrillDown || data.onExpand);
+  const hasActions = !data.hideActions && drillable
+    && !!(data.onDrillDown || data.onExpand || data.expandLimited);
   const btnStyle: CSSProperties = {
     ...nodeBtn,
     background: "rgba(255,255,255,0.18)",
@@ -331,14 +377,11 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
               title="Войти"
             ><DrillInIcon /></button>
           )}
-          {data.onExpand && (
-            <button
-              className="nodrag"
-              onClick={(e) => { e.stopPropagation(); data.onExpand?.(data.appNode.id); }}
-              style={btnStyle}
-              title="Раскрыть содержимое"
-            >🔍</button>
-          )}
+          <ExpandLens
+            onExpand={data.onExpand ? () => data.onExpand?.(data.appNode.id) : undefined}
+            limited={data.expandLimited}
+            style={btnStyle}
+          />
         </div>
       )}
 
@@ -411,7 +454,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
         <rect x={1} y={1} width={NODE_W - 2} height={NODE_H - 2} rx={8} fill={c.bg} stroke={c.border} strokeWidth={1.5} strokeDasharray="5 3" />
       </svg>
       <NodeHandles nodeId={data.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
-      {(data.onEnter || data.onExpand) && (
+      {(data.onEnter || data.onExpand || data.expandLimited) && (
         <div style={nodeActions}>
           {/* «Войти» — навигация на собственный слой контейнера (его компоненты), в
               отличие от лупы, раскрывающей содержимое инлайн на текущем уровне.
@@ -424,16 +467,13 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
               title="Войти к компонентам"
             ><DrillInIcon /></button>
           )}
-          {/* Лупа — только пока контейнер не на пределе инлайн-глубины (C8):
-              глубже MAX_INLINE_DEPTH onExpand не задаётся и кнопка не рисуется. */}
-          {data.onExpand && (
-            <button
-              className="nodrag"
-              onClick={(e) => { e.stopPropagation(); data.onExpand?.(data.id); }}
-              style={btnStyle}
-              title="Раскрыть содержимое"
-            >🔍</button>
-          )}
+          {/* Лупа активна, пока контейнер не на пределе инлайн-глубины (C8): глубже
+              MAX_INLINE_DEPTH onExpand не задаётся, кнопка остаётся неактивной. */}
+          <ExpandLens
+            onExpand={data.onExpand ? () => data.onExpand?.(data.id) : undefined}
+            limited={data.expandLimited}
+            style={btnStyle}
+          />
         </div>
       )}
       <IntoCue />
