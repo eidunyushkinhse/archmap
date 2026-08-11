@@ -72,6 +72,11 @@ export type LayoutResult = {
   // Отсортированы по depth (внешние первыми) — порядок вложенности parentId.
   // Родные (breadcrumb) рамки сюда не входят — их рисует оверлей LevelBoundary.
   guestFrames: FrameRect[];
+  // РОДНАЯ рамка контейнера уровня — только когда в неё упирается хотя бы одна связь
+  // (собственные связи контейнера, увиденные изнутри его уровня). Сборка вешает на этот
+  // rect невидимый узел-якорь: рисует рамку по-прежнему оверлей LevelBoundary, но RF
+  // нужен УЗЕЛ с этим id, иначе ребро с таким концом не отрисуется вовсе.
+  levelFrame?: FrameRect;
   groupArr: EdgeGroup[];
   spacers: RFNode[];
 };
@@ -244,14 +249,21 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   };
   for (const n of rawNodes) expandLocal(n, []);
 
+  // КОНТЕЙНЕРЫ, НАРИСОВАННЫЕ РАМКОЙ. Их два рода, и связь «прямо в такой контейнер»
+  // у обоих упирается в границу его рамки вместо того, чтобы пропасть:
+  //  • поглощённые раскрытием локалы (absorbed) — не-нативная рамка внутри уровня;
+  //  • САМ КОНТЕЙНЕР УРОВНЯ — его рамка это внешнее кольцо breadcrumb. Это и есть
+  //    двойник кейса «раскрытый контейнер», увиденный ИЗНУТРИ: на уровне miss-cluster
+  //    его собственные 6 связей раньше исчезали, а соседи оставались висеть без стрелок.
+  const frameIds = new Set<string>(absorbed);
+  if (containerId !== null) frameIds.add(containerId);
+
   // ПРОЕКЦИЯ, половина 1 (R2): подъём концов сырых рёбер к ближайшему локальному
   // предку уровня; концы вне поддерева остаются гостями.
   // localIds — отображаемые локалы: конец внутри РАСКРЫТОГО контейнера поднимается
   // не к нему, а к его видимому потомку (симметрия со сворачиванием гостей).
-  // frameIds — поглощённые раскрытием контейнеры: они нарисованы РАМКОЙ, и связь
-  // «прямо в такой контейнер» упирается в её границу вместо того, чтобы пропасть.
   const { edges: liftedEdges, ghosts } = liftEdgesToLevel({
-    edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId, frameIds: absorbed,
+    edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId, frameIds,
   });
 
   // ПРОЕКЦИЯ, половина 2: сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
@@ -295,16 +307,17 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     return { id, savedPos: saved ? { x: saved.pos_x, y: saved.pos_y } : null };
   });
 
-  // Отображаемые концы рёбер: узлы, сущности И РАМКИ раскрытых локалов. Рамка — конец
-  // «по-настоящему»: стрелка стыкуется с её границей (id рамки = id контейнера).
+  // Отображаемые концы рёбер: узлы, сущности И РАМКИ (раскрытых локалов и уровня).
+  // Рамка — конец «по-настоящему»: стрелка стыкуется с её границей (id рамки = id
+  // контейнера).
   const displayedIds = new Set<string>([
-    ...nodes.map((n) => n.id), ...entities.map((e) => e.id), ...absorbed,
+    ...nodes.map((n) => n.id), ...entities.map((e) => e.id), ...frameIds,
   ]);
   // Конец ребра — рамка, а не узел. Такие рёбра исключены из стадий РАСКЛАДКИ УЗЛОВ
   // (у рамки нет представителя в ELK, её геометрия производна от детей) и ведутся
   // только роутером — по прямоугольнику рамки.
   const isFrameEnd = (g: { source: string; target: string }): boolean =>
-    absorbed.has(g.source) || absorbed.has(g.target);
+    frameIds.has(g.source) || frameIds.has(g.target);
 
   // Слияние связей одного направления между парой отображаемых узлов в мастер-стрелку
   const groupArr: EdgeGroup[] = [];
@@ -530,11 +543,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const scopeSet = scopeNodeIds && scopeNodeIds.length > 0 && prevRoutes
     ? new Set(scopeNodeIds)
     : null;
-  // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
-  // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один
-  // переход — «ворота» выбирает A*), плашка подписи — жёсткое препятствие. Позиции
-  // здесь финальные — rect тот же, что у compound-рамок сборки.
-  const routerFrames = computeFrames({
+  // Рамки на финальных позициях. Нативные (breadcrumb) нужны только как ГЕОМЕТРИЯ
+  // КОНЦА — препятствием/воротами они не были и не становятся (всё содержимое уровня
+  // лежит внутри них).
+  const finalFrames = computeFrames({
     localIds: nodes.map((n) => n.id),
     externals: [
       ...entities.map((e) => ({
@@ -546,7 +558,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     pos: (id) => positions.get(id),
     ancestorIds,
     ancestorNames: ancestorIds,
-  })
+  });
+  // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
+  // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один
+  // переход — «ворота» выбирает A*), плашка подписи — жёсткое препятствие. Позиции
+  // здесь финальные — rect тот же, что у compound-рамок сборки.
+  const routerFrames = finalFrames
     .filter((f) => !f.native)
     .map((f) => ({
       id: f.id,
@@ -567,8 +584,8 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // её же узлы, и жёсткое тело заперло бы их связи) — она остаётся мягкой границей со
   // штрафом перехода, как и была.
   const frameEndpoints = new Map<string, { x: number; y: number; w: number; h: number }>();
-  for (const f of routerFrames) {
-    if (absorbed.has(f.id)) frameEndpoints.set(f.id, f.rect);
+  for (const f of finalFrames) {
+    if (frameIds.has(f.id)) frameEndpoints.set(f.id, f.rect);
   }
   const hasGeometry = (id: string): boolean => !!positions.get(id) || frameEndpoints.has(id);
 
@@ -789,26 +806,22 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // рамки раскрытых ЛОКАЛОВ — по цепочкам localFrames (та же механика: контейнер
   // ниже lca → не-native рамка вокруг членов). Родные рамки (native) не берём —
   // они остаются живым оверлеем LevelBoundary (bbox-follow за драгом).
-  const guestFrames: FrameRect[] = [];
-  const frames = computeFrames({
-    localIds: nodes.map((n) => n.id),
-    externals: [
-      ...entities.map((e) => ({
-        id: e.id,
-        ancestors: e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors,
-      })),
-      ...localFrames,
-    ],
-    pos: (id) => positions.get(id),
-    ancestorIds,
-    ancestorNames: ancestorIds, // имена нативных не нужны — их отфильтровываем
-  });
-  guestFrames.push(...frames.filter((f) => !f.native));
+  // Это те же finalFrames, что видел роутер: позиции с тех пор не менялись (роутинг,
+  // нуджинг и плашки их не трогают), и второй пересчёт давал бы ровно то же самое.
+  const guestFrames: FrameRect[] = finalFrames.filter((f) => !f.native);
+
+  // ЯКОРЬ РОДНОЙ РАМКИ УРОВНЯ: отдаём rect наружу, только если в него реально что-то
+  // упирается. Сборка повесит на него невидимый RF-узел — RF нужен узел с этим id,
+  // иначе связь молча не отрисуется. Сама рамка остаётся оверлеем.
+  const levelFrame = containerId !== null
+      && groupArr.some((g) => g.source === containerId || g.target === containerId)
+    ? finalFrames.find((f) => f.id === containerId && f.native)
+    : undefined;
 
   return {
     layout: {
       nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
-      autoRoutes, labelPlacements, guestFrames, groupArr, spacers,
+      autoRoutes, labelPlacements, guestFrames, levelFrame, groupArr, spacers,
     },
     liveInputs: {
       layoutEdges,

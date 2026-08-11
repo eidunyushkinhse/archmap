@@ -166,6 +166,13 @@ export interface FrameData extends Record<string, unknown> {
   onCollapse?: () => void;
 }
 
+// ЯКОРЬ РОДНОЙ РАМКИ (эпик «связи, упирающиеся в рамку»): невидимый RF-узел на
+// прямоугольнике рамки контейнера УРОВНЯ. Нужен только затем, чтобы RF было к чему
+// пристыковать связь, чей конец — сам контейнер: сама рамка остаётся оверлеем
+// LevelBoundary (ему нужен живой bbox-follow за драгом), а рисовать её вторым слоем
+// нельзя. Узел ничего не рендерит, кроме 12 точек стыковки.
+export type FrameDockRFNode = RFNode<Record<string, unknown>, "framedock">;
+
 export type BlockRFNode = RFNode<BlockData, "block">;
 export type GhostRFNode = RFNode<GhostData, "ghost">;
 export type ContainerRFNode = RFNode<ContainerData, "container">;

@@ -10,7 +10,7 @@ import {
   nodeContainer, SELECTED_GLOW,
   tagChip, nodeActions, nodeBtn,
 } from "./shapes";
-import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, QuickConnectHandlers } from "./types";
+import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, QuickConnectHandlers } from "./types";
 import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
@@ -522,6 +522,17 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
   );
 }
 
+// Якорь родной рамки: невидимый прямоугольник рамки контейнера УРОВНЯ, несущий только
+// точки стыковки. Саму рамку рисует оверлей LevelBoundary (живой bbox-follow за драгом),
+// поэтому здесь ни границы, ни подписи — иначе рамка двоилась бы.
+function FrameDockNode({ id }: NodeProps<FrameDockRFNode>) {
+  return (
+    <div style={{ width: "100%", height: "100%", pointerEvents: "none" }}>
+      <FrameHandles nodeId={id} />
+    </div>
+  );
+}
+
 // Невидимый узел-распорка (контекст-схема): ставится в крайние точки контента, включая
 // обходы не родных стрелок, чтобы fitView (фитит только узлы) вмещал весь рисунок.
 function SpacerNode() {
@@ -533,5 +544,6 @@ export const nodeTypes: NodeTypes = {
   ghost: GhostBlockNode as ComponentType<NodeProps>,
   container: ContainerNode as ComponentType<NodeProps>,
   frame: FrameNode as ComponentType<NodeProps>,
+  framedock: FrameDockNode as ComponentType<NodeProps>,
   spacer: SpacerNode as ComponentType<NodeProps>,
 };

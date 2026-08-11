@@ -347,6 +347,37 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "D", "X"]);
   });
 
+  it("собственная связь КОНТЕЙНЕРА УРОВНЯ видна изнутри и упирается в родную рамку", async () => {
+    // Тот же кейс, что раскрытый контейнер, но увиденный ИЗНУТРИ: пользователь вошёл в P,
+    // у которого есть своя связь с внешним G. Раньше конец «сам контейнер уровня»
+    // дропался, и на схеме оставался висеть G без единой стрелки.
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAB", "A", "B", "зов"), edge("eGP", "G", "P", "снаружи в контейнер")],
+      endpoints: [ghost("G", [])],
+    }));
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target]).sort())
+      .toEqual([["eAB", "A", "B"], ["eGP", "G", "P"]]);
+    // рамка уровня отдана наружу якорем и НЕ попала в guestFrames (её рисует оверлей)
+    expect(out.layout.levelFrame?.id).toBe("P");
+    expect(out.layout.levelFrame?.native).toBe(true);
+    expect(out.layout.guestFrames.map((f) => f.id)).not.toContain("P");
+    // стрелка кончается на границе рамки
+    const route = out.layout.autoRoutes?.get("eGP");
+    expect(onRectBorder(route![route!.length - 1], out.layout.levelFrame!.rect)).toBe(true);
+  });
+
+  it("на КОРНЕ рамки уровня нет — конец «в корень» невозможен, поведение прежнее", async () => {
+    // containerId = null: frameIds пуст, ничего нового не появляется.
+    const out = await computeViewLayout(levelInput({
+      containerId: null,
+      ancestorIds: [],
+      edges: [edge("eAB", "A", "B", "зов")],
+      endpoints: [],
+    }));
+    expect(out.layout.levelFrame).toBeUndefined();
+    expect(out.layout.groupArr.map((g) => g.id)).toEqual(["eAB"]);
+  });
+
   it("конец в раскрытый ГОСТЕВОЙ контейнер скрыт, пока его дети отображаются", async () => {
     // G — контейнер чужой ветки (под Q); его ребёнок Gc — тоже конец рёбер.
     // Q и G раскрыты: Gc отображается листом, G — рамкой вокруг него; конец e1
