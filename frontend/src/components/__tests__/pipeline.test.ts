@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeViewLayout, buildRouteSig, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
+import { NODE_W, NODE_H } from "../graph/constants";
 
 // Характеризация КОМПОЗИЦИИ конвейера раскладки (R1/R3): отдельные стадии покрыты
 // своими тестами, здесь — сквозные инварианты целого: детерминизм, засев владения
@@ -48,6 +49,17 @@ function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
     localChildren: {},
     ...overrides,
   };
+}
+
+// Точка лежит НА границе прямоугольника (стыковка конца-в-рамку): совпадает с одной из
+// сторон и не выходит за её створ. Допуск 0.5 — тот же EPS, что у роутера.
+function onRectBorder(p: { x: number; y: number }, r: { x: number; y: number; w: number; h: number }): boolean {
+  const E = 0.5;
+  const inX = p.x >= r.x - E && p.x <= r.x + r.w + E;
+  const inY = p.y >= r.y - E && p.y <= r.y + r.h + E;
+  const onV = (Math.abs(p.x - r.x) <= E || Math.abs(p.x - (r.x + r.w)) <= E) && inY;
+  const onH = (Math.abs(p.y - r.y) <= E || Math.abs(p.y - (r.y + r.h)) <= E) && inX;
+  return onV || onH;
 }
 
 // Стабильная сериализация раскладки (Map → отсортированные пары) для сравнения прогонов.
@@ -170,12 +182,11 @@ describe("computeViewLayout — композиция конвейера уров
     expect(seeds.map((s) => s.id).sort()).toEqual(expect.arrayContaining(["B1", "B2"]));
   });
 
-  it("R5-регрессия: единственный ребёнок БЕЗ видимых связей ложится на месте контейнера, рамка вокруг", async () => {
+  it("связь «прямо в раскрытый контейнер» упирается наконечником в его рамку", async () => {
     // Все связи ребёнка ведут в сам раскрытый контейнер (типично для свежей схемы:
-    // пользователь протянул связь к контейнеру, а не к его будущим детям) — проекция
-    // их дропает, ребёнок изолирован. Гарантия: при owned-позиции контейнера (её
-    // закрепляет own-on-expand в LevelGraph) сетка первого показа кладёт ребёнка на
-    // место контейнера, а не оставляет ELK-изолятом в углу канвы.
+    // пользователь протянул связь к контейнеру, а не к его будущим детям). До эпика
+    // «связи, упирающиеся в рамку» проекция такую связь ДРОПАЛА, и от неё на схеме
+    // оставался только висящий сосед; теперь конец — сама рамка (её id = id узла).
     const b1 = { ...appNode("B1"), parent_id: "B" } as AppNode;
     const out = await computeViewLayout(levelInput({
       edges: [edge("eAB", "A", "B", "в контейнер")],
@@ -184,8 +195,8 @@ describe("computeViewLayout — композиция конвейера уров
       expanded: new Set(["B"]),
       localChildren: { B: [b1] },
     }));
-    // связь «прямо в контейнер» при его раскрытии скрыта (алерт-кейс) — рёбер нет
-    expect(out.layout.groupArr).toEqual([]);
+    // связь видна, её конец — контейнер B (он же рамка)
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target])).toEqual([["eAB", "A", "B"]]);
     // ребёнок сел от owned-позиции контейнера (сетка 1×1 = ровно его угол)
     expect(out.layout.positions.get("B1")).toEqual({ x: 400, y: 0 });
     // рамка раскрытия обнимает ребёнка на месте контейнера
@@ -195,6 +206,10 @@ describe("computeViewLayout — композиция конвейера уров
     expect(bf.rect.x).toBeLessThan(400);
     expect(bf.rect.y).toBeLessThan(0);
     expect(bf.rect.x + bf.rect.w).toBeGreaterThan(400 + 190);
+    // маршрут кончается НА ГРАНИЦЕ рамки — не в её центре и не внутри
+    const route = out.layout.autoRoutes?.get("eAB");
+    expect(route?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(onRectBorder(route![route!.length - 1], bf.rect)).toBe(true);
     // и засеян интентом — раскрытие персистит место навсегда
     const seeds = out.intents.filter((i) => i.kind === "seed-positions").flatMap((i) => i.seeds);
     expect(seeds.map((s) => s.id)).toContain("B1");
@@ -324,9 +339,88 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.entities.map((e) => e.id)).not.toContain("C");
     const frameIds = out.layout.guestFrames.map((f) => f.id).sort();
     expect(frameIds).toEqual(["C", "P"]);
-    // связь «прямо в раскрытый контейнер» скрыта (алерт-кейс, как у локалов)
-    expect(out.layout.groupArr).toEqual([]);
+    // связь «прямо в раскрытый контейнер» видна и упирается в границу его рамки —
+    // ровно один конец, дубля-узла рядом с рамкой по-прежнему нет
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target])).toEqual([["eXC", "X", "C"]]);
+    const cf = out.layout.guestFrames.find((f) => f.id === "C")!;
+    const route = out.layout.autoRoutes?.get("eXC");
+    expect(onRectBorder(route![route!.length - 1], cf.rect)).toBe(true);
     expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "D", "X"]);
+  });
+
+  it("собственная связь КОНТЕЙНЕРА УРОВНЯ видна изнутри и упирается в родную рамку", async () => {
+    // Тот же кейс, что раскрытый контейнер, но увиденный ИЗНУТРИ: пользователь вошёл в P,
+    // у которого есть своя связь с внешним G. Раньше конец «сам контейнер уровня»
+    // дропался, и на схеме оставался висеть G без единой стрелки.
+    const out = await computeViewLayout(levelInput({
+      edges: [edge("eAB", "A", "B", "зов"), edge("eGP", "G", "P", "снаружи в контейнер")],
+      endpoints: [ghost("G", [])],
+    }));
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target]).sort())
+      .toEqual([["eAB", "A", "B"], ["eGP", "G", "P"]]);
+    // рамка уровня отдана наружу якорем и НЕ попала в guestFrames (её рисует оверлей)
+    expect(out.layout.levelFrame?.id).toBe("P");
+    expect(out.layout.levelFrame?.native).toBe(true);
+    expect(out.layout.guestFrames.map((f) => f.id)).not.toContain("P");
+    // стрелка кончается на границе рамки
+    const route = out.layout.autoRoutes?.get("eGP");
+    expect(onRectBorder(route![route!.length - 1], out.layout.levelFrame!.rect)).toBe(true);
+  });
+
+  it("ПУСТОЙ уровень: рамка контейнера есть всегда, размером как под один узел", async () => {
+    // Пользователь вошёл в атомарный узел: детей нет. Раньше здесь был пустой холст.
+    const out = await computeViewLayout(levelInput({
+      nodes: [], edges: [], endpoints: [], viewLayout: {},
+    }));
+    expect(out.layout.nodes).toEqual([]);
+    const lf = out.layout.levelFrame;
+    expect(lf?.id).toBe("P");
+    // рамка обнимает ровно один синтетический бокс: шире и выше узла, но не безразмерна
+    expect(lf!.rect.w).toBeGreaterThan(NODE_W);
+    expect(lf!.rect.w).toBeLessThan(NODE_W * 3);
+    expect(lf!.rect.h).toBeGreaterThan(NODE_H);
+    expect(lf!.rect.h).toBeLessThan(NODE_H * 3);
+    // синтетический член — деталь расчёта рамок: узлом не становится и не засеивается
+    expect(out.layout.entities).toEqual([]);
+    expect(out.intents).toEqual([]);
+  });
+
+  it("ПУСТОЙ уровень: собственные связи контейнера упираются в его рамку, гости снаружи", async () => {
+    // Ровно исходная жалоба: соседи бывшего атома висели без стрелок.
+    const out = await computeViewLayout(levelInput({
+      nodes: [],
+      edges: [edge("eGP", "G", "P", "снаружи"), edge("ePH", "P", "H", "наружу")],
+      endpoints: [ghost("G", []), ghost("H", [])],
+      viewLayout: {},
+    }));
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target]).sort())
+      .toEqual([["eGP", "G", "P"], ["ePH", "P", "H"]]);
+    const lf = out.layout.levelFrame!;
+    for (const id of ["eGP", "ePH"]) {
+      const r = out.layout.autoRoutes?.get(id);
+      expect(r?.length ?? 0).toBeGreaterThanOrEqual(2);
+      const frameEnd = id === "eGP" ? r![r!.length - 1] : r![0];
+      expect(onRectBorder(frameEnd, lf.rect)).toBe(true);
+    }
+    // гости не залезли внутрь рамки (keep-out видит её так же, как рисунок)
+    for (const id of ["G", "H"]) {
+      const p = out.layout.positions.get(id)!;
+      const inside = p.x > lf.rect.x && p.x < lf.rect.x + lf.rect.w
+        && p.y > lf.rect.y && p.y < lf.rect.y + lf.rect.h;
+      expect(inside).toBe(false);
+    }
+  });
+
+  it("на КОРНЕ рамки уровня нет — конец «в корень» невозможен, поведение прежнее", async () => {
+    // containerId = null: frameIds пуст, ничего нового не появляется.
+    const out = await computeViewLayout(levelInput({
+      containerId: null,
+      ancestorIds: [],
+      edges: [edge("eAB", "A", "B", "зов")],
+      endpoints: [],
+    }));
+    expect(out.layout.levelFrame).toBeUndefined();
+    expect(out.layout.groupArr.map((g) => g.id)).toEqual(["eAB"]);
   });
 
   it("конец в раскрытый ГОСТЕВОЙ контейнер скрыт, пока его дети отображаются", async () => {

@@ -3,7 +3,7 @@
 // Геометрия рамок (членство + прямоугольники) живёт в layout/frames.ts — единый
 // источник правды, общий с энфорсом запрета проникновения гостей (keepGhostsOut.ts).
 import type { Node as RFNode } from "@xyflow/react";
-import { computeFrames } from "./layout/frames";
+import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN } from "./layout/frames";
 import { framedBlockRefs } from "./frameChains";
 import { absPositionOf } from "./absPos";
 import type { GhostData, ContainerData } from "./types";
@@ -27,7 +27,12 @@ export function LevelBoundary({
   const blocks = rfNodes.filter((n) => n.type === "block");
   // внешние отображаемые узлы: гости (leaf) и свёрнутые контейнеры
   const externals = rfNodes.filter((n) => n.type === "ghost" || n.type === "container");
-  if (blocks.length === 0) return null;
+  // ПУСТОЙ УРОВЕНЬ: рамка родителя рисуется всегда, вокруг синтетического бокса
+  // (frames.ts). Признак берём не из «блоков ноль», а из наличия узла-якоря рамки:
+  // так решение принимает раскладка, и рамка не мигает на полпути загрузки уровня,
+  // пока узлы ещё не приехали.
+  const emptyLevel = blocks.length === 0 && rfNodes.some((n) => n.type === "framedock");
+  if (blocks.length === 0 && !emptyLevel) return null;
 
   const extAncestors = (n: RFNode): AncestorRef[] =>
     n.type === "ghost"
@@ -43,12 +48,16 @@ export function LevelBoundary({
   // Позиции — АБСОЛЮТНЫЕ: дети compound-рамок несут относительные координаты (R4).
   const byId = new Map(rfNodes.map((n) => [n.id, n]));
   const rects = computeFrames({
-    localIds: blocks.map((b) => b.id),
+    localIds: frameLocalIds(blocks.map((b) => b.id), ancestorIds),
     externals: [
       ...externals.map((n) => ({ id: n.id, ancestors: extAncestors(n) })),
       ...framedBlocks,
     ],
-    pos: (id) => { const n = byId.get(id); return n ? absPositionOf(n, byId) : undefined; },
+    pos: (id) => {
+      if (id === EMPTY_LEVEL_MEMBER) return EMPTY_LEVEL_ORIGIN;
+      const n = byId.get(id);
+      return n ? absPositionOf(n, byId) : undefined;
+    },
     ancestorIds, ancestorNames,
   }).filter((f) => f.native);
 

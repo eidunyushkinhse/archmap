@@ -87,6 +87,32 @@ describe("liftEdgesToLevel — подъём концов к ближайшему
     expect(res.edges).toEqual([]);
   });
 
+  it("конец в РАСКРЫТОМ контейнере остаётся концом — стрелка упрётся в его рамку", () => {
+    // Уровень A: локал C раскрыт (заменён детьми C1/C2), поэтому в localIds его нет,
+    // а в реестре endpoints он не появляется вовсе — для сервера он локал. Раньше такой
+    // конец отсеивался ветвью `!info`, и связь пропадала со схемы; теперь он законный
+    // конец (рамка), id тот же.
+    const res = liftEdgesToLevel({
+      edges: [edge("e", "X", "C")],
+      endpoints: [ep("X", [])],
+      localIds: new Set(["C1", "C2"]),
+      containerId: "A",
+      frameIds: new Set(["C"]),
+    });
+    expect(res.edges).toEqual([{ id: "e", source_id: "X", target_id: "C" }]);
+    expect(res.ghosts.map((g) => g.id)).toEqual(["X"]);
+  });
+
+  it("без раскрытия тот же конец по-прежнему отбрасывается (рамки нет — стыковаться не с чем)", () => {
+    const res = liftEdgesToLevel({
+      edges: [edge("e", "X", "C")],
+      endpoints: [ep("X", [])],
+      localIds: new Set(["C1", "C2"]),
+      containerId: "A",
+    });
+    expect(res.edges).toEqual([]);
+  });
+
   it("гость конца, ушедшего в контейнер уровня, не исчезает (single-schema)", () => {
     // Ребро A→X: A — контейнер уровня (ребро скрыто), X — внешний узел. X обязан
     // остаться гостем: узлы не исчезают при раскрытии/сворачивании контейнера.

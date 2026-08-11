@@ -166,6 +166,13 @@ export interface FrameData extends Record<string, unknown> {
   onCollapse?: () => void;
 }
 
+// ЯКОРЬ РОДНОЙ РАМКИ (эпик «связи, упирающиеся в рамку»): невидимый RF-узел на
+// прямоугольнике рамки контейнера УРОВНЯ. Нужен только затем, чтобы RF было к чему
+// пристыковать связь, чей конец — сам контейнер: сама рамка остаётся оверлеем
+// LevelBoundary (ему нужен живой bbox-follow за драгом), а рисовать её вторым слоем
+// нельзя. Узел ничего не рендерит, кроме 12 точек стыковки.
+export type FrameDockRFNode = RFNode<Record<string, unknown>, "framedock">;
+
 export type BlockRFNode = RFNode<BlockData, "block">;
 export type GhostRFNode = RFNode<GhostData, "ghost">;
 export type ContainerRFNode = RFNode<ContainerData, "container">;
@@ -261,6 +268,15 @@ export interface LevelEdgeCallbacks {
   ) => void;
   // Конец стрелки отпустили на плитку «вне уровня» — выбор дальнего конца из всей схемы.
   onExitUp?: (sourceId: string, sourceHandle: string | null, sourceName?: string) => void;
+  // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку»): единственное
+  // исключение из «геометрия связи целиком автоматическая» (edge.md E1) — тянется
+  // только тот конец, что упёрся в рамку, и только на узел ВНУТРИ неё. Холст уже
+  // проверил попадание; промах сюда не доходит (жест просто отменяется).
+  // edgeIds — реальные связи группы (у мастер-стрелки их несколько).
+  onReconnectFrameEnd?: (
+    edgeIds: string[], end: "source" | "target",
+    fromFrameId: string, toNodeId: string,
+  ) => void;
 }
 
 // Запросы удаления узлов с канваса (клавиатура → подтверждение в родителе).

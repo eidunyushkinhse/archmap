@@ -76,6 +76,7 @@ def test_deep_edge_is_sent_raw_with_endpoint_registry(db):
         all_nodes=_all_nodes(a, b, a1, b1),
         all_edges=[e],
         db=db,
+        project_id=ensure_project(db).id,
     )
     assert len(graph.edges) == 1
     assert graph.edges[0].source_id == a1.id
@@ -103,6 +104,7 @@ def test_inner_edge_of_child_is_sent_raw(db):
         all_nodes=_all_nodes(a, a1, a2),
         all_edges=[e],
         db=db,
+        project_id=ensure_project(db).id,
     )
     assert len(graph.edges) == 1
     assert graph.edges[0].source_id == a1.id
@@ -126,6 +128,7 @@ def test_sublevel_external_end_in_registry(db):
         all_nodes=_all_nodes(a, b, a1, b1),
         all_edges=[e],
         db=db,
+        project_id=ensure_project(db).id,
     )
     assert len(graph.edges) == 1
     assert graph.edges[0].source_id == a1.id
@@ -151,6 +154,7 @@ def test_fully_external_edge_is_skipped(db):
         all_nodes=_all_nodes(a, b, a1, b1, b2),
         all_edges=[e],
         db=db,
+        project_id=ensure_project(db).id,
     )
     assert graph.edges == []
     assert graph.endpoints == []
@@ -180,6 +184,7 @@ def test_read_returns_all_rows_and_does_not_mutate_db(db):
         all_nodes=_all_nodes(a, b, a1, b1, other),
         all_edges=[e],
         db=db,
+        project_id=ensure_project(db).id,
     )
     assert graph.layout[str(b.id)].x == 10
     assert graph.layout[str(other.id)].x == 99
@@ -201,7 +206,7 @@ def test_has_status_info_true_when_statuses_lежат_глубже(db):
 
     graph = _build_graph(
         local_nodes=[root], container_id=None,
-        all_nodes=_all_nodes(root, child), all_edges=[], db=db,
+        all_nodes=_all_nodes(root, child), all_edges=[], db=db, project_id=ensure_project(db).id,
     )
 
     assert all(n.status == "existing" for n in graph.nodes)  # на уровне статусов нет
@@ -215,7 +220,75 @@ def test_has_status_info_false_когда_проект_без_статусов(d
 
     graph = _build_graph(
         local_nodes=[root], container_id=None,
-        all_nodes=_all_nodes(root), all_edges=[], db=db,
+        all_nodes=_all_nodes(root), all_edges=[], db=db, project_id=ensure_project(db).id,
     )
 
     assert graph.has_status_info is False
+
+
+# =================== пустой уровень (эпик «связи, упирающиеся в рамку») ===================
+
+def test_пустой_уровень_отдаёт_собственные_связи_контейнера(db):
+    # Пользователь вошёл в АТОМАРНЫЙ узел: детей нет, но свои связи у него есть.
+    # Они обязаны доехать до фронта — там стрелка упирается в рамку пустого слоя.
+    # Раньше build_graph вообще не звали (ранний return с пустым GraphResponse),
+    # а сам он падал бы на local_nodes[0].project_id.
+    atom = _node(db, "Атом")
+    peer = _node(db, "Сосед")
+    e = _edge(db, peer, atom)
+    db.commit()
+
+    graph = _build_graph(
+        local_nodes=[],
+        container_id=atom.id,
+        all_nodes=_all_nodes(atom, peer),
+        all_edges=[e],
+        db=db,
+        project_id=ensure_project(db).id,
+    )
+
+    assert graph.nodes == []
+    assert [x.id for x in graph.edges] == [e.id]
+    # дальний конец — в реестре (фронт материализует его гостем), сам контейнер тоже:
+    # он не локал уровня, а именно он и есть конец связи
+    assert {g.id for g in graph.endpoints} == {peer.id, atom.id}
+
+
+def test_пустой_уровень_без_своих_связей_отдаёт_пусто(db):
+    atom = _node(db, "Атом")
+    other_a = _node(db, "Чужой А")
+    other_b = _node(db, "Чужой Б")
+    e = _edge(db, other_a, other_b)
+    db.commit()
+
+    graph = _build_graph(
+        local_nodes=[],
+        container_id=atom.id,
+        all_nodes=_all_nodes(atom, other_a, other_b),
+        all_edges=[e],
+        db=db,
+        project_id=ensure_project(db).id,
+    )
+
+    assert graph.nodes == []
+    assert graph.edges == []
+
+
+def test_роутер_пустого_уровня_больше_не_отдаёт_заглушку(db):
+    # Регрессия V16: get_node_graph делал ранний return с пустым GraphResponse, и
+    # собственные связи контейнера до фронта не доезжали вовсе.
+    from app.routers.nodes import get_node_graph
+
+    atom = _node(db, "Атом")
+    peer = _node(db, "Сосед")
+    _edge(db, atom, peer)
+    db.commit()
+
+    graph = get_node_graph(atom.id, db=db, project=ensure_project(db), _=None)
+
+    assert graph.nodes == []
+    assert len(graph.edges) == 1
+    assert {g.id for g in graph.endpoints} == {peer.id, atom.id}
+    # курсоры уровня отдаются как у непустого — клиенту есть от чего считать поллинг
+    assert graph.version is not None
+    assert graph.graph_rev is not None

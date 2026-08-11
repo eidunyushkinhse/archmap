@@ -107,6 +107,44 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
   });
 });
 
+describe("buildAutoRoutes — рамка как КОНЕЦ связи", () => {
+  // A снаружи слева, C внутри рамки; рамка F — прямоугольник вокруг C.
+  const positions = new Map([
+    ["A", { x: 0, y: 100 }],
+    ["C", { x: 500, y: 100 }],
+  ]);
+  const frameRect = { x: 450, y: 20, w: 260, h: 260 };
+  const frame = { id: "F", rect: frameRect, plaque: { x: 460, y: 250, w: 100, h: 22 }, memberIds: new Set(["C"]) };
+
+  it("конец-рамка стыкуется с ГРАНИЦЕЙ её прямоугольника, а не с центром", () => {
+    const out = buildAutoRoutes({
+      groups: [group("gF", "A", "F")], routableIds: new Set(["gF"]),
+      positions, displayIds: ["A", "C"], frames: [frame],
+      frameEndpoints: new Map([["F", frameRect]]),
+    });
+    const r = out.routes.get("gF")!;
+    const end = r[r.length - 1];
+    // конец на левой грани рамки (ближайшей к A), в створе её высоты
+    expect(end.x).toBeCloseTo(frameRect.x, 1);
+    expect(end.y).toBeGreaterThanOrEqual(frameRect.y);
+    expect(end.y).toBeLessThanOrEqual(frameRect.y + frameRect.h);
+    // хэндл выдан по рамке — RF состыкует стрелку там же
+    expect(out.handles.get("gF")?.targetHandle.startsWith("F--left--")).toBe(true);
+  });
+
+  it("рамка-конец НЕ становится телом-препятствием: чужой маршрут внутрь неё не меняется", () => {
+    // Один и тот же маршрут A→C (C внутри рамки) с объявленным концом-рамкой и без него.
+    // Если бы rect рамки попал в тела-препятствия, C оказался бы заперт и маршрут поехал.
+    const args = {
+      groups: [group("g", "A", "C")], routableIds: new Set(["g"]),
+      positions, displayIds: ["A", "C"], frames: [frame],
+    };
+    const plain = buildAutoRoutes(args);
+    const withDock = buildAutoRoutes({ ...args, frameEndpoints: new Map([["F", frameRect]]) });
+    expect(withDock.routes.get("g")).toEqual(plain.routes.get("g"));
+  });
+});
+
 describe("buildAutoRoutes — раздача слотов портов (V2.4c)", () => {
   // три исходящих из H вправо + одно входящее в H справа: вход и выход не делят слот
   const positions = new Map([

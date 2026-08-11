@@ -109,6 +109,7 @@ def build_graph(
     all_nodes: dict[uuid.UUID, Node],
     all_edges: list[Edge],
     db: Session,
+    project_id: uuid.UUID,
 ) -> GraphResponse:
     """Собирает СЫРОЙ граф уровня (R2 вид-центричного движка).
 
@@ -117,6 +118,11 @@ def build_graph(
     раскладки. Проекцию концов на видимые сущности («подъём к ближайшему видимому
     представителю») делает фронтенд (graph/projection.ts) — она зависит от
     expand/collapse-состояния, известного только ему.
+
+    project_id передаётся ЯВНО, а не берётся из local_nodes[0]: у пустого уровня
+    (контейнер без детей) локальных узлов нет, а собственные связи контейнера есть —
+    и отдать их обязательно, иначе на пустом слое не во что упереться стрелкам
+    (эпик «связи, упирающиеся в рамку»).
     """
     local_ids: set[uuid.UUID] = {n.id for n in local_nodes}
     subtree = (
@@ -146,7 +152,7 @@ def build_graph(
                 endpoint_ids.add(nid)
 
     # Раскладка вида как есть (единый читатель read_view_layout).
-    layout = read_view_layout(db, local_nodes[0].project_id, container_id)
+    layout = read_view_layout(db, project_id, container_id)
 
     # Число прямых детей у каждого родителя — одним проходом по всем узлам.
     # Питает бейдж «есть дети (N)» и кнопку «Войти» и у концов-реестра, и у локалов.
@@ -166,5 +172,5 @@ def build_graph(
         edges=result_edges,
         endpoints=endpoints,
         layout=layout,
-        has_status_info=project_has_status_info(db, local_nodes[0].project_id),
+        has_status_info=project_has_status_info(db, project_id),
     )

@@ -453,6 +453,32 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     });
   }
 
+  // Перепривязка конца, упиравшегося в рамку, на узел внутри неё. Холст уже проверил,
+  // что цель — член этой рамки; здесь только запись и история. У мастер-стрелки членов
+  // несколько — переезжают ВСЕ (они и слились в одну потому, что делят пару концов).
+  // Перепривязка конца, упиравшегося в рамку, на узел внутри неё. Холст уже проверил,
+  // что цель — член этой рамки; здесь только запись и история. У мастер-стрелки членов
+  // несколько — переезжают ВСЕ (они и слились в одну потому, что делят пару концов).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- как dispatchUndo: plain-function (зависит от load/currentParentId), бандл edgeCallbacks пересобирается с ней — поведение не меняется.
+  function handleFrameEndReconnected(
+    edgeIds: string[], end: "source" | "target", fromFrameId: string, toNodeId: string,
+  ) {
+    if (!isArchitect) return;
+    const levelAt = currentParentId;
+    const refetch = () => load(levelAt);
+    const to = (id: string): EdgeUpdate => (end === "source" ? { source_id: id } : { target_id: id });
+    const move = (id: string) =>
+      Promise.all(edgeIds.map((eid) => edgesApi.update(eid, to(id)))).then(refetch);
+    guardPersist(move(toNodeId), resyncOnPersistError);
+    noteMutation();
+    history.push({
+      label: edgeIds.length > 1 ? "Перепривязка связей" : "Перепривязка связи",
+      level: levelAt,
+      undo: () => { guardPersist(move(fromFrameId), resyncOnPersistError); },
+      redo: () => { guardPersist(move(toNodeId), resyncOnPersistError); },
+    });
+  }
+
   function pushEdgeCreate(created: Edge) {
     if (!isArchitect) return;
     noteMutation();
@@ -519,7 +545,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     onCreateEdge: (s, t, sh, th, sn, tn) => setEdgeQuick({ sourceId: s, targetId: t, sourceHandle: sh, targetHandle: th, sourceName: sn, targetName: tn }),
     onConnectInto: (s, cid, cn, sh, sn) => setIntoPicker({ sourceId: s, containerId: cid, containerName: cn, sourceHandle: sh, sourceName: sn }),
     onExitUp: (s, sh, sn) => setOutPicker({ sourceId: s, sourceHandle: sh, sourceName: sn }),
-  }), [onEdgesChoice, onTrunkChoice]);
+    onReconnectFrameEnd: handleFrameEndReconnected,
+  }), [onEdgesChoice, onTrunkChoice, handleFrameEndReconnected]);
 
   const deleteCallbacks = useMemo<LevelDeleteCallbacks>(() => ({
     onRequestDeleteNode: setPendingDelete,

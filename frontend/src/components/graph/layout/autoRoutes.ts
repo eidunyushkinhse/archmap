@@ -114,10 +114,17 @@ export function buildAutoRoutes(params: {
   // неизбежен, штраф лишь заставлял бы виться), plaque — плашка подписи (жёсткое
   // препятствие, сквозь текст не ходим).
   frames?: Array<{
+    id?: string;
     rect: { x: number; y: number; w: number; h: number };
     plaque: { x: number; y: number; w: number; h: number };
     memberIds: ReadonlySet<string>;
   }>;
+  // КОНЦЫ-РАМКИ (2026-08-11): id рамки → её прямоугольник. Связь, чей конец — раскрытый
+  // контейнер, стыкуется с ГРАНИЦЕЙ рамки: порты раздаются по этому прямоугольнику так
+  // же, как по телу узла. В препятствия рамка при этом не попадает (внутри неё живут её
+  // же узлы — жёсткое тело заперло бы их связи): она остаётся мягкой границей со штрафом
+  // перехода, а для СВОЕГО ребра штраф снимается (стыковка снаружи, границу не режем).
+  frameEndpoints?: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>;
   // ГИСТЕРЕЗИС (2026-07-09): финальные маршруты и хэндлы ПРОШЛОГО прогона. Валидный
   // прежний маршрут (концы сидят на текущих точках своих хэндлов — узлы-концы не
   // двигались; тела/плашки не режутся) идёт в routeAll кандидатом: сохраняется, пока
@@ -136,7 +143,7 @@ export function buildAutoRoutes(params: {
   // сварка не гоняется живьём (E62), доворот на отпускании прячет drawIn (E64).
   weld?: boolean;
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, prev, labelObstacles, weld } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -145,6 +152,11 @@ export function buildAutoRoutes(params: {
     const s = sizes?.get(id);
     rects.set(id, { x: p.x, y: p.y, w: s?.w ?? NODE_W, h: s?.h ?? NODE_H });
   }
+  // Тела стыковки: узлы + рамки-концы. Рамка живёт ТОЛЬКО здесь и не попадает ни в
+  // `rects` (препятствия), ни в nodeRects конвейера — иначе связи её собственных детей
+  // оказались бы заперты внутри жёсткого прямоугольника.
+  const dockRects = new Map<string, NodeRect>(rects);
+  if (frameEndpoints) for (const [id, r] of frameEndpoints) dockRects.set(id, { ...r });
 
   // Рельсы встречных пар (A11): два ребра между одной парой узлов в противоположных
   // направлениях разводим на крайние слоты хэндлов обращённых сторон, чтобы их плечи не
@@ -167,7 +179,7 @@ export function buildAutoRoutes(params: {
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
-    const sr = rects.get(g.source), tr = rects.get(g.target);
+    const sr = dockRects.get(g.source), tr = dockRects.get(g.target);
     if (!sr || !tr) continue;
     // ВАЛИДАЦИЯ прежнего маршрута: концы обязаны сидеть на ТЕКУЩИХ точках прежних
     // хэндлов (узел двигался/рос → точка уехала → маршрут невалиден, честный пере-
@@ -220,8 +232,11 @@ export function buildAutoRoutes(params: {
     // Границы ЧУЖИХ рамок (ни один конец не член) — штраф за переход: чужое ребро
     // обходит рамку, а не режет насквозь. Свои рамки бесплатны (переход неизбежен),
     // место перехода — «ворота» — A* выбирает по остальной стоимости.
+    // Рамка, которая САМА конец этого ребра, чужой не считается: стрелка стыкуется с её
+    // границей снаружи и границу не пересекает — штраф лишь заставлял бы её виться.
     const foreignRects = (frames ?? [])
-      .filter((f) => !f.memberIds.has(g.source) && !f.memberIds.has(g.target))
+      .filter((f) => !f.memberIds.has(g.source) && !f.memberIds.has(g.target)
+        && f.id !== g.source && f.id !== g.target)
       .map((f) => f.rect);
     // чужие плашки подписей (T4) — штраф за переход границы; своя не отталкивает
     const foreignLabels: { x: number; y: number; w: number; h: number }[] = [];
@@ -294,7 +309,7 @@ export function buildAutoRoutes(params: {
 
   // V2.4c: раздача слотов портов — вход и выход не делят точку стыковки (Т4 уточнено:
   // общий хэндл легитимен только В ОДНОМ направлении).
-  distributeSlots(docks, routes, rects);
+  distributeSlots(docks, routes, rects, dockRects);
 
   // выбранную сторону+слот отдаём как хэндл; idx важен для рельс (A11) и раздачи
   // слотов: RF стыкует на своём слоте.
@@ -347,7 +362,14 @@ interface Dock {
 // группы берут слоты в порядке [центр, 0.25, 0.75]. Сдвиг конца — латеральный перенос
 // хэндла и стаб-точки; сосед-сегмент (латеральный) поглощает сдвиг. Отменяется, если
 // перенос переломил бы соседа, упёрся в чужое тело или маршрут прямой (2 точки).
-function distributeSlots(docks: Dock[], routes: Map<string, EdgePoint[]>, rects: Map<string, NodeRect>): void {
+// `rects` — тела-ПРЕПЯТСТВИЯ (только узлы), `dockRects` — тела СТЫКОВКИ (узлы + рамки-концы):
+// у рамки слоты раздаются по её прямоугольнику, но сама она чужому плечу не мешает.
+function distributeSlots(
+  docks: Dock[],
+  routes: Map<string, EdgePoint[]>,
+  rects: Map<string, NodeRect>,
+  dockRects: Map<string, NodeRect>,
+): void {
   const byNodeSide = new Map<string, Dock[]>();
   for (const d of docks) {
     const k = `${d.nodeId}|${d.side}`;
@@ -359,7 +381,7 @@ function distributeSlots(docks: Dock[], routes: Map<string, EdgePoint[]>, rects:
     const dirs = new Set(group.map((d) => d.end));
     if (dirs.size < 2) continue; // одно направление — общий слот легитимен
     const nodeId = k.slice(0, k.indexOf("|"));
-    const r = rects.get(nodeId);
+    const r = dockRects.get(nodeId);
     if (!r) continue;
     // направление → закреплённый слот (фиксированные стыковки пинят свой)
     const groupsByDir: Array<{ dir: "s" | "t"; docks: Dock[]; pinned: number | null }> = ["s", "t"]
@@ -379,16 +401,22 @@ function distributeSlots(docks: Dock[], routes: Map<string, EdgePoint[]>, rects:
       if (slot == null) continue;
       for (const d of g.docks) {
         if (!d.free || d.idx === slot) continue;
-        if (moveDock(d, slot, routes, rects)) d.idx = slot;
+        if (moveDock(d, slot, routes, rects, dockRects)) d.idx = slot;
       }
     }
   }
 }
 
 // Латеральный перенос стыковки на новый слот. true — применено.
-function moveDock(d: Dock, slot: number, routes: Map<string, EdgePoint[]>, rects: Map<string, NodeRect>): boolean {
+function moveDock(
+  d: Dock,
+  slot: number,
+  routes: Map<string, EdgePoint[]>,
+  rects: Map<string, NodeRect>,
+  dockRects: Map<string, NodeRect>,
+): boolean {
   const pts = routes.get(d.edgeId);
-  const r = rects.get(d.nodeId);
+  const r = dockRects.get(d.nodeId);
   if (!pts || !r || pts.length < 3) return false; // прямой маршрут сдвиг не поглотит
   const vertical = d.side === "left" || d.side === "right"; // латеральная ось — Y
   const sideLen = vertical ? r.h : r.w;

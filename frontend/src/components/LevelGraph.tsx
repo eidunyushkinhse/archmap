@@ -14,6 +14,7 @@ import {
   ViewportPortal,
   type Node as RFNode,
   type Edge as RFEdge,
+  type Connection,
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -197,7 +198,7 @@ function LevelGraphInner({
     fitOnExpand = false, schemaView = "all",
   } = mode ?? {};
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onClearSelection } = drill;
-  const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice } = edgeCallbacks;
+  const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice, onReconnectFrameEnd } = edgeCallbacks;
   const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
   const { onDropNode, dragShape } = drop ?? {};
   const { history: historyProp, onUndo, onRedo } = undo ?? {};
@@ -545,9 +546,35 @@ function LevelGraphInner({
     [rfNodes],
   );
 
+  // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку»). Тянуть можно
+  // только конец, упёршийся в рамку (сборка помечает такие рёбра reconnectable), и
+  // только на узел ВНУТРИ ЭТОЙ ЖЕ рамки: её дети — единственные, кому связь может
+  // принадлежать «точнее». Промах мимо такого узла = жест отменён: ничего не пишем,
+  // рендер идёт из прежней раскладки, и конец возвращается на рамку (связь никогда не
+  // остаётся с одним концом).
+  const handleReconnect = useCallback((oldEdge: RFEdge, conn: Connection) => {
+    // читаем ПОСЛЕДНЮЮ раскладку через ref: колбэк живёт дольше одного прогона
+    const l = layoutLatestRef.current;
+    if (!l || !canStructure) return;
+    const frames = [...l.guestFrames, ...(l.levelFrame ? [l.levelFrame] : [])];
+    const frameEnds = new Set(l.frameEnds);
+    // тянули тот конец, что изменился; второй остаётся как был
+    const end: "source" | "target" | null =
+      conn.source !== oldEdge.source ? "source" : conn.target !== oldEdge.target ? "target" : null;
+    if (!end) return;
+    const frameId = end === "source" ? oldEdge.source : oldEdge.target;
+    const toNodeId = end === "source" ? conn.source : conn.target;
+    if (!frameEnds.has(frameId) || !toNodeId) return;
+    if (conn.source === conn.target) return; // сам на себя — не связь
+    const frame = frames.find((f) => f.id === frameId);
+    if (!frame || !frame.memberIds.has(toNodeId)) return; // цель вне рамки — промах
+    const memberIds = (oldEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
+    if (memberIds.length === 0) return;
+    onReconnectFrameEnd?.(memberIds, end, frameId, toNodeId);
+  }, [canStructure, onReconnectFrameEnd]);
+
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
-  // выбор потомка). Реконнект концов существующих рёбер умер вместе с ручным слоем
-  // стрелок (2026-07-09) — поток создания единственный.
+  // выбор потомка).
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
       isArchitect, disabled: !canStructure, resolveTarget,
@@ -756,6 +783,19 @@ function LevelGraphInner({
     rfNodes, screenToFlowPosition, setGuides, clearGuides,
     isArchitect, disabled: !canStructure, onDropNode, dragShape, expandedFrames,
   });
+
+  // ПРИГЛАШАЮЩАЯ РАМКА ПУСТОГО СЛОЯ (эпик «связи, упирающиеся в рамку»): пока тянут
+  // шаблон, её внутренность светится зелёным — «первый узел кладут сюда»; когда центр
+  // будущего узла оказывается внутри, зелёный становится выразительнее.
+  // Подсветка ЧИСТО ВИЗУАЛЬНАЯ (canvas.md CV20a): в цели дропа рамка уровня не входит и
+  // семантику не меняет — на пустом слое любой дроп и так создаёт ребёнка контейнера,
+  // чью рамку видно. Хит-тест — тот же, что у рамок-целей: центр будущего узла в rect.
+  const emptyLevelFrame = layout && layout.nodes.length === 0 ? layout.levelFrame : undefined;
+  const emptyFrameHit = !!emptyLevelFrame && !!dropPreview && (() => {
+    const cx = dropPreview.x + NODE_W / 2, cy = dropPreview.y + NODE_H / 2;
+    const r = emptyLevelFrame.rect;
+    return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
+  })();
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
   // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим).
@@ -1038,6 +1078,14 @@ function LevelGraphInner({
         onConnectStart={handleConnectStart}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
+        // Перепривязка конца-в-рамку (см. handleReconnect): единственный ручной жест
+        // над геометрией связи; остальные рёбра помечены reconnectable:false.
+        onReconnect={handleReconnect}
+        // 0 — не «нулевая зона захвата», а отказ от собственного СДВИГА RF: свой
+        // радиус он использует и как смещение круга-ручки наружу, отчего ручка
+        // вставала рядом с рамкой. Размер ручки задаёт CSS (см. LevelGraph.css,
+        // .react-flow__edgeupdater) — там же она подгоняется под дот хэндла узла.
+        reconnectRadius={0}
         isValidConnection={isValidNewConnection}
         // прощающий радиус защёлки конца на хэндл: попасть в периметр-хэндл узла
         // легко, при этом центр тела (≥ полширины узла от хэндлов) остаётся «зоной входа»
@@ -1129,6 +1177,31 @@ function LevelGraphInner({
             >
               <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" outline />
             </div>
+          </ViewportPortal>
+        )}
+        {/* Приглашение пустого слоя: пока тянут шаблон, внутренность рамки родителя
+            светится зелёным; когда центр будущего узла внутри — заметнее. */}
+        {emptyLevelFrame && dropPreview && (
+          <ViewportPortal>
+            <div
+              // стабильный хук для тестов: idle — приглашение, hit — центр узла внутри
+              data-empty-frame-hint={emptyFrameHit ? "hit" : "idle"}
+              style={{
+                position: "absolute",
+                left: emptyLevelFrame.rect.x,
+                top: emptyLevelFrame.rect.y,
+                width: emptyLevelFrame.rect.w,
+                height: emptyLevelFrame.rect.h,
+                // border-box + радиус 12 — как у .lg-frame: заливка ложится ровно внутрь
+                boxSizing: "border-box",
+                pointerEvents: "none",
+                zIndex: 4,
+                borderRadius: 12,
+                background: emptyFrameHit ? "rgba(34, 197, 94, 0.16)" : "rgba(34, 197, 94, 0.06)",
+                border: `2px solid ${emptyFrameHit ? "#22c55e" : "rgba(34, 197, 94, 0.35)"}`,
+                transition: "background 0.12s ease, border-color 0.12s ease",
+              }}
+            />
           </ViewportPortal>
         )}
         {/* Индикация цели дропа в раскрытую рамку: подсвечиваем её контур («рамка
