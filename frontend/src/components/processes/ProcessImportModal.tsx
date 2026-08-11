@@ -91,6 +91,12 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
             )}
           </div>
           <div>Шагов: {result.messages} · на каналах схемы: {result.attached}
+            {/* Внутренние операции участника канала не имеют по контракту — это не
+                поломка, поэтому обычным цветом и отдельным числом: иначе строка не
+                сходится («шагов 13, на каналах 12, а тринадцатый где?»). */}
+            {result.self_messages > 0 && (
+              <span style={{ color: BPT.mut }}> · внутренних операций: {result.self_messages}</span>
+            )}
             {result.dangling > 0 && (
               <span style={{ color: BROKEN.ink }}> · без связи: {result.dangling}</span>
             )}

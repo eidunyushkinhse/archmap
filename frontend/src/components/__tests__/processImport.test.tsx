@@ -30,7 +30,7 @@ const PREVIEW: ProcessImportPreview = {
 
 const RESULT: ProcessImportResult = {
   process_id: "p9", participants: 2, unbound: 1, messages: 2,
-  attached: 1, dangling: 1, fragments: 1, unsupported: ["autonumber"],
+  attached: 1, dangling: 1, self_messages: 0, fragments: 1, unsupported: ["autonumber"],
 };
 
 function renderModal(onImported = vi.fn()) {
@@ -141,6 +141,31 @@ describe("импорт процесса: применение", () => {
     await screen.findByText("Процесс создан");
     expect(screen.getByText(/без узла схемы: 1/)).toBeTruthy();
     expect(screen.getByText(/без связи: 1/)).toBeTruthy();
+  });
+
+  it("внутренние операции названы отдельно и не выданы за поломку", async () => {
+    // Находка приёмки: самосообщение уходило в «без связи». Теперь у него своя графа,
+    // и она не появляется, когда внутренних операций нет (проверка ниже, в RESULT — 0).
+    vi.mocked(processesApi.importProcess).mockResolvedValue({
+      ...RESULT, messages: 3, attached: 1, dangling: 1, self_messages: 1,
+    });
+    renderModal();
+    await toPreview();
+
+    await userEvent.click(screen.getByRole("button", { name: "Импортировать" }));
+
+    await screen.findByText("Процесс создан");
+    expect(screen.getByText(/внутренних операций: 1/)).toBeTruthy();
+  });
+
+  it("без внутренних операций графы для них нет", async () => {
+    renderModal();
+    await toPreview();
+
+    await userEvent.click(screen.getByRole("button", { name: "Импортировать" }));
+
+    await screen.findByText("Процесс создан");
+    expect(screen.queryByText(/внутренних операций/)).toBeNull();
   });
 
   it("«Открыть процесс» отдаёт id созданного", async () => {

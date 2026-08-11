@@ -54,5 +54,8 @@ class ProcessImportResult(BaseModel):
     messages: int
     attached: int  # шагов встало на канал схемы
     dangling: int  # шагов осталось повисшими (канала нет либо кандидатов несколько)
+    # Внутренние операции участника (самосообщения): канала C4 у них нет по контракту,
+    # к повисшим не относятся — считаются отдельно, иначе отчёт объявлял бы их сломанными.
+    self_messages: int = 0
     fragments: int
     unsupported: list[str]

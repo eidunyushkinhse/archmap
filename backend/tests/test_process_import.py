@@ -239,6 +239,34 @@ def test_импорт_оставляет_несопоставленного_не
     assert сирота.name == "Сервис заказов"  # имя из диаграммы сохранено
 
 
+def test_самосообщение_не_считается_повисшим(db):
+    """Находка приёмки 2026-08-10: отчёт объявлял внутреннюю операцию сломанной.
+
+    Счёт вёлся вычитанием (len(messages) − attached), а самосообщение канала не ищет
+    вовсе — и попадало в «без связи», хотя в самой схеме шаг корректен (valid=true).
+    """
+    антифрод = _узел(db, "Антифрод")
+    заказы = _узел(db, "Сервис заказов")
+    _связь(db, заказы, антифрод, sync=True)
+    db.commit()
+    текст = (
+        "sequenceDiagram\n"
+        " participant P1 as Сервис заказов\n"
+        " participant P2 as Антифрод\n"
+        " P1->>P2: проверить заказ\n"
+        " P2->>P2: скоринг по правилам\n"
+    )
+    preview = build_preview(db, ensure_project(db).id, текст, None)
+    mapping = {p.alias: p.node_id for p in preview.participants}
+
+    _, res = apply_import(db, ensure_project(db).id, текст, "Оплата", mapping)
+    db.commit()
+
+    assert (res.messages, res.attached, res.dangling, res.self_messages) == (2, 1, 0, 1)
+    сам = db.query(ProcessMessage).filter(ProcessMessage.order == 1).one()
+    assert сам.edge_id is None  # канала у внутренней операции нет — и не должно быть
+
+
 def test_импорт_переносит_фрагменты_с_ветвями(db):
     текст = (
         "sequenceDiagram\n"

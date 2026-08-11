@@ -329,16 +329,29 @@ def apply_import(
     edges = db.query(Edge).filter(Edge.project_id == project_id).all()
     participant_ids = {p.node_id for p in part_by_alias.values() if p.node_id is not None}
     attached = 0
+    dangling = 0
+    self_messages = 0
     for order, msg in enumerate(parsed.messages):
         frm = part_by_alias[msg.frm]
         to = part_by_alias[msg.to]
         edge: Edge | None = None
-        if frm.id != to.id and frm.node_id is not None and to.node_id is not None:
+        # Самосообщение (внутренняя операция участника) канала C4 не имеет и иметь не
+        # должно — оно НЕ повисшее. Считаем его отдельно, а не вычитанием из общего
+        # числа шагов: прежняя формула len(messages) − attached записывала каждую
+        # внутреннюю операцию в «без связи» и врала в отчёте (находка приёмки
+        # 2026-08-10). Тот же принцип у reattach_dangling и алерта AL26 — там
+        # самосообщения исключены явно.
+        is_self = frm.id == to.id
+        if not is_self and frm.node_id is not None and to.node_id is not None:
             edge = find_channel(
                 edges, all_nodes, participant_ids, frm.node_id, to.node_id, msg.leg
             )
-        if edge is not None:
+        if is_self:
+            self_messages += 1
+        elif edge is not None:
             attached += 1
+        else:
+            dangling += 1
         db.add(
             ProcessMessage(
                 id=uuid.uuid4(),
@@ -379,7 +392,8 @@ def apply_import(
         unbound=unbound,
         messages=len(parsed.messages),
         attached=attached,
-        dangling=len(parsed.messages) - attached,
+        dangling=dangling,
+        self_messages=self_messages,
         fragments=len(parsed.fragments),
         unsupported=parsed.unsupported,
     )

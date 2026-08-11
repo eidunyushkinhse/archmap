@@ -2645,6 +2645,11 @@ export interface components {
             attached: number;
             /** Dangling */
             dangling: number;
+            /**
+             * Self Messages
+             * @default 0
+             */
+            self_messages: number;
             /** Fragments */
             fragments: number;
             /** Unsupported */
