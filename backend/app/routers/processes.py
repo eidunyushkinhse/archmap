@@ -24,6 +24,7 @@ from app.process_import import apply_import, build_preview
 from app.processes import (
     bound_node_ids,
     build_process_detail,
+    default_caption,
     detach_messages,
     edge_is_synchronous,
     fragment_out,
@@ -445,7 +446,10 @@ def create_message(
         leg=payload.leg,
         from_participant_id=frm.id,
         to_participant_id=to.id,
-        caption=payload.caption,
+        # Подпись у шага всегда СВОЯ: дефолт канала (метка связи у вызова, «ответ» у
+        # ответа) замораживается здесь, один раз, и дальше живёт обычным текстом.
+        # Пустую подпись присылает композитор — он и означает «возьми дефолт».
+        caption=payload.caption if payload.caption is not None else default_caption(payload.leg, edge),
     )
     db.add(msg)
     touch_project(db, project, user.id)

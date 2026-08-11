@@ -178,6 +178,48 @@ def test_legal_forward_and_return(db):
     assert detail.messages[0].valid and detail.messages[1].valid
 
 
+# ── 3б. подпись у шага ВСЕГДА своя: дефолт канала замораживается при создании ──
+def test_подпись_замораживается_при_создании_и_не_следует_за_каналом(db):
+    """Решение пользователя 2026-08-11. Прежде подпись выводилась при КАЖДОМ чтении,
+    поэтому переименование связи доезжало до процессов; теперь дефолт канала берётся
+    один раз, при создании шага, и дальше это обычный текст."""
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    создан = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert создан.caption == "создать заказ"  # заморозили метку канала
+
+    edge.label = "оформить заказ"  # переименовали связь в схеме
+    db.commit()
+
+    detail = get_process(proc.id, db=db, project=ensure_project(db))
+    assert detail.messages[0].caption == "создать заказ"  # шаг за каналом НЕ следует
+
+
+def test_своя_подпись_при_создании_дефолт_не_перебивает(db):
+    a, b = _node(db, "A"), _node(db, "B")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+
+    создан = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", caption="проверка лимита",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert создан.caption == "проверка лимита"
+
+
 # ── 4. /channels: 2 плеча для sync, 1 для async, пусто без рёбер ───────────────
 def test_channels_legs_count_and_empty(db):
     a, b, c, d = _node(db, "A"), _node(db, "B"), _node(db, "C"), _node(db, "D")

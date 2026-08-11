@@ -209,7 +209,12 @@ def _message_kind(leg: str, edge: Edge | None) -> str:
     return "forward"
 
 
-def _default_caption(leg: str, edge: Edge | None) -> str | None:
+def default_caption(leg: str, edge: Edge | None) -> str | None:
+    """Подпись, которую канал даёт плечу: метка связи у вызова, «ответ» у ответа.
+
+    Точка применения ОДНА — создание шага (create_message замораживает это значение
+    в собственную подпись). При чтении подпись больше не выводится: см. message_out.
+    """
     if leg == "return":
         return "ответ"
     return edge.label if edge is not None else None
@@ -257,18 +262,24 @@ def message_out(
 ) -> MessageOut:
     """Сериализация сообщения процесса.
 
+    ПОДПИСЬ У ШАГА ВСЕГДА СВОЯ (решение пользователя 2026-08-11): отдаём ровно то,
+    что лежит в строке, и ничего не выводим из канала. Прежде пустая подпись значила
+    «показывать то, что даёт канал», и два неотличимых на вид шага вели себя
+    по-разному — ради чего всё и менялось. Дефолт канала теперь ЗАМОРАЖИВАЕТСЯ ОДИН
+    РАЗ, при создании шага (create_message), и дальше живёт как обычный текст.
+    Цена решения принята сознательно: переименование связи в схеме до процессов
+    больше не доезжает — подписи правятся руками.
+
     Самосообщение (внутренняя операция участника): концы совпадают, связи C4 нет.
-    kind="self", подпись — свободный текст (дефолта из плеча нет), valid всегда true
-    (это не повисшая связь — её тут и не было).
+    kind="self", valid всегда true (это не повисшая связь — её тут и не было).
     """
     is_self = msg.from_participant_id == msg.to_participant_id
+    caption = msg.caption
     if is_self:
         kind = "self"
-        caption = msg.caption
         valid = True
     else:
         kind = _message_kind(msg.leg, edge)
-        caption = msg.caption if msg.caption is not None else _default_caption(msg.leg, edge)
         valid = msg.edge_id is not None
     return MessageOut(
         id=msg.id,
