@@ -115,7 +115,7 @@ def alerts(data: dict[str, Any]) -> str:
         [", ".join(str(x) for x in g.get("node_names", [])) for g in data.get("isolated_groups", [])],
     )
     add(
-        "Контейнер со своей документацией",
+        "Контейнеры со своей документацией",
         [str(c["node_name"]) for c in data.get("container_own_docs", [])],
     )
     add(
