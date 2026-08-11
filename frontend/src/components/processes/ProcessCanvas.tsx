@@ -5,7 +5,7 @@
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { nodesApi } from "../../api/nodes";
+import { edgesApi, nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
 import { RedoIcon, UndoIcon } from "../../ui/icons";
@@ -517,6 +517,25 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setError(e instanceof Error ? e.message : "Не удалось изменить подпись шага");
     }
   }
+  // Синхронность КАНАЛА под шагом. Живёт в карточке шага, а не в C4-модалке (решение
+  // пользователя 2026-08-11): состав плеч — вопрос процесса, в схеме объекта этот
+  // признак не нужен. Правит связь целиком, поэтому задевает все шаги на ней —
+  // карточка про это говорит прямо.
+  async function setChannelSync(edgeId: string, next: boolean) {
+    setMsgEdit(null);
+    try {
+      await edgesApi.update(edgeId, { is_synchronous: next });
+      hist.push({
+        label: next ? "Канал стал синхронным" : "Канал стал асинхронным",
+        undo: async () => { await edgesApi.update(edgeId, { is_synchronous: !next }); },
+        redo: async () => { await edgesApi.update(edgeId, { is_synchronous: next }); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось изменить тип канала");
+    }
+  }
   async function removeMessage(mid: string) {
     const m = detail?.messages.find((x) => x.id === mid);
     try {
@@ -943,9 +962,46 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                   onChange={(e) => setMsgCaption(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") void saveCaption(msgEdit); }}
                   placeholder="что происходит на этом шаге"
+                  data-card="caption"
                   maxLength={256}
                   autoFocus
                 />
+                {/* Тип КАНАЛА под шагом. Правит связь целиком, поэтому говорим об этом
+                    прямо и предупреждаем, если уход в асинхронный сломает ответы:
+                    у асинхронного канала плеча «ответ» нет (AL28). */}
+                {(() => {
+                  const m = detail.messages.find((x) => x.id === msgEdit);
+                  const edgeId = m?.edge_id;
+                  if (!edgeId || m.edge_synchronous == null) return null;
+                  const sync = m.edge_synchronous;
+                  const ответов = detail.messages.filter(
+                    (x) => x.edge_id === m.edge_id && x.leg === "return",
+                  ).length;
+                  return (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 6 }}>
+                        Канал в схеме — правка задевает все шаги на нём
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {([true, false] as const).map((v) => (
+                          <button
+                            key={String(v)}
+                            className={sync === v ? "bp-btn-primary" : "bp-btn-ghost"}
+                            onClick={() => { if (sync !== v) void setChannelSync(edgeId, v); }}
+                          >
+                            {v ? "Синхронный" : "Асинхронный"}
+                          </button>
+                        ))}
+                      </div>
+                      {sync && ответов > 0 && (
+                        <div style={{ fontSize: 11.5, color: BROKEN.ink, marginTop: 6 }}>
+                          У асинхронного канала нет плеча «ответ» —
+                          {ответов === 1 ? " один шаг-ответ" : ` шагов-ответов: ${ответов}`} сломается.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
                   <button
                     className="bp-btn-ghost"

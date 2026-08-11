@@ -309,6 +309,7 @@ def message_out(
         to_participant_id=msg.to_participant_id,
         valid=valid,
         invalid_reason=invalid_reason,
+        edge_synchronous=None if edge is None else edge_is_synchronous(edge),
     )
 
 

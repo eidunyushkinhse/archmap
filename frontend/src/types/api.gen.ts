@@ -2172,6 +2172,8 @@ export interface components {
             valid: boolean;
             /** Invalid Reason */
             invalid_reason?: ("edge_deleted" | "leg_gone") | null;
+            /** Edge Synchronous */
+            edge_synchronous?: boolean | null;
         };
         /** MessageUpdate */
         MessageUpdate: {

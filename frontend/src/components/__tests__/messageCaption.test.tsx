@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import ProcessCanvas from "../processes/ProcessCanvas";
 import { processesApi } from "../../api/processes";
+import { edgesApi } from "../../api/nodes";
 import type { ProcessDetail } from "../../types";
 
 // Диаграмма подменена пультом: кнопка отдаёт id шага ровно как настоящая полоса захвата.
@@ -37,10 +38,14 @@ vi.mock("../../api/processes", () => ({
     removeMessage: vi.fn(), removeParticipant: vi.fn(), reattach: vi.fn(), detachMessages: vi.fn(),
   },
 }));
-vi.mock("../../api/nodes", () => ({ nodesApi: { get: vi.fn() } }));
+vi.mock("../../api/nodes", () => ({
+  nodesApi: { get: vi.fn() },
+  edgesApi: { update: vi.fn() },
+}));
 
 const MSG = {
   edge_id: "e1", leg: "forward", kind: "forward", technology: null, valid: true,
+  edge_synchronous: true,
   from_participant_id: "pa", to_participant_id: "pb",
 };
 const DETAIL = {
@@ -199,6 +204,62 @@ describe("карточка шага: подпись", () => {
 
     await waitFor(() => expect(processesApi.removeMessage).toHaveBeenCalled());
     expect(histPush).not.toHaveBeenCalled();
+  });
+
+  // Тумблер синхронности живёт ЗДЕСЬ, а не в C4-модалке (решение пользователя
+  // 2026-08-11): состав плеч — вопрос процесса. До этого признак правился
+  // единственным местом — внутри композитора нового сообщения, куда попадаешь
+  // протягиванием стрелки; починить канал по алерту AL28 было почти нечем.
+  it("карточка показывает тип канала и переключает его", async () => {
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
+
+    await waitFor(() =>
+      expect(edgesApi.update).toHaveBeenCalledWith("e1", { is_synchronous: false }),
+    );
+  });
+
+  it("повторный выбор того же типа связь не трогает", async () => {
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Синхронный" }));
+
+    expect(edgesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("предупреждает, что уход в асинхронный сломает ответы", async () => {
+    vi.mocked(processesApi.get).mockResolvedValue({
+      ...DETAIL,
+      messages: [
+        { ...MSG, id: "m1", order: 0, caption: "вызов" },
+        { ...MSG, id: "m9", order: 1, caption: "ответ", leg: "return", kind: "return",
+          from_participant_id: "pb", to_participant_id: "pa" },
+      ],
+    } as unknown as ProcessDetail);
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    expect(screen.getByText(/один шаг-ответ/)).toBeTruthy();
+  });
+
+  it("у шага без канала тумблера нет", async () => {
+    // Самосообщение и повисший шаг канала не имеют — переключать нечего.
+    vi.mocked(processesApi.get).mockResolvedValue({
+      ...DETAIL,
+      messages: [{ ...MSG, id: "m1", order: 0, caption: "проверка",
+        edge_id: null, edge_synchronous: null, kind: "self", to_participant_id: "pa" }],
+    } as unknown as ProcessDetail);
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    expect(screen.queryByRole("button", { name: "Асинхронный" })).toBeNull();
   });
 
   it("вне режима правки карточка не открывается", async () => {
