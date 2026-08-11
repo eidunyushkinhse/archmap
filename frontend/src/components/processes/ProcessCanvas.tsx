@@ -88,7 +88,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Итог подхвата каналов — показываем строкой: молча подхватить и промолчать значит
   // скрыть, что часть шагов осталась сломанной.
   const [bindNote, setBindNote] = useState<string | null>(null);
-  const [delMsg, setDelMsg] = useState<string | null>(null);
+  // Карточка шага: правка подписи + удаление. Клик по стрелке/подписи ведёт сюда —
+  // раньше он открывал ТОЛЬКО «Удалить сообщение?», и задать подпись было нечем.
+  const [msgEdit, setMsgEdit] = useState<string | null>(null);
+  const [msgCaption, setMsgCaption] = useState("");
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
   const [delPartErr, setDelPartErr] = useState<string | null>(null);
@@ -485,11 +488,38 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       setError(e instanceof Error ? e.message : "Не удалось добавить рефлексивное сообщение");
     }
   }
+  // Правка подписи шага. Подпись у шага всегда СВОЯ (вывод из канала снят), поэтому
+  // пустое поле означает ровно «подписи нет», а не «взять метку связи».
+  async function saveCaption(mid: string) {
+    if (!detail) return;
+    const m = detail.messages.find((x) => x.id === mid);
+    if (!m) return;
+    const next = msgCaption.trim() || null;
+    setMsgEdit(null);
+    if (next === m.caption) return; // ничего не меняли — не мусорим в истории
+    const prev = m.caption;
+    setDetail({
+      ...detail,
+      messages: detail.messages.map((x) => (x.id === mid ? { ...x, caption: next } : x)),
+    });
+    try {
+      await processesApi.updateMessage(id, mid, { caption: next });
+      hist.push({
+        label: "Подпись шага",
+        undo: async () => { await processesApi.updateMessage(id, mid, { caption: prev }); },
+        redo: async () => { await processesApi.updateMessage(id, mid, { caption: next }); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось изменить подпись шага");
+    }
+  }
   async function removeMessage(mid: string) {
     const m = detail?.messages.find((x) => x.id === mid);
     try {
       await processesApi.removeMessage(id, mid);
-      setDelMsg(null);
+      setMsgEdit(null);
       if (m) {
         const fromNode = nodeOfPart(m.from_participant_id);
         const toNode = nodeOfPart(m.to_participant_id);
@@ -813,7 +843,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 return !!from && !!to && directions.has(`${from}>${to}`);
               } : undefined}
               onSelfConnect={editing ? (pid) => { setSelfMsg(pid); setSelfCaption(""); } : undefined}
-              onMessageClick={editing ? (mid) => setDelMsg(mid) : undefined}
+              onMessageClick={editing ? (mid) => {
+                setMsgCaption(detail?.messages.find((m) => m.id === mid)?.caption ?? "");
+                setMsgEdit(mid);
+              } : undefined}
               onBindParticipant={editing ? (pid) => setBindPart(pid) : undefined}
               onDeleteParticipant={editing ? (pid) => {
                 const p = partById[pid];
@@ -887,17 +920,38 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           </>
         )}
 
-        {/* Подтверждение удаления сообщения */}
-        {delMsg && (
+        {/* Карточка шага: подпись + удаление (устройство то же, что у ветви «иначе») */}
+        {msgEdit && detail && (
           <>
-            <div style={overlayDim} onClick={() => setDelMsg(null)} />
+            <div style={overlayDim} onClick={() => setMsgEdit(null)} />
             <div style={overlayCenter}>
               <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head }}>Удалить сообщение?</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
+                  Шаг сценария
+                </div>
+                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
+                  Подпись принадлежит шагу: переименование связи в схеме её не меняет.
+                </div>
+                <input
+                  className="bp-input"
+                  value={msgCaption}
+                  onChange={(e) => setMsgCaption(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void saveCaption(msgEdit); }}
+                  placeholder="что происходит на этом шаге"
+                  maxLength={256}
+                  autoFocus
+                />
                 <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => setDelMsg(null)}>Отмена</button>
-                  <button className="bp-btn-primary" style={{ background: "#dc2626", borderColor: "#dc2626" }} onClick={() => void removeMessage(delMsg)}>
-                    Удалить
+                  <button
+                    className="bp-btn-ghost"
+                    style={{ marginRight: "auto", color: "#dc2626" }}
+                    onClick={() => void removeMessage(msgEdit)}
+                  >
+                    Удалить шаг
+                  </button>
+                  <button className="bp-btn-ghost" onClick={() => setMsgEdit(null)}>Отмена</button>
+                  <button className="bp-btn-primary" onClick={() => void saveCaption(msgEdit)}>
+                    Сохранить
                   </button>
                 </div>
               </div>
