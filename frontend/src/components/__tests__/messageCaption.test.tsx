@@ -129,12 +129,12 @@ describe("карточка шага: подпись", () => {
     expect(processesApi.updateMessage).not.toHaveBeenCalled();
   });
 
-  it("«Удалить шаг» удаляет из той же карточки", async () => {
+  it("«Удалить» удаляет из той же карточки", async () => {
     await renderCanvas();
     await userEvent.click(screen.getByText("click-m1"));
     await screen.findByText("Шаг сценария");
 
-    await userEvent.click(screen.getByRole("button", { name: "Удалить шаг" }));
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
 
     await waitFor(() => expect(processesApi.removeMessage).toHaveBeenCalledWith("p1", "m1"));
   });

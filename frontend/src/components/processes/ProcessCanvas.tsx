@@ -929,9 +929,6 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
                   Шаг сценария
                 </div>
-                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  Подпись принадлежит шагу: переименование связи в схеме её не меняет.
-                </div>
                 <input
                   className="bp-input"
                   value={msgCaption}
@@ -947,7 +944,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                     style={{ marginRight: "auto", color: "#dc2626" }}
                     onClick={() => void removeMessage(msgEdit)}
                   >
-                    Удалить шаг
+                    Удалить
                   </button>
                   <button className="bp-btn-ghost" onClick={() => setMsgEdit(null)}>Отмена</button>
                   <button className="bp-btn-primary" onClick={() => void saveCaption(msgEdit)}>
