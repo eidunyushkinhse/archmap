@@ -54,8 +54,11 @@ export function assembleRfGraph(params: {
   const { layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb } = params;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles,
-    autoRoutes, labelPlacements, guestFrames, levelFrame, groupArr, spacers,
+    autoRoutes, labelPlacements, guestFrames, levelFrame, frameEnds, groupArr, spacers,
   } = layout;
+  // Концы-рамки: только их и можно перевесить (edge.md E1a). Гейт правки — тот же,
+  // что у остальных структурных жестов.
+  const frameEndSet = new Set(isArchitect && !isReadOnly ? frameEnds : []);
 
   // R4: раскрытые гостевые рамки — compound-узлы RF. Родитель сущности — САМАЯ
   // ГЛУБОКАЯ рамка, содержащая её членом; родитель рамки — самая глубокая внешняя
@@ -237,6 +240,8 @@ export function assembleRfGraph(params: {
 
   const nextEdges: RFEdge[] = groupArr.map((g) => {
     const h = edgeHandles.get(g.id);
+    const srcFrame = frameEndSet.has(g.source);
+    const tgtFrame = frameEndSet.has(g.target);
     const isMaster = g.members.length > 1;
     const single = g.members[0];
     const singleText = [single.label, single.technology].filter(Boolean).join(" · ") || undefined;
@@ -277,8 +282,11 @@ export function assembleRfGraph(params: {
         ...(est === "deprecated" ? { strokeDasharray: "6 4" } : null),
         ...(eDimmed ? { opacity: 0.12 } : null),
       },
-      // реконнект концов умер вместе с ручным слоем стрелок (2026-07-09)
-      reconnectable: false,
+      // Реконнект концов умер вместе с ручным слоем стрелок (2026-07-09) и вернулся
+      // ТОЧЕЧНО 2026-08-11: тянуть можно только конец, упёршийся в рамку, — и только
+      // на узел внутри неё (проверку цели делает холст). Остальная геометрия связи
+      // по-прежнему целиком автоматическая.
+      reconnectable: srcFrame && tgtFrame ? true : srcFrame ? "source" : tgtFrame ? "target" : false,
     };
   });
 

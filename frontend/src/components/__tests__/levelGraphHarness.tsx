@@ -88,6 +88,7 @@ export const pipeline: { result: PipelineOutput } = {
       positions: new Map(),
       edgeHandles: new Map(),
       guestFrames: [],
+    frameEnds: [],
       groupArr: [],
       spacers: [],
     },
@@ -106,6 +107,7 @@ let sigCounter = 0;
 export function resetHarness(): void {
   sigCounter = 0;
   captured.getCb = undefined;
+  rfProps.current = {};
   rfHandles.setNodes = undefined;
   rfHandles.setEdges = undefined;
   pipeline.result = {
@@ -115,6 +117,7 @@ export function resetHarness(): void {
       positions: new Map(),
       edgeHandles: new Map(),
       guestFrames: [],
+    frameEnds: [],
       groupArr: [],
       spacers: [],
     },
@@ -149,9 +152,14 @@ export function resetHarness(): void {
 // ---------------------------------------------------------------------------
 // МОК @xyflow/react
 // ---------------------------------------------------------------------------
-function MockReactFlow(_props: Record<string, unknown>): null {
+// Пропсы, отданные в <ReactFlow>: единственный доступ к жестам самого холста
+// (onReconnect и т.п.) — они не проходят через getCb.
+export const rfProps: { current: Record<string, unknown> } = { current: {} };
+
+function MockReactFlow(props: Record<string, unknown>): null {
   // Дети (Background/Controls/ViewportPortal/…) не монтируются — оркестрация
   // тестируется через колбэки, а не через DOM React Flow.
+  useEffect(() => { rfProps.current = props; });
   return null;
 }
 function MockProvider({ children }: { children?: ReactNode }): ReactNode {

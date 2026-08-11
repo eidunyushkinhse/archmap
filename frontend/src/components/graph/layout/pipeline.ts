@@ -77,6 +77,10 @@ export type LayoutResult = {
   // rect невидимый узел-якорь: рисует рамку по-прежнему оверлей LevelBoundary, но RF
   // нужен УЗЕЛ с этим id, иначе ребро с таким концом не отрисуется вовсе.
   levelFrame?: FrameRect;
+  // id рамок, реально служащих концом связи на этом уровне. По ним сборка помечает
+  // ребро reconnectable (перепривязка конца-в-рамку — единственное исключение из E1),
+  // а холст проверяет, что новый конец лежит ВНУТРИ той же рамки.
+  frameEnds: string[];
   groupArr: EdgeGroup[];
   spacers: RFNode[];
 };
@@ -830,10 +834,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     ? finalFrames.find((f) => f.id === containerId && f.native)
     : undefined;
 
+  // Рамки, в которые реально что-то упирается (вход перепривязки конца).
+  const frameEnds = [...new Set(
+    groupArr.flatMap((g) => [g.source, g.target]).filter((id) => frameIds.has(id)),
+  )];
+
   return {
     layout: {
       nodes, entities, positions, edgeHandles, edgeShelves, edgeLoops,
-      autoRoutes, labelPlacements, guestFrames, levelFrame, groupArr, spacers,
+      autoRoutes, labelPlacements, guestFrames, levelFrame, frameEnds, groupArr, spacers,
     },
     liveInputs: {
       layoutEdges,

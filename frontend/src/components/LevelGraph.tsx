@@ -14,6 +14,7 @@ import {
   ViewportPortal,
   type Node as RFNode,
   type Edge as RFEdge,
+  type Connection,
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -197,7 +198,7 @@ function LevelGraphInner({
     fitOnExpand = false, schemaView = "all",
   } = mode ?? {};
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onClearSelection } = drill;
-  const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice } = edgeCallbacks;
+  const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice, onReconnectFrameEnd } = edgeCallbacks;
   const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
   const { onDropNode, dragShape } = drop ?? {};
   const { history: historyProp, onUndo, onRedo } = undo ?? {};
@@ -545,9 +546,35 @@ function LevelGraphInner({
     [rfNodes],
   );
 
+  // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку»). Тянуть можно
+  // только конец, упёршийся в рамку (сборка помечает такие рёбра reconnectable), и
+  // только на узел ВНУТРИ ЭТОЙ ЖЕ рамки: её дети — единственные, кому связь может
+  // принадлежать «точнее». Промах мимо такого узла = жест отменён: ничего не пишем,
+  // рендер идёт из прежней раскладки, и конец возвращается на рамку (связь никогда не
+  // остаётся с одним концом).
+  const handleReconnect = useCallback((oldEdge: RFEdge, conn: Connection) => {
+    // читаем ПОСЛЕДНЮЮ раскладку через ref: колбэк живёт дольше одного прогона
+    const l = layoutLatestRef.current;
+    if (!l || !canStructure) return;
+    const frames = [...l.guestFrames, ...(l.levelFrame ? [l.levelFrame] : [])];
+    const frameEnds = new Set(l.frameEnds);
+    // тянули тот конец, что изменился; второй остаётся как был
+    const end: "source" | "target" | null =
+      conn.source !== oldEdge.source ? "source" : conn.target !== oldEdge.target ? "target" : null;
+    if (!end) return;
+    const frameId = end === "source" ? oldEdge.source : oldEdge.target;
+    const toNodeId = end === "source" ? conn.source : conn.target;
+    if (!frameEnds.has(frameId) || !toNodeId) return;
+    if (conn.source === conn.target) return; // сам на себя — не связь
+    const frame = frames.find((f) => f.id === frameId);
+    if (!frame || !frame.memberIds.has(toNodeId)) return; // цель вне рамки — промах
+    const memberIds = (oldEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
+    if (memberIds.length === 0) return;
+    onReconnectFrameEnd?.(memberIds, end, frameId, toNodeId);
+  }, [canStructure, onReconnectFrameEnd]);
+
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
-  // выбор потомка). Реконнект концов существующих рёбер умер вместе с ручным слоем
-  // стрелок (2026-07-09) — поток создания единственный.
+  // выбор потомка).
   const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
     useEdgeConnect({
       isArchitect, disabled: !canStructure, resolveTarget,
@@ -1038,6 +1065,9 @@ function LevelGraphInner({
         onConnectStart={handleConnectStart}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
+        // Перепривязка конца-в-рамку (см. handleReconnect): единственный ручной жест
+        // над геометрией связи; остальные рёбра помечены reconnectable:false.
+        onReconnect={handleReconnect}
         isValidConnection={isValidNewConnection}
         // прощающий радиус защёлки конца на хэндл: попасть в периметр-хэндл узла
         // легко, при этом центр тела (≥ полширины узла от хэндлов) остаётся «зоной входа»
