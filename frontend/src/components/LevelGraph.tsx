@@ -784,6 +784,19 @@ function LevelGraphInner({
     isArchitect, disabled: !canStructure, onDropNode, dragShape, expandedFrames,
   });
 
+  // ПРИГЛАШАЮЩАЯ РАМКА ПУСТОГО СЛОЯ (эпик «связи, упирающиеся в рамку»): пока тянут
+  // шаблон, её внутренность светится зелёным — «первый узел кладут сюда»; когда центр
+  // будущего узла оказывается внутри, зелёный становится выразительнее.
+  // Подсветка ЧИСТО ВИЗУАЛЬНАЯ (canvas.md CV20a): в цели дропа рамка уровня не входит и
+  // семантику не меняет — на пустом слое любой дроп и так создаёт ребёнка контейнера,
+  // чью рамку видно. Хит-тест — тот же, что у рамок-целей: центр будущего узла в rect.
+  const emptyLevelFrame = layout && layout.nodes.length === 0 ? layout.levelFrame : undefined;
+  const emptyFrameHit = !!emptyLevelFrame && !!dropPreview && (() => {
+    const cx = dropPreview.x + NODE_W / 2, cy = dropPreview.y + NODE_H / 2;
+    const r = emptyLevelFrame.rect;
+    return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
+  })();
+
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
   // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим).
   // readOnly: двойной клик вызывает onEditNode/onInspectGhost для навигации на страницу.
@@ -1159,6 +1172,31 @@ function LevelGraphInner({
             >
               <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" outline />
             </div>
+          </ViewportPortal>
+        )}
+        {/* Приглашение пустого слоя: пока тянут шаблон, внутренность рамки родителя
+            светится зелёным; когда центр будущего узла внутри — заметнее. */}
+        {emptyLevelFrame && dropPreview && (
+          <ViewportPortal>
+            <div
+              // стабильный хук для тестов: idle — приглашение, hit — центр узла внутри
+              data-empty-frame-hint={emptyFrameHit ? "hit" : "idle"}
+              style={{
+                position: "absolute",
+                left: emptyLevelFrame.rect.x,
+                top: emptyLevelFrame.rect.y,
+                width: emptyLevelFrame.rect.w,
+                height: emptyLevelFrame.rect.h,
+                // border-box + радиус 12 — как у .lg-frame: заливка ложится ровно внутрь
+                boxSizing: "border-box",
+                pointerEvents: "none",
+                zIndex: 4,
+                borderRadius: 12,
+                background: emptyFrameHit ? "rgba(34, 197, 94, 0.16)" : "rgba(34, 197, 94, 0.06)",
+                border: `2px solid ${emptyFrameHit ? "#22c55e" : "rgba(34, 197, 94, 0.35)"}`,
+                transition: "background 0.12s ease, border-color 0.12s ease",
+              }}
+            />
           </ViewportPortal>
         )}
         {/* Индикация цели дропа в раскрытую рамку: подсвечиваем её контур («рамка

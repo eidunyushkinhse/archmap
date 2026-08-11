@@ -108,6 +108,8 @@ export function resetHarness(): void {
   sigCounter = 0;
   captured.getCb = undefined;
   rfProps.current = {};
+  templateDropMock.dropPreview = null;
+  templateDropMock.dropTargetFrame = null;
   rfHandles.setNodes = undefined;
   rfHandles.setEdges = undefined;
   pipeline.result = {
@@ -156,11 +158,12 @@ export function resetHarness(): void {
 // (onReconnect и т.п.) — они не проходят через getCb.
 export const rfProps: { current: Record<string, unknown> } = { current: {} };
 
-function MockReactFlow(props: Record<string, unknown>): null {
-  // Дети (Background/Controls/ViewportPortal/…) не монтируются — оркестрация
-  // тестируется через колбэки, а не через DOM React Flow.
+function MockReactFlow(props: Record<string, unknown>): ReactNode {
+  // Сам холст RF не рисуем, но ДЕТЕЙ монтируем: внутри <ReactFlow> живут оверлеи
+  // самого приложения (превью дропа, подсветка рамок, направляющие) — иначе их
+  // рендер-условия нечем проверить. Background/Controls замоканы в null.
   useEffect(() => { rfProps.current = props; });
-  return null;
+  return <>{props.children as ReactNode}</>;
 }
 function MockProvider({ children }: { children?: ReactNode }): ReactNode {
   return <>{children}</>;
@@ -298,7 +301,13 @@ export const useFrameFollowOverlayMock = { useFrameFollowOverlay: () => frameFol
 export const canvasDeleteMock = { handleKeyDown: vi.fn() };
 export const useCanvasDeleteMock = { useCanvasDelete: () => canvasDeleteMock };
 
-export const templateDropMock = {
+export const templateDropMock: {
+  dropPreview: { shape: string; x: number; y: number } | null;
+  dropTargetFrame: { id: string; depth: number; rect: { x: number; y: number; w: number; h: number } } | null;
+  handleDragOver: ReturnType<typeof vi.fn>;
+  handleDragLeave: ReturnType<typeof vi.fn>;
+  handleDrop: ReturnType<typeof vi.fn>;
+} = {
   dropPreview: null,
   dropTargetFrame: null,
   handleDragOver: vi.fn(),
