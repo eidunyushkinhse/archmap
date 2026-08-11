@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeViewLayout, buildRouteSig, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
+import { NODE_W, NODE_H } from "../graph/constants";
 
 // Характеризация КОМПОЗИЦИИ конвейера раскладки (R1/R3): отдельные стадии покрыты
 // своими тестами, здесь — сквозные инварианты целого: детерминизм, засев владения
@@ -364,6 +365,50 @@ describe("computeViewLayout — композиция конвейера уров
     // стрелка кончается на границе рамки
     const route = out.layout.autoRoutes?.get("eGP");
     expect(onRectBorder(route![route!.length - 1], out.layout.levelFrame!.rect)).toBe(true);
+  });
+
+  it("ПУСТОЙ уровень: рамка контейнера есть всегда, размером как под один узел", async () => {
+    // Пользователь вошёл в атомарный узел: детей нет. Раньше здесь был пустой холст.
+    const out = await computeViewLayout(levelInput({
+      nodes: [], edges: [], endpoints: [], viewLayout: {},
+    }));
+    expect(out.layout.nodes).toEqual([]);
+    const lf = out.layout.levelFrame;
+    expect(lf?.id).toBe("P");
+    // рамка обнимает ровно один синтетический бокс: шире и выше узла, но не безразмерна
+    expect(lf!.rect.w).toBeGreaterThan(NODE_W);
+    expect(lf!.rect.w).toBeLessThan(NODE_W * 3);
+    expect(lf!.rect.h).toBeGreaterThan(NODE_H);
+    expect(lf!.rect.h).toBeLessThan(NODE_H * 3);
+    // синтетический член — деталь расчёта рамок: узлом не становится и не засеивается
+    expect(out.layout.entities).toEqual([]);
+    expect(out.intents).toEqual([]);
+  });
+
+  it("ПУСТОЙ уровень: собственные связи контейнера упираются в его рамку, гости снаружи", async () => {
+    // Ровно исходная жалоба: соседи бывшего атома висели без стрелок.
+    const out = await computeViewLayout(levelInput({
+      nodes: [],
+      edges: [edge("eGP", "G", "P", "снаружи"), edge("ePH", "P", "H", "наружу")],
+      endpoints: [ghost("G", []), ghost("H", [])],
+      viewLayout: {},
+    }));
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target]).sort())
+      .toEqual([["eGP", "G", "P"], ["ePH", "P", "H"]]);
+    const lf = out.layout.levelFrame!;
+    for (const id of ["eGP", "ePH"]) {
+      const r = out.layout.autoRoutes?.get(id);
+      expect(r?.length ?? 0).toBeGreaterThanOrEqual(2);
+      const frameEnd = id === "eGP" ? r![r!.length - 1] : r![0];
+      expect(onRectBorder(frameEnd, lf.rect)).toBe(true);
+    }
+    // гости не залезли внутрь рамки (keep-out видит её так же, как рисунок)
+    for (const id of ["G", "H"]) {
+      const p = out.layout.positions.get(id)!;
+      const inside = p.x > lf.rect.x && p.x < lf.rect.x + lf.rect.w
+        && p.y > lf.rect.y && p.y < lf.rect.y + lf.rect.h;
+      expect(inside).toBe(false);
+    }
   });
 
   it("на КОРНЕ рамки уровня нет — конец «в корень» невозможен, поведение прежнее", async () => {

@@ -35,7 +35,7 @@ import { projectGhosts } from "./projectGhosts";
 import { layoutLevel } from "./engine";
 import { assignEdgeHandles } from "./level";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
-import { computeFrames, type FrameRect } from "./frames";
+import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN, type FrameRect } from "./frames";
 import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
@@ -351,6 +351,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const baseLayout = await layoutLevel(allNodeInfos, layoutEdges);
   const positions = baseLayout.positions;
   let edgeHandles = baseLayout.edgeHandles;
+  // ПУСТОЙ УРОВЕНЬ: рамка контейнера рисуется всегда, но членов у неё нет — их роль
+  // играет синтетический бокс «как под один узел» (frames.ts). Он существует ТОЛЬКО
+  // для геометрии рамок: в displayIds/entities/засев/роутер не попадает, узлом не
+  // рендерится. Позиция кладётся в общую карту — все стадии рамок читают её оттуда.
+  const frameLocals = frameLocalIds(nodes.map((n) => n.id), ancestorIds);
+  const emptyLevel = nodes.length === 0 && ancestorIds.length > 0;
+  if (emptyLevel) positions.set(EMPTY_LEVEL_MEMBER, { ...EMPTY_LEVEL_ORIGIN });
+  // «Локалы» для стадий, работающих с рамками (кольца, keep-out, разведение, computeFrames)
+  const framedNodes = frameLocals.map((id) => ({ id }));
   // Полки подписей и обходы не родных стрелок считались только в контекст-звезде
   // (удалена) — на level-конвейере их нет.
   const edgeShelves: Map<string, EdgeShelf> | undefined = undefined;
@@ -372,7 +381,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions, localChildren });
 
   const og = placeGhostsOnRings({
-    nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
+    nodes: framedNodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
   });
 
   // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
@@ -386,7 +395,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // видимое дёрганье на доли секунды. Сначала ставим новичка на место и разводим — тогда
   // enforce всегда видит финальные позиции, и оба рендера совпадают.
   const sg = separateGuests({
-    nodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges,
+    nodes: framedNodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges,
     positions, emergedFrom, placedOutside: og?.placedOutside ?? new Set<string>(), localFrames,
   });
 
@@ -394,7 +403,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // и рост рамки за ручным гостем ringPlacement не трогает — их добирает enforce. На
   // авто-гостях после ringPlacement он обязан быть no-op. Запускается всегда.
   const enf = enforceFramesKeepOut({
-    nodes, entities, ancestorIds, layoutEdges, positions, localFrames,
+    nodes: framedNodes, entities, ancestorIds, layoutEdges, positions, localFrames,
   });
   if (enf) edgeHandles = enf.edgeHandles;
   else if (sg) edgeHandles = sg.edgeHandles;
@@ -426,7 +435,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // наложенными друг на друга.
     for (let round = 0; round < 10; round++) {
       const expFrames = computeFrames({
-        localIds: nodes.map((n) => n.id),
+        localIds: frameLocals,
         externals: externalsRefs,
         pos: (id) => positions.get(id),
         ancestorIds,
@@ -458,7 +467,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       if (movedOut.size === 0 && movedSep.size === 0) break;
       anythingMoved = true;
       // сдвиги могли нарушить родной keep-out — восстановить его немедленно
-      const reEnf = enforceFramesKeepOut({ nodes, entities, ancestorIds, layoutEdges, positions, localFrames });
+      const reEnf = enforceFramesKeepOut({ nodes: framedNodes, entities, ancestorIds, layoutEdges, positions, localFrames });
       if (reEnf) edgeHandles = reEnf.edgeHandles;
     }
     if (anythingMoved) {
@@ -547,7 +556,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // КОНЦА — препятствием/воротами они не были и не становятся (всё содержимое уровня
   // лежит внутри них).
   const finalFrames = computeFrames({
-    localIds: nodes.map((n) => n.id),
+    localIds: frameLocals,
     externals: [
       ...entities.map((e) => ({
         id: e.id,
@@ -813,8 +822,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // ЯКОРЬ РОДНОЙ РАМКИ УРОВНЯ: отдаём rect наружу, только если в него реально что-то
   // упирается. Сборка повесит на него невидимый RF-узел — RF нужен узел с этим id,
   // иначе связь молча не отрисуется. Сама рамка остаётся оверлеем.
+  // На ПУСТОМ уровне рамка отдаётся ВСЕГДА, даже если своих связей у контейнера нет:
+  // слой — это внутренность родителя, и это видно сразу; заодно рамка служит внятной
+  // целью для дропа первого узла.
   const levelFrame = containerId !== null
-      && groupArr.some((g) => g.source === containerId || g.target === containerId)
+      && (emptyLevel || groupArr.some((g) => g.source === containerId || g.target === containerId))
     ? finalFrames.find((f) => f.id === containerId && f.native)
     : undefined;
 

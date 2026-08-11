@@ -228,7 +228,7 @@ def get_root_graph(
         )
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    graph = build_graph(local_nodes, None, all_nodes, all_edges, db)
+    graph = build_graph(local_nodes, None, all_nodes, all_edges, db, project.id)
     graph.version = version
     graph.graph_rev = project.graph_rev
     graph.meta_rev = project.meta_rev
@@ -512,16 +512,14 @@ def get_node_graph(
     local_nodes = db.query(Node).filter(Node.parent_id == node_id).all()
     # версия вида + курсор проекта — базовая точка отсчёта клиента (этапы 0/1)
     version = current_version(db, project.id, node_id)
-    if not local_nodes:
-        return GraphResponse(
-            nodes=[], edges=[], endpoints=[], version=version, graph_rev=project.graph_rev,
-            meta_rev=project.meta_rev,
-            has_status_info=project_has_status_info(db, project.id),
-        )
-
+    # ПУСТОЙ УРОВЕНЬ ОТДАЁТСЯ ПОЛНОЦЕННО (2026-08-11, эпик «связи, упирающиеся в
+    # рамку»; прежде здесь был ранний return с пустым GraphResponse — view.md V16).
+    # У контейнера без детей своих связей может быть сколько угодно, и на его уровне
+    # они рисуются упирающимися в рамку: если не отдать их сюда, пользователь войдёт
+    # в узел и увидит пустой холст вместо содержимого «как оно есть».
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    graph = build_graph(local_nodes, node_id, all_nodes, all_edges, db)
+    graph = build_graph(local_nodes, node_id, all_nodes, all_edges, db, project.id)
     graph.version = version
     graph.graph_rev = project.graph_rev
     graph.meta_rev = project.meta_rev

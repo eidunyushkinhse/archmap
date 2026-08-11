@@ -14,6 +14,22 @@
 import { NODE_W, NODE_H, BOUNDARY_PAD, BOUNDARY_STEP, BOUNDARY_LABEL_PAD, BOUNDARY_LABEL_STEP } from "../constants";
 import type { AncestorRef } from "../../../types";
 
+// ПУСТОЙ УРОВЕНЬ (эпик «связи, упирающиеся в рамку»). Слой — это внутренность
+// родителя, и это должно быть видно СРАЗУ, даже когда детей ещё нет: рамка родителя
+// рисуется всегда, размером «как будто внутри один узел», и служит одновременно
+// целью для дропа первого узла и концом для собственных связей контейнера.
+// У рамки без членов нет bbox, поэтому роль единственного члена играет синтетический
+// бокс в детерминированной точке. Константы живут ЗДЕСЬ, потому что рамку считают
+// двое — конвейер раскладки и оверлей LevelBoundary; разъедься они, стрелка упёрлась
+// бы не в ту границу, что нарисована.
+export const EMPTY_LEVEL_MEMBER = "__пустой-уровень__";
+export const EMPTY_LEVEL_ORIGIN = { x: 0, y: 0 };
+
+/** Члены рамок уровня: на пустом уровне — один синтетический бокс. */
+export function frameLocalIds(localIds: string[], ancestorIds: string[]): string[] {
+  return localIds.length === 0 && ancestorIds.length > 0 ? [EMPTY_LEVEL_MEMBER] : localIds;
+}
+
 export interface FrameRect {
   id: string;
   name: string;

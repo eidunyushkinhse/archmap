@@ -113,8 +113,11 @@ function pickLevels(nodes) {
   };
   const containers = nodes.filter((n) => nodes.some((m) => m.parent_id === n.id));
   if (onlyLevels.length > 0) {
+    // Явно названный уровень ищем среди ВСЕХ узлов, а не только контейнеров: уровень
+    // атомарного узла (детей ещё нет) — самостоятельный кейс, и прицелиться в него
+    // нужно уметь (эпик «связи, упирающиеся в рамку», пустой слой).
     const want = new Set(onlyLevels);
-    return containers.filter((n) => want.has(n.id) || want.has(n.name));
+    return nodes.filter((n) => want.has(n.id) || want.has(n.name));
   }
   return containers.filter((n) => depthOf(n) < maxDepth);
 }
