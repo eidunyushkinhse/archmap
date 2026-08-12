@@ -45,7 +45,7 @@ function table(over: Partial<DbTable> = {}): DbTable {
 
 function setup(tables: DbTable[], isArchitect = true) {
   vi.mocked(dbTablesApi.list).mockResolvedValue(tables);
-  return render(<DbStructureSection nodeId="n1" isArchitect={isArchitect} />);
+  return render(<DbStructureSection nodeId="n1" nodeName="Хранилище" isArchitect={isArchitect} />);
 }
 
 describe("DbStructureSection", () => {
@@ -143,7 +143,7 @@ describe("DbStructureSection: кто обращается", () => {
   it("показывает, кто пишет в колонку", async () => {
     vi.mocked(dbTablesApi.list).mockResolvedValue([table()]);
     vi.mocked(dbTablesApi.usage).mockResolvedValue([usage()]);
-    render(<DbStructureSection nodeId="n1" isArchitect />);
+    render(<DbStructureSection nodeId="n1" nodeName="Хранилище" isArchitect />);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
     expect(screen.getByText("orders.status")).toBeInTheDocument();
@@ -153,7 +153,7 @@ describe("DbStructureSection: кто обращается", () => {
   it("без обращений так и говорит — молчание значило бы «никто не ходит»", async () => {
     vi.mocked(dbTablesApi.list).mockResolvedValue([table()]);
     vi.mocked(dbTablesApi.usage).mockResolvedValue([]);
-    render(<DbStructureSection nodeId="n1" isArchitect />);
+    render(<DbStructureSection nodeId="n1" nodeName="Хранилище" isArchitect />);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
     expect(screen.getByText("Обращений не описано")).toBeInTheDocument();

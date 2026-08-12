@@ -216,3 +216,5 @@ export type DataAccessMode = Schemas["DataAccessResponse"]["mode"];
 // ходит») — оба производны от тех же записей, отдельного ввода не требуют.
 export type ProjectTableRef = Schemas["ProjectTableRef"];
 export type TableUsage = Schemas["TableUsage"];
+// Дозаливка данных от агента (структура БД + обращения): отчёт превью/применения.
+export type DataImportReport = Schemas["DataImportReport"];

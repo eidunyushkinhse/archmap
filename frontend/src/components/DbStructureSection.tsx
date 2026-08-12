@@ -9,6 +9,7 @@
 // кнопки «Сохранить»: строк много, а правка — точечная.
 import { useCallback, useEffect, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
+import DataAgentModal from "./docsImport/DataAgentModal";
 import MermaidRenderer from "./MermaidRenderer";
 import { tablesToErDiagram } from "./dbErDiagram";
 import type { DbColumn, DbTable, TableUsage } from "../types";
@@ -16,6 +17,8 @@ import "./dbStructure.css";
 
 interface Props {
   nodeId: string;
+  // Имя нужно окну дозаливки: к этому объекту уедут записи без адреса в файле.
+  nodeName: string;
   isArchitect: boolean;
 }
 
@@ -29,7 +32,7 @@ function freeName(base: string, taken: Set<string>): string {
   }
 }
 
-export default function DbStructureSection({ nodeId, isArchitect }: Props) {
+export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Props) {
   const [tables, setTables] = useState<DbTable[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +42,9 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
   // Обратный индекс: кто обращается к таблицам этой базы. Разворот тех же обращений,
   // что описаны у вызывающих, — ответ на вопрос «кто кладёт сюда значение».
   const [usage, setUsage] = useState<TableUsage[]>([]);
+  // Окно дозаливки от агента: базу с сорока таблицами руками не опишут, поэтому это
+  // основной путь наполнения, а редактор ниже — для правок.
+  const [agentOpen, setAgentOpen] = useState(false);
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
@@ -142,7 +148,20 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
         </div>
       )}
       {isArchitect && (
-        <button type="button" className="np-addbtn" onClick={addTable}>+ Таблица</button>
+        <div className="dbs-actions">
+          <button type="button" className="np-addbtn" onClick={addTable}>+ Таблица</button>
+          <button type="button" className="np-addbtn" onClick={() => setAgentOpen(true)}>
+            Через ИИ-агента
+          </button>
+        </div>
+      )}
+      {agentOpen && (
+        <DataAgentModal
+          nodeId={nodeId}
+          nodeName={nodeName}
+          onClose={() => setAgentOpen(false)}
+          onApplied={() => setSeq((n) => n + 1)}
+        />
       )}
     </div>
   );

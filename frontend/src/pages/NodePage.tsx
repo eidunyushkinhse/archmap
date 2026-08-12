@@ -561,7 +561,7 @@ function NodePageInner({
 
         {/* ── Структура (таблицы БД) ────────────────────────────── */}
         {allow.structure && (
-          <DbStructureSection nodeId={node.id} isArchitect={isArchitect} />
+          <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
         )}
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}
