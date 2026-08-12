@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import restore, tree
+from app import reparent, restore, tree
 from app.alerts import compute_alerts
 from app.auth import get_current_user, require_architect
 from app.context_graph import build_context_graph
@@ -349,6 +349,14 @@ def update_node(
         raise HTTPException(status_code=409, detail="Узел изменён в другой сессии")
     if data:
         old_parent = node.parent_id
+        # Перенос на другой уровень — единственная правка со ЗАПРЕТАМИ (цикл оторвал бы
+        # поддерево от корня) и с последствиями для раскладки. Проверяем ДО присваивания:
+        # узел ещё в исходном состоянии, поддерево считается по нему.
+        moved = "parent_id" in data and data["parent_id"] != old_parent
+        if moved:
+            reason = reparent.validate_reparent(db, project, node, data["parent_id"])
+            if reason:
+                raise HTTPException(status_code=400, detail=reason)
         # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:
         # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
         # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост
@@ -359,10 +367,10 @@ def update_node(
         for field, value in data.items():
             setattr(node, field, value)
         node.version += 1
-        if "parent_id" in data and data["parent_id"] != old_parent:
-            # перенос между уровнями меняет членство ОБОИХ видов — fence обоим
-            bump_view_version(db, project.id, old_parent)
-            bump_view_version(db, project.id, data["parent_id"])
+        if moved:
+            # Позиции переехавшего поддерева во ВНЕШНИХ видах больше ничего не значат:
+            # снимаем их и двигаем версии затронутых видов (в т.ч. обоих родителей).
+            reparent.strip_layout(db, project, node, old_parent)
         # Структурные поля двигают СХЕМУ (имя/форма/иерархия видны на холсте);
         # мета (роль/технология/статус/описание/внешность/openapi) — курсор меты:
         # поллинг страницы отличает «данные обновлены» от «схема обновлена».
@@ -375,6 +383,25 @@ def update_node(
     db.refresh(node)
     _mark_has_children(db, [node])
     return node
+
+
+@router.get("/{node_id}/move-snapshot", response_model=DeletionSnapshot)
+def get_move_snapshot(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> DeletionSnapshot:
+    """Снимок раскладки, которую снимет перенос узла на другой уровень.
+
+    Тот же контракт и тот же путь возврата, что у удаления: клиент берёт снимок ПЕРЕД
+    сменой parent_id и при Undo возвращает его через POST /nodes/restore. Узлы и связи
+    в снимке пусты — перенос ничего не сносит, кроме запомненных позиций.
+    """
+    node = scoped_node(db, node_id, project)
+    if not node:
+        raise HTTPException(status_code=404, detail="Узел не найден")
+    return reparent.build_move_snapshot(db, project, node)
 
 
 @router.get("/{node_id}/deletion-snapshot", response_model=DeletionSnapshot)
