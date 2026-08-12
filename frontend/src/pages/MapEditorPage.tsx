@@ -334,6 +334,40 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape };
   }
 
+  // Перенос объекта на другой уровень (драг строки в дереве). Снимок раскладки
+  // берём ДО правки: сервер снимет позиции переехавшего поддерева во внешних видах,
+  // и без снимка Undo вернул бы родителя, но не геометрию.
+  async function handleReparent(node: Node, newParentId: string | null) {
+    const oldParentId = node.parent_id;
+    const levelAtMove = currentParentId;
+    const refetch = refetchLevel(levelAtMove);
+    const snapshot = await nodesApi.moveSnapshot(node.id);
+    await nodesApi.update(node.id, { parent_id: newParentId });
+    setTreeReload((t) => t + 1);
+    load(levelAtMove);
+    noteMutation();
+    history.push({
+      label: "Перенос объекта", level: levelAtMove,
+      // Порядок важен: сначала возвращаем родителя (эта же правка снимет позиции,
+      // засеянные на новом месте), только потом кладём обратно старые строки.
+      undo: () => {
+        guardPersist(
+          nodesApi.update(node.id, { parent_id: oldParentId })
+            .then(() => nodesApi.restore(snapshot))
+            .then(() => { setTreeReload((t) => t + 1); refetch(); }),
+          resyncOnPersistError,
+        );
+      },
+      redo: () => {
+        guardPersist(
+          nodesApi.update(node.id, { parent_id: newParentId })
+            .then(() => { setTreeReload((t) => t + 1); refetch(); }),
+          resyncOnPersistError,
+        );
+      },
+    });
+  }
+
   function handleNodeSaved(saved: Node, isCreate: boolean, before?: Node) {
     const intoFrame = isCreate && saved.parent_id != null && saved.parent_id !== currentParentId;
     // Позиция созданного узла — СРАЗУ в зеркало вида: иначе конвейер увидит узел
@@ -655,6 +689,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
           onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
+          onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
           onTemplateDrag={setDragShape}
         />
 
