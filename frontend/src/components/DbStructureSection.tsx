@@ -7,10 +7,12 @@
 //
 // Правки идут по blur/change поштучно (как инлайн-поля свойств узла), без формы и
 // кнопки «Сохранить»: строк много, а правка — точечная.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
 import DataAgentModal from "./docsImport/DataAgentModal";
 import MermaidRenderer from "./MermaidRenderer";
+import { useFlipRows } from "./useFlipRows";
+import { ChevronDownIcon } from "../ui/icons";
 import { tablesToErDiagram } from "./dbErDiagram";
 import type { DbColumn, DbTable, TableUsage } from "../types";
 import "./dbStructure.css";
@@ -47,6 +49,9 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   const [agentOpen, setAgentOpen] = useState(false);
   // Свёрнутые разделы (по умолчанию раскрыты — иначе структура выглядит пустой).
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
+  // Переезд карточки между плоским списком и разделом анимируем (FLIP): без этого
+  // она мгновенно оказывается в другом месте и это читается как рывок.
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
@@ -105,6 +110,14 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   }
   grouped.sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
 
+  // Подпись перестройки: раскладка меняется от состава разделов и свёрнутости групп.
+  const flipKey = [
+    ...(tables ?? []).map((t) => `${t.id}:${t.schema_name}`),
+    ...[...closedGroups],
+  ].join("|");
+
+  useFlipRows(listRef, flipKey);
+
   // Все колонки узла как цели внешнего ключа: «таблица.колонка».
   const fkOptions = (tables ?? []).flatMap((t) =>
     t.columns.map((c) => ({ id: c.id, label: `${t.name}.${c.name}` })),
@@ -154,6 +167,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
           <MermaidRenderer chart={tablesToErDiagram(tables ?? [])} />
         </div>
       )}
+      <div ref={listRef}>
       {(tables ?? []).length === 0 ? (
         <p className="np-empty">Таблицы не описаны</p>
       ) : grouped.length > 1 ? (
@@ -161,9 +175,11 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
         // (Redis, Elasticsearch) лишняя вложенность была бы шумом.
         grouped.map(([schema, list]) => (
           <div key={schema} className="dbs-group">
+            {/* Те же классы, что у групп доков на странице объекта: раскрывашка
+                должна выглядеть как соседние, а не как своя выдумка. */}
             <button
               type="button"
-              className="dbs-grouphead"
+              className="np-doc-group-toggle"
               aria-expanded={!closedGroups.has(schema)}
               onClick={() => setClosedGroups((prev) => {
                 const next = new Set(prev);
@@ -171,9 +187,12 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
                 return next;
               })}
             >
-              <span style={{ transform: closedGroups.has(schema) ? "none" : "rotate(90deg)", display: "inline-block" }}>›</span>
+              <span className="np-doc-group-chev"
+                style={{ transform: closedGroups.has(schema) ? "rotate(-90deg)" : "none" }}>
+                <ChevronDownIcon />
+              </span>
               {schema || "без раздела"}
-              <span className="dbs-count">{list.length}</span>
+              <span className="np-doc-group-count">{list.length}</span>
             </button>
             {!closedGroups.has(schema) && (
               <div className="dbs-groupbody">{list.map(renderTable)}</div>
@@ -183,6 +202,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       ) : (
         <div className="dbs-tables">{(tables ?? []).map(renderTable)}</div>
       )}
+      </div>
       {isArchitect && (
         <div className="dbs-actions">
           <button type="button" className="np-addbtn" onClick={addTable}>+ Таблица</button>
@@ -220,11 +240,14 @@ function TableCard({
     void apply(() => dbTablesApi.update(nodeId, table.id, { ...data, base_version: table.version }));
 
   return (
-    <div className="dbs-table">
+    <div className="dbs-table" data-flip-id={table.id}>
       <div className="dbs-thead">
         <button type="button" className="dbs-chev" onClick={onToggle} aria-expanded={expanded}
           aria-label={expanded ? "Свернуть колонки" : "Развернуть колонки"}>
-          <span style={{ transform: expanded ? "rotate(90deg)" : "none" }}>›</span>
+          <span className="np-doc-group-chev"
+            style={{ transform: expanded ? "none" : "rotate(-90deg)" }}>
+            <ChevronDownIcon />
+          </span>
         </button>
         {isArchitect ? (
           <input
@@ -243,7 +266,7 @@ function TableCard({
             // этого уровня (schema в PostgreSQL, database в MySQL/Mongo/ClickHouse,
             // keyspace в Cassandra), а «схема» в ArchMap занята диаграммой. Уровня
             // может не быть вовсе (Redis, Elasticsearch) — тогда поле просто пустое.
-            placeholder="раздел"
+            placeholder="схема/раздел"
             title="Раздел базы: schema в PostgreSQL, database в MySQL/MongoDB/ClickHouse, keyspace в Cassandra. Пусто — у этой базы такого уровня нет"
             defaultValue={table.schema_name}
             key={`s:${table.id}:${table.version}`}
@@ -363,14 +386,14 @@ function ColumnRow({
         onBlur={(e) => { if (e.target.value !== column.name) patch({ name: e.target.value }); }} />
       <input className="np-field dbs-ctype" placeholder="тип" defaultValue={column.type}
         onBlur={(e) => { if (e.target.value !== column.type) patch({ type: e.target.value }); }} />
-      <label className="dbs-check" title="Первичный ключ">
-        <input type="checkbox" checked={column.is_primary_key}
-          onChange={(e) => patch({ is_primary_key: e.target.checked })} />PK
-      </label>
-      <label className="dbs-check" title="Обязательное значение">
-        <input type="checkbox" checked={!column.nullable}
-          onChange={(e) => patch({ nullable: !e.target.checked })} />NOT NULL
-      </label>
+      {/* Подписей «PK» и «NOT NULL» в строках больше нет: их называет шапка, а в
+          каждой строке они повторялись столбиком и читались как шум. */}
+      <input type="checkbox" className="dbs-check" checked={column.is_primary_key}
+        title="Первичный ключ" aria-label="Первичный ключ"
+        onChange={(e) => patch({ is_primary_key: e.target.checked })} />
+      <input type="checkbox" className="dbs-check" checked={!column.nullable}
+        title="Обязательное значение" aria-label="Обязательное значение"
+        onChange={(e) => patch({ nullable: !e.target.checked })} />
       {/* Внешний ключ КАРТЫ: из этих ссылок Ф3 рисует ER-диаграмму. */}
       <select className="np-field dbs-fk" value={column.references_column_id ?? ""}
         title="Ссылается на колонку"

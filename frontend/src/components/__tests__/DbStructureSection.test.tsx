@@ -70,9 +70,14 @@ describe("DbStructureSection", () => {
     setup([table()]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
-    for (const заголовок of ["Колонка", "Тип", "Ссылается на", "Смысл значения"]) {
+    for (const заголовок of ["Колонка", "Тип", "ключ", "обяз.", "Ссылается на", "Смысл значения"]) {
       expect(screen.getByText(заголовок)).toBeInTheDocument();
     }
+    // Признаки названы ОДИН раз — в шапке. В строках только сами чекбоксы: подпись
+    // «PK» в каждой строке читалась столбиком-шумом.
+    expect(screen.getByLabelText("Первичный ключ")).toBeInTheDocument();
+    expect(screen.queryByText("PK")).toBeNull();
+    expect(screen.queryByText("NOT NULL")).toBeNull();
   });
 
   it("разделы становятся раскрывашками, но только когда они заданы", async () => {

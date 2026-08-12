@@ -36,6 +36,12 @@ export const RelayoutIcon = ({ size = 17 }: IcoProps) => (
 export const ChevronIcon = ({ size = 13 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M9 6 L15 12 L9 18" /></svg>);
+// Шеврон «вниз» для раскрывающихся групп (группы доков на странице объекта, разделы
+// базы в секции «Структура»). Поворот задаёт вызывающий — см. .np-doc-group-chev.
+export const ChevronDownIcon = ({ size = 12 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={2.2} aria-hidden
+    style={{ marginLeft: 2 }}>
+    <path d="M6 9 L12 15 L18 9" /></svg>);
 export const LogoutIcon = ({ size = 16 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M15 4 H19 a1 1 0 0 1 1 1 V19 a1 1 0 0 1-1 1 H15" />

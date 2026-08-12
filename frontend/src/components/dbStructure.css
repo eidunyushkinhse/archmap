@@ -26,7 +26,6 @@
 }
 
 .dbs-chev {
-  flex: none;
   width: 22px;
   height: 22px;
   display: inline-flex;
@@ -34,14 +33,8 @@
   justify-content: center;
   background: none;
   border: none;
-  color: #94a3b8;
-  font-size: 15px;
   cursor: pointer;
   padding: 0;
-}
-.dbs-chev span {
-  display: inline-block;
-  transition: transform 0.12s ease;
 }
 
 .dbs-name {
@@ -97,7 +90,7 @@
 .dbs-col {
   display: grid;
   grid-template-columns:
-    minmax(0, 1.3fr) minmax(0, 0.9fr) 42px 66px minmax(0, 1fr) minmax(0, 1.6fr) 26px;
+    minmax(0, 1.3fr) minmax(0, 0.9fr) 52px 62px minmax(0, 1fr) minmax(0, 1.6fr) 26px;
   align-items: center;
   gap: 6px;
 }
@@ -112,12 +105,6 @@
 }
 
 .dbs-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11.5px;
-  color: #64748b;
-  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -203,38 +190,34 @@
   border-bottom: 1px solid #eef2f7;
   margin-bottom: 2px;
 }
+/* Подписи выравниваются по тексту ЗНАЧЕНИЯ, а не по краю ячейки: у .np-field
+   внутренний отступ 8px + 1px рамки — без этой поправки заголовок стоял левее
+   своего столбца. Чекбоксы центрируются, поэтому их подписи — тоже. */
 .dbs-colhead > span {
-  padding: 0 2px;
+  padding-left: 9px;
+}
+.dbs-colhead > span:nth-child(3),
+.dbs-colhead > span:nth-child(4) {
+  padding-left: 0;
+  text-align: center;
+}
+.dbs-col > .dbs-check {
+  justify-self: center;
+  margin: 0;
 }
 
 /* Разделы базы (schema в PostgreSQL, database в MySQL/Mongo/ClickHouse, keyspace в
    Cassandra) — раскрывашки. Появляются, только если раздел где-то указан: у баз без
    такого уровня (Redis, Elasticsearch) лишней вложенности не возникает. */
 .dbs-group {
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
-.dbs-grouphead {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 4px 2px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #64748b;
-  text-align: left;
-}
-.dbs-grouphead:hover { color: #2563eb; }
-.dbs-grouphead .dbs-count { margin-left: auto; }
 .dbs-groupbody {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-left: 10px;
+  /* Направляющая вложенности — как у детей в дереве объектов (.nt-children). */
+  margin: 8px 0 0 10px;
+  padding-left: 8px;
   border-left: 1px solid #e6eaf0;
 }

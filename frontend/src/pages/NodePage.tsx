@@ -8,6 +8,7 @@ import { canHaveChildren, shapeDocs } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
+import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
@@ -419,7 +420,7 @@ function NodePageInner({
                   >
                     <span className="np-dot" style={{ background: statusDotColor(patch.status, patch.isExternal) }} />
                     {STATUS_META[patch.status].label}
-                    <ChevronDown />
+                    <ChevronDownIcon />
                   </button>
                   {statusOpen && (
                     <>
@@ -1073,21 +1074,12 @@ function HeaderGlyph({ shape, container }: { shape: NodeShape; container: boolea
   return <svg width={20} height={20} viewBox="0 0 20 20">{body}</svg>;
 }
 
-function ChevronDown() {
-  return (
-    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}>
-      <path d="M6 9 L12 15 L18 9" />
-    </svg>
-  );
-}
-
 // Шеврон кнопки-группы (схемы/спеки глубоких потомков): смотрит вниз, когда
 // группа раскрыта, и вправо — когда свёрнута (CSS-трансформация).
 function GroupChevron({ open }: { open: boolean }) {
   return (
     <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
-      <ChevronDown />
+      <ChevronDownIcon />
     </span>
   );
 }
