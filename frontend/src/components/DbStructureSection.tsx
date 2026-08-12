@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
 import MermaidRenderer from "./MermaidRenderer";
 import { tablesToErDiagram } from "./dbErDiagram";
-import type { DbColumn, DbTable } from "../types";
+import type { DbColumn, DbTable, TableUsage } from "../types";
 import "./dbStructure.css";
 
 interface Props {
@@ -36,6 +36,9 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
   // ER — производное представление тех же записей (dbErDiagram), поэтому это просто
   // переключатель показа, а не второй источник правды и не отдельное хранилище.
   const [showEr, setShowEr] = useState(false);
+  // Обратный индекс: кто обращается к таблицам этой базы. Разворот тех же обращений,
+  // что описаны у вызывающих, — ответ на вопрос «кто кладёт сюда значение».
+  const [usage, setUsage] = useState<TableUsage[]>([]);
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
@@ -45,6 +48,9 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
     dbTablesApi.list(nodeId)
       .then((ts) => { if (alive) { setTables(ts); setError(null); } })
       .catch(() => { if (alive) setError("Не удалось загрузить структуру"); });
+    dbTablesApi.usage(nodeId)
+      .then((u) => { if (alive) setUsage(u); })
+      .catch(() => { if (alive) setUsage([]); });
     return () => { alive = false; };
   }, [nodeId, seq]);
 
@@ -128,6 +134,7 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
                 return next;
               })}
               fkOptions={fkOptions}
+              usage={usage.filter((u) => u.table_id === t.id)}
               apply={apply}
               onAddColumn={() => addColumn(t)}
             />
@@ -142,7 +149,7 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
 }
 
 function TableCard({
-  table, nodeId, isArchitect, expanded, onToggle, fkOptions, apply, onAddColumn,
+  table, nodeId, isArchitect, expanded, onToggle, fkOptions, usage, apply, onAddColumn,
 }: {
   table: DbTable;
   nodeId: string;
@@ -150,6 +157,7 @@ function TableCard({
   expanded: boolean;
   onToggle: () => void;
   fkOptions: { id: string; label: string }[];
+  usage: TableUsage[];
   apply: (fn: () => Promise<unknown>) => Promise<void>;
   onAddColumn: () => void;
 }) {
@@ -223,6 +231,24 @@ function TableCard({
               + Колонка
             </button>
           )}
+          {/* Кто трогает эту таблицу. Записей нет — так и говорим: молчание тут
+              означало бы «никто не ходит», а это разные вещи. */}
+          <div className="dbs-usage">
+            <div className="np-sublabel">Кто обращается</div>
+            {usage.length === 0 ? (
+              <p className="np-empty">Обращений не описано</p>
+            ) : usage.map((u) => (
+              <div key={`${u.doc_id}:${u.column_id ?? ""}:${u.mode}`} className="dbs-col">
+                <span className={`dbs-mode dbs-mode--${u.mode}`}>
+                  {u.mode === "write" ? "пишет" : "читает"}
+                </span>
+                <span className="dbs-cname dbs-ro">
+                  {u.column_name ? `${u.table_name}.${u.column_name}` : u.table_name}
+                </span>
+                <span className="dbs-cdesc dbs-ro">{u.node_name} · {u.doc_name}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

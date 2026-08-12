@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import DbStructureSection from "../DbStructureSection";
 import { dbTablesApi } from "../../api/nodes";
-import type { DbColumn, DbTable } from "../../types";
+import type { DbColumn, DbTable, TableUsage } from "../../types";
 
 // Рендерер mermaid тяжёлый и грузится динамическим import() — в тестах секции он не
 // нужен: сам генератор проверен отдельно (dbErDiagram.test.ts).
@@ -22,6 +22,7 @@ vi.mock("../../api/nodes", () => ({
     update: vi.fn(),
     delete: vi.fn(),
     createColumn: vi.fn(),
+    usage: vi.fn(() => Promise.resolve([])),
     updateColumn: vi.fn(),
     deleteColumn: vi.fn(),
   },
@@ -123,5 +124,38 @@ describe("DbStructureSection", () => {
     expect(screen.getByText("NOT NULL")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("status")).toBeNull();
     expect(screen.queryByTitle("Ссылается на колонку")).toBeNull();
+  });
+});
+
+// ── Обратный индекс ──────────────────────────────────────────────────────────
+// Разворот тех же обращений: перечень таблиц говорит, ГДЕ значение может лежать,
+// а этот блок — КТО его туда кладёт. Ради него весь эпик.
+describe("DbStructureSection: кто обращается", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const usage = (over: Partial<TableUsage> = {}): TableUsage =>
+    ({
+      table_id: "t1", table_name: "orders", column_id: "c1", column_name: "status",
+      mode: "write", doc_id: "d1", doc_name: "POST /pay",
+      node_id: "svc", node_name: "Биллинг", ...over,
+    }) as TableUsage;
+
+  it("показывает, кто пишет в колонку", async () => {
+    vi.mocked(dbTablesApi.list).mockResolvedValue([table()]);
+    vi.mocked(dbTablesApi.usage).mockResolvedValue([usage()]);
+    render(<DbStructureSection nodeId="n1" isArchitect />);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть колонки"));
+    expect(screen.getByText("orders.status")).toBeInTheDocument();
+    expect(screen.getByText("Биллинг · POST /pay")).toBeInTheDocument();
+  });
+
+  it("без обращений так и говорит — молчание значило бы «никто не ходит»", async () => {
+    vi.mocked(dbTablesApi.list).mockResolvedValue([table()]);
+    vi.mocked(dbTablesApi.usage).mockResolvedValue([]);
+    render(<DbStructureSection nodeId="n1" isArchitect />);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть колонки"));
+    expect(screen.getByText("Обращений не описано")).toBeInTheDocument();
   });
 });

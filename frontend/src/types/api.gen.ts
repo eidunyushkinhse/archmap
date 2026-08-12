@@ -711,6 +711,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Project Tables
+         * @description Все таблицы проекта с именами узлов-владельцев — материал пикера обращений.
+         */
+        get: operations["list_project_tables_api_v1_tables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/tables": {
         parameters: {
             query?: never;
@@ -723,6 +743,29 @@ export interface paths {
         put?: never;
         /** Create Table */
         post: operations["create_table_api_v1_nodes__node_id__tables_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Usage
+         * @description Кто обращается к таблицам этой базы — разворот doc_data_access.
+         *
+         *     Ради этого ответа всё и строилось: перечень таблиц говорит, ГДЕ значение может
+         *     лежать, а обратный индекс — КТО его туда кладёт.
+         */
+        get: operations["list_usage_api_v1_nodes__node_id__tables_usage_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3115,6 +3158,36 @@ export interface components {
             updated_by: string | null;
             preview: components["schemas"]["ProjectPreview"];
         };
+        /**
+         * ProjectTableRef
+         * @description Таблица проекта с именем узла-владельца — материал для выбора цели обращения.
+         *
+         *     Отдельная схема, а не DbTableResponse: в пикере нужно имя БАЗЫ («Хранилище»),
+         *     иначе одинаковые `orders` из разных баз неразличимы.
+         */
+        ProjectTableRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /** Name */
+            name: string;
+            /** Schema Name */
+            schema_name: string;
+            /**
+             * Columns
+             * @default []
+             */
+            columns: components["schemas"]["DbColumnResponse"][];
+        };
         /** ProjectUpdate */
         ProjectUpdate: {
             /** Name */
@@ -3343,6 +3416,45 @@ export interface components {
              * @default 0
              */
             graph_rev: number;
+        };
+        /**
+         * TableUsage
+         * @description Обратный индекс: кто обращается к таблице этой базы.
+         *
+         *     Разворот тех же записей doc_data_access — ради него вся модель и построена:
+         *     инженеру сопровождения нужен не перечень таблиц, а «кто кладёт сюда значение».
+         */
+        TableUsage: {
+            /**
+             * Table Id
+             * Format: uuid
+             */
+            table_id: string;
+            /** Table Name */
+            table_name: string;
+            /** Column Id */
+            column_id: string | null;
+            /** Column Name */
+            column_name: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
         };
         /**
          * TemplateEdgeOut
@@ -5000,6 +5112,37 @@ export interface operations {
             };
         };
     };
+    list_project_tables_api_v1_tables_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTableRef"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tables_api_v1_nodes__node_id__tables_get: {
         parameters: {
             query?: never;
@@ -5057,6 +5200,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DbTableResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_usage_api_v1_nodes__node_id__tables_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableUsage"][];
                 };
             };
             /** @description Validation Error */

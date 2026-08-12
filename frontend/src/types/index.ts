@@ -212,3 +212,7 @@ export type DbColumnUpdate = Schemas["DbColumnUpdate"];
 export type DataAccess = Schemas["DataAccessResponse"];
 export type DataAccessCreate = Schemas["DataAccessCreate"];
 export type DataAccessMode = Schemas["DataAccessResponse"]["mode"];
+// Каталог таблиц проекта (пикер цели обращения) и обратный индекс базы («кто ко мне
+// ходит») — оба производны от тех же записей, отдельного ввода не требуют.
+export type ProjectTableRef = Schemas["ProjectTableRef"];
+export type TableUsage = Schemas["TableUsage"];

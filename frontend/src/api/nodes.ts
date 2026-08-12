@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DataAccess, DataAccessCreate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DataAccess, DataAccessCreate, ProjectTableRef, TableUsage, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -155,6 +155,12 @@ export const dbTablesApi = {
     api.patch<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`, data),
   deleteColumn: (nodeId: string, tableId: string, columnId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`),
+  // Кто обращается к таблицам этой базы — разворот тех же обращений.
+  usage: (nodeId: string): Promise<TableUsage[]> =>
+    api.get<TableUsage[]>(`/nodes/${nodeId}/tables/usage`),
+  // Каталог таблиц всего проекта (с именами узлов-владельцев) — пикер обращений.
+  // Свой префикс, не под /nodes/: иначе путь перехватил бы /nodes/{node_id}.
+  catalog: (): Promise<ProjectTableRef[]> => api.get<ProjectTableRef[]>(`/tables`),
 };
 
 export const dataAccessApi = {

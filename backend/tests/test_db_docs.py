@@ -23,6 +23,8 @@ from app.routers.db_docs import (
     create_column,
     create_table,
     delete_table,
+    list_project_tables,
+    list_usage,
     update_table,
 )
 from app.schemas.db_doc import (
@@ -207,3 +209,47 @@ def test_снос_базы_уносит_структуру_и_обращения
     assert db.query(DocDataAccess).count() == 0
     # …а сам док операции остаётся: он про сервис, а не про базу.
     assert db.query(NodeDoc).filter(NodeDoc.id == док.id).count() == 1
+
+
+# ── Обратный индекс и каталог ─────────────────────────────────────────────────
+
+
+def test_обратный_индекс_отвечает_кто_кладёт_значение(db):
+    бд = _node(db, "Хранилище")
+    сервис = _node(db, "Биллинг", shape="service")
+    док = _doc(db, сервис, "POST /pay")
+    t = _table(db, бд)
+    c = _column(db, бд, t)
+    _access(db, сервис, док, t, c, mode="write")
+
+    строки = list_usage(бд.id, db=db, project=ensure_project(db), _=ensure_architect(db))
+
+    assert len(строки) == 1
+    u = строки[0]
+    # Ради этого ответа всё и строилось: не «есть таблица orders», а «в orders.status
+    # пишет операция POST /pay сервиса Биллинг».
+    assert (u.table_name, u.column_name, u.mode) == ("orders", "status", "write")
+    assert (u.doc_name, u.node_name) == ("POST /pay", "Биллинг")
+
+
+def test_обратный_индекс_видит_только_свои_таблицы(db):
+    бд = _node(db, "Хранилище")
+    чужая_бд = _node(db, "Другое хранилище")
+    сервис = _node(db, "Биллинг", shape="service")
+    док = _doc(db, сервис)
+    _access(db, сервис, док, _table(db, чужая_бд, "прочее"))
+
+    assert list_usage(бд.id, db=db, project=ensure_project(db), _=ensure_architect(db)) == []
+
+
+def test_каталог_таблиц_называет_владельца(db):
+    бд = _node(db, "Хранилище")
+    _table(db, бд, "orders")
+    другая = _node(db, "Кэш")
+    _table(db, другая, "orders")  # одноимённая: без имени узла их не различить
+
+    каталог = list_project_tables(db=db, project=ensure_project(db), _=ensure_architect(db))
+
+    assert sorted((t.node_name, t.name) for t in каталог) == [
+        ("Кэш", "orders"), ("Хранилище", "orders"),
+    ]

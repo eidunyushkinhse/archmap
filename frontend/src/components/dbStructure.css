@@ -153,3 +153,28 @@
   max-width: 100%;
   height: auto;
 }
+
+/* Обращения: действие — цветной чип, чтобы «пишет» отличалось от «читает» с одного
+   взгляда (в инциденте ищут именно пишущих). */
+.dbs-mode {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.dbs-mode--read { color: #0369a1; background: #e0f2fe; }
+.dbs-mode--write { color: #9a3412; background: #ffedd5; }
+.dbs-usage {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dbs-addaccess {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+}

@@ -14,7 +14,7 @@ container.md §9, алерт AL24). Форму узла НЕ проверяем:
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
@@ -35,9 +35,15 @@ from app.schemas.db_doc import (
     DbTableCreate,
     DbTableResponse,
     DbTableUpdate,
+    ProjectTableRef,
+    TableUsage,
 )
 from app.view_state import bump_meta_rev
 
+# Каталог таблиц ВСЕГО проекта живёт под своим префиксом, а не под /nodes/…: путь
+# «/nodes/tables» перехватил бы «/nodes/{node_id}» (объявлен раньше) и упал бы на
+# разборе uuid.
+catalog_router = APIRouter(prefix="/tables", tags=["db-docs"])
 tables_router = APIRouter(prefix="/nodes/{node_id}/tables", tags=["db-docs"])
 access_router = APIRouter(prefix="/nodes/{node_id}/docs/{doc_id}/access", tags=["db-docs"])
 
@@ -102,6 +108,67 @@ def list_tables(
 ) -> list[DbTable]:
     node = _get_node(db, node_id, project)
     return list(node.db_tables)
+
+
+@tables_router.get("/usage", response_model=list[TableUsage])
+def list_usage(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[TableUsage]:
+    """Кто обращается к таблицам этой базы — разворот doc_data_access.
+
+    Ради этого ответа всё и строилось: перечень таблиц говорит, ГДЕ значение может
+    лежать, а обратный индекс — КТО его туда кладёт.
+    """
+    node = _get_node(db, node_id, project)
+    caller = aliased(Node)
+    rows = (
+        db.query(
+            DbTable.id, DbTable.name, DbColumn.id, DbColumn.name,
+            DocDataAccess.mode, NodeDoc.id, NodeDoc.name, caller.id, caller.name,
+        )
+        .select_from(DocDataAccess)
+        .join(DbTable, DbTable.id == DocDataAccess.table_id)
+        .outerjoin(DbColumn, DbColumn.id == DocDataAccess.column_id)
+        .join(NodeDoc, NodeDoc.id == DocDataAccess.node_doc_id)
+        .join(caller, caller.id == NodeDoc.node_id)
+        .filter(DbTable.node_id == node.id)
+        .order_by(DbTable.name, caller.name, NodeDoc.name)
+        .all()
+    )
+    return [
+        TableUsage(
+            table_id=t_id, table_name=t_name, column_id=c_id, column_name=c_name,
+            mode=mode, doc_id=d_id, doc_name=d_name, node_id=n_id, node_name=n_name,
+        )
+        for t_id, t_name, c_id, c_name, mode, d_id, d_name, n_id, n_name in rows
+    ]
+
+
+@catalog_router.get("", response_model=list[ProjectTableRef])
+def list_project_tables(
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[ProjectTableRef]:
+    """Все таблицы проекта с именами узлов-владельцев — материал пикера обращений."""
+    rows = (
+        db.query(DbTable, Node.name)
+        .join(Node, Node.id == DbTable.node_id)
+        .filter(Node.project_id == project.id)
+        .order_by(Node.name, DbTable.schema_name, DbTable.name)
+        .all()
+    )
+    return [
+        ProjectTableRef(
+            id=t.id, node_id=t.node_id, node_name=node_name,
+            name=t.name, schema_name=t.schema_name,
+            columns=list(t.columns),
+        )
+        for t, node_name in rows
+    ]
 
 
 @tables_router.post("", response_model=DbTableResponse, status_code=status.HTTP_201_CREATED)

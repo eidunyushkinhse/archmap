@@ -97,3 +97,38 @@ class DataAccessResponse(BaseModel):
     note: str | None
 
     model_config = {"from_attributes": True}
+
+
+class ProjectTableRef(BaseModel):
+    """Таблица проекта с именем узла-владельца — материал для выбора цели обращения.
+
+    Отдельная схема, а не DbTableResponse: в пикере нужно имя БАЗЫ («Хранилище»),
+    иначе одинаковые `orders` из разных баз неразличимы.
+    """
+
+    id: uuid.UUID
+    node_id: uuid.UUID
+    node_name: str
+    name: str
+    schema_name: str
+    columns: list[DbColumnResponse] = []
+
+    model_config = {"from_attributes": True}
+
+
+class TableUsage(BaseModel):
+    """Обратный индекс: кто обращается к таблице этой базы.
+
+    Разворот тех же записей doc_data_access — ради него вся модель и построена:
+    инженеру сопровождения нужен не перечень таблиц, а «кто кладёт сюда значение».
+    """
+
+    table_id: uuid.UUID
+    table_name: str
+    column_id: uuid.UUID | None
+    column_name: str | None
+    mode: DataAccessMode
+    doc_id: uuid.UUID
+    doc_name: str
+    node_id: uuid.UUID
+    node_name: str
