@@ -21,6 +21,21 @@ function clampScale(s: number): number {
   return Math.min(SCALE_MAX, Math.max(SCALE_MIN, s));
 }
 
+// mermaid отдаёт svg с width:100%/max-width — для пан/зума фиксируем натуральный
+// размер из viewBox, чтобы масштаб контролировал ТОЛЬКО transform обёртки. Живёт
+// здесь, а не в рендерере: нужен ровно тем, кто зумит трансформом (превью дока,
+// полноэкранная ER-диаграмма), и парой с этим хуком не расходится.
+export function pinSvgSize(wrap: HTMLElement | null): void {
+  const svg = wrap?.querySelector("svg");
+  if (!svg) return;
+  const vb = svg.viewBox.baseVal;
+  if (vb && vb.width > 0) {
+    svg.style.width = `${vb.width}px`;
+    svg.style.height = `${vb.height}px`;
+    svg.style.maxWidth = "none";
+  }
+}
+
 export function usePanZoom(
   containerRef: RefObject<HTMLElement | null>,
   contentRef: RefObject<HTMLElement | null>,

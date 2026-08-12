@@ -132,13 +132,36 @@
 .dbs-ertoggle {
   margin-bottom: 10px;
 }
+/* Встроенная диаграмма — КНОПКА: клик открывает её во весь экран. Своим видом
+   (курсор-лупа и подпись в углу) обещает это ещё до наведения. */
 .dbs-er {
+  position: relative;
+  display: block;
+  width: 100%;
   margin-bottom: 12px;
   padding: 10px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #f8fafc;
   overflow-x: auto;
+  cursor: zoom-in;
+  font: inherit;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.dbs-er:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+.dbs-erhint {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 5px;
+  padding: 1px 6px;
 }
 .dbs-er svg {
   max-width: 100%;

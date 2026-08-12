@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import MermaidRenderer from "../MermaidRenderer";
 import type { MmdStatus } from "../MermaidRenderer";
-import { usePanZoom } from "../usePanZoom";
+import { pinSvgSize, usePanZoom } from "../usePanZoom";
 import { DocEditorColumn, StatusError, StatusNote, StatusOk, StatusReadOnly } from "./docShared";
 import { nowHHMM, unfenceMermaid } from "./docValidate";
 
@@ -14,19 +14,6 @@ interface Props {
   isArchitect: boolean;
   showCode: boolean; // наблюдатель нажал «Показать код»
   onCommit: (value: string) => void;
-}
-
-// mermaid отдаёт svg с width:100%/max-width — для пан/зума фиксируем натуральный
-// размер из viewBox, чтобы масштаб контролировал только transform обёртки.
-function pinSvgSize(wrap: HTMLElement | null): void {
-  const svg = wrap?.querySelector("svg");
-  if (!svg) return;
-  const vb = svg.viewBox.baseVal;
-  if (vb && vb.width > 0) {
-    svg.style.width = `${vb.width}px`;
-    svg.style.height = `${vb.height}px`;
-    svg.style.maxWidth = "none";
-  }
 }
 
 export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit }: Props) {

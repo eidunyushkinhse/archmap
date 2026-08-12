@@ -15,6 +15,13 @@ import type { DbColumn, DbTable, TableUsage } from "../../types";
 vi.mock("../MermaidRenderer", () => ({
   default: ({ chart }: { chart: string }) => <pre data-testid="er">{chart}</pre>,
 }));
+// Полноэкранное окно: проверяем, что клик его открывает и текст диаграммы тот же
+// (сам пан/зум — общая механика превью доков, у неё свои тесты).
+vi.mock("../ErDiagramModal", () => ({
+  default: ({ chart, onClose }: { chart: string; onClose: () => void }) => (
+    <div data-testid="er-full" onClick={onClose}>{chart}</div>
+  ),
+}));
 vi.mock("../../api/nodes", () => ({
   dbTablesApi: {
     list: vi.fn(),
@@ -138,6 +145,15 @@ describe("DbStructureSection", () => {
     expect(screen.queryByTestId("er")).toBeNull();
     await userEvent.click(screen.getByText("Показать диаграмму"));
     expect(screen.getByTestId("er").textContent).toContain('"orders"');
+  });
+
+  it("клик по диаграмме открывает её во весь экран", async () => {
+    setup([table()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("Показать диаграмму"));
+    expect(screen.queryByTestId("er-full")).toBeNull();
+    await userEvent.click(screen.getByTitle("Открыть диаграмму во весь экран"));
+    expect(screen.getByTestId("er-full").textContent).toContain('"orders"');
   });
 
   it("наблюдатель видит структуру, но не правит", async () => {

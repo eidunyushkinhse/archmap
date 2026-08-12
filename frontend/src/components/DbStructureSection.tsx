@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
 import DataAgentModal from "./docsImport/DataAgentModal";
+import ErDiagramModal from "./ErDiagramModal";
 import MermaidRenderer from "./MermaidRenderer";
 import { useFlipRows } from "./useFlipRows";
 import { ChevronDownIcon } from "../ui/icons";
@@ -41,6 +42,9 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   // ER — производное представление тех же записей (dbErDiagram), поэтому это просто
   // переключатель показа, а не второй источник правды и не отдельное хранилище.
   const [showEr, setShowEr] = useState(false);
+  // Встроенная диаграмма ужата под ширину карточки и на реальной базе нечитаема —
+  // клик по ней открывает её во весь экран с пан/зумом.
+  const [erFull, setErFull] = useState(false);
   // Обратный индекс: кто обращается к таблицам этой базы. Разворот тех же обращений,
   // что описаны у вызывающих, — ответ на вопрос «кто кладёт сюда значение».
   const [usage, setUsage] = useState<TableUsage[]>([]);
@@ -163,9 +167,22 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
         </div>
       )}
       {showEr && (
-        <div className="dbs-er">
+        <button
+          type="button"
+          className="dbs-er"
+          onClick={() => setErFull(true)}
+          title="Открыть диаграмму во весь экран"
+        >
           <MermaidRenderer chart={tablesToErDiagram(tables ?? [])} />
-        </div>
+          <span className="dbs-erhint">во весь экран</span>
+        </button>
+      )}
+      {erFull && (
+        <ErDiagramModal
+          chart={tablesToErDiagram(tables ?? [])}
+          title={`Структура: ${nodeName}`}
+          onClose={() => setErFull(false)}
+        />
       )}
       <div ref={listRef}>
       {(tables ?? []).length === 0 ? (
