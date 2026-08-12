@@ -183,3 +183,30 @@ def test_превью_ничего_не_пишет(db):
     assert not r.applied
     assert [i.action for i in r.tables] == ["create", "create"]
     assert db.query(DbTable).count() == 0
+
+
+def test_битый_yaml_нашего_файла_не_молчит(db):
+    _сцена(db)
+    r = _применить(db, "tables:\n  - name: x\n    description: ключ: значение\n")
+    assert not r.applied
+    # Раньше такой файл просто «не считался нашим», и пользователь получал «в пакете
+    # нет файлов со структурой данных» — при том, что данные в пакете были.
+    assert any("YAML не разобрался" in e for e in r.errors)
+
+
+def test_частичный_путь_узла_находится(db):
+    # Агент видит только свой репозиторий и корневого контейнера не знает — промпт
+    # просит путь, а корень в нём отсутствует. Хвост пути обязан совпадать.
+    корень = _node(db, "Маркетплейс", shape="service")
+    сервис = Node(id=uuid.uuid4(), name="Сервис заказов", shape="service",
+                  parent_id=корень.id, project_id=ensure_project(db).id)
+    db.add(сервис)
+    db.flush()
+    бд = Node(id=uuid.uuid4(), name="БД заказов", shape="database",
+              parent_id=сервис.id, project_id=ensure_project(db).id)
+    db.add(бд)
+    db.flush()
+    # Полный путь — «Маркетплейс / Сервис заказов / БД заказов»; агент напишет хвост.
+    r = _применить(db, "# archmap-node: Сервис заказов / БД заказов\ntables:\n  - name: orders\n")
+    assert r.applied and r.errors == []
+    assert db.query(DbTable).filter(DbTable.node_id == бд.id).count() == 1

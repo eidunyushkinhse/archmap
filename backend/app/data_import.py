@@ -29,6 +29,10 @@ from app.models.node_doc import NodeDoc
 from app.schemas.data_import import DataAccessItem, DataImportReport, DataTableItem
 
 NODE_HEADER = re.compile(r"^#\s*archmap-node:\s*(.+?)\s*$", re.MULTILINE)
+# «Файл ПОХОЖ на наш» — по разделам верхнего уровня. Нужен, чтобы отличить чужой файл
+# пакета (схему логики, спеку) от НАШЕГО, но с битым YAML: молча пропустив второй, мы
+# сказали бы «в пакете нет файлов со структурой данных», хотя данные там есть.
+LOOKS_LIKE_DATA = re.compile(r"^(tables|access):", re.MULTILINE)
 
 
 @dataclass
@@ -166,6 +170,12 @@ def _resolve_node(
         return None
     hits = by_path.get(ref) or by_bare.get(ref) or []
     if not hits:
+        # ЧАСТИЧНЫЙ путь («Сервис заказов / Order API» при корне «Маркетплейс …»):
+        # агент видит только свой репозиторий и корневого контейнера не знает, а
+        # промпт как раз просит писать путь. Совпадение по хвосту — по границе « / »,
+        # чтобы «…/ Заказы» не цеплялось к «…/ Мои Заказы».
+        hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
+    if not hits:
         plan.report.errors.append(f"{fname}: объект «{ref}» не найден")
         return None
     if len(hits) > 1:
@@ -193,6 +203,12 @@ def build_data_plan(
         pd = parse_data_file(content)
         if pd is not None:
             parsed.append((fname, pd))
+        elif LOOKS_LIKE_DATA.search(content):
+            plan.report.errors.append(
+                f"{fname}: похоже на файл данных, но YAML не разобрался. Частая причина — "
+                "двоеточие с пробелом внутри значения (например «actor: кто перевёл: user»): "
+                "возьмите такое значение в кавычки"
+            )
     if not parsed:
         plan.report.errors.append("В пакете нет файлов со структурой данных (tables/access)")
         return plan
