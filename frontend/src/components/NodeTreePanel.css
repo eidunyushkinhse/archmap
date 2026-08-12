@@ -36,6 +36,10 @@
   flex: none;
   color: #94a3b8;
   display: inline-flex;
+  /* Секция живёт у нижнего края и раскрывается ВВЕРХ, поэтому свёрнутая смотрит
+     вверх («открыть туда»), раскрытая — вниз («убрать обратно»). Базовый глиф
+     ChevronIcon смотрит вправо. */
+  transform: rotate(-90deg);
   transition: transform 0.15s ease, color 0.12s ease;
 }
 .nt-secchev--open {
@@ -237,4 +241,58 @@
   border-color: #2563eb;
   color: #2563eb;
   background: #eff6ff;
+}
+
+/* Зона захвата для переноса узла на другой уровень: шесть точек слева от глифа.
+   Место занимает ВСЕГДА (visibility, не display) — иначе строки дёргались бы на
+   hover. Проявляется при наведении на строку. */
+.nt-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  flex: none;
+  color: #cbd5e1;
+  cursor: grab;
+  visibility: hidden;
+}
+.nt-row:hover .nt-grip {
+  visibility: visible;
+}
+.nt-grip:hover {
+  color: #64748b;
+}
+.nt-grip:active {
+  cursor: grabbing;
+}
+/* Переносимая строка на время жеста приглушена — видно, что именно едет. */
+.nt-row--moving {
+  opacity: 0.45;
+}
+
+/* Строка-цель переноса: рамка вместо фона — фон уже занят hover'ом и «текущей». */
+.nt-row--droptarget {
+  box-shadow: inset 0 0 0 2px #2563eb;
+  background: #eff6ff;
+}
+
+/* Полоса «в корень проекта» — на время переноса встаёт в слот строки поиска (тот же
+   бокс, поэтому дерево под ней не съезжает). Габариты повторяют поле поиска. */
+.nt-rootzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 33px;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.nt-rootzone--active {
+  border-color: #2563eb;
+  border-style: solid;
+  background: #eff6ff;
+  color: #1d4ed8;
 }

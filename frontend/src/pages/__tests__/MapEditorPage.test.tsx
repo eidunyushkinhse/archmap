@@ -15,6 +15,7 @@ vi.mock("../../api/nodes", () => ({
     getGraph: vi.fn(),
     getAll: vi.fn(),
     deletionSnapshot: vi.fn(),
+    moveSnapshot: vi.fn(),
     delete: vi.fn(),
     restore: vi.fn(),
     update: vi.fn(),
@@ -67,8 +68,14 @@ vi.mock("../../components/LevelGraph", () => ({
     return <div data-testid="level-graph" />;
   },
 }));
+// Дерево: заглушка, отдающая наружу колбэк переноса — жест сам покрыт тестами
+// панели, здесь проверяется оркестрация редактора (снимок → PATCH → история).
+const treeProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 vi.mock("../../components/NodeTreePanel", () => ({
-  default: () => <div data-testid="tree-panel" />,
+  default: (props: Record<string, unknown>) => {
+    treeProps.current = props;
+    return <div data-testid="tree-panel" />;
+  },
 }));
 vi.mock("../../components/inspector/ObjectInspector", () => ({
   default: () => <div data-testid="object-inspector" />,
@@ -238,5 +245,50 @@ describe("MapEditorPage", () => {
     // Навигация на уровень команды строит путь через getAll и грузит уровень
     await waitFor(() => expect(nodesApi.getGraph).toHaveBeenCalledWith("other"));
     await waitFor(() => expect(historyMock.undo).toHaveBeenCalledOnce());
+  });
+});
+
+// ── Перенос объекта на другой уровень (Ф4) ───────────────────────────────────
+// Сам жест живёт в дереве (его тесты — NodeTreePanel.test.tsx); здесь оркестрация:
+// снимок раскладки берётся ДО правки, иначе Undo вернул бы родителя без геометрии.
+describe("MapEditorPage: перенос объекта", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+  });
+
+  const снимок = { nodes: [], edges: [], layout_items: [{ view_id: null, item_id: "kid", payload: { x: 1, y: 2 } }] };
+
+  async function перенести() {
+    vi.mocked(nodesApi.moveSnapshot).mockResolvedValue(снимок as never);
+    vi.mocked(nodesApi.update).mockResolvedValue(node("kid") as never);
+    vi.mocked(nodesApi.restore).mockResolvedValue(undefined as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+  }
+
+  it("снимок берётся до правки, родитель меняется, шаг ложится в историю", async () => {
+    await перенести();
+    expect(nodesApi.moveSnapshot).toHaveBeenCalledWith("kid");
+    expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "new" });
+    expect(vi.mocked(nodesApi.moveSnapshot).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(nodesApi.update).mock.invocationCallOrder[0]);
+    expect(historyMock.push).toHaveBeenCalledWith(
+      expect.objectContaining({ label: "Перенос объекта", level: null }),
+    );
+  });
+
+  it("Undo возвращает и родителя, и снятую раскладку — именно в этом порядке", async () => {
+    await перенести();
+    const cmd = historyMock.push.mock.calls[0][0] as { undo: () => void };
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.undo(); });
+    await waitFor(() => expect(nodesApi.restore).toHaveBeenCalledWith(снимок));
+    expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "old" });
+    expect(vi.mocked(nodesApi.update).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(nodesApi.restore).mock.invocationCallOrder[0]);
   });
 });

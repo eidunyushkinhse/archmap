@@ -3,13 +3,19 @@ import type { CSSProperties, DragEvent } from "react";
 import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
 import { canHaveChildren, compareByRank } from "../types";
-import { ShapeGlyph, Chevron } from "./nodeTree.shared";
+import { ShapeGlyph } from "./nodeTree.shared";
+import { TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
 // читается выбранная форма из dataTransfer.
 export const NODE_DRAG_MIME = "application/archmap-node-shape";
+// Перенос СУЩЕСТВУЮЩЕГО узла на другой уровень (драг строки дерева). Тип нарочно свой:
+// корзина палитры и холст фильтруют драги по MIME и этот пропустят мимо.
+export const NODE_MOVE_MIME = "application/archmap-node-move";
+// Служебный ключ цели «корень проекта» (строки у корня нет — только полоса).
+const ROOT_TARGET = "__root__";
 
 /**
  * Дерево объектов отражает иерархию по parent_id. По умолчанию видны только
@@ -34,6 +40,9 @@ interface Props {
   onPickLeaf?: (node: Node) => void;
   // pages_pivot: «+» на строке → создать дочерний объект (модалка, авто-позиция)
   onCreateChild?: (parentId: string) => void;
+  // Перенос узла на другой уровень перетаскиванием строки. Передаёт ТОЛЬКО
+  // редактор-карта — этим же и гейтится жест: в оболочке страниц ручки нет.
+  onReparent?: (node: Node, newParentId: string | null) => void;
   // секция «Добавить узел» показывается только архитектору
   isArchitect: boolean;
   // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
@@ -146,7 +155,7 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCreateChild, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCreateChild, onReparent, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
   // pages_pivot: плоское дерево без секций/палитры, с поиском, «+» и персонами
   const pagesMode = !!onNodePage;
   // редактор-карта: тот же плоский дизайн, но клик — навигация внутри редактора
@@ -169,6 +178,12 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   // синхронный флаг «идёт драг» — оверлей показываем отложенно (см. onTemplateDragStart),
   // а ref нужен, чтобы не зажечь его уже после завершения короткого драга
   const draggingRef = useRef(false);
+  // Переносимый узел (драг строки). Ref — истина на момент события, стейт — для
+  // подсветки; зажигаем его отложенно по той же причине, что и корзину палитры.
+  const movingRef = useRef<Node | null>(null);
+  const [moving, setMoving] = useState<Node | null>(null);
+  // Цель под курсором: id строки, ROOT_TARGET (полоса «в корень») либо null.
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(["tree", "add"]),
@@ -182,8 +197,13 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
 
   // ── Поиск (pages_pivot) ──────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Node[] | null>(null);
+  // Найденное по ПОСЛЕДНЕМУ непустому запросу. Показывать ли его — производное от
+  // запроса и считается в рендере: гашение результатов на пустой строке эффектом
+  // было синхронным setState внутри эффекта (каскад рендеров).
+  const [foundNodes, setFoundNodes] = useState<Node[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const searchTrimmed = searchQuery.trim();
+  const searchResults = searchTrimmed ? foundNodes : null;
 
   // Все загруженные узлы по id (корни + подгруженные дети). Чтобы узел был виден и
   // кликабелен в дереве, все его предки раскрыты → их Node-объекты уже здесь.
@@ -262,17 +282,17 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
 
   // Поиск (pages_pivot / редактор): debounce 250ms, результат — плоский список совпадений.
   useEffect(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) { setSearchResults(null); return; }
-    setSearching(true);
+    if (!searchTrimmed) return;
+    let alive = true;
     const timer = window.setTimeout(() => {
-      nodesApi.search(searchQuery.trim())
-        .then((ns) => setSearchResults(ns))
-        .catch(() => setSearchResults([]))
-        .finally(() => setSearching(false));
+      setSearching(true);
+      nodesApi.search(searchTrimmed)
+        .then((ns) => { if (alive) setFoundNodes(ns); })
+        .catch(() => { if (alive) setFoundNodes([]); })
+        .finally(() => { if (alive) setSearching(false); });
     }, 250);
-    return () => window.clearTimeout(timer);
-  }, [searchQuery]);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [searchTrimmed]);
 
   // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
   // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
@@ -371,80 +391,83 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     await expandBranch(node);
   }
 
-  function Row({ node }: { node: Node }) {
-    const id = node.id;
-    const isExpanded = expanded.has(id);
-    const isLoading = loadingId.has(id);
-    const kids = childrenById[id] ?? [];
-    // Контейнером (drill внутрь) может быть только сервис: у БД/брокера детей нет,
-    // в дереве они — листья (без шеврона, клик → контекст), хотя сами видны.
-    const drillable = canHaveChildren(node.shape);
-    // шеврон скрываем, если все дети узла оказались персонами (узел стал листом)
-    const hasChildren = drillable && node.has_children && !leaves.has(id);
-    // pages_pivot: клик по любому узлу → его страница (единообразно).
-    // редактор: контейнер → дрилл на слой, лист → показать на холсте.
-    // В обоих режимах выбор узла с детьми РАСКРЫВАЕТ его ветку (дети видны
-    // сразу, без отдельного клика по шеврону).
-    // Старое поведение: промежуточный → слой, лист → контекст.
-    const isIntermediate = drillable && node.has_children;
-    const handler = () => { navigateFlat(node); if (isIntermediate) void expandBranch(node); };
-    const title = pagesMode
-        ? `Страница: ${node.name}`
-        : isIntermediate
-          ? `Открыть слой: ${node.name}`
-          : `Показать на схеме: ${node.name}`;
-    // Текущая открытая страница — подсветка строки (п.1).
-    const isCurrent = node.id === currentNodeId;
-    return (
-      <>
-        <div
-          className={"nt-row nt-row--clickable" + (isCurrent ? " nt-row--current" : "")}
-          onClick={handler}
-          title={title}
-        >
-          {hasChildren ? (
-            <button
-              // клик по «бережной зоне» раскрывает/сворачивает, не пуская событие на
-              // строку (иначе провалились бы на слой). Зона широкая (26px, вся высота
-              // строки), глиф визуально остаётся на месте — см. .nt-chevzone/.nt-chevhit.
-              className="nt-chevzone"
-              onClick={(e) => { e.stopPropagation(); toggle(node); }}
-              title={isExpanded ? "Свернуть" : "Развернуть"}
-              aria-label={isExpanded ? "Свернуть ветку" : "Развернуть ветку"}
-              aria-expanded={isExpanded}
-            >
-              <span className="nt-chevhit">
-                <span style={{ ...chevIcon, transform: isExpanded ? "rotate(90deg)" : "none" }}>
-                  {isLoading ? "⋯" : <Chevron />}
-                </span>
-              </span>
-            </button>
-          ) : (
-            <span className="nt-chevspacer" />
-          )}
-          <ShapeGlyph container={isIntermediate} shape={node.shape} />
-          <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
-            {node.name}
-          </span>
-          {/* «+» — создать дочерний объект (pages_pivot / редактор, архитектор, только сервисы) */}
-          {isArchitect && onCreateChild && node.shape === "service" && (
-            <button
-              className="nt-add-child"
-              onClick={(e) => { e.stopPropagation(); onCreateChild(node.id); }}
-              title={`Создать объект внутри «${node.name}»`}
-            >
-              <PlusIcon />
-            </button>
-          )}
-        </div>
-        {/* Дети раскрытого узла — с направляющей вложенности (border-left). */}
-        {isExpanded && kids.length > 0 && (
-          <div className="nt-children">
-            {kids.map((k) => <Row key={k.id} node={k} />)}
-          </div>
-        )}
-      </>
-    );
+  // Контекст строки дерева. Строка живёт отдельным компонентом (nodeTree.Row):
+  // объявленная ВНУТРИ панели, она ремаунтилась бы на каждый рендер и срывала бы
+  // нативный драг. Ссылочная стабильность объекта не нужна — важен только тип.
+  const rowCtx: TreeRowCtx = {
+    expanded, loadingId, childrenById, leaves, currentNodeId,
+    pagesMode, isArchitect, onCreateChild,
+    onSelect: (node) => { navigateFlat(node); if (canHaveChildren(node.shape) && node.has_children) void expandBranch(node); },
+    onToggle: (node) => { void toggle(node); },
+    drag: onReparent && isArchitect ? { onStart: onRowDragStart, onEnd: onRowDragEnd } : undefined,
+    movingId: moving?.id ?? null,
+    dropTargetId: dropTarget,
+    onDragOverRow: onRowDragOver,
+    onDragLeaveRow: onRowDragLeave,
+    onDropRow: onRowDrop,
+  };
+
+  // Перенос узла: драг начинается с ручки-шести-точек. Сам дроп — на строке-цели
+  // (см. Ф3), здесь только старт/завершение жеста.
+  function onRowDragStart(e: DragEvent, node: Node) {
+    e.dataTransfer.setData(NODE_MOVE_MIME, node.id);
+    e.dataTransfer.effectAllowed = "move";
+    movingRef.current = node;
+    // Подсветку зажигаем СЛЕДУЮЩИМ кадром: перерисовка источника прямо в dragstart
+    // отменяет нативный драг (та же причина, что у корзины палитры).
+    requestAnimationFrame(() => { if (movingRef.current) setMoving(movingRef.current); });
+  }
+  function onRowDragEnd() {
+    movingRef.current = null;
+    setMoving(null);
+    setDropTarget(null);
+  }
+
+  // Куда переносить МОЖНО. Зеркало серверных запретов (app/reparent.py): отказ должен
+  // быть виден ДО дропа (цель просто не подсвечивается и не принимает), а не приходить
+  // ошибкой после. targetId === null — корень проекта.
+  function canDropInto(node: Node, targetId: string | null): boolean {
+    // Человек по C4 живёт ЗА границей системы — ему доступен только вынос в корень.
+    if (node.shape === "person") return targetId === null && node.parent_id !== null;
+    if (targetId === null) return node.parent_id !== null;
+    if (targetId === node.id || targetId === node.parent_id) return false;
+    const target = allById.get(targetId);
+    if (!target || !canHaveChildren(target.shape)) return false;
+    // Собственный потомок (цикл): путь до цели строится по ЗАГРУЖЕННЫМ предкам, и
+    // этого достаточно — чтобы строка была видна, все её предки раскрыты.
+    return !pathTo(target).some((n) => n.id === node.id);
+  }
+
+  function onRowDragOver(e: DragEvent, target: Node) {
+    const m = movingRef.current;
+    if (!m || !e.dataTransfer.types.includes(NODE_MOVE_MIME)) return;
+    if (!canDropInto(m, target.id)) return; // дроп не разрешаем — курсор останется «запретным»
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== target.id) setDropTarget(target.id);
+  }
+  function onRowDragLeave(target: Node) {
+    setDropTarget((prev) => (prev === target.id ? null : prev));
+  }
+  function onRowDrop(e: DragEvent, target: Node) {
+    e.preventDefault();
+    const m = movingRef.current;
+    setDropTarget(null);
+    if (m && canDropInto(m, target.id)) onReparent?.(m, target.id);
+  }
+
+  function onRootDragOver(e: DragEvent) {
+    const m = movingRef.current;
+    if (!m || !e.dataTransfer.types.includes(NODE_MOVE_MIME) || !canDropInto(m, null)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== ROOT_TARGET) setDropTarget(ROOT_TARGET);
+  }
+  function onRootDrop(e: DragEvent) {
+    e.preventDefault();
+    const m = movingRef.current;
+    setDropTarget(null);
+    if (m && canDropInto(m, null)) onReparent?.(m, null);
   }
 
   function onTemplateDragStart(e: DragEvent, shape: NodeShape) {
@@ -515,19 +538,35 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
       ) : (
       <div style={content}>
           <>
-            {/* Поиск */}
-            <div style={searchWrap}>
-              <input
-                style={searchInput}
-                type="text"
-                placeholder="Поиск по имени…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button style={searchClear} onClick={() => setSearchQuery("")} title="Очистить">×</button>
-              )}
-            </div>
+            {/* Поиск — а на время переноса ВМЕСТО него полоса «в корень проекта»:
+                единственный способ вынести объект на верхний уровень (строки, которая
+                представляла бы корень, в дереве нет), а поиск в разгар жеста не нужен.
+                Подмена в том же слоте — список под ней не съезжает. */}
+            {moving && canDropInto(moving, null) ? (
+              <div style={searchWrap}>
+                <div
+                  className={"nt-rootzone" + (dropTarget === ROOT_TARGET ? " nt-rootzone--active" : "")}
+                  onDragOver={onRootDragOver}
+                  onDragLeave={() => setDropTarget((prev) => (prev === ROOT_TARGET ? null : prev))}
+                  onDrop={onRootDrop}
+                >
+                  В корень проекта
+                </div>
+              </div>
+            ) : (
+              <div style={searchWrap}>
+                <input
+                  style={searchInput}
+                  type="text"
+                  placeholder="Поиск по имени…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button style={searchClear} onClick={() => setSearchQuery("")} title="Очистить">×</button>
+                )}
+              </div>
+            )}
 
             {/* Результаты поиска или дерево */}
             <div ref={treeScrollRef} style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -555,7 +594,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
               ) : roots.length === 0 ? (
                 <div style={hint}>Нет объектов</div>
               ) : (
-                roots.map((n) => <Row key={n.id} node={n} />)
+                roots.map((n) => <TreeRow key={n.id} node={n} ctx={rowCtx} />)
               )}
             </div>
 
@@ -664,14 +703,6 @@ const sectionBody: CSSProperties = {
 };
 const treeList: CSSProperties = {
   padding: "0 0 6px",
-};
-// Глиф шеврона: размер/поворот. Кликабельная зона и хит-бокс — в CSS
-// (.nt-chevzone / .nt-chevhit), поворот зависит от состояния, поэтому остаётся inline.
-const chevIcon: CSSProperties = {
-  fontSize: 11,
-  lineHeight: 1,
-  transition: "transform 0.12s ease",
-  display: "inline-block",
 };
 const hint: CSSProperties = {
   padding: "8px 14px",

@@ -52,6 +52,11 @@ export const nodesApi = {
   // Берётся ПЕРЕД delete, чтобы откатить удаление через restore (Undo).
   deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
     api.get<DeletionSnapshot>(`/nodes/${id}/deletion-snapshot`),
+  // Снимок раскладки, которую снимет ПЕРЕНОС узла на другой уровень: позиции
+  // поддерева во внешних видах. Берётся ПЕРЕД сменой parent_id, возвращается тем же
+  // restore (узлы/связи в нём пусты — перенос ничего не сносит, кроме позиций).
+  moveSnapshot: (id: string): Promise<DeletionSnapshot> =>
+    api.get<DeletionSnapshot>(`/nodes/${id}/move-snapshot`),
   // Восстановить удалённое поддерево из снимка (Undo удаления) — с исходными id.
   // undefined (не void): void как type-parameter нарушает no-invalid-void-type
   restore: (snapshot: DeletionSnapshot): Promise<void> =>

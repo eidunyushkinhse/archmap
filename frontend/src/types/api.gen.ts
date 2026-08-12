@@ -415,6 +415,30 @@ export interface paths {
         patch: operations["update_node_api_v1_nodes__node_id__patch"];
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/move-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Move Snapshot
+         * @description Снимок раскладки, которую снимет перенос узла на другой уровень.
+         *
+         *     Тот же контракт и тот же путь возврата, что у удаления: клиент берёт снимок ПЕРЕД
+         *     сменой parent_id и при Undo возвращает его через POST /nodes/restore. Узлы и связи
+         *     в снимке пусты — перенос ничего не сносит, кроме запомненных позиций.
+         */
+        get: operations["get_move_snapshot_api_v1_nodes__node_id__move_snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/deletion-snapshot": {
         parameters: {
             query?: never;
@@ -4159,6 +4183,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_move_snapshot_api_v1_nodes__node_id__move_snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionSnapshot"];
                 };
             };
             /** @description Validation Error */
