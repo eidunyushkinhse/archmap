@@ -10,6 +10,11 @@ import DbStructureSection from "../DbStructureSection";
 import { dbTablesApi } from "../../api/nodes";
 import type { DbColumn, DbTable } from "../../types";
 
+// Рендерер mermaid тяжёлый и грузится динамическим import() — в тестах секции он не
+// нужен: сам генератор проверен отдельно (dbErDiagram.test.ts).
+vi.mock("../MermaidRenderer", () => ({
+  default: ({ chart }: { chart: string }) => <pre data-testid="er">{chart}</pre>,
+}));
 vi.mock("../../api/nodes", () => ({
   dbTablesApi: {
     list: vi.fn(),
@@ -96,6 +101,14 @@ describe("DbStructureSection", () => {
     expect(dbTablesApi.updateColumn).toHaveBeenCalledWith(
       "n1", "t1", "c1", { references_column_id: "c2" },
     );
+  });
+
+  it("диаграмма показывается по кнопке и собирается из тех же записей", async () => {
+    setup([table()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    expect(screen.queryByTestId("er")).toBeNull();
+    await userEvent.click(screen.getByText("Показать диаграмму"));
+    expect(screen.getByTestId("er").textContent).toContain('"orders"');
   });
 
   it("наблюдатель видит структуру, но не правит", async () => {

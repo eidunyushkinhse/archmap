@@ -135,3 +135,21 @@
   border-radius: 4px;
   padding: 1px 5px;
 }
+
+/* Переключатель и полотно ER-диаграммы. Диаграмма производна от записей — рисуется
+   тем же MermaidRenderer, что и схемы логики, и живёт прямо в секции. */
+.dbs-ertoggle {
+  margin-bottom: 10px;
+}
+.dbs-er {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow-x: auto;
+}
+.dbs-er svg {
+  max-width: 100%;
+  height: auto;
+}

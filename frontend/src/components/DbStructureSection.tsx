@@ -9,6 +9,8 @@
 // кнопки «Сохранить»: строк много, а правка — точечная.
 import { useCallback, useEffect, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
+import MermaidRenderer from "./MermaidRenderer";
+import { tablesToErDiagram } from "./dbErDiagram";
 import type { DbColumn, DbTable } from "../types";
 import "./dbStructure.css";
 
@@ -31,6 +33,9 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
   const [tables, setTables] = useState<DbTable[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  // ER — производное представление тех же записей (dbErDiagram), поэтому это просто
+  // переключатель показа, а не второй источник правды и не отдельное хранилище.
+  const [showEr, setShowEr] = useState(false);
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
@@ -94,6 +99,18 @@ export default function DbStructureSection({ nodeId, isArchitect }: Props) {
     <div className="np-card">
       <h3 className="np-card-title">Структура</h3>
       {error && <p className="np-warn">{error}</p>}
+      {(tables ?? []).length > 0 && (
+        <div className="dbs-ertoggle">
+          <button type="button" className="np-addbtn" onClick={() => setShowEr((v) => !v)}>
+            {showEr ? "Скрыть диаграмму" : "Показать диаграмму"}
+          </button>
+        </div>
+      )}
+      {showEr && (
+        <div className="dbs-er">
+          <MermaidRenderer chart={tablesToErDiagram(tables ?? [])} />
+        </div>
+      )}
       {(tables ?? []).length === 0 ? (
         <p className="np-empty">Таблицы не описаны</p>
       ) : (
