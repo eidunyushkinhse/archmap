@@ -711,6 +711,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-import/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Data Prompt */
+        get: operations["data_prompt_api_v1_data_import_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Data Import Preview
+         * @description Dry-run: план без записи.
+         */
+        post: operations["data_import_preview_api_v1_data_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-import/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Data Import Apply
+         * @description Применение: план пересчитывается на живом состоянии; при errors не пишем ничего.
+         */
+        post: operations["data_import_apply_api_v1_data_import_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tables": {
         parameters: {
             query?: never;
@@ -1612,6 +1669,30 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /**
+         * DataAccessItem
+         * @description Строка превью по обращению: чей док, куда ходит и что делает.
+         */
+        DataAccessItem: {
+            /** Node Path */
+            node_path: string;
+            /** Source */
+            source: string;
+            /** Doc */
+            doc: string;
+            /** Target */
+            target: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "overwrite" | "skip" | "unchanged";
+        };
         /** DataAccessResponse */
         DataAccessResponse: {
             /**
@@ -1638,6 +1719,87 @@ export interface components {
             mode: "read" | "write";
             /** Note */
             note: string | null;
+        };
+        /** DataImportIn */
+        DataImportIn: {
+            /** Files */
+            files: components["schemas"]["DocsFileIn"][];
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Overwrite
+             * @default false
+             */
+            overwrite: boolean;
+        };
+        /** DataImportReport */
+        DataImportReport: {
+            /**
+             * Tables
+             * @default []
+             */
+            tables: components["schemas"]["DataTableItem"][];
+            /**
+             * Access
+             * @default []
+             */
+            access: components["schemas"]["DataAccessItem"][];
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Tables Written
+             * @default 0
+             */
+            tables_written: number;
+            /**
+             * Columns Written
+             * @default 0
+             */
+            columns_written: number;
+            /**
+             * Access Written
+             * @default 0
+             */
+            access_written: number;
+        };
+        /** DataPromptOut */
+        DataPromptOut: {
+            /** Prompt */
+            prompt: string;
+        };
+        /**
+         * DataTableItem
+         * @description Строка превью по таблице: что приедет и что с ней станет.
+         */
+        DataTableItem: {
+            /** Node Path */
+            node_path: string;
+            /** Source */
+            source: string;
+            /** Schema Name */
+            schema_name: string;
+            /** Name */
+            name: string;
+            /** Columns */
+            columns: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "overwrite" | "skip" | "unchanged";
         };
         /** DbColumnCreate */
         DbColumnCreate: {
@@ -5099,6 +5261,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DistributeDocsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    data_prompt_api_v1_data_import_prompt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataPromptOut"];
+                };
+            };
+        };
+    };
+    data_import_preview_api_v1_data_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    data_import_apply_api_v1_data_import_apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataImportReport"];
                 };
             };
             /** @description Validation Error */
