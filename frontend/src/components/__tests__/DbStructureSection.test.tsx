@@ -75,6 +75,20 @@ describe("DbStructureSection", () => {
     }
   });
 
+  it("разделы становятся раскрывашками, но только когда они заданы", async () => {
+    // У баз без такого уровня (Redis, Elasticsearch) лишней вложенности быть не должно.
+    setup([table(), table({ id: "t2", name: "invoices" })]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    expect(screen.queryByText("без раздела")).toBeNull();
+  });
+
+  it("с разделами таблицы группируются", async () => {
+    setup([table(), table({ id: "t2", name: "audit", schema_name: "billing" })]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    expect(screen.getByText("без раздела")).toBeInTheDocument();
+    expect(screen.getByText("billing")).toBeInTheDocument();
+  });
+
   it("правка имени таблицы уходит PATCH-ем с CAS-версией", async () => {
     vi.mocked(dbTablesApi.update).mockResolvedValue(table({ name: "invoices" }));
     setup([table({ version: 7 })]);

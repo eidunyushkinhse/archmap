@@ -15,8 +15,12 @@
   background: #fff;
 }
 
+/* Шапка таблицы — ГРИД, а не флекс: у .np-field стоит width:100%, и в потоке флекса
+   поля раздували строку, а имя (flex:1 1 0) схлопывалось в ноль. В гриде ширину
+   задаёт ТРЕК, а width:100% внутри ячейки ведёт себя правильно. */
 .dbs-thead {
-  display: flex;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 150px 26px 26px;
   align-items: center;
   gap: 8px;
 }
@@ -41,18 +45,15 @@
 }
 
 .dbs-name {
-  flex: 1;
   min-width: 0;
   font-weight: 600;
 }
 .dbs-schema {
-  width: 120px;
-  flex: none;
+  min-width: 0;
   color: #64748b;
 }
 /* Число колонок — та же роль, что у бейджа детей в дереве: масштаб виден без раскрытия. */
 .dbs-count {
-  flex: none;
   font-size: 12px;
   font-weight: 700;
   color: #94a3b8;
@@ -65,7 +66,6 @@
 }
 
 .dbs-del {
-  flex: none;
   width: 22px;
   height: 22px;
   background: none;
@@ -92,21 +92,26 @@
   gap: 6px;
 }
 
-/* Строка колонки: имя и смысл тянутся, остальное — фиксированной ширины, чтобы
-   колонки строк выстраивались друг под другом и читались столбцами. */
+/* Строка колонки — тот же грид, что и её шапка: треки описаны ОДИН раз, поэтому
+   заголовки стоят ровно над полями и не разъезжаются при узкой панели. */
 .dbs-col {
-  display: flex;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.3fr) minmax(0, 0.9fr) 42px 66px minmax(0, 1fr) minmax(0, 1.6fr) 26px;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
 }
-.dbs-cname { flex: 1 1 140px; min-width: 0; }
-.dbs-ctype { flex: 0 0 130px; }
-.dbs-fk { flex: 0 0 170px; }
-.dbs-cdesc { flex: 2 1 200px; min-width: 0; }
+/* Наблюдательский вариант: полей ввода нет, признаки — чипами в одной ячейке. */
+.dbs-col--ro {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.6fr);
+}
+.dbs-cname, .dbs-ctype, .dbs-fk, .dbs-cdesc { min-width: 0; }
+/* Обращения («кто ходит») живут в той же секции, но их строка своя — три ячейки. */
+.dbs-col--usage {
+  grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1.6fr);
+}
 
 .dbs-check {
-  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -126,7 +131,6 @@
   font-size: 13px;
 }
 .dbs-flag {
-  flex: none;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -157,7 +161,7 @@
 /* Обращения: действие — цветной чип, чтобы «пишет» отличалось от «читает» с одного
    взгляда (в инциденте ищут именно пишущих). */
 .dbs-mode {
-  flex: none;
+  justify-self: start;
   font-size: 10.5px;
   font-weight: 700;
   border-radius: 4px;
@@ -201,4 +205,36 @@
 }
 .dbs-colhead > span {
   padding: 0 2px;
+}
+
+/* Разделы базы (schema в PostgreSQL, database в MySQL/Mongo/ClickHouse, keyspace в
+   Cassandra) — раскрывашки. Появляются, только если раздел где-то указан: у баз без
+   такого уровня (Redis, Elasticsearch) лишней вложенности не возникает. */
+.dbs-group {
+  margin-bottom: 6px;
+}
+.dbs-grouphead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #64748b;
+  text-align: left;
+}
+.dbs-grouphead:hover { color: #2563eb; }
+.dbs-grouphead .dbs-count { margin-left: auto; }
+.dbs-groupbody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 10px;
+  border-left: 1px solid #e6eaf0;
 }

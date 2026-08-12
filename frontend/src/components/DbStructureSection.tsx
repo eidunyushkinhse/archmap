@@ -45,6 +45,8 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   // Окно дозаливки от агента: базу с сорока таблицами руками не опишут, поэтому это
   // основной путь наполнения, а редактор ниже — для правок.
   const [agentOpen, setAgentOpen] = useState(false);
+  // Свёрнутые разделы (по умолчанию раскрыты — иначе структура выглядит пустой).
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
@@ -93,9 +95,38 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
     }));
   };
 
+  // Таблицы по разделам (schema/database/keyspace — см. подпись поля). Пустой раздел
+  // идёт первым: у большинства баз он единственный.
+  const grouped: [string, DbTable[]][] = [];
+  for (const t of tables ?? []) {
+    const bucket = grouped.find(([k]) => k === t.schema_name);
+    if (bucket) bucket[1].push(t);
+    else grouped.push([t.schema_name, [t]]);
+  }
+  grouped.sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
+
   // Все колонки узла как цели внешнего ключа: «таблица.колонка».
   const fkOptions = (tables ?? []).flatMap((t) =>
     t.columns.map((c) => ({ id: c.id, label: `${t.name}.${c.name}` })),
+  );
+
+  const renderTable = (t: DbTable) => (
+    <TableCard
+      key={t.id}
+      table={t}
+      nodeId={nodeId}
+      isArchitect={isArchitect}
+      expanded={open.has(t.id)}
+      onToggle={() => setOpen((prev) => {
+        const next = new Set(prev);
+        if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+        return next;
+      })}
+      fkOptions={fkOptions}
+      usage={usage.filter((u) => u.table_id === t.id)}
+      apply={apply}
+      onAddColumn={() => addColumn(t)}
+    />
   );
 
   if (tables === null && error === null) {
@@ -125,27 +156,32 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       )}
       {(tables ?? []).length === 0 ? (
         <p className="np-empty">Таблицы не описаны</p>
-      ) : (
-        <div className="dbs-tables">
-          {(tables ?? []).map((t) => (
-            <TableCard
-              key={t.id}
-              table={t}
-              nodeId={nodeId}
-              isArchitect={isArchitect}
-              expanded={open.has(t.id)}
-              onToggle={() => setOpen((prev) => {
+      ) : grouped.length > 1 ? (
+        // Разделы показываем ТОЛЬКО когда они реально заданы: у баз без такого уровня
+        // (Redis, Elasticsearch) лишняя вложенность была бы шумом.
+        grouped.map(([schema, list]) => (
+          <div key={schema} className="dbs-group">
+            <button
+              type="button"
+              className="dbs-grouphead"
+              aria-expanded={!closedGroups.has(schema)}
+              onClick={() => setClosedGroups((prev) => {
                 const next = new Set(prev);
-                if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+                if (next.has(schema)) next.delete(schema); else next.add(schema);
                 return next;
               })}
-              fkOptions={fkOptions}
-              usage={usage.filter((u) => u.table_id === t.id)}
-              apply={apply}
-              onAddColumn={() => addColumn(t)}
-            />
-          ))}
-        </div>
+            >
+              <span style={{ transform: closedGroups.has(schema) ? "none" : "rotate(90deg)", display: "inline-block" }}>›</span>
+              {schema || "без раздела"}
+              <span className="dbs-count">{list.length}</span>
+            </button>
+            {!closedGroups.has(schema) && (
+              <div className="dbs-groupbody">{list.map(renderTable)}</div>
+            )}
+          </div>
+        ))
+      ) : (
+        <div className="dbs-tables">{(tables ?? []).map(renderTable)}</div>
       )}
       {isArchitect && (
         <div className="dbs-actions">
@@ -203,18 +239,19 @@ function TableCard({
         {isArchitect ? (
           <input
             className="np-field dbs-schema"
-            // «Контур» было моим словом и ничего не объясняло. Стандартный термин —
-            // СХЕМА (namespace внутри базы: public, billing), но слово «схема» в
-            // ArchMap уже занято диаграммой, поэтому в подписи оно всегда с «БД».
-            placeholder="схема БД"
-            title="Схема (namespace) внутри базы: public, billing… Пусто — база без разделения на схемы"
+            // РАЗДЕЛ — намеренно нейтральное слово: у каждого движка свой термин для
+            // этого уровня (schema в PostgreSQL, database в MySQL/Mongo/ClickHouse,
+            // keyspace в Cassandra), а «схема» в ArchMap занята диаграммой. Уровня
+            // может не быть вовсе (Redis, Elasticsearch) — тогда поле просто пустое.
+            placeholder="раздел"
+            title="Раздел базы: schema в PostgreSQL, database в MySQL/MongoDB/ClickHouse, keyspace в Cassandra. Пусто — у этой базы такого уровня нет"
             defaultValue={table.schema_name}
             key={`s:${table.id}:${table.version}`}
             onBlur={(e) => { if (e.target.value !== table.schema_name) patch({ schema_name: e.target.value }); }}
           />
-        ) : table.schema_name ? (
+        ) : (
           <span className="dbs-ro dbs-schema">{table.schema_name}</span>
-        ) : null}
+        )}
         <span className="dbs-count">{table.columns.length}</span>
         {isArchitect && (
           <button type="button" className="dbs-del" title="Удалить таблицу"
@@ -242,14 +279,14 @@ function TableCard({
               подряд не читаются вовсе. Ширины — те же классы, что у строк, поэтому
               заголовки стоят ровно над своими полями. */}
           {table.columns.length > 0 && (
-            <div className="dbs-col dbs-colhead" aria-hidden>
+            <div className={"dbs-col dbs-colhead" + (isArchitect ? "" : " dbs-col--ro")} aria-hidden>
               <span className="dbs-cname">Колонка</span>
               <span className="dbs-ctype">Тип</span>
-              {isArchitect && <span className="dbs-check">ключ</span>}
-              {isArchitect && <span className="dbs-check">обяз.</span>}
+              {isArchitect ? <span>ключ</span> : <span>признаки</span>}
+              {isArchitect && <span>обяз.</span>}
               {isArchitect && <span className="dbs-fk">Ссылается на</span>}
               <span className="dbs-cdesc">Смысл значения</span>
-              {isArchitect && <span className="dbs-del" />}
+              {isArchitect && <span />}
             </div>
           )}
           {table.columns.map((c) => (
@@ -275,7 +312,7 @@ function TableCard({
             {usage.length === 0 ? (
               <p className="np-empty">Обращений не описано</p>
             ) : usage.map((u) => (
-              <div key={`${u.doc_id}:${u.column_id ?? ""}:${u.mode}`} className="dbs-col">
+              <div key={`${u.doc_id}:${u.column_id ?? ""}:${u.mode}`} className="dbs-col dbs-col--usage">
                 <span className={`dbs-mode dbs-mode--${u.mode}`}>
                   {u.mode === "write" ? "пишет" : "читает"}
                 </span>
@@ -307,11 +344,15 @@ function ColumnRow({
 
   if (!isArchitect) {
     return (
-      <div className="dbs-col dbs-ro">
+      <div className="dbs-col dbs-col--ro dbs-ro">
         <span className="dbs-cname">{column.name}</span>
         <span className="dbs-ctype">{column.type}</span>
-        {column.is_primary_key && <span className="dbs-flag">PK</span>}
-        {!column.nullable && <span className="dbs-flag">NOT NULL</span>}
+        {/* Признаки — ОДНОЙ ячейкой: иначе их отсутствие сдвигало бы «смысл» влево
+            и колонки строк перестали бы стоять друг под другом. */}
+        <span style={{ display: "flex", gap: 4, minWidth: 0 }}>
+          {column.is_primary_key && <span className="dbs-flag">PK</span>}
+          {!column.nullable && <span className="dbs-flag">NOT NULL</span>}
+        </span>
         <span className="dbs-cdesc">{column.description}</span>
       </div>
     );
