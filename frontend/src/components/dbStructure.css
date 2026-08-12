@@ -186,3 +186,19 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* Шапка списка колонок: те же ширины, что у строк (классы совпадают), поэтому
+   заголовки стоят ровно над своими полями. Не поле ввода — просто подписи. */
+.dbs-colhead {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #eef2f7;
+  margin-bottom: 2px;
+}
+.dbs-colhead > span {
+  padding: 0 2px;
+}

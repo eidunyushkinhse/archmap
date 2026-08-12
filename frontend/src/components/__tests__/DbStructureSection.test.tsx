@@ -66,6 +66,15 @@ describe("DbStructureSection", () => {
     expect(screen.getByDisplayValue("status")).toBeInTheDocument();
   });
 
+  it("у списка колонок есть шапка — иначе тип не отличить от смысла", async () => {
+    setup([table()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть колонки"));
+    for (const заголовок of ["Колонка", "Тип", "Ссылается на", "Смысл значения"]) {
+      expect(screen.getByText(заголовок)).toBeInTheDocument();
+    }
+  });
+
   it("правка имени таблицы уходит PATCH-ем с CAS-версией", async () => {
     vi.mocked(dbTablesApi.update).mockResolvedValue(table({ name: "invoices" }));
     setup([table({ version: 7 })]);

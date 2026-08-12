@@ -46,8 +46,10 @@ class DbTable(Base):
         Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
-    # Контур/логическая схема БД («public», «billing», …). Пусто = без контура.
-    # Отдельной сущностью не заводим: группировка — это представление, а не структура.
+    # СХЕМА БД (namespace: «public», «billing», …). Пусто = база без разделения на
+    # схемы, обычный случай. Отдельной сущностью не заводим: группировка — это
+    # представление, а не структура. В интерфейсе слово всегда с уточнением «БД»:
+    # «схема» в ArchMap уже занята диаграммой.
     schema_name: Mapped[str] = mapped_column(
         String(128), nullable=False, default="", server_default=""
     )

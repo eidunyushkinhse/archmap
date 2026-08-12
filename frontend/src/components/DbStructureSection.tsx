@@ -203,7 +203,11 @@ function TableCard({
         {isArchitect ? (
           <input
             className="np-field dbs-schema"
-            placeholder="контур"
+            // «Контур» было моим словом и ничего не объясняло. Стандартный термин —
+            // СХЕМА (namespace внутри базы: public, billing), но слово «схема» в
+            // ArchMap уже занято диаграммой, поэтому в подписи оно всегда с «БД».
+            placeholder="схема БД"
+            title="Схема (namespace) внутри базы: public, billing… Пусто — база без разделения на схемы"
             defaultValue={table.schema_name}
             key={`s:${table.id}:${table.version}`}
             onBlur={(e) => { if (e.target.value !== table.schema_name) patch({ schema_name: e.target.value }); }}
@@ -234,6 +238,20 @@ function TableCard({
       {expanded && (
         <div className="dbs-cols">
           {table.columns.length === 0 && <p className="np-empty">Колонки не описаны</p>}
+          {/* Шапка: без неё колонка типа неотличима от колонки смысла, а два чекбокса
+              подряд не читаются вовсе. Ширины — те же классы, что у строк, поэтому
+              заголовки стоят ровно над своими полями. */}
+          {table.columns.length > 0 && (
+            <div className="dbs-col dbs-colhead" aria-hidden>
+              <span className="dbs-cname">Колонка</span>
+              <span className="dbs-ctype">Тип</span>
+              {isArchitect && <span className="dbs-check">ключ</span>}
+              {isArchitect && <span className="dbs-check">обяз.</span>}
+              {isArchitect && <span className="dbs-fk">Ссылается на</span>}
+              <span className="dbs-cdesc">Смысл значения</span>
+              {isArchitect && <span className="dbs-del" />}
+            </div>
+          )}
           {table.columns.map((c) => (
             <ColumnRow
               key={c.id}

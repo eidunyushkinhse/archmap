@@ -75,6 +75,25 @@ describe("tablesToErDiagram", () => {
     expect(tablesToErDiagram([])).toBe("erDiagram");
   });
 
+  // НАЙДЕНО НА ЖИВЫХ ДАННЫХ 2026-08-12: «numeric(12,2)» уронил всю диаграмму —
+  // запятая в идентификаторе для erDiagram недопустима. Отсюда белый список символов.
+  it("настоящие типы из БД заказов не ломают разбор", async () => {
+    const out = tablesToErDiagram([
+      tbl({
+        columns: [
+          col({ name: "total_amount", type: "numeric(12,2)" }),
+          col({ id: "c2", name: "tags", type: "text[]" }),
+          col({ id: "c3", name: "payload", type: "jsonb" }),
+          col({ id: "c4", name: "2fa_enabled", type: "boolean" }),
+        ],
+      }),
+    ]);
+    expect(out).toContain("numeric(12_2) total_amount");
+    expect(out).toContain("text[] tags");
+    expect(out).toContain("boolean _2fa_enabled");  // с цифры начинаться нельзя
+    expect(await validateMermaid(out)).toBeNull();
+  });
+
   // Ради этого теста и делались пробы парсером: тип обязателен, пробелы и кавычки
   // в идентификаторах ломают разбор. Всё это должно быть обезврежено генератором.
   it("недружелюбные имена не ломают разбор (настоящий парсер mermaid)", async () => {
