@@ -9,7 +9,7 @@
 // Всё, что строке нужно от панели, приходит одним объектом-контекстом: он меняется
 // свободно (ссылочная стабильность здесь не нужна — важно лишь, чтобы не менялся
 // ТИП компонента).
-import type { CSSProperties } from "react";
+import type { CSSProperties, DragEvent } from "react";
 import type { Node } from "../types";
 import { canHaveChildren } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
@@ -33,6 +33,15 @@ export interface TreeRowCtx {
   onSelect: (node: Node) => void;
   // клик по шеврону
   onToggle: (node: Node) => void;
+  // Перенос узла на другой уровень перетаскиванием строки. Задаётся ТОЛЬКО
+  // редактором (и только архитектору) — в режиме просмотра страниц ручки нет.
+  // undefined → строка не перетаскивается вовсе.
+  drag?: {
+    onStart: (e: DragEvent<HTMLElement>, node: Node) => void;
+    onEnd: () => void;
+  };
+  // id переносимой сейчас строки — она приглушается на время жеста
+  movingId?: string | null;
 }
 
 // Глиф шеврона: размер/поворот. Кликабельная зона и хит-бокс — в CSS
@@ -69,7 +78,11 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
   return (
     <>
       <div
-        className={"nt-row nt-row--clickable" + (isCurrent ? " nt-row--current" : "")}
+        className={
+          "nt-row nt-row--clickable"
+          + (isCurrent ? " nt-row--current" : "")
+          + (ctx.movingId === id ? " nt-row--moving" : "")
+        }
         onClick={() => ctx.onSelect(node)}
         title={title}
       >
@@ -93,6 +106,20 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
         ) : (
           <span className="nt-chevspacer" />
         )}
+        {/* Зона захвата для переноса на другой уровень. Слот занимает место ВСЕГДА
+            (visibility, не display): иначе строки дёргались бы на hover. */}
+        {ctx.drag && (
+          <span
+            className="nt-grip"
+            draggable
+            onDragStart={(e) => ctx.drag?.onStart(e, node)}
+            onDragEnd={() => ctx.drag?.onEnd()}
+            // клик по ручке не должен проваливаться в навигацию строки
+            onClick={(e) => e.stopPropagation()}
+            title={`Перенести «${node.name}» в другой объект`}
+            aria-label={`Перенести «${node.name}» в другой объект`}
+          ><GripIcon /></span>
+        )}
         <ShapeGlyph container={isIntermediate} shape={node.shape} />
         <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
           {node.name}
@@ -115,5 +142,16 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
         </div>
       )}
     </>
+  );
+}
+
+// Шесть точек — общепринятый знак «за это можно тащить».
+function GripIcon() {
+  return (
+    <svg width={8} height={12} viewBox="0 0 8 12" fill="currentColor" aria-hidden>
+      {[2, 6].map((x) => [2, 6, 10].map((y) => (
+        <circle key={`${x}-${y}`} cx={x} cy={y} r={1.1} />
+      )))}
+    </svg>
   );
 }

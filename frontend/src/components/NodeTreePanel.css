@@ -238,3 +238,30 @@
   color: #2563eb;
   background: #eff6ff;
 }
+
+/* Зона захвата для переноса узла на другой уровень: шесть точек слева от глифа.
+   Место занимает ВСЕГДА (visibility, не display) — иначе строки дёргались бы на
+   hover. Проявляется при наведении на строку. */
+.nt-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  flex: none;
+  color: #cbd5e1;
+  cursor: grab;
+  visibility: hidden;
+}
+.nt-row:hover .nt-grip {
+  visibility: visible;
+}
+.nt-grip:hover {
+  color: #64748b;
+}
+.nt-grip:active {
+  cursor: grabbing;
+}
+/* Переносимая строка на время жеста приглушена — видно, что именно едет. */
+.nt-row--moving {
+  opacity: 0.45;
+}

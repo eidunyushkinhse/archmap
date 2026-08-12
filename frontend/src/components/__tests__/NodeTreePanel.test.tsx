@@ -1,9 +1,9 @@
 // Рендер-тесты NodeTreePanel (плоский режим): загрузка корней, ленивое
 // раскрытие, навигация, поиск, авто-раскрытие ветки по клику.
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import NodeTreePanel from "../NodeTreePanel";
+import NodeTreePanel, { NODE_DRAG_MIME, NODE_MOVE_MIME } from "../NodeTreePanel";
 import { nodesApi } from "../../api/nodes";
 import type { Node } from "../../types";
 
@@ -106,5 +106,49 @@ describe("NodeTreePanel (плоский режим)", () => {
     ]);
     render(<NodeTreePanel onNodePage={vi.fn()} isArchitect={false} />);
     await waitFor(() => expect(screen.getByText("Покупатель")).toBeInTheDocument());
+  });
+});
+
+// ── Перенос узла на другой уровень: ручка захвата (Ф2) ───────────────────────
+// Ручка — единственная точка старта жеста, и живёт только там, где перенос вообще
+// возможен: редактор + архитектор. В оболочке страниц её быть не должно.
+describe("NodeTreePanel: ручка переноса", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const rows = () => [node("api", { has_children: true, child_count: 1 }), node("db", { shape: "database" })];
+
+  it("в редакторе у архитектора ручка есть на каждой строке", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue(rows());
+    render(<NodeTreePanel onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect />);
+    await waitFor(() => expect(screen.getByText("API")).toBeInTheDocument());
+    expect(screen.getAllByLabelText(/Перенести/)).toHaveLength(2);
+  });
+
+  it("без onReparent (страницы) и у наблюдателя ручки нет", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue(rows());
+    const { unmount } = render(<NodeTreePanel onNodePage={vi.fn()} isArchitect />);
+    await waitFor(() => expect(screen.getByText("API")).toBeInTheDocument());
+    expect(screen.queryByLabelText(/Перенести/)).toBeNull();
+    unmount();
+
+    vi.mocked(nodesApi.list).mockResolvedValue(rows());
+    render(<NodeTreePanel onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect={false} />);
+    await waitFor(() => expect(screen.getByText("API")).toBeInTheDocument());
+    expect(screen.queryByLabelText(/Перенести/)).toBeNull();
+  });
+
+  it("dragstart кладёт id узла под СВОИМ mime, не под палитровым", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue(rows());
+    render(<NodeTreePanel onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect />);
+    await waitFor(() => expect(screen.getByText("DB")).toBeInTheDocument());
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      setData: (t: string, v: string) => { data.set(t, v); },
+      getData: (t: string) => data.get(t) ?? "",
+      effectAllowed: "",
+    };
+    fireEvent.dragStart(screen.getByLabelText(/Перенести «DB»/), { dataTransfer });
+    expect(data.get(NODE_MOVE_MIME)).toBe("db");
+    expect(data.has(NODE_DRAG_MIME)).toBe(false);
   });
 });

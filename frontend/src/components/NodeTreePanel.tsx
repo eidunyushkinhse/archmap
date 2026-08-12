@@ -11,6 +11,9 @@ import "./NodeTreePanel.css";
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
 // читается выбранная форма из dataTransfer.
 export const NODE_DRAG_MIME = "application/archmap-node-shape";
+// Перенос СУЩЕСТВУЮЩЕГО узла на другой уровень (драг строки дерева). Тип нарочно свой:
+// корзина палитры и холст фильтруют драги по MIME и этот пропустят мимо.
+export const NODE_MOVE_MIME = "application/archmap-node-move";
 
 /**
  * Дерево объектов отражает иерархию по parent_id. По умолчанию видны только
@@ -35,6 +38,9 @@ interface Props {
   onPickLeaf?: (node: Node) => void;
   // pages_pivot: «+» на строке → создать дочерний объект (модалка, авто-позиция)
   onCreateChild?: (parentId: string) => void;
+  // Перенос узла на другой уровень перетаскиванием строки. Передаёт ТОЛЬКО
+  // редактор-карта — этим же и гейтится жест: в оболочке страниц ручки нет.
+  onReparent?: (node: Node, newParentId: string | null) => void;
   // секция «Добавить узел» показывается только архитектору
   isArchitect: boolean;
   // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
@@ -147,7 +153,7 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCreateChild, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
+export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCreateChild, onReparent, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
   // pages_pivot: плоское дерево без секций/палитры, с поиском, «+» и персонами
   const pagesMode = !!onNodePage;
   // редактор-карта: тот же плоский дизайн, но клик — навигация внутри редактора
@@ -170,6 +176,10 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   // синхронный флаг «идёт драг» — оверлей показываем отложенно (см. onTemplateDragStart),
   // а ref нужен, чтобы не зажечь его уже после завершения короткого драга
   const draggingRef = useRef(false);
+  // Переносимый узел (драг строки). Ref — истина на момент события, стейт — для
+  // подсветки; зажигаем его отложенно по той же причине, что и корзину палитры.
+  const movingRef = useRef<Node | null>(null);
+  const [moving, setMoving] = useState<Node | null>(null);
   // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(["tree", "add"]),
@@ -385,7 +395,24 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     pagesMode, isArchitect, onCreateChild,
     onSelect: (node) => { navigateFlat(node); if (canHaveChildren(node.shape) && node.has_children) void expandBranch(node); },
     onToggle: (node) => { void toggle(node); },
+    drag: onReparent && isArchitect ? { onStart: onRowDragStart, onEnd: onRowDragEnd } : undefined,
+    movingId: moving?.id ?? null,
   };
+
+  // Перенос узла: драг начинается с ручки-шести-точек. Сам дроп — на строке-цели
+  // (см. Ф3), здесь только старт/завершение жеста.
+  function onRowDragStart(e: DragEvent, node: Node) {
+    e.dataTransfer.setData(NODE_MOVE_MIME, node.id);
+    e.dataTransfer.effectAllowed = "move";
+    movingRef.current = node;
+    // Подсветку зажигаем СЛЕДУЮЩИМ кадром: перерисовка источника прямо в dragstart
+    // отменяет нативный драг (та же причина, что у корзины палитры).
+    requestAnimationFrame(() => { if (movingRef.current) setMoving(movingRef.current); });
+  }
+  function onRowDragEnd() {
+    movingRef.current = null;
+    setMoving(null);
+  }
 
   function onTemplateDragStart(e: DragEvent, shape: NodeShape) {
     e.dataTransfer.setData(NODE_DRAG_MIME, shape);
