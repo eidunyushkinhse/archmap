@@ -14,6 +14,8 @@ export const NODE_DRAG_MIME = "application/archmap-node-shape";
 // Перенос СУЩЕСТВУЮЩЕГО узла на другой уровень (драг строки дерева). Тип нарочно свой:
 // корзина палитры и холст фильтруют драги по MIME и этот пропустят мимо.
 export const NODE_MOVE_MIME = "application/archmap-node-move";
+// Служебный ключ цели «корень проекта» (строки у корня нет — только полоса).
+const ROOT_TARGET = "__root__";
 
 /**
  * Дерево объектов отражает иерархию по parent_id. По умолчанию видны только
@@ -180,6 +182,8 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   // подсветки; зажигаем его отложенно по той же причине, что и корзину палитры.
   const movingRef = useRef<Node | null>(null);
   const [moving, setMoving] = useState<Node | null>(null);
+  // Цель под курсором: id строки, ROOT_TARGET (полоса «в корень») либо null.
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(["tree", "add"]),
@@ -397,6 +401,10 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     onToggle: (node) => { void toggle(node); },
     drag: onReparent && isArchitect ? { onStart: onRowDragStart, onEnd: onRowDragEnd } : undefined,
     movingId: moving?.id ?? null,
+    dropTargetId: dropTarget,
+    onDragOverRow: onRowDragOver,
+    onDragLeaveRow: onRowDragLeave,
+    onDropRow: onRowDrop,
   };
 
   // Перенос узла: драг начинается с ручки-шести-точек. Сам дроп — на строке-цели
@@ -412,6 +420,54 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   function onRowDragEnd() {
     movingRef.current = null;
     setMoving(null);
+    setDropTarget(null);
+  }
+
+  // Куда переносить МОЖНО. Зеркало серверных запретов (app/reparent.py): отказ должен
+  // быть виден ДО дропа (цель просто не подсвечивается и не принимает), а не приходить
+  // ошибкой после. targetId === null — корень проекта.
+  function canDropInto(node: Node, targetId: string | null): boolean {
+    // Человек по C4 живёт ЗА границей системы — ему доступен только вынос в корень.
+    if (node.shape === "person") return targetId === null && node.parent_id !== null;
+    if (targetId === null) return node.parent_id !== null;
+    if (targetId === node.id || targetId === node.parent_id) return false;
+    const target = allById.get(targetId);
+    if (!target || !canHaveChildren(target.shape)) return false;
+    // Собственный потомок (цикл): путь до цели строится по ЗАГРУЖЕННЫМ предкам, и
+    // этого достаточно — чтобы строка была видна, все её предки раскрыты.
+    return !pathTo(target).some((n) => n.id === node.id);
+  }
+
+  function onRowDragOver(e: DragEvent, target: Node) {
+    const m = movingRef.current;
+    if (!m || !e.dataTransfer.types.includes(NODE_MOVE_MIME)) return;
+    if (!canDropInto(m, target.id)) return; // дроп не разрешаем — курсор останется «запретным»
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== target.id) setDropTarget(target.id);
+  }
+  function onRowDragLeave(target: Node) {
+    setDropTarget((prev) => (prev === target.id ? null : prev));
+  }
+  function onRowDrop(e: DragEvent, target: Node) {
+    e.preventDefault();
+    const m = movingRef.current;
+    setDropTarget(null);
+    if (m && canDropInto(m, target.id)) onReparent?.(m, target.id);
+  }
+
+  function onRootDragOver(e: DragEvent) {
+    const m = movingRef.current;
+    if (!m || !e.dataTransfer.types.includes(NODE_MOVE_MIME) || !canDropInto(m, null)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTarget !== ROOT_TARGET) setDropTarget(ROOT_TARGET);
+  }
+  function onRootDrop(e: DragEvent) {
+    e.preventDefault();
+    const m = movingRef.current;
+    setDropTarget(null);
+    if (m && canDropInto(m, null)) onReparent?.(m, null);
   }
 
   function onTemplateDragStart(e: DragEvent, shape: NodeShape) {
@@ -572,6 +628,20 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
           <div style={trashInner}>
             <TrashIcon active={trashActive} />
           </div>
+        </div>
+      )}
+
+      {/* Полоса «в корень проекта» — единственный способ вынести объект на верхний
+          уровень: строки, представляющей корень, в дереве нет. Оверлеем у нижнего
+          края (как корзина палитры) — иначе список поехал бы прямо под курсором. */}
+      {moving && canDropInto(moving, null) && (
+        <div
+          className={"nt-rootzone" + (dropTarget === ROOT_TARGET ? " nt-rootzone--active" : "")}
+          onDragOver={onRootDragOver}
+          onDragLeave={() => setDropTarget((prev) => (prev === ROOT_TARGET ? null : prev))}
+          onDrop={onRootDrop}
+        >
+          В корень проекта
         </div>
       )}
 

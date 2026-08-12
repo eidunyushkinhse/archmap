@@ -42,6 +42,12 @@ export interface TreeRowCtx {
   };
   // id переносимой сейчас строки — она приглушается на время жеста
   movingId?: string | null;
+  // строка-цель под курсором (подсвечивается рамкой) и приём дропа. Появляются
+  // вместе с drag: без жеста переноса строка обычная.
+  dropTargetId?: string | null;
+  onDragOverRow?: (e: DragEvent<HTMLElement>, node: Node) => void;
+  onDragLeaveRow?: (node: Node) => void;
+  onDropRow?: (e: DragEvent<HTMLElement>, node: Node) => void;
 }
 
 // Глиф шеврона: размер/поворот. Кликабельная зона и хит-бокс — в CSS
@@ -82,8 +88,12 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
           "nt-row nt-row--clickable"
           + (isCurrent ? " nt-row--current" : "")
           + (ctx.movingId === id ? " nt-row--moving" : "")
+          + (ctx.dropTargetId === id ? " nt-row--droptarget" : "")
         }
         onClick={() => ctx.onSelect(node)}
+        onDragOver={ctx.drag && ((e) => ctx.onDragOverRow?.(e, node))}
+        onDragLeave={ctx.drag && (() => ctx.onDragLeaveRow?.(node))}
+        onDrop={ctx.drag && ((e) => ctx.onDropRow?.(e, node))}
         title={title}
       >
         {hasChildren ? (
