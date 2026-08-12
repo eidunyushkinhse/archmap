@@ -10,6 +10,7 @@ from app.database import Base
 if TYPE_CHECKING:
     # Только для типов/линтера: связь Node ↔ Edge SQLAlchemy резолвит по строке
     # через свой реестр в рантайме, поэтому здесь импорт не нужен (и создал бы цикл).
+    from app.models.db_table import DbTable
     from app.models.edge import Edge
     from app.models.node_doc import NodeDoc
     from app.models.project import Project
@@ -102,6 +103,16 @@ class Node(Base):
         passive_deletes=True,
         lazy="selectin",
         order_by="NodeDoc.name",
+    )
+    # Структура БД (таблицы) — «контракт» узла-базы, как openapi_spec у сервиса.
+    # Ленивая загрузка обычная: страница объекта берёт таблицы отдельным запросом,
+    # а графу уровня они не нужны — selectin здесь только раздувал бы каждый ответ.
+    db_tables: Mapped[list["DbTable"]] = relationship(
+        "DbTable",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="DbTable.schema_name, DbTable.name",
     )
 
     # Вычисляемые атрибуты отдачи (в БД НЕ хранятся — не колонки). Проставляются

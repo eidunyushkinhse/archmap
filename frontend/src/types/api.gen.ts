@@ -711,6 +711,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tables */
+        get: operations["list_tables_api_v1_nodes__node_id__tables_get"];
+        put?: never;
+        /** Create Table */
+        post: operations["create_table_api_v1_nodes__node_id__tables_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/{table_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Table */
+        delete: operations["delete_table_api_v1_nodes__node_id__tables__table_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Table */
+        patch: operations["update_table_api_v1_nodes__node_id__tables__table_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/{table_id}/columns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Column */
+        post: operations["create_column_api_v1_nodes__node_id__tables__table_id__columns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/{table_id}/columns/{column_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Column */
+        delete: operations["delete_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Column */
+        patch: operations["update_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/docs/{doc_id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Access */
+        get: operations["list_access_api_v1_nodes__node_id__docs__doc_id__access_get"];
+        put?: never;
+        /** Create Access */
+        post: operations["create_access_api_v1_nodes__node_id__docs__doc_id__access_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/docs/{doc_id}/access/{access_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Access */
+        delete: operations["delete_access_api_v1_nodes__node_id__docs__doc_id__access__access_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -1445,6 +1551,172 @@ export interface components {
             from_name: string;
             /** To Name */
             to_name: string;
+        };
+        /** DataAccessCreate */
+        DataAccessCreate: {
+            /**
+             * Table Id
+             * Format: uuid
+             */
+            table_id: string;
+            /** Column Id */
+            column_id?: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /** Note */
+            note?: string | null;
+        };
+        /** DataAccessResponse */
+        DataAccessResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Doc Id
+             * Format: uuid
+             */
+            node_doc_id: string;
+            /**
+             * Table Id
+             * Format: uuid
+             */
+            table_id: string;
+            /** Column Id */
+            column_id: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /** Note */
+            note: string | null;
+        };
+        /** DbColumnCreate */
+        DbColumnCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default
+             */
+            type: string;
+            /**
+             * Nullable
+             * @default true
+             */
+            nullable: boolean;
+            /**
+             * Is Primary Key
+             * @default false
+             */
+            is_primary_key: boolean;
+            /** References Column Id */
+            references_column_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+        };
+        /** DbColumnResponse */
+        DbColumnResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Table Id
+             * Format: uuid
+             */
+            table_id: string;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Nullable */
+            nullable: boolean;
+            /** Is Primary Key */
+            is_primary_key: boolean;
+            /** References Column Id */
+            references_column_id: string | null;
+            /** Description */
+            description: string | null;
+            /** Order */
+            order: number;
+        };
+        /** DbColumnUpdate */
+        DbColumnUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Type */
+            type?: string | null;
+            /** Nullable */
+            nullable?: boolean | null;
+            /** Is Primary Key */
+            is_primary_key?: boolean | null;
+            /** References Column Id */
+            references_column_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Order */
+            order?: number | null;
+        };
+        /** DbTableCreate */
+        DbTableCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Schema Name
+             * @default
+             */
+            schema_name: string;
+            /** Description */
+            description?: string | null;
+        };
+        /** DbTableResponse */
+        DbTableResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Schema Name */
+            schema_name: string;
+            /** Description */
+            description: string | null;
+            /** Version */
+            version: number;
+            /**
+             * Columns
+             * @default []
+             */
+            columns: components["schemas"]["DbColumnResponse"][];
+        };
+        /** DbTableUpdate */
+        DbTableUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Schema Name */
+            schema_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Base Version */
+            base_version?: number | null;
         };
         /**
          * DeletionSnapshot
@@ -4716,6 +4988,361 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DistributeDocsOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tables_api_v1_nodes__node_id__tables_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbTableResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_table_api_v1_nodes__node_id__tables_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbTableCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbTableResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_table_api_v1_nodes__node_id__tables__table_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_table_api_v1_nodes__node_id__tables__table_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbTableUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbTableResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_column_api_v1_nodes__node_id__tables__table_id__columns_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbColumnCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbColumnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+                column_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+                column_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbColumnUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbColumnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_access_api_v1_nodes__node_id__docs__doc_id__access_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataAccessResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_access_api_v1_nodes__node_id__docs__doc_id__access_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataAccessCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataAccessResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_access_api_v1_nodes__node_id__docs__doc_id__access__access_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                doc_id: string;
+                access_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
