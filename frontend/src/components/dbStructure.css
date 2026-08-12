@@ -1,0 +1,137 @@
+/* Секция «Структура» страницы узла-базы: таблицы и колонки записями.
+   Базовые примитивы (np-card, np-field, np-addbtn, np-empty, np-warn) берутся из
+   NodePage.css — здесь только раскладка таблиц и колонок. */
+
+.dbs-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dbs-table {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.dbs-thead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dbs-chev {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+}
+.dbs-chev span {
+  display: inline-block;
+  transition: transform 0.12s ease;
+}
+
+.dbs-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+.dbs-schema {
+  width: 120px;
+  flex: none;
+  color: #64748b;
+}
+/* Число колонок — та же роль, что у бейджа детей в дереве: масштаб виден без раскрытия. */
+.dbs-count {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+  min-width: 18px;
+  text-align: right;
+}
+.dbs-desc {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.dbs-del {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.dbs-del:hover {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.dbs-cols {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eef2f7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Строка колонки: имя и смысл тянутся, остальное — фиксированной ширины, чтобы
+   колонки строк выстраивались друг под другом и читались столбцами. */
+.dbs-col {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dbs-cname { flex: 1 1 140px; min-width: 0; }
+.dbs-ctype { flex: 0 0 130px; }
+.dbs-fk { flex: 0 0 170px; }
+.dbs-cdesc { flex: 2 1 200px; min-width: 0; }
+
+.dbs-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: #64748b;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dbs-addcol {
+  align-self: flex-start;
+}
+
+/* Наблюдатель: те же данные без полей ввода. */
+.dbs-ro {
+  color: #334155;
+  font-size: 13px;
+}
+.dbs-flag {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 5px;
+}

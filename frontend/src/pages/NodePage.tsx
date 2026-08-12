@@ -12,6 +12,7 @@ import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
+import DbStructureSection from "../components/DbStructureSection";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
@@ -556,6 +557,11 @@ function NodePageInner({
 
         {/* ── Участвует в процессах ─────────────────────────────── */}
         <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
+
+        {/* ── Структура (таблицы БД) ────────────────────────────── */}
+        {allow.structure && (
+          <DbStructureSection nodeId={node.id} isArchitect={isArchitect} />
+        )}
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}
         {(allow.logic || legacyLogic || container.docGroups.length > 0)

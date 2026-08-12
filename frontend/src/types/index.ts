@@ -199,3 +199,16 @@ export type BranchIn = Schemas["BranchIn"];
 export type MessageLeg = Schemas["MessageOut"]["leg"];
 export type MessageKind = Schemas["MessageOut"]["kind"];
 export type FragmentKind = Schemas["FragmentOut"]["kind"];
+
+// Структура БД (docs/plan-db-docs.md): «контракт» узла-базы — таблицы и колонки
+// ЗАПИСЯМИ, а не текстом mermaid; ER-диаграмма из них производна. Обращения к данным
+// (кто читает/пишет в рамках операции) живут у ВЫЗЫВАЮЩЕГО — в доке его операции.
+export type DbTable = Schemas["DbTableResponse"];
+export type DbTableCreate = Schemas["DbTableCreate"];
+export type DbTableUpdate = Schemas["DbTableUpdate"];
+export type DbColumn = Schemas["DbColumnResponse"];
+export type DbColumnCreate = Schemas["DbColumnCreate"];
+export type DbColumnUpdate = Schemas["DbColumnUpdate"];
+export type DataAccess = Schemas["DataAccessResponse"];
+export type DataAccessCreate = Schemas["DataAccessCreate"];
+export type DataAccessMode = Schemas["DataAccessResponse"]["mode"];

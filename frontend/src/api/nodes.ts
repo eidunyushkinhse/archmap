@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { DataAccess, DataAccessCreate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -133,4 +133,35 @@ export const edgesApi = {
   // (R3) и в снимке не нужна.
   deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
     api.get<DeletionSnapshot>(`/edges/${id}/deletion-snapshot`),
+};
+
+// Структура БД узла (таблицы с колонками) и обращения к данным. Структура — контракт
+// базы, обращения — использование у вызывающего: два конца одной пары (см.
+// docs/plan-db-docs.md §1).
+export const dbTablesApi = {
+  list: (nodeId: string): Promise<DbTable[]> =>
+    api.get<DbTable[]>(`/nodes/${nodeId}/tables`),
+  create: (nodeId: string, data: DbTableCreate): Promise<DbTable> =>
+    api.post<DbTable>(`/nodes/${nodeId}/tables`, data),
+  update: (nodeId: string, tableId: string, data: DbTableUpdate): Promise<DbTable> =>
+    api.patch<DbTable>(`/nodes/${nodeId}/tables/${tableId}`, data),
+  delete: (nodeId: string, tableId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/tables/${tableId}`),
+  createColumn: (nodeId: string, tableId: string, data: DbColumnCreate): Promise<DbColumn> =>
+    api.post<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns`, data),
+  updateColumn: (
+    nodeId: string, tableId: string, columnId: string, data: DbColumnUpdate,
+  ): Promise<DbColumn> =>
+    api.patch<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`, data),
+  deleteColumn: (nodeId: string, tableId: string, columnId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`),
+};
+
+export const dataAccessApi = {
+  list: (nodeId: string, docId: string): Promise<DataAccess[]> =>
+    api.get<DataAccess[]>(`/nodes/${nodeId}/docs/${docId}/access`),
+  create: (nodeId: string, docId: string, data: DataAccessCreate): Promise<DataAccess> =>
+    api.post<DataAccess>(`/nodes/${nodeId}/docs/${docId}/access`, data),
+  delete: (nodeId: string, docId: string, accessId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/docs/${docId}/access/${accessId}`),
 };

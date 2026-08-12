@@ -1,0 +1,114 @@
+// Секция «Структура» узла-базы: таблицы и колонки записями.
+//
+// Проверяется то, что отличает эту секцию от текстового поля: правка идёт поштучно
+// (без формы и «Сохранить»), таблица правится под CAS, колонка умеет ссылаться на
+// чужую колонку (из этих ссылок Ф3 рисует ER), а наблюдатель ничего не редактирует.
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import DbStructureSection from "../DbStructureSection";
+import { dbTablesApi } from "../../api/nodes";
+import type { DbColumn, DbTable } from "../../types";
+
+vi.mock("../../api/nodes", () => ({
+  dbTablesApi: {
+    list: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    createColumn: vi.fn(),
+    updateColumn: vi.fn(),
+    deleteColumn: vi.fn(),
+  },
+}));
+
+function column(over: Partial<DbColumn> = {}): DbColumn {
+  return {
+    id: "c1", table_id: "t1", name: "status", type: "varchar(16)",
+    nullable: true, is_primary_key: false, references_column_id: null,
+    description: null, order: 0, ...over,
+  } as DbColumn;
+}
+
+function table(over: Partial<DbTable> = {}): DbTable {
+  return {
+    id: "t1", node_id: "n1", name: "orders", schema_name: "",
+    description: null, version: 1, columns: [column()], ...over,
+  } as DbTable;
+}
+
+function setup(tables: DbTable[], isArchitect = true) {
+  vi.mocked(dbTablesApi.list).mockResolvedValue(tables);
+  return render(<DbStructureSection nodeId="n1" isArchitect={isArchitect} />);
+}
+
+describe("DbStructureSection", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("пустая структура предлагает завести таблицу", async () => {
+    setup([]);
+    await waitFor(() => expect(screen.getByText("Таблицы не описаны")).toBeInTheDocument());
+    expect(screen.getByText("+ Таблица")).toBeInTheDocument();
+  });
+
+  it("колонки видны после раскрытия таблицы, число — сразу", async () => {
+    setup([table()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("status")).toBeNull();
+    await userEvent.click(screen.getByLabelText("Развернуть колонки"));
+    expect(screen.getByDisplayValue("status")).toBeInTheDocument();
+  });
+
+  it("правка имени таблицы уходит PATCH-ем с CAS-версией", async () => {
+    vi.mocked(dbTablesApi.update).mockResolvedValue(table({ name: "invoices" }));
+    setup([table({ version: 7 })]);
+    const input = await screen.findByDisplayValue("orders");
+    fireEvent.blur(input, { target: { value: "invoices" } });
+    await waitFor(() => expect(dbTablesApi.update).toHaveBeenCalledWith(
+      "n1", "t1", { name: "invoices", base_version: 7 },
+    ));
+  });
+
+  it("новая таблица получает свободное имя — повторное нажатие не упрётся в 409", async () => {
+    vi.mocked(dbTablesApi.create).mockResolvedValue(table());
+    setup([table({ id: "t1", name: "таблица" })]);
+    await waitFor(() => expect(screen.getByDisplayValue("таблица")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("+ Таблица"));
+    expect(dbTablesApi.create).toHaveBeenCalledWith("n1", { name: "таблица_2", schema_name: "" });
+  });
+
+  it("колонка ссылается на колонку другой таблицы, но не на себя", async () => {
+    vi.mocked(dbTablesApi.updateColumn).mockResolvedValue(column());
+    setup([
+      table(),
+      table({
+        id: "t2", name: "accounts",
+        columns: [column({ id: "c2", table_id: "t2", name: "id" })],
+      }),
+    ]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getAllByLabelText("Развернуть колонки")[0]);
+    const fk = screen.getByTitle("Ссылается на колонку");
+    // Своей же колонки в списке нет — ссылка на себя бессмысленна.
+    expect(screen.queryByRole("option", { name: "orders.status" })).toBeNull();
+    await userEvent.selectOptions(fk, "c2");
+    expect(dbTablesApi.updateColumn).toHaveBeenCalledWith(
+      "n1", "t1", "c1", { references_column_id: "c2" },
+    );
+  });
+
+  it("наблюдатель видит структуру, но не правит", async () => {
+    setup([table({ columns: [column({ is_primary_key: true, nullable: false })] })], false);
+    await waitFor(() => expect(screen.getByText("orders")).toBeInTheDocument());
+    expect(screen.queryByDisplayValue("orders")).toBeNull();
+    expect(screen.queryByText("+ Таблица")).toBeNull();
+    // И колонки тоже читаются, а не правятся: признаки — текстом, полей ввода нет.
+    await userEvent.click(screen.getByLabelText("Развернуть колонки"));
+    expect(screen.getByText("status")).toBeInTheDocument();
+    expect(screen.getByText("PK")).toBeInTheDocument();
+    expect(screen.getByText("NOT NULL")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("status")).toBeNull();
+    expect(screen.queryByTitle("Ссылается на колонку")).toBeNull();
+  });
+});
