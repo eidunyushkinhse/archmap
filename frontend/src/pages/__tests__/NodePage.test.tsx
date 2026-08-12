@@ -299,3 +299,51 @@ describe("NodePage: правила контейнеров", () => {
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
   });
 });
+
+// ── Документация по форме узла ──────────────────────────────────────────────
+// Логика (mermaid) и OpenAPI — артефакты СЕРВИСА. У базы данных их не бывает: её
+// «контракт» — структура. Промпт агента это правило проговаривал давно, а страница
+// до 2026-08-12 предлагала слоты под них любой атомарной форме.
+describe("NodePage: документация по форме узла", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupShape(over: Partial<Node>) {
+    const n = node("n1", { ...over, has_children: false, child_count: 0 });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+  }
+
+  it("у сервиса секции «Логика» и «OpenAPI» на месте", async () => {
+    setupShape({ shape: "service" });
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    expect(screen.getByText("OpenAPI")).toBeInTheDocument();
+  });
+
+  it("у базы данных ни логики, ни OpenAPI не предлагается", async () => {
+    setupShape({ shape: "database", name: "Хранилище" });
+    await waitFor(() => expect(screen.getByDisplayValue("Хранилище")).toBeInTheDocument());
+    expect(screen.queryByText("Логика")).not.toBeInTheDocument();
+    expect(screen.queryByText("OpenAPI")).not.toBeInTheDocument();
+  });
+
+  it("у брокера тоже нет — каналы будут вторым кругом", async () => {
+    setupShape({ shape: "broker", name: "Очередь" });
+    await waitFor(() => expect(screen.getByDisplayValue("Очередь")).toBeInTheDocument());
+    expect(screen.queryByText("Логика")).not.toBeInTheDocument();
+    expect(screen.queryByText("OpenAPI")).not.toBeInTheDocument();
+  });
+
+  it("легаси-содержимое у базы не прячется, а объясняется", async () => {
+    const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1 };
+    setupShape({ shape: "database", name: "Хранилище", docs: [док], openapi_spec: "openapi: 3.0.0" });
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    expect(screen.getByText(/у этого объекта его нет — перенесите/)).toBeInTheDocument();
+    expect(screen.getByText(/OpenAPI описывает HTTP-API/)).toBeInTheDocument();
+    // Заводить новое всё равно нельзя — только унести существующее.
+    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+  });
+});

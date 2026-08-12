@@ -18,6 +18,19 @@ export type NodeStatus = Schemas["NodeResponse"]["status"];
 // детей у них не заводим, на схеме они не «зона входа» для сквозной связи.
 export const canHaveChildren = (shape: NodeShape): boolean => shape === "service";
 
+// Какая документация уместна форме узла (docs/plan-db-docs.md §1). Логика (mermaid)
+// и OpenAPI — артефакты СЕРВИСА: они описывают его код и его API. У базы данных ни
+// того, ни другого не бывает — её «контракт» это СТРУКТУРА (таблицы/колонки); промпт
+// агента это правило проговаривает давно («у узла без собственного HTTP API спеки нет
+// вовсе»), а страница объекта до 2026-08-12 всё равно предлагала слоты под них.
+// Брокеру предстоят КАНАЛЫ (второй круг эпика) — пока собственной документации нет.
+export interface ShapeDocs { logic: boolean; spec: boolean; structure: boolean }
+export const shapeDocs = (shape: NodeShape): ShapeDocs => ({
+  logic: shape === "service",
+  spec: shape === "service",
+  structure: shape === "database",
+});
+
 // Проект — изолированная схема. Мета (счётчики/редактор/даты) считается бэком.
 export type Project = Schemas["ProjectResponse"];
 export type ProjectCreate = Schemas["ProjectCreate"];
