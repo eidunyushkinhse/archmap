@@ -36,6 +36,10 @@
   flex: none;
   color: #94a3b8;
   display: inline-flex;
+  /* Секция живёт у нижнего края и раскрывается ВВЕРХ, поэтому свёрнутая смотрит
+     вверх («открыть туда»), раскрытая — вниз («убрать обратно»). Базовый глиф
+     ChevronIcon смотрит вправо. */
+  transform: rotate(-90deg);
   transition: transform 0.15s ease, color 0.12s ease;
 }
 .nt-secchev--open {
@@ -272,18 +276,13 @@
   background: #eff6ff;
 }
 
-/* Полоса «в корень проекта» — появляется только на время переноса, у нижнего края
-   панели, поверх содержимого (список под ней не съезжает). */
+/* Полоса «в корень проекта» — на время переноса встаёт в слот строки поиска (тот же
+   бокс, поэтому дерево под ней не съезжает). Габариты повторяют поле поиска. */
 .nt-rootzone {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 46px;
-  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 38px;
+  height: 33px;
   border: 1px dashed #94a3b8;
   border-radius: 8px;
   background: #f8fafc;

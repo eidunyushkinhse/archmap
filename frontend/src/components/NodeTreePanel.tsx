@@ -538,19 +538,35 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
       ) : (
       <div style={content}>
           <>
-            {/* Поиск */}
-            <div style={searchWrap}>
-              <input
-                style={searchInput}
-                type="text"
-                placeholder="Поиск по имени…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button style={searchClear} onClick={() => setSearchQuery("")} title="Очистить">×</button>
-              )}
-            </div>
+            {/* Поиск — а на время переноса ВМЕСТО него полоса «в корень проекта»:
+                единственный способ вынести объект на верхний уровень (строки, которая
+                представляла бы корень, в дереве нет), а поиск в разгар жеста не нужен.
+                Подмена в том же слоте — список под ней не съезжает. */}
+            {moving && canDropInto(moving, null) ? (
+              <div style={searchWrap}>
+                <div
+                  className={"nt-rootzone" + (dropTarget === ROOT_TARGET ? " nt-rootzone--active" : "")}
+                  onDragOver={onRootDragOver}
+                  onDragLeave={() => setDropTarget((prev) => (prev === ROOT_TARGET ? null : prev))}
+                  onDrop={onRootDrop}
+                >
+                  В корень проекта
+                </div>
+              </div>
+            ) : (
+              <div style={searchWrap}>
+                <input
+                  style={searchInput}
+                  type="text"
+                  placeholder="Поиск по имени…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button style={searchClear} onClick={() => setSearchQuery("")} title="Очистить">×</button>
+                )}
+              </div>
+            )}
 
             {/* Результаты поиска или дерево */}
             <div ref={treeScrollRef} style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -628,20 +644,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
           <div style={trashInner}>
             <TrashIcon active={trashActive} />
           </div>
-        </div>
-      )}
-
-      {/* Полоса «в корень проекта» — единственный способ вынести объект на верхний
-          уровень: строки, представляющей корень, в дереве нет. Оверлеем у нижнего
-          края (как корзина палитры) — иначе список поехал бы прямо под курсором. */}
-      {moving && canDropInto(moving, null) && (
-        <div
-          className={"nt-rootzone" + (dropTarget === ROOT_TARGET ? " nt-rootzone--active" : "")}
-          onDragOver={onRootDragOver}
-          onDragLeave={() => setDropTarget((prev) => (prev === ROOT_TARGET ? null : prev))}
-          onDrop={onRootDrop}
-        >
-          В корень проекта
         </div>
       )}
 
