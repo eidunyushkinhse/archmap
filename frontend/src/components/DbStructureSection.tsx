@@ -12,6 +12,7 @@ import { dbTablesApi } from "../api/nodes";
 import DataAgentModal from "./docsImport/DataAgentModal";
 import ErDiagramModal from "./ErDiagramModal";
 import MermaidRenderer from "./MermaidRenderer";
+import { useCollapse } from "./useCollapse";
 import { useFlipRows } from "./useFlipRows";
 import { ChevronDownIcon } from "../ui/icons";
 import { tablesToErDiagram } from "./dbErDiagram";
@@ -256,6 +257,11 @@ function TableCard({
   const patch = (data: Parameters<typeof dbTablesApi.update>[2]) =>
     void apply(() => dbTablesApi.update(nodeId, table.id, { ...data, base_version: table.version }));
 
+  // Раскрывашка колонок едет с той же длительностью, что переезд карточек, а секция
+  // вокруг растёт за ней сама: у неё высота auto, и фиксировать её здесь не нужно.
+  const colsRef = useRef<HTMLDivElement>(null);
+  const showCols = useCollapse(colsRef, expanded);
+
   return (
     <div className="dbs-table" data-flip-id={table.id}>
       <div className="dbs-thead">
@@ -312,8 +318,8 @@ function TableCard({
         <p className="dbs-desc dbs-ro">{table.description}</p>
       ) : null}
 
-      {expanded && (
-        <div className="dbs-cols">
+      {showCols && (
+        <div ref={colsRef} className="dbs-cols">
           {table.columns.length === 0 && <p className="np-empty">Колонки не описаны</p>}
           {/* Шапка: без неё колонка типа неотличима от колонки смысла, а два чекбокса
               подряд не читаются вовсе. Ширины — те же классы, что у строк, поэтому

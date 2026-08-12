@@ -15,10 +15,16 @@
 // да и переезд между DOM-родителями рефы всё равно бы не пережили.
 import { useLayoutEffect, useRef } from "react";
 
-const DURATION = 260;
-const EASING = "cubic-bezier(.2,.7,.3,1)";
+// Одни длительность и кривая на ВСЕ анимации перестройки (переезд карточек, высота
+// списка, раскрывашка таблицы): разнобой в них читается как неаккуратность сильнее,
+// чем отсутствие анимации вообще.
+export const ANIM_MS = 260;
+export const ANIM_EASING = "cubic-bezier(.2,.7,.3,1)";
 
-function reducedMotion(): boolean {
+const DURATION = ANIM_MS;
+const EASING = ANIM_EASING;
+
+export function reducedMotion(): boolean {
   return typeof window !== "undefined"
     && typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
