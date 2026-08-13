@@ -267,6 +267,60 @@
 }
 .doc-edstat-r { margin-left: auto; color: #b6bfca; font-weight: 400; white-space: nowrap; }
 
+/* ── плашка «Обращения» (пометки «читает:/пишет:» в тексте схемы) ─────────── */
+/* Подсказка под статус-строкой, а не отчёт: мелко, серо, без рамок. Список длинных
+   пометок прокручивается внутри себя — редактор поля от неё усыхать не должен. */
+.doc-refs {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 7px 12px 8px;
+  border-top: 1px solid #f3f4f6;
+  background: #fbfcfd;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #475569;
+}
+.doc-refshead {
+  margin-bottom: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa6b4;
+}
+.doc-refrow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1.5px 0;
+}
+/* Действие — цветной чип теми же красками, что в обратном индексе базы
+   (dbStructure.css): «пишет» обязано отличаться от «читает» с одного взгляда. */
+.doc-refmode {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.doc-refmode--read { color: #0369a1; background: #e0f2fe; }
+.doc-refmode--write { color: #9a3412; background: #ffedd5; }
+/* Цель переносится, а не обрезается: усечённое имя таблицы бесполезно — сверять
+   его с реальностью нечем. Колонка редактора бывает и узкой (правая панель). */
+.doc-reftext {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.doc-refname {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #0f172a;
+}
+.doc-refok { color: #15803d; }
+.doc-refbad { color: #b45309; font-weight: 600; }
+
 /* ── превью ─────────────────────────────────────────────────────────────── */
 
 .doc-pv {

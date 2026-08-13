@@ -5,6 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import MermaidRenderer from "../MermaidRenderer";
 import type { MmdStatus } from "../MermaidRenderer";
+import { dataRefsApi } from "../../api/dataRefs";
+import type { DataRefPreviewItem } from "../../types";
 import { pinSvgSize, usePanZoom } from "../usePanZoom";
 import { DocEditorColumn, StatusError, StatusNote, StatusOk, StatusReadOnly } from "./docShared";
 import { nowHHMM, unfenceMermaid } from "./docValidate";
@@ -16,12 +18,85 @@ interface Props {
   onCommit: (value: string) => void;
 }
 
+// ── плашка «Обращения» ───────────────────────────────────────────────────────
+// Пометка «читает:/пишет:» в подписи шага — ЕДИНСТВЕННЫЙ ввод обращений к данным
+// (пивот §9 plan-db-docs.md), поэтому её распознавание обязано быть видно прямо во
+// время письма: иначе конвенцию не выучить, а промах именем обнаружится когда-то
+// потом в панели алертов. Наблюдателю плашка не нужна — пометки он читает в самой
+// диаграмме, а исправить всё равно не может.
+
+// Дешёвый локальный гейт: грамматику маркера держит бэк (app/data_refs.py), тут
+// достаточно понять, есть ли в тексте хоть один — на доках без данных (их
+// большинство) сеть не дёргается вовсе. \b не ставим: в JS он ASCII-ный и перед
+// кириллическим «ч» не сработал бы.
+const REF_MARKER = /(читает|пишет|reads|writes)\s*:/i;
+
+// Почему пометка не срослась — ТЕ ЖЕ слова, что в панели алертов (SchemaAlerts):
+// один факт, увиденный из двух мест, не должен читаться как две разные проблемы.
+const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = {
+  unknown_table: "таблица не найдена",
+  ambiguous: "имя неоднозначно — укажите „БД / таблица“",
+  unknown_column: "колонки нет в таблице",
+};
+
+function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
+  return (
+    <div className="doc-refs">
+      <div className="doc-refshead">Обращения</div>
+      {refs.map((r, i) => (
+        <div key={`${r.mode}:${r.ref}:${i}`} className="doc-refrow">
+          <span className={`doc-refmode doc-refmode--${r.mode}`}>
+            {r.mode === "write" ? "пишет" : "читает"}
+          </span>
+          <span className="doc-reftext">
+            <span className="doc-refname">{r.ref}</span>{" "}
+            {r.status === "ok" ? (
+              <span className="doc-refok">→ {r.target} ✓</span>
+            ) : (
+              // unknown_column: таблица-то нашлась — называем её, иначе непонятно,
+              // куда смотреть, чтобы свериться с колонками.
+              <span className="doc-refbad">
+                ⚠ {REF_REASON[r.status]}
+                {r.status === "unknown_column" && r.target ? ` (${r.target})` : ""}
+              </span>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit }: Props) {
   const [code, setCode] = useState(initial);
   const [status, setStatus] = useState<MmdStatus>({ kind: "loading" });
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Разбор пометок обращений для плашки. Текст шлём как есть, включая несохранённый:
+  // резолв на бэке — чистая функция, записи он не делает (пивот §9).
+  const [refs, setRefs] = useState<DataRefPreviewItem[]>([]);
+  const refSeq = useRef(0);
+  // Производное — в рендере: нет маркера → нет ни плашки, ни запроса.
+  const hasRefMarker = REF_MARKER.test(code);
+  useEffect(() => {
+    if (!isArchitect || !hasRefMarker) return;
+    const seq = ++refSeq.current;
+    const t = window.setTimeout(() => {
+      dataRefsApi
+        .preview(code)
+        .then((items) => {
+          if (refSeq.current !== seq) return;
+          setRefs(items);
+        })
+        // Плашка — подсказка, а не источник истины: отказ сети гасим молча и держим
+        // прежний разбор. Пока ответ в пути, плашка тоже не мигает: старое состояние
+        // на полсекунды честнее, чем моргающая пустота на каждый символ.
+        .catch(() => undefined);
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [code, isArchitect, hasRefMarker]);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const pzRef = useRef<HTMLDivElement>(null);
@@ -77,6 +152,8 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
   const shown: MmdStatus = hasChart ? status : { kind: "ok" };
   // Наблюдатель с невалидной сохранённой диаграммой: вместо рендера — заглушка с ошибкой
   const observerError = !isArchitect && shown.kind === "error";
+  // Пометки стёрли — плашка уходит сразу, не дожидаясь ответа на прошлый текст.
+  const showRefs = isArchitect && hasRefMarker && refs.length > 0;
 
   // Отказ по файлу перекрывает статус разбора: пока он висит, в поле лежит не то,
   // что пользователь выбрал, и сообщать про синтаксис старой схемы — врать.
@@ -107,7 +184,16 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
           readOnly={!isArchitect}
           onChange={isArchitect ? handleChange : undefined}
           onCommitValue={isArchitect ? commit : undefined}
-          status={statusRow}
+          // Плашка едет ФРАГМЕНТОМ в слот статуса: DocEditorColumn кладёт status
+          // последним ребёнком своей flex-колонки, так что второй элемент встаёт
+          // ровно под статус-строкой — новый проп общего компонента ничего бы не
+          // добавил, а в режиме OpenAPI обращений не бывает вовсе.
+          status={
+            <>
+              {statusRow}
+              {showRefs && <DataRefsPlate refs={refs} />}
+            </>
+          }
           taRef={taRef}
           // .md в маске не случайно: схемы чаще всего лежат кусочком markdown —
           // обёртку ```mermaid снимаем при загрузке (prepareFile).
