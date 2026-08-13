@@ -16,7 +16,6 @@ from app.database import Base
 from app.models.business_process import BusinessProcess  # noqa: F401
 from app.models.db_column import DbColumn  # noqa: F401
 from app.models.db_table import DbTable  # noqa: F401
-from app.models.doc_data_access import DocDataAccess  # noqa: F401
 from app.models.edge import Edge  # noqa: F401
 
 # Импортируем все модели, чтобы они зарегистрировались в Base.metadata до create_all.

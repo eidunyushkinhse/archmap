@@ -1,4 +1,8 @@
-"""CRUD структуры БД (таблицы/колонки) и обращений к данным.
+"""CRUD структуры БД (таблицы/колонки) и обратный индекс «кто к ним обращается».
+
+Обращения СВОЕГО ввода здесь не имеют: они живут пометками «читает:/пишет:» в тексте
+схем логики вызывающих (пивот §9 plan-db-docs.md), а индекс собирается их разбором на
+чтении. Записями хранится только структура — «контракт» узла-базы.
 
 Мутации — только архитектору, чтение — обеим ролям: как у node_docs. Каждая мутация
 бампает meta_rev — структура это МЕТА узла (видна на его странице, не на схеме), и
@@ -22,31 +26,22 @@ from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
-from app.models.doc_data_access import DocDataAccess
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.db_doc import (
-    DataAccessCreate,
-    DataAccessResponse,
     DbColumnCreate,
     DbColumnResponse,
     DbColumnUpdate,
     DbTableCreate,
     DbTableResponse,
     DbTableUpdate,
-    ProjectTableRef,
     TableUsage,
 )
 from app.view_state import bump_meta_rev
 
-# Каталог таблиц ВСЕГО проекта живёт под своим префиксом, а не под /nodes/…: путь
-# «/nodes/tables» перехватил бы «/nodes/{node_id}» (объявлен раньше) и упал бы на
-# разборе uuid.
-catalog_router = APIRouter(prefix="/tables", tags=["db-docs"])
 tables_router = APIRouter(prefix="/nodes/{node_id}/tables", tags=["db-docs"])
-access_router = APIRouter(prefix="/nodes/{node_id}/docs/{doc_id}/access", tags=["db-docs"])
 
 
 def _get_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
@@ -173,30 +168,6 @@ def list_usage(
             )
     rows.sort(key=lambda u: (u.table_name, u.node_name, u.doc_name))
     return rows
-
-
-@catalog_router.get("", response_model=list[ProjectTableRef])
-def list_project_tables(
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    _: User = Depends(get_current_user),
-) -> list[ProjectTableRef]:
-    """Все таблицы проекта с именами узлов-владельцев — материал пикера обращений."""
-    rows = (
-        db.query(DbTable, Node.name)
-        .join(Node, Node.id == DbTable.node_id)
-        .filter(Node.project_id == project.id)
-        .order_by(Node.name, DbTable.schema_name, DbTable.name)
-        .all()
-    )
-    return [
-        ProjectTableRef(
-            id=t.id, node_id=t.node_id, node_name=node_name,
-            name=t.name, schema_name=t.schema_name,
-            columns=list(t.columns),
-        )
-        for t, node_name in rows
-    ]
 
 
 @tables_router.post("", response_model=DbTableResponse, status_code=status.HTTP_201_CREATED)
@@ -345,92 +316,6 @@ def delete_column(
     if column is None or column.table_id != table.id:
         raise HTTPException(status_code=404, detail="Колонка не найдена")
     db.delete(column)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
-
-
-# ── Обращения к данным (у ВЫЗЫВАЮЩЕГО, в доке его операции) ───────────────────
-
-
-def _scoped_doc(db: Session, node: Node, doc_id: uuid.UUID) -> NodeDoc:
-    doc = db.get(NodeDoc, doc_id)
-    if doc is None or doc.node_id != node.id:
-        raise HTTPException(status_code=404, detail="Схема не найдена")
-    return doc
-
-
-@access_router.get("", response_model=list[DataAccessResponse])
-def list_access(
-    node_id: uuid.UUID,
-    doc_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    _: User = Depends(get_current_user),
-) -> list[DocDataAccess]:
-    node = _get_node(db, node_id, project)
-    return list(_scoped_doc(db, node, doc_id).data_access)
-
-
-@access_router.post("", response_model=DataAccessResponse, status_code=status.HTTP_201_CREATED)
-def create_access(
-    node_id: uuid.UUID,
-    doc_id: uuid.UUID,
-    payload: DataAccessCreate,
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
-) -> DocDataAccess:
-    node = _get_node(db, node_id, project)
-    doc = _scoped_doc(db, node, doc_id)
-    # Таблица — из ЛЮБОГО узла проекта: обращение по определению уходит на чужой узел
-    # (сервис → его БД). Скоуп проверяем через владельца таблицы.
-    table = db.get(DbTable, payload.table_id)
-    owner = db.get(Node, table.node_id) if table else None
-    if table is None or owner is None or owner.project_id != project.id:
-        raise HTTPException(status_code=404, detail="Таблица не найдена")
-    if payload.column_id is not None:
-        column = db.get(DbColumn, payload.column_id)
-        if column is None or column.table_id != table.id:
-            raise HTTPException(status_code=400, detail="Колонка не из этой таблицы")
-    # Дубли (одно и то же обращение дважды) — 409, а не молчаливая вторая строка:
-    # уникальный индекс здесь не поможет, NULL в column_id сам себе не конфликтует.
-    exists = (
-        db.query(DocDataAccess.id)
-        .filter(
-            DocDataAccess.node_doc_id == doc.id,
-            DocDataAccess.table_id == payload.table_id,
-            DocDataAccess.column_id == payload.column_id,
-            DocDataAccess.mode == payload.mode,
-        )
-        .first()
-    )
-    if exists is not None:
-        raise HTTPException(status_code=409, detail="Такое обращение уже описано")
-    access = DocDataAccess(node_doc_id=doc.id, **payload.model_dump())
-    db.add(access)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
-    db.refresh(access)
-    return access
-
-
-@access_router.delete("/{access_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_access(
-    node_id: uuid.UUID,
-    doc_id: uuid.UUID,
-    access_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
-) -> None:
-    node = _get_node(db, node_id, project)
-    doc = _scoped_doc(db, node, doc_id)
-    access = db.get(DocDataAccess, access_id)
-    if access is None or access.node_doc_id != doc.id:
-        raise HTTPException(status_code=404, detail="Обращение не найдено")
-    db.delete(access)
     bump_meta_rev(db, project)
     touch_project(db, project, user.id)
     db.commit()

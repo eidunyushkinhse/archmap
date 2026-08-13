@@ -24,7 +24,6 @@ vi.mock("../../api/nodes", () => ({
   nodeDocsApi: { distribute: vi.fn() },
   // Секция «Структура» рендерится на странице базы данных и сама ходит за таблицами.
   dbTablesApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
-  dataAccessApi: { list: vi.fn(() => Promise.resolve([])) },
   viewsApi: { state: vi.fn() },
   edgesApi: { update: vi.fn() },
   exportApi: { subtree: vi.fn() },

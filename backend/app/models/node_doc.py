@@ -17,7 +17,6 @@ from app.database import Base
 
 if TYPE_CHECKING:
     # Только для типов: связь резолвится реестром SQLAlchemy по строке в рантайме.
-    from app.models.doc_data_access import DocDataAccess
     from app.models.node import Node
 
 
@@ -59,11 +58,3 @@ class NodeDoc(Base):
     )
 
     node: Mapped["Node"] = relationship("Node", back_populates="docs")
-    # Обращения к данным этой операции (какие таблицы/колонки читает и пишет).
-    data_access: Mapped[list["DocDataAccess"]] = relationship(
-        "DocDataAccess",
-        back_populates="doc",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        lazy="selectin",
-    )

@@ -1,7 +1,7 @@
-"""Дозаливка структуры БД и обращений от агента: промпт → превью → применение.
+"""Дозаливка структуры БД от агента: промпт → превью → применение.
 
-Тот же путь, что у доков (BYOA), но своя пара сущностей. Роутер тонкий: разбор и план
-живут в app/data_import.py, промпт — в app/data_prompt.py.
+Тот же путь, что у доков (BYOA), но своя сущность. Роутер тонкий: разбор и план живут
+в app/data_import.py, промпт — в app/data_prompt.py.
 """
 
 import uuid
@@ -58,8 +58,8 @@ def data_import_apply(
     if plan.report.errors:
         return plan.report  # applied=False — окно показывает ошибки
     apply_data_plan(db, plan, payload.overwrite)
-    if plan.report.tables_written or plan.report.columns_written or plan.report.access_written:
-        bump_meta_rev(db, project)  # структура и обращения — мета узла
+    if plan.report.tables_written or plan.report.columns_written:
+        bump_meta_rev(db, project)  # структура — мета узла
     touch_project(db, project, user.id)
     db.commit()
     return plan.report

@@ -202,19 +202,15 @@ export type FragmentKind = Schemas["FragmentOut"]["kind"];
 
 // Структура БД (docs/plan-db-docs.md): «контракт» узла-базы — таблицы и колонки
 // ЗАПИСЯМИ, а не текстом mermaid; ER-диаграмма из них производна. Обращения к данным
-// (кто читает/пишет в рамках операции) живут у ВЫЗЫВАЮЩЕГО — в доке его операции.
+// (кто читает/пишет в рамках операции) записями НЕ хранятся: их истина — пометки
+// «читает:/пишет:» в тексте схем логики вызывающих (пивот §9).
 export type DbTable = Schemas["DbTableResponse"];
 export type DbTableCreate = Schemas["DbTableCreate"];
 export type DbTableUpdate = Schemas["DbTableUpdate"];
 export type DbColumn = Schemas["DbColumnResponse"];
 export type DbColumnCreate = Schemas["DbColumnCreate"];
 export type DbColumnUpdate = Schemas["DbColumnUpdate"];
-export type DataAccess = Schemas["DataAccessResponse"];
-export type DataAccessCreate = Schemas["DataAccessCreate"];
-export type DataAccessMode = Schemas["DataAccessResponse"]["mode"];
-// Каталог таблиц проекта (пикер цели обращения) и обратный индекс базы («кто ко мне
-// ходит») — оба производны от тех же записей, отдельного ввода не требуют.
-export type ProjectTableRef = Schemas["ProjectTableRef"];
+// Обратный индекс базы («кто ко мне ходит») — разворот тех же пометок на чтении.
 export type TableUsage = Schemas["TableUsage"];
-// Дозаливка данных от агента (структура БД + обращения): отчёт превью/применения.
+// Дозаливка структуры БД от агента: отчёт превью/применения.
 export type DataImportReport = Schemas["DataImportReport"];

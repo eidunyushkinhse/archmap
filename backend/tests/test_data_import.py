@@ -1,8 +1,11 @@
-"""Дозаливка структуры БД и обращений от агента (BYOA).
+"""Дозаливка СТРУКТУРЫ БД от агента (BYOA).
 
 Без неё эпик наполовину бесполезен: базу с сорока таблицами руками не опишут. Здесь
 проверяется то, чем этот путь отличается от ручного ввода: толерантный разбор, адрес
 узла в файле, повторный прогон без дублей и политика «ничего не удаляем».
+
+Обращения сюда больше не приезжают — они живут пометками в схемах логики (пивот §9);
+пакету по старому промпту это объясняют предупреждением.
 """
 
 import uuid
@@ -12,9 +15,7 @@ from conftest import ensure_architect, ensure_project
 from app.data_import import parse_data_file
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
-from app.models.doc_data_access import DocDataAccess
 from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.routers.data_import import data_import_apply, data_import_preview
 from app.schemas.data_import import DataImportIn
 
@@ -39,7 +40,11 @@ tables:
       - name: id
         type: uuid
         pk: true
+"""
 
+# Пакет по СТАРОМУ промпту: обращения записями. Кроме них в файле нет ничего — такой
+# пакет обязан получить объяснение, а не «в пакете нет файлов со структурой данных».
+СТАРЫЙ_ПАКЕТ = """# archmap-node: Хранилище
 access:
   - node: Биллинг
     doc: POST /pay
@@ -60,17 +65,11 @@ def _node(db, name, shape="database"):
     return n
 
 
-def _doc(db, node, name="POST /pay"):
-    d = NodeDoc(id=uuid.uuid4(), node_id=node.id, name=name, kind="operation", content="")
-    db.add(d)
-    db.flush()
-    return d
-
-
 def _сцена(db):
     бд = _node(db, "Хранилище")
+    # Сервис рядом не для красоты: с единственным узлом резолв адреса владельца был бы
+    # вырожденным и «# archmap-node: Хранилище» ничего не проверял.
     сервис = _node(db, "Биллинг", shape="service")
-    _doc(db, сервис)
     return бд, сервис
 
 
@@ -102,19 +101,15 @@ def test_разбор_толерантен_к_мусору(db):
         "    columns:\n"
         "      - name: c\n"
         "        type: int\n"
-        "access:\n"
-        "  - doc: X\n"                  # без table/mode — пропускаем
-        "  - node: N\n    doc: D\n    table: T\n    mode: пишет\n"  # режим не наш
     )
     assert pd is not None
     assert [t.name for t in pd.tables] == ["ok"]
-    assert pd.access == []
 
 
 # ── Применение ────────────────────────────────────────────────────────────────
 
 
-def test_пакет_создаёт_структуру_ссылки_и_обращения(db):
+def test_пакет_создаёт_структуру_и_ссылки(db):
     бд, _сервис = _сцена(db)
     r = _применить(db)
 
@@ -131,9 +126,6 @@ def test_пакет_создаёт_структуру_ссылки_и_обращ
         DbTable.name == "accounts", DbColumn.name == "id",
     ).one()
     assert account_id.references_column_id == accounts_id.id
-    # Обращения приехали к доку ВЫЗЫВАЮЩЕГО, а колонка необязательна.
-    access = db.query(DocDataAccess).all()
-    assert {(a.mode, a.column_id is None) for a in access} == {("write", False), ("read", True)}
 
 
 def test_повторный_прогон_не_плодит_дублей(db):
@@ -142,11 +134,9 @@ def test_повторный_прогон_не_плодит_дублей(db):
     r = _применить(db)
 
     assert db.query(DbTable).count() == 2
-    assert db.query(DocDataAccess).count() == 2
-    assert r.tables_written == 0 and r.access_written == 0
+    assert r.tables_written == 0
     # В превью такие строки честно помечены «unchanged», а не «create».
     assert {i.action for i in r.tables} == {"unchanged"}
-    assert {i.action for i in r.access} == {"unchanged"}
 
 
 def test_описанного_руками_пакет_не_затирает_без_разрешения(db):
@@ -160,16 +150,6 @@ def test_описанного_руками_пакет_не_затирает_бе
     assert orders.description == "правка человека"
     _применить(db, overwrite=True)
     assert orders.description == "заказы покупателей"
-
-
-def test_нет_схемы_логики_у_вызывающего_ошибка_а_не_молчание(db):
-    _node(db, "Хранилище")
-    _node(db, "Биллинг", shape="service")  # без дока
-    r = _применить(db)
-    assert not r.applied
-    assert any("нет схемы" in e for e in r.errors)
-    # Ошибка есть → не пишем НИЧЕГО, даже таблицы.
-    assert db.query(DbTable).count() == 0
 
 
 def test_превью_ничего_не_пишет(db):
@@ -210,3 +190,30 @@ def test_частичный_путь_узла_находится(db):
     r = _применить(db, "# archmap-node: Сервис заказов / БД заказов\ntables:\n  - name: orders\n")
     assert r.applied and r.errors == []
     assert db.query(DbTable).filter(DbTable.node_id == бд.id).count() == 1
+
+
+def test_старый_раздел_access_объясняют_а_не_замалчивают(db):
+    _сцена(db)
+    r = _применить(db, СТАРЫЙ_ПАКЕТ)
+
+    # Не ошибка: файл НАШ, просто его половина больше не существует как сущность.
+    # Молчать нельзя — пакет по старому промпту иначе уезжает в тишину и человек
+    # решает, что обращения загрузились.
+    assert r.applied and r.errors == []
+    про_access = [w for w in r.warnings if "access" in w]
+    # РОВНО ОДНО на файл, а не по строке на каждое обращение (их в пакете два).
+    assert len(про_access) == 1
+    assert "пометками" in про_access[0] and "data.yaml" in про_access[0]
+    assert db.query(DbTable).count() == 0
+
+
+def test_структура_рядом_с_разделом_access_всё_равно_приезжает(db):
+    _сцена(db)
+    # Смешанный пакет: таблицы забираем, про обращения предупреждаем. Отвергать такой
+    # файл целиком значило бы наказать за старый промпт.
+    r = _применить(db, ПАКЕТ.rstrip() + "\n\naccess:\n  - node: Биллинг\n    doc: POST /pay\n"
+                       "    table: orders\n    mode: write\n")
+
+    assert r.applied and r.errors == []
+    assert db.query(DbTable).count() == 2
+    assert sum("access" in w for w in r.warnings) == 1

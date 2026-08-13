@@ -1,4 +1,4 @@
-// Окно «Данные от агента»: промпт → пакет → превью → применение.
+// Окно «Структура от агента»: промпт → пакет → превью → применение.
 //
 // Проверяется то, что отличает это окно от двух соседних (схемы логики, спека):
 // свой контракт дозаливки, дефолт «не перезаписывать» и запрет применять пакет с
@@ -20,8 +20,8 @@ vi.mock("../../ui/Modal", () => ({
 
 const report = (over: Partial<DataImportReport> = {}): DataImportReport =>
   ({
-    tables: [], access: [], errors: [], warnings: [], applied: false,
-    tables_written: 0, columns_written: 0, access_written: 0, ...over,
+    tables: [], errors: [], warnings: [], applied: false,
+    tables_written: 0, columns_written: 0, ...over,
   }) as DataImportReport;
 
 const table = () => ({
@@ -81,6 +81,30 @@ describe("DataAgentModal", () => {
     await userEvent.click(screen.getByText("Применить"));
     await waitFor(() => expect(onApplied).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("окно про структуру: обращений в нём нет", async () => {
+    // Пивот §9: обращения к данным приезжают пометками внутри схем логики, а не сюда.
+    // Пакет по старому промпту не отвергается — на раздел `access` отвечает
+    // предупреждением бэкенд, и оно попадает в общий список «Проверьте».
+    vi.mocked(dataImportApi.preview).mockResolvedValue(
+      report({
+        tables: [table()],
+        warnings: ["data.yaml: раздел access больше не поддерживается — обращения "
+          + "описываются пометками «читает:/пишет:» в схемах логики"],
+      }),
+    );
+    open();
+    expect(screen.getByText("Описать структуру с помощью ИИ-агента")).toBeInTheDocument();
+    // Адресация названа точно: к объекту окна уедет файл БЕЗ «# archmap-node:».
+    expect(screen.getByText(/без адреса .* приедут к объекту «Хранилище»/)).toBeInTheDocument();
+    await вставить("tables:");
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+    await waitFor(() => expect(screen.getByText(/Таблиц: 1/)).toBeInTheDocument());
+    expect(screen.queryByText("Обращения:")).not.toBeInTheDocument();
+    expect(screen.getByText(/раздел access больше не поддерживается/)).toBeInTheDocument();
+    // Предупреждение применению не мешает: таблицы в пакете есть.
+    expect(screen.getByText("Применить")).toBeEnabled();
   });
 
   it("тумблер перезаписи уезжает в запрос", async () => {

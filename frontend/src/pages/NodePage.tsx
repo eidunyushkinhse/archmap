@@ -13,7 +13,6 @@ import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
-import DataAccessSection from "../components/DataAccessSection";
 import DbStructureSection from "../components/DbStructureSection";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import DistributeDocsModal from "../components/DistributeDocsModal";
@@ -688,11 +687,6 @@ function NodePageInner({
               </>
             )}
           </div>
-        )}
-
-        {/* ── Обращения к данным (у вызывающего) ────────────────── */}
-        {allow.logic && !isContainer && node.docs.length > 0 && (
-          <DataAccessSection nodeId={node.id} docs={node.docs} isArchitect={isArchitect} />
         )}
 
         {/* ── OpenAPI ───────────────────────────────────────────── */}

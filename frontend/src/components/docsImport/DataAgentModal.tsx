@@ -1,9 +1,12 @@
-// Модалка «Данные от агента» (BYOA-дозаливка) — СТРУКТУРА БД и ОБРАЩЕНИЯ к данным.
+// Модалка «Структура от агента» (BYOA-дозаливка) — только СТРУКТУРА БД.
 //
 // Третье окно того же семейства (схемы логики — DocsAgentModal, спека —
 // SpecAgentModal): сущности не смешиваются, у каждого свой контракт превью/применения.
 // Здесь агент читает миграции и ORM-модели, а не рисует диаграммы, поэтому промпт один
 // и без параметров — ни языка подписей, ни режимов «пакетом/по одной» тут нет.
+//
+// Обращений к данным здесь НЕТ (пивот §9 plan-db-docs.md): они приезжают пометками
+// «читает:/пишет:» внутри схем логики, то есть окном дозаливки доков.
 //
 // Ручной ввод для базы с сорока таблицами непригоден, так что это основной путь
 // наполнения структуры; редактор на странице базы остаётся для правок.
@@ -28,7 +31,7 @@ interface Props {
   nodeId: string;
   nodeName: string;
   onClose: () => void;
-  // Дозаливка применена — родитель перечитывает структуру/обращения.
+  // Дозаливка применена — родитель перечитывает структуру.
   onApplied: () => void;
 }
 
@@ -103,21 +106,18 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
   }
 
   const willWrite =
-    report !== null &&
-    report.errors.length === 0 &&
-    report.tables.length + report.access.length > 0;
+    report !== null && report.errors.length === 0 && report.tables.length > 0;
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
       <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>Описать данные с помощью ИИ-агента</h2>
+        <h2 style={{ margin: 0, fontSize: 17 }}>Описать структуру с помощью ИИ-агента</h2>
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        Агент прочитает миграции и модели репозитория и опишет таблицы, колонки и
-        обращения к ним — что каждая операция читает и что пишет. Записи без адреса
-        уедут к объекту «{nodeName}». Скопируйте промпт, запустите агента и загрузите
-        сюда полученные файлы.
+        Агент прочитает миграции и ORM-модели репозитория и опишет таблицы и колонки.
+        Таблицы из файла без адреса «# archmap-node:» приедут к объекту «{nodeName}».
+        Скопируйте промпт, запустите агента и загрузите сюда полученные файлы.
       </p>
 
       <div style={cols}>
@@ -185,14 +185,12 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-                Применено: таблиц {report.tables_written}, колонок {report.columns_written},
-                обращений {report.access_written}.
+                Применено: таблиц {report.tables_written}, колонок {report.columns_written}.
               </div>
             )}
             {!checking && report !== null && !report.applied && report.errors.length === 0 && (
               <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
-                Таблиц: {report.tables.length} (новых {countAction(report.tables, "create")}),
-                обращений: {report.access.length} (новых {countAction(report.access, "create")})
+                Таблиц: {report.tables.length} (новых {countAction(report.tables, "create")})
               </div>
             )}
             {!checking && report !== null && report.errors.length > 0 && (
@@ -212,18 +210,6 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
                   badge: ACTION_LABEL[t.action] ?? t.action,
                   bad: t.columns === 0 ? "без колонок — проверьте файл" : null,
                   ok: t.columns > 0,
-                }))}
-              />
-            )}
-            {!checking && report !== null && report.access.length > 0 && (
-              <ItemList
-                title="Обращения:"
-                rows={report.access.map((a, i) => ({
-                  key: `${a.node_path}#${a.doc}#${a.target}#${a.mode}#${i}`,
-                  text: `«${a.node_path}» · ${a.doc} ${a.mode === "write" ? "пишет" : "читает"} ${a.target}`,
-                  badge: ACTION_LABEL[a.action] ?? a.action,
-                  bad: null,
-                  ok: a.action === "create",
                 }))}
               />
             )}

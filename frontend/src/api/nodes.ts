@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DataAccess, DataAccessCreate, ProjectTableRef, TableUsage, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { TableUsage, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -135,9 +135,9 @@ export const edgesApi = {
     api.get<DeletionSnapshot>(`/edges/${id}/deletion-snapshot`),
 };
 
-// Структура БД узла (таблицы с колонками) и обращения к данным. Структура — контракт
-// базы, обращения — использование у вызывающего: два конца одной пары (см.
-// docs/plan-db-docs.md §1).
+// Структура БД узла (таблицы с колонками) — контракт базы. Обращения к ней своего
+// ввода не имеют: они живут пометками «читает:/пишет:» в тексте схем логики
+// вызывающих, и usage собирает их разбором на чтении (docs/plan-db-docs.md §9).
 export const dbTablesApi = {
   list: (nodeId: string): Promise<DbTable[]> =>
     api.get<DbTable[]>(`/nodes/${nodeId}/tables`),
@@ -155,19 +155,7 @@ export const dbTablesApi = {
     api.patch<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`, data),
   deleteColumn: (nodeId: string, tableId: string, columnId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`),
-  // Кто обращается к таблицам этой базы — разворот тех же обращений.
+  // Кто обращается к таблицам этой базы — разворот пометок из схем логики проекта.
   usage: (nodeId: string): Promise<TableUsage[]> =>
     api.get<TableUsage[]>(`/nodes/${nodeId}/tables/usage`),
-  // Каталог таблиц всего проекта (с именами узлов-владельцев) — пикер обращений.
-  // Свой префикс, не под /nodes/: иначе путь перехватил бы /nodes/{node_id}.
-  catalog: (): Promise<ProjectTableRef[]> => api.get<ProjectTableRef[]>(`/tables`),
-};
-
-export const dataAccessApi = {
-  list: (nodeId: string, docId: string): Promise<DataAccess[]> =>
-    api.get<DataAccess[]>(`/nodes/${nodeId}/docs/${docId}/access`),
-  create: (nodeId: string, docId: string, data: DataAccessCreate): Promise<DataAccess> =>
-    api.post<DataAccess>(`/nodes/${nodeId}/docs/${docId}/access`, data),
-  delete: (nodeId: string, docId: string, accessId: string): Promise<void> =>
-    api.delete(`/nodes/${nodeId}/docs/${docId}/access/${accessId}`),
 };

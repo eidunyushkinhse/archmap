@@ -1,8 +1,8 @@
-"""Контракт структуры БД (таблицы/колонки) и обращений к данным.
+"""Контракт структуры БД (таблицы/колонки) и обратного индекса обращений.
 
 Структура — «контракт» узла-базы, симметрично openapi_spec у сервиса; обращения —
-использование, живущее у ВЫЗЫВАЮЩЕГО (в доке его операции). Подробности принципа —
-docs/plan-db-docs.md §1.
+использование, живущее у ВЫЗЫВАЮЩЕГО: пометкой «читает:/пишет:» в тексте схемы его
+операции, не записями (пивот §9). Подробности принципа — docs/plan-db-docs.md §1.
 """
 
 import uuid
@@ -10,8 +10,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-# Что операция делает с данными. Отдельного «delete» нет: карте данных важно,
-# меняет ли операция состояние, а чем именно — деталь реализации.
+# Что операция делает с данными («читает:» / «пишет:» в пометке). Отдельного «delete»
+# нет: карте данных важно, меняет ли операция состояние, а чем именно — деталь
+# реализации.
 DataAccessMode = Literal["read", "write"]
 
 
@@ -80,46 +81,10 @@ class DbTableResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class DataAccessCreate(BaseModel):
-    table_id: uuid.UUID
-    # null = обращение к таблице целиком (колонка неизвестна или несущественна)
-    column_id: uuid.UUID | None = None
-    mode: DataAccessMode
-    note: str | None = None
-
-
-class DataAccessResponse(BaseModel):
-    id: uuid.UUID
-    node_doc_id: uuid.UUID
-    table_id: uuid.UUID
-    column_id: uuid.UUID | None
-    mode: DataAccessMode
-    note: str | None
-
-    model_config = {"from_attributes": True}
-
-
-class ProjectTableRef(BaseModel):
-    """Таблица проекта с именем узла-владельца — материал для выбора цели обращения.
-
-    Отдельная схема, а не DbTableResponse: в пикере нужно имя БАЗЫ («Хранилище»),
-    иначе одинаковые `orders` из разных баз неразличимы.
-    """
-
-    id: uuid.UUID
-    node_id: uuid.UUID
-    node_name: str
-    name: str
-    schema_name: str
-    columns: list[DbColumnResponse] = []
-
-    model_config = {"from_attributes": True}
-
-
 class TableUsage(BaseModel):
     """Обратный индекс: кто обращается к таблице этой базы.
 
-    Разворот тех же записей doc_data_access — ради него вся модель и построена:
+    Разворот пометок из схем логики проекта — ради него вся модель и построена:
     инженеру сопровождения нужен не перечень таблиц, а «кто кладёт сюда значение».
     """
 

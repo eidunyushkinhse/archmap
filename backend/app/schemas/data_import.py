@@ -1,15 +1,16 @@
-"""Схемы дозаливки СТРУКТУРЫ БД и ОБРАЩЕНИЙ от агента (BYOA, Ф5 plan-db-docs.md).
+"""Схемы дозаливки СТРУКТУРЫ БД от агента (BYOA, Ф5 plan-db-docs.md).
 
 Отдельный контракт, а не расширение docs_import: там сущности «схема логики» и
-«спека», здесь — таблицы, колонки и обращения. Общая только форма пакета (файлы) и
-резолв адресов узлов, который переиспользуется из docs_import.
+«спека», здесь — таблицы и колонки. Общая только форма пакета (файлы) и резолв
+адресов узлов, который переиспользуется из docs_import.
+
+Обращений к данным здесь нет: они приезжают пометками в тексте схем логики (пивот §9).
 """
 
 import uuid
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.schemas.db_doc import DataAccessMode
 from app.schemas.docs_import import (
     MAX_PACKAGE_CHARS,
     MAX_PACKAGE_FILES,
@@ -50,23 +51,10 @@ class DataTableItem(BaseModel):
     action: DocsAction
 
 
-class DataAccessItem(BaseModel):
-    """Строка превью по обращению: чей док, куда ходит и что делает."""
-
-    node_path: str
-    source: str
-    doc: str
-    target: str
-    mode: DataAccessMode
-    action: DocsAction
-
-
 class DataImportReport(BaseModel):
     tables: list[DataTableItem] = []
-    access: list[DataAccessItem] = []
     errors: list[str] = []
     warnings: list[str] = []
     applied: bool = False
     tables_written: int = 0
     columns_written: int = 0
-    access_written: int = 0
