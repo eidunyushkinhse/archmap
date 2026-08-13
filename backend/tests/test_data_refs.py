@@ -51,6 +51,39 @@ def test_разбор_список_через_запятую_и_терминат
     ]
 
 
+def test_разбор_слитный_маркер_даёт_обе_пометки():
+    # «читает/пишет:» — форма, которую агент пишет сам (полевой QA): раньше парсер брал
+    # из неё только «пишет», и читающая половина факта молча терялась.
+    assert parse_data_refs('A["Обновить статус<br>читает/пишет: orders"]') == [
+        DataRefIn(ref="orders", mode="read"),
+        DataRefIn(ref="orders", mode="write"),
+    ]
+    assert parse_data_refs('A["Reads/Writes: accounts.balance"]') == [
+        DataRefIn(ref="accounts.balance", mode="read"),
+        DataRefIn(ref="accounts.balance", mode="write"),
+    ]
+
+
+def test_разбор_слитный_маркер_пробелы_вокруг_слэша_и_список():
+    # Порядок режимов — как написано; ссылки списком, каждая получает обе пометки.
+    assert parse_data_refs('A["пишет / читает: orders, audit"]') == [
+        DataRefIn(ref="orders", mode="write"),
+        DataRefIn(ref="orders", mode="read"),
+        DataRefIn(ref="audit", mode="write"),
+        DataRefIn(ref="audit", mode="read"),
+    ]
+
+
+def test_разбор_слитный_маркер_дедупится_с_раздельными():
+    # Слитная пометка ПЕРВАЯ: она уже дала обе, и раздельные ниже ничего не добавляют
+    # (порядок появления при этом остаётся её порядком).
+    doc = 'A["читает/пишет: orders"] B["читает: orders"] C["пишет: orders"]'
+    assert parse_data_refs(doc) == [
+        DataRefIn(ref="orders", mode="read"),
+        DataRefIn(ref="orders", mode="write"),
+    ]
+
+
 def test_разбор_маркер_внутри_слова_не_считается():
     assert parse_data_refs('A["перечитает: orders"]') == []
 

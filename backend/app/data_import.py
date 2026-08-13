@@ -65,6 +65,10 @@ class ParsedData:
     # В файле был раздел `access` (пакет по старому промпту). Содержимое не разбираем —
     # обращений-записей больше нет; факт нужен, чтобы предупредить человека.
     has_access: bool = False
+    # В YAML верхнего уровня есть КЛЮЧ «archmap-node»: агент потерял решётку, и адрес
+    # стал невидимым (полевой QA Zabbix 7 — записи молча уехали к объекту окна).
+    # Адресом ключ не считаем (поведение прежнее), но молчать о нём нельзя.
+    has_node_key: bool = False
 
 
 def _as_bool(v: object) -> bool:
@@ -88,7 +92,11 @@ def parse_data_file(content: str) -> ParsedData | None:
     if not isinstance(doc, dict) or not ({"tables", "access"} & doc.keys()):
         return None
     m = NODE_HEADER.search(content)
-    out = ParsedData(node_ref=m.group(1) if m else None, has_access="access" in doc)
+    out = ParsedData(
+        node_ref=m.group(1) if m else None,
+        has_access="access" in doc,
+        has_node_key="archmap-node" in doc,
+    )
 
     for raw in doc.get("tables") or []:
         if not isinstance(raw, dict) or not _as_str(raw.get("name")):
@@ -127,6 +135,16 @@ class DataPlan:
     path_of: dict[uuid.UUID, str] = field(default_factory=dict)
 
 
+def _db_nodes_hint(flat: list[Node], fulls: list[str]) -> str:
+    """Перечень узлов-БД проекта для текстов ошибок.
+
+    Слабая модель адрес ВЫДУМЫВАЕТ («Zabbix Storage»), а «объект не найден» без списка
+    допустимых заставляет её гадать вслепую — раунд переписки за раунд (полевой QA).
+    """
+    paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "database"]
+    return ", ".join(paths) if paths else "в проекте их нет"
+
+
 def _resolve_node(
     ref: str | None,
     fname: str,
@@ -136,6 +154,7 @@ def _resolve_node(
     by_path: dict[str, list[int]],
     window: uuid.UUID | None,
     plan: DataPlan,
+    db_hint: str,
 ) -> Node | None:
     """Узел по адресу: полный путь либо голое имя (как в дозаливке доков). Без
     адреса — объект окна."""
@@ -156,7 +175,9 @@ def _resolve_node(
         # чтобы «…/ Заказы» не цеплялось к «…/ Мои Заказы».
         hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
     if not hits:
-        plan.report.errors.append(f"{fname}: объект «{ref}» не найден")
+        plan.report.errors.append(
+            f"{fname}: объект «{ref}» не найден; узлы-БД проекта: {db_hint}"
+        )
         return None
     if len(hits) > 1:
         plan.report.errors.append(
@@ -177,6 +198,7 @@ def build_data_plan(
     flat, fulls, by_bare, by_path = _node_paths(nodes)
     path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
     plan.path_of = path_of
+    db_hint = _db_nodes_hint(flat, fulls)
 
     parsed: list[tuple[str, ParsedData]] = []
     for fname, content in files:
@@ -201,13 +223,34 @@ def build_data_plan(
                 f"{fname}: раздел access больше не поддерживается — обращения описываются "
                 "пометками «читает:/пишет:» в схемах логики"
             )
+        # Адрес без решётки: YAML-ключ вместо ведущего комментария. Разбор прежний
+        # (ключ игнорируется), но тишина тут стоила бы пользователю потерянной схемы —
+        # он бы решил, что адресовал пакет, а тот уехал к объекту окна.
+        if pd.has_node_key:
+            plan.report.warnings.append(
+                f"{fname}: ключ archmap-node адресом не является — адрес пишется "
+                "комментарием «# archmap-node: …»; записи уедут к объекту окна"
+            )
 
     # --- Таблицы ---------------------------------------------------------------
     for fname, pd in parsed:
         if not pd.tables:
             continue
-        owner = _resolve_node(pd.node_ref, fname, flat, fulls, by_bare, by_path, window, plan)
+        owner = _resolve_node(
+            pd.node_ref, fname, flat, fulls, by_bare, by_path, window, plan, db_hint
+        )
         if owner is None:
+            continue
+        # Зеркало CRUD-правила «структура — контракт узла-БД» (routers/db_docs.py):
+        # применённое на сервисе или контейнере стало бы НЕВИДИМЫМ (секцию «Структура»
+        # страница рендерит только у shape=database), поэтому не предупреждение, а
+        # ошибка. Проверяется и объект окна: адрес мог быть не написан вовсе.
+        if owner.shape != "database":
+            plan.report.errors.append(
+                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» — не база данных; "
+                "структура может принадлежать только узлу-БД (форма database). "
+                f"Узлы-БД проекта: {db_hint}"
+            )
             continue
         existing = {
             (t.schema_name, t.name): t

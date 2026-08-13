@@ -145,6 +145,16 @@ def test_import_broken_yaml_400(db):
     assert "YAML" in ei.value.detail
 
 
+def test_ошибка_yaml_подсказывает_лечение():
+    # Полевой QA: на «ошибка в строке N» слабая модель добросовестно перепечатывает
+    # документ с той же ошибкой. Диагноз обязан идти вместе с лечением.
+    parsed, errors = parse_import(
+        "nodes:\n  - name: A\n    description: Обработка действий: отправка\n"
+    )
+    assert parsed is None
+    assert any("возьмите такое значение в кавычки" in e for e in errors)
+
+
 def test_unknown_edge_ref_is_error():
     parsed, errors = parse_import("nodes:\n  - name: A\nedges:\n  - from: A\n    to: B\n")
     assert parsed is None

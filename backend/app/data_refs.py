@@ -33,11 +33,19 @@ _MARKER_MODE: dict[str, Mode] = {
     "пишет": "write",
     "writes": "write",
 }
+_MARKER_WORDS = "|".join(_MARKER_MODE)
 # Хвост — до терминатора: конец строки, кавычка подписи, закрывающая скобка
 # mermaid-вершины или начало тега (<br>). mermaid НЕ парсим: пометка в подписи ребра
 # или заголовке subgraph тоже считается — это дешевле и предсказуемее разбора
 # синтаксиса, а слово «читает:» в прозе трактуем как обещание факта (spec.md).
-_MENTION = re.compile(r"(?i)\b(читает|пишет|reads|writes)\s*:\s*([^\n\"\]\)\}<]*)")
+#
+# СЛИТНАЯ форма «читает/пишет:» («reads/writes:», пробелы вокруг слэша допустимы) —
+# естественная для языка: агент пишет её сам (полевой QA Zabbix 7). Раньше из неё
+# бралось только «пишет», и читающая половина факта молча терялась; теперь маркер
+# обещает ОБА факта, и каждая ссылка после него даёт две пометки.
+_MENTION = re.compile(
+    rf"(?i)\b({_MARKER_WORDS})((?:\s*/\s*(?:{_MARKER_WORDS}))*)\s*:\s*([^\n\"\]\)\}}<]*)"
+)
 
 
 @dataclass(frozen=True)
@@ -48,21 +56,32 @@ class DataRefIn:
     mode: Mode
 
 
+def _modes_of(marker: str) -> list[Mode]:
+    """Режимы маркера в порядке написания: у слитного их два, у обычного один."""
+    out: list[Mode] = []
+    for word in marker.split("/"):
+        mode = _MARKER_MODE.get(word.strip().lower())
+        if mode is not None and mode not in out:
+            out.append(mode)
+    return out
+
+
 def parse_data_refs(content: str) -> list[DataRefIn]:
     """Извлечь пометки из текста дока. Дедуп по (ссылка, режим), порядок появления."""
     out: list[DataRefIn] = []
     seen: set[tuple[str, str]] = set()
     for m in _MENTION.finditer(content):
-        mode = _MARKER_MODE[m.group(1).lower()]
-        for raw in m.group(2).split(","):
+        modes = _modes_of(m.group(1) + m.group(2))
+        for raw in m.group(3).split(","):
             ref = " ".join(raw.split())  # схлопнуть переносы/двойные пробелы
             if not ref:
                 continue
-            key = (ref, mode)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(DataRefIn(ref=ref, mode=mode))
+            for mode in modes:
+                key = (ref, mode)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(DataRefIn(ref=ref, mode=mode))
     return out
 
 
