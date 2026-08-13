@@ -41,15 +41,31 @@ describe("useCollapse", () => {
     vi.unstubAllGlobals();
   });
 
-  it("раскрытие едет к натуральной высоте", () => {
+  it("раскрытие едет ОТ НУЛЯ к натуральной высоте", () => {
+    // Содержимое монтируется сразу во всю величину, поэтому старт надо ставить в ноль
+    // руками: иначе «анимация» идёт из натуральной высоты в неё же — то есть её нет.
+    // Стартовое состояние (0px) применяется и тут же перебивается целевым в том же
+    // проходе, поэтому проверяем ИТОГ: переход назначен и высота едет к натуральной.
     const { rerender, getByTestId } = render(<Harness open={false} />);
     rerender(<Harness open />);
     const box = getByTestId("box");
-    expect(box.style.height).toBe("200px");
     expect(box.style.transition).toContain("height");
+    expect(box.style.height).toBe("200px");
     endTransition(box);
     // Фиксацию снимаем: дальше блок живёт с auto и не обрежет разросшийся контент.
     expect(box.style.height).toBe("");
+  });
+
+  it("при сворачивании содержимое не мигает целиком в самом конце", () => {
+    const { rerender, getByTestId, queryByTestId } = render(<Harness open />);
+    rerender(<Harness open={false} />);
+    const box = getByTestId("box");
+    endTransition(box);
+    // Снять фиксацию раньше размонтирования — значит на мгновение показать блок
+    // целиком. Поэтому по окончании сворачивания стили НЕ трогаем: высота осталась
+    // нулевой, а сам блок уже ушёл.
+    expect(box.style.height).toBe("0px");
+    expect(queryByTestId("box")).toBeNull();
   });
 
   it("при сворачивании содержимое живёт до конца анимации, а потом уходит", () => {

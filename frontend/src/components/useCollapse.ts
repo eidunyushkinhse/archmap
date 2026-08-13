@@ -50,24 +50,39 @@ export function useCollapse(boxRef: { current: HTMLElement | null }, open: boole
       return;
     }
     animatedFor.current = open;
+    // Прерывание (передумали на полпути) — стартуем от ФАКТИЧЕСКОЙ высоты.
+    const interrupted = cleanup.current !== null;
+    const current = el.getBoundingClientRect().height;
     cleanup.current?.();
     if (reducedMotion()) {
       if (!open) unmountSoon();
       return;
     }
 
-    // «Откуда» — фактическая высота сейчас (при быстром переключении она промежуточная),
-    // «куда» — натуральная при раскрытии и ноль при сворачивании.
-    const from = el.getBoundingClientRect().height;
+    // Натуральную высоту меряем при снятой фиксации.
     el.style.transition = "none";
     el.style.height = "";
-    const to = open ? el.getBoundingClientRect().height : 0;
+    const natural = el.getBoundingClientRect().height;
+    // РАСКРЫТИЕ начинается с НУЛЯ. Раньше здесь брали текущую высоту — а содержимое
+    // к этому моменту уже смонтировано во всю величину, поэтому «анимация» шла из
+    // натуральной высоты в неё же, то есть её не было вовсе.
+    const from = interrupted ? current : open ? 0 : natural;
+    const to = open ? natural : 0;
 
     const done = (e: TransitionEvent) => {
       if (e.target !== el || e.propertyName !== "height") return;
-      cleanup.current?.();
-      // setState из обработчика события — обычный путь, не каскад эффекта.
-      if (!open) setClosing(false);
+      el.removeEventListener("transitionend", done);
+      cleanup.current = null;
+      if (open) {
+        // Фиксацию снимаем: дальше блок живёт с auto и не обрежет разросшийся контент.
+        el.style.transition = "";
+        el.style.height = "";
+        el.style.overflow = "";
+      } else {
+        // При сворачивании стили НЕ трогаем: снять фиксацию раньше размонтирования —
+        // значит на мгновение показать содержимое целиком (мигание в самом конце).
+        setClosing(false);
+      }
     };
     cleanup.current = () => {
       el.style.transition = "";
@@ -77,12 +92,14 @@ export function useCollapse(boxRef: { current: HTMLElement | null }, open: boole
       cleanup.current = null;
     };
     el.addEventListener("transitionend", done);
-    el.style.height = `${from}px`;
     el.style.overflow = "hidden";
-    requestAnimationFrame(() => {
-      el.style.transition = `height ${ANIM_MS}ms ${ANIM_EASING}`;
-      el.style.height = `${to}px`;
-    });
+    el.style.height = `${from}px`;
+    // Форсируем применение СТАРТОВОГО состояния. Через requestAnimationFrame это
+    // ненадёжно: колбэк кадра может выполниться до отрисовки, и браузер сольёт старт
+    // с финалом — анимация начиналась рывком либо не начиналась совсем.
+    el.getBoundingClientRect();
+    el.style.transition = `height ${ANIM_MS}ms ${ANIM_EASING}`;
+    el.style.height = `${to}px`;
   }, [boxRef, open]);
 
   return render;

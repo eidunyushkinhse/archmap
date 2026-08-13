@@ -63,12 +63,24 @@ export function useFlipRows(
       const dx = before.left - after.left;
       const dy = before.top - after.top;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      const settle = (e: TransitionEvent) => {
+        if (e.target !== el || e.propertyName !== "transform") return;
+        // Инлайновые остатки снимаем: иначе следующая перестройка начнётся с уже
+        // назначенным переходом и «поедет» к обратному сдвигу вместо мгновенной его
+        // постановки — то самое подёргивание на старте.
+        el.style.transition = "";
+        el.style.transform = "";
+        el.removeEventListener("transitionend", settle);
+      };
+      el.addEventListener("transitionend", settle);
       el.style.transition = "none";
       el.style.transform = `translate(${dx}px, ${dy}px)`;
-      requestAnimationFrame(() => {
-        el.style.transition = `transform ${DURATION}ms ${EASING}`;
-        el.style.transform = "";
-      });
+      // Форсируем применение СТАРТОВОГО состояния синхронно. Через rAF ненадёжно:
+      // колбэк кадра может выполниться до отрисовки, браузер сольёт старт с финалом,
+      // и вместо анимации получается скачок.
+      el.getBoundingClientRect();
+      el.style.transition = `transform ${DURATION}ms ${EASING}`;
+      el.style.transform = "";
     }
     prev.current = next;
 
@@ -104,9 +116,8 @@ export function useFlipRows(
       endHeightAnim.current = null;
     };
     root.addEventListener("transitionend", done);
-    requestAnimationFrame(() => {
-      root.style.transition = `height ${DURATION}ms ${EASING}`;
-      root.style.height = `${after}px`;
-    });
+    root.getBoundingClientRect(); // применяем стартовую высоту до назначения перехода
+    root.style.transition = `height ${DURATION}ms ${EASING}`;
+    root.style.height = `${after}px`;
   }, [containerRef, signature]);
 }

@@ -31,7 +31,8 @@ const realRect = Element.prototype.getBoundingClientRect;
 describe("useFlipRows", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    // rAF в jsdom есть, но нам важен ДЕТЕРМИНИЗМ: гоняем колбэк вручную.
+    // rAF хук больше не использует (стартовое состояние применяется синхронно), но
+    // заглушка оставлена: она ловила бы возврат к ненадёжному варианту.
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0);
       return 0;
@@ -51,10 +52,17 @@ describe("useFlipRows", () => {
     tops.b = 10; // карточка «b» переехала выше
     rerender(<Harness ids={["a", "b"]} sig="2" />);
 
-    // rAF отработал синхронно, поэтому обратный сдвиг уже снят, но переход назначен.
     const b = getByText("b");
     expect(b.style.transition).toContain("transform");
     expect(b.style.transform).toBe("");
+
+    // По окончании перехода инлайновые остатки снимаются: иначе следующая
+    // перестройка ПОЕХАЛА БЫ к обратному сдвигу вместо мгновенной его постановки —
+    // это и есть подёргивание на старте.
+    const ev = new Event("transitionend");
+    Object.defineProperty(ev, "propertyName", { value: "transform" });
+    b.dispatchEvent(ev);
+    expect(b.style.transition).toBe("");
   });
 
   it("высота контейнера едет от прежней к новой и фиксация потом снимается", () => {
