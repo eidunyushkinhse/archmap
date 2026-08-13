@@ -45,19 +45,19 @@ export default function ErDiagramModal({ chart, title, onClose }: Props) {
     <Modal
       onClose={onClose}
       closeButton={false}
-      boxStyle={{
-        width: "calc(100vw - 48px)",
-        height: "calc(100vh - 48px)",
-        maxWidth: "none",
-        display: "flex",
-        flexDirection: "column",
-      }}
+      // Высоту задаём СВОЕМУ содержимому, а не боксу. Modal кладёт контент во
+      // внутреннюю обёртку без высоты (ей достаются только padding/display/
+      // flexDirection), поэтому `flex: 1` у сцены схлопывался в ноль — окно
+      // открывалось пустым. Диалог теперь тянется за содержимым.
+      boxStyle={{ width: "calc(100vw - 48px)", maxWidth: "none", padding: 20 }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 16 }}>{title}</h2>
-        <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
-      </div>
-      <div className="doc-pv" style={{ flex: 1, minHeight: 0 }}>
+      {/* 88px = поля вьюпорта (48) + собственные отступы обёртки (20 сверху и снизу) */}
+      <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 88px)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>{title}</h2>
+          <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
+        </div>
+        <div className="doc-pv" style={{ flex: 1, minHeight: 0 }}>
         <div
           ref={stageRef}
           className={"doc-pvstage" + (pz.dragging ? " doc-pvstage--drag" : "")}
@@ -83,6 +83,7 @@ export default function ErDiagramModal({ chart, title, onClose }: Props) {
             </button>
           </div>
         </div>
+      </div>
       </div>
     </Modal>
   );
