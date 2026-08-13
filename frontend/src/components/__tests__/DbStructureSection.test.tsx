@@ -100,7 +100,9 @@ describe("DbStructureSection", () => {
     setup([table(), table({ id: "t2", name: "audit", schema_name: "billing" })]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     await userEvent.click(screen.getByText("billing"));
-    const box = screen.getByDisplayValue("audit").closest(".dbs-groupbody") as HTMLElement;
+    // Высоту ведёт ГОЛАЯ обёртка (.anim-box), а не сам блок с отступами: иначе
+    // измерение врало бы на padding/border и margin, и соседи прыгали бы.
+    const box = screen.getByDisplayValue("audit").closest(".anim-box") as HTMLElement;
     expect(box.style.height).toBe("0px");
   });
 

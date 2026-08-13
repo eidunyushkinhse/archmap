@@ -258,7 +258,15 @@ function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const show = useCollapse(ref, open);
   if (!show) return null;
-  return <div ref={ref} className="dbs-groupbody">{children}</div>;
+  // Анимируем ГОЛУЮ обёртку, вся косметика — на внутреннем блоке. Иначе высота
+  // считалась бы неверно: у блока с padding/border ставить ему border-box-высоту
+  // нельзя (он content-box), а его margin в height не входит вовсе — и то, и другое
+  // давало прыжок соседей в начале и в конце анимации.
+  return (
+    <div ref={ref} className="anim-box">
+      <div className="dbs-groupbody">{children}</div>
+    </div>
+  );
 }
 
 function TableCard({
@@ -340,7 +348,9 @@ function TableCard({
       ) : null}
 
       {showCols && (
-        <div ref={colsRef} className="dbs-cols">
+        // Голая обёртка ведёт высоту, косметика — на .dbs-cols (см. GroupBody).
+        <div ref={colsRef} className="anim-box">
+          <div className="dbs-cols">
           {table.columns.length === 0 && <p className="np-empty">Колонки не описаны</p>}
           {/* Шапка: без неё колонка типа неотличима от колонки смысла, а два чекбокса
               подряд не читаются вовсе. Ширины — те же классы, что у строк, поэтому
@@ -390,6 +400,7 @@ function TableCard({
               </div>
             ))}
           </div>
+        </div>
         </div>
       )}
     </div>
