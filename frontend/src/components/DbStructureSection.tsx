@@ -7,10 +7,12 @@
 //
 // Правки идут по blur/change поштучно (как инлайн-поля свойств узла), без формы и
 // кнопки «Сохранить»: строк много, а правка — точечная.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
 import DataAgentModal from "./docsImport/DataAgentModal";
 import ErDiagramModal from "./ErDiagramModal";
+import { useCollapse } from "./useCollapse";
+import { useFlipRows } from "./useFlipRows";
 import { useShrinkAnchor } from "./useShrinkAnchor";
 import MermaidRenderer from "./MermaidRenderer";
 import { ChevronDownIcon } from "../ui/icons";
@@ -58,6 +60,9 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   // Контейнер прокрутки ищется от самой кнопки: реф для этого не нужен, а читать
   // рефы в обработчиках, созданных в рендере, линтер и не даёт.
   const holdScroll = useShrinkAnchor();
+  // Переезд карточки между плоским списком и разделом анимируем (FLIP): без этого
+  // она мгновенно оказывается в другом месте и это читается как рывок.
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
@@ -115,6 +120,13 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
     else grouped.push([t.schema_name, [t]]);
   }
   grouped.sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
+
+  // Подпись перестройки: раскладка меняется от состава разделов и свёрнутости групп.
+  const flipKey = [
+    ...(tables ?? []).map((t) => `${t.id}:${t.schema_name}`),
+    ...[...closedGroups],
+  ].join("|");
+  useFlipRows(listRef, flipKey);
 
   // Все колонки узла как цели внешнего ключа: «таблица.колонка».
   const fkOptions = (tables ?? []).flatMap((t) =>
@@ -182,6 +194,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
           onClose={() => setErFull(false)}
         />
       )}
+      <div ref={listRef}>
       {(tables ?? []).length === 0 ? (
         <p className="np-empty">Таблицы не описаны</p>
       ) : grouped.length > 1 ? (
@@ -219,6 +232,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       ) : (
         <div className="dbs-tables">{(tables ?? []).map(renderTable)}</div>
       )}
+      </div>
       {isArchitect && (
         <div className="dbs-actions">
           <button type="button" className="np-addbtn" onClick={addTable}>+ Таблица</button>
@@ -255,8 +269,13 @@ function TableCard({
   const patch = (data: Parameters<typeof dbTablesApi.update>[2]) =>
     void apply(() => dbTablesApi.update(nodeId, table.id, { ...data, base_version: table.version }));
 
+  // Раскрывашка колонок едет с той же длительностью, что переезд карточек, а секция
+  // вокруг растёт за ней сама: у неё высота auto, и фиксировать её здесь не нужно.
+  const colsRef = useRef<HTMLDivElement>(null);
+  const showCols = useCollapse(colsRef, expanded);
+
   return (
-    <div className="dbs-table">
+    <div className="dbs-table" data-flip-id={table.id}>
       <div className="dbs-thead">
         <button type="button" className="dbs-chev" onClick={(e) => onToggle(e.currentTarget)}
           aria-expanded={expanded}
@@ -312,8 +331,8 @@ function TableCard({
         <p className="dbs-desc dbs-ro">{table.description}</p>
       ) : null}
 
-      {expanded && (
-        <div className="dbs-cols">
+      {showCols && (
+        <div ref={colsRef} className="dbs-cols">
           {table.columns.length === 0 && <p className="np-empty">Колонки не описаны</p>}
           {/* Шапка: без неё колонка типа неотличима от колонки смысла, а два чекбокса
               подряд не читаются вовсе. Ширины — те же классы, что у строк, поэтому

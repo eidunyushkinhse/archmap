@@ -10,10 +10,14 @@
 // пользователь скроллит вверх, и исчезает совсем, когда перестаёт быть нужным. Так
 // пустоту нельзя увидеть: она существует ровно там, где её загораживает вьюпорт.
 //
-// ⚠️ Рассчитано на МГНОВЕННОЕ сжатие (анимации перестройки сейчас отключены). Если
-// анимации вернутся, высота будет уменьшаться постепенно, и один замер в кадре после
-// правки перестанет ловить итог — тогда мерить придётся по окончании анимации.
+// Сжатие АНИМИРОВАНО (useCollapse/useFlipRows), то есть высота уменьшается кадр за
+// кадром, и одного замера мало: страница подъезжала бы вверх всю анимацию понемногу.
+// Поэтому пустоту докладываем каждый кадр, пока идёт анимация, — только вверх, вниз
+// её отпускает уже прокрутка.
 import { useCallback, useEffect, useRef } from "react";
+
+// Сколько держим позицию после клика: длительность анимации перестройки плюс запас.
+const HOLD_MS = 420;
 
 // Ближайший прокручиваемый предок (на странице объекта это .np-page, а не окно).
 function scrollParent(el: HTMLElement): HTMLElement {
@@ -53,39 +57,45 @@ export function useShrinkAnchor(): (el: HTMLElement | null) => void {
     // Уже держим пустоту в другом контейнере — отпускаем: одна страница, один якорь.
     if (box.current && box.current !== sc) release();
 
-    requestAnimationFrame(() => {
+    const started = performance.now();
+    const step = () => {
       // Сколько высоты не хватает, чтобы скролл остался на месте. scrollHeight уже
       // включает нашу пустоту, поэтому её вычитаем.
       const natural = sc.scrollHeight - pad.current;
       const need = Math.round(top - (natural - sc.clientHeight));
-      if (need <= 0) return;
-
-      if (!box.current) {
-        box.current = sc;
-        basePad.current = parseFloat(getComputedStyle(sc).paddingBottom) || 0;
-      }
-      pad.current = need;
-      sc.style.paddingBottom = `${basePad.current + need}px`;
-      sc.scrollTop = top;
-
-      if (onScroll.current) return; // слушатель уже висит
-      const listener = () => {
-        const s = box.current;
-        if (!s) return;
-        // Пустота тает вслед за прокруткой вверх: она нужна ровно настолько,
-        // насколько текущая позиция выходит за естественный конец страницы.
-        const nat = s.scrollHeight - pad.current;
-        const still = Math.max(0, Math.round(s.scrollTop - (nat - s.clientHeight)));
-        if (still >= pad.current) return; // вниз не растим — только отпускаем
-        if (still === 0) {
-          release();
-          return;
+      // Пустоту только НАРАЩИВАЕМ: уменьшать её посреди анимации — значит снова
+      // дёрнуть страницу. Отпускает её прокрутка вверх (слушатель ниже).
+      if (need > pad.current) {
+        if (!box.current) {
+          box.current = sc;
+          basePad.current = parseFloat(getComputedStyle(sc).paddingBottom) || 0;
         }
-        pad.current = still;
-        s.style.paddingBottom = `${basePad.current + still}px`;
-      };
-      onScroll.current = listener;
-      sc.addEventListener("scroll", listener, { passive: true });
-    });
+        pad.current = need;
+        sc.style.paddingBottom = `${basePad.current + need}px`;
+        sc.scrollTop = top;
+
+        if (!onScroll.current) {
+          const listener = () => {
+            const el2 = box.current;
+            if (!el2) return;
+            // Пустота тает вслед за прокруткой вверх: она нужна ровно настолько,
+            // насколько текущая позиция выходит за естественный конец страницы.
+            const nat = el2.scrollHeight - pad.current;
+            const still = Math.max(0, Math.round(el2.scrollTop - (nat - el2.clientHeight)));
+            if (still >= pad.current) return; // вниз не растим — только отпускаем
+            if (still === 0) {
+              release();
+              return;
+            }
+            pad.current = still;
+            el2.style.paddingBottom = `${basePad.current + still}px`;
+          };
+          onScroll.current = listener;
+          sc.addEventListener("scroll", listener, { passive: true });
+        }
+      }
+      if (performance.now() - started < HOLD_MS) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }, [release]);
 }

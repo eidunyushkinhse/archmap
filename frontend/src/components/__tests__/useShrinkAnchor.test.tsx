@@ -69,6 +69,24 @@ describe("useShrinkAnchor", () => {
     expect(sc.el.scrollTop).toBe(600); // позиция вернулась — ничего не уехало
   });
 
+  it("при АНИМИРОВАННОМ сжатии пустота докладывается каждый кадр", () => {
+    // Высота уменьшается постепенно, и одного замера мало: без докладывания страница
+    // подъезжала бы вверх всю анимацию понемногу.
+    const { sc, inner, hold } = setup();
+    sc.setContent(1000);
+    sc.el.scrollTop = 600;
+    hold(inner);
+
+    sc.setContent(900); // первый кадр анимации
+    act(() => { rafs.splice(0).forEach((cb) => cb(0)); });
+    expect(sc.el.style.paddingBottom).toBe("100px");
+
+    sc.setContent(800); // анимация доехала
+    act(() => { rafs.splice(0).forEach((cb) => cb(0)); });
+    expect(sc.el.style.paddingBottom).toBe("200px");
+    expect(sc.el.scrollTop).toBe(600);
+  });
+
   it("пустота тает при прокрутке вверх и исчезает совсем", () => {
     const { sc, inner, hold } = setup();
     sc.setContent(1000);
