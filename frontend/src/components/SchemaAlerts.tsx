@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { SchemaAlerts as Alerts } from "../types";
+import type { SchemaAlerts as Alerts, UnresolvedDataRefAlert } from "../types";
 import "./schemaAlerts.css";
 
 /**
@@ -29,7 +29,10 @@ import "./schemaAlerts.css";
  *  6) Незадокументированные сообщения — связь, которой шло сообщение, удалена из
  *     схемы. Клик ведёт В ПРОЦЕСС (чинить на холсте нечего), поэтому строки
  *     кликабельны только там, где переход возможен — в оболочке страниц;
- *     редактор-карта живёт отдельным роутом и обработчик не передаёт.
+ *     редактор-карта живёт отдельным роутом и обработчик не передаёт;
+ *  7) Обращения к неописанным данным — пометка «читает:/пишет:» в схеме логики не
+ *     нашла свою таблицу структуры (AL29). Пометка — обещание факта, и строка
+ *     называет причину невыполнения: таблицы нет / имя неоднозначно / нет колонки.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -78,7 +81,18 @@ const IcoBrokenLifeline = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 
 const IcoBrokenArrow = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M1.8 8h3.4" /><path d="M10.8 8h3.4" /><path d="M11.4 5.6 13.8 8l-2.4 2.4" /><path d="M7.4 5.4 8.6 10.6" /></svg>;
 // Ответное плечо, которого больше нет: дуга возврата, перечёркнутая косой.
 const IcoNoReturn = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M13.2 3.8H6.2a3 3 0 0 0 0 6h3.4" /><path d="M7.6 7.6 5.6 9.8l2 2.2" /><path d="M2.6 2.6l10.8 10.8" /></svg>;
+// Обращение к неописанным данным: цилиндр базы со знаком вопроса — цель пометки
+// не нашлась.
+const IcoUnknownData = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><ellipse cx="6.6" cy="3.6" rx="4.2" ry="1.7" /><path d="M2.4 3.6v6c0 .9 1.9 1.7 4.2 1.7" /><path d="M10.8 3.6v2.4" /><path d="M10.2 9.6a1.6 1.6 0 1 1 2.2 1.5v.9" /><path d="M12.4 13.7h.01" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
+
+// Почему пометка не срослась. Текст обязан подсказывать действие: неоднозначность
+// лечится квалификатором, поэтому строка прямо его называет.
+const REF_REASON: Record<UnresolvedDataRefAlert["reason"], string> = {
+  unknown_table: "таблица не найдена",
+  ambiguous: "имя неоднозначно — укажите „БД / таблица“",
+  unknown_column: "колонки нет в таблице",
+};
 
 export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props) {
   const [open, setOpen] = useState(false);
@@ -104,6 +118,10 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // а у такой «ответа» не бывает. Отдельно от повисших: «Восстановить связи» тут
   // бессильна — чинится возвратом синхронности либо удалением шага.
   const orphanLegs = alerts.orphan_legs;
+  // Пометки обращений, не нашедшие свою таблицу: текст обещает факт, а структура его
+  // не подтверждает. Единственное место, где видна битая КОЛОНКА — обратный индекс
+  // базы показывает такую пометку как обращение к таблице целиком.
+  const unresolvedRefs = alerts.unresolved_data_refs;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
@@ -112,7 +130,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   const total =
     disconnected.length + intermediate.length + isolatedProblems +
     containerOwn.length + personsInside.length + dangling.length + unbound.length +
-    orphanLegs.length;
+    orphanLegs.length + unresolvedRefs.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -223,6 +241,23 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
             {containerOwn.map((c) => (
               <Item key={c.node_id} onClick={onLocate && (() => locate({ kind: "node", id: c.node_id }))}>
                 {c.node_name}
+              </Item>
+            ))}
+          </Section>
+
+          {/* Пометка обещает факт («пишет: orders.status»), а структура его не
+              подтверждает. Строка ведёт к узлу-ВЛАДЕЛЬЦУ дока: чинится текст у него,
+              а не структура базы. */}
+          <Section icon={IcoUnknownData(13)} title="Обращения к неописанным данным" count={unresolvedRefs.length}>
+            {unresolvedRefs.map((r) => (
+              <Item
+                key={`${r.doc_id}:${r.mode}:${r.ref}`}
+                onClick={onLocate && (() => locate({ kind: "node", id: r.node_id }))}
+              >
+                <span style={{ display: "block", lineHeight: 1.35 }}>
+                  <span style={{ color: "#6b7280", fontWeight: 600 }}>{r.node_name} · {r.doc_name}:</span>{" "}
+                  <span style={badEnd}>„{r.ref}“</span> — {REF_REASON[r.reason]}
+                </span>
               </Item>
             ))}
           </Section>

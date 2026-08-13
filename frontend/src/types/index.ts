@@ -155,6 +155,8 @@ export type DisconnectedNodeAlert = Schemas["DisconnectedNodeAlert"];
 export type IntermediateEdgeAlert = Schemas["IntermediateEdgeAlert"];
 export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
 export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
+// Пометка «читает:/пишет:» в схеме логики, не нашедшая таблицу структуры (AL29).
+export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
@@ -212,5 +214,8 @@ export type DbColumnCreate = Schemas["DbColumnCreate"];
 export type DbColumnUpdate = Schemas["DbColumnUpdate"];
 // Обратный индекс базы («кто ко мне ходит») — разворот тех же пометок на чтении.
 export type TableUsage = Schemas["TableUsage"];
+// Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
+// (POST /data-refs/preview) — статус резолва и готовая подпись цели.
+export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
 // Дозаливка структуры БД от агента: отчёт превью/применения.
 export type DataImportReport = Schemas["DataImportReport"];

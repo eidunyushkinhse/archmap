@@ -768,6 +768,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-refs/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Data Refs
+         * @description Что каждая пометка присланного текста означает прямо сейчас.
+         *
+         *     Порядок ответа = порядок появления пометок в тексте (его задаёт parse_data_refs):
+         *     плашка читается сверху вниз вместе с диаграммой.
+         */
+        post: operations["preview_data_refs_api_v1_data_refs_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/tables": {
         parameters: {
             query?: never;
@@ -1456,6 +1479,11 @@ export interface components {
              * @default []
              */
             orphan_legs: components["schemas"]["OrphanLegAlert"][];
+            /**
+             * Unresolved Data Refs
+             * @default []
+             */
+            unresolved_data_refs: components["schemas"]["UnresolvedDataRefAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1647,6 +1675,34 @@ export interface components {
         DataPromptOut: {
             /** Prompt */
             prompt: string;
+        };
+        /**
+         * DataRefPreviewIn
+         * @description Текст дока как он сейчас в редакторе (может быть несохранённым).
+         */
+        DataRefPreviewIn: {
+            /** Content */
+            content: string;
+        };
+        /**
+         * DataRefPreviewItem
+         * @description Одна пометка глазами резолва: что написано, что это значит и куда ведёт.
+         */
+        DataRefPreviewItem: {
+            /** Ref */
+            ref: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "unknown_table" | "ambiguous" | "unknown_column";
+            /** Target */
+            target: string | null;
         };
         /**
          * DataTableItem
@@ -3628,6 +3684,44 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * UnresolvedDataRefAlert
+         * @description Пометка «читает:/пишет:» в схеме логики, не нашедшая свою таблицу.
+         *
+         *     Пометка — ОБЕЩАНИЕ ФАКТА (пивот §9 plan-db-docs.md): текст утверждает, что
+         *     операция трогает такие-то данные. Невыполненное обещание молчать не должно —
+         *     обратный индекс базы нерезолвнутую пометку не показывает вовсе, а обращение с
+         *     несуществующей колонкой показывает как обращение к таблице ЦЕЛИКОМ, и алерт
+         *     остаётся единственным местом, где расхождение текста со структурой видно.
+         */
+        UnresolvedDataRefAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /** Ref */
+            ref: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "unknown_table" | "ambiguous" | "unknown_column";
+        };
         /** UserCreate */
         UserCreate: {
             /** Username */
@@ -5189,6 +5283,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DataImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_data_refs_api_v1_data_refs_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataRefPreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataRefPreviewItem"][];
                 };
             };
             /** @description Validation Error */

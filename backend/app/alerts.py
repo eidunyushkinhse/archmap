@@ -10,6 +10,7 @@ import uuid
 
 from sqlalchemy.orm import Session, aliased
 
+from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -26,6 +27,7 @@ from app.schemas.node import (
     OrphanLegAlert,
     PersonInsideAlert,
     UnboundParticipantAlert,
+    UnresolvedDataRefAlert,
 )
 
 
@@ -40,7 +42,10 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     5) люди (shape=person), вложенные в другой узел — по C4 актор живёт на
        контекстном уровне, ВНЕ границы системы;
     6) повисшие сообщения процессов — связь, которой шло сообщение, удалена
-       из схемы (edge_id = NULL).
+       из схемы (edge_id = NULL);
+    9) пометки обращений «читает:/пишет:» в схемах логики, не нашедшие свою
+       таблицу структуры — обещание факта, которое текст дал, а структура не
+       подтверждает (таблицы нет / имя неоднозначно / колонки нет).
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -270,6 +275,42 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         )
     ]
 
+    # 9) Пометки обращений, не нашедшие цели (AL29, пивот §9 plan-db-docs.md).
+    #    «читает: orders.status» в тексте схемы логики — обещание факта, и невыполненное
+    #    обещание обязано быть видно: обратный индекс базы такую пометку не показывает
+    #    (он отвечает за факты), а обращение с несуществующей колонкой показывает как
+    #    обращение к таблице целиком — алерт остаётся единственным местом, где битая
+    #    колонка заметна. Резолв — на ЧТЕНИИ, по каталогу всего проекта: хранимых
+    #    обращений нет, а значит нет и точек инвалидации.
+    tables, node_paths = catalog_for_project(db, project_id)
+    unresolved_data_refs: list[UnresolvedDataRefAlert] = []
+    for doc_id, doc_name, content, owner_id, owner_name in (
+        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
+        .select_from(NodeDoc)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(Node.project_id == project_id)
+        .all()
+    ):
+        if not content:
+            continue
+        for ref in resolve_data_refs(parse_data_refs(content), tables, node_paths):
+            if ref.status == "ok":
+                continue
+            unresolved_data_refs.append(
+                UnresolvedDataRefAlert(
+                    node_id=owner_id,
+                    node_name=owner_name,
+                    doc_id=doc_id,
+                    doc_name=doc_name,
+                    ref=ref.ref,
+                    mode=ref.mode,
+                    reason=ref.status,
+                )
+            )
+    # Порядок детерминированный: у соседних классов его даёт ORDER BY, здесь он
+    # появляется только после разбора текста — сортируем готовые записи.
+    unresolved_data_refs.sort(key=lambda a: (a.node_name, a.doc_name, a.ref))
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
@@ -279,4 +320,5 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         dangling_messages=dangling_messages,
         unbound_participants=unbound_participants,
         orphan_legs=orphan_legs,
+        unresolved_data_refs=unresolved_data_refs,
     )
