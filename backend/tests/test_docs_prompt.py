@@ -54,6 +54,21 @@ def test_промпт_учит_пометкам_обращений():
     ):
         assert marker in prompt, marker
 
+    # Находки №2 и №7 полевого QA: пометки писала сессия, не читавшая DDL («action»
+    # против таблицы «actions»), и помечала любой I/O — 46 алертов-шума на проект.
+    for marker in (
+        "Пометка — ТОЛЬКО про таблицы базы данных",
+        "in-memory кэши и очереди, HTTP-вызовы пометками НЕ помечай",
+        "из самой СХЕМЫ БД (DDL)",
+        "«actions», если таблица называется actions",
+        "открой DDL и проверь",
+        "НЕ пиши пометку",
+        # Чек-лист: сверка имён с DDL и периметр пометки
+        "Имена в пометках сверены с DDL",
+        "пометок на не-таблицах",
+    ):
+        assert marker in prompt, marker
+
     refs = {(r.ref, r.mode) for r in parse_data_refs(example_mmd())}
     assert refs == {("accounts.balance", "read"), ("orders", "write"), ("order_items", "write")}
 

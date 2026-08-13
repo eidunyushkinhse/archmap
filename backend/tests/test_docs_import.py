@@ -161,6 +161,21 @@ def test_plan_operation_kind_warning(db):
     assert any("kind=operation без поля operation" in w for w in plan.warnings)
 
 
+def test_plan_доки_контейнеру_предупреждают_а_не_блокируют(db):
+    # Полевой QA: агент адресовал обзоры контейнерам — итог два алерта AL24. Ошибкой
+    # это делать жестоко (алерт и «распределение» — уже готовый ответ продукта), но и
+    # молчать нельзя: превью обязано сказать это ДО применения.
+    _tree(db)
+    plan = _plan(db, [("a.mmd", _mmd("Обзор", node="billing")), ("b.mmd", _mmd("Л", node="orders"))])
+
+    assert plan.errors == []
+    assert [a.action for a in plan.logic] == ["create", "create"]  # пакет не заблокирован
+    про_контейнер = [w for w in plan.warnings if "контейнер" in w]
+    assert len(про_контейнер) == 1  # у листа orders предупреждения нет
+    assert "a.mmd: «Ярмарка / billing» — контейнер" in про_контейнер[0]
+    assert "Контейнеры со своей документацией" in про_контейнер[0]
+
+
 def test_plan_адрес_вне_поддерева_окна(db):
     _root, _orders, billing, _shipping, *_ = _tree(db)
     scope = {billing.id} | {n.id for n in _nodes(db) if n.parent_id == billing.id}

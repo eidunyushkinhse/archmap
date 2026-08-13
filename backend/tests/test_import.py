@@ -145,6 +145,16 @@ def test_import_broken_yaml_400(db):
     assert "YAML" in ei.value.detail
 
 
+def test_ошибка_yaml_подсказывает_лечение():
+    # Полевой QA: на «ошибка в строке N» слабая модель добросовестно перепечатывает
+    # документ с той же ошибкой. Диагноз обязан идти вместе с лечением.
+    parsed, errors = parse_import(
+        "nodes:\n  - name: A\n    description: Обработка действий: отправка\n"
+    )
+    assert parsed is None
+    assert any("возьмите такое значение в кавычки" in e for e in errors)
+
+
 def test_unknown_edge_ref_is_error():
     parsed, errors = parse_import("nodes:\n  - name: A\nedges:\n  - from: A\n    to: B\n")
     assert parsed is None
@@ -296,6 +306,32 @@ def test_preview_reports_and_writes_nothing(db):
     assert db.query(Node).count() == 0
 
 
+def test_preview_lists_all_node_names(db):
+    """node_names — ВСЕ узлы слитого дерева, включая вложенные: по ним фронт
+    сравнивает попытки агента и показывает, что исчезло между ними."""
+    user = ensure_architect(db)
+    content = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: orders\n"
+        "        children:\n"
+        "          - name: api\n"
+        "      - name: orders-db\n"
+        "        shape: database\n"
+        "  - name: Покупатель\n"
+        "    shape: person\n"
+    )
+    out = import_preview(ImportPreviewIn(content=content), _user=user)
+    assert out.ok and out.node_count == 5
+    # Порядок обхода дерева: родитель раньше детей (корни — в порядке документа).
+    assert out.node_names == ["Система", "orders", "api", "orders-db", "Покупатель"]
+
+    # Битый YAML — узлов нет вовсе, сравнивать не с чем.
+    bad = import_preview(ImportPreviewIn(content="nodes:\n  - name: [x"), _user=user)
+    assert bad.ok is False and bad.node_names == []
+
+
 def test_preview_roots_capped_at_8(db):
     user = ensure_architect(db)
     content = yaml.dump({"nodes": [{"name": f"R{i}"} for i in range(10)]}, allow_unicode=True)
@@ -326,6 +362,22 @@ def test_preview_multi_contents_merges(db):
     assert out.node_count == 3  # Система + payments + orders (склеены)
     assert out.merged_count == 2 and "Система" in out.merged
     assert out.conflicts == [] and out.errors == []
+
+
+def test_preview_node_names_include_merged_children(db):
+    """Мульти-репо: имена собираются из СЛИТОГО дерева (дети второго файла тоже)."""
+    user = ensure_architect(db)
+    b = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: orders\n"
+        "        children:\n"
+        "          - name: worker\n"
+    )
+    out = import_preview(ImportPreviewIn(contents=[_MULTI_A, b]), _user=user)
+    assert out.ok and out.node_names == ["Система", "payments", "orders", "worker"]
+    assert len(out.node_names) == out.node_count
 
 
 def test_preview_multi_errors_prefixed_by_file(db):

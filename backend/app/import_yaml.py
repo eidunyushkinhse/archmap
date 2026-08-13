@@ -86,7 +86,14 @@ def _load_doc(content: str) -> tuple[dict | None, list[str]]:
     try:
         doc = yaml.safe_load(content)
     except yaml.YAMLError as e:
-        return None, [f"Некорректный YAML: {_yaml_error(e)}"]
+        # Диагноз без лечения слабую модель не чинит: на замечание «ошибка в строке 29»
+        # она добросовестно перепечатывает документ с той же ошибкой (полевой QA
+        # Zabbix 7 — два лишних раунда). Подсказка — та же, что у дозаливки данных.
+        return None, [
+            f"Некорректный YAML: {_yaml_error(e)}. Частая причина — двоеточие с пробелом "
+            "внутри значения (например «действий: отправка»): возьмите такое значение "
+            "в кавычки"
+        ]
     if not isinstance(doc, dict):
         return None, ["Корень документа должен быть словарём с ключами nodes и edges"]
     return doc, []

@@ -14,6 +14,7 @@ from app.data_import import apply_data_plan, build_data_plan
 from app.data_prompt import build_data_prompt
 from app.database import get_db
 from app.deps import get_current_project, touch_project
+from app.docs_import import _node_paths
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
@@ -24,8 +25,17 @@ router = APIRouter(prefix="/data-import", tags=["data-import"])
 
 
 @router.get("/prompt", response_model=DataPromptOut)
-def data_prompt(_: User = Depends(require_architect)) -> DataPromptOut:
-    return DataPromptOut(prompt=build_data_prompt())
+def data_prompt(
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_architect),
+) -> DataPromptOut:
+    """Промпт агенту с узлами-БД ЭТОГО проекта: адрес владельца записей слабая
+    модель без списка выдумывает, и пакет блокируется целиком (находка QA)."""
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
+    db_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "database"]
+    return DataPromptOut(prompt=build_data_prompt(db_paths))
 
 
 def _plan(db: Session, project: Project, payload: DataImportIn, window: uuid.UUID | None):

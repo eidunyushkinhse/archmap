@@ -174,6 +174,69 @@ def test_битый_yaml_нашего_файла_не_молчит(db):
     assert any("YAML не разобрался" in e for e in r.errors)
 
 
+def test_структура_только_у_узла_БД_иначе_ошибка_с_перечнем(db):
+    # Зеркало CRUD-правила «структура — контракт узла-БД» (test_у_контейнера_структуры_
+    # не_бывает): применённое на сервисе стало бы НЕВИДИМЫМ — секцию «Структура»
+    # страница рендерит только у формы database.
+    _сцена(db)
+    r = _применить(db, ПАКЕТ.replace("Хранилище", "Биллинг"))
+
+    assert not r.applied and db.query(DbTable).count() == 0
+    [e] = r.errors
+    assert "объект «Биллинг» — не база данных" in e
+    # Перечень допустимых — чтобы слабая модель не гадала адрес во второй раз.
+    assert "Узлы-БД проекта: Хранилище" in e
+
+
+def test_структура_контейнеру_не_приезжает(db):
+    бд, _сервис = _сцена(db)
+    контейнер = _node(db, "Платформа", shape="service")
+    вложенная = Node(id=uuid.uuid4(), name="БД платформы", shape="database",
+                     parent_id=контейнер.id, project_id=ensure_project(db).id)
+    db.add(вложенная)
+    db.flush()
+
+    r = _применить(db, ПАКЕТ.replace("Хранилище", "Платформа"))
+    assert not r.applied and db.query(DbTable).count() == 0
+    [e] = r.errors
+    assert "объект «Платформа» — не база данных" in e
+    # В перечне — обе базы проекта, вложенная полным путём.
+    assert "Узлы-БД проекта: Платформа / БД платформы, Хранилище" in e
+
+
+def test_объект_не_найден_называет_узлы_БД(db):
+    # Полевой кейс: агент выдумал «Zabbix Storage», слепая ошибка стоила раунда
+    # переписки — теперь ошибка сама называет допустимые адреса.
+    _сцена(db)
+    r = _применить(db, ПАКЕТ.replace("Хранилище", "Zabbix Storage"))
+
+    assert not r.applied
+    [e] = r.errors
+    assert "объект «Zabbix Storage» не найден" in e
+    assert "узлы-БД проекта: Хранилище" in e
+
+
+def test_ключ_archmap_node_адресом_не_считается_но_предупреждает(db):
+    # Агент потерял решётку: адрес стал невидимым YAML-ключом, и записи молча уехали
+    # к объекту окна. Поведение прежнее (ключ игнорируется), но тишины больше нет.
+    бд, _сервис = _сцена(db)
+    r = data_import_apply(
+        DataImportIn(
+            files=[{"name": "data.yaml", "content": ПАКЕТ.replace("# archmap-node:", "archmap-node:")}],
+            node_id=бд.id,
+        ),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+
+    assert r.applied and r.errors == []
+    assert db.query(DbTable).filter(DbTable.node_id == бд.id).count() == 2
+    про_ключ = [w for w in r.warnings if "archmap-node" in w]
+    assert len(про_ключ) == 1
+    assert "адресом не является" in про_ключ[0] and "уедут к объекту окна" in про_ключ[0]
+
+
 def test_частичный_путь_узла_находится(db):
     # Агент видит только свой репозиторий и корневого контейнера не знает — промпт
     # просит путь, а корень в нём отсутствует. Хвост пути обязан совпадать.

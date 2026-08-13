@@ -8,7 +8,18 @@ let mermaidP: Promise<Mermaid> | null = null;
 
 export function loadMermaid(): Promise<Mermaid> {
   mermaidP ??= import("mermaid").then((mod) => {
-    mod.default.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "strict" });
+    mod.default.initialize({
+      startOnLoad: false,
+      theme: "neutral",
+      securityLevel: "strict",
+      // Лимиты подняты против дефолтов (50К символов / 500 рёбер): те задуманы как
+      // защита от ЧУЖОГО ввода на публичных площадках, а у нас ввод — собственные
+      // данные пользователя. На схеме БД в 203 таблицы дефолт отдавал вместо ER
+      // картинку «Maximum text size in diagram exceeded»; полноэкранный пан/зум для
+      // больших диаграмм уже есть.
+      maxTextSize: 1_000_000,
+      maxEdges: 4_000,
+    });
     return mod.default;
   });
   return mermaidP;

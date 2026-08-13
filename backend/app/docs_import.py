@@ -264,6 +264,10 @@ def build_docs_plan(
     plan = DocsPlan()
     flat, fulls, by_bare, by_path = _node_paths(nodes)
     by_node_id = {n.id: i for i, n in enumerate(flat)}
+    # Кто из узлов — контейнер (есть дети). Собственные доки у контейнера законны, но
+    # продукт считает их запахом: их ловит алерт AL24 и лечит «распределение» по детям.
+    # Блокировать пакет из-за этого жестоко — предупреждаем (полевой QA Zabbix 7).
+    with_children = {n.parent_id for n in nodes if n.parent_id is not None}
 
     def resolve(ref: str, where: str) -> int | None:
         hits = by_path.get(ref)
@@ -303,6 +307,13 @@ def build_docs_plan(
                 continue
             node, path = flat[idx], fulls[idx]
             existing = {d.name: d for d in node.docs}
+
+            if entry.logic and node.id in with_children:
+                plan.warnings.append(
+                    f"{fname}: «{path}» — контейнер; собственные доки контейнеров попадают "
+                    "в алерт «Контейнеры со своей документацией» — лучше адресовать "
+                    "листовым узлам"
+                )
 
             for logic in entry.logic:
                 slot = (node.id, logic.name)
