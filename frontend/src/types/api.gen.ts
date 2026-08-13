@@ -2460,6 +2460,11 @@ export interface components {
              * @default 0
              */
             dropped_edges: number;
+            /**
+             * Node Names
+             * @default []
+             */
+            node_names: string[];
         };
         /**
          * ImportPromptOut

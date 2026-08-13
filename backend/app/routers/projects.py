@@ -282,6 +282,9 @@ def import_preview(
         conflicts=report.conflicts,
         warnings=report.warnings,
         dropped_edges=report.dropped_edges,
+        # Порядок узлов слияния стабилен (родители раньше детей) — фронт сравнивает
+        # состав попыток агента, а не множества «на глаз».
+        node_names=[n.name for n in merged.nodes],
     )
 
 

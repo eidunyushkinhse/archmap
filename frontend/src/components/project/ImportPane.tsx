@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ImportPreviewOut } from "../../types";
 import { plural } from "../../ui/plural";
@@ -16,6 +16,16 @@ import { useFileDrop } from "../docsImport/useFileDrop";
 // 256 — с запасом под крупные мульти-репо системы (80+ сервисов, файл на репозиторий).
 export const MAX_IMPORT_FILES = 256;
 
+// Память попыток агента: состав узлов последней зелёной сводки и предыдущей.
+// from — сводка, которой соответствует cur (сравнение по ссылке: родитель на
+// каждый ответ dry-run кладёт новый объект). prev = null — попытка первая.
+interface Attempts {
+  from: ImportPreviewOut | null;
+  prev: string[] | null;
+  cur: string[];
+}
+const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: [] };
+
 interface Props {
   docs: string[];
   onDocs: (next: string[]) => void;
@@ -30,6 +40,13 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
   const active = Math.min(activeRaw, docs.length - 1);
   const fileRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
+  // Дифф попыток. Переставляем ПРИ РЕНДЕРЕ по смене ссылки сводки (React-паттерн
+  // «adjusting state when props change»), а не зеркалящим эффектом: setState в
+  // useEffect линтом запрещён и даёт лишний кадр со старым составом.
+  const [seen, setSeen] = useState<Attempts>(NO_ATTEMPTS);
+  if (summary?.ok && seen.from !== summary) {
+    setSeen({ from: summary, prev: seen.cur, cur: summary.node_names });
+  }
 
   function setDoc(i: number, text: string) {
     onDocs(docs.map((d, k) => (k === i ? text : d)));
@@ -46,6 +63,8 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
 
   function removeDoc(i: number) {
     const next = docs.filter((_, k) => k !== i);
+    // Убрали последний файл — история попыток начинается заново (сравнивать не с чем).
+    if (!next.length) setSeen(NO_ATTEMPTS);
     onDocs(next.length ? next : [""]);
     setActiveRaw(Math.max(0, active - (i <= active ? 1 : 0)));
   }
@@ -74,10 +93,27 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
       ? [...summary.conflicts, ...summary.warnings]
       : summary.errors;
 
+  // Вступление к замечаниям разное по случаям, и это НЕ косметика: полевой QA
+  // (docs/qa-zabbix-7.md, раунд 2) показал, что на «исправь» слабая модель отвечает
+  // ампутацией — вырезает объекты вместо поиска связей (31→27, затем 30→14 узлов).
+  // Ошибки разбора чинятся правкой; предупреждения зелёной сводки — ДОПОЛНЕНИЕМ.
+  const remarksIntro = summary?.ok
+    ? "Валидатор импорта ArchMap принял YAML, но оставил предупреждения. Устрани их, " +
+      "ДОПОЛНЯЯ схему — находи и дописывай недостающие связи, а НЕ удаляй объекты: " +
+      "удаление хуже недостающей связи. Выведи весь YAML-документ целиком заново:"
+    : "Валидатор импорта ArchMap нашёл замечания к YAML. Исправь их и выведи весь " +
+      "YAML-документ целиком заново:";
+
+  // Что исчезло между попытками (prev − cur, по именам). Рост не показываем — норма.
+  const vanished = useMemo(() => {
+    if (seen.prev === null) return [];
+    const now = new Set(seen.cur);
+    return [...new Set(seen.prev.filter((n) => !now.has(n)))];
+  }, [seen]);
+
   function copyRemarks() {
     const text =
-      "Валидатор импорта ArchMap нашёл замечания к YAML. Исправь их и выведи весь " +
-      "YAML-документ целиком заново:\n" +
+      remarksIntro + "\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
@@ -159,6 +195,15 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
       )}
 
       <div style={{ marginTop: 10 }}>
+        {/* Ампутация не должна быть молчаливой: пропавшие между попытками объекты —
+            над сводкой, до зелёного «Готово к импорту». */}
+        {summary?.ok && vanished.length > 0 && (
+          <div style={vanishedLine}>
+            Стало {seen.cur.length} {plural(seen.cur.length, ["объект", "объекта", "объектов"])}
+            {" "}(было {seen.prev?.length ?? 0}). Исчезли: {vanished.slice(0, 8).join(", ")}
+            {vanished.length > 8 ? ` и ещё ${vanished.length - 8}` : ""}
+          </div>
+        )}
         {summary?.ok && (
           <>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
@@ -231,6 +276,10 @@ const chipX: CSSProperties = {
   fontSize: 14, lineHeight: 1, padding: "3px 8px 3px 4px",
 };
 const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8", marginTop: 3 };
+// Тот же amber, что у заголовков отчёта слияния (ReportList) и ошибки перетаскивания.
+const vanishedLine: CSSProperties = {
+  fontSize: 12.5, fontWeight: 600, color: "#b45309", marginBottom: 6,
+};
 const importArea: CSSProperties = {
   width: "100%", height: 246, boxSizing: "border-box", resize: "none",
   padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 10,

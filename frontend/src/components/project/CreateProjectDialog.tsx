@@ -105,7 +105,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
           if (!alive) return;
           const msg = e instanceof Error ? e.message : "Не удалось проверить YAML";
           setImportSummary({ forDocs, res: {
-            ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [],
+            ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [], node_names: [],
             files: texts.length, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
           } });
         },
