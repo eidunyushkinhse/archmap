@@ -14,9 +14,10 @@ container.md §9, алерт AL24). Форму узла НЕ проверяем:
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
+from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
 from app.models.db_column import DbColumn
@@ -117,34 +118,61 @@ def list_usage(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[TableUsage]:
-    """Кто обращается к таблицам этой базы — разворот doc_data_access.
+    """Кто обращается к таблицам этой базы — разворот пометок из схем логики проекта.
 
     Ради этого ответа всё и строилось: перечень таблиц говорит, ГДЕ значение может
-    лежать, а обратный индекс — КТО его туда кладёт.
+    лежать, а обратный индекс — КТО его туда кладёт. Источник — сам текст доков
+    (пивот §9 плана): разбор и резолв на чтении, хранения обращений нет.
     """
     node = _get_node(db, node_id, project)
-    caller = aliased(Node)
-    rows = (
-        db.query(
-            DbTable.id, DbTable.name, DbColumn.id, DbColumn.name,
-            DocDataAccess.mode, NodeDoc.id, NodeDoc.name, caller.id, caller.name,
-        )
-        .select_from(DocDataAccess)
-        .join(DbTable, DbTable.id == DocDataAccess.table_id)
-        .outerjoin(DbColumn, DbColumn.id == DocDataAccess.column_id)
-        .join(NodeDoc, NodeDoc.id == DocDataAccess.node_doc_id)
-        .join(caller, caller.id == NodeDoc.node_id)
-        .filter(DbTable.node_id == node.id)
-        .order_by(DbTable.name, caller.name, NodeDoc.name)
+    tables, node_paths = catalog_for_project(db, project.id)
+    # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые таблицы в чужих базах
+    # перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
+    mine = {t.id: t for t in tables if t.node_id == node.id}
+    if not mine:
+        return []
+
+    docs = (
+        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
+        .select_from(NodeDoc)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(Node.project_id == project.id)
         .all()
     )
-    return [
-        TableUsage(
-            table_id=t_id, table_name=t_name, column_id=c_id, column_name=c_name,
-            mode=mode, doc_id=d_id, doc_name=d_name, node_id=n_id, node_name=n_name,
-        )
-        for t_id, t_name, c_id, c_name, mode, d_id, d_name, n_id, n_name in rows
-    ]
+
+    rows: list[TableUsage] = []
+    # Дедуп в пределах дока: «orders.status» и «Хранилище / orders.status» — одно и то
+    # же обращение, написанное по-разному, и второй строкой в индексе быть не должно.
+    seen: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None, str]] = set()
+    for doc_id, doc_name, content, caller_id, caller_name in docs:
+        if not content:
+            continue
+        for ref in resolve_data_refs(parse_data_refs(content), tables, node_paths):
+            # unknown_table/ambiguous сюда НЕ попадают: индекс базы отвечает за факты,
+            # а нерезолвнутой пометке место в алертах и в плашке редактора дока.
+            if ref.status not in ("ok", "unknown_column") or ref.table_id is None:
+                continue
+            table = mine.get(ref.table_id)
+            if table is None:
+                continue
+            # unknown_column = таблица нашлась, колонки нет → обращение к таблице
+            # ЦЕЛИКОМ; несуществующую колонку в индекс не тащим (её подсветит алерт).
+            column_id = ref.column_id if ref.status == "ok" else None
+            column_name = ref.column_name if ref.status == "ok" else None
+            key = (doc_id, table.id, column_id, ref.mode)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                TableUsage(
+                    table_id=table.id, table_name=table.name,
+                    column_id=column_id, column_name=column_name,
+                    mode=ref.mode, doc_id=doc_id, doc_name=doc_name,
+                    node_id=caller_id, node_name=caller_name,
+                )
+            )
+    rows.sort(key=lambda u: (u.table_name, u.node_name, u.doc_name))
+    return rows
 
 
 @catalog_router.get("", response_model=list[ProjectTableRef])

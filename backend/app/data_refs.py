@@ -16,6 +16,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Literal
 
+from sqlalchemy.orm import Session
+
+from app.docs_import import _node_paths
+from app.models.db_table import DbTable
+from app.models.node import Node
+
 Mode = Literal["read", "write"]
 RefStatus = Literal["ok", "unknown_table", "ambiguous", "unknown_column"]
 
@@ -164,3 +170,42 @@ def _resolve_one(
         column_id=col_id,
         column_name=column,
     )
+
+
+# ── ORM-адаптер: каталог из БД ────────────────────────────────────────────────
+# Единственное место, где чистый резолв встречается с базой. Кэша нет и не будет
+# (§9.3 плана): каталог собирается на каждом чтении — сотни таблиц в памяти дешевле
+# любой инвалидации (переименование таблицы/раздела/узла, удаление колонки).
+
+
+def catalog_for_project(
+    db: Session, project_id: uuid.UUID
+) -> tuple[list[CatalogTable], dict[uuid.UUID, str]]:
+    """Таблицы проекта в виде каталога + полные пути его узлов (материал резолва).
+
+    Каталог — по ВСЕМУ проекту, а не по одному узлу: неоднозначность имени есть
+    свойство проекта, и «orders» обязано считаться неоднозначным независимо от
+    того, чью страницу сейчас читают. Пути — те же, что у импорта (`_node_paths`):
+    квалификатор пометки пишется так же, как адрес узла в пакете агента.
+    """
+    nodes: list[Node] = db.query(Node).filter(Node.project_id == project_id).all()
+    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
+    node_paths: dict[uuid.UUID, str] = {n.id: fulls[i] for i, n in enumerate(flat)}
+
+    tables: list[DbTable] = (
+        db.query(DbTable)
+        .join(Node, Node.id == DbTable.node_id)
+        .filter(Node.project_id == project_id)
+        .all()
+    )
+    catalog = [
+        CatalogTable(
+            id=t.id,
+            node_id=t.node_id,
+            schema_name=t.schema_name,
+            name=t.name,
+            columns={c.name: c.id for c in t.columns},
+        )
+        for t in tables
+    ]
+    return catalog, node_paths

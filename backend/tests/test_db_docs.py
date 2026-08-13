@@ -48,8 +48,8 @@ def _node(db, name, shape="database", parent=None, project=None):
     return n
 
 
-def _doc(db, node, name="POST /pay"):
-    d = NodeDoc(id=uuid.uuid4(), node_id=node.id, name=name, kind="operation", content="")
+def _doc(db, node, name="POST /pay", content=""):
+    d = NodeDoc(id=uuid.uuid4(), node_id=node.id, name=name, kind="operation", content=content)
     db.add(d)
     db.flush()
     return d
@@ -212,17 +212,24 @@ def test_снос_базы_уносит_структуру_и_обращения
 
 
 # ── Обратный индекс и каталог ─────────────────────────────────────────────────
+# Источник обратного индекса — ПОМЕТКИ в тексте схем логики (пивот §9 плана), а не
+# отдельные записи: факт «операция пишет orders.status» существует ровно один раз,
+# прозой в диаграмме, и разойтись с ней индекс не может.
+
+
+def _usage(db, бд):
+    return list_usage(бд.id, db=db, project=ensure_project(db), _=ensure_architect(db))
 
 
 def test_обратный_индекс_отвечает_кто_кладёт_значение(db):
     бд = _node(db, "Хранилище")
     сервис = _node(db, "Биллинг", shape="service")
-    док = _doc(db, сервис, "POST /pay")
     t = _table(db, бд)
     c = _column(db, бд, t)
-    _access(db, сервис, док, t, c, mode="write")
+    _doc(db, сервис, "POST /pay", 'A["Списать средства<br>пишет: orders.status"]')
+    _doc(db, сервис, "Обзор")  # док без текста и без пометок: не падаем и не шумим
 
-    строки = list_usage(бд.id, db=db, project=ensure_project(db), _=ensure_architect(db))
+    строки = _usage(db, бд)
 
     assert len(строки) == 1
     u = строки[0]
@@ -230,16 +237,76 @@ def test_обратный_индекс_отвечает_кто_кладёт_зн
     # пишет операция POST /pay сервиса Биллинг».
     assert (u.table_name, u.column_name, u.mode) == ("orders", "status", "write")
     assert (u.doc_name, u.node_name) == ("POST /pay", "Биллинг")
+    assert (u.table_id, u.column_id) == (t.id, c.id)
 
 
 def test_обратный_индекс_видит_только_свои_таблицы(db):
     бд = _node(db, "Хранилище")
     чужая_бд = _node(db, "Другое хранилище")
     сервис = _node(db, "Биллинг", shape="service")
-    док = _doc(db, сервис)
-    _access(db, сервис, док, _table(db, чужая_бд, "прочее"))
+    _table(db, бд, "orders")  # своя таблица есть — фильтр по узлу не вырожденный
+    _table(db, чужая_бд, "прочее")
+    _doc(db, сервис, content='A["читает: прочее"]')
 
-    assert list_usage(бд.id, db=db, project=ensure_project(db), _=ensure_architect(db)) == []
+    assert _usage(db, бд) == []
+
+
+def test_неизвестная_колонка_даёт_строку_на_уровне_таблицы(db):
+    бд = _node(db, "Хранилище")
+    сервис = _node(db, "Биллинг", shape="service")
+    t = _table(db, бд)
+    _column(db, бд, t, "status")
+    _doc(db, сервис, content='A["пишет: orders.discount"]')
+
+    [u] = _usage(db, бд)
+    # Таблица нашлась → обращение к ней ЦЕЛИКОМ; несуществующую колонку в индекс не
+    # тащим (её подсветит алерт битой пометки), но и обращение не прячем.
+    assert (u.table_name, u.column_id, u.column_name) == ("orders", None, None)
+
+
+def test_битая_пометка_в_индекс_не_попадает(db):
+    бд = _node(db, "Хранилище")
+    сервис = _node(db, "Биллинг", shape="service")
+    _table(db, бд, "orders")
+    _doc(db, сервис, content='A["читает: ordrs.status"]')
+
+    # Опечатка в имени таблицы — не факт, а обещание факта: место такой пометке в
+    # алертах, а не в индексе базы (домысливать «наверное, orders» нельзя).
+    assert _usage(db, бд) == []
+
+
+def test_неоднозначная_ссылка_показывается_только_с_квалификатором(db):
+    бд = _node(db, "Хранилище")
+    кэш = _node(db, "Кэш")
+    сервис = _node(db, "Биллинг", shape="service")
+    _table(db, бд, "orders")
+    _table(db, кэш, "orders")  # одноимённая в другой базе: голое «orders» неоднозначно
+    док = _doc(db, сервис, "POST /pay", 'A["читает: orders"]')
+
+    assert _usage(db, бд) == []
+
+    док.content = 'A["читает: Хранилище / orders"]'
+    db.flush()
+    [u] = _usage(db, бд)
+    assert (u.table_name, u.node_name, u.mode) == ("orders", "Биллинг", "read")
+
+
+def test_два_написания_одной_цели_дают_одну_строку(db):
+    бд = _node(db, "Хранилище")
+    сервис = _node(db, "Биллинг", shape="service")
+    t = _table(db, бд)
+    _column(db, бд, t)
+    _doc(
+        db,
+        сервис,
+        content=(
+            'A["Списать<br>пишет: orders.status"] --> '
+            'B["Повтор<br>пишет: Хранилище / orders.status"]'
+        ),
+    )
+
+    # Одно и то же обращение, записанное двумя способами, — одна строка индекса.
+    assert len(_usage(db, бд)) == 1
 
 
 def test_каталог_таблиц_называет_владельца(db):
