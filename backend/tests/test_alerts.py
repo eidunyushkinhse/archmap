@@ -360,3 +360,124 @@ def test_канал_без_явной_синхронности_плечо_не_�
     db.commit()
 
     assert get_alerts(db=db, project=ensure_project(db), _=None).orphan_legs == []
+
+
+# ====== 9) Пометки обращений, не нашедшие цели (AL29) ======
+# Пометка «читает:/пишет:» в тексте схемы логики — ОБЕЩАНИЕ ФАКТА. Невыполненное
+# обещание не имеет права молчать: обратный индекс базы такую пометку не показывает
+# вовсе, а обращение с несуществующей колонкой показывает как обращение к таблице
+# целиком — алерт остаётся единственным местом, где расхождение со структурой видно.
+
+
+def _таблица(db, узел, name="orders", schema=""):
+    from app.models.db_table import DbTable
+
+    t = DbTable(id=uuid.uuid4(), node_id=узел.id, name=name, schema_name=schema)
+    db.add(t)
+    db.flush()
+    return t
+
+
+def _колонка(db, таблица, name="status"):
+    from app.models.db_column import DbColumn
+
+    c = DbColumn(id=uuid.uuid4(), table_id=таблица.id, name=name, type="varchar(16)")
+    db.add(c)
+    db.flush()
+    return c
+
+
+def _док(db, узел, name="POST /pay", content=""):
+    from app.models.node_doc import NodeDoc
+
+    d = NodeDoc(id=uuid.uuid4(), node_id=узел.id, name=name, kind="operation", content=content)
+    db.add(d)
+    db.flush()
+    return d
+
+
+def _пометки(db):
+    return get_alerts(db=db, project=ensure_project(db), _=None).unresolved_data_refs
+
+
+def test_битая_пометка_даёт_алерт(db):
+    бд = _node(db, "Хранилище")
+    сервис = _node(db, "Биллинг")
+    _таблица(db, бд, "orders")
+    _док(db, сервис, "POST /pay", 'A["Списать<br>пишет: ordrs.status"]')
+    db.commit()
+
+    [алерт] = _пометки(db)
+
+    # Адрес починки — у ВЫЗЫВАЮЩЕГО: чинится текст его схемы логики, а не структура базы.
+    assert (алерт.node_name, алерт.doc_name) == ("Биллинг", "POST /pay")
+    assert (алерт.ref, алерт.mode, алерт.reason) == ("ordrs.status", "write", "unknown_table")
+
+
+def test_здоровая_пометка_алерта_не_даёт(db):
+    бд = _node(db, "Хранилище")
+    сервис = _node(db, "Биллинг")
+    t = _таблица(db, бд, "orders")
+    _колонка(db, t, "status")
+    _док(db, сервис, content='A["пишет: orders.status"]')
+    _док(db, сервис, "Обзор")  # док без текста: не падаем и не шумим
+    db.commit()
+
+    assert _пометки(db) == []
+
+
+def test_неоднозначная_пометка_попадает_в_алерт(db):
+    бд = _node(db, "Хранилище")
+    кэш = _node(db, "Кэш")
+    сервис = _node(db, "Биллинг")
+    _таблица(db, бд, "orders")
+    _таблица(db, кэш, "orders")  # одноимённая в другой базе → голое «orders» неоднозначно
+    док = _док(db, сервис, content='A["читает: orders"]')
+    db.commit()
+
+    [алерт] = _пометки(db)
+    assert алерт.reason == "ambiguous"
+
+    # Квалификатор «БД / таблица» снимает алерт — угадывать за пользователя нельзя,
+    # но и тупиком алерт не является.
+    док.content = 'A["читает: Кэш / orders"]'
+    db.commit()
+    assert _пометки(db) == []
+
+
+def test_битая_колонка_видна_только_алертом(db):
+    from app.routers.db_docs import list_usage
+
+    бд = _node(db, "Хранилище")
+    сервис = _node(db, "Биллинг")
+    t = _таблица(db, бд, "orders")
+    _колонка(db, t, "status")
+    _док(db, сервис, content='A["пишет: orders.discount"]')
+    db.commit()
+
+    [алерт] = _пометки(db)
+    assert алерт.reason == "unknown_column"
+    # А обратный индекс базы ту же пометку показывает как обращение к таблице ЦЕЛИКОМ:
+    # колонки в строке нет, и без алерта опечатка осталась бы незамеченной.
+    [строка] = list_usage(бд.id, db=db, project=ensure_project(db), _=None)
+    assert (строка.table_name, строка.column_name) == ("orders", None)
+
+
+def test_порядок_алертов_детерминированный(db):
+    # Порядок появляется только после разбора текста (ORDER BY тут не помогает), а
+    # прыгающий от запроса к запросу список панель делает нечитаемой.
+    # Порядок ввода СПЕЦИАЛЬНО обратный ожидаемому — и по узлам, и внутри дока:
+    # без сортировки ответ повторил бы порядок вставки.
+    бд = _node(db, "Хранилище")
+    заказы = _node(db, "Заказы")
+    биллинг = _node(db, "Биллинг")
+    _таблица(db, бд, "orders")
+    _док(db, заказы, "GET /orders", 'A["читает: нет_такой"]')
+    _док(db, биллинг, "POST /pay", 'A["читает: счета, ordrs"]')
+    db.commit()
+
+    assert [(a.node_name, a.doc_name, a.ref) for a in _пометки(db)] == [
+        ("Биллинг", "POST /pay", "ordrs"),
+        ("Биллинг", "POST /pay", "счета"),
+        ("Заказы", "GET /orders", "нет_такой"),
+    ]

@@ -1,0 +1,246 @@
+/* Секция «Структура» страницы узла-базы: таблицы и колонки записями.
+   Базовые примитивы (np-card, np-field, np-addbtn, np-empty, np-warn) берутся из
+   NodePage.css — здесь только раскладка таблиц и колонок. */
+
+.dbs-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dbs-table {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+/* Шапка таблицы — ГРИД, а не флекс: у .np-field стоит width:100%, и в потоке флекса
+   поля раздували строку, а имя (flex:1 1 0) схлопывалось в ноль. В гриде ширину
+   задаёт ТРЕК, а width:100% внутри ячейки ведёт себя правильно. */
+.dbs-thead {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 150px 26px;
+  align-items: center;
+  gap: 8px;
+}
+
+.dbs-chev {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.dbs-name {
+  min-width: 0;
+  font-weight: 600;
+}
+.dbs-schema {
+  min-width: 0;
+  color: #64748b;
+}
+.dbs-desc {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.dbs-del {
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.dbs-del:hover {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.dbs-cols {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eef2f7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Строка колонки — тот же грид, что и её шапка: треки описаны ОДИН раз, поэтому
+   заголовки стоят ровно над полями и не разъезжаются при узкой панели. */
+.dbs-col {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.3fr) minmax(0, 0.9fr) 52px 62px minmax(0, 1fr) minmax(0, 1.6fr) 26px;
+  align-items: center;
+  gap: 6px;
+}
+/* Наблюдательский вариант: полей ввода нет, признаки — чипами в одной ячейке. */
+.dbs-col--ro {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.6fr);
+}
+.dbs-cname, .dbs-ctype, .dbs-fk, .dbs-cdesc { min-width: 0; }
+/* Обращения («кто ходит») живут в той же секции, но их строка своя — три ячейки. */
+.dbs-col--usage {
+  grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1.6fr);
+}
+
+.dbs-check {
+  cursor: pointer;
+}
+
+.dbs-addcol {
+  align-self: flex-start;
+}
+
+/* Наблюдатель: те же данные без полей ввода. */
+.dbs-ro {
+  color: #334155;
+  font-size: 13px;
+}
+.dbs-flag {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* Переключатель и полотно ER-диаграммы. Диаграмма производна от записей — рисуется
+   тем же MermaidRenderer, что и схемы логики, и живёт прямо в секции. */
+.dbs-ertoggle {
+  margin-bottom: 10px;
+}
+/* Встроенная диаграмма — КНОПКА: клик открывает её во весь экран. Своим видом
+   (курсор-лупа и подпись в углу) обещает это ещё до наведения. */
+.dbs-er {
+  position: relative;
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow-x: auto;
+  cursor: zoom-in;
+  font: inherit;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.dbs-er:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+.dbs-erhint {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.dbs-er svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Обращения: действие — цветной чип, чтобы «пишет» отличалось от «читает» с одного
+   взгляда (в инциденте ищут именно пишущих). */
+.dbs-mode {
+  justify-self: start;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.dbs-mode--read { color: #0369a1; background: #e0f2fe; }
+.dbs-mode--write { color: #9a3412; background: #ffedd5; }
+.dbs-usage {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dbs-addaccess {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+/* Ряд действий секции: ручное заведение и дозаливка агентом стоят рядом — путь
+   через агента основной (сорок таблиц руками не введут), но не единственный. */
+.dbs-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Шапка списка колонок: те же ширины, что у строк (классы совпадают), поэтому
+   заголовки стоят ровно над своими полями. Не поле ввода — просто подписи. */
+.dbs-colhead {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #eef2f7;
+  margin-bottom: 2px;
+}
+/* Подписи выравниваются по тексту ЗНАЧЕНИЯ, а не по краю ячейки: у .np-field
+   внутренний отступ 8px + 1px рамки — без этой поправки заголовок стоял левее
+   своего столбца. Чекбоксы центрируются, поэтому их подписи — тоже. */
+.dbs-colhead > span {
+  padding-left: 9px;
+}
+.dbs-colhead > span:nth-child(3),
+.dbs-colhead > span:nth-child(4) {
+  padding-left: 0;
+  text-align: center;
+}
+.dbs-col > .dbs-check {
+  justify-self: center;
+  margin: 0;
+}
+
+/* Разделы базы (schema в PostgreSQL, database в MySQL/Mongo/ClickHouse, keyspace в
+   Cassandra) — раскрывашки. Появляются, только если раздел где-то указан: у баз без
+   такого уровня (Redis, Elasticsearch) лишней вложенности не возникает. */
+.dbs-group {
+  margin-bottom: 10px;
+}
+.dbs-groupbody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Направляющая вложенности — как у детей в дереве объектов (.nt-children). */
+  margin: 8px 0 0 10px;
+  padding-left: 8px;
+  border-left: 1px solid #e6eaf0;
+}
+
+/* Обёртка анимируемой высоты: своей коробки у неё нет, поэтому измеренная высота
+   точна, а вся косметика (отступы, рамки) живёт на вложенном блоке. flow-root, а не
+   overflow:hidden — чтобы отступы вложенного блока входили в измерение, но ничего не
+   обрезалось в покое. */
+.anim-box {
+  display: flow-root;
+}

@@ -18,6 +18,19 @@ export type NodeStatus = Schemas["NodeResponse"]["status"];
 // детей у них не заводим, на схеме они не «зона входа» для сквозной связи.
 export const canHaveChildren = (shape: NodeShape): boolean => shape === "service";
 
+// Какая документация уместна форме узла (docs/plan-db-docs.md §1). Логика (mermaid)
+// и OpenAPI — артефакты СЕРВИСА: они описывают его код и его API. У базы данных ни
+// того, ни другого не бывает — её «контракт» это СТРУКТУРА (таблицы/колонки); промпт
+// агента это правило проговаривает давно («у узла без собственного HTTP API спеки нет
+// вовсе»), а страница объекта до 2026-08-12 всё равно предлагала слоты под них.
+// Брокеру предстоят КАНАЛЫ (второй круг эпика) — пока собственной документации нет.
+export interface ShapeDocs { logic: boolean; spec: boolean; structure: boolean }
+export const shapeDocs = (shape: NodeShape): ShapeDocs => ({
+  logic: shape === "service",
+  spec: shape === "service",
+  structure: shape === "database",
+});
+
 // Проект — изолированная схема. Мета (счётчики/редактор/даты) считается бэком.
 export type Project = Schemas["ProjectResponse"];
 export type ProjectCreate = Schemas["ProjectCreate"];
@@ -142,6 +155,8 @@ export type DisconnectedNodeAlert = Schemas["DisconnectedNodeAlert"];
 export type IntermediateEdgeAlert = Schemas["IntermediateEdgeAlert"];
 export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
 export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
+// Пометка «читает:/пишет:» в схеме логики, не нашедшая таблицу структуры (AL29).
+export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
@@ -186,3 +201,21 @@ export type BranchIn = Schemas["BranchIn"];
 export type MessageLeg = Schemas["MessageOut"]["leg"];
 export type MessageKind = Schemas["MessageOut"]["kind"];
 export type FragmentKind = Schemas["FragmentOut"]["kind"];
+
+// Структура БД (docs/plan-db-docs.md): «контракт» узла-базы — таблицы и колонки
+// ЗАПИСЯМИ, а не текстом mermaid; ER-диаграмма из них производна. Обращения к данным
+// (кто читает/пишет в рамках операции) записями НЕ хранятся: их истина — пометки
+// «читает:/пишет:» в тексте схем логики вызывающих (пивот §9).
+export type DbTable = Schemas["DbTableResponse"];
+export type DbTableCreate = Schemas["DbTableCreate"];
+export type DbTableUpdate = Schemas["DbTableUpdate"];
+export type DbColumn = Schemas["DbColumnResponse"];
+export type DbColumnCreate = Schemas["DbColumnCreate"];
+export type DbColumnUpdate = Schemas["DbColumnUpdate"];
+// Обратный индекс базы («кто ко мне ходит») — разворот тех же пометок на чтении.
+export type TableUsage = Schemas["TableUsage"];
+// Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
+// (POST /data-refs/preview) — статус резолва и готовая подпись цели.
+export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
+// Дозаливка структуры БД от агента: отчёт превью/применения.
+export type DataImportReport = Schemas["DataImportReport"];

@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, String, Uuid
+from sqlalchemy import ForeignKey, Index, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -59,6 +59,10 @@ class ProcessFragmentBranch(Base):
     """
 
     __tablename__ = "process_fragment_branches"
+    # Индекс объявлен в модели, а не только в миграции f117bee2af5b: без него
+    # autogenerate видел расхождение и в КАЖДОЙ следующей миграции предлагал
+    # DROP INDEX (поймано 2026-08-12 при заведении структуры БД).
+    __table_args__ = (Index("ix_fragment_branches_fragment", "fragment_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     fragment_id: Mapped[uuid.UUID] = mapped_column(

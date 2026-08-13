@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import (
     auth,
+    data_import,
+    data_refs,
+    db_docs,
     docs_import,
     edges,
     export,
@@ -31,6 +34,9 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
 app.include_router(nodes.router, prefix="/api/v1")
 app.include_router(node_docs.router, prefix="/api/v1")
+app.include_router(data_import.router, prefix="/api/v1")
+app.include_router(data_refs.router, prefix="/api/v1")
+app.include_router(db_docs.tables_router, prefix="/api/v1")
 app.include_router(docs_import.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")
 app.include_router(views.router, prefix="/api/v1")

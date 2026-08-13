@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.db_doc import DataAccessMode
 from app.schemas.node_doc import NodeDocMeta
 
 # C4-формы узла. Источник правды контракта — этот Literal; фронтовый NodeShape
@@ -307,6 +308,28 @@ class OrphanLegAlert(BaseModel):
     to_name: str
 
 
+class UnresolvedDataRefAlert(BaseModel):
+    """Пометка «читает:/пишет:» в схеме логики, не нашедшая свою таблицу.
+
+    Пометка — ОБЕЩАНИЕ ФАКТА (пивот §9 plan-db-docs.md): текст утверждает, что
+    операция трогает такие-то данные. Невыполненное обещание молчать не должно —
+    обратный индекс базы нерезолвнутую пометку не показывает вовсе, а обращение с
+    несуществующей колонкой показывает как обращение к таблице ЦЕЛИКОМ, и алерт
+    остаётся единственным местом, где расхождение текста со структурой видно.
+    """
+
+    # Узел-ВЛАДЕЛЕЦ дока (вызывающий), а не база: чинят текст пометки у него.
+    node_id: uuid.UUID
+    node_name: str
+    doc_id: uuid.UUID
+    doc_name: str
+    ref: str  # ссылка как написана в тексте
+    mode: DataAccessMode
+    # Почему не срослось: таблицы нет / имя подходит нескольким целям / колонки нет
+    # в найденной таблице. Зеркало app.data_refs.RefStatus без «ok».
+    reason: Literal["unknown_table", "ambiguous", "unknown_column"]
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
@@ -316,6 +339,7 @@ class AlertsResponse(BaseModel):
     dangling_messages: list[DanglingMessageAlert] = []
     unbound_participants: list[UnboundParticipantAlert] = []
     orphan_legs: list[OrphanLegAlert] = []
+    unresolved_data_refs: list[UnresolvedDataRefAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

@@ -711,6 +711,181 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-import/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Data Prompt */
+        get: operations["data_prompt_api_v1_data_import_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Data Import Preview
+         * @description Dry-run: план без записи.
+         */
+        post: operations["data_import_preview_api_v1_data_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-import/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Data Import Apply
+         * @description Применение: план пересчитывается на живом состоянии; при errors не пишем ничего.
+         */
+        post: operations["data_import_apply_api_v1_data_import_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-refs/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Data Refs
+         * @description Что каждая пометка присланного текста означает прямо сейчас.
+         *
+         *     Порядок ответа = порядок появления пометок в тексте (его задаёт parse_data_refs):
+         *     плашка читается сверху вниз вместе с диаграммой.
+         */
+        post: operations["preview_data_refs_api_v1_data_refs_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tables */
+        get: operations["list_tables_api_v1_nodes__node_id__tables_get"];
+        put?: never;
+        /** Create Table */
+        post: operations["create_table_api_v1_nodes__node_id__tables_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Usage
+         * @description Кто обращается к таблицам этой базы — разворот пометок из схем логики проекта.
+         *
+         *     Ради этого ответа всё и строилось: перечень таблиц говорит, ГДЕ значение может
+         *     лежать, а обратный индекс — КТО его туда кладёт. Источник — сам текст доков
+         *     (пивот §9 плана): разбор и резолв на чтении, хранения обращений нет.
+         */
+        get: operations["list_usage_api_v1_nodes__node_id__tables_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/{table_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Table */
+        delete: operations["delete_table_api_v1_nodes__node_id__tables__table_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Table */
+        patch: operations["update_table_api_v1_nodes__node_id__tables__table_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/{table_id}/columns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Column */
+        post: operations["create_column_api_v1_nodes__node_id__tables__table_id__columns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/tables/{table_id}/columns/{column_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Column */
+        delete: operations["delete_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Column */
+        patch: operations["update_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__patch"];
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -1304,6 +1479,11 @@ export interface components {
              * @default []
              */
             orphan_legs: components["schemas"]["OrphanLegAlert"][];
+            /**
+             * Unresolved Data Refs
+             * @default []
+             */
+            unresolved_data_refs: components["schemas"]["UnresolvedDataRefAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1445,6 +1625,227 @@ export interface components {
             from_name: string;
             /** To Name */
             to_name: string;
+        };
+        /** DataImportIn */
+        DataImportIn: {
+            /** Files */
+            files: components["schemas"]["DocsFileIn"][];
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Overwrite
+             * @default false
+             */
+            overwrite: boolean;
+        };
+        /** DataImportReport */
+        DataImportReport: {
+            /**
+             * Tables
+             * @default []
+             */
+            tables: components["schemas"]["DataTableItem"][];
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Tables Written
+             * @default 0
+             */
+            tables_written: number;
+            /**
+             * Columns Written
+             * @default 0
+             */
+            columns_written: number;
+        };
+        /** DataPromptOut */
+        DataPromptOut: {
+            /** Prompt */
+            prompt: string;
+        };
+        /**
+         * DataRefPreviewIn
+         * @description Текст дока как он сейчас в редакторе (может быть несохранённым).
+         */
+        DataRefPreviewIn: {
+            /** Content */
+            content: string;
+        };
+        /**
+         * DataRefPreviewItem
+         * @description Одна пометка глазами резолва: что написано, что это значит и куда ведёт.
+         */
+        DataRefPreviewItem: {
+            /** Ref */
+            ref: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "unknown_table" | "ambiguous" | "unknown_column";
+            /** Target */
+            target: string | null;
+        };
+        /**
+         * DataTableItem
+         * @description Строка превью по таблице: что приедет и что с ней станет.
+         */
+        DataTableItem: {
+            /** Node Path */
+            node_path: string;
+            /** Source */
+            source: string;
+            /** Schema Name */
+            schema_name: string;
+            /** Name */
+            name: string;
+            /** Columns */
+            columns: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "overwrite" | "skip" | "unchanged";
+        };
+        /** DbColumnCreate */
+        DbColumnCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default
+             */
+            type: string;
+            /**
+             * Nullable
+             * @default true
+             */
+            nullable: boolean;
+            /**
+             * Is Primary Key
+             * @default false
+             */
+            is_primary_key: boolean;
+            /** References Column Id */
+            references_column_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+        };
+        /** DbColumnResponse */
+        DbColumnResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Table Id
+             * Format: uuid
+             */
+            table_id: string;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Nullable */
+            nullable: boolean;
+            /** Is Primary Key */
+            is_primary_key: boolean;
+            /** References Column Id */
+            references_column_id: string | null;
+            /** Description */
+            description: string | null;
+            /** Order */
+            order: number;
+        };
+        /** DbColumnUpdate */
+        DbColumnUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Type */
+            type?: string | null;
+            /** Nullable */
+            nullable?: boolean | null;
+            /** Is Primary Key */
+            is_primary_key?: boolean | null;
+            /** References Column Id */
+            references_column_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Order */
+            order?: number | null;
+        };
+        /** DbTableCreate */
+        DbTableCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Schema Name
+             * @default
+             */
+            schema_name: string;
+            /** Description */
+            description?: string | null;
+        };
+        /** DbTableResponse */
+        DbTableResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Schema Name */
+            schema_name: string;
+            /** Description */
+            description: string | null;
+            /** Version */
+            version: number;
+            /**
+             * Columns
+             * @default []
+             */
+            columns: components["schemas"]["DbColumnResponse"][];
+        };
+        /** DbTableUpdate */
+        DbTableUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Schema Name */
+            schema_name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Base Version */
+            base_version?: number | null;
         };
         /**
          * DeletionSnapshot
@@ -3073,6 +3474,45 @@ export interface components {
             graph_rev: number;
         };
         /**
+         * TableUsage
+         * @description Обратный индекс: кто обращается к таблице этой базы.
+         *
+         *     Разворот пометок из схем логики проекта — ради него вся модель и построена:
+         *     инженеру сопровождения нужен не перечень таблиц, а «кто кладёт сюда значение».
+         */
+        TableUsage: {
+            /**
+             * Table Id
+             * Format: uuid
+             */
+            table_id: string;
+            /** Table Name */
+            table_name: string;
+            /** Column Id */
+            column_id: string | null;
+            /** Column Name */
+            column_name: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+        };
+        /**
          * TemplateEdgeOut
          * @description Связь стартового шаблона: source/target — ключи узлов того же шаблона.
          */
@@ -3243,6 +3683,44 @@ export interface components {
             participant_id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * UnresolvedDataRefAlert
+         * @description Пометка «читает:/пишет:» в схеме логики, не нашедшая свою таблицу.
+         *
+         *     Пометка — ОБЕЩАНИЕ ФАКТА (пивот §9 plan-db-docs.md): текст утверждает, что
+         *     операция трогает такие-то данные. Невыполненное обещание молчать не должно —
+         *     обратный индекс базы нерезолвнутую пометку не показывает вовсе, а обращение с
+         *     несуществующей колонкой показывает как обращение к таблице ЦЕЛИКОМ, и алерт
+         *     остаётся единственным местом, где расхождение текста со структурой видно.
+         */
+        UnresolvedDataRefAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /** Ref */
+            ref: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "read" | "write";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "unknown_table" | "ambiguous" | "unknown_column";
         };
         /** UserCreate */
         UserCreate: {
@@ -4715,6 +5193,414 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DistributeDocsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    data_prompt_api_v1_data_import_prompt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataPromptOut"];
+                };
+            };
+        };
+    };
+    data_import_preview_api_v1_data_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    data_import_apply_api_v1_data_import_apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_data_refs_api_v1_data_refs_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataRefPreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataRefPreviewItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tables_api_v1_nodes__node_id__tables_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbTableResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_table_api_v1_nodes__node_id__tables_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbTableCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbTableResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_usage_api_v1_nodes__node_id__tables_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableUsage"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_table_api_v1_nodes__node_id__tables__table_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_table_api_v1_nodes__node_id__tables__table_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbTableUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbTableResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_column_api_v1_nodes__node_id__tables__table_id__columns_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbColumnCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbColumnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+                column_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                table_id: string;
+                column_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DbColumnUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DbColumnResponse"];
                 };
             };
             /** @description Validation Error */

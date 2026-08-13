@@ -1,5 +1,5 @@
-// Универсальное меню «+ Добавить» для разделов документации («Логика» и
-// «OpenAPI»): создание вручную и дозаливка от ИИ-агента (BYOA). Пункты
+// Универсальное меню добавления для разделов документации («Логика», «OpenAPI»,
+// «Структура» базы): создание вручную и дозаливка от ИИ-агента (BYOA). Пункты
 // задаются группами — между группами рисуется разделитель («Логика»:
 // вручную | пакетом/по одной; «OpenAPI»: вручную | от агента). Единый вход
 // для страницы узла и правой панели редактора (NodeInspector): триггер в духе
@@ -18,9 +18,12 @@ interface Props {
   // Прижатие выпадающего списка: left — страница узла, right — узкая правая
   // панель редактора (кнопка у правого края, список не выходит за панель).
   align?: "left" | "right";
+  // Подпись триггера. Разделы документации говорят «+ Добавить», структура базы —
+  // «+ Таблица»: там добавляется сущность одного вида, и называть её стоит прямо.
+  label?: string;
 }
 
-export default function AddDocsMenu({ groups, align = "left" }: Props) {
+export default function AddDocsMenu({ groups, align = "left", label = "+ Добавить" }: Props) {
   const [open, setOpen] = useState(false);
   // Меню раскрывается вверх, если под кнопкой не хватает места (кнопка у низа
   // экрана — например, «+ Добавить» в разделе OpenAPI в подвале страницы).
@@ -60,7 +63,7 @@ export default function AddDocsMenu({ groups, align = "left" }: Props) {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        + Добавить
+        {label}
         <span className={"adm-chev" + (open ? " adm-chev--open" : "")} aria-hidden="true">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">

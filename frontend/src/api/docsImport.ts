@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DocsImportReport, NodeDocKind } from "../types";
+import type { DataImportReport, DocsImportReport, NodeDocKind } from "../types";
 
 // Дозаливка доков от ИИ-агента: промпт со срезом схемы, dry-run превью пакета
 // archmap-docs и применение. Пакет — самодостаточные файлы: схема логики .mmd с
@@ -65,4 +65,28 @@ export const docsImportApi = {
     api.post<DocsImportReport>("/docs-import/preview", body(p)),
   apply: (p: DocsImportParams): Promise<DocsImportReport> =>
     api.post<DocsImportReport>("/docs-import/apply", body(p)),
+};
+
+// Дозаливка ДАННЫХ (структура БД + обращения). Свой контракт, а не фильтр
+// docs-import: там сущности «схема логики» и «спека», здесь — таблицы, колонки и
+// обращения. Промпт без параметров: он один и не зависит от объекта окна.
+export interface DataImportParams {
+  files: DocsFile[];
+  overwrite: boolean;
+  /** Объект, для которого открыто окно: к нему уезжают записи без адреса в файле. */
+  nodeId?: string | null;
+}
+
+function dataBody(p: DataImportParams): Record<string, unknown> {
+  const out: Record<string, unknown> = { files: p.files, overwrite: p.overwrite };
+  if (p.nodeId) out.node_id = p.nodeId;
+  return out;
+}
+
+export const dataImportApi = {
+  prompt: (): Promise<{ prompt: string }> => api.get<{ prompt: string }>("/data-import/prompt"),
+  preview: (p: DataImportParams): Promise<DataImportReport> =>
+    api.post<DataImportReport>("/data-import/preview", dataBody(p)),
+  apply: (p: DataImportParams): Promise<DataImportReport> =>
+    api.post<DataImportReport>("/data-import/apply", dataBody(p)),
 };

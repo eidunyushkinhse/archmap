@@ -8,6 +8,7 @@
 схемы: пакет манифеста больше не содержит.
 """
 
+from app.data_refs import parse_data_refs
 from app.docs_prompt import build_docs_prompt
 from app.mmd_header import example_mmd, parse_mmd_header
 
@@ -29,6 +30,35 @@ def test_образец_учит_конвенциям():
     assert 'A["Приём запроса"]' in text
     # Диаграмма — flowchart, а не sequence
     assert text.splitlines()[3].startswith("graph ")
+
+
+def test_промпт_учит_пометкам_обращений():
+    """Конвенция пометок (пивот §9 plan-db-docs.md) и её образец — в промпте логики.
+
+    Главная гарантия — та же, что у шапки: пометку из ОБРАЗЦА разбирает наш же
+    parse_data_refs. Разъезд здесь означал бы, что агента учат синтаксису, который
+    ArchMap молча не читает.
+    """
+    prompt = build_docs_prompt(SLICE, include="logic")
+    for marker in (
+        "Пометки данных в подписях шагов",
+        "«читает: …» или «пишет: …»",
+        "ДОСЛОВНО из кода миграций",
+        "Колонки НЕ ВЫДУМЫВАЙ",
+        "ЛЮБОЕ изменение состояния",
+        "Одноимённые таблицы в разных базах",
+        # Маркер = обещание факта: проза после «читает:» тоже извлечётся
+        "«читает: конфиг из файла» станет ошибкой",
+        # Чек-лист самопроверки — последнее, что модель читает перед выводом
+        "выдуманных колонок нет",
+    ):
+        assert marker in prompt, marker
+
+    refs = {(r.ref, r.mode) for r in parse_data_refs(example_mmd())}
+    assert refs == {("accounts.balance", "read"), ("orders", "write"), ("order_items", "write")}
+
+    # В окне спеки пометкам учить нечему — схем логики там нет
+    assert "пишет:" not in build_docs_prompt(SLICE, include="api")
 
 
 def test_prompt_markers_and_slice():

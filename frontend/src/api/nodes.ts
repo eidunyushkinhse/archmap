@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { TableUsage, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -133,4 +133,29 @@ export const edgesApi = {
   // (R3) и в снимке не нужна.
   deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>
     api.get<DeletionSnapshot>(`/edges/${id}/deletion-snapshot`),
+};
+
+// Структура БД узла (таблицы с колонками) — контракт базы. Обращения к ней своего
+// ввода не имеют: они живут пометками «читает:/пишет:» в тексте схем логики
+// вызывающих, и usage собирает их разбором на чтении (docs/plan-db-docs.md §9).
+export const dbTablesApi = {
+  list: (nodeId: string): Promise<DbTable[]> =>
+    api.get<DbTable[]>(`/nodes/${nodeId}/tables`),
+  create: (nodeId: string, data: DbTableCreate): Promise<DbTable> =>
+    api.post<DbTable>(`/nodes/${nodeId}/tables`, data),
+  update: (nodeId: string, tableId: string, data: DbTableUpdate): Promise<DbTable> =>
+    api.patch<DbTable>(`/nodes/${nodeId}/tables/${tableId}`, data),
+  delete: (nodeId: string, tableId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/tables/${tableId}`),
+  createColumn: (nodeId: string, tableId: string, data: DbColumnCreate): Promise<DbColumn> =>
+    api.post<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns`, data),
+  updateColumn: (
+    nodeId: string, tableId: string, columnId: string, data: DbColumnUpdate,
+  ): Promise<DbColumn> =>
+    api.patch<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`, data),
+  deleteColumn: (nodeId: string, tableId: string, columnId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`),
+  // Кто обращается к таблицам этой базы — разворот пометок из схем логики проекта.
+  usage: (nodeId: string): Promise<TableUsage[]> =>
+    api.get<TableUsage[]>(`/nodes/${nodeId}/tables/usage`),
 };

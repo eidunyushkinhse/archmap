@@ -4,14 +4,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
-import { canHaveChildren } from "../types";
+import { canHaveChildren, shapeDocs } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
+import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
+import DbStructureSection from "../components/DbStructureSection";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
@@ -161,6 +163,14 @@ function NodePageInner({
   const node = patch.node;
   const shape = node.shape;
   const isContainer = canHaveChildren(shape) && node.has_children;
+  // Какая документация уместна этой форме (types/shapeDocs). У базы данных не бывает
+  // ни схем логики, ни OpenAPI — до 2026-08-12 страница предлагала ей и то, и другое.
+  const allow = shapeDocs(shape);
+  // Легаси-содержимое не прячем: показываем с предупреждением (тот же приём, что у
+  // контейнеров со своей документацией) — иначе доки исчезли бы из интерфейса, и
+  // унести их было бы нечем.
+  const legacyLogic = !allow.logic && node.docs.length > 0;
+  const legacySpec = !allow.spec && !!node.openapi_spec;
   // Правила контейнеров: непосредственные дети и их объединённые данные
   // (доки/спеки/технологии). Не контейнер — хук не фетчит.
   const container = useContainerChildren(node.id, isContainer);
@@ -270,7 +280,7 @@ function NodePageInner({
   // ИИ-агента» открывает модалку режимом «Пакетом» по умолчанию; на «По одной»
   // пользователь переключится в модалке сам, если нужно).
   // Правила контейнеров: контейнеру новую логику создавать нельзя (!isContainer).
-  const addLogicMenu = !isContainer && isArchitect ? (
+  const addLogicMenu = !isContainer && allow.logic && isArchitect ? (
     <AddDocsMenu
       groups={[
         [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
@@ -281,7 +291,7 @@ function NodePageInner({
 
   // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
   // Контейнеру спеку создавать нельзя (правила контейнеров).
-  const addSpecMenu = !isContainer && isArchitect ? (
+  const addSpecMenu = !isContainer && allow.spec && isArchitect ? (
     <AddDocsMenu
       groups={[
         [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi" }) }],
@@ -292,7 +302,7 @@ function NodePageInner({
 
   // Когда спека уже есть — вместо «+ Добавить» кнопка обновления через ИИ-агента
   // (контейнеру недоступна — спека контейнера подлежит распределению, не обновлению).
-  const updateSpecBtn = !isContainer && isArchitect ? (
+  const updateSpecBtn = !isContainer && allow.spec && isArchitect ? (
     <button type="button" className="np-addbtn" onClick={() => setSpecAgent(true)}>
       Обновить с помощью ИИ-агента
     </button>
@@ -409,7 +419,7 @@ function NodePageInner({
                   >
                     <span className="np-dot" style={{ background: statusDotColor(patch.status, patch.isExternal) }} />
                     {STATUS_META[patch.status].label}
-                    <ChevronDown />
+                    <ChevronDownIcon />
                   </button>
                   {statusOpen && (
                     <>
@@ -549,8 +559,14 @@ function NodePageInner({
         {/* ── Участвует в процессах ─────────────────────────────── */}
         <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
 
+        {/* ── Структура (таблицы БД) ────────────────────────────── */}
+        {allow.structure && (
+          <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+        )}
+
         {/* ── Логика (node_docs) ────────────────────────────────── */}
-        {node.shape !== "person" && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
+        {(allow.logic || legacyLogic || container.docGroups.length > 0)
+          && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
           <div className="np-card">
             <h3 className="np-card-title">Логика</h3>
             {isContainer ? (
@@ -646,6 +662,11 @@ function NodePageInner({
               </>
             ) : (
               <>
+                {legacyLogic && (
+                  <p className="np-warn">
+                    Схемы логики описывают код сервиса, а у этого объекта его нет — перенесите их на сервис, который с ним работает
+                  </p>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {node.docs.map((d) => (
                     <button
@@ -669,7 +690,8 @@ function NodePageInner({
         )}
 
         {/* ── OpenAPI ───────────────────────────────────────────── */}
-        {node.shape !== "person" && (isArchitect || node.openapi_spec || container.specGroups.length > 0) && (
+        {(allow.spec || legacySpec || container.specGroups.length > 0)
+          && (isArchitect || node.openapi_spec || container.specGroups.length > 0) && (
           <div className="np-card">
             <h3 className="np-card-title">OpenAPI</h3>
             {isContainer ? (
@@ -745,6 +767,11 @@ function NodePageInner({
               </>
             ) : node.openapi_spec ? (
               <>
+                {legacySpec && (
+                  <p className="np-warn">
+                    OpenAPI описывает HTTP-API, который объект предоставляет сам, — у этого объекта его нет
+                  </p>
+                )}
                 <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
                   <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
@@ -1041,21 +1068,12 @@ function HeaderGlyph({ shape, container }: { shape: NodeShape; container: boolea
   return <svg width={20} height={20} viewBox="0 0 20 20">{body}</svg>;
 }
 
-function ChevronDown() {
-  return (
-    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}>
-      <path d="M6 9 L12 15 L18 9" />
-    </svg>
-  );
-}
-
 // Шеврон кнопки-группы (схемы/спеки глубоких потомков): смотрит вниз, когда
 // группа раскрыта, и вправо — когда свёрнута (CSS-трансформация).
 function GroupChevron({ open }: { open: boolean }) {
   return (
     <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
-      <ChevronDown />
+      <ChevronDownIcon />
     </span>
   );
 }
