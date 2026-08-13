@@ -20,7 +20,7 @@
    задаёт ТРЕК, а width:100% внутри ячейки ведёт себя правильно. */
 .dbs-thead {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 150px 26px 26px;
+  grid-template-columns: 22px minmax(0, 1fr) 150px 26px;
   align-items: center;
   gap: 8px;
 }
@@ -44,14 +44,6 @@
 .dbs-schema {
   min-width: 0;
   color: #64748b;
-}
-/* Число колонок — та же роль, что у бейджа детей в дереве: масштаб виден без раскрытия. */
-.dbs-count {
-  font-size: 12px;
-  font-weight: 700;
-  color: #94a3b8;
-  min-width: 18px;
-  text-align: right;
 }
 .dbs-desc {
   margin-top: 6px;

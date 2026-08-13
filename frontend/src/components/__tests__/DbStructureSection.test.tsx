@@ -22,6 +22,11 @@ vi.mock("../ErDiagramModal", () => ({
     <div data-testid="er-full" onClick={onClose}>{chart}</div>
   ),
 }));
+// Окно дозаливки тянет за собой весь BYOA-обвес — здесь важно лишь, что его
+// открывает пункт меню.
+vi.mock("../docsImport/DataAgentModal", () => ({
+  default: () => <div data-testid="data-agent" />,
+}));
 vi.mock("../../api/nodes", () => ({
   dbTablesApi: {
     list: vi.fn(),
@@ -64,10 +69,9 @@ describe("DbStructureSection", () => {
     expect(screen.getByText("+ Таблица")).toBeInTheDocument();
   });
 
-  it("колонки видны после раскрытия таблицы, число — сразу", async () => {
+  it("колонки видны только после раскрытия таблицы", async () => {
     setup([table()]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
-    expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("status")).toBeNull();
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
     expect(screen.getByDisplayValue("status")).toBeInTheDocument();
@@ -127,8 +131,32 @@ describe("DbStructureSection", () => {
     vi.mocked(dbTablesApi.create).mockResolvedValue(table());
     setup([table({ id: "t1", name: "таблица" })]);
     await waitFor(() => expect(screen.getByDisplayValue("таблица")).toBeInTheDocument());
+    // Кнопка одна, способы — пункты меню (как у «Логики» и «OpenAPI»).
     await userEvent.click(screen.getByText("+ Таблица"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     expect(dbTablesApi.create).toHaveBeenCalledWith("n1", { name: "таблица_2", schema_name: "" });
+  });
+
+  it("дозаливка от агента — второй пункт того же меню, а не своя кнопка", async () => {
+    setup([table()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    // Пока меню не раскрыто, отдельного входа к агенту на странице нет.
+    expect(screen.queryByText("Через ИИ-агента")).toBeNull();
+    await userEvent.click(screen.getByText("+ Таблица"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
+    expect(screen.getByTestId("data-agent")).toBeInTheDocument();
+  });
+
+  it("счётчиков нет: ни колонок у таблицы, ни таблиц у раздела", async () => {
+    // Число колонок и число таблиц в разделе — шум: масштаб виден по самому списку,
+    // а в шапке они спорят за место с именем таблицы.
+    setup([
+      table({ columns: [column(), column({ id: "c9", name: "total" })] }),
+      table({ id: "t2", name: "audit", schema_name: "billing" }),
+    ]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    expect(screen.queryByText("2")).toBeNull();
+    expect(screen.queryByText("1")).toBeNull();
   });
 
   it("колонка ссылается на колонку другой таблицы, но не на себя", async () => {

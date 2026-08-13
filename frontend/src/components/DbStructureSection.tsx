@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { dbTablesApi } from "../api/nodes";
+import AddDocsMenu from "./AddDocsMenu";
 import DataAgentModal from "./docsImport/DataAgentModal";
 import ErDiagramModal from "./ErDiagramModal";
 import { useCollapse } from "./useCollapse";
@@ -221,7 +222,6 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
                 <ChevronDownIcon />
               </span>
               {schema || "без раздела"}
-              <span className="np-doc-group-count">{list.length}</span>
             </button>
             <GroupBody open={!closedGroups.has(schema)}>{list.map(renderTable)}</GroupBody>
           </div>
@@ -232,10 +232,16 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       </div>
       {isArchitect && (
         <div className="dbs-actions">
-          <button type="button" className="np-addbtn" onClick={addTable}>+ Таблица</button>
-          <button type="button" className="np-addbtn" onClick={() => setAgentOpen(true)}>
-            Через ИИ-агента
-          </button>
+          {/* Тот же вход, что у «Логики» и «OpenAPI»: одна кнопка с шевроном, а
+              «вручную / через агента» — пункты меню. Два способа завести одну и ту же
+              сущность не должны выглядеть как две разные кнопки. */}
+          <AddDocsMenu
+            label="+ Таблица"
+            groups={[
+              [{ label: "Вручную", onSelect: addTable }],
+              [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
+            ]}
+          />
         </div>
       )}
       {agentOpen && (
@@ -327,7 +333,6 @@ function TableCard({
         ) : (
           <span className="dbs-ro dbs-schema">{table.schema_name}</span>
         )}
-        <span className="dbs-count">{table.columns.length}</span>
         {isArchitect && (
           <button type="button" className="dbs-del" title="Удалить таблицу"
             onClick={() => void apply(() => dbTablesApi.delete(nodeId, table.id))}>×</button>
