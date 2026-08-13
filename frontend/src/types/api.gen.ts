@@ -718,7 +718,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Data Prompt */
+        /**
+         * Data Prompt
+         * @description Промпт агенту с узлами-БД ЭТОГО проекта: адрес владельца записей слабая
+         *     модель без списка выдумывает, и пакет блокируется целиком (находка QA).
+         */
         get: operations["data_prompt_api_v1_data_import_prompt_get"];
         put?: never;
         post?: never;
@@ -5209,7 +5213,9 @@ export interface operations {
     data_prompt_api_v1_data_import_prompt_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5222,6 +5228,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DataPromptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
