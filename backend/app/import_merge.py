@@ -36,6 +36,9 @@ _FUZZY_RATIO = 0.78
 # реальные уровни на порядки меньше — защита от патологического входа).
 _FUZZY_GROUP_LIMIT = 250
 _MAX_WARNINGS = 30
+# Связи в контейнер называем поимённо, но не все: замечания уезжают агенту одним
+# списком, и полсотни строк одного класса вытеснят остальное.
+_MAX_CONTAINER_EDGES = 10
 
 
 @dataclass
@@ -327,10 +330,11 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
 def warn_content(merged: ParsedImport, report: MergeReport) -> None:
     """Проверки СОДЕРЖАНИЯ схемы, не полагающиеся на аккуратность агента.
 
-    Обе находки ручной проверки 2026-08-08: агент кладёт людей внутрь системы
+    Находки ручной проверки 2026-08-08: агент кладёт людей внутрь системы
     (3 прогона из 4) и создаёт компоненты, не связанные ни с чем (2 объекта из
-    10). Промпт про это говорит, но соблюдает его модель через раз — поэтому
-    предупреждаем ЗДЕСЬ, до создания проекта.
+    10); третья — полевого QA (связи, упирающиеся в контейнер с компонентами,
+    см. _warn_container_edges). Промпт про это говорит, но соблюдает его модель
+    через раз — поэтому предупреждаем ЗДЕСЬ, до создания проекта.
 
     Только предупреждения: тихо перестраивать чужое дерево (поднимать актора в
     корень) хуже, чем строка в отчёте, — пользователь не поймёт, что произошло.
@@ -359,6 +363,48 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
             f"объектов без единой связи: {len(lonely)} ({names}{tail}) — проверьте, "
             f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»"
         )
+    _warn_container_edges(merged, report, parents)
+
+
+def _warn_container_edges(
+    merged: ParsedImport, report: MergeReport, parents: set[int]
+) -> None:
+    """Связи, упирающиеся в контейнер, У КОТОРОГО ЕСТЬ компоненты.
+
+    После импорта это алерт AL8, но агент к тому моменту уже ушёл: в раунде 3
+    полевого QA (docs/qa-zabbix-7.md) их накопилось 13 — «дополняй связями» слабая
+    модель исполнила, а дубли с уровня контейнера не убрала. Поэтому предупреждаем
+    ДО импорта и НАЗЫВАЕМ каждую связь: замечание лечится переносом конца на
+    компонент, и агенту нужен конкретный конец, а не правило.
+
+    Определение контейнера — зеркало app/alerts.compute_alerts (узел с детьми),
+    но по СЛИТОМУ дереву: проекта на этот момент ещё не существует.
+    """
+    shown = hidden = 0
+    for e in merged.edges:
+        # dict.fromkeys — на случай петли «узел сам на себя»: конец один, не два.
+        ends = [i for i in dict.fromkeys((e.source_idx, e.target_idx)) if i in parents]
+        if not ends:
+            continue
+        if shown >= _MAX_CONTAINER_EDGES:
+            hidden += 1
+            continue
+        shown += 1
+        a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
+        names = [merged.nodes[i].name for i in ends]
+        if len(names) == 1:
+            report.warnings.append(
+                f"связь «{a} → {b}»: конец в контейнере «{names[0]}», у которого есть "
+                f"компоненты, — уточни её до конкретного компонента («{names[0]} / …»)"
+            )
+        else:
+            report.warnings.append(
+                f"связь «{a} → {b}»: оба конца в контейнерах «{names[0]}» и «{names[1]}», "
+                f"у которых есть компоненты, — уточни её до конкретных компонентов "
+                f"(«{names[0]} / …», «{names[1]} / …»)"
+            )
+    if hidden:
+        report.warnings.append(f"…ещё {hidden} таких связей")
 
 
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:

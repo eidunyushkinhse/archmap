@@ -3,9 +3,10 @@
 Матрица: заглушка+богатый (поля доливаются, дети объединяются), конфликты полей
 (первое побеждает + строка в отчёт), external → true, не-дефолт бьёт дефолт,
 перевес рёбер + дедуп точных дублей, предупреждения (похожие подписи пары из
-разных файлов, fuzzy-имена сиблингов, несовпавшие корни), passthrough одного
-файла, нечувствительность к порядку файлов, суммарные лимиты, инвариант
-«родители раньше детей» (совместимость с seed_import).
+разных файлов, fuzzy-имена сиблингов, несовпавшие корни), проверки содержания
+(люди внутри системы, объекты без связей, связи в контейнер с компонентами),
+passthrough одного файла, нечувствительность к порядку файлов, суммарные лимиты,
+инвариант «родители раньше детей» (совместимость с seed_import).
 """
 
 from app.import_merge import merge_imports, parse_and_merge
@@ -443,6 +444,85 @@ def test_корень_системы_без_связей_не_считается
 
     assert errors == []
     assert not any("без единой связи" in w for w in report.warnings)
+
+
+def test_связь_в_контейнер_с_компонентами_называется_поимённо():
+    # После импорта это алерт AL8, но агент к тому моменту уже ушёл (полевой QA
+    # docs/qa-zabbix-7.md, раунд 3: 13 таких связей). Замечание должно называть
+    # КОНКРЕТНУЮ связь — оно лечится переносом её конца на компонент.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "    children:\n"
+            "    - name: web-api\n"
+            "  - name: redis\n",
+            "edges:\n- from: vote\n  to: redis\n- from: web-api\n  to: redis\n",
+        )
+    ])
+
+    assert errors == []
+    assert (
+        "связь «vote → redis»: конец в контейнере «vote», у которого есть компоненты, — "
+        "уточни её до конкретного компонента («vote / …»)"
+    ) in report.warnings
+    # Ребро от компонента — законное, про него не предупреждаем.
+    assert len([w for w in report.warnings if "уточни её до конкретного" in w]) == 1
+
+
+def test_оба_конца_контейнеры_названы_оба():
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "    children:\n"
+            "    - name: web-api\n"
+            "  - name: worker\n"
+            "    children:\n"
+            "    - name: queue-reader\n",
+            "edges:\n- from: vote\n  to: worker\n",
+        )
+    ])
+
+    assert errors == []
+    warn = next(w for w in report.warnings if "оба конца" in w)
+    assert "«vote»" in warn and "«worker»" in warn
+    assert "«vote / …»" in warn and "«worker / …»" in warn
+
+
+def test_связи_только_в_листья_молчат():
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n"
+            "  children:\n"
+            "  - name: vote\n"
+            "    children:\n"
+            "    - name: web-api\n"
+            "  - name: redis\n",
+            "edges:\n- from: web-api\n  to: redis\n",
+        )
+    ])
+
+    assert errors == []
+    assert not any("уточни её до конкретн" in w for w in report.warnings)
+
+
+def test_кап_на_связях_в_контейнер():
+    # Замечания уезжают агенту одним списком: полсотни строк одного класса
+    # вытеснили бы всё остальное.
+    сколько = 12
+    nodes = "- name: Voting App\n  children:\n  - name: redis\n"
+    for i in range(сколько):
+        nodes += f"  - name: svc{i}\n    children:\n    - name: api{i}\n"
+    edges = "edges:\n" + "".join(f"- from: svc{i}\n  to: redis\n" for i in range(сколько))
+
+    _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
+
+    assert errors == []
+    assert len([w for w in report.warnings if "уточни её до конкретного" in w]) == 10
+    assert "…ещё 2 таких связей" in report.warnings
 
 
 def test_контейнер_со_связанными_детьми_подвисшим_не_считается():
