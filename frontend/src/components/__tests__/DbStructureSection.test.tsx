@@ -234,12 +234,14 @@ describe("DbStructureSection: кто обращается", () => {
     expect(screen.getByText("Биллинг · POST /pay")).toBeInTheDocument();
   });
 
-  it("без обращений так и говорит — молчание значило бы «никто не ходит»", async () => {
+  it("без пометок называет их прямо — искать форму ввода незачем, её нет", async () => {
     vi.mocked(dbTablesApi.list).mockResolvedValue([table()]);
     vi.mocked(dbTablesApi.usage).mockResolvedValue([]);
     render(<DbStructureSection nodeId="n1" nodeName="Хранилище" isArchitect />);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
-    expect(screen.getByText("Обращений не описано")).toBeInTheDocument();
+    expect(
+      screen.getByText("Пометок «читает:/пишет:» на эту таблицу в схемах логики нет"),
+    ).toBeInTheDocument();
   });
 });
