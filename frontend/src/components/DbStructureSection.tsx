@@ -8,6 +8,7 @@
 // Правки идут по blur/change поштучно (как инлайн-поля свойств узла), без формы и
 // кнопки «Сохранить»: строк много, а правка — точечная.
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { dbTablesApi } from "../api/nodes";
 import DataAgentModal from "./docsImport/DataAgentModal";
 import ErDiagramModal from "./ErDiagramModal";
@@ -121,11 +122,9 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   }
   grouped.sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
 
-  // Подпись перестройки: раскладка меняется от состава разделов и свёрнутости групп.
-  const flipKey = [
-    ...(tables ?? []).map((t) => `${t.id}:${t.schema_name}`),
-    ...[...closedGroups],
-  ].join("|");
+  // Подпись перестройки для FLIP — только про ПЕРЕЕЗД карточек: свёртка раздела
+  // позиций не меняет (тело едет само), и включать её сюда незачем.
+  const flipKey = (tables ?? []).map((t) => `${t.id}:${t.schema_name}`).join("|");
   useFlipRows(listRef, flipKey);
 
   // Все колонки узла как цели внешнего ключа: «таблица.колонка».
@@ -224,9 +223,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
               {schema || "без раздела"}
               <span className="np-doc-group-count">{list.length}</span>
             </button>
-            {!closedGroups.has(schema) && (
-              <div className="dbs-groupbody">{list.map(renderTable)}</div>
-            )}
+            <GroupBody open={!closedGroups.has(schema)}>{list.map(renderTable)}</GroupBody>
           </div>
         ))
       ) : (
@@ -251,6 +248,17 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       )}
     </div>
   );
+}
+
+// Тело раздела: высоту ведёт ОНО САМО, а список и карточка секции живут с auto и
+// следуют за ним. Пробовали наоборот (анимировать высоту контейнера) — измерение
+// врало, потому что дочерние блоки в этот момент зафиксированы своей анимацией, и
+// кнопки под списком подпрыгивали на старте и на приземлении.
+function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const show = useCollapse(ref, open);
+  if (!show) return null;
+  return <div ref={ref} className="dbs-groupbody">{children}</div>;
 }
 
 function TableCard({

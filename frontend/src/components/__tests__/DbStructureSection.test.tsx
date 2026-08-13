@@ -94,6 +94,16 @@ describe("DbStructureSection", () => {
     expect(screen.queryByText("без раздела")).toBeNull();
   });
 
+  it("свёрнутый раздел прячет свои таблицы", async () => {
+    // Тело раздела ведёт свою высоту само (useCollapse) — по окончании анимации
+    // содержимое уходит из DOM, а список и карточка секции просто следуют за ним.
+    setup([table(), table({ id: "t2", name: "audit", schema_name: "billing" })]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("billing"));
+    const box = screen.getByDisplayValue("audit").closest(".dbs-groupbody") as HTMLElement;
+    expect(box.style.height).toBe("0px");
+  });
+
   it("с разделами таблицы группируются", async () => {
     setup([table(), table({ id: "t2", name: "audit", schema_name: "billing" })]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());

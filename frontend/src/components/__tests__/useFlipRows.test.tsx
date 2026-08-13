@@ -1,7 +1,6 @@
-// Анимация перестройки списка: карточки едут FLIP-ом, высота контейнера — вместе с
-// ними. Оба поведения проверяются на инлайн-стилях (в jsdom нет layout: rect всегда
-// нулевой, поэтому геометрию подменяем), суть теста — ЧТО именно и в каком порядке
-// хук выставляет на элементах.
+// FLIP-переезд карточек. Высоту контейнера хук намеренно НЕ ведёт — её ведёт сам
+// съезжающий блок (useCollapse); проверяется на инлайн-стилях, потому что в jsdom
+// нет layout (rect всегда нулевой, геометрию подменяем).
 import { render } from "@testing-library/react";
 import { useRef } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -65,39 +64,13 @@ describe("useFlipRows", () => {
     expect(b.style.transition).toBe("");
   });
 
-  it("высота контейнера едет от прежней к новой и фиксация потом снимается", () => {
-    let height = 300;
-    stubRects((el) => (el.dataset.testid === "list" || el.tagName === "DIV" && !el.dataset.flipId
-      ? { top: 0, left: 0, height }
-      : { top: 0, left: 0, height: 100 }));
-    const { rerender, getByTestId } = render(<Harness ids={["a"]} sig="1" />);
-    const list = getByTestId("list");
-
-    height = 120; // раскрывашку свернули
-    rerender(<Harness ids={["a"]} sig="2" />);
-
-    // Стартовали от прежней высоты и поехали к новой — а не схлопнулись мгновенно.
-    expect(list.style.height).toBe("120px");
-    expect(list.style.transition).toContain("height");
-    expect(list.style.overflow).toBe("hidden");
-
-    // propertyName обязателен: слушатель отсекает чужие transitionend (их шлют
-    // едущие карточки), и без него событие было бы проигнорировано.
-    const ev = new Event("transitionend");
-    Object.defineProperty(ev, "propertyName", { value: "height" });
-    list.dispatchEvent(ev);
-    // Без снятия фиксации список обрезал бы контент при следующей правке.
-    expect(list.style.height).toBe("");
-    expect(list.style.overflow).toBe("");
-  });
-
-  it("prefers-reduced-motion выключает и сдвиг, и анимацию высоты", () => {
+  it("prefers-reduced-motion выключает сдвиг", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
-    let height = 300;
-    stubRects((el) => (el.dataset.flipId ? { top: 0, left: 0, height: 100 } : { top: 0, left: 0, height }));
-    const { rerender, getByTestId } = render(<Harness ids={["a"]} sig="1" />);
-    height = 120;
-    rerender(<Harness ids={["a"]} sig="2" />);
-    expect(getByTestId("list").style.height).toBe("");
+    const tops: Record<string, number> = { a: 0, b: 50 };
+    stubRects((el) => ({ top: tops[el.dataset.flipId ?? ""] ?? 0, left: 0, height: 100 }));
+    const { rerender, getByText } = render(<Harness ids={["a", "b"]} sig="1" />);
+    tops.b = 10;
+    rerender(<Harness ids={["a", "b"]} sig="2" />);
+    expect(getByText("b").style.transition).toBe("");
   });
 });
