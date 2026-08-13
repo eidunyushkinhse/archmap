@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
 import DataAgentModal from "./docsImport/DataAgentModal";
 import ErDiagramModal from "./ErDiagramModal";
+import { useShrinkAnchor } from "./useShrinkAnchor";
 import MermaidRenderer from "./MermaidRenderer";
 import { ChevronDownIcon } from "../ui/icons";
 import { tablesToErDiagram } from "./dbErDiagram";
@@ -52,6 +53,11 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   const [agentOpen, setAgentOpen] = useState(false);
   // Свёрнутые разделы (по умолчанию раскрыты — иначе структура выглядит пустой).
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
+  // Сворачивание укорачивает страницу, и внизу скролл упирается в новый конец —
+  // содержимое уезжает из-под курсора. Якорь придерживает позицию (см. хук).
+  // Контейнер прокрутки ищется от самой кнопки: реф для этого не нужен, а читать
+  // рефы в обработчиках, созданных в рендере, линтер и не даёт.
+  const holdScroll = useShrinkAnchor();
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
@@ -78,7 +84,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
     }
     setSeq((n) => n + 1);
-  }, []);
+  }, [setSeq]);
 
   const addTable = () => {
     const taken = new Set((tables ?? []).map((t) => t.name));
@@ -122,11 +128,15 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       nodeId={nodeId}
       isArchitect={isArchitect}
       expanded={open.has(t.id)}
-      onToggle={() => setOpen((prev) => {
-        const next = new Set(prev);
-        if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-        return next;
-      })}
+      onToggle={(el) => {
+        // Придерживаем скролл ДО правки: свернуть — значит укоротить страницу.
+        if (open.has(t.id)) holdScroll(el);
+        setOpen((prev) => {
+          const next = new Set(prev);
+          if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+          return next;
+        });
+      }}
       fkOptions={fkOptions}
       usage={usage.filter((u) => u.table_id === t.id)}
       apply={apply}
@@ -185,11 +195,14 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
               type="button"
               className="np-doc-group-toggle"
               aria-expanded={!closedGroups.has(schema)}
-              onClick={() => setClosedGroups((prev) => {
-                const next = new Set(prev);
-                if (next.has(schema)) next.delete(schema); else next.add(schema);
-                return next;
-              })}
+              onClick={(e) => {
+                if (!closedGroups.has(schema)) holdScroll(e.currentTarget);
+                setClosedGroups((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(schema)) next.delete(schema); else next.add(schema);
+                  return next;
+                });
+              }}
             >
               <span className="np-doc-group-chev"
                 style={{ transform: closedGroups.has(schema) ? "rotate(-90deg)" : "none" }}>
@@ -233,7 +246,7 @@ function TableCard({
   nodeId: string;
   isArchitect: boolean;
   expanded: boolean;
-  onToggle: () => void;
+  onToggle: (el: HTMLElement) => void;
   fkOptions: { id: string; label: string }[];
   usage: TableUsage[];
   apply: (fn: () => Promise<unknown>) => Promise<void>;
@@ -245,7 +258,8 @@ function TableCard({
   return (
     <div className="dbs-table">
       <div className="dbs-thead">
-        <button type="button" className="dbs-chev" onClick={onToggle} aria-expanded={expanded}
+        <button type="button" className="dbs-chev" onClick={(e) => onToggle(e.currentTarget)}
+          aria-expanded={expanded}
           aria-label={expanded ? "Свернуть колонки" : "Развернуть колонки"}>
           <span className="np-doc-group-chev"
             style={{ transform: expanded ? "none" : "rotate(-90deg)" }}>
