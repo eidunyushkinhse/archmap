@@ -8,8 +8,8 @@
     backend/venv/bin/python scripts/seed-alerts-demo.py
 
 Идемпотентен: проект с тем же именем сносится и создаётся заново (каскадом уходят
-узлы, связи, процессы и раскладка). Схема нарочно кривая — это фикстура, а не
-пример для подражания.
+узлы, связи, процессы, раскладка, доки и структура БД). Схема нарочно кривая — это
+фикстура, а не пример для подражания.
 """
 
 import os
@@ -25,6 +25,8 @@ os.chdir(BACKEND)
 # Регистрация моделей в реестре SQLAlchemy (как в alembic/env.py): без полного
 # набора импортов relationship'ы не резолвятся по строковым именам.
 import app.models.business_process  # noqa: E402
+import app.models.db_column  # noqa: F401,E402
+import app.models.db_table  # noqa: E402
 import app.models.edge  # noqa: E402
 import app.models.node  # noqa: E402
 import app.models.node_doc  # noqa: E402
@@ -37,6 +39,8 @@ import app.models.view_layout  # noqa: F401,E402
 import app.models.view_state  # noqa: F401,E402
 from app.database import SessionLocal  # noqa: E402
 from app.models.business_process import BusinessProcess  # noqa: E402
+from app.models.db_column import DbColumn  # noqa: E402
+from app.models.db_table import DbTable  # noqa: E402
 from app.models.edge import Edge  # noqa: E402
 from app.models.node import Node  # noqa: E402
 from app.models.node_doc import NodeDoc  # noqa: E402
@@ -61,6 +65,19 @@ DOC = """flowchart TD
   A[Пришёл запрос] --> B{Хватает денег?}
   B -- да --> C[Списать]
   B -- нет --> D[Отказать]
+"""
+
+# AL29: пометки обращений, которым не во что резолвиться. Все три причины разом —
+# формулировки панели зависят от reason, и читать их надо на живых данных.
+#   «ordrs.status»               → unknown_table  (опечатка в имени)
+#   «orders»                     → ambiguous      (таблица есть в ДВУХ базах стенда)
+#   «Каталог-БД / orders.paid_at»→ unknown_column (квалификатор снял неоднозначность,
+#                                                  а колонки в таблице нет)
+DOC_REFS = """flowchart TD
+  A["Приём платежа<br>читает: ordrs.status"] --> B{"Хватает денег?"}
+  B -- да --> C["Списать<br>пишет: orders"]
+  B -- нет --> D["Отказать<br>пишет: Каталог-БД / orders.paid_at"]
+  C --> E["Отметить оплату<br>пишет: Каталог-БД / orders.status"]
 """
 
 
@@ -133,6 +150,32 @@ def main() -> None:
 
         db.add(NodeDoc(node_id=billing.id, name="Списание", kind="operation", content=DOC))
         db.add(NodeDoc(node_id=catalog.id, name="Обзор", kind="overview", content=DOC))
+
+        # --- Структура БД и пометки обращений (AL29) -------------------------
+        def table(owner: Node, name: str, columns: list[str]) -> DbTable:
+            t = DbTable(node_id=owner.id, name=name, schema_name="")
+            db.add(t)
+            db.flush()
+            for i, col in enumerate(columns):
+                db.add(
+                    DbColumn(
+                        table_id=t.id,
+                        name=col,
+                        type="uuid" if col == "id" else "text",
+                        order=i,
+                    )
+                )
+            return t
+
+        table(catalog_db, "orders", ["id", "status"])
+        # Та же «orders» во ВТОРОЙ базе — ровно это делает голую ссылку неоднозначной
+        # (лечится квалификатором «БД / таблица», угадывать за пользователя нельзя).
+        table(storefront_cache, "orders", ["id"])
+        # Док с пометками у ШЛЮЗА (лист, не контейнер) — чтобы не сдвинуть фикстуру
+        # AL24, где важно, на каких контейнерах остались доки и спеки.
+        db.add(
+            NodeDoc(node_id=gateway.id, name="Приём платежа", kind="operation", content=DOC_REFS)
+        )
 
         def edge(
             src: uuid.UUID, dst: uuid.UUID, label: str, *, sync: bool | None = None
