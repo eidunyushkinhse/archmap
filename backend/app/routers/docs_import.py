@@ -122,8 +122,11 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
     if payload.node_id is not None:
         by_id = {n.id: n for n in nodes}
         scope_ids = tree.subtree_ids(by_id, payload.node_id) if payload.node_id in by_id else set()
+    # db/project_id — только для резолва пометок данных в текстах схем (превью
+    # обязано показывать битые «читает:/пишет:» так же, как плашка редактора).
     plan = build_docs_plan(
-        nodes, entries, assets, payload.overwrite, payload.node_id, scope_ids
+        nodes, entries, assets, payload.overwrite, payload.node_id, scope_ids,
+        db=db, project_id=project.id,
     )
     plan.warnings.extend(notes)
     # Раздельные окна дозаливки: окно логики применяет только схемы логики, окно
@@ -178,7 +181,7 @@ def docs_import_preview(
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> DocsImportReport:
-    """Dry-run: план без записи (build_docs_plan — чистая функция)."""
+    """Dry-run: план без записи (build_docs_plan БД только читает)."""
     return _report(_plan_from_files(db, project, payload))
 
 
