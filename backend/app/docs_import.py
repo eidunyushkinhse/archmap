@@ -282,10 +282,11 @@ _HINT_MIN_TAIL = 3
 def _closest_name(tail: str, names: Iterable[str]) -> str | None:
     """Ближайшее описанное имя к хвосту битой ссылки — или None.
 
-    Сначала СУФФИКС: «messages» → «zerver_message». Разрыв «имя ORM-класса против
-    имени таблицы» почти всегда состоит из префикса приложения и числа (находка №1
-    docs/qa-zulip-brokers.md), и difflib на нём как раз слабоват — «messages» против
-    «zerver_message» не дотягивает до порога. difflib идёт добором, для опечаток.
+    Сначала СУФФИКС: «messages» → «app_message». Разрыв «имя ORM-класса против имени
+    таблицы» почти всегда состоит из префикса приложения и числа (находка №1
+    docs/qa-zulip-brokers.md), а difflib на нём слабеет тем сильнее, чем длиннее
+    префикс: «queues» против «background_jobs_queue» — 0.37, ниже порога. difflib
+    идёт добором, для опечаток.
 
     Подсказка ОДНА и только уверенная: не нашли — замечание остаётся как было.
     """
@@ -297,7 +298,7 @@ def _closest_name(tail: str, names: Iterable[str]) -> str | None:
         return None
     low = tail.lower()
     # Единственное и множественное: агент пишет имя таблицы во множественном
-    # («messages»), а в DDL она в единственном («zerver_message»), и наоборот.
+    # («messages»), а в DDL она в единственном («app_message»), и наоборот.
     variants = [v for v in (low, low[:-1] if low.endswith("s") else "") if len(v) >= _HINT_MIN_TAIL]
     hits = [
         orig
