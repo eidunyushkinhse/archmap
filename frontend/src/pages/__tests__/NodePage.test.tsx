@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
 import { nodesApi, nodeDocsApi } from "../../api/nodes";
+import { ApiError } from "../../api/client";
 import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
@@ -30,8 +31,17 @@ vi.mock("../../api/nodes", () => ({
 }));
 
 // Канвас схемы — заглушка (LevelGraph тянет @xyflow/react и весь конвейер).
+// В data-nodes выкладываем мету узлов, которую схема РИСУЕТ: по ней видно, доехала
+// ли правка страницы до данных схемы без перезагрузки.
 vi.mock("../../components/EmbeddedSchemaBlock", () => ({
-  default: () => <div data-testid="schema-block">схема</div>,
+  default: ({ nodes }: { nodes: Node[] }) => (
+    <div
+      data-testid="schema-block"
+      data-nodes={nodes.map((n) => `${n.id}:${n.shape}:${n.status}:${n.name}`).join("|")}
+    >
+      схема
+    </div>
+  ),
 }));
 
 // Модалка на нативном <dialog>: в jsdom showModal() не выставляет open, и
@@ -299,6 +309,96 @@ describe("NodePage: правила контейнеров", () => {
     );
     // Модалка закрылась после успеха
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
+  });
+});
+
+// ── Смена типа узла ─────────────────────────────────────────────────────────
+// Тип (форма C4) правится с самой страницы: импорт мог ошибиться («Monitored
+// Hosts» приехал «Пользователем»), и раньше починить это можно было только
+// пересозданием объекта. Запреты держит сервер — страница обязана показать его
+// причину, а не проглотить отказ.
+describe("NodePage: смена типа", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupType(over: Partial<Node> = {}, isArchitect = true) {
+    const n = node("n1", { name: "Monitored Hosts", ...over });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />);
+  }
+
+  it("архитектор меняет тип из выпадашки — PATCH с новой формой", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
+    setupType({ shape: "person" });
+    const кнопка = await screen.findByRole("button", { name: "Пользователь" });
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByText("Сервис"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1].shape).toBe("service");
+  });
+
+  it("наблюдателю тип показан текстом, редактора нет", async () => {
+    setupType({ shape: "person" }, false);
+    await waitFor(() => expect(screen.getByText("Пользователь")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Пользователь" })).toBeNull();
+  });
+
+  it("отказ сервера виден на странице, а не проглатывается", async () => {
+    const причина = "У узла есть вложенные объекты — тип «Сервис» единственный, который может их иметь";
+    vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
+    setupType({ shape: "service", has_children: true, child_count: 1 });
+    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }));
+    await userEvent.click(screen.getByText("База данных"));
+    expect(await screen.findByText(причина)).toBeInTheDocument();
+  });
+});
+
+// ── Правки меты доезжают до схемы страницы ──────────────────────────────────
+// Схема страницы держит СВОЙ снимок контекст-графа (фетч при монтировании), и до
+// 2026-08-14 правка меты в него не попадала: пользователь менял тип, а объект на
+// схеме оставался прежним до перезагрузки. Свежий узел из ответа PATCH вливается
+// в данные схемы точечно — рефетча и ремаунта холста тут нет.
+describe("NodePage: правки меты и схема страницы", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupSchema(over: Partial<Node> = {}) {
+    const n = node("n1", over);
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+  }
+
+  const схема = () => screen.getByTestId("schema-block").getAttribute("data-nodes") ?? "";
+
+  it("смена типа сразу видна на схеме, без перезагрузки", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "database", version: 2 }));
+    setupSchema({ shape: "service" });
+    await waitFor(() => expect(схема()).toContain("n1:service"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Сервис" }));
+    await userEvent.click(screen.getByText("База данных"));
+
+    await waitFor(() => expect(схема()).toContain("n1:database"));
+    // Сосед не пострадал, и контекст не перезапрашивался — данные уже были на руках
+    expect(схема()).toContain("x:service");
+    expect(nodesApi.getContextGraph).toHaveBeenCalledOnce();
+  });
+
+  it("смена статуса сразу видна на схеме (механизм один для всей меты)", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { status: "planned", version: 2 }));
+    setupSchema({ status: "existing" });
+    await waitFor(() => expect(схема()).toContain(":existing:"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Существует" }));
+    await userEvent.click(screen.getByText("Проектируется"));
+
+    await waitFor(() => expect(схема()).toContain("n1:service:planned"));
   });
 });
 
