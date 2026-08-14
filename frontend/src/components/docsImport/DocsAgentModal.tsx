@@ -22,7 +22,7 @@ import { validateMermaid } from "../mermaidLoader";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {
-  ACTION_LABEL, countAction,
+  ACTION_LABEL, countAction, checkMermaid, type MermaidCheck,
   head, sub, cols, leftCol, rightCol, radioRow, hintsArea,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
@@ -85,7 +85,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const [checking, setChecking] = useState(false);
   // Результаты mermaid-валидации привязаны к породившему их отчёту (сравнение
   // по ссылке — паттерн importSummary.forDocs): чужому отчёту не показываются.
-  const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; errs: (string | null)[] } | null>(null);
+  const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; check: MermaidCheck } | null>(null);
   const [applying, setApplying] = useState(false);
   const [remarksCopied, setRemarksCopied] = useState(false);
   // Правки строк превью: ключ — ФАЙЛ-источник (одна схема = один файл .mmd).
@@ -99,7 +99,12 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
 
   const report = pkg.hasContent ? rawReport : null;
-  const mmdErrs = report !== null && mmdRes?.forReport === report ? mmdRes.errs : null;
+  // Проверка схем — производное от отчёта: пока её нет (парс ещё идёт), окно не
+  // делает вид, что схемы здоровы, а прямо говорит «проверяю».
+  const mmdCheck = report !== null && mmdRes?.forReport === report ? mmdRes.check : null;
+  const mmdErrs = mmdCheck?.errs ?? null;
+  const mmdBroken = mmdErrs === null ? 0 : mmdErrs.filter((e) => e !== null).length;
+  const mmdPending = report !== null && report.logic.length > 0 && mmdCheck === null;
 
   // Дифф числа пометок между попытками. Переставляем ПРИ РЕНДЕРЕ по смене ссылки
   // отчёта (React-паттерн «adjusting state when props change», как в ImportPane), а
@@ -155,12 +160,17 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     // ПЛАН (создание вместо перезаписи), и пользователь должен видеть это сразу.
   }, [pkg.files, overwrite, nodeId, overrides]);
 
-  // Mermaid-валидация текстов схем из превью (советующая, ленивый чанк mermaid).
+  // Mermaid-валидация текстов схем из превью НАСТОЯЩИМ парсером (ленивый чанк
+  // mermaid грузится только когда пакет уже разобран). Асинхронна по природе,
+  // поэтому эффект — с отменой по смене отчёта: результат чужого пакета показывать
+  // нельзя. Полевая находка (Zulip v2): 9 из 30 схем приехали с рассогласованными
+  // скобками вершины — парсер такой класс ловит, но замечание должно назвать ФАЙЛ и
+  // быть видно ДО применения, иначе схемы применяются мёртвыми для рендера.
   useEffect(() => {
     if (report === null || report.logic.length === 0) return;
     let alive = true;
-    void Promise.all(report.logic.map((l) => validateMermaid(l.mermaid))).then((errs) => {
-      if (alive) setMmdRes({ forReport: report, errs });
+    void checkMermaid(report.logic, validateMermaid).then((check) => {
+      if (alive) setMmdRes({ forReport: report, check });
     });
     return () => { alive = false; };
   }, [report]);
@@ -195,15 +205,12 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     });
   }
 
-  // Замечания для агента: ошибки/конфликты/предупреждения + mermaid-ошибки фронта.
-  const mmdRemarks =
-    report === null || mmdErrs === null
+  // Замечания для агента: ошибки/конфликты/предупреждения бэка + mermaid-замечания
+  // фронта (собраны и закапированы в checkMermaid — там же формат «файл: …»).
+  const remarks =
+    report === null
       ? []
-      : report.logic
-          .map((l, i) => ({ l, err: mmdErrs[i] }))
-          .filter((x): x is { l: (typeof report.logic)[number]; err: string } => x.err !== null)
-          .map(({ l, err }) => `схема "${l.name}" узла «${l.node_path}»: ошибка mermaid — ${err.split("\n")[0]}`);
-  const remarks = report === null ? [] : [...report.errors, ...report.conflicts, ...report.warnings, ...mmdRemarks];
+      : [...report.errors, ...report.conflicts, ...report.warnings, ...(mmdCheck?.remarks ?? [])];
 
   // Вступление к замечаниям несёт ЗАПРЕТ УДАЛЯТЬ пометки, и это не косметика:
   // полевой QA (docs/qa-sentry-brokers.md, находка №2) показал ампутацию Х3 в новой
@@ -410,6 +417,17 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
                 {line} Проверьте: агент мог удалить их вместо починки
               </div>
             ))}
+            {/* Непарсящиеся схемы — строкой НАД сводкой, а не только значком ✗ в
+                строке файла: в пакете на три десятка схем значок в списке теряется,
+                и пакет применяют целиком (полевая находка Zulip v2). Применение не
+                блокируем: схема с битым mermaid — всё ещё текст, который правят. */}
+            {!checking && mmdPending && <div style={grayLine}>Проверяю схемы mermaid…</div>}
+            {!checking && report !== null && mmdBroken > 0 && (
+              <div style={shrankLine}>
+                Не парсятся mermaid: {mmdBroken} из {report.logic.length} схем — применение
+                их не оживит, почините пакет и загрузите снова
+              </div>
+            )}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
                 Применено: схем создано {report.created_docs}, перезаписано {report.updated_docs}.

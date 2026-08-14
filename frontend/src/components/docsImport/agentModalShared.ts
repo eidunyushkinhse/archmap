@@ -19,6 +19,47 @@ export function countAction(arr: { action: string }[], action: string): number {
   return arr.filter((a) => a.action === action).length;
 }
 
+// ── проверка схем настоящим mermaid-парсером ──────────────────────────
+// Кап замечаний о непарсящихся схемах: замечания уезжают агенту ОДНИМ списком, и
+// тридцать строк одного класса вытеснят все остальные (кап-паттерн бэковых проверок).
+export const MAX_MERMAID_REMARKS = 10;
+
+export interface MermaidCheck {
+  // Ошибка на каждую схему пакета в порядке отчёта (null — схема парсится).
+  errs: (string | null)[];
+  // Замечания для агента: «файл: mermaid не парсится — <первая строка парсера>».
+  remarks: string[];
+}
+
+/** Прогнать схемы пакета через парсер и собрать замечания к непарсящимся.
+ *
+ * Парсер ВНЕДРЯЕТСЯ (в проде — validateMermaid, за которым ленивый чанк mermaid):
+ * так проверка тестируется без тяжёлого чанка, а модалка не тянет mermaid, пока
+ * пакета нет. Замечание называет ФАЙЛ, а не имя схемы: чинит агент файлы, и
+ * «01-create-order.mmd» он у себя найдёт сразу, а «схему "Приём заказа"» — нет.
+ * Первой строки сообщения парсера достаточно: в ней номер строки и указатель на
+ * позицию (урок починки YAML-классов — точная координата закрывает класс за заход).
+ */
+export async function checkMermaid(
+  rows: { source: string; mermaid: string }[],
+  validate: (text: string) => Promise<string | null>,
+): Promise<MermaidCheck> {
+  const errs = await Promise.all(rows.map((r) => validate(r.mermaid)));
+  const remarks: string[] = [];
+  let hidden = 0;
+  rows.forEach((row, i) => {
+    const err = errs[i];
+    if (!err) return;
+    if (remarks.length >= MAX_MERMAID_REMARKS) {
+      hidden += 1;
+      return;
+    }
+    remarks.push(`${row.source}: mermaid не парсится — ${err.split("\n")[0].trim()}`);
+  });
+  if (hidden > 0) remarks.push(`…ещё ${hidden} схем не парсятся`);
+  return { errs, remarks };
+}
+
 // ── inline-стили, общие для обеих модалок ─────────────────────────────
 
 export const head: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 };

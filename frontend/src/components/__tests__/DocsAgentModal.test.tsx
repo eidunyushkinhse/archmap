@@ -19,8 +19,10 @@ vi.mock("../../api/docsImport", () => ({
 vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-// Валидатор mermaid — ленивый чанк; к диффу пометок он отношения не имеет.
-vi.mock("../mermaidLoader", () => ({ validateMermaid: () => Promise.resolve(null) }));
+// Валидатор mermaid — ленивый чанк; в тестах вместо него мок, вердикт задаёт тест
+// (по умолчанию — «схема парсится»).
+const { validateMermaidMock } = vi.hoisted(() => ({ validateMermaidMock: vi.fn() }));
+vi.mock("../mermaidLoader", () => ({ validateMermaid: validateMermaidMock }));
 
 const doc = () => ({
   node_path: "Ярмарка / orders", source: "вставка-1", name: "Списание",
@@ -64,7 +66,11 @@ async function попытка(r: DocsImportReport, правка: string) {
 }
 
 describe("DocsAgentModal · дифф пометок между попытками агента", () => {
-  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ shouldAdvanceTime: true }); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    validateMermaidMock.mockResolvedValue(null);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
   afterEach(() => vi.useRealTimers());
 
   it("падение числа пометок показано обеим семьям", async () => {
@@ -171,5 +177,29 @@ describe("DocsAgentModal · дифф пометок между попыткам�
     expect(текст).toContain("НЕ удаляй пометки");
     expect(текст).toContain("удаление прячет факт, а не исправляет его");
     expect(текст).toContain("a.mmd: пометка «accounts» — таблица не найдена — похоже на «accounts_v2»");
+  });
+
+  it("непарсящаяся схема видна над сводкой и уезжает агенту файлом", async () => {
+    // Полевая находка (Zulip v2): 9 из 30 применённых схем не парсились, а окно
+    // показывало только значок ✗ в строке файла — в списке на три десятка схем он
+    // теряется, и пакет применяют целиком. Значит: строка НАД сводкой + замечание
+    // с именем ФАЙЛА (чинит агент файлы, а не «схемы такого-то узла»).
+    validateMermaidMock.mockResolvedValue(
+      'Parse error on line 7:\n...F{"Есть вложения?"]\n--------^\nExpecting SQE',
+    );
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    open();
+    await вставить("graph TD");
+    await попытка(report({ warnings: ["замечание бэка"] }), " A");
+
+    expect(await screen.findByText(/Не парсятся mermaid: 1 из 1 схем/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Скопировать замечания для агента"));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const текст = writeText.mock.calls[0][0];
+    expect(текст).toContain("вставка-1: mermaid не парсится — Parse error on line 7:");
+    // Замечание бэка при этом не потерялось — списки складываются.
+    expect(текст).toContain("замечание бэка");
   });
 });
