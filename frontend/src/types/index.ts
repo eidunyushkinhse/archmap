@@ -165,6 +165,9 @@ export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 // То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
 export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
+// Связь с брокером, не назвавшая канал (missing) либо назвавшая неизвестный (unknown) —
+// шов «стрелка ↔ структура брокера», который держат алерты, а не FK (AL31).
+export type BrokerEdgeChannelAlert = Schemas["BrokerEdgeChannelAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];

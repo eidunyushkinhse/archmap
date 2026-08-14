@@ -4,7 +4,7 @@
 [README.md](README.md). Родственные спеки: [node.md](node.md) (стыковка с телом
 узла), [container.md](container.md) (проекция концов, рамки-ворота).
 
-Данные (БД): `Edge {id, label?, technology?, source_id, target_id}` — связь
+Данные (БД): `Edge {id, label?, technology?, channel?, source_id, target_id}` — связь
 направленная, может соединять узлы с разных уровней иерархии (сквозная).
 Код: `graph/layout/{orthoRoute,routeAll,autoRoutes,channelNudge,coincidentLegs,railPairs,labelBox,labelIntervals,labelLayout,placeLabels,widenForLabels,separateForLabels,context}.ts`,
 `graph/{edgePath,edgeJumps,text}.ts`, `graph/{edges,EdgeJumpContext,ConnectionLine,QuickConnectPreview}.tsx`,
@@ -45,6 +45,20 @@
   контейнер» с 2026-08-11 не скрывается, а упирается наконечником в границу рамки
   снаружи (container.md C19–C19c). Правила подъёма/проекции концов — container.md §4.
   [тест: projection.test.ts, pipeline.test.ts]
+
+- **E83.** (2026-08-14, Ф3 документации брокеров) КАНАЛ НА СВЯЗИ: `Edge.channel` —
+  имя топика/очереди, которое называет стрелка, ссылка ПО ИМЕНИ (не FK на
+  `broker_channels`): резолв на чтении по структуре конца-брокера, шов держат алерты
+  ([alerts.md](alerts.md) AL31), а не БД. Поле показывается в EdgeInspector, только
+  если ХОТЯ БЫ ОДИН конец связи `shape=broker`; правится тем же PATCH и тем же CAS,
+  что label/technology, и ездит в undo/redo наравне с ними. КОНВЕНЦИЯ НАПРАВЛЕНИЯ:
+  «сервис → брокер» читается как ПУБЛИКАЦИЯ, «брокер → сервис» — как ДОСТАВКА
+  подписчику; направление задаёт только прочтение (и подпись в обратном индексе) и в
+  резолве НЕ участвует — канал ищется у любого конца-брокера, у моста «брокер →
+  брокер» у обоих. Подсказка под полем («✓ канал» / «⚠ канала нет в структуре
+  брокера») — клиентская и мягкая: она сообщает, но не запрещает сохранить (канал
+  бывает описан позже схемы). [тест: EdgeInspectorChannel.test.tsx,
+  backend/tests/test_alerts.py, backend/tests/test_concurrency.py]
 
 ## 2. Стыковка: хэндлы, порты, слоты
 

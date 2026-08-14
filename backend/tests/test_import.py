@@ -63,7 +63,13 @@ def _semantic_signature(db, project_id) -> tuple[set, set]:
     }
     edges = db.query(Edge).filter(Edge.project_id == project_id).all()
     edge_sig = {
-        (path_of(by_id[e.source_id]), path_of(by_id[e.target_id]), e.label, e.technology)
+        (
+            path_of(by_id[e.source_id]),
+            path_of(by_id[e.target_id]),
+            e.label,
+            e.technology,
+            e.channel,
+        )
         for e in edges
     }
     return node_sig, edge_sig
@@ -513,3 +519,49 @@ def test_связь_путём_со_слэшем_без_пробелов_нах�
     assert errors == [] and parsed is not None
     src = parsed.nodes[parsed.edges[0].source_idx].name
     assert src == "queue-reader"
+
+
+def test_roundtrip_канала_связи(db):
+    """Канал брокера (Ф3) переживает экспорт→импорт: связь по имени канала — часть
+    семантики схемы, а не служебное поле. Без разбора в import_yaml экспорт вернулся
+    бы обезличенным, и «откуда взялось событие» снова стало бы неотвечаемым."""
+    src = _project(db, "Источник")
+    ярмарка = _node(db, src.id, "Ярмарка")
+    orders = _node(db, src.id, "orders", ярмарка)
+    kafka = _node(db, src.id, "Kafka", ярмарка, shape="broker")
+    db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=orders.id, target_id=kafka.id,
+                label="событие", channel="orders.created"))
+    db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=kafka.id, target_id=orders.id))
+    db.commit()
+
+    nodes = db.query(Node).filter(Node.project_id == src.id).all()
+    edges = db.query(Edge).filter(Edge.project_id == src.id).all()
+    parsed, errors = parse_import(build_export(nodes, edges))
+
+    assert errors == [] and parsed is not None
+    dst = _project(db, "Приёмник")
+    seed_import(db, dst.id, parsed)
+    db.commit()
+
+    assert _semantic_signature(db, src.id) == _semantic_signature(db, dst.id)
+    каналы = {
+        e.channel for e in db.query(Edge).filter(Edge.project_id == dst.id).all()
+    }
+    assert каналы == {"orders.created", None}
+
+
+def test_канал_не_строка_это_ошибка_разбора(db):
+    """Толерантность формата не означает молчания о кривом типе: «channel: 42» —
+    ошибка с адресом, как у label/technology (иначе поле тихо потерялось бы)."""
+    content = yaml.dump(
+        {
+            "nodes": [{"name": "orders"}, {"name": "Kafka", "shape": "broker"}],
+            "edges": [{"from": "orders", "to": "Kafka", "channel": 42}],
+        },
+        allow_unicode=True,
+    )
+
+    parsed, errors = parse_import(content)
+
+    assert parsed is None
+    assert errors == ["edges[0].channel: ожидается строка"]

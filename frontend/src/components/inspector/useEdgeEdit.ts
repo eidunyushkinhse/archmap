@@ -13,6 +13,9 @@ export interface EdgeEditInitial {
   id: string;
   label: string | null;
   technology: string | null;
+  // Канал брокера, названный связью (Ф3 брокеров): правится тем же коммитом и
+  // обязан ездить в undo/redo — поле, забытое в списке, история теряет молча.
+  channel: string | null;
   source_id: string;
   target_id: string;
   version: number;
@@ -32,6 +35,7 @@ export interface EdgeDuplicateRef {
 export type EdgeEditOverride = Partial<{
   label: string;
   technology: string;
+  channel: string;
   source_id: string;
   target_id: string;
 }>;
@@ -56,6 +60,7 @@ export function useEdgeEdit(
 ) {
   const [labelText, setLabelText] = useState(initial.label ?? "");
   const [technology, setTechnology] = useState(initial.technology ?? "");
+  const [channel, setChannel] = useState(initial.channel ?? "");
   const [sourceId, setSourceId] = useState(initial.source_id);
   const [targetId, setTargetId] = useState(initial.target_id);
   const [srcLabel, setSrcLabel] = useState(initial.source_name);
@@ -67,6 +72,7 @@ export function useEdgeEdit(
   const beforeRef = useRef<EdgeUpdate>({
     label: initial.label ?? null,
     technology: initial.technology ?? null,
+    channel: initial.channel ?? null,
     source_id: initial.source_id,
     target_id: initial.target_id,
   });
@@ -91,12 +97,14 @@ export function useEdgeEdit(
     const redo: EdgeUpdate = {
       label: (over.label ?? labelText) || null,
       technology: (over.technology ?? technology) || null,
+      channel: (over.channel ?? channel) || null,
       source_id: src,
       target_id: tgt,
     };
     const before = beforeRef.current;
     // no-op: ничего не изменилось — не плодим записи истории
     if (redo.label === (before.label ?? null) && redo.technology === (before.technology ?? null)
+      && redo.channel === (before.channel ?? null)
       && redo.source_id === before.source_id && redo.target_id === before.target_id) return true;
     const undo: EdgeUpdate = { ...before };
     try {
@@ -108,6 +116,7 @@ export function useEdgeEdit(
       beforeRef.current = {
         label: updated.label ?? null,
         technology: updated.technology ?? null,
+        channel: updated.channel ?? null,
         source_id: updated.source_id,
         target_id: updated.target_id,
       };
@@ -122,11 +131,13 @@ export function useEdgeEdit(
           beforeRef.current = {
             label: fresh.label ?? null,
             technology: fresh.technology ?? null,
+            channel: fresh.channel ?? null,
             source_id: fresh.source_id,
             target_id: fresh.target_id,
           };
           setLabelText(fresh.label ?? "");
           setTechnology(fresh.technology ?? "");
+          setChannel(fresh.channel ?? "");
           setSourceId(fresh.source_id);
           setTargetId(fresh.target_id);
           const [s, t] = await Promise.all([
@@ -172,6 +183,7 @@ export function useEdgeEdit(
   return {
     labelText, setLabelText,
     technology, setTechnology,
+    channel, setChannel,
     sourceId, setSourceId,
     targetId, setTargetId,
     srcLabel, setSrcLabel,

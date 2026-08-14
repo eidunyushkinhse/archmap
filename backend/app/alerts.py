@@ -7,11 +7,13 @@
 """
 
 import uuid
+from collections import defaultdict
 from typing import Literal
 
 from sqlalchemy.orm import Session, aliased
 
 from app.data_refs import (
+    CatalogChannel,
     RefStatus,
     catalog_for_project,
     parse_data_refs,
@@ -25,6 +27,7 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.schemas.node import (
     AlertsResponse,
+    BrokerEdgeChannelAlert,
     ContainerOwnDocsAlert,
     DanglingMessageAlert,
     DisconnectedNodeAlert,
@@ -54,6 +57,22 @@ _CHANNEL_REASON: dict[
 }
 
 
+def _channel_known(name: str, channels: list[CatalogChannel]) -> bool:
+    """Есть ли такой канал в структуре брокера-конца связи.
+
+    Послабления те же, что у пометок (Ф2в): точное имя канала — включая имя С ТОЧКАМИ
+    целиком («orders.created» — норма Kafka), — либо «группа.канал» (vhost RabbitMQ,
+    namespace Pulsar, account NATS). Квалификатора «Брокер / …» здесь не бывает по
+    построению: брокер задан концом связи, искать его по имени незачем.
+    """
+    for c in channels:
+        if c.name == name:
+            return True
+        if c.group_name and f"{c.group_name}.{c.name}" == name:
+            return True
+    return False
+
+
 def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     """Глобальные алерты незавершённости схемы проекта:
     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
@@ -70,7 +89,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
        таблицу структуры — обещание факта, которое текст дал, а структура не
        подтверждает (таблицы нет / имя неоднозначно / колонки нет);
     10) то же для событий: пометки «публикует:/потребляет:», не нашедшие свой
-       канал в структуре брокеров (канала нет / имя неоднозначно / поля нет).
+       канал в структуре брокеров (канала нет / имя неоднозначно / поля нет);
+    11) связи, у которых конец — брокер, а канал не назван (missing) либо назван,
+       но структура брокера его не знает (unknown).
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -363,6 +384,47 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     unresolved_data_refs.sort(key=lambda a: (a.node_name, a.doc_name, a.ref))
     unresolved_channel_refs.sort(key=lambda a: (a.node_name, a.doc_name, a.ref))
 
+    # 11) Связи с брокером, не называющие канал (AL31). Решение пользователя №4
+    #     (§4 plan-broker-docs.md): стрелка «сервис → брокер» ОБЯЗАНА назвать топик —
+    #     без этого схема не отвечает на «откуда взялось событие». Канал на связи —
+    #     ссылка по ИМЕНИ, не FK, поэтому шов держит алерт, а не БД: `missing` —
+    #     не указан вовсе, `unknown` — указан, но структура брокера-конца его не знает.
+    #     Направление в резолве не участвует (публикация и доставка равноправны,
+    #     см. edge.md E83) — ищем у ЛЮБОГО конца-брокера.
+    channels_by_node: dict[uuid.UUID, list[CatalogChannel]] = defaultdict(list)
+    for c in channels:
+        channels_by_node[c.node_id].append(c)
+    shape_by_id = {n.id: n.shape for n in all_nodes}
+    broker_edge_channels: list[BrokerEdgeChannelAlert] = []
+    for e in all_edges:
+        # dict.fromkeys — на случай петли «узел сам на себя»: конец один, не два.
+        broker_ends = [
+            nid
+            for nid in dict.fromkeys((e.source_id, e.target_id))
+            if shape_by_id.get(nid) == "broker"
+        ]
+        if not broker_ends:
+            continue
+        named = (e.channel or "").strip()
+        reason: Literal["missing", "unknown"]
+        if not named:
+            reason = "missing"
+        elif any(_channel_known(named, channels_by_node[nid]) for nid in broker_ends):
+            continue  # нашёлся хотя бы у одного конца-брокера — шов цел
+        else:
+            reason = "unknown"
+        broker_edge_channels.append(
+            BrokerEdgeChannelAlert(
+                edge_id=e.id,
+                source_name=name_by_id.get(e.source_id, "?"),
+                target_name=name_by_id.get(e.target_id, "?"),
+                broker_name=name_by_id.get(broker_ends[0], "?"),
+                channel=e.channel if named else None,
+                reason=reason,
+            )
+        )
+    broker_edge_channels.sort(key=lambda a: (a.source_name, a.target_name, a.channel or ""))
+
     return AlertsResponse(
         disconnected_nodes=disconnected,
         intermediate_edges=intermediate_edges,
@@ -374,4 +436,5 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         orphan_legs=orphan_legs,
         unresolved_data_refs=unresolved_data_refs,
         unresolved_channel_refs=unresolved_channel_refs,
+        broker_edge_channels=broker_edge_channels,
     )

@@ -39,6 +39,9 @@ _MAX_WARNINGS = 30
 # Связи в контейнер называем поимённо, но не все: замечания уезжают агенту одним
 # списком, и полсотни строк одного класса вытеснят остальное.
 _MAX_CONTAINER_EDGES = 10
+# Тот же кап у связей в брокер без канала — свой счётчик, чтобы один класс не
+# съедал квоту другого.
+_MAX_BROKER_EDGES = 10
 
 
 @dataclass
@@ -93,7 +96,9 @@ class _Merger:
         # прогоны положили под разных родителей или назвали по-разному.
         self.by_source: dict[str, int] = {}
         self.edges: list[_ImpEdge] = []
-        self.edge_seen: set[tuple[int, int, str, str]] = set()
+        # ключ дубля → (индекс в self.edges, файл-первоисточник). Индекс нужен,
+        # чтобы дубль мог ДОЛИТЬ каналом уже принятую связь, а не пропасть целиком.
+        self.edge_seen: dict[tuple[int, int, str, str], tuple[int, int]] = {}
         # (src, dst) → [(label, файл)] — для предупреждения о похожих рёбрах.
         self.pair_labels: dict[tuple[int, int], list[tuple[str, int]]] = {}
 
@@ -235,12 +240,36 @@ class _Merger:
     def add_edge(self, e: _ImpEdge, idx_map: list[int], fi: int) -> None:
         src, dst = idx_map[e.source_idx], idx_map[e.target_idx]
         key = (src, dst, e.label or "", e.technology or "")
-        if key in self.edge_seen:
+        seen = self.edge_seen.get(key)
+        if seen is not None:
             self.report.dropped_edges += 1
+            self._merge_channel(seen, e.channel, fi)
             return
-        self.edge_seen.add(key)
-        self.edges.append(_ImpEdge(src, dst, e.label, e.technology))
+        self.edge_seen[key] = (len(self.edges), fi)
+        self.edges.append(_ImpEdge(src, dst, e.label, e.technology, e.channel))
         self.pair_labels.setdefault((src, dst), []).append((e.label or "", fi))
+
+    def _merge_channel(self, seen: tuple[int, int], new: str | None, fi: int) -> None:
+        """Канал у дубля связи — та же политика, что у полей узла (_merge_str):
+        заполненное бьёт пустое, расхождение решается в пользу первого файла и
+        уезжает строкой в отчёт.
+
+        В КЛЮЧ дедупа канал не входит осознанно: один и тот же поток, названный в
+        двух репозиториях разными топиками, — это конфликт, который надо показать, а
+        не две самостоятельные связи между той же парой с той же подписью."""
+        idx, first = seen
+        cur = self.edges[idx].channel
+        if not _fill(new) or (_fill(cur) and cur.strip() == new.strip()):
+            return
+        if not _fill(cur):
+            self.edges[idx].channel = new
+            return
+        a = self.paths[self.edges[idx].source_idx]
+        b = self.paths[self.edges[idx].target_idx]
+        self.report.conflicts.append(
+            f"связь «{a} → {b}»: канал: оставлено «{cur}» (файл {first + 1}), "
+            f"отброшено «{new}» (файл {fi + 1})"
+        )
 
     # ── предупреждения ────────────────────────────────────────────────────
 
@@ -364,6 +393,7 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
             f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»"
         )
     _warn_container_edges(merged, report, parents)
+    _warn_broker_edges(merged, report)
 
 
 def _warn_container_edges(
@@ -405,6 +435,44 @@ def _warn_container_edges(
             )
     if hidden:
         report.warnings.append(f"…ещё {hidden} таких связей")
+
+
+def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
+    """Связи, упирающиеся в БРОКЕР, но не называющие канал.
+
+    Решение пользователя №4 (docs/plan-broker-docs.md §4): стрелка в брокер обязана
+    назвать топик/очередь — иначе схема не отвечает на «откуда взялось событие».
+    После импорта это алерт AL31, но урок Х5 тот же, что у связей в контейнер: агент
+    к моменту алертов уже ушёл, поэтому предупреждаем ДО импорта и НАЗЫВАЕМ каждую
+    связь — замечание лечится дописыванием одного поля, и агенту нужен конкретный
+    конец, а не правило.
+
+    Брокер узнаём по shape СЛИТОГО дерева: проекта на этот момент ещё нет.
+    """
+    shown = hidden = 0
+    for e in merged.edges:
+        if _fill(e.channel):
+            continue
+        # dict.fromkeys — на случай петли: конец один, не два. Оба конца брокеры —
+        # называем первый (искать канал придётся у обоих, починка начинается с любого).
+        ends = [
+            i
+            for i in dict.fromkeys((e.source_idx, e.target_idx))
+            if merged.nodes[i].shape == "broker"
+        ]
+        if not ends:
+            continue
+        if shown >= _MAX_BROKER_EDGES:
+            hidden += 1
+            continue
+        shown += 1
+        a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
+        report.warnings.append(
+            f"связь «{a} → {b}»: конец — брокер «{merged.nodes[ends[0]].name}», а канал "
+            f"не указан — добавьте channel: имя топика/очереди"
+        )
+    if hidden:
+        report.warnings.append(f"…ещё {hidden} таких связей с брокером")
 
 
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:

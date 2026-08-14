@@ -44,6 +44,9 @@ export function toLevelEdges(graph: GraphResponse): LevelEdge[] {
     id: ge.id,
     label: ge.label,
     technology: ge.technology,
+    // Канал брокера: инспектор правит его прямо на уровне, поэтому он едет в
+    // контракте графа (в отличие от is_synchronous, который живёт в процессах).
+    channel: ge.channel,
     source_id: ge.source_id,
     target_id: ge.target_id,
     original_source_id: ge.source_id,

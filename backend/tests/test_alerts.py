@@ -16,19 +16,26 @@ from app.models.node import Node
 from app.routers.nodes import get_alerts
 
 
-def _node(db, name, parent=None):
+def _node(db, name, parent=None, **kw):
     n = Node(
         id=uuid.uuid4(),
         name=name,
         parent_id=parent.id if parent else None,
         project_id=ensure_project(db).id,
+        **kw,
     )
     db.add(n)
     return n
 
 
-def _edge(db, src, tgt):
-    e = Edge(id=uuid.uuid4(), source_id=src.id, target_id=tgt.id, project_id=ensure_project(db).id)
+def _edge(db, src, tgt, **kw):
+    e = Edge(
+        id=uuid.uuid4(),
+        source_id=src.id,
+        target_id=tgt.id,
+        project_id=ensure_project(db).id,
+        **kw,
+    )
     db.add(e)
     return e
 
@@ -581,3 +588,131 @@ def test_классы_разведены_канальное_не_попадае�
     [канальный] = отчёт.unresolved_channel_refs
     assert (табличный.ref, табличный.reason) == ("ordrs", "unknown_table")
     assert (канальный.ref, канальный.reason) == ("создание", "unknown_channel")
+
+
+# ====== 11) Связи с брокером, не называющие канал (AL31) ======
+# Решение пользователя №4 (§4 plan-broker-docs.md): стрелка «сервис → брокер» обязана
+# назвать топик. Канал на связи — ссылка по ИМЕНИ, не FK, поэтому шов между стрелкой и
+# структурой брокера держит ТОЛЬКО этот алерт.
+
+
+def _связи_брокеров(db):
+    return get_alerts(db=db, project=ensure_project(db), _=None).broker_edge_channels
+
+
+def test_связь_в_брокер_без_канала_даёт_missing(db):
+    сервис = _node(db, "Заказы")
+    брокер = _node(db, "Kafka", shape="broker")
+    _edge(db, сервис, брокер)
+    db.commit()
+
+    [алерт] = _связи_брокеров(db)
+
+    assert (алерт.source_name, алерт.target_name) == ("Заказы", "Kafka")
+    # Брокер назван отдельно: по нему инженер понимает, ГДЕ описывать канал.
+    assert алерт.broker_name == "Kafka"
+    assert (алерт.reason, алерт.channel) == ("missing", None)
+
+
+def test_пробелы_вместо_имени_канала_это_тоже_missing(db):
+    сервис = _node(db, "Заказы")
+    брокер = _node(db, "Kafka", shape="broker")
+    _канал(db, брокер, "созданные")
+    _edge(db, сервис, брокер, channel="   ")
+    db.commit()
+
+    [алерт] = _связи_брокеров(db)
+    assert алерт.reason == "missing"
+
+
+def test_канал_связи_не_найденный_у_брокера_даёт_unknown(db):
+    сервис = _node(db, "Заказы")
+    брокер = _node(db, "Kafka", shape="broker")
+    _канал(db, брокер, "orders.created")
+    _edge(db, сервис, брокер, channel="orders.creted")  # опечатка
+    db.commit()
+
+    [алерт] = _связи_брокеров(db)
+
+    assert алерт.reason == "unknown"
+    # Как написано на связи — чинить придётся именно эту строку.
+    assert алерт.channel == "orders.creted"
+
+
+def test_канал_найденный_точным_именем_алерта_не_даёт(db):
+    сервис = _node(db, "Заказы")
+    брокер = _node(db, "Kafka", shape="broker")
+    _канал(db, брокер, "созданные")
+    _edge(db, сервис, брокер, channel="созданные")
+    db.commit()
+
+    assert _связи_брокеров(db) == []
+
+
+def test_канал_адресуется_группой_и_именем_с_точками(db):
+    # Те же послабления, что у пометок (Ф2в): «группа.канал» (vhost/namespace) и имя
+    # С ТОЧКАМИ целиком («orders.created» — норма Kafka, а не «группа orders»).
+    сервис = _node(db, "Заказы")
+    rabbit = _node(db, "RabbitMQ", shape="broker")
+    kafka = _node(db, "Kafka", shape="broker")
+    _канал(db, rabbit, "оплаты", group="billing")
+    _канал(db, kafka, "orders.created")
+    _edge(db, сервис, rabbit, channel="billing.оплаты")
+    _edge(db, сервис, kafka, channel="orders.created")
+    db.commit()
+
+    assert _связи_брокеров(db) == []
+
+
+def test_оба_конца_брокеры_канал_ищется_у_обоих(db):
+    # Мост между брокерами: канал описан только у одного конца — этого достаточно.
+    kafka = _node(db, "Kafka", shape="broker")
+    rabbit = _node(db, "RabbitMQ", shape="broker")
+    _канал(db, rabbit, "зеркало")
+    мост = _edge(db, kafka, rabbit, channel="зеркало")
+    db.commit()
+
+    assert _связи_брокеров(db) == []
+
+    # Канала нет ни у одного — алерт есть, и брокер в нём назван первым концом.
+    мост.channel = "нет_такого"
+    db.commit()
+    [алерт] = _связи_брокеров(db)
+    assert (алерт.reason, алерт.broker_name) == ("unknown", "Kafka")
+
+
+def test_связи_без_брокера_не_проверяются(db):
+    # У обычной связи канала и не бывает: проверка стреляет ТОЛЬКО по концу-брокеру.
+    сервис = _node(db, "Заказы")
+    бд = _node(db, "Хранилище", shape="database")
+    человек = _node(db, "Покупатель", shape="person")
+    _edge(db, сервис, бд)
+    _edge(db, человек, сервис)
+    db.commit()
+
+    assert _связи_брокеров(db) == []
+
+
+def test_связи_чужого_проекта_не_видны(db):
+    # Тест, который на этом проекте регулярно теряли: скоуп — только свой проект.
+    from app.models.project import Project
+
+    свой = ensure_project(db)
+    чужой = Project(id=uuid.uuid4(), name="Чужой")
+    db.add(чужой)
+    db.flush()
+    чужой_сервис = Node(id=uuid.uuid4(), name="Их сервис", project_id=чужой.id)
+    чужой_брокер = Node(id=uuid.uuid4(), name="Их Kafka", project_id=чужой.id, shape="broker")
+    db.add_all([чужой_сервис, чужой_брокер])
+    db.flush()
+    db.add(
+        Edge(
+            id=uuid.uuid4(),
+            project_id=чужой.id,
+            source_id=чужой_сервис.id,
+            target_id=чужой_брокер.id,
+        )
+    )
+    db.commit()
+
+    assert get_alerts(db=db, project=свой, _=None).broker_edge_channels == []

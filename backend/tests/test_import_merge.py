@@ -542,3 +542,115 @@ def test_контейнер_со_связанными_детьми_подвис�
 
     assert errors == []
     assert not any("без единой связи" in w for w in report.warnings)
+
+
+# ── канал на связи (Ф3 брокеров) ─────────────────────────────────────────────
+# Стрелка «сервис → брокер» обязана назвать топик (решение пользователя №4). В отчёте
+# это два разных класса: расхождение каналов у одной связи из двух файлов — конфликт
+# слияния, а неназванный канал — предупреждение содержания (урок Х5, поимённо).
+
+
+def _channel_of(p: ParsedImport, src: str, dst: str) -> str | None:
+    paths = _path_list(p)
+    [e] = [e for e in p.edges if paths[e.source_idx] == src and paths[e.target_idx] == dst]
+    return e.channel
+
+
+_БРОКЕР_A = (
+    "- name: Ярмарка\n"
+    "  children:\n"
+    "  - name: orders\n"
+    "  - name: Kafka\n"
+    "    shape: broker\n"
+)
+
+
+def test_канал_доливается_дублем_из_другого_файла():
+    # Дубль связи (та же пара, та же подпись) назвал канал, а первый файл — нет:
+    # «богатое побеждает пустое», иначе порядок файлов молча терял бы поле.
+    merged, report, errors = parse_and_merge([
+        _doc(_БРОКЕР_A, "edges:\n- from: orders\n  to: Kafka\n  label: событие\n"),
+        _doc(
+            _БРОКЕР_A,
+            "edges:\n- from: orders\n  to: Kafka\n  label: событие\n  channel: orders.created\n",
+        ),
+    ])
+
+    assert errors == [] and merged is not None
+    assert _channel_of(merged, "Ярмарка / orders", "Ярмарка / Kafka") == "orders.created"
+    assert report.conflicts == []
+    # Связь одна: канал не входит в ключ дедупа.
+    assert len(merged.edges) == 1
+
+
+def test_расхождение_каналов_двух_файлов_уходит_в_конфликты():
+    merged, report, errors = parse_and_merge([
+        _doc(
+            _БРОКЕР_A,
+            "edges:\n- from: orders\n  to: Kafka\n  channel: orders.created\n",
+        ),
+        _doc(
+            _БРОКЕР_A,
+            "edges:\n- from: orders\n  to: Kafka\n  channel: orders.v2\n",
+        ),
+    ])
+
+    assert errors == [] and merged is not None
+    # Побеждает первый файл — как у полей узла; факт виден в отчёте.
+    assert _channel_of(merged, "Ярмарка / orders", "Ярмарка / Kafka") == "orders.created"
+    assert (
+        "связь «Ярмарка / orders → Ярмарка / Kafka»: канал: оставлено «orders.created» "
+        "(файл 1), отброшено «orders.v2» (файл 2)"
+    ) in report.conflicts
+
+
+def test_связь_в_брокер_без_канала_называется_поимённо():
+    # Урок Х5: к моменту алертов агент уже ушёл — предупреждаем ДО импорта и называем
+    # конкретную связь, потому что лечится она дописыванием одного поля.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            _БРОКЕР_A,
+            "edges:\n- from: orders\n  to: Kafka\n- from: orders\n  to: Kafka\n"
+            "  label: оплачен\n  channel: orders.paid\n",
+        )
+    ])
+
+    assert errors == []
+    assert (
+        "связь «orders → Kafka»: конец — брокер «Kafka», а канал не указан — "
+        "добавьте channel: имя топика/очереди"
+    ) in report.warnings
+    # Связь с каналом молчит: предупреждение ровно одно.
+    assert len([w for w in report.warnings if "а канал не указан" in w]) == 1
+
+
+def test_связи_без_брокера_про_канал_не_предупреждают():
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Ярмарка\n"
+            "  children:\n"
+            "  - name: orders\n"
+            "  - name: orders-db\n"
+            "    shape: database\n",
+            "edges:\n- from: orders\n  to: orders-db\n",
+        )
+    ])
+
+    assert errors == []
+    assert not any("канал не указан" in w for w in report.warnings)
+
+
+def test_связей_в_брокер_без_канала_больше_капа_свёрнуты():
+    # Кап свой у каждого класса: полсотни строк одного вытеснят из списка остальное.
+    services = "".join(f"  - name: s{i}\n" for i in range(13))
+    edges = "".join(f"- from: s{i}\n  to: Kafka\n" for i in range(13))
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Ярмарка\n  children:\n" + services + "  - name: Kafka\n    shape: broker\n",
+            "edges:\n" + edges,
+        )
+    ])
+
+    assert errors == []
+    assert len([w for w in report.warnings if "а канал не указан" in w]) == 10
+    assert "…ещё 3 таких связей с брокером" in report.warnings

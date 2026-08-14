@@ -40,7 +40,10 @@ import "./schemaAlerts.css";
  *  8) Обращения к неописанным каналам — то же для событий: «публикует:/потребляет:»
  *     не нашла канал в структуре брокеров (AL30). Класс отдельный от (7): причины и
  *     слова починки свои («укажите „Брокер / канал“»), а искать топик в структуре
- *     базы человека посылать нельзя.
+ *     базы человека посылать нельзя;
+ *  9) Связи с брокером без канала — стрелка в брокер не назвала топик/очередь либо
+ *     назвала неизвестный структуре (AL31). Чинится в инспекторе самой связи,
+ *     поэтому строка ведёт К СВЯЗИ на схеме.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -95,6 +98,8 @@ const IcoUnknownData = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16"
 // Обращение к неописанному каналу: конверт события со знаком вопроса — цель
 // пометки не нашлась в структуре брокеров.
 const IcoUnknownChannel = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="1.8" y="3.4" width="9.4" height="7.2" rx="1.2" /><path d="M1.8 4.4 6.5 7.6l4.7-3.2" /><path d="M11.6 11.4a1.5 1.5 0 1 1 2 1.4v.7" /><path d="M13.6 15.1h.01" /></svg>;
+// Связь с брокером без канала: стрелка с безымянным конвертом-меткой на конце.
+const IcoEdgeChannel = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M1.6 8h5.2" /><path d="M4.6 5.8 6.8 8l-2.2 2.2" /><rect x="8.4" y="4.6" width="6.4" height="5" rx="1" /><path d="M8.4 5.2 11.6 7.4l3.2-2.2" /><path d="M11.6 12.4h.01" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
 
 // Почему пометка не срослась. Текст обязан подсказывать действие: неоднозначность
@@ -144,6 +149,9 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // То же для событий: пометка обещала канал, а структура брокеров его не знает.
   // Отдельный класс — чинится другими словами (см. CHANNEL_REASON).
   const unresolvedChannelRefs = alerts.unresolved_channel_refs;
+  // Связи с брокером, не назвавшие канал (или назвавшие неизвестный): шов «стрелка ↔
+  // структура брокера» держат алерты, а не FK, — это единственное место, где он виден.
+  const brokerEdges = alerts.broker_edge_channels;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
@@ -152,7 +160,8 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   const total =
     disconnected.length + intermediate.length + isolatedProblems +
     containerOwn.length + personsInside.length + dangling.length + unbound.length +
-    orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length;
+    orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length +
+    brokerEdges.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -295,6 +304,26 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
                 <span style={{ display: "block", lineHeight: 1.35 }}>
                   <span style={{ color: "#6b7280", fontWeight: 600 }}>{r.node_name} · {r.doc_name}:</span>{" "}
                   <span style={badEnd}>„{r.ref}“</span> — {CHANNEL_REASON[r.reason]}
+                </span>
+              </Item>
+            ))}
+          </Section>
+
+          {/* Стрелка в брокер обязана назвать топик (решение №4): строка ведёт К СВЯЗИ —
+              канал правится в её инспекторе, а не в структуре брокера. */}
+          <Section icon={IcoEdgeChannel(13)} title="Связи с брокером без канала" count={brokerEdges.length}>
+            {brokerEdges.map((b) => (
+              <Item key={b.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: b.edge_id }))}>
+                <span style={{ display: "block", lineHeight: 1.35 }}>
+                  <span style={{ color: "#6b7280", fontWeight: 600 }}>{b.source_name} → {b.target_name}:</span>{" "}
+                  {/* Тексты причин разные по СМЫСЛУ починки: «не указан» — дописать
+                      канал в инспекторе; «не найден» — опечатка либо канал не описан
+                      в структуре брокера (и тогда чинят её). */}
+                  {b.reason === "missing" ? (
+                    "канал не указан"
+                  ) : (
+                    <>канал <span style={badEnd}>«{b.channel}»</span> не найден у брокера «{b.broker_name}»</>
+                  )}
                 </span>
               </Item>
             ))}

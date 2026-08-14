@@ -1592,6 +1592,11 @@ export interface components {
              * @default []
              */
             unresolved_channel_refs: components["schemas"]["UnresolvedChannelRefAlert"][];
+            /**
+             * Broker Edge Channels
+             * @default []
+             */
+            broker_edge_channels: components["schemas"]["BrokerEdgeChannelAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1743,6 +1748,36 @@ export interface components {
             description?: string | null;
             /** Base Version */
             base_version?: number | null;
+        };
+        /**
+         * BrokerEdgeChannelAlert
+         * @description Связь с брокером, которая не называет канал либо называет несуществующий.
+         *
+         *     Решение пользователя №4 (docs/plan-broker-docs.md §4): стрелка «сервис → брокер»
+         *     ОБЯЗАНА назвать топик/очередь — без этого схема не отвечает на «откуда взялось
+         *     событие». Канал на связи — ссылка по ИМЕНИ, а не FK, поэтому шов держит алерт:
+         *     `missing` — канал не указан вовсе, `unknown` — указан, но структура брокера-конца
+         *     такого канала не знает (опечатка либо канал не описан).
+         */
+        BrokerEdgeChannelAlert: {
+            /**
+             * Edge Id
+             * Format: uuid
+             */
+            edge_id: string;
+            /** Source Name */
+            source_name: string;
+            /** Target Name */
+            target_name: string;
+            /** Broker Name */
+            broker_name: string;
+            /** Channel */
+            channel?: string | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "missing" | "unknown";
         };
         /** ChannelFieldCreate */
         ChannelFieldCreate: {
@@ -2393,6 +2428,8 @@ export interface components {
             target_id: string;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
+            /** Channel */
+            channel?: string | null;
         };
         /** EdgeResponse */
         EdgeResponse: {
@@ -2415,6 +2452,8 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
+            /** Channel */
+            channel?: string | null;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
             /**
@@ -2439,6 +2478,8 @@ export interface components {
             label?: string | null;
             /** Technology */
             technology?: string | null;
+            /** Channel */
+            channel?: string | null;
             /**
              * Source Id
              * Format: uuid
@@ -2458,6 +2499,8 @@ export interface components {
             label?: string | null;
             /** Technology */
             technology?: string | null;
+            /** Channel */
+            channel?: string | null;
             /** Source Id */
             source_id?: string | null;
             /** Target Id */
@@ -2616,6 +2659,8 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
+            /** Channel */
+            channel?: string | null;
             /**
              * Version
              * @default 1

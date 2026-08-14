@@ -163,7 +163,7 @@ def test_edge_snapshot_restore_round_trip(db):
 
     x = _node(db, "X")
     y = _node(db, "Y")
-    e = _edge(db, x, y, label="зов", is_synchronous=True)
+    e = _edge(db, x, y, label="зов", is_synchronous=True, channel="orders.created")
     db.commit()
     _layout(db, x.id, f"b:{x.id}>{y.id}", {"source_handle": "x--right--0"})
     db.commit()
@@ -187,6 +187,9 @@ def test_edge_snapshot_restore_round_trip(db):
     assert len(edges) == 1
     e2 = edges[0]
     assert e2.id == e_id and e2.label == "зов" and e2.is_synchronous is True
+    # Канал брокера тоже переживает откат: снимок без него молча терял бы поле
+    # (урок «nodeFields без status»).
+    assert e2.channel == "orders.created"
     # Геометрия пучка дождалась восстановленную связь (и не задублировалась)
     assert db.query(ViewLayoutItem).count() == 1
 

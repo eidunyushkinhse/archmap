@@ -203,6 +203,51 @@ def test_edge_patch_cas(db):
     assert exc.value.status_code == 409
 
 
+def test_edge_channel_patch_cas(db):
+    """Канал брокера (Ф3) правится тем же PATCH и тем же CAS, что остальные поля
+    связи: отдельного пути записи у него нет, и устаревшая правка канала обязана
+    получить 409, а не затереть чужую."""
+    сервис, брокер = _node(db, "orders"), _node(db, "Kafka")
+    db.commit()
+    e = Edge(
+        id=uuid.uuid4(), source_id=сервис.id, target_id=брокер.id,
+        project_id=ensure_project(db).id,
+    )
+    db.add(e)
+    db.commit()
+
+    upd = update_edge(
+        e.id,
+        EdgeUpdate(channel="orders.created", base_version=1),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+    assert (upd.channel, upd.version) == ("orders.created", 2)
+
+    with pytest.raises(HTTPException) as exc:
+        update_edge(
+            e.id,
+            EdgeUpdate(channel="orders.v2", base_version=1),
+            db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
+        )
+    assert exc.value.status_code == 409
+    db.refresh(e)
+    assert e.channel == "orders.created"
+
+    # Очистка поля (пользователь стёр инпут) — обычная правка, а не «не трогать».
+    cleared = update_edge(
+        e.id,
+        EdgeUpdate(channel=None, base_version=2),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+    assert cleared.channel is None
+
+
 # ── Бампы fence структурными мутациями ─────────────────────────────────────
 
 
