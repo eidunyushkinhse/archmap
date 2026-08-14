@@ -17,6 +17,7 @@ from app.channels_prompt import build_channels_prompt
 from app.database import get_db
 from app.deps import get_current_project, touch_project
 from app.docs_import import _node_paths
+from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
@@ -37,11 +38,42 @@ def channels_prompt(
     _: User = Depends(require_architect),
 ) -> ChannelsPromptOut:
     """Промпт агенту с узлами-брокерами ЭТОГО проекта: адрес владельца слабая модель
-    без списка выдумывает, и пакет блокируется целиком (урок Н8)."""
+    без списка выдумывает, и пакет блокируется целиком (урок Н8). Плюс каналы,
+    которые УЖЕ называют связи схемы, — минимум пакета (находка №4 полевого QA:
+    канальная сессия не нашла очередь, в которую код только публикует)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     flat, fulls, _by_bare, _by_path = _node_paths(nodes)
     broker_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "broker"]
-    return ChannelsPromptOut(prompt=build_channels_prompt(broker_paths))
+    edges = db.query(Edge).filter(Edge.project_id == project.id).all()
+    return ChannelsPromptOut(
+        prompt=build_channels_prompt(broker_paths, _edge_channels(flat, fulls, edges))
+    )
+
+
+def _edge_channels(
+    flat: list[Node], fulls: list[str], edges: list[Edge]
+) -> dict[str, list[str]]:
+    """«Путь брокера → каналы, названные связями схемы».
+
+    Перечень в channel («email, notify_tornado») расщепляем: превью импорта такую
+    связь ругает (Ф8г), но в живых проектах она уже есть, и промпту нужны ИМЕНА, а
+    не строка целиком. Оба конца-брокера учитываются: у моста между брокерами канал
+    ищут в обоих, и угадывать за пользователя тут нечего.
+    """
+    broker_paths = {n.id: fulls[i] for i, n in enumerate(flat) if n.shape == "broker"}
+    out: dict[str, list[str]] = {}
+    for e in edges:
+        if not e.channel or not e.channel.strip():
+            continue
+        for end in dict.fromkeys((e.source_id, e.target_id)):
+            path = broker_paths.get(end)
+            if path is None:
+                continue
+            for raw in e.channel.replace(";", ",").split(","):
+                name = raw.strip()
+                if name and name not in out.setdefault(path, []):
+                    out[path].append(name)
+    return out
 
 
 def _plan(

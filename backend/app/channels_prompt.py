@@ -76,11 +76,47 @@ def _multi_broker_block(broker_paths: list[str]) -> str:
 """
 
 
-def build_channels_prompt(broker_paths: list[str]) -> str:
+def _edge_channels_block(edge_channels: dict[str, list[str]] | None) -> str:
+    """Раздел «эти каналы уже названы схемой» — или ПУСТАЯ строка.
+
+    Находка №4 полевого QA (docs/qa-zulip-brokers.md): канальная и доковая сессии
+    ОДНОЙ модели разошлись в перечне очередей — канальная шла от каталога
+    потребителей и не увидела очередь, в которую этот код только публикует, а
+    доковая пометила её девять раз. Схема — второй независимый источник: её связи
+    уже назвали свои каналы (Ф3), и этот перечень честно задаёт минимум пакета.
+    Связей с каналом нет — раздела нет: пустой список ничего не сообщает.
+    """
+    if not edge_channels:
+        return ""
+    lines = [
+        f"- «{path}»: {', '.join(names)}"
+        for path in sorted(edge_channels)
+        if (names := sorted(dict.fromkeys(n for n in edge_channels[path] if n)))
+    ]
+    if not lines:
+        return ""
+    listed = "\n".join(lines)
+    return f"""
+## Каналы, которые уже называет схема
+
+Связи архитектурной схемы уже называют эти каналы — опиши КАЖДЫЙ из них у его
+брокера (это минимум пакета):
+{listed}
+Канала нет в коде этого репозитория — не выдумывай: назови его в финальном ответе
+как не найденный здесь.
+"""
+
+
+def build_channels_prompt(
+    broker_paths: list[str], edge_channels: dict[str, list[str]] | None = None
+) -> str:
     """Собрать текст промпта. broker_paths — полные пути узлов-брокеров проекта
-    (shape=broker) в терминах импорта: они и есть допустимые адреса владельца."""
+    (shape=broker) в терминах импорта: они и есть допустимые адреса владельца.
+    edge_channels — «путь брокера → каналы, которые уже называют связи схемы»
+    (минимум пакета, находка №4 полевого QA); пусто — промпт прежний байт-в-байт."""
     nodes_line, example_addr = _address_lines(broker_paths)
     multi_block = _multi_broker_block(broker_paths)
+    edges_block = _edge_channels_block(edge_channels)
 
     return f"""# ArchMap · описание каналов брокера
 
@@ -104,6 +140,9 @@ def build_channels_prompt(broker_paths: list[str]) -> str:
    publish/produce/send и subscribe/consume, аннотации слушателей, схемы событий
    (schema registry, *.avsc, protobuf, JSON Schema), инфра-конфиги (terraform,
    docker-compose, helm) с созданием топиков. НЕ подключайся к живому брокеру.
+   Ищи и точки ПУБЛИКАЦИИ (вызовы publish/enqueue/send_event и их обёртки), а не
+   только регистрации потребителей: очередь, в которую из этого кода только пишут, —
+   тоже канал.
 2. Выпиши поля сообщения — из СЕРИАЛИЗАЦИИ: класс/структура события, схема реестра,
    тело publish. Тип пиши как в схеме («string», «uuid», «int64», «object»).
 3. Сложи результат в файлы `archmap-docs/<что-угодно>.yaml` по формату ниже.
@@ -114,7 +153,7 @@ def build_channels_prompt(broker_paths: list[str]) -> str:
 именно с решёткой. Без неё строка станет обычным YAML-ключом, адреса ArchMap не увидит.
 В этой строке — только адрес: хвост-пояснение после него станет частью адреса.
 {nodes_line}
-{multi_block}
+{multi_block}{edges_block}
 ## Формат файла
 
 ```yaml
