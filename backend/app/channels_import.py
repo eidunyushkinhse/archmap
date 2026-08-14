@@ -19,6 +19,7 @@ retention, консьюмер знает свою гарантию достав�
 
 import re
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 import yaml
@@ -28,6 +29,7 @@ from app.data_import import NODE_HEADER
 from app.docs_import import _node_paths
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
+from app.models.edge import Edge
 from app.models.node import Node
 from app.schemas.channels_import import ChannelItem, ChannelsImportReport
 
@@ -43,6 +45,10 @@ LOOKS_LIKE_CHANNELS = re.compile(r"^channels:", re.MULTILINE)
 # description сюда НЕ входит намеренно: два репозитория опишут канал разными словами
 # почти всегда, и предупреждение об этом было бы шумом, хоронящим настоящие.
 META_KEYS = ("kind", "partition_key", "delivery", "retention")
+
+# Кап предупреждений о сомнительной адресации на весь план: замечания уезжают агенту
+# ОДНИМ списком, и один класс не должен вытеснить остальные (приём пометок данных).
+MAX_ADDRESS_WARNINGS = 8
 
 
 @dataclass
@@ -270,7 +276,99 @@ def build_channels_plan(
             )
             plan.channels.append((owner, c, fname))
 
+    _warn_wrong_broker(db, plan, flat)
     return plan
+
+
+def _names_channel(pairs: set[tuple[str, str]], named: str) -> bool:
+    """Знает ли брокер канал под таким именем.
+
+    Послабления — те же, что у алерта AL31 (_channel_known в app/alerts.py): точное
+    имя, включая имя С ТОЧКАМИ целиком («orders.created» — норма Kafka), либо
+    «группа.канал» (vhost RabbitMQ, namespace Pulsar, account NATS). Квалификатора
+    «Брокер / …» тут не бывает по построению: брокер задан концом связи.
+    """
+    return any(name == named or (group and f"{group}.{name}" == named) for group, name in pairs)
+
+
+def _warn_wrong_broker(db: Session, plan: ChannelsPlan, flat: list[Node]) -> None:
+    """Канал пакета лежит у одного брокера, а связь схемы называет его у другого.
+
+    Находка №1 полевого QA (docs/qa-sentry-brokers.md): валидатор проверял ФОРМУ
+    владельца («брокер ли»), но не «тот ли брокер», и слабая модель сложила все 136
+    каналов Sentry на kafka — вместе с Celery-очередями, чьё место на sentry-redis.
+    Превью было зелёным, второй брокер остался пуст, и промах вылез только четырьмя
+    непонятными AL31 у его связей.
+
+    Схема знает ответ: связь «сервис → брокер» называет свой канал (Ф3), и если
+    канал назван у брокера B, а пакет кладёт его брокеру A, то расходятся ДВА
+    источника — это и есть повод спросить. Молчим, когда канал есть и у B (два
+    брокера законно возят одноимённые каналы) и когда A сам стоит концом этой связи.
+    """
+    if not plan.channels:
+        return
+    project_id = flat[0].project_id
+    shape_by_id = {n.id: n.shape for n in flat}
+    name_by_id = {n.id: n.name for n in flat}
+    # Брокер один — спорить не с кем: адресовать каналы больше некуда.
+    if sum(1 for n in flat if n.shape == "broker") < 2:
+        return
+
+    # Что каждый брокер знает: описанное в проекте раньше + приехавшее ЭТИМ пакетом
+    # (второй файл пакета законно кладёт тот же канал соседнему брокеру).
+    known: dict[uuid.UUID, set[tuple[str, str]]] = defaultdict(set)
+    for ch in (
+        db.query(BrokerChannel)
+        .join(Node, Node.id == BrokerChannel.node_id)
+        .filter(Node.project_id == project_id)
+        .all()
+    ):
+        known[ch.node_id].add((ch.group_name, ch.name))
+    # Имя канала, как его может написать связь → кому пакет его адресовал.
+    addressed: dict[str, list[Node]] = defaultdict(list)
+    for owner, c, _src in plan.channels:
+        known[owner.id].add((c.group_name, c.name))
+        addressed[c.name].append(owner)
+        if c.group_name:
+            addressed[f"{c.group_name}.{c.name}"].append(owner)
+
+    seen: set[tuple[str, uuid.UUID, uuid.UUID]] = set()
+    found: list[str] = []
+    for e in db.query(Edge).filter(Edge.project_id == project_id).all():
+        named = (e.channel or "").strip()
+        if not named or named not in addressed:
+            continue
+        # Концы-брокеры связи; fromkeys — на случай петли «узел сам на себя».
+        ends = [
+            nid
+            for nid in dict.fromkeys((e.source_id, e.target_id))
+            if shape_by_id.get(nid) == "broker"
+        ]
+        for owner in addressed[named]:
+            if owner.id in ends:
+                continue  # связь называет канал у ТОГО ЖЕ брокера — всё сходится
+            for b in ends:
+                if _names_channel(known[b], named):
+                    continue  # канал есть и у него — одноимённые каналы законны
+                key = (named, owner.id, b)
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append(
+                    f"канал «{named}» адресован брокеру "
+                    f"«{plan.path_of.get(owner.id, owner.name)}», но связь "
+                    f"«{name_by_id.get(e.source_id, '?')} → {name_by_id.get(e.target_id, '?')}» "
+                    f"называет его у брокера «{plan.path_of.get(b, name_by_id.get(b, '?'))}» — "
+                    "проверьте адресацию"
+                )
+    # Порядок связей из БД произволен — сортируем, иначе список замечаний скакал бы
+    # от прогона к прогону (и кап резал бы каждый раз другое).
+    found.sort()
+    plan.report.warnings.extend(found[:MAX_ADDRESS_WARNINGS])
+    if len(found) > MAX_ADDRESS_WARNINGS:
+        plan.report.warnings.append(
+            f"…ещё {len(found) - MAX_ADDRESS_WARNINGS} каналов адресованы вразрез со связями"
+        )
 
 
 def _warn_meta_conflicts(

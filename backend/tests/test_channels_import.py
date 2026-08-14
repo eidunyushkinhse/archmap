@@ -14,11 +14,12 @@ import uuid
 
 from conftest import ensure_architect, ensure_project
 
-from app.channels_import import parse_channels_file
+from app.channels_import import MAX_ADDRESS_WARNINGS, parse_channels_file
 from app.channels_prompt import build_channels_prompt
 from app.data_import import NODE_HEADER
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
+from app.models.edge import Edge
 from app.models.node import Node
 from app.routers.channels_import import (
     channels_import_apply,
@@ -308,6 +309,125 @@ def test_группа_канала_различает_одноимённые(db)
     assert {c.group_name for c in db.query(BrokerChannel).all()} == {"", "billing"}
 
 
+# ── Адресация при нескольких брокерах (Ф7, находка №1 qa-sentry-brokers.md) ───
+# Валидатор проверял ФОРМУ владельца («брокер ли»), но не «тот ли брокер», и слабая
+# модель сложила все 136 каналов Sentry на kafka — вместе с Celery-очередями,
+# которым место на sentry-redis. Ответ у схемы есть: связь называет свой канал (Ф3).
+
+
+def _сцена_двух_брокеров(db):
+    kafka = _node(db, "kafka")
+    redis = _node(db, "redis")
+    сервис = _node(db, "Заказы", shape="service")
+    return kafka, redis, сервис
+
+
+def _связь(db, src, tgt, channel):
+    e = Edge(
+        id=uuid.uuid4(),
+        project_id=ensure_project(db).id,
+        source_id=src.id,
+        target_id=tgt.id,
+        channel=channel,
+    )
+    db.add(e)
+    db.flush()
+    return e
+
+
+def _превью(db, текст, node_id=None):
+    return channels_import_preview(
+        ChannelsImportIn(
+            files=[{"name": "channels.yaml", "content": текст}], node_id=node_id
+        ),
+        db=db,
+        project=ensure_project(db),
+        _=ensure_architect(db),
+    )
+
+
+def _адресные(r):
+    """Замечания эвристики адресации — по хвосту «проверьте адресацию»."""
+    return [w for w in r.warnings if "проверьте адресацию" in w]
+
+
+def _пакет(*имена, адрес="kafka"):
+    строки = "".join(f"  - name: {n}\n" for n in имена)
+    return f"# archmap-node: {адрес}\nchannels:\n{строки}"
+
+
+def test_канал_не_у_того_брокера_предупреждает(db):
+    kafka, redis, сервис = _сцена_двух_брокеров(db)
+    # Celery-очередь ходит в redis (так говорит схема), а пакет кладёт её на kafka.
+    _связь(db, сервис, redis, "task-queue")
+
+    r = _превью(db, _пакет("task-queue"))
+
+    assert r.errors == []  # форма владельца верная — пакет применим
+    [w] = _адресные(r)
+    assert "канал «task-queue» адресован брокеру «kafka»" in w
+    assert "связь «Заказы → redis»" in w
+    assert "называет его у брокера «redis»" in w
+
+
+def test_канал_у_правильного_брокера_молчит(db):
+    kafka, _redis, сервис = _сцена_двух_брокеров(db)
+    _связь(db, сервис, kafka, "orders.created")
+
+    r = _превью(db, _пакет("orders.created"))
+
+    assert _адресные(r) == []
+
+
+def test_одноимённый_канал_у_обоих_брокеров_законен(db):
+    # Два движка возят канал с одним именем — это не промах адресации: у брокера
+    # связи он ОПИСАН, спорить не о чем.
+    kafka, redis, сервис = _сцена_двух_брокеров(db)
+    _связь(db, сервис, redis, "audit")
+    db.add(BrokerChannel(id=uuid.uuid4(), node_id=redis.id, name="audit", group_name=""))
+    db.flush()
+
+    r = _превью(db, _пакет("audit"))
+
+    assert _адресные(r) == []
+
+    # И то же самое, когда «канал у обоих» приезжает ОДНИМ пакетом двумя файлами:
+    # пакеты разных репозиториев доливаются друг к другу (§5 плана), и второй файл
+    # закрывает вопрос к первому — живого канала у redis для этого имени ещё нет.
+    _связь(db, сервис, redis, "payments")
+    двумя_файлами = channels_import_preview(
+        ChannelsImportIn(files=[
+            {"name": "a.yaml", "content": _пакет("payments", адрес="kafka")},
+            {"name": "b.yaml", "content": _пакет("payments", адрес="redis")},
+        ]),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+    assert _адресные(двумя_файлами) == []
+
+
+def test_единственный_брокер_не_поводит_к_подозрениям(db):
+    # Брокер один — адресовать больше некуда, и «расхождение» невозможно
+    # по построению. Проверяем, что эвристика на такой проект не шумит.
+    шина, сервис = _сцена(db)
+    _связь(db, сервис, шина, "orders.created")
+
+    r = _превью(db, _пакет("orders.created", адрес="Шина"))
+
+    assert _адресные(r) == []
+
+
+def test_кап_замечаний_адресации_и_хвост(db):
+    kafka, redis, сервис = _сцена_двух_брокеров(db)
+    имена = [f"очередь-{i}" for i in range(MAX_ADDRESS_WARNINGS + 2)]
+    for имя in имена:
+        _связь(db, сервис, redis, имя)
+
+    r = _превью(db, _пакет(*имена))
+
+    assert len(_адресные(r)) == MAX_ADDRESS_WARNINGS
+    assert "…ещё 2 каналов адресованы вразрез со связями" in r.warnings
+
+
 # ── Промпт ────────────────────────────────────────────────────────────────────
 
 
@@ -354,6 +474,25 @@ def test_несколько_брокеров_перечислены():
     assert "ДОСЛОВНО из этого перечня" in p
     # Один файл — один брокер: иначе каналы двух движков слипнутся в одном адресе.
     assert "Один прогон описывает каналы ОДНОГО брокера" in p
+
+
+def test_при_двух_брокерах_промпт_учит_класть_канал_ЕГО_владельцу():
+    """Находка №1 полевого QA: перечня брокеров мало — слабая модель адресовала ВСЕ
+    136 каналов первому узлу перечня, включая Celery-очереди чужого брокера. Правило
+    выбора («чей клиент им пользуется по коду») обязано быть в промпте отдельно."""
+    p = build_channels_prompt(["Ярмарка / kafka", "Ярмарка / redis"])
+    assert "## В проекте НЕСКОЛЬКО брокеров" in p
+    assert "У КАЖДОГО брокера свой файл со своим адресом" in p
+    # Именно по коду, а не по правдоподобию: два самых частых движка названы прямо.
+    assert "Celery" in p and "Kafka-топики — узлу Kafka" in p
+    assert "НЕ адресуй все каналы одному брокеру потому, что он первый в перечне" in p
+
+
+def test_при_одном_брокере_раздел_про_несколько_не_шумит():
+    # Выбирать не из чего: лишний абзац разбавляет правила, которые работают.
+    p = build_channels_prompt(["Ярмарка / events"])
+    assert "В проекте НЕСКОЛЬКО брокеров" not in p
+    assert "НЕ адресуй все каналы одному брокеру" not in p
 
 
 def test_без_брокеров_промпт_велит_сначала_создать_узел():
