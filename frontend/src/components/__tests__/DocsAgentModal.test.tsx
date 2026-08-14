@@ -146,23 +146,30 @@ describe("DocsAgentModal · дифф пометок между попыткам�
     expect(screen.queryByText(/Пометок каналов было/)).not.toBeInTheDocument();
   });
 
-  it("замечания уносят агенту запрет удалять пометки", async () => {
+  it("замечания уносят агенту одну цель починки и запрет удалять пометки", async () => {
     // Текст кнопки — вторая половина лечения: без запрета «исправь пакет» читается
     // слабой моделью как разрешение вырезать то, на что жалуется валидатор.
+    // И цель должна быть ОДНА: «имя ИЛИ квалификатор» слабая модель отрабатывает
+    // дешёвой механикой — добавляет квалификатор, следующим кругом снимает, а имя
+    // так и не сверяет (находка №1 docs/qa-zulip-brokers.md).
     const writeText = vi.fn((_text: string) => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     open();
     await вставить("graph TD");
     await попытка(
-      report({ warnings: ["a.mmd: пометка «accounts» — таблица не найдена"] }),
+      report({ warnings: ["a.mmd: пометка «accounts» — таблица не найдена — похоже на «accounts_v2»"] }),
       " A",
     );
 
     await userEvent.click(screen.getByText("Скопировать замечания для агента"));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const текст = writeText.mock.calls[0][0];
+    expect(текст).toContain("чини ДОСЛОВНЫМ именем");
+    expect(текст).toContain("бери его из подсказки «похоже на …» в замечании");
+    // Квалификатор не запрещён — у него теперь названо условие применения.
+    expect(текст).toContain("ТОЛЬКО когда одинаковое имя есть у разных узлов");
     expect(текст).toContain("НЕ удаляй пометки");
     expect(текст).toContain("удаление прячет факт, а не исправляет его");
-    expect(текст).toContain("a.mmd: пометка «accounts» — таблица не найдена");
+    expect(текст).toContain("a.mmd: пометка «accounts» — таблица не найдена — похоже на «accounts_v2»");
   });
 });
