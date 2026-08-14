@@ -171,6 +171,10 @@ def _report(plan: DocsPlan) -> DocsImportReport:
         errors=plan.errors,
         warnings=plan.warnings,
         conflicts=plan.conflicts,
+        # Числа пометок пакета — и в превью, и в применении: окно сравнивает их
+        # между попытками агента (ампутация пометок должна быть видна).
+        data_refs_total=plan.data_refs_total,
+        channel_refs_total=plan.channel_refs_total,
     )
 
 

@@ -14,7 +14,7 @@
 // примечание к версионированию в tasks.md) — страховка: превью + дефолт
 // «не перезаписывать». Закрытие после успешного применения — отсюда (onClose);
 // родитель через onApplied только освежает мету узла.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { DocsImportReport, NodeDocKind } from "../../types";
 import { docsImportApi, type DocsOverride, type DocsPromptParams } from "../../api/docsImport";
@@ -43,6 +43,24 @@ interface Props {
   // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
 }
+
+// Память попыток агента: сколько пометок каждой семьи несло ПРЕДЫДУЩЕЕ зелёное
+// превью. Текстовый запрет «не удаляй пометки» в замечаниях нужен, но тексты
+// дисперсны — число не врёт: упало между попытками, значит агент, скорее всего,
+// вырезал пометки вместо починки (находка №2 docs/qa-sentry-brokers.md).
+// from — отчёт, которому соответствует cur (сравнение по ссылке: каждый ответ
+// превью — новый объект). prev = null — попытка первая, сравнивать не с чем.
+interface RefCounts {
+  data: number;
+  channel: number;
+}
+interface Attempts {
+  from: DocsImportReport | null;
+  prev: RefCounts | null;
+  cur: RefCounts;
+}
+const NO_REFS: RefCounts = { data: 0, channel: 0 };
+const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: NO_REFS };
 
 const KIND_LABEL: Record<NodeDocKind, string> = {
   overview: "Обзор",
@@ -82,6 +100,34 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
 
   const report = pkg.hasContent ? rawReport : null;
   const mmdErrs = report !== null && mmdRes?.forReport === report ? mmdRes.errs : null;
+
+  // Дифф числа пометок между попытками. Переставляем ПРИ РЕНДЕРЕ по смене ссылки
+  // отчёта (React-паттерн «adjusting state when props change», как в ImportPane), а
+  // не зеркалящим эффектом: setState в useEffect запрещён линтом и дал бы лишний
+  // кадр со старыми числами. Считаем только ЗЕЛЁНЫЕ превью: у отчёта с ошибками
+  // плана нет вовсе, и его нули не попытка агента, а отсутствие разбора.
+  const [seen, setSeen] = useState<Attempts>(NO_ATTEMPTS);
+  const counted = report !== null && !report.applied && report.errors.length === 0;
+  if (counted && seen.from !== report) {
+    setSeen({
+      from: report,
+      prev: seen.cur,
+      cur: { data: report.data_refs_total, channel: report.channel_refs_total },
+    });
+  }
+  // Что уменьшилось между попытками. Рост и равенство — норма, о них молчим.
+  const shrank = useMemo(() => {
+    const was = seen.prev;
+    if (was === null) return [];
+    const out: string[] = [];
+    if (was.data > seen.cur.data) {
+      out.push(`Пометок данных было ${was.data} → стало ${seen.cur.data}.`);
+    }
+    if (was.channel > seen.cur.channel) {
+      out.push(`Пометок каналов было ${was.channel} → стало ${seen.cur.channel}.`);
+    }
+    return out;
+  }, [seen]);
 
   // Дебаунс-превью по файлам и тумблеру; план фильтруется по схемам логики
   // (only="logic"). Все setState — в таймере/ответе (асинхронно); seq отбрасывает
@@ -159,10 +205,17 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
           .map(({ l, err }) => `схема "${l.name}" узла «${l.node_path}»: ошибка mermaid — ${err.split("\n")[0]}`);
   const remarks = report === null ? [] : [...report.errors, ...report.conflicts, ...report.warnings, ...mmdRemarks];
 
+  // Вступление к замечаниям несёт ЗАПРЕТ УДАЛЯТЬ пометки, и это не косметика:
+  // полевой QA (docs/qa-sentry-brokers.md, находка №2) показал ампутацию Х3 в новой
+  // одежде — по списку из семи битых пометок слабая модель «починила» их удалением
+  // ВСЕХ восьмидесяти трёх, и обратный индекс базы опустел при «идеальном» превью.
   function copyRemarks() {
     const text =
       "Валидатор дозаливки доков ArchMap нашёл замечания к пакету archmap-docs. " +
-      "Исправь пакет и сообщи, какие файлы изменились:\n" +
+      "Исправь пакет и сообщи, какие файлы изменились. Битые пометки " +
+      "(читает:/пишет:/публикует:/потребляет:) чини именем из структуры или " +
+      "квалификатором «Узел / имя» — НЕ удаляй пометки: удаление прячет факт, " +
+      "а не исправляет его:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void navigator.clipboard.writeText(text).then(() => {
       setRemarksCopied(true);
@@ -178,6 +231,20 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     setRawReport(null);
     setMmdRes(null);
     setOverrides([]);
+    setSeen(NO_ATTEMPTS); // следующий воркер — новый пакет, сравнивать не с чем
+  }
+
+  // Убрали последний файл — пакета больше нет: история попыток начинается заново
+  // (зеркало ImportPane), и вместе с ней уходит отчёт. Без этого отчёт прошлого
+  // пакета вернулся бы при первой же вставке (он лишь СКРЫТ производно) и стал бы
+  // «первой попыткой» нового — с ложной ампутацией на следующем превью.
+  function removeFile(i: number) {
+    if (pkg.files.length === 1) {
+      setSeen(NO_ATTEMPTS);
+      setRawReport(null);
+      setMmdRes(null);
+    }
+    pkg.removeFile(i);
   }
 
   function apply(closeAfter: boolean) {
@@ -278,7 +345,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
                 <button type="button" style={chipBtn} title={f.name} onClick={() => pkg.setActive(i)}>
                   {f.name}
                 </button>
-                <button type="button" style={chipX} title="Убрать файл" onClick={() => pkg.removeFile(i)}>×</button>
+                <button type="button" style={chipX} title="Убрать файл" onClick={() => removeFile(i)}>×</button>
               </span>
             ))}
             <input
@@ -330,6 +397,13 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
           {/* Отчёт превью / применения */}
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
+            {/* Ампутация пометок не должна быть молчаливой: пропавшие между
+                попытками — НАД сводкой, до зелёного «Схем: N». */}
+            {!checking && shrank.map((line) => (
+              <div key={line} style={shrankLine}>
+                {line} Проверьте: агент мог удалить их вместо починки
+              </div>
+            ))}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
                 Применено: схем создано {report.created_docs}, перезаписано {report.updated_docs}.
@@ -468,6 +542,10 @@ const segBtnOn: CSSProperties = {
   boxShadow: "0 1px 3px rgba(15,23,42,.14)",
 };
 const segNote: CSSProperties = { fontSize: 12, color: "#94a3b8", lineHeight: 1.4 };
+// Тот же amber, что у «Исчезли:» в панели импорта и у заголовков отчёта.
+const shrankLine: CSSProperties = {
+  fontSize: 12.5, fontWeight: 600, color: "#b45309", marginBottom: 6,
+};
 const targetInput: CSSProperties = {
   width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px",
   border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a",

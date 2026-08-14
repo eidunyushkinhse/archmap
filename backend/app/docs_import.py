@@ -179,6 +179,11 @@ class DocsPlan:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
+    # Сколько пометок каждой семьи РАСПОЗНАНО в схемах пакета (до резолва: числу
+    # всё равно, битая ссылка или здоровая). Нужны окну, чтобы сравнить попытки
+    # агента и поймать ампутацию — находка №2 docs/qa-sentry-brokers.md.
+    data_refs_total: int = 0
+    channel_refs_total: int = 0
 
 
 def _node_paths(nodes: list[Node]) -> tuple[list[Node], list[str], dict[str, list[int]], dict[str, list[int]]]:
@@ -280,6 +285,10 @@ class _DataRefCheck:
     каждую пометку: доки грузят раньше структуры, и это нормальный порядок. Тогда —
     одна заметка на весь план, и заметки ДВЕ НЕЗАВИСИМЫЕ: описанные таблицы ничего
     не говорят о каналах, и наоборот.
+
+    СЧЁТ пометок ведётся ВСЕГДА — и без каталога, и без db: он производен от разбора,
+    а не от резолва. Числа уезжают в отчёт, и окно сравнивает попытки агента (упало
+    число — пометки, скорее всего, удалены, а не починены).
     """
 
     def __init__(self, db: Session | None, project_id: uuid.UUID | None) -> None:
@@ -292,6 +301,8 @@ class _DataRefCheck:
         self.over = 0  # сколько ссылок не поместилось в кап
         self.saw_table_refs = False
         self.saw_channel_refs = False
+        self.data_total = 0  # пометок «читает:/пишет:» в пакете
+        self.channel_total = 0  # пометок «публикует:/потребляет:» в пакете
         if db is not None and project_id is not None:
             # Импорт локальный: app.data_refs берёт из этого модуля _node_paths, и
             # верхнеуровневый импорт замкнул бы цикл. Каталог собирается ОДИН раз
@@ -306,7 +317,7 @@ class _DataRefCheck:
     def check(self, fname: str, content: str) -> None:
         """Пометки одного файла пакета. Дедуп по (файл, ссылка, статус): одна и та
         же ссылка в режимах «читает» и «пишет» — один промах, а не два."""
-        if not self.enabled or not content:
+        if not content:
             return
         # Локальный импорт — цикл, см. __init__.
         from app.data_refs import CHANNEL_MODES, parse_data_refs, resolve_data_refs
@@ -317,8 +328,13 @@ class _DataRefCheck:
         for parsed in refs:
             if parsed.mode in CHANNEL_MODES:
                 self.saw_channel_refs = True
+                self.channel_total += 1
             else:
                 self.saw_table_refs = True
+                self.data_total += 1
+        # Считать — считаем всегда, а резолвить нечем: без db каталогов нет.
+        if not self.enabled:
+            return
         # Резолвим только те пометки, чей каталог непуст: «структуры ещё нет» — это
         # не промах агента, и гонять по нему нечего (заметку добавит flush).
         usable = [
@@ -346,6 +362,10 @@ class _DataRefCheck:
             self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}")
 
     def flush(self, plan: DocsPlan) -> None:
+        # Счётчики — часть отчёта, а не резолва: без каталога они тоже осмысленны
+        # (окно сравнивает попытки агента, а не проверяет структуру).
+        plan.data_refs_total = self.data_total
+        plan.channel_refs_total = self.channel_total
         if not self.enabled:
             return
         plan.warnings.extend(self.warnings)

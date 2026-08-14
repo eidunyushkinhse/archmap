@@ -794,6 +794,66 @@ def test_заметки_о_неописанной_структуре_незав�
     assert not any("каналы брокеров" in w for w in тихо.warnings)
 
 
+def test_счётчики_пометок_считают_обе_семьи_отдельно(db):
+    """Число пометок в отчёте — машинный гвард против ампутации (находка №2
+    docs/qa-sentry-brokers.md): по списку из семи битых пометок агент удалил все
+    восемьдесят три, и превью стало «идеальным». Окно сравнивает эти числа между
+    попытками, поэтому считаются они ДО резолва — числу всё равно, битая пометка
+    или здоровая."""
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+
+    report = docs_import_preview(
+        _mmd_payload(
+            db,
+            ("a.mmd", _refs_mmd("читает: orders.status, accounts<br>публикует: созданные")),
+            node=orders,
+        ),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    # Два обращения к данным (одно из них битое — «accounts» нет) и одно к каналам.
+    assert (report.data_refs_total, report.channel_refs_total) == (2, 1)
+
+
+def test_счётчики_пометок_не_зависят_от_резолва(db):
+    # Каталогов в проекте нет вовсе (структура ещё не описана) — резолв выключен, а
+    # считать пометки надо всё равно: иначе гвард молчал бы ровно в том прогоне, где
+    # доки грузят раньше структуры.
+    _root, orders, *_ = _tree(db)
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("пишет: orders<br>потребляет: событие"))],
+                 window=orders)
+
+    assert (plan.data_refs_total, plan.channel_refs_total) == (1, 1)
+
+
+def test_пакет_без_пометок_даёт_нули(db):
+    # Ноль — законное значение, а не «не считали»: он и есть база сравнения попыток.
+    _root, orders, *_ = _tree(db)
+
+    plan = _plan(db, [("a.mmd", _mmd("Без пометок"))], window=orders)
+
+    assert (plan.data_refs_total, plan.channel_refs_total) == (0, 0)
+
+
+def test_счётчики_доезжают_и_до_применения(db):
+    # Отчёт применения — тот же объект: если бы счётчики жили только в превью, окно
+    # сравнивало бы попытки с дырой ровно на применённой.
+    _root, orders, *_ = _tree(db)
+
+    report = docs_import_apply(
+        _mmd_payload(
+            db, ("a.mmd", _refs_mmd("пишет: orders<br>публикует: созданные")), node=orders
+        ),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert report.applied
+    assert (report.data_refs_total, report.channel_refs_total) == (1, 1)
+
+
 def test_общий_кап_на_обе_семьи_пометок(db):
     # Замечания уезжают агенту одним списком: кап общий, иначе один класс вытеснит
     # другой ровно так же, как раньше вытеснял всё остальное.

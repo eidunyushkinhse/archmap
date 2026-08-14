@@ -2476,6 +2476,16 @@ export interface components {
              * @default 0
              */
             specs_written: number;
+            /**
+             * Data Refs Total
+             * @default 0
+             */
+            data_refs_total: number;
+            /**
+             * Channel Refs Total
+             * @default 0
+             */
+            channel_refs_total: number;
         };
         /** DocsLogicItem */
         DocsLogicItem: {
