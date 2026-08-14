@@ -26,7 +26,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
-from app.docs_import import _node_paths
+from app.docs_import import _closest_name, _node_paths
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
@@ -49,6 +49,50 @@ META_KEYS = ("kind", "partition_key", "delivery", "retention")
 # Кап предупреждений о сомнительной адресации на весь план: замечания уезжают агенту
 # ОДНИМ списком, и один класс не должен вытеснить остальные (приём пометок данных).
 MAX_ADDRESS_WARNINGS = 8
+# Свой кап у непокрытых каналов связей — чтобы один класс не съедал квоту другого.
+MAX_COVERAGE_WARNINGS = 8
+
+
+def split_channel_names(raw: str | None) -> list[str]:
+    """Имена каналов из поля связи (Edge.channel), в порядке написания, без дублей.
+
+    Перечень («email, notify_orders») расщепляем по запятой и «;»: превью импорта
+    такую связь ругает (Ф8г), но в живом проекте она уже может быть, и работать надо
+    с ИМЕНАМИ, а не со строкой целиком.
+    """
+    if not raw:
+        return []
+    out: list[str] = []
+    for part in raw.replace(";", ",").split(","):
+        name = part.strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def edge_channel_minimum(
+    edges: list[Edge], broker_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, Edge]]:
+    """«Брокер → {имя канала: связь, которая его называет}» — МИНИМУМ пакета.
+
+    Один и тот же перечень уходит в промпт каналов (Ф8д) и сверяется превью (Ф8е):
+    обещание, которое даёт промпт, и проверка, которая его контролирует, обязаны
+    считать одно и то же — иначе агент выполнит одно, а спросят с него другое.
+
+    У моста «брокер → брокер» имя достаётся обоим концам: чей это канал, схема не
+    говорит, а угадывать за пользователя тут нечего.
+    """
+    out: dict[uuid.UUID, dict[str, Edge]] = {}
+    for e in edges:
+        names = split_channel_names(e.channel)
+        if not names:
+            continue
+        for end in dict.fromkeys((e.source_id, e.target_id)):
+            if end in broker_ids:
+                bucket = out.setdefault(end, {})
+                for n in names:
+                    bucket.setdefault(n, e)  # для текста замечания хватит первой связи
+    return out
 
 
 @dataclass
@@ -277,6 +321,7 @@ def build_channels_plan(
             plan.channels.append((owner, c, fname))
 
     _warn_wrong_broker(db, plan, flat)
+    _warn_uncovered_edge_channels(db, plan, flat)
     return plan
 
 
@@ -368,6 +413,82 @@ def _warn_wrong_broker(db: Session, plan: ChannelsPlan, flat: list[Node]) -> Non
     if len(found) > MAX_ADDRESS_WARNINGS:
         plan.report.warnings.append(
             f"…ещё {len(found) - MAX_ADDRESS_WARNINGS} каналов адресованы вразрез со связями"
+        )
+
+
+def _warn_uncovered_edge_channels(db: Session, plan: ChannelsPlan, flat: list[Node]) -> None:
+    """Канал, который называет СВЯЗЬ, пакетом не описан и живым не значится.
+
+    Полевая проверка Ф8: импортный прогон ВЫДУМАЛ имя канала на связи (в коде такого
+    слова нет нигде, есть похожее), а канальный пакет пришёл идеальным — полсотни
+    каналов, ноль замечаний. Обе стороны шва выглядели здоровыми поодиночке, и
+    расхождение молчало до кривого AL31 у связи. Промпт этот минимум прямо просит
+    (Ф8д), но правило без машинной проверки исполняется через раз — сверяем ТЕМ ЖЕ
+    перечнем, которым просили (edge_channel_minimum).
+
+    Кто из двух источников ошибся, машина не знает: либо канал в коде зовётся иначе
+    (чинится пакет), либо имя на связи неточно (чинится схема). Поэтому замечание
+    называет ОБЕ ветки и подсказывает ближайшее описанное имя.
+
+    Сверяем только брокеров, которых пакет АДРЕСУЕТ: пакет одного репозитория не
+    может описать каналы чужого брокера, и требовать это значило бы шуметь на
+    прогоне, который отработал честно.
+    """
+    if not plan.channels:
+        return
+    project_id = flat[0].project_id
+    name_by_id = {n.id: n.name for n in flat}
+    broker_ids = {n.id for n in flat if n.shape == "broker"}
+
+    # Что брокер знает: описанное в проекте раньше + приехавшее ЭТИМ пакетом.
+    known: dict[uuid.UUID, set[tuple[str, str]]] = defaultdict(set)
+    for ch in (
+        db.query(BrokerChannel)
+        .join(Node, Node.id == BrokerChannel.node_id)
+        .filter(Node.project_id == project_id)
+        .all()
+    ):
+        known[ch.node_id].add((ch.group_name, ch.name))
+    targets: set[uuid.UUID] = set()
+    for owner, c, _src in plan.channels:
+        known[owner.id].add((c.group_name, c.name))
+        targets.add(owner.id)
+
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+    minimum = edge_channel_minimum(edges, broker_ids)
+    found: list[str] = []
+    for broker_id in targets:
+        for named, e in minimum.get(broker_id, {}).items():
+            if _names_channel(known[broker_id], named):
+                continue  # шов цел: канал есть у этого брокера живым или в пакете
+            if any(
+                _names_channel(known[other], named) for other in targets if other != broker_id
+            ):
+                # Пакет положил этот канал СОСЕДНЕМУ брокеру — про такое расхождение
+                # уже говорит эвристика адресации (Ф7б), второй строкой не дублируем.
+                continue
+            # Подсказка — ТА ЖЕ эвристика, что чинит пометки в превью доков (Ф8б,
+            # _closest_name: суффикс впереди difflib, порог 0.5): своя копия
+            # разъехалась бы с ней на первой правке порога. Кандидаты — имена, которые
+            # брокер знает, в обеих формах послабления: голое и «группа.канал».
+            candidates = [n for _g, n in known[broker_id]]
+            candidates += [f"{g}.{n}" for g, n in known[broker_id] if g]
+            hint = _closest_name(named, candidates)
+            похоже = f" (похоже на «{hint}»)" if hint else ""
+            found.append(
+                f"связь «{name_by_id.get(e.source_id, '?')} → "
+                f"{name_by_id.get(e.target_id, '?')}» называет канал «{named}», но его "
+                f"нет ни в пакете, ни в описании брокера — либо в коде он зовётся "
+                f"иначе{похоже}, либо имя на связи неточно: проверьте связь"
+            )
+    # Порядок связей и брокеров из БД произволен — сортируем, иначе список замечаний
+    # скакал бы от прогона к прогону (и кап резал бы каждый раз другое).
+    found.sort()
+    plan.report.warnings.extend(found[:MAX_COVERAGE_WARNINGS])
+    if len(found) > MAX_COVERAGE_WARNINGS:
+        plan.report.warnings.append(
+            f"…ещё {len(found) - MAX_COVERAGE_WARNINGS} каналов, названных связями, "
+            "не описаны"
         )
 
 

@@ -12,7 +12,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth import require_architect
-from app.channels_import import ChannelsPlan, apply_channels_plan, build_channels_plan
+from app.channels_import import (
+    ChannelsPlan,
+    apply_channels_plan,
+    build_channels_plan,
+    edge_channel_minimum,
+)
 from app.channels_prompt import build_channels_prompt
 from app.database import get_db
 from app.deps import get_current_project, touch_project
@@ -53,27 +58,15 @@ def channels_prompt(
 def _edge_channels(
     flat: list[Node], fulls: list[str], edges: list[Edge]
 ) -> dict[str, list[str]]:
-    """«Путь брокера → каналы, названные связями схемы».
+    """«Путь брокера → каналы, названные связями схемы» — минимум пакета для промпта.
 
-    Перечень в channel («email, notify_orders») расщепляем: превью импорта такую
-    связь ругает (Ф8г), но в живых проектах она уже есть, и промпту нужны ИМЕНА, а
-    не строка целиком. Оба конца-брокера учитываются: у моста между брокерами канал
-    ищут в обоих, и угадывать за пользователя тут нечего.
+    Сборка общая с превью (edge_channel_minimum): ТОТ ЖЕ перечень, который промпт
+    просит описать, превью потом и сверяет (Ф8е). Разъехаться им нельзя — иначе с
+    агента спросят не то, о чём просили.
     """
     broker_paths = {n.id: fulls[i] for i, n in enumerate(flat) if n.shape == "broker"}
-    out: dict[str, list[str]] = {}
-    for e in edges:
-        if not e.channel or not e.channel.strip():
-            continue
-        for end in dict.fromkeys((e.source_id, e.target_id)):
-            path = broker_paths.get(end)
-            if path is None:
-                continue
-            for raw in e.channel.replace(";", ",").split(","):
-                name = raw.strip()
-                if name and name not in out.setdefault(path, []):
-                    out[path].append(name)
-    return out
+    minimum = edge_channel_minimum(edges, set(broker_paths))
+    return {broker_paths[node_id]: list(names) for node_id, names in minimum.items()}
 
 
 def _plan(
