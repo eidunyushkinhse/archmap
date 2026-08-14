@@ -15,8 +15,9 @@ openapi/paths, серверное зеркало docValidate) — warnings, не
 
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher, get_close_matches
 from typing import TYPE_CHECKING
 
 import yaml
@@ -29,7 +30,7 @@ from app.models.node_doc import NodeDoc
 if TYPE_CHECKING:
     # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
     # верхнеуровневый импорт замкнул бы цикл (в рантайме — локальные импорты).
-    from app.data_refs import CatalogChannel, CatalogTable
+    from app.data_refs import CatalogChannel, CatalogTable, ResolvedRef
 
 # Схем на объект. Поднято с 50 при переезде на .mmd: там схема — отдельный файл,
 # и потолок пакета стал ближе (docs/plan-docs-mmd.md, таблица лимитов).
@@ -270,6 +271,44 @@ _DATA_REF_PROBLEM: dict[str, str] = {
 # «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму.
 _AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите «Брокер / канал»"
 
+# Порог похожести для подсказки «похоже на …». НИЖЕ НЕ ОПУСКАТЬ: ложная подсказка
+# хуже её отсутствия — слабая модель копирует предложенное имя не глядя, и вместо
+# битой пометки получается пометка, битая по-другому.
+_HINT_CUTOFF = 0.5
+# Суффиксным матчем короткие хвосты не проверяем: «id» есть в конце половины имён.
+_HINT_MIN_TAIL = 3
+
+
+def _closest_name(tail: str, names: Iterable[str]) -> str | None:
+    """Ближайшее описанное имя к хвосту битой ссылки — или None.
+
+    Сначала СУФФИКС: «messages» → «zerver_message». Разрыв «имя ORM-класса против
+    имени таблицы» почти всегда состоит из префикса приложения и числа (находка №1
+    docs/qa-zulip-brokers.md), и difflib на нём как раз слабоват — «messages» против
+    «zerver_message» не дотягивает до порога. difflib идёт добором, для опечаток.
+
+    Подсказка ОДНА и только уверенная: не нашли — замечание остаётся как было.
+    """
+    by_low: dict[str, str] = {}
+    for name in names:
+        if name != tail:  # точное совпадение чинить нечем — там дело не в имени
+            by_low.setdefault(name.lower(), name)
+    if not by_low:
+        return None
+    low = tail.lower()
+    # Единственное и множественное: агент пишет имя таблицы во множественном
+    # («messages»), а в DDL она в единственном («zerver_message»), и наоборот.
+    variants = [v for v in (low, low[:-1] if low.endswith("s") else "") if len(v) >= _HINT_MIN_TAIL]
+    hits = [
+        orig
+        for cand, orig in by_low.items()
+        if any(cand.endswith(f"_{v}") or cand.endswith(v) for v in variants)
+    ]
+    if hits:
+        return min(hits, key=lambda n: (-SequenceMatcher(None, low, n.lower()).ratio(), n))
+    close = get_close_matches(low, list(by_low), n=1, cutoff=_HINT_CUTOFF)
+    return by_low[close[0]] if close else None
+
 
 class _DataRefCheck:
     """Резолв пометок «читает:/пишет:» и «публикует:/потребляет:» в текстах пакета —
@@ -313,6 +352,49 @@ class _DataRefCheck:
             self.tables, self.channels, self.node_paths = catalog_for_project(
                 db, project_id
             )
+
+    def _hint(self, r: "ResolvedRef") -> str | None:
+        """Подсказка «похоже на …» к битой ссылке: имя из каталога, если оно есть.
+
+        Замечание без ответа даёт слабой модели колебательный контур (находка №1
+        docs/qa-zulip-brokers.md): из двух путей починки — «сверь имя» и «добавь
+        квалификатор» — она оба круга выбирала дешёвый механический, а имя так и не
+        сверила. Подсказка закрывает петлю в один заход, как подсказка про кавычки
+        закрыла класс битого YAML: каталог имён у превью уже есть, и молчать о нём
+        значит требовать от агента работы, которую машина делает точнее.
+        """
+        names: list[str] = []
+        tails: list[str] = []
+        bare = r.ref.rpartition(" / ")[2]  # квалификатор узла в сравнении не участвует
+        parts = bare.split(".")
+        if r.status == "unknown_table":
+            for t in self.tables:
+                names.append(t.name)
+                if t.schema_name:
+                    names.append(f"{t.schema_name}.{t.name}")
+            # «таблица.колонка» и «раздел.таблица» в ссылке неотличимы — пробуем оба
+            # чтения (первое сработавшее и даёт подсказку) и ссылку целиком.
+            tails = [*parts[:2], bare]
+        elif r.status == "unknown_channel":
+            for c in self.channels:
+                names.append(c.name)
+                if c.group_name:
+                    names.append(f"{c.group_name}.{c.name}")
+            # У каналов точка чаще ЧАСТЬ имени («orders.created»): первым — хвост
+            # целиком, затем он же без последнего сегмента (тот был бы полем).
+            tails = [bare, bare.rpartition(".")[0], parts[0]]
+        elif r.status == "unknown_column":
+            # Таблица нашлась (её id в ResolvedRef) — кандидаты только её колонки.
+            names = [c for t in self.tables if t.id == r.table_id for c in t.columns]
+            tails = [parts[-1]]
+        elif r.status == "unknown_field":
+            names = [f for c in self.channels if c.id == r.channel_id for f in c.fields]
+            tails = [parts[-1]]
+        for tail in dict.fromkeys(t for t in tails if t):
+            hit = _closest_name(tail, names)
+            if hit is not None:
+                return hit
+        return None
 
     def check(self, fname: str, content: str) -> None:
         """Пометки одного файла пакета. Дедуп по (файл, ссылка, статус): одна и та
@@ -359,7 +441,11 @@ class _DataRefCheck:
                 if r.status == "ambiguous" and r.mode in CHANNEL_MODES
                 else _DATA_REF_PROBLEM[r.status]
             )
-            self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}")
+            # «ambiguous» подсказки не получает: имя там как раз НАШЛОСЬ, и лечится
+            # оно квалификатором — предлагать «похожее» значило бы звать не туда.
+            hint = self._hint(r)
+            tail = f" — похоже на «{hint}»" if hint else ""
+            self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}{tail}")
 
     def flush(self, plan: DocsPlan) -> None:
         # Счётчики — часть отчёта, а не резолва: без каталога они тоже осмысленны
