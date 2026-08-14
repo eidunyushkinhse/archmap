@@ -10,8 +10,9 @@ import {
   componentsSectionHeight,
   projectSchemaHeight,
   responsiveCanvasHeight,
+  withOwnEdits,
 } from "../pageSchema";
-import type { GraphResponse } from "../../types";
+import type { GraphResponse, Node } from "../../types";
 
 // Минимальные фикстуры — только поля, которые функции реально читают.
 const node = (id: string, name = id) => ({ id, name });
@@ -122,5 +123,48 @@ describe("формулы высот блоков", () => {
     expect(responsiveCanvasHeight(100)).toBe(320);
     expect(responsiveCanvasHeight(1000)).toBe(520);
     expect(responsiveCanvasHeight(2000)).toBe(680);
+  });
+});
+
+// Свои правки меты в данных схемы страницы (context.md X20). Схема держит свой
+// снимок контекст-графа, поэтому свежий узел страницы вливается в него точечно —
+// иначе смена типа/имени/статуса видна только после перезагрузки.
+describe("withOwnEdits", () => {
+  // Узел схемы и узел страницы — одна строка БД в разных снимках: свежесть решает
+  // version (CAS-счётчик), счётчики детей на странице считаются по релевантным.
+  const full = (over: Partial<Node>): Node => ({
+    id: "n1", name: "Сервис оплаты", description: null, role: null, technology: null,
+    parent_id: null, shape: "service", is_external: false, status: "existing",
+    openapi_spec: null, docs: [], version: 1, child_count: 0, has_children: false,
+    created_at: "", updated_at: "",
+    ...over,
+  } as Node);
+
+  it("своя свежая правка вливается в узел схемы", () => {
+    const g = graph({ nodes: [full({ shape: "service", version: 1 })] });
+    const out = withOwnEdits(g, full({ shape: "database", status: "planned", version: 2 }));
+    expect(out.nodes[0]).toMatchObject({ id: "n1", shape: "database", status: "planned" });
+  });
+
+  it("чужая правка, приехавшая рефетчем, устаревшим узлом страницы не затирается", () => {
+    // Чужая сессия сменила тип → graph_rev → рефетч контекста принёс version 5.
+    // Локальный узел страницы (version 1) о ней ещё не знает и молчать обязан.
+    const g = graph({ nodes: [full({ shape: "broker", version: 5 })] });
+    const out = withOwnEdits(g, full({ shape: "service", version: 1 }));
+    expect(out.nodes[0]).toMatchObject({ shape: "broker", version: 5 });
+  });
+
+  it("счётчики детей остаются схемными (релевантные, X16 v2)", () => {
+    const g = graph({ nodes: [full({ version: 1, child_count: 1, has_children: true })] });
+    const out = withOwnEdits(g, full({ name: "Новое имя", version: 2, child_count: 7, has_children: true }));
+    expect(out.nodes[0]).toMatchObject({ name: "Новое имя", child_count: 1, has_children: true });
+  });
+
+  it("соседей не трогает и исходный граф не мутирует", () => {
+    const сосед = full({ id: "x", name: "Шлюз" });
+    const g = graph({ nodes: [full({ version: 1 }), сосед] });
+    const out = withOwnEdits(g, full({ name: "Новое имя", version: 2 }));
+    expect(out.nodes[1]).toBe(сосед);
+    expect(g.nodes[0]).toMatchObject({ name: "Сервис оплаты" });
   });
 });

@@ -26,7 +26,7 @@ import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { readSchemaView, SCHEMA_VIEW_KEY, showStatusControls, type SchemaView } from "../components/schemaView";
 import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/types";
-import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess } from "../components/pageSchema";
+import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";
 
@@ -1321,20 +1321,31 @@ function SchemaSection({
       .finally(() => { relayoutInflight.current = false; });
   }, [node.id, refetch]);
 
+  // ДАННЫЕ СХЕМЫ = ответ сервера + СВОИ правки меты, влитые точечно (withOwnEdits,
+  // context.md X20): страница уже держит свежий узел (patch.node — ответ PATCH), и
+  // схема показывает новые форму/имя/статус/размещение СРАЗУ, без перезагрузки и без
+  // ремаунта холста. Производное — в рендере (useMemo), не эффектом: зеркалирование
+  // пропа в стейт разъезжается. Идентичность меняется ровно тогда, когда меняется
+  // граф или сам узел (тот же профиль, что у edges ниже).
+  const view = useMemo<GraphResponse | null>(
+    () => (graph ? withOwnEdits(graph, node) : null),
+    [graph, node],
+  );
+
   // Рёбра уровня из GraphResponse (тот же маппинг, что у остальных потребителей
   // графа уровня — pageSchema.toLevelEdges). Мемоизация: toLevelEdges создаёт новый
   // массив при каждом вызове; без мемоизации проп edges менялся бы на каждый рендер
   // (зеркало раскладки меняет только graph.layout, не nodes/endpoints/edges) и
   // пересоздавал computeNow в LevelGraph — конвейер стартовал бы в промежуточном
   // рендере со старым viewLayout, вызывая визуальный откат узла при отпускании драга.
-  const edges = useMemo(() => (graph ? toLevelEdges(graph) : []), [graph]);
+  const edges = useMemo(() => (view ? toLevelEdges(view) : []), [view]);
 
   if (loading) return <p className="np-empty">Загрузка схемы…</p>;
-  if (!graph) return null;
+  if (!view) return null;
 
   // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
   // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).
-  if (hasNoNeighbors(graph, node.id) && !node.has_children) {
+  if (hasNoNeighbors(view, node.id) && !node.has_children) {
     // Пустое состояние: секцию не прячем; архитектору — CTA в редактор-карту
     // (наполнить состав / создать связи — правка живёт только там).
     return (
@@ -1362,10 +1373,11 @@ function SchemaSection({
   }
 
   // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
-  const height = schemaSectionHeight(visibleEntityGuess(graph));
+  const height = schemaSectionHeight(visibleEntityGuess(view));
   // Признак проектный, с сервера: на схеме одного объекта статусов может не быть,
-  // а в проекте переход идёт — переключатель вида нужен и здесь.
-  const hasStatusInfo = showStatusControls(graph.has_status_info, graph.nodes, graph.endpoints);
+  // а в проекте переход идёт — переключатель вида нужен и здесь. Статусы читаем из
+  // view: свежепоставленный «планируется» обязан включить фильтр сразу.
+  const hasStatusInfo = showStatusControls(view.has_status_info, view.nodes, view.endpoints);
 
   // «Редактировать» / «Открыть в карте» → родительский слой + подсветка + возврат (Ф11/Ф12).
   const onEdit = onNavigateMap
@@ -1376,10 +1388,10 @@ function SchemaSection({
     <div style={{ position: "relative" }}>
       {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
       <EmbeddedSchemaBlock
-        nodes={graph.nodes}
-        endpoints={graph.endpoints}
+        nodes={view.nodes}
+        endpoints={view.endpoints}
         edges={edges}
-        viewLayout={graph.layout}
+        viewLayout={view.layout}
         containerId={node.parent_id ?? null}
         layoutViewId={node.id}
         persistence={persistence}
