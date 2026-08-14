@@ -1,0 +1,194 @@
+/* Секция «Каналы» страницы узла-брокера: каналы и поля сообщений записями.
+   Базовые примитивы (np-card, np-field, np-addbtn, np-empty, np-warn) берутся из
+   NodePage.css — здесь только раскладка каналов и полей. Классы свои (bch-*), а не
+   общие с dbStructure.css: секции соседние по виду, но сетки у них разные (у канала
+   две подписи в шапке и мета в теле), и общий класс пришлось бы переопределять. */
+
+.bch-channels {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bch-channel {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+/* Шапка канала — ГРИД, а не флекс: у .np-field стоит width:100%, и в потоке флекса
+   поля раздували строку, а имя (flex:1 1 0) схлопывалось в ноль. В гриде ширину задаёт
+   ТРЕК, а width:100% внутри ячейки ведёт себя правильно (урок сетки .dbs-thead). */
+.bch-head {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 140px 140px 26px;
+  align-items: center;
+  gap: 8px;
+}
+
+.bch-chev {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.bch-name {
+  min-width: 0;
+  font-weight: 600;
+}
+.bch-group-field,
+.bch-kind {
+  min-width: 0;
+  color: #64748b;
+}
+
+.bch-del {
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.bch-del:hover {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+/* Тело раскрывашки: мета доставки, назначение, поля сообщения. */
+.bch-body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eef2f7;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Мета канала — три равные ячейки в строку: ключ партиционирования, гарантия
+   доставки, retention. Ради них канал — отдельная сущность, а не «таблица». */
+.bch-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+
+.bch-desc {
+  width: 100%;
+}
+
+.bch-fields {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Строка поля — тот же грид, что и её шапка: треки описаны ОДИН раз, поэтому
+   заголовки стоят ровно над полями и не разъезжаются при узкой панели. */
+.bch-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) 62px minmax(0, 1.6fr) 26px;
+  align-items: center;
+  gap: 6px;
+}
+/* Наблюдательский вариант: полей ввода нет, признаки — чипами в одной ячейке. */
+.bch-field--ro {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 0.6fr) minmax(0, 1.6fr);
+}
+.bch-fname, .bch-ftype, .bch-fdesc { min-width: 0; }
+
+.bch-check {
+  cursor: pointer;
+}
+.bch-field > .bch-check {
+  justify-self: center;
+  margin: 0;
+}
+
+.bch-addfield {
+  align-self: flex-start;
+}
+
+/* Шапка списка полей: те же ширины, что у строк (классы совпадают). Не поле ввода —
+   просто подписи. */
+.bch-fieldhead {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #eef2f7;
+  margin-bottom: 2px;
+}
+/* Подписи выравниваются по тексту ЗНАЧЕНИЯ, а не по краю ячейки: у .np-field
+   внутренний отступ 8px + 1px рамки — без этой поправки заголовок стоял левее своего
+   столбца. Чекбокс центрируется, поэтому его подпись — тоже. */
+.bch-fieldhead > span {
+  padding-left: 9px;
+}
+.bch-fieldhead > span:nth-child(3) {
+  padding-left: 0;
+  text-align: center;
+}
+
+/* Наблюдатель: те же данные без полей ввода. */
+.bch-ro {
+  color: #334155;
+  font-size: 13px;
+}
+.bch-flag {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* Группы каналов (vhost в RabbitMQ, namespace в Pulsar, account в NATS) —
+   раскрывашки. Появляются, только если группа где-то указана: у брокеров без такого
+   уровня (Kafka) лишней вложенности не возникает. */
+.bch-group {
+  margin-bottom: 10px;
+}
+.bch-groupbody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Направляющая вложенности — как у детей в дереве объектов (.nt-children). */
+  margin: 8px 0 0 10px;
+  padding-left: 8px;
+  border-left: 1px solid #e6eaf0;
+}
+
+.bch-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Обёртка анимируемой высоты (useCollapse): та же генерическая роль, что у секции
+   структуры, — правило повторено здесь намеренно, чтобы секция каналов не зависела от
+   того, импортирован ли где-то dbStructure.css. flow-root, а не overflow:hidden —
+   отступы вложенного блока входят в измерение, но ничего не обрезается в покое. */
+.anim-box {
+  display: flow-root;
+}

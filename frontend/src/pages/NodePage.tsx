@@ -14,6 +14,7 @@ import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
 import DbStructureSection from "../components/DbStructureSection";
+import BrokerChannelsSection from "../components/BrokerChannelsSection";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
@@ -601,6 +602,11 @@ function NodePageInner({
         {/* ── Структура (таблицы БД) ────────────────────────────── */}
         {allow.structure && (
           <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+        )}
+
+        {/* ── Каналы (структура брокера) ────────────────────────── */}
+        {allow.channels && (
+          <BrokerChannelsSection nodeId={node.id} isArchitect={isArchitect} />
         )}
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}

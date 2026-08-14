@@ -23,12 +23,18 @@ export const canHaveChildren = (shape: NodeShape): boolean => shape === "service
 // того, ни другого не бывает — её «контракт» это СТРУКТУРА (таблицы/колонки); промпт
 // агента это правило проговаривает давно («у узла без собственного HTTP API спеки нет
 // вовсе»), а страница объекта до 2026-08-12 всё равно предлагала слоты под них.
-// Брокеру предстоят КАНАЛЫ (второй круг эпика) — пока собственной документации нет.
-export interface ShapeDocs { logic: boolean; spec: boolean; structure: boolean }
+// У брокера «контракт» свой — КАНАЛЫ с полями сообщений (docs/plan-broker-docs.md).
+export interface ShapeDocs {
+  logic: boolean;
+  spec: boolean;
+  structure: boolean;
+  channels: boolean;
+}
 export const shapeDocs = (shape: NodeShape): ShapeDocs => ({
   logic: shape === "service",
   spec: shape === "service",
   structure: shape === "database",
+  channels: shape === "broker",
 });
 
 // Проект — изолированная схема. Мета (счётчики/редактор/даты) считается бэком.

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { TableUsage, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { TableUsage, BrokerChannel, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -158,4 +158,33 @@ export const dbTablesApi = {
   // Кто обращается к таблицам этой базы — разворот пометок из схем логики проекта.
   usage: (nodeId: string): Promise<TableUsage[]> =>
     api.get<TableUsage[]>(`/nodes/${nodeId}/tables/usage`),
+};
+
+// Структура брокера (каналы с полями сообщений) — тот же «контракт» узла, что таблицы
+// у базы, но своей сущностью: у канала есть мета доставки (ключ партиционирования,
+// гарантия, retention), которой у таблицы не бывает. Кто публикует и кто потребляет —
+// пометки «публикует:/потребляет:» в текстах схем логики, здесь их нет и не будет
+// (docs/plan-broker-docs.md §1). Адреса — /nodes/{id}/channels (Ф0, без слеша на конце:
+// префикс роутера уже содержит путь целиком).
+export const brokerChannelsApi = {
+  list: (nodeId: string): Promise<BrokerChannel[]> =>
+    api.get<BrokerChannel[]>(`/nodes/${nodeId}/channels`),
+  create: (nodeId: string, data: BrokerChannelCreate): Promise<BrokerChannel> =>
+    api.post<BrokerChannel>(`/nodes/${nodeId}/channels`, data),
+  update: (
+    nodeId: string, channelId: string, data: BrokerChannelUpdate,
+  ): Promise<BrokerChannel> =>
+    api.patch<BrokerChannel>(`/nodes/${nodeId}/channels/${channelId}`, data),
+  delete: (nodeId: string, channelId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/channels/${channelId}`),
+  createField: (
+    nodeId: string, channelId: string, data: ChannelFieldCreate,
+  ): Promise<ChannelField> =>
+    api.post<ChannelField>(`/nodes/${nodeId}/channels/${channelId}/fields`, data),
+  updateField: (
+    nodeId: string, channelId: string, fieldId: string, data: ChannelFieldUpdate,
+  ): Promise<ChannelField> =>
+    api.patch<ChannelField>(`/nodes/${nodeId}/channels/${channelId}/fields/${fieldId}`, data),
+  deleteField: (nodeId: string, channelId: string, fieldId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/channels/${channelId}/fields/${fieldId}`),
 };
