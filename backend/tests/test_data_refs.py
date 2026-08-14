@@ -367,6 +367,75 @@ def test_резолв_проза_после_маркера_канала_види
     assert got.status == "unknown_channel"
 
 
+# ── Точки внутри имени канала ─────────────────────────────────────────────────
+# «orders.created» — норма именования Kafka, и грамматика «группа.канал.поле» её
+# резала: пометка уезжала в unknown_channel. У каналов точка может быть ЧАСТЬЮ
+# ИМЕНИ — две дополнительные гипотезы, равноправные с остальными. Таблиц это не
+# касается: там точки в именах редки, и лишние гипотезы плодили бы неоднозначность.
+
+
+def test_резолв_имя_канала_с_точкой():
+    created = _c(N_KAFKA, "orders.created")
+    got = _ch("orders.created", [created])
+    assert (got.status, got.channel_id, got.field_id) == ("ok", created.id, None)
+
+    # И длиннее двух сегментов: «orders.created.v2» — тоже одно имя топика.
+    v2 = _c(N_KAFKA, "orders.created.v2")
+    got2 = _ch("orders.created.v2", [v2])
+    assert (got2.status, got2.channel_id) == ("ok", v2.id)
+
+
+def test_резолв_поле_у_канала_с_точкой():
+    created = _c(N_KAFKA, "orders.created", fields=("user_id",))
+    got = _ch("orders.created.user_id", [created], mode="consume")
+    assert (got.status, got.channel_id) == ("ok", created.id)
+    assert (got.field_id, got.field_name) == (created.fields["user_id"], "user_id")
+
+    # Четыре сегмента: «orders.created.v2.user_id» — имя с точками + поле.
+    v2 = _c(N_KAFKA, "orders.created.v2", fields=("user_id",))
+    got2 = _ch("orders.created.v2.user_id", [v2])
+    assert (got2.status, got2.field_name) == ("ok", "user_id")
+
+    # Поля нет — канал с точкой всё равно найден (обращение к нему целиком).
+    got3 = _ch("orders.created.total", [created])
+    assert (got3.status, got3.channel_id) == ("unknown_field", created.id)
+
+
+def test_резолв_имя_с_точкой_против_канала_с_полем_неоднозначно():
+    # Гипотезы равноправны: есть И канал «orders.created», И канал «orders» с полем
+    # «created» — выбрать за пользователя нельзя, лечится квалификатором.
+    channels = [_c(N_KAFKA, "orders.created"), _c(N_RABBIT, "orders", fields=("created",))]
+    assert _ch("orders.created", channels).status == "ambiguous"
+
+    got = _ch("Kafka / orders.created", channels)
+    assert (got.status, got.channel_id) == ("ok", channels[0].id)
+
+
+def test_резолв_имя_с_точкой_против_группы_неоднозначно():
+    # Та же коллизия с группой (vhost «orders», канал «created»).
+    channels = [_c(N_KAFKA, "orders.created"), _c(N_RABBIT, "created", group="orders")]
+    assert _ch("orders.created", channels).status == "ambiguous"
+
+
+def test_резолв_таблицы_новых_гипотез_не_получили():
+    # Асимметрия намеренная: у таблиц точка остаётся разделителем, и «a.b» НЕ значит
+    # «таблица с именем a.b». Иначе каждая пара «таблица orders + колонка status»
+    # против гипотетической таблицы «orders.status» стала бы неоднозначной.
+    точечная = _t(N_STORE, "orders.created", cols=("user_id",))
+    assert _resolve("orders.created", [точечная]).status == "unknown_table"
+    assert _resolve("orders.created.user_id", [точечная]).status == "unknown_table"
+    # И длинная ссылка по-прежнему битая (границы «раздел.таблица.колонка»).
+    assert _resolve("a.b.c.d", [точечная]).status == "unknown_table"
+
+
+def test_резолв_битые_сегменты_у_каналов_не_гадаются():
+    # Пустой сегмент бьёт ссылку ЦЕЛИКОМ и у каналов: «orders.created.» — не «канал
+    # orders.created», а битая пометка (проверка сегментов идёт до гипотез).
+    ch = _c(N_KAFKA, "orders.created")
+    assert _ch("orders.created.", [ch]).status == "unknown_channel"
+    assert _ch(".orders.created", [ch]).status == "unknown_channel"
+
+
 def test_резолв_смешанного_дока_каждая_пометка_идёт_в_свой_каталог():
     # Обычный док сервиса: и данные, и события рядом. Порядок ответа = порядок
     # пометок, и каждая резолвится своим каталогом.

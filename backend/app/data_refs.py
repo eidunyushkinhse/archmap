@@ -130,6 +130,8 @@ class CatalogChannel:
 
     Группа канала (vhost/namespace/account) играет ту же роль, что раздел у таблицы,
     а поле сообщения — ту же, что колонка: грамматика ссылки от этого одна и та же.
+    ОТЛИЧИЕ ОДНО: точка бывает частью самого имени («orders.created» — норма Kafka),
+    поэтому у каналов резолв пробует ещё две гипотезы (см. _pick).
     """
 
     id: uuid.UUID
@@ -196,9 +198,19 @@ class _Pick:
     ambiguous: bool = False
 
 
-def _pick(ref: str, entries: list[_Entry], node_paths: dict[uuid.UUID, str]) -> _Pick:
+def _pick(
+    ref: str,
+    entries: list[_Entry],
+    node_paths: dict[uuid.UUID, str],
+    dotted_name: bool = False,
+) -> _Pick:
     """Найти цель ссылки в каталоге. Никакой магии предпочтений: неоднозначное имя
-    требует квалификатора «Узел / имя», а не угадывается по связям."""
+    требует квалификатора «Узел / имя», а не угадывается по связям.
+
+    dotted_name — «точка может быть ЧАСТЬЮ ИМЕНИ» (каналы: «orders.created» —
+    норма именования Kafka). Асимметрия осознанная: у таблиц точки в именах редки,
+    и лишние гипотезы там только плодили бы неоднозначность на ровном месте.
+    """
     qualifier, _, bare = ref.rpartition(" / ")
     parts = bare.split(".")
     # Пустой сегмент («orders.», «.status», «a..b») — битая ссылка, а не «таблица
@@ -214,15 +226,27 @@ def _pick(ref: str, entries: list[_Entry], node_paths: dict[uuid.UUID, str]) -> 
 
     # Гипотезы (группа, имя, член). У «x.y» их ДВЕ: «таблица x, колонка y» и
     # «раздел x, таблица y» — обе сработали → неоднозначно, молча выбирать нельзя.
-    hypos: list[tuple[str | None, str, str | None]]
+    hypos: list[tuple[str | None, str, str | None]] = []
     if len(parts) == 1:
-        hypos = [(None, parts[0], None)]
+        hypos.append((None, parts[0], None))
     elif len(parts) == 2:
-        hypos = [(None, parts[0], parts[1]), (parts[0], parts[1], None)]
+        hypos += [(None, parts[0], parts[1]), (parts[0], parts[1], None)]
     elif len(parts) == 3:
-        hypos = [(parts[0], parts[1], parts[2])]
-    else:
+        hypos.append((parts[0], parts[1], parts[2]))
+    elif not dotted_name:
+        # Четыре сегмента и больше — за пределами «раздел.таблица.колонка».
         return _Pick(entry=None, member=None)
+
+    if dotted_name and len(parts) > 1:
+        # ЕЩЁ ДВЕ гипотезы, равноправные с остальными: имя канала целиком
+        # («orders.created», «orders.created.v2») и имя минус последний сегмент —
+        # он тогда поле («orders.created.user_id»). Совпало больше одной гипотезы —
+        # обычная неоднозначность, лечится квалификатором «Брокер / канал».
+        hypos.append((None, bare, None))
+        hypos.append((None, bare.rpartition(".")[0], parts[-1]))
+    # Дедуп с сохранением порядка: «x.y» даёт «канал x, поле y» и классической
+    # гипотезой, и новой — один и тот же смысл не должен считаться двумя попаданиями.
+    hypos = list(dict.fromkeys(hypos))
 
     hits: list[tuple[_Entry, str | None]] = []
     for group, name, member in hypos:
@@ -291,7 +315,9 @@ def _resolve_table(
 def _resolve_channel(
     r: DataRefIn, entries: list[_Entry], node_paths: dict[uuid.UUID, str]
 ) -> ResolvedRef:
-    got = _pick(r.ref, entries, node_paths)
+    # dotted_name=True — только у каналов: «orders.created» это ОДНО имя топика, а
+    # не «группа orders, канал created» (см. _pick).
+    got = _pick(r.ref, entries, node_paths, dotted_name=True)
     if got.entry is None:
         status: RefStatus = "ambiguous" if got.ambiguous else "unknown_channel"
         return ResolvedRef(ref=r.ref, mode=r.mode, status=status)

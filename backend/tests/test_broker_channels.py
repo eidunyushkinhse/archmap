@@ -484,3 +484,22 @@ def test_обратный_индекс_не_видит_чужой_проект(d
     # Чужой док в индекс не попал (иначе строк было бы две), а чужой одноимённый
     # канал не сделал свою пометку неоднозначной (иначе строк не было бы вовсе).
     assert (u.doc_name, u.field_name) == ("POST /orders", "order_id")
+
+
+def test_индекс_видит_канал_с_точкой_в_имени(db):
+    """Сквозная проверка находки Ф2: «orders.created» — норма именования Kafka, и до
+    доп-гипотез такая пометка резолвилась в «группу orders», то есть никуда."""
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы", shape="service")
+    канал = _channel(db, брокер, "orders.created")  # точка — часть ИМЕНИ топика
+    поле = _field(db, брокер, канал, "user_id")
+    _doc(db, сервис, "POST /orders", 'A["Оформить<br>публикует: orders.created.user_id"]')
+    _doc(db, сервис, "Обработчик", 'A["Резерв<br>потребляет: orders.created"]')
+
+    строки = _usage(db, брокер)
+
+    assert len(строки) == 2
+    публикация = next(u for u in строки if u.mode == "publish")
+    потребление = next(u for u in строки if u.mode == "consume")
+    assert (публикация.channel_name, публикация.field_id) == ("orders.created", поле.id)
+    assert (потребление.channel_name, потребление.field_id) == ("orders.created", None)
