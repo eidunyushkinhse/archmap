@@ -243,3 +243,5 @@ export type ChannelUsage = Schemas["ChannelUsage"];
 export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
 // Дозаливка структуры БД от агента: отчёт превью/применения.
 export type DataImportReport = Schemas["DataImportReport"];
+// Дозаливка каналов брокера от агента: свой отчёт — у канала своя мета и свои поля.
+export type ChannelsImportReport = Schemas["ChannelsImportReport"];

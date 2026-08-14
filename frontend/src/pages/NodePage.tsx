@@ -606,7 +606,7 @@ function NodePageInner({
 
         {/* ── Каналы (структура брокера) ────────────────────────── */}
         {allow.channels && (
-          <BrokerChannelsSection nodeId={node.id} isArchitect={isArchitect} />
+          <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
         )}
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}

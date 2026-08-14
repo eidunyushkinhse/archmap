@@ -12,6 +12,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { brokerChannelsApi } from "../api/nodes";
+import AddDocsMenu from "./AddDocsMenu";
+import ChannelsAgentModal from "./docsImport/ChannelsAgentModal";
 import { useCollapse } from "./useCollapse";
 import { useFlipRows } from "./useFlipRows";
 import { useShrinkAnchor } from "./useShrinkAnchor";
@@ -21,6 +23,9 @@ import "./brokerChannels.css";
 
 interface Props {
   nodeId: string;
+  // Имя объекта: окно дозаливки называет его в подзаголовке — к нему уезжают каналы
+  // из файла без адреса «# archmap-node:».
+  nodeName: string;
   isArchitect: boolean;
 }
 
@@ -51,10 +56,12 @@ const RETENTION_TITLE =
 const KEY_TITLE =
   "Ключ партиционирования: по нему определяется порядок применения событий одной сущности";
 
-export default function BrokerChannelsSection({ nodeId, isArchitect }: Props) {
+export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }: Props) {
   const [channels, setChannels] = useState<BrokerChannel[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
+  const [agentOpen, setAgentOpen] = useState(false);
   // Свёрнутые группы (по умолчанию раскрыты — иначе структура выглядит пустой).
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
   // Обратный индекс: кто публикует и кто потребляет каналы этого брокера. Разворот
@@ -203,11 +210,25 @@ export default function BrokerChannelsSection({ nodeId, isArchitect }: Props) {
       </div>
       {isArchitect && (
         <div className="bch-actions">
-          {/* Пока кнопка обычная: заводить каналы руками — единственный путь. В Ф4
-              (BYOA «Описать каналы с помощью ИИ-агента») она станет AddDocsMenu с
-              пунктами «Вручную | Через ИИ-агента» — как «+ Таблица» у базы. */}
-          <button type="button" className="np-addbtn" onClick={addChannel}>+ Канал</button>
+          {/* Тот же вход, что у «Логики», «OpenAPI» и структуры базы: одна кнопка с
+              шевроном, а «вручную / через агента» — пункты меню. Два способа завести
+              одну и ту же сущность не должны выглядеть как две разные кнопки. */}
+          <AddDocsMenu
+            label="+ Канал"
+            groups={[
+              [{ label: "Вручную", onSelect: addChannel }],
+              [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
+            ]}
+          />
         </div>
+      )}
+      {agentOpen && (
+        <ChannelsAgentModal
+          nodeId={nodeId}
+          nodeName={nodeName}
+          onClose={() => setAgentOpen(false)}
+          onApplied={() => setSeq((n) => n + 1)}
+        />
       )}
     </div>
   );

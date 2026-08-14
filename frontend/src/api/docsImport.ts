@@ -1,5 +1,10 @@
 import { api } from "./client";
-import type { DataImportReport, DocsImportReport, NodeDocKind } from "../types";
+import type {
+  ChannelsImportReport,
+  DataImportReport,
+  DocsImportReport,
+  NodeDocKind,
+} from "../types";
 
 // Дозаливка доков от ИИ-агента: промпт со срезом схемы, dry-run превью пакета
 // archmap-docs и применение. Пакет — самодостаточные файлы: схема логики .mmd с
@@ -89,4 +94,17 @@ export const dataImportApi = {
     api.post<DataImportReport>("/data-import/preview", dataBody(p)),
   apply: (p: DataImportParams): Promise<DataImportReport> =>
     api.post<DataImportReport>("/data-import/apply", dataBody(p)),
+};
+
+// Дозаливка КАНАЛОВ брокера. Свой контракт и свой префикс, а не режим data-import:
+// формат пакета другой (каналы с метой доставки и полями сообщений) и политика
+// слияния другая — у брокера нет репозитория-владельца, один топик описывают пакеты
+// разных репозиториев. Параметры те же: пакет, политика занятых полей, объект окна.
+export const channelsImportApi = {
+  prompt: (): Promise<{ prompt: string }> =>
+    api.get<{ prompt: string }>("/channels-import/prompt"),
+  preview: (p: DataImportParams): Promise<ChannelsImportReport> =>
+    api.post<ChannelsImportReport>("/channels-import/preview", dataBody(p)),
+  apply: (p: DataImportParams): Promise<ChannelsImportReport> =>
+    api.post<ChannelsImportReport>("/channels-import/apply", dataBody(p)),
 };

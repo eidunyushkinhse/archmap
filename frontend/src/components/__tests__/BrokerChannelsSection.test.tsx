@@ -11,6 +11,11 @@ import BrokerChannelsSection from "../BrokerChannelsSection";
 import { brokerChannelsApi } from "../../api/nodes";
 import type { BrokerChannel, ChannelField, ChannelUsage } from "../../types";
 
+// Окно дозаливки тянет за собой весь BYOA-обвес — здесь важно лишь, что его
+// открывает пункт меню (у самого окна свои тесты).
+vi.mock("../docsImport/ChannelsAgentModal", () => ({
+  default: () => <div data-testid="channels-agent" />,
+}));
 vi.mock("../../api/nodes", () => ({
   brokerChannelsApi: {
     list: vi.fn(),
@@ -42,7 +47,9 @@ function channel(over: Partial<BrokerChannel> = {}): BrokerChannel {
 function setup(channels: BrokerChannel[], isArchitect = true, usage: ChannelUsage[] = []) {
   vi.mocked(brokerChannelsApi.list).mockResolvedValue(channels);
   vi.mocked(brokerChannelsApi.usage).mockResolvedValue(usage);
-  return render(<BrokerChannelsSection nodeId="n1" isArchitect={isArchitect} />);
+  return render(
+    <BrokerChannelsSection nodeId="n1" nodeName="Шина" isArchitect={isArchitect} />,
+  );
 }
 
 describe("BrokerChannelsSection", () => {
@@ -116,11 +123,26 @@ describe("BrokerChannelsSection", () => {
     vi.mocked(brokerChannelsApi.create).mockResolvedValue(channel());
     setup([channel({ id: "ch1", name: "канал" })]);
     await waitFor(() => expect(screen.getByDisplayValue("канал")).toBeInTheDocument());
-    // Кнопка обычная: меню «Вручную | Через ИИ-агента» появится в Ф4 (BYOA).
+    // Кнопка одна, способы — пункты меню (как у «Логики» и структуры базы).
     await userEvent.click(screen.getByText("+ Канал"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
     expect(brokerChannelsApi.create).toHaveBeenCalledWith("n1", {
       name: "канал_2", group_name: "", kind: "", partition_key: "", delivery: "", retention: "",
     });
+  });
+
+  it("дозаливка от агента — второй пункт того же меню, а не своя кнопка", async () => {
+    // Заводить каналы руками для брокера с полусотней топиков непригодно, но и второй
+    // кнопкой рядом путь не выносим: способ завести сущность — не отдельная сущность.
+    setup([channel()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
+    // Пока меню не раскрыто, отдельного входа к агенту на странице нет — и самого
+    // окна тоже: смонтированное «на всякий случай», оно ходило бы в превью само.
+    expect(screen.queryByText("Через ИИ-агента")).toBeNull();
+    expect(screen.queryByTestId("channels-agent")).toBeNull();
+    await userEvent.click(screen.getByText("+ Канал"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
+    expect(screen.getByTestId("channels-agent")).toBeInTheDocument();
   });
 
   it("«+ Поле» шлёт порядок — иначе поля сообщения встали бы как попало", async () => {
