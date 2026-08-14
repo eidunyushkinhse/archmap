@@ -890,6 +890,77 @@ export interface paths {
         patch: operations["update_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__patch"];
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Channels */
+        get: operations["list_channels_api_v1_nodes__node_id__channels_get"];
+        put?: never;
+        /** Create Channel */
+        post: operations["create_channel_api_v1_nodes__node_id__channels_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/channels/{channel_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Channel */
+        delete: operations["delete_channel_api_v1_nodes__node_id__channels__channel_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Channel */
+        patch: operations["update_channel_api_v1_nodes__node_id__channels__channel_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/channels/{channel_id}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Field */
+        post: operations["create_field_api_v1_nodes__node_id__channels__channel_id__fields_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/channels/{channel_id}/fields/{field_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Field */
+        delete: operations["delete_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Field */
+        patch: operations["update_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__patch"];
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -924,7 +995,7 @@ export interface paths {
         put?: never;
         /**
          * Docs Import Preview
-         * @description Dry-run: план без записи (build_docs_plan — чистая функция).
+         * @description Dry-run: план без записи (build_docs_plan БД только читает).
          */
         post: operations["docs_import_preview_api_v1_docs_import_preview_post"];
         delete?: never;
@@ -1554,6 +1625,149 @@ export interface components {
             start_order: number;
             /** Guard */
             guard: string | null;
+        };
+        /** BrokerChannelCreate */
+        BrokerChannelCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Group Name
+             * @default
+             */
+            group_name: string;
+            /**
+             * Kind
+             * @default
+             */
+            kind: string;
+            /**
+             * Partition Key
+             * @default
+             */
+            partition_key: string;
+            /**
+             * Delivery
+             * @default
+             */
+            delivery: string;
+            /**
+             * Retention
+             * @default
+             */
+            retention: string;
+            /** Description */
+            description?: string | null;
+        };
+        /** BrokerChannelResponse */
+        BrokerChannelResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Group Name */
+            group_name: string;
+            /** Kind */
+            kind: string;
+            /** Partition Key */
+            partition_key: string;
+            /** Delivery */
+            delivery: string;
+            /** Retention */
+            retention: string;
+            /** Description */
+            description: string | null;
+            /** Version */
+            version: number;
+            /**
+             * Fields
+             * @default []
+             */
+            fields: components["schemas"]["ChannelFieldResponse"][];
+        };
+        /** BrokerChannelUpdate */
+        BrokerChannelUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Group Name */
+            group_name?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Partition Key */
+            partition_key?: string | null;
+            /** Delivery */
+            delivery?: string | null;
+            /** Retention */
+            retention?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Base Version */
+            base_version?: number | null;
+        };
+        /** ChannelFieldCreate */
+        ChannelFieldCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default
+             */
+            type: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /** Description */
+            description?: string | null;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+        };
+        /** ChannelFieldResponse */
+        ChannelFieldResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Channel Id
+             * Format: uuid
+             */
+            channel_id: string;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Required */
+            required: boolean;
+            /** Description */
+            description: string | null;
+            /** Order */
+            order: number;
+        };
+        /** ChannelFieldUpdate */
+        ChannelFieldUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Type */
+            type?: string | null;
+            /** Required */
+            required?: boolean | null;
+            /** Description */
+            description?: string | null;
+            /** Order */
+            order?: number | null;
         };
         /** ChannelOut */
         ChannelOut: {
@@ -5621,6 +5835,256 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DbColumnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_channels_api_v1_nodes__node_id__channels_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrokerChannelResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_channel_api_v1_nodes__node_id__channels_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrokerChannelCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrokerChannelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_channel_api_v1_nodes__node_id__channels__channel_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_channel_api_v1_nodes__node_id__channels__channel_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrokerChannelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrokerChannelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_field_api_v1_nodes__node_id__channels__channel_id__fields_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelFieldCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelFieldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelFieldUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelFieldResponse"];
                 };
             };
             /** @description Validation Error */

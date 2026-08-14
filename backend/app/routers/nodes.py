@@ -11,6 +11,7 @@ from app.context_graph import build_context_graph
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
 from app.graph_queries import build_graph, project_has_status_info
+from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.db_table import DbTable
 from app.models.edge import Edge
@@ -343,6 +344,9 @@ def validate_shape_change(db: Session, node: Node, new_shape: str) -> str | None
       • СТРУКТУРА БД. Таблицы — «контракт» узла-базы (routers/db_docs.py), и страница
         рендерит их ТОЛЬКО у shape=database. Правка прошла бы, а структура исчезла из
         интерфейса, оставшись в БД: применённое-но-невидимое хуже честного отказа.
+      • КАНАЛЫ БРОКЕРА. Ровно тот же довод у shape=broker (routers/broker_channels.py):
+        каналы рендерятся только у брокера, и CRUD их брокером же и ограничивает —
+        запрет здесь замыкает правило с другой стороны.
 
     Доки логики и OpenAPI смену на person/broker не держат осознанно: страница
     показывает «неположенное» содержимое legacy-механикой (legacyLogic/legacySpec) —
@@ -359,6 +363,13 @@ def validate_shape_change(db: Session, node: Node, new_shape: str) -> str | None
         has_tables = db.query(DbTable.id).filter(DbTable.node_id == node.id).first() is not None
         if has_tables:
             return "У узла описана структура БД — сначала перенесите или удалите её"
+    if node.shape == "broker" and new_shape != "broker":
+        has_channels = (
+            db.query(BrokerChannel.id).filter(BrokerChannel.node_id == node.id).first()
+            is not None
+        )
+        if has_channels:
+            return "У узла описаны каналы брокера — сначала перенесите или удалите их"
     return None
 
 

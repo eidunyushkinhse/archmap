@@ -214,6 +214,17 @@ export type DbColumnCreate = Schemas["DbColumnCreate"];
 export type DbColumnUpdate = Schemas["DbColumnUpdate"];
 // Обратный индекс базы («кто ко мне ходит») — разворот тех же пометок на чтении.
 export type TableUsage = Schemas["TableUsage"];
+
+// Структура брокера (docs/plan-broker-docs.md): каналы и поля сообщений — тот же
+// «контракт» узла, что таблицы у базы, но своей сущностью (у канала своя мета:
+// доставка, ключ партиционирования, retention). Кто публикует и кто потребляет —
+// пометки «публикует:/потребляет:» в текстах схем логики, записями не хранятся.
+export type BrokerChannel = Schemas["BrokerChannelResponse"];
+export type BrokerChannelCreate = Schemas["BrokerChannelCreate"];
+export type BrokerChannelUpdate = Schemas["BrokerChannelUpdate"];
+export type ChannelField = Schemas["ChannelFieldResponse"];
+export type ChannelFieldCreate = Schemas["ChannelFieldCreate"];
+export type ChannelFieldUpdate = Schemas["ChannelFieldUpdate"];
 // Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
 // (POST /data-refs/preview) — статус резолва и готовая подпись цели.
 export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];

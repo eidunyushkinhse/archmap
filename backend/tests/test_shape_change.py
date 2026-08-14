@@ -6,10 +6,11 @@
 пересозданием объекта.
 
 Здесь — доменная часть жеста: смена формы это СТРУКТУРНАЯ правка (видна на холсте),
-и у неё ровно два запрета — про то, чем узел уже владеет:
+и у неё запреты — про то, чем узел уже владеет:
   • дети (форму-контейнер имеет только сервис, node.md N4/N4а);
   • структура БД (таблицы рендерятся только у формы database — молча спрятать их
-    нельзя).
+    нельзя);
+  • каналы брокера (тот же довод у формы broker).
 """
 
 import uuid
@@ -18,6 +19,7 @@ import pytest
 from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
+from app.models.broker_channel import BrokerChannel
 from app.models.db_table import DbTable
 from app.models.node import Node
 from app.routers.nodes import update_node
@@ -42,6 +44,13 @@ def _table(db, node, name="orders"):
     db.add(t)
     db.flush()
     return t
+
+
+def _channel(db, node, name="orders.created"):
+    c = BrokerChannel(id=uuid.uuid4(), node_id=node.id, name=name, group_name="")
+    db.add(c)
+    db.flush()
+    return c
 
 
 def _set_shape(db, node, shape, base_version=None):
@@ -161,6 +170,38 @@ def test_таблицы_чужой_базы_смене_не_мешают(db):
     соседняя = _node(db, "Заказы", shape="database")
     _table(db, соседняя)
     assert _set_shape(db, база, "broker").shape == "broker"
+
+
+# ── Запрет 3: описанные каналы брокера ───────────────────────────────────────
+# Зеркало запрета по структуре БД: каналы рендерятся только у формы broker, и CRUD
+# их брокером же и ограничивает — запрет здесь замыкает правило с другой стороны.
+
+
+def test_нельзя_увести_брокер_с_каналами(db):
+    брокер = _node(db, "Kafka", shape="broker")
+    _channel(db, брокер)
+
+    for shape in ("service", "database", "person"):
+        with pytest.raises(HTTPException) as e:
+            _set_shape(db, брокер, shape)
+        assert e.value.status_code == 400
+        assert e.value.detail == (
+            "У узла описаны каналы брокера — сначала перенесите или удалите их"
+        )
+    db.refresh(брокер)
+    assert брокер.shape == "broker"
+
+
+def test_брокер_без_каналов_меняет_форму(db):
+    брокер = _node(db, "Пустой", shape="broker")
+    assert _set_shape(db, брокер, "service").shape == "service"
+
+
+def test_каналы_чужого_брокера_смене_не_мешают(db):
+    брокер = _node(db, "Пустой", shape="broker")
+    соседний = _node(db, "Kafka", shape="broker")
+    _channel(db, соседний)
+    assert _set_shape(db, брокер, "database").shape == "database"
 
 
 # ── CAS ──────────────────────────────────────────────────────────────────────
