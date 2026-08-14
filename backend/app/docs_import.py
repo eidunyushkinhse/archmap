@@ -17,7 +17,7 @@ import re
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher, get_close_matches
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
 import yaml
@@ -273,10 +273,43 @@ _AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите «Брок
 
 # Порог похожести для подсказки «похоже на …». НИЖЕ НЕ ОПУСКАТЬ: ложная подсказка
 # хуже её отсутствия — слабая модель копирует предложенное имя не глядя, и вместо
-# битой пометки получается пометка, битая по-другому.
-_HINT_CUTOFF = 0.5
+# битой пометки получается пометка, битая по-другому. Полевая валидация Ф8 показала
+# это буквально: по подсказкам-мусору модель «починила» три пометки в СЕМАНТИЧЕСКИ
+# ДРУГИЕ таблицы, а сильные подсказки того же круга исполнила верно.
+_HINT_CUTOFF = 0.75
 # Суффиксным матчем короткие хвосты не проверяем: «id» есть в конце половины имён.
 _HINT_MIN_TAIL = 3
+# Сколько символов ВСЕГО (на обе строки) может не совпасть у «того же имени, записанного
+# иначе». Одной похожести мало: у таблиц одного приложения общий длинный префикс, и
+# difflib даёт «sentry_projectoptions» ↔ «sentry_projectcodeowners» целых 0.79 при
+# девяти несовпавших символах — это РАЗНЫЕ таблицы. У настоящих же кандидатов расхождение
+# АБСОЛЮТНО мелкое: разделитель, окончание, опечатка (0–3 символа).
+_HINT_MAX_DIFF = 3
+# Разделители, которыми одно и то же имя пишут по-разному: «...member_teams» против
+# «...memberteam», «task-worker» против «taskworker».
+_SEPARATORS = str.maketrans("", "", "_-. ")
+
+
+def _norm_name(s: str) -> str:
+    """Имя без регистра и разделителей — для сравнения «то же имя, записанное иначе»."""
+    return s.lower().translate(_SEPARATORS)
+
+
+def _tiny_diff(ref: str, cand: str) -> float | None:
+    """Похожесть, если имена расходятся ТОЛЬКО мелочью, иначе None.
+
+    Два условия, и второе главное: похожесть выше порога И абсолютное расхождение не
+    больше _HINT_MAX_DIFF символов. Порога одного недостаточно — соседи по префиксу
+    приложения набирают 0.75+ на общем начале, ничего общего не имея по смыслу.
+    """
+    m = SequenceMatcher(None, ref, cand)
+    ratio = m.ratio()
+    if ratio < _HINT_CUTOFF:
+        return None
+    matched = sum(block.size for block in m.get_matching_blocks())
+    if (len(ref) - matched) + (len(cand) - matched) > _HINT_MAX_DIFF:
+        return None
+    return ratio
 
 
 def _closest_name(tail: str, names: Iterable[str]) -> str | None:
@@ -285,10 +318,12 @@ def _closest_name(tail: str, names: Iterable[str]) -> str | None:
     Сначала СУФФИКС: «messages» → «app_message». Разрыв «имя ORM-класса против имени
     таблицы» почти всегда состоит из префикса приложения и числа (находка №1
     docs/qa-zulip-brokers.md), а difflib на нём слабеет тем сильнее, чем длиннее
-    префикс: «queues» против «background_jobs_queue» — 0.37, ниже порога. difflib
-    идёт добором, для опечаток.
+    префикс: «queues» против «background_jobs_queue» — 0.37, ниже порога. Сравниваем
+    имена БЕЗ РАЗДЕЛИТЕЛЕЙ, иначе «user_profile» не узнаёт себя в «zerver_userprofile».
 
-    Подсказка ОДНА и только уверенная: не нашли — замечание остаётся как было.
+    difflib идёт добором и только на мелких расхождениях (_tiny_diff): опечатка,
+    окончание, разделитель. Подсказка ОДНА и только уверенная — не нашли уверенного
+    кандидата, замечание остаётся как было.
     """
     by_low: dict[str, str] = {}
     for name in names:
@@ -296,19 +331,26 @@ def _closest_name(tail: str, names: Iterable[str]) -> str | None:
             by_low.setdefault(name.lower(), name)
     if not by_low:
         return None
-    low = tail.lower()
+    norm = _norm_name(tail)
     # Единственное и множественное: агент пишет имя таблицы во множественном
     # («messages»), а в DDL она в единственном («app_message»), и наоборот.
-    variants = [v for v in (low, low[:-1] if low.endswith("s") else "") if len(v) >= _HINT_MIN_TAIL]
+    variants = [
+        v for v in (norm, norm[:-1] if norm.endswith("s") else "") if len(v) >= _HINT_MIN_TAIL
+    ]
     hits = [
-        orig
-        for cand, orig in by_low.items()
-        if any(cand.endswith(f"_{v}") or cand.endswith(v) for v in variants)
+        orig for cand, orig in by_low.items() if any(_norm_name(cand).endswith(v) for v in variants)
     ]
     if hits:
-        return min(hits, key=lambda n: (-SequenceMatcher(None, low, n.lower()).ratio(), n))
-    close = get_close_matches(low, list(by_low), n=1, cutoff=_HINT_CUTOFF)
-    return by_low[close[0]] if close else None
+        return min(hits, key=lambda n: (-SequenceMatcher(None, norm, _norm_name(n)).ratio(), n))
+    by_norm: dict[str, str] = {}
+    for cand, orig in by_low.items():
+        by_norm.setdefault(_norm_name(cand), orig)
+    best: tuple[float, str] | None = None
+    for cand in sorted(by_norm):  # порядок каталога произволен — выбор должен быть один
+        ratio = _tiny_diff(norm, cand)
+        if ratio is not None and (best is None or ratio > best[0]):
+            best = (ratio, cand)
+    return by_norm[best[1]] if best is not None else None
 
 
 class _DataRefCheck:
