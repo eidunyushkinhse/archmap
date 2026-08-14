@@ -69,6 +69,28 @@ def test_варианты_одного_слота_это_один_узел():
     assert "ОДНОВРЕМЕННО в одной инсталляции" in p
 
 
+def test_связь_с_брокером_называет_канал():
+    """Стрелка «в шину» без имени топика не отвечает ни на один вопрос сопровождения
+    (§4 plan-broker-docs.md). Правило стоит и в формате, и в чек-листе — последнее,
+    что модель читает перед выводом, — а пример показывает поле в деле: он же
+    прогоняется через parse_import, поэтому промпт не разойдётся с форматом."""
+    p = build_import_prompt("Ярмарка")
+    assert "СВЯЗЬ С БРОКЕРОМ НАЗЫВАЕТ КАНАЛ" in p
+    assert "channel: orders.created" in p
+    assert "по ребру на канал" in p
+    assert "У связей с брокерами указан channel" in p
+
+    for depth in (2, 3):
+        parsed, errors = parse_import(example_yaml(depth))
+        assert errors == [] and parsed is not None
+        каналы = {
+            (parsed.nodes[e.source_idx].name, parsed.nodes[e.target_idx].name): e.channel
+            for e in parsed.edges
+            if e.channel
+        }
+        assert каналы == {("orders", "events"): "orders.created"}
+
+
 def test_висячие_лечатся_связями_а_не_удалением():
     """Открытое направление QA-раунда 2 (docs/qa-zabbix-7.md): на замечание «объекты
     без связей» слабая модель отвечает ампутацией (31→27, затем 30→14 узлов). Промпт
