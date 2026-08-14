@@ -16,9 +16,10 @@
 «родители раньше детей» сохраняется по построению).
 """
 
+from collections.abc import Hashable, Iterable
 from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
-from typing import TypeGuard
+from typing import TypeGuard, TypeVar
 
 from app.identity import compare_identity, merge_key_sets
 from app.import_yaml import (
@@ -44,6 +45,50 @@ _MAX_CONTAINER_EDGES = 10
 _MAX_BROKER_EDGES = 10
 # И у связей, чей channel несёт ПЕРЕЧЕНЬ каналов вместо одного имени.
 _MAX_CHANNEL_LIST_EDGES = 10
+# Изолированные группы: сколько групп называем и сколько имён показываем в каждой.
+_MAX_ISOLATED_GROUPS = 10
+_MAX_GROUP_NAMES = 6
+
+T = TypeVar("T", bound=Hashable)
+
+
+def connected_components(edges: Iterable[tuple[T, T]]) -> list[list[T]]:
+    """Связные компоненты графа РЁБЕР; компоненты из одного узла не возвращаются.
+
+    Ядро, общее с алертом «изолированные группы» (app/alerts.compute_alerts, п.3), и
+    трактовка обязана совпадать с ним до буквы — иначе превью и алерты разойдутся в
+    вердиктах на одной и той же схеме:
+    - иерархия parent СВЯЗЬЮ НЕ СЧИТАЕТСЯ: через дерево связано вообще всё, и такой
+      критерий не отличал бы фрагментированную схему от целой;
+    - узлы без единой связи в компоненты не входят: о них говорит отдельная проверка
+      (в превью — «объектов без единой связи», в алертах — «подвисшие»), и дублировать
+      её замечанием про «группу из одного объекта» нельзя.
+
+    Порядок компонент и узлов внутри — от порядка рёбер: детерминирован при том же
+    входе, а показываем мы их всё равно отсортированными.
+    """
+    adjacency: dict[T, set[T]] = {}
+    for a, b in edges:
+        adjacency.setdefault(a, set()).add(b)
+        adjacency.setdefault(b, set()).add(a)
+    visited: set[T] = set()
+    out: list[list[T]] = []
+    for start in adjacency:
+        if start in visited:
+            continue
+        visited.add(start)
+        stack = [start]
+        comp: list[T] = []
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            for nxt in adjacency[cur]:
+                if nxt not in visited:
+                    visited.add(nxt)
+                    stack.append(nxt)
+        if len(comp) >= 2:
+            out.append(comp)
+    return out
 
 
 @dataclass
@@ -397,6 +442,7 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
     _warn_container_edges(merged, report, parents)
     _warn_broker_edges(merged, report)
     _warn_channel_lists(merged, report)
+    _warn_isolated_groups(merged, report)
 
 
 def _warn_container_edges(
@@ -506,6 +552,38 @@ def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
         )
     if hidden:
         report.warnings.append(f"…ещё {hidden} таких связей с перечнем в channel")
+
+
+def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
+    """Группы объектов, связанные между собой, но оторванные от остальной схемы.
+
+    Полевая валидация Ф8: превью говорило про ОДИНОЧЕК, а компонента из двух узлов
+    («актор → его интерфейс», связанные друг с другом и больше ни с чем) проходила
+    молча и всплывала алертом «Незавершённость схемы» уже после создания проекта —
+    когда агент ушёл и дорисовать связь некому. Тот же урок Х5, что у связей в
+    контейнер: предупреждаем ДО импорта и НАЗЫВАЕМ группу поимённо.
+
+    Ядро связности — общее с алертом (connected_components), поэтому вердикты сходятся.
+    Крупнейшую компоненту не называем: она и есть схема, а замечание должно указывать,
+    ЧТО прицепить, а не пересказывать проект.
+    """
+    comps = connected_components([(e.source_idx, e.target_idx) for e in merged.edges])
+    if len(comps) < 2:
+        return  # один кластер (плюс, возможно, одиночки) — фрагментации нет
+    # Ядро — самая крупная; при равных размерах порядок задаёт первое имя, иначе
+    # «ядром» становилось бы то одно, то другое от прогона к прогону.
+    comps.sort(key=lambda c: (-len(c), sorted(merged.nodes[i].name for i in c)))
+    for comp in comps[1 : _MAX_ISOLATED_GROUPS + 1]:
+        names = [merged.nodes[i].name for i in sorted(comp)]
+        shown = ", ".join(f"«{n}»" for n in names[:_MAX_GROUP_NAMES])
+        tail = f" и ещё {len(names) - _MAX_GROUP_NAMES}" if len(names) > _MAX_GROUP_NAMES else ""
+        report.warnings.append(
+            f"группа из {len(names)} объектов не связана с остальной схемой: {shown}{tail} — "
+            f"дорисуй связь с ядром или проверь, не потерялась ли она"
+        )
+    hidden = len(comps) - 1 - _MAX_ISOLATED_GROUPS
+    if hidden > 0:
+        report.warnings.append(f"…ещё {hidden} таких групп")
 
 
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:

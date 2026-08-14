@@ -9,8 +9,15 @@ passthrough одного файла, нечувствительность к п�
 инвариант «родители раньше детей» (совместимость с seed_import).
 """
 
+import uuid
+
+from conftest import ensure_project
+
 from app.import_merge import merge_imports, parse_and_merge
 from app.import_yaml import ParsedImport, parse_import
+from app.models.edge import Edge
+from app.models.node import Node
+from app.routers.nodes import get_alerts
 
 
 def _parse(text: str) -> ParsedImport:
@@ -732,3 +739,162 @@ def test_перечней_в_channel_больше_капа_свёрнуты():
     assert errors == []
     assert len([w for w in report.warnings if "в channel перечень" in w]) == 10
     assert "…ещё 3 таких связей с перечнем в channel" in report.warnings
+
+
+# ── изолированные группы (Ф8з, полевая валидация Ф8) ──────────────────────────
+# Превью говорило про ОДИНОЧЕК, а компонента из двух узлов («актор → его интерфейс»,
+# связанные друг с другом и больше ни с чем) проходила молча и всплывала алертом
+# «Незавершённость схемы» уже после создания проекта — когда агент ушёл.
+
+_ФРАГМЕНТ = (
+    "- name: Ярмарка\n"
+    "  children:\n"
+    "  - name: vote\n"
+    "  - name: redis\n"
+    "  - name: worker\n"
+    "  - name: Оператор\n"
+    "  - name: Admin UI\n"
+)
+_ФРАГМЕНТ_РЁБРА = (
+    "edges:\n"
+    "- from: vote\n  to: redis\n"
+    "- from: vote\n  to: worker\n"
+    "- from: Оператор\n  to: Admin UI\n"
+)
+
+
+def _группы(report) -> list[str]:
+    return [w for w in report.warnings if "не связана с остальной схемой" in w]
+
+
+def test_изолированная_группа_называется_поимённо():
+    _merged, report, errors = parse_and_merge([_doc(_ФРАГМЕНТ, _ФРАГМЕНТ_РЁБРА)])
+
+    assert errors == []
+    # Ядро (vote/redis/worker) не называем: замечание должно говорить, ЧТО прицепить,
+    # а не пересказывать схему.
+    assert _группы(report) == [
+        "группа из 2 объектов не связана с остальной схемой: «Оператор», «Admin UI» — "
+        "дорисуй связь с ядром или проверь, не потерялась ли она"
+    ]
+
+
+def test_связная_схема_о_группах_молчит():
+    _merged, report, errors = parse_and_merge([
+        _doc(_ФРАГМЕНТ, _ФРАГМЕНТ_РЁБРА + "- from: Оператор\n  to: vote\n")
+    ])
+
+    assert errors == []
+    assert _группы(report) == []
+
+
+def test_одиночка_группой_не_считается():
+    # Об одиночках уже говорит «объектов без единой связи»: два замечания об одном
+    # объекте агент чинит дважды, а группой из одного узла он и не является.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Ярмарка\n  children:\n  - name: vote\n  - name: redis\n"
+            "  - name: Одинокий\n",
+            "edges:\n- from: vote\n  to: redis\n",
+        )
+    ])
+
+    assert errors == []
+    assert _группы(report) == []
+    assert any("без единой связи" in w and "Одинокий" in w for w in report.warnings)
+
+
+def test_кап_имён_в_группе_и_хвост():
+    цепочка = lambda имена: "".join(  # noqa: E731 — короткий локальный помощник
+        f"- from: {a}\n  to: {b}\n" for a, b in zip(имена, имена[1:], strict=False)
+    )
+    ядро = [f"я{i}" for i in range(9)]
+    группа = [f"г{i}" for i in range(8)]
+    узлы = "- name: Ярмарка\n  children:\n" + "".join(
+        f"  - name: {n}\n" for n in ядро + группа
+    )
+
+    _merged, report, errors = parse_and_merge([
+        _doc(узлы, "edges:\n" + цепочка(ядро) + цепочка(группа))
+    ])
+
+    assert errors == []
+    [w] = _группы(report)
+    assert w.startswith("группа из 8 объектов не связана с остальной схемой: «г0», «г1»")
+    assert "«г5» и ещё 2 —" in w
+    assert "«г6»" not in w
+
+
+def test_групп_больше_капа_свёрнуты():
+    ядро = "- from: я0\n  to: я1\n- from: я1\n  to: я2\n"
+    пары = "".join(f"- from: п{i}a\n  to: п{i}b\n" for i in range(12))
+    имена = ["я0", "я1", "я2"] + [f"п{i}{s}" for i in range(12) for s in ("a", "b")]
+    узлы = "- name: Ярмарка\n  children:\n" + "".join(f"  - name: {n}\n" for n in имена)
+
+    _merged, report, errors = parse_and_merge([_doc(узлы, "edges:\n" + ядро + пары)])
+
+    assert errors == []
+    assert len(_группы(report)) == 10
+    assert "…ещё 2 таких групп" in report.warnings
+
+
+def _db_узел(db, name, parent=None):
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        project_id=ensure_project(db).id,
+        parent_id=parent.id if parent is not None else None,
+    )
+    db.add(n)
+    return n
+
+
+def _db_связь(db, src, tgt):
+    db.add(
+        Edge(
+            id=uuid.uuid4(),
+            source_id=src.id,
+            target_id=tgt.id,
+            project_id=ensure_project(db).id,
+        )
+    )
+
+
+def test_паритет_с_алертом_изолированных_групп(db):
+    """Превью и алерт обязаны смотреть на дерево ОДИНАКОВО.
+
+    Для алерта родитель связью НЕ является (иначе через иерархию связано вообще всё,
+    и алерт не загорался бы никогда). Разойдись превью с ним — на одной и той же схеме
+    превью было бы зелёным, а панель алертов горела бы сразу после импорта: ровно то,
+    что и случилось в поле, только наоборот. Зеркало на ОДНОМ дереве: пять узлов под
+    общим родителем, рёбра образуют две компоненты.
+    """
+    ярмарка = _db_узел(db, "Ярмарка")
+    узлы = {
+        имя: _db_узел(db, имя, ярмарка)
+        for имя in ("vote", "redis", "worker", "Оператор", "Admin UI")
+    }
+    _db_связь(db, узлы["vote"], узлы["redis"])
+    _db_связь(db, узлы["vote"], узлы["worker"])
+    _db_связь(db, узлы["Оператор"], узлы["Admin UI"])
+    db.commit()
+
+    алерт = get_alerts(db=db, project=ensure_project(db))
+    _merged, report, errors = parse_and_merge([_doc(_ФРАГМЕНТ, _ФРАГМЕНТ_РЁБРА)])
+
+    assert errors == []
+    # Оба видят фрагментацию: алерт — обе группы, превью — все, кроме ядра.
+    assert len(алерт.isolated_groups) == 2
+    assert {"Оператор", "Admin UI"} in [set(g.node_names) for g in алерт.isolated_groups]
+    assert len(_группы(report)) == 1
+    assert "«Оператор», «Admin UI»" in _группы(report)[0]
+
+    # И молчат тоже вместе: дорисованная связь схлопывает компоненты в одну.
+    _db_связь(db, узлы["Оператор"], узлы["vote"])
+    db.commit()
+    мост = "- from: Оператор\n  to: vote\n"
+    _m2, report2, errors2 = parse_and_merge([_doc(_ФРАГМЕНТ, _ФРАГМЕНТ_РЁБРА + мост)])
+
+    assert errors2 == []
+    assert get_alerts(db=db, project=ensure_project(db)).isolated_groups == []
+    assert _группы(report2) == []
