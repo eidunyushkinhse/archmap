@@ -9,7 +9,7 @@
 """
 
 from app.data_refs import parse_data_refs
-from app.docs_prompt import build_docs_prompt
+from app.docs_prompt import MAX_CATALOG_NAMES, build_docs_prompt
 from app.mmd_header import example_mmd, parse_mmd_header
 
 SLICE = "nodes:\n- name: Ярмарка\n  shape: service\nedges: []\n"
@@ -130,6 +130,88 @@ def test_промпт_запрещает_чинить_пометки_удале�
 
     # В окне спеки пометок нет — и правила о них тоже.
     assert "УДАЛЯТЬ пометки нельзя" not in build_docs_prompt(SLICE, include="api")
+
+
+# ── перечни описанных имён (Ф8а, находки №1 и №3 docs/qa-zulip-brokers.md) ─────
+# Петля замечаний «чини именем ИЛИ квалификатором» слабую модель не лечила: два
+# круга правок, 51 битая пометка как была. Цель должна содержать ОТВЕТ — перечень
+# уже описанных имён стоит В САМОЙ конвенции пометок, до первой написанной пометки.
+
+
+def test_перечень_описанных_имён_подставлен_в_конвенцию_пометок():
+    prompt = build_docs_prompt(
+        SLICE,
+        include="logic",
+        table_catalog={
+            "Ярмарка / Хранилище": ["orders", "public.accounts"],
+            "Ярмарка / Архив": ["audit_log"],
+        },
+        channel_catalog={"Ярмарка / Шина": ["orders.created"]},
+    )
+
+    # Имена перечислены по узлу на строку — и адресом узла, и дословными именами
+    # (таблица с разделом — «раздел.имя», ровно как её видит резолвер пометок).
+    assert "Таблицы, уже описанные в проекте, — пометки используют ТОЛЬКО эти имена" in prompt
+    assert "- Ярмарка / Хранилище: orders, public.accounts" in prompt
+    assert "- Ярмарка / Архив: audit_log" in prompt
+    assert "Каналы, уже описанные у брокеров проекта" in prompt
+    assert "- Ярмарка / Шина: orders.created" in prompt
+
+    # Имени нет в перечне — ответ дан обоим случаям: сверить с DDL (имя ORM-класса
+    # таблицей не является) и сказать вслух, что описание неполно.
+    assert "ORM-класс Message обычно даёт таблицу вида app_message" in prompt
+    assert "структура проекта неполна" in prompt
+    assert "описание брокера неполно" in prompt
+    # Находка №3: пометки на кэшах дают вечный unknown_table — у кэша структуры нет.
+    assert "кэши, memcached, поисковые индексы без описанной структуры" in prompt
+
+    # В окне спеки схем логики нет — и перечням там не место.
+    assert "Таблицы, уже описанные в проекте" not in build_docs_prompt(
+        SLICE, include="api", table_catalog={"Ярмарка / Хранилище": ["orders"]}
+    )
+
+
+def test_пустые_каталоги_не_оставляют_в_промпте_следов():
+    """Деградация без следов: проект без описанной структуры получает ПРЕЖНИЙ текст.
+
+    Заголовок над пустотой хуже отсутствия — он утверждает «описанных имён нет», и
+    слабая модель сотрёт по нему верные пометки.
+    """
+    base = build_docs_prompt(SLICE, include="logic")
+
+    assert build_docs_prompt(SLICE, include="logic", table_catalog={}, channel_catalog={}) == base
+    # Узлы в каталоге есть, а имён у них нет — тот же случай «описывать нечего».
+    assert (
+        build_docs_prompt(
+            SLICE,
+            include="logic",
+            table_catalog={"Ярмарка / Хранилище": []},
+            channel_catalog={"Ярмарка / Шина": []},
+        )
+        == base
+    )
+    assert "уже описанные" not in base
+
+
+def test_кап_перечня_называет_число_а_не_обрезает_молча():
+    """Урезанный молча перечень слабая модель считает полным и «чинит» по нему
+    верные имена — поэтому не влезший узел заменяется строкой со счётом."""
+    много = [f"t{i}" for i in range(MAX_CATALOG_NAMES + 1)]
+    prompt = build_docs_prompt(
+        SLICE,
+        include="logic",
+        table_catalog={"Ярмарка / Большая": много, "Ярмарка / Малая": ["orders"]},
+    )
+
+    assert (
+        f"- Ярмарка / Большая: {MAX_CATALOG_NAMES + 1} таблица — перечень велик, "
+        "сверяйся со структурой на странице узла" in prompt
+    )
+    # Ни одного имени великого узла в промпте нет — именно это и значит «не обрезано
+    # молча»: перечня как будто и не начинали.
+    assert "t0" not in prompt
+    # Остаток капа не съеден: узел, который влезает, перечислен целиком.
+    assert "- Ярмарка / Малая: orders" in prompt
 
 
 def test_prompt_markers_and_slice():

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app import tree
 from app.auth import require_architect
+from app.data_refs import catalog_for_project
 from app.database import get_db
 from app.deps import get_current_project, touch_project
 from app.docs_import import (
@@ -51,6 +52,34 @@ from app.view_state import bump_meta_rev
 router = APIRouter(prefix="/docs-import", tags=["docs-import"])
 
 
+def _name_catalogs(
+    db: Session, project_id: uuid.UUID
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Каталоги имён для промпта: «путь узла → таблицы» и «путь узла → каналы».
+
+    Имя пишется так, как его видит РЕЗОЛВЕР пометок: у таблицы с разделом и у канала
+    с группой — «группа.имя». Каталог по всему проекту (а не по срезу node_id):
+    пометка адресует любую базу и любой брокер проекта, и урезанный перечень отправил
+    бы агента чинить верные имена (находка №1 docs/qa-zulip-brokers.md).
+    """
+    tables, channels, node_paths = catalog_for_project(db, project_id)
+    table_catalog: dict[str, list[str]] = {}
+    for t in tables:
+        path = node_paths.get(t.node_id)
+        if path is not None:
+            table_catalog.setdefault(path, []).append(
+                f"{t.schema_name}.{t.name}" if t.schema_name else t.name
+            )
+    channel_catalog: dict[str, list[str]] = {}
+    for c in channels:
+        path = node_paths.get(c.node_id)
+        if path is not None:
+            channel_catalog.setdefault(path, []).append(
+                f"{c.group_name}.{c.name}" if c.group_name else c.name
+            )
+    return table_catalog, channel_catalog
+
+
 @router.get("/prompt", response_model=DocsPromptOut)
 def docs_prompt(
     node_id: uuid.UUID | None = None,
@@ -76,7 +105,10 @@ def docs_prompt(
         nodes = [by_id[i] for i in sub_ids]
         edges = [e for e in edges if e.source_id in sub_ids and e.target_id in sub_ids]
     export_slice = build_export(nodes, edges, root_id=node_id)
-    return DocsPromptOut(prompt=build_docs_prompt(export_slice, include, lang, hints, target))
+    tables, channels = _name_catalogs(db, project.id)
+    return DocsPromptOut(
+        prompt=build_docs_prompt(export_slice, include, lang, hints, target, tables, channels)
+    )
 
 
 def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> DocsPlan:

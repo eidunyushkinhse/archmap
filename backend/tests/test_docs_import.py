@@ -870,3 +870,41 @@ def test_общий_кап_на_обе_семьи_пометок(db):
 
     assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
     assert f"…ещё {половина} пометок не резолвится" in plan.warnings
+
+
+# ── перечни описанных имён в промпте (Ф8а, находка №1 docs/qa-zulip-brokers.md) ─
+# Промпт обязан назвать имена, которые в проекте УЖЕ описаны: пометки писались
+# именами ORM-классов, и петля замечаний этого не лечила. Здесь проверяется
+# проводка каталогов из БД в промпт — сама раскладка перечня в test_docs_prompt.
+
+
+def test_endpoint_prompt_несёт_описанные_имена_проекта(db):
+    _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "zerver_message", ["content"])
+    _table(db, хранилище, "audit", schema="public")
+    kafka = _broker_node(db, "Kafka")
+    _channel(db, kafka, "notify_tornado")
+
+    out = docs_prompt(
+        lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    # Адрес узла — тот же полный путь, которым адресуют пометки; таблица с разделом
+    # названа «раздел.имя» — ровно так её видит резолвер.
+    assert "- Хранилище: public.audit, zerver_message" in out.prompt
+    assert "- Kafka: notify_tornado" in out.prompt
+
+
+def test_endpoint_prompt_на_проекте_без_структуры_перечней_не_несёт(db):
+    # Доки часто грузят раньше структуры: заголовок над пустотой сказал бы агенту
+    # «описанных имён нет», и он вычистил бы верные пометки.
+    _tree(db)
+
+    out = docs_prompt(
+        lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert "уже описанные" not in out.prompt
