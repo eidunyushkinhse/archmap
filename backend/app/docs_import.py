@@ -17,6 +17,7 @@ import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import yaml
 from sqlalchemy.orm import Session
@@ -25,11 +26,19 @@ from app.mmd_header import parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 
+if TYPE_CHECKING:
+    # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
+    # верхнеуровневый импорт замкнул бы цикл (в рантайме — локальные импорты).
+    from app.data_refs import CatalogTable
+
 # Схем на объект. Поднято с 50 при переезде на .mmd: там схема — отдельный файл,
 # и потолок пакета стал ближе (docs/plan-docs-mmd.md, таблица лимитов).
 MAX_LOGIC_PER_NODE = 100
 MAX_MERMAID_LEN = 200_000
 MAX_SPEC_LEN = 2_000_000
+# Кап предупреждений о нерезолвящихся пометках данных на весь план: замечания
+# уезжают агенту ОДНИМ списком, и сотня строк одного класса вытеснит остальное.
+MAX_DATA_REF_WARNINGS = 12
 
 _ORIGINS = ("found", "generated", "synthesized")
 
@@ -244,6 +253,86 @@ def _resolve_entry(
     return idx
 
 
+_DATA_REF_PROBLEM: dict[str, str] = {
+    "unknown_table": "таблица не найдена в структуре проекта",
+    "ambiguous": "имя неоднозначно, укажите «Узел-БД / таблица»",
+    "unknown_column": "колонки нет в таблице",
+}
+
+
+class _DataRefCheck:
+    """Резолв пометок «читает:/пишет:» в текстах пакета — та же проверка, что
+    показывает плашка редактора схемы (app/data_refs.py).
+
+    Зачем в превью: детерминированные классы ошибок агента закрываются промптом, а
+    дисциплина пометок — нет (полевой QA docs/qa-zabbix-7.md, раунд 3: 46 битых
+    пометок при том же промпте, что в прошлом раунде дал 7). Лечится машинно —
+    кнопка «Скопировать замечания для агента» должна унести КОНКРЕТНЫЕ битые
+    ссылки, а не правило.
+
+    Пустой каталог (структуры БД в проекте ещё нет) — не повод шуметь на каждую
+    пометку: доки грузят раньше структуры, и это нормальный порядок. Тогда — одна
+    заметка на весь план.
+    """
+
+    def __init__(self, db: Session | None, project_id: uuid.UUID | None) -> None:
+        self.tables: list[CatalogTable] = []
+        self.node_paths: dict[uuid.UUID, str] = {}
+        self.enabled = db is not None and project_id is not None
+        self.seen: set[tuple[str, str, str]] = set()  # (файл, ссылка, статус)
+        self.warnings: list[str] = []
+        self.over = 0  # сколько ссылок не поместилось в кап
+        self.saw_refs = False
+        if db is not None and project_id is not None:
+            # Импорт локальный: app.data_refs берёт из этого модуля _node_paths, и
+            # верхнеуровневый импорт замкнул бы цикл. Каталог собирается ОДИН раз
+            # на план (внутри — весь проект: неоднозначность имени есть свойство
+            # проекта, а не одного узла).
+            from app.data_refs import catalog_for_project
+
+            self.tables, self.node_paths = catalog_for_project(db, project_id)
+
+    def check(self, fname: str, content: str) -> None:
+        """Пометки одного файла пакета. Дедуп по (файл, ссылка, статус): одна и та
+        же ссылка в режимах «читает» и «пишет» — один промах, а не два."""
+        if not self.enabled or not content:
+            return
+        # Локальный импорт — цикл, см. __init__.
+        from app.data_refs import parse_data_refs, resolve_data_refs
+
+        refs = parse_data_refs(content)
+        if not refs:
+            return
+        self.saw_refs = True
+        if not self.tables:
+            return
+        for r in resolve_data_refs(refs, self.tables, self.node_paths):
+            if r.status == "ok":
+                continue
+            key = (fname, r.ref, r.status)
+            if key in self.seen:
+                continue
+            self.seen.add(key)
+            if len(self.warnings) >= MAX_DATA_REF_WARNINGS:
+                self.over += 1
+                continue
+            self.warnings.append(f"{fname}: пометка «{r.ref}» — {_DATA_REF_PROBLEM[r.status]}")
+
+    def flush(self, plan: DocsPlan) -> None:
+        if not self.enabled:
+            return
+        if not self.tables:
+            if self.saw_refs:
+                plan.warnings.append(
+                    "В пакете есть пометки данных (читает:/пишет:), а структура БД в "
+                    "проекте ещё не описана — резолв пометок проверится, когда она появится"
+                )
+            return
+        plan.warnings.extend(self.warnings)
+        if self.over:
+            plan.warnings.append(f"…ещё {self.over} пометок не резолвится")
+
+
 def build_docs_plan(
     nodes: list[Node],
     entries: list[tuple[str, ParsedPkg]],
@@ -251,17 +340,23 @@ def build_docs_plan(
     overwrite: bool,
     window_node_id: uuid.UUID | None = None,
     scope_ids: set[uuid.UUID] | None = None,
+    db: Session | None = None,
+    project_id: uuid.UUID | None = None,
 ) -> DocsPlan:
-    """Мердж записей пакета против живого дерева → действия + отчёт. Чистая функция
-    (БД не трогает; nodes несут свои docs через relationship). Идентичность
+    """Мердж записей пакета против живого дерева → действия + отчёт. Идентичность
     дока = (узел, точное имя схемы), спеки = узел; дубль слота внутри ОДНОГО
     файла — ошибка, из РАЗНЫХ файлов — первый побеждает + конфликт.
+
+    БД не пишет (dry-run превью и применение зовут одно и то же); db/project_id —
+    только чтение каталога структуры для резолва пометок данных, без них проверка
+    пометок просто выключена.
 
     window_node_id — объект, из окна которого открыта дозаливка: к нему уезжают
     записи без адреса (файлы .mmd без «%% archmap-node»). scope_ids — его
     поддерево: адрес в шапке дальше него не действует, иначе схема тихо приехала
     бы чужому сервису."""
     plan = DocsPlan()
+    data_refs = _DataRefCheck(db, project_id)
     flat, fulls, by_bare, by_path = _node_paths(nodes)
     by_node_id = {n.id: i for i, n in enumerate(flat)}
     # Кто из узлов — контейнер (есть дети). Собственные доки у контейнера законны, но
@@ -330,6 +425,9 @@ def build_docs_plan(
                     )
                     continue
                 logic_owner[slot] = fname
+                # Пометки проверяем у схем, которые ДОЙДУТ до плана: у пропущенных
+                # дублей их текст всё равно не применится.
+                data_refs.check(fname, logic.mermaid)
                 if logic.kind == "operation" and not logic.operation:
                     plan.warnings.append(
                         f'{fname}: схема "{logic.name}" узла «{path}» — kind=operation '
@@ -415,6 +513,7 @@ def build_docs_plan(
 
     for name in sorted(set(assets) - used_assets):
         plan.warnings.append(f'файл "{name}" не пригодился — ни схема, ни спека')
+    data_refs.flush(plan)
     return plan
 
 

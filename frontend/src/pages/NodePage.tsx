@@ -391,9 +391,11 @@ function NodePageInner({
             <span className="np-term">Тип</span>
             <span className="np-value">{SHAPE_LABEL[shape]}</span>
 
-            {/* Размещение */}
-            <span className="np-term">Размещение</span>
-            <span className="np-value">
+            {/* Размещение. Внешность — относительно контура ОРГАНИЗАЦИИ (спека
+                N2а): чужой продукт/сторона, а не «вне системы» — границу системы
+                выражает дерево. Подсказка снимает двусмысленность (QA Zabbix v4). */}
+            <span className="np-term" title={EXTERNAL_HINT}>Размещение</span>
+            <span className="np-value" title={EXTERNAL_HINT}>
               {isArchitect ? (
                 <button type="button" className="np-toggle" onClick={patch.toggleExternal}>
                   <span className={"np-switch" + (patch.isExternal ? " is-on" : "")} />
@@ -1016,6 +1018,12 @@ const SHAPE_LABEL: Record<NodeShape, string> = {
   broker: "Брокер сообщений",
   person: "Пользователь",
 };
+
+// Внешность — относительно контура организации, не системы (спека N2а).
+const EXTERNAL_HINT =
+  "Внешний — чужой продукт или чужая сторона относительно ОРГАНИЗАЦИИ (SaaS, " +
+  "third-party, клиент). Свои сотрудники и свои серверы — внутренние, даже вне " +
+  "границы системы: границу системы выражает дерево, а не этот флаг";
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 

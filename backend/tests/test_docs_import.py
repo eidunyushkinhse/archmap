@@ -4,8 +4,9 @@
 шапкой, спека — файлом. build_docs_plan: резолв узлов (путь/имя/хвост/
 неоднозначно/не найден/вне поддерева окна), политика перезаписи
 (create/overwrite/skip/unchanged), конфликты слотов между файлами, эвристика
-OpenAPI. apply_docs_plan: запись + версии + идемпотентность. Эндпоинты —
-приём .mmd и голой спеки, правки из превью (overrides).
+OpenAPI, резолв пометок данных («читает:/пишет:») в текстах схем.
+apply_docs_plan: запись + версии + идемпотентность. Эндпоинты — приём .mmd и
+голой спеки, правки из превью (overrides).
 """
 
 import uuid
@@ -14,7 +15,14 @@ import pytest
 from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
-from app.docs_import import apply_docs_plan, build_docs_plan, pkg_from_mmd
+from app.docs_import import (
+    MAX_DATA_REF_WARNINGS,
+    apply_docs_plan,
+    build_docs_plan,
+    pkg_from_mmd,
+)
+from app.models.db_column import DbColumn
+from app.models.db_table import DbTable
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.routers.docs_import import docs_import_apply, docs_import_preview, docs_prompt
@@ -60,11 +68,13 @@ def _mmd(name: str, body: str = "graph TD\n  A --> B\n", **head) -> str:
 
 
 def _plan(db, files, assets=None, overwrite=False, window=None, scope=None):
-    """План по набору (имя файла, содержимое .mmd)."""
+    """План по набору (имя файла, содержимое .mmd). db/project_id — как из роутера:
+    по ним превью резолвит пометки данных в текстах схем."""
     entries = [(fname, pkg_from_mmd(fname, content)[0]) for fname, content in files]
     return build_docs_plan(
         _nodes(db), entries, assets or {}, overwrite,
         window.id if window is not None else None, scope,
+        db=db, project_id=ensure_project(db).id,
     )
 
 
@@ -590,3 +600,116 @@ def test_спека_пишется_и_повторное_применение_н
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
     assert [s.action for s in second.specs] == ["unchanged"]
+
+
+# ── пометки данных в превью пакета (полевой QA docs/qa-zabbix-7.md, раунд 3) ───
+# Дисциплина пометок слабой моделью высокодисперсна (46 битых пометок при том же
+# промпте, что раньше дал 7) — превью обязано отдавать агенту КОНКРЕТНЫЕ битые
+# ссылки, а не правило.
+
+
+def _db_node(db, name, parent=None):
+    n = _node(db, name, parent=parent)
+    n.shape = "database"
+    db.commit()
+    return n
+
+
+def _table(db, node, name="orders", columns=(), schema=""):
+    """Таблица структуры узла-БД (прямой ORM: превью каталог читает, а не пишет)."""
+    t = DbTable(id=uuid.uuid4(), node_id=node.id, name=name, schema_name=schema)
+    db.add(t)
+    db.flush()
+    for i, col in enumerate(columns):
+        db.add(DbColumn(id=uuid.uuid4(), table_id=t.id, name=col, type="text", order=i))
+    db.commit()
+    return t
+
+
+def _refs_mmd(marks: str, name: str = "Списание") -> str:
+    """Схема логики с пометкой данных в подписи вершины — так их пишет агент.
+    Имя схемы разное у разных файлов: одинаковое отдало бы второй файл в конфликт
+    слота, и его пометки до проверки бы не доехали."""
+    return _mmd(name, f'graph TD\n  A["Списать средства<br>{marks}"] --> B\n')
+
+
+def test_битая_пометка_уезжает_агенту_конкретной_ссылкой(db):
+    # Через эндпоинт: проверяется и проводка db/project_id из роутера в план.
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+
+    report = docs_import_preview(
+        _mmd_payload(
+            db, ("списание.mmd", _refs_mmd("читает/пишет: accounts.balance")), node=orders
+        ),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.errors == []
+    # Дедуп по (файл, ссылка, статус): слитное «читает/пишет» — один промах, не два.
+    assert [w for w in report.warnings if "пометка «" in w] == [
+        "списание.mmd: пометка «accounts.balance» — таблица не найдена в структуре проекта"
+    ]
+
+
+def test_здоровая_пометка_превью_не_беспокоит(db):
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("читает: orders.status"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+
+
+def test_без_структуры_бд_одна_заметка_вместо_шума_на_каждую_пометку(db):
+    # Курица-яйцо: доки грузят раньше структуры. Предупреждение на каждую пометку
+    # отправило бы агента «чинить» верные ссылки.
+    _root, orders, *_ = _tree(db)
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("пишет: accounts.balance", name="Списание")),
+        ("b.mmd", _refs_mmd("читает: orders.status", name="Чтение")),
+    ], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+    заметки = [w for w in plan.warnings if "структура БД в проекте ещё не описана" in w]
+    assert len(заметки) == 1
+
+    # Пометок в пакете нет — и заметки нет: молчим о том, чего никто не писал.
+    тихо = _plan(db, [("c.mmd", _mmd("Без пометок"))], window=orders)
+    assert not any("структура БД" in w for w in тихо.warnings)
+
+
+def test_неоднозначная_и_неизвестная_колонка_названы_своими_словами(db):
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    архив = _db_node(db, "Архив")
+    _table(db, хранилище, "orders", ["status"])
+    _table(db, архив, "orders", ["status"])
+    _table(db, хранилище, "accounts")
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("читает: orders", name="Чтение")),
+        ("b.mmd", _refs_mmd("пишет: accounts.balance", name="Списание")),
+    ], window=orders)
+
+    тексты = [w for w in plan.warnings if "пометка «" in w]
+    assert "a.mmd: пометка «orders» — имя неоднозначно, укажите «Узел-БД / таблица»" in тексты
+    assert "b.mmd: пометка «accounts.balance» — колонки нет в таблице" in тексты
+
+
+def test_кап_пометок_и_хвост_сколько_ещё(db):
+    # Замечания уезжают агенту одним списком: сотня строк одного класса вытеснила
+    # бы всё остальное.
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+    битых = MAX_DATA_REF_WARNINGS + 3
+    marks = "пишет: " + ", ".join(f"нет{i}" for i in range(битых))
+
+    plan = _plan(db, [("a.mmd", _refs_mmd(marks))], window=orders)
+
+    assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
+    assert "…ещё 3 пометок не резолвится" in plan.warnings
