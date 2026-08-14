@@ -42,6 +42,8 @@ _MAX_CONTAINER_EDGES = 10
 # Тот же кап у связей в брокер без канала — свой счётчик, чтобы один класс не
 # съедал квоту другого.
 _MAX_BROKER_EDGES = 10
+# И у связей, чей channel несёт ПЕРЕЧЕНЬ каналов вместо одного имени.
+_MAX_CHANNEL_LIST_EDGES = 10
 
 
 @dataclass
@@ -394,6 +396,7 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
         )
     _warn_container_edges(merged, report, parents)
     _warn_broker_edges(merged, report)
+    _warn_channel_lists(merged, report)
 
 
 def _warn_container_edges(
@@ -473,6 +476,36 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
         )
     if hidden:
         report.warnings.append(f"…ещё {hidden} таких связей с брокером")
+
+
+def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
+    """Связи, у которых в channel не имя канала, а ПЕРЕЧЕНЬ имён.
+
+    Находка №2 полевого QA (docs/qa-zulip-brokers.md): агент кладёт в поле
+    «email, notify_tornado, digest_emails». Правило промпта («одна пара ходит по
+    нескольким топикам — это несколько рёбер, по ребру на канал») есть и прямое, но
+    исполняется через раз, а машинной проверки формы не было ни в превью, ни в
+    валидаторе — промах всплывал уже после импорта нечитаемым AL31. Тот же урок Х5,
+    что у соседей: правило дисперсно, цель называет машина.
+
+    Разделителем считаем запятую и точку с запятой. Точки, дефисы и версии в имени
+    канала — норма («orders.created», «notify-tornado»), и подозрений не вызывают.
+    """
+    shown = hidden = 0
+    for e in merged.edges:
+        if not _fill(e.channel) or not any(sep in e.channel for sep in (",", ";")):
+            continue
+        if shown >= _MAX_CHANNEL_LIST_EDGES:
+            hidden += 1
+            continue
+        shown += 1
+        a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
+        report.warnings.append(
+            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}» — раздели "
+            f"на отдельные связи, по одной на канал"
+        )
+    if hidden:
+        report.warnings.append(f"…ещё {hidden} таких связей с перечнем в channel")
 
 
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:

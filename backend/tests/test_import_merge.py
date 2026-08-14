@@ -654,3 +654,81 @@ def test_связей_в_брокер_без_канала_больше_капа_
     assert errors == []
     assert len([w for w in report.warnings if "а канал не указан" in w]) == 10
     assert "…ещё 3 таких связей с брокером" in report.warnings
+
+
+# ── перечень вместо имени канала (Ф8г, находка №2 docs/qa-zulip-brokers.md) ────
+# Правило промпта «по ребру на канал» есть и прямое, но исполняется через раз, а
+# машинной проверки формы не было: перечень «email, notify_tornado, …» проходил
+# импорт немым и всплывал уже алертом AL31 с нечитаемым именем канала.
+
+
+def test_перечень_каналов_в_channel_называется_поимённо():
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            _БРОКЕР_A,
+            "edges:\n- from: orders\n  to: Kafka\n  channel: email, notify_tornado\n",
+        )
+    ])
+
+    assert errors == []
+    # Перечень назван целиком: агент чинит его расщеплением связи, и ему нужны все
+    # имена, а не «в этой связи что-то не так».
+    assert (
+        "связь «orders → Kafka»: в channel перечень «email, notify_tornado» — "
+        "раздели на отдельные связи, по одной на канал"
+    ) in report.warnings
+
+
+def test_точка_с_запятой_тоже_перечень():
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            _БРОКЕР_A,
+            "edges:\n- from: orders\n  to: Kafka\n  channel: email; digest_emails\n",
+        )
+    ])
+
+    assert errors == []
+    assert any("в channel перечень «email; digest_emails»" in w for w in report.warnings)
+
+
+def test_одиночный_канал_с_точками_и_дефисами_молчит():
+    # Точки, дефисы и версии в имени канала — норма именования, а не перечень:
+    # ложное предупреждение здесь отправило бы агента ломать верное поле.
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            _БРОКЕР_A,
+            "edges:\n- from: orders\n  to: Kafka\n  channel: orders.created.v2\n"
+            "- from: orders\n  to: Kafka\n  label: почта\n  channel: notify-tornado\n",
+        )
+    ])
+
+    assert errors == []
+    assert not any("в channel перечень" in w for w in report.warnings)
+
+
+def test_пустой_channel_о_перечне_не_говорит():
+    # Пустое поле — другой класс, и о нём уже говорит своё предупреждение: два
+    # замечания об одной связи агент чинит дважды.
+    _merged, report, errors = parse_and_merge([
+        _doc(_БРОКЕР_A, "edges:\n- from: orders\n  to: Kafka\n")
+    ])
+
+    assert errors == []
+    assert not any("в channel перечень" in w for w in report.warnings)
+    assert any("а канал не указан" in w for w in report.warnings)
+
+
+def test_перечней_в_channel_больше_капа_свёрнуты():
+    # Кап свой у каждого класса — как у связей в контейнер и в брокер без канала.
+    services = "".join(f"  - name: s{i}\n" for i in range(13))
+    edges = "".join(f"- from: s{i}\n  to: Kafka\n  channel: a, b\n" for i in range(13))
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Ярмарка\n  children:\n" + services + "  - name: Kafka\n    shape: broker\n",
+            "edges:\n" + edges,
+        )
+    ])
+
+    assert errors == []
+    assert len([w for w in report.warnings if "в channel перечень" in w]) == 10
+    assert "…ещё 3 таких связей с перечнем в channel" in report.warnings
