@@ -29,7 +29,7 @@ from app.models.node_doc import NodeDoc
 if TYPE_CHECKING:
     # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
     # верхнеуровневый импорт замкнул бы цикл (в рантайме — локальные импорты).
-    from app.data_refs import CatalogTable
+    from app.data_refs import CatalogChannel, CatalogTable
 
 # Схем на объект. Поднято с 50 при переезде на .mmd: там схема — отдельный файл,
 # и потолок пакета стал ближе (docs/plan-docs-mmd.md, таблица лимитов).
@@ -257,12 +257,18 @@ _DATA_REF_PROBLEM: dict[str, str] = {
     "unknown_table": "таблица не найдена в структуре проекта",
     "ambiguous": "имя неоднозначно, укажите «Узел-БД / таблица»",
     "unknown_column": "колонки нет в таблице",
+    # Канальная семья («публикует:/потребляет:») — свои слова: посылать агента искать
+    # топик в структуре базы значит гарантированно получить неверную правку.
+    "unknown_channel": "канал не найден у брокеров проекта",
+    "unknown_field": "поля нет в канале",
 }
+# «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму.
+_AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите «Брокер / канал»"
 
 
 class _DataRefCheck:
-    """Резолв пометок «читает:/пишет:» в текстах пакета — та же проверка, что
-    показывает плашка редактора схемы (app/data_refs.py).
+    """Резолв пометок «читает:/пишет:» и «публикует:/потребляет:» в текстах пакета —
+    та же проверка, что показывает плашка редактора схемы (app/data_refs.py).
 
     Зачем в превью: детерминированные классы ошибок агента закрываются промптом, а
     дисциплина пометок — нет (полевой QA docs/qa-zabbix-7.md, раунд 3: 46 битых
@@ -270,19 +276,22 @@ class _DataRefCheck:
     кнопка «Скопировать замечания для агента» должна унести КОНКРЕТНЫЕ битые
     ссылки, а не правило.
 
-    Пустой каталог (структуры БД в проекте ещё нет) — не повод шуметь на каждую
-    пометку: доки грузят раньше структуры, и это нормальный порядок. Тогда — одна
-    заметка на весь план.
+    Пустой каталог (структуры БД или каналов в проекте ещё нет) — не повод шуметь на
+    каждую пометку: доки грузят раньше структуры, и это нормальный порядок. Тогда —
+    одна заметка на весь план, и заметки ДВЕ НЕЗАВИСИМЫЕ: описанные таблицы ничего
+    не говорят о каналах, и наоборот.
     """
 
     def __init__(self, db: Session | None, project_id: uuid.UUID | None) -> None:
         self.tables: list[CatalogTable] = []
+        self.channels: list[CatalogChannel] = []
         self.node_paths: dict[uuid.UUID, str] = {}
         self.enabled = db is not None and project_id is not None
         self.seen: set[tuple[str, str, str]] = set()  # (файл, ссылка, статус)
         self.warnings: list[str] = []
         self.over = 0  # сколько ссылок не поместилось в кап
-        self.saw_refs = False
+        self.saw_table_refs = False
+        self.saw_channel_refs = False
         if db is not None and project_id is not None:
             # Импорт локальный: app.data_refs берёт из этого модуля _node_paths, и
             # верхнеуровневый импорт замкнул бы цикл. Каталог собирается ОДИН раз
@@ -290,7 +299,9 @@ class _DataRefCheck:
             # проекта, а не одного узла).
             from app.data_refs import catalog_for_project
 
-            self.tables, self.node_paths = catalog_for_project(db, project_id)
+            self.tables, self.channels, self.node_paths = catalog_for_project(
+                db, project_id
+            )
 
     def check(self, fname: str, content: str) -> None:
         """Пометки одного файла пакета. Дедуп по (файл, ссылка, статус): одна и та
@@ -298,15 +309,26 @@ class _DataRefCheck:
         if not self.enabled or not content:
             return
         # Локальный импорт — цикл, см. __init__.
-        from app.data_refs import parse_data_refs, resolve_data_refs
+        from app.data_refs import CHANNEL_MODES, parse_data_refs, resolve_data_refs
 
         refs = parse_data_refs(content)
         if not refs:
             return
-        self.saw_refs = True
-        if not self.tables:
+        for parsed in refs:
+            if parsed.mode in CHANNEL_MODES:
+                self.saw_channel_refs = True
+            else:
+                self.saw_table_refs = True
+        # Резолвим только те пометки, чей каталог непуст: «структуры ещё нет» — это
+        # не промах агента, и гонять по нему нечего (заметку добавит flush).
+        usable = [
+            r
+            for r in refs
+            if (self.channels if r.mode in CHANNEL_MODES else self.tables)
+        ]
+        if not usable:
             return
-        for r in resolve_data_refs(refs, self.tables, self.node_paths):
+        for r in resolve_data_refs(usable, self.tables, self.channels, self.node_paths):
             if r.status == "ok":
                 continue
             key = (fname, r.ref, r.status)
@@ -316,21 +338,32 @@ class _DataRefCheck:
             if len(self.warnings) >= MAX_DATA_REF_WARNINGS:
                 self.over += 1
                 continue
-            self.warnings.append(f"{fname}: пометка «{r.ref}» — {_DATA_REF_PROBLEM[r.status]}")
+            problem = (
+                _AMBIGUOUS_CHANNEL
+                if r.status == "ambiguous" and r.mode in CHANNEL_MODES
+                else _DATA_REF_PROBLEM[r.status]
+            )
+            self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}")
 
     def flush(self, plan: DocsPlan) -> None:
         if not self.enabled:
             return
-        if not self.tables:
-            if self.saw_refs:
-                plan.warnings.append(
-                    "В пакете есть пометки данных (читает:/пишет:), а структура БД в "
-                    "проекте ещё не описана — резолв пометок проверится, когда она появится"
-                )
-            return
         plan.warnings.extend(self.warnings)
         if self.over:
             plan.warnings.append(f"…ещё {self.over} пометок не резолвится")
+        # Заметки о неописанной структуре независимы: таблицы могут быть описаны, а
+        # каналы нет (порядок Р4 плана — структура раньше доков — соблюдают не всегда).
+        if self.saw_table_refs and not self.tables:
+            plan.warnings.append(
+                "В пакете есть пометки данных (читает:/пишет:), а структура БД в "
+                "проекте ещё не описана — резолв пометок проверится, когда она появится"
+            )
+        if self.saw_channel_refs and not self.channels:
+            plan.warnings.append(
+                "В пакете есть пометки каналов (публикует:/потребляет:), а каналы "
+                "брокеров в проекте ещё не описаны — резолв пометок проверится, когда "
+                "они появятся"
+            )
 
 
 def build_docs_plan(

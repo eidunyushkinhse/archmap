@@ -27,7 +27,7 @@ vi.mock("../../api/nodes", () => ({
   dbTablesApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
   // Секция «Каналы» — то же самое на странице брокера. Мок модуля ЦЕЛИКОМ: забыть
   // здесь новый экспорт значит уронить страницу на «не функция» в первом же тесте.
-  brokerChannelsApi: { list: vi.fn(() => Promise.resolve([])) },
+  brokerChannelsApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
   viewsApi: { state: vi.fn() },
   edgesApi: { update: vi.fn() },
   exportApi: { subtree: vi.fn() },

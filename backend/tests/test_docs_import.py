@@ -21,6 +21,8 @@ from app.docs_import import (
     build_docs_plan,
     pkg_from_mmd,
 )
+from app.models.broker_channel import BrokerChannel
+from app.models.channel_field import ChannelField
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -713,3 +715,98 @@ def test_кап_пометок_и_хвост_сколько_ещё(db):
 
     assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
     assert "…ещё 3 пометок не резолвится" in plan.warnings
+
+
+# ── пометки каналов в превью пакета (Ф2 docs/plan-broker-docs.md) ──────────────
+# Тот же механизм и тот же кап, но СВОИ слова: послать агента искать топик в
+# «структуре проекта» значит гарантированно получить неверную правку.
+
+
+def _broker_node(db, name, parent=None):
+    n = _node(db, name, parent=parent)
+    n.shape = "broker"
+    db.commit()
+    return n
+
+
+def _channel(db, node, name="созданные", fields=(), group=""):
+    c = BrokerChannel(id=uuid.uuid4(), node_id=node.id, name=name, group_name=group)
+    db.add(c)
+    db.flush()
+    for i, f in enumerate(fields):
+        db.add(ChannelField(id=uuid.uuid4(), channel_id=c.id, name=f, type="uuid", order=i))
+    db.commit()
+    return c
+
+
+def test_битая_канальная_пометка_названа_своими_словами(db):
+    _root, orders, *_ = _tree(db)
+    kafka = _broker_node(db, "Kafka")
+    сосед = _broker_node(db, "RabbitMQ")
+    _channel(db, kafka, "созданные", ["order_id"])
+    _channel(db, kafka, "события")
+    _channel(db, сосед, "события")  # одноимённый → голое «события» неоднозначно
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("публикует: создание", name="Публикация")),
+        ("b.mmd", _refs_mmd("потребляет: события", name="Потребление")),
+        ("c.mmd", _refs_mmd("публикует: созданные.total", name="Глубина")),
+    ], window=orders)
+
+    тексты = [w for w in plan.warnings if "пометка «" in w]
+    assert "a.mmd: пометка «создание» — канал не найден у брокеров проекта" in тексты
+    assert "b.mmd: пометка «события» — имя неоднозначно, укажите «Брокер / канал»" in тексты
+    assert "c.mmd: пометка «созданные.total» — поля нет в канале" in тексты
+
+
+def test_здоровая_канальная_пометка_превью_не_беспокоит(db):
+    _root, orders, *_ = _tree(db)
+    kafka = _broker_node(db, "Kafka")
+    _channel(db, kafka, "созданные", ["order_id"])
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("публикует: созданные.order_id"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+
+
+def test_заметки_о_неописанной_структуре_независимы(db):
+    """Таблицы могут быть описаны, а каналы — нет (и наоборот): порядок «структура
+    раньше доков» соблюдают не всегда, и молчать о своей половине нельзя."""
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("читает: orders.status", name="Чтение")),
+        ("b.mmd", _refs_mmd("публикует: созданные", name="Публикация")),
+    ], window=orders)
+
+    # Таблицы описаны — здоровая табличная пометка молчит; каналов нет вовсе, и
+    # вместо шума на каждую канальную пометку — одна заметка на пакет.
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert not any("структура БД в проекте ещё не описана" in w for w in plan.warnings)
+    каналы = [w for w in plan.warnings if "каналы брокеров в проекте ещё не описаны" in w]
+    assert len(каналы) == 1
+
+    # Пометок каналов в пакете нет — и заметки нет: молчим о том, чего не писали.
+    тихо = _plan(db, [("c.mmd", _refs_mmd("читает: orders.status", name="Только данные"))],
+                 window=orders)
+    assert not any("каналы брокеров" in w for w in тихо.warnings)
+
+
+def test_общий_кап_на_обе_семьи_пометок(db):
+    # Замечания уезжают агенту одним списком: кап общий, иначе один класс вытеснит
+    # другой ровно так же, как раньше вытеснял всё остальное.
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+    kafka = _broker_node(db, "Kafka")
+    _channel(db, kafka, "созданные")
+    половина = MAX_DATA_REF_WARNINGS
+    данные = "пишет: " + ", ".join(f"нет_т{i}" for i in range(половина))
+    каналы = "публикует: " + ", ".join(f"нет_к{i}" for i in range(половина))
+
+    plan = _plan(db, [("a.mmd", _refs_mmd(f"{данные}<br>{каналы}"))], window=orders)
+
+    assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
+    assert f"…ещё {половина} пометок не резолвится" in plan.warnings

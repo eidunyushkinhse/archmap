@@ -10,9 +10,10 @@
 бампает meta_rev — структура это МЕТА узла (видна на его странице, не на схеме), и
 поллинг страницы обязан отличать её от изменений схемы (graph_rev).
 
-Обращений к каналам («кто публикует / кто потребляет») здесь нет и не будет: их
-истина — пометки «публикует:/потребляет:» в тексте схем логики вызывающих, разбор и
-резолв на чтении (пивот §1 docs/plan-broker-docs.md), обратный индекс — фаза Ф2.
+Обращений к каналам («кто публикует / кто потребляет») СВОИХ ЗАПИСЕЙ здесь нет и не
+будет: их истина — пометки «публикует:/потребляет:» в тексте схем логики вызывающих,
+разбор и резолв на чтении (пивот §1 docs/plan-broker-docs.md). Обратный индекс
+(GET /usage) их только РАЗВОРАЧИВАЕТ, ничего не храня.
 """
 
 import uuid
@@ -21,11 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
+from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.broker_channel import (
@@ -35,6 +38,7 @@ from app.schemas.broker_channel import (
     ChannelFieldCreate,
     ChannelFieldResponse,
     ChannelFieldUpdate,
+    ChannelUsage,
 )
 from app.view_state import bump_meta_rev
 
@@ -114,6 +118,80 @@ def list_channels(
     # запрещено при смене типа (node.md N4а).
     node = _get_node(db, node_id, project)
     return list(node.broker_channels)
+
+
+@router.get("/usage", response_model=list[ChannelUsage])
+def list_usage(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[ChannelUsage]:
+    """Кто публикует и кто потребляет каналы этого брокера — разворот пометок из
+    схем логики проекта.
+
+    Ради этого ответа структура каналов и заводилась: перечень каналов говорит, ЧТО
+    брокер переносит, а обратный индекс — кто кладёт событие и кто его ждёт (вопрос
+    сопровождения «кого сломает изменение формата»). Источник — сам текст доков
+    (пивот §1 плана): разбор и резолв на чтении, хранения обращений нет.
+
+    ОБЪЯВЛЕН ДО путей с {channel_id}: иначе «usage» поехало бы в разбор uuid.
+    """
+    node = _get_node(db, node_id, project)
+    tables, channels, node_paths = catalog_for_project(db, project.id)
+    # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые каналы у соседних
+    # брокеров перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
+    mine = {c.id: c for c in channels if c.node_id == node.id}
+    if not mine:
+        return []
+
+    docs = (
+        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
+        .select_from(NodeDoc)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(Node.project_id == project.id)
+        .all()
+    )
+
+    rows: list[ChannelUsage] = []
+    # Дедуп в пределах дока: «orders.created» и «Кафка / orders.created» — одно и то
+    # же обращение, написанное по-разному, и второй строкой в индексе быть не должно.
+    seen: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None, str]] = set()
+    for doc_id, doc_name, content, caller_id, caller_name in docs:
+        if not content:
+            continue
+        for ref in resolve_data_refs(
+            parse_data_refs(content), tables, channels, node_paths
+        ):
+            # Табличные пометки («читает:/пишет:») этому индексу не принадлежат —
+            # их разворот живёт у базы: каталоги и семьи режимов разведены.
+            if ref.mode != "publish" and ref.mode != "consume":
+                continue
+            # unknown_channel/ambiguous сюда НЕ попадают: индекс брокера отвечает за
+            # факты, а нерезолвнутой пометке место в алертах и в плашке редактора.
+            if ref.status not in ("ok", "unknown_field") or ref.channel_id is None:
+                continue
+            channel = mine.get(ref.channel_id)
+            if channel is None:
+                continue
+            # unknown_field = канал нашёлся, поля нет → обращение к каналу ЦЕЛИКОМ;
+            # несуществующее поле в индекс не тащим (его подсветит алерт).
+            field_id = ref.field_id if ref.status == "ok" else None
+            field_name = ref.field_name if ref.status == "ok" else None
+            key = (doc_id, channel.id, field_id, ref.mode)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                ChannelUsage(
+                    channel_id=channel.id, channel_name=channel.name,
+                    field_id=field_id, field_name=field_name,
+                    mode=ref.mode, doc_id=doc_id, doc_name=doc_name,
+                    node_id=caller_id, node_name=caller_name,
+                )
+            )
+    rows.sort(key=lambda u: (u.channel_name, u.node_name, u.doc_name))
+    return rows
 
 
 @router.post("", response_model=BrokerChannelResponse, status_code=status.HTTP_201_CREATED)

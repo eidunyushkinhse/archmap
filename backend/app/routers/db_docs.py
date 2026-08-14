@@ -120,7 +120,7 @@ def list_usage(
     (пивот §9 плана): разбор и резолв на чтении, хранения обращений нет.
     """
     node = _get_node(db, node_id, project)
-    tables, node_paths = catalog_for_project(db, project.id)
+    tables, channels, node_paths = catalog_for_project(db, project.id)
     # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые таблицы в чужих базах
     # перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
     mine = {t.id: t for t in tables if t.node_id == node.id}
@@ -142,9 +142,13 @@ def list_usage(
     for doc_id, doc_name, content, caller_id, caller_name in docs:
         if not content:
             continue
-        for ref in resolve_data_refs(parse_data_refs(content), tables, node_paths):
+        for ref in resolve_data_refs(
+            parse_data_refs(content), tables, channels, node_paths
+        ):
             # unknown_table/ambiguous сюда НЕ попадают: индекс базы отвечает за факты,
             # а нерезолвнутой пометке место в алертах и в плашке редактора дока.
+            # Канальные пометки («публикует:/потребляет:») отсеиваются сами: у них
+            # table_id пуст — их разворот живёт у брокера (channels/usage).
             if ref.status not in ("ok", "unknown_column") or ref.table_id is None:
                 continue
             table = mine.get(ref.table_id)

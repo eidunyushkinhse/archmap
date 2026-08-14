@@ -7,8 +7,14 @@
 """
 
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+# Что операция делает с каналом («публикует:» / «потребляет:» в пометке). Слова свои,
+# а не «пишет/читает»: семантика доставки другая — сопровождение спрашивает «кто ещё
+# потребляет это событие», а не «кто пишет в топик» (решение §7.1 плана).
+ChannelAccessMode = Literal["publish", "consume"]
 
 
 class ChannelFieldCreate(BaseModel):
@@ -80,3 +86,24 @@ class BrokerChannelResponse(BaseModel):
     fields: list[ChannelFieldResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+class ChannelUsage(BaseModel):
+    """Обратный индекс: кто публикует и кто потребляет этот канал.
+
+    Разворот пометок «публикует:/потребляет:» из схем логики проекта — ради него
+    структура каналов и заводилась: перечень каналов говорит, ЧТО брокер переносит,
+    а индекс — кто кладёт событие и кто его ждёт (вопрос «кого сломает изменение»).
+    """
+
+    channel_id: uuid.UUID
+    channel_name: str
+    # Поле сообщения, если пометка называла глубину «канал.поле»; None — обращение к
+    # каналу целиком (в том числе когда названного поля в канале нет).
+    field_id: uuid.UUID | None
+    field_name: str | None
+    mode: ChannelAccessMode
+    doc_id: uuid.UUID
+    doc_name: str
+    node_id: uuid.UUID
+    node_name: str

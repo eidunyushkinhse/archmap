@@ -163,6 +163,8 @@ export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
 export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 // Пометка «читает:/пишет:» в схеме логики, не нашедшая таблицу структуры (AL29).
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
+// То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
+export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
@@ -231,6 +233,8 @@ export type BrokerChannelUpdate = Schemas["BrokerChannelUpdate"];
 export type ChannelField = Schemas["ChannelFieldResponse"];
 export type ChannelFieldCreate = Schemas["ChannelFieldCreate"];
 export type ChannelFieldUpdate = Schemas["ChannelFieldUpdate"];
+// Обратный индекс брокера («кто публикует / кто потребляет») — разворот пометок.
+export type ChannelUsage = Schemas["ChannelUsage"];
 // Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
 // (POST /data-refs/preview) — статус резолва и готовая подпись цели.
 export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];

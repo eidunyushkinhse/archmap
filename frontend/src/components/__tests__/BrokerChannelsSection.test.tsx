@@ -9,11 +9,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import BrokerChannelsSection from "../BrokerChannelsSection";
 import { brokerChannelsApi } from "../../api/nodes";
-import type { BrokerChannel, ChannelField } from "../../types";
+import type { BrokerChannel, ChannelField, ChannelUsage } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
   brokerChannelsApi: {
     list: vi.fn(),
+    usage: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -38,8 +39,9 @@ function channel(over: Partial<BrokerChannel> = {}): BrokerChannel {
   } as BrokerChannel;
 }
 
-function setup(channels: BrokerChannel[], isArchitect = true) {
+function setup(channels: BrokerChannel[], isArchitect = true, usage: ChannelUsage[] = []) {
   vi.mocked(brokerChannelsApi.list).mockResolvedValue(channels);
+  vi.mocked(brokerChannelsApi.usage).mockResolvedValue(usage);
   return render(<BrokerChannelsSection nodeId="n1" isArchitect={isArchitect} />);
 }
 
@@ -162,5 +164,65 @@ describe("BrokerChannelsSection", () => {
     expect(screen.queryByDisplayValue("order_id")).toBeNull();
     expect(screen.queryByText("+ Поле")).toBeNull();
     expect(screen.queryByLabelText("Обязательное поле")).toBeNull();
+  });
+  it("обратный индекс: кто публикует и кто потребляет — в теле канала", async () => {
+    // Ради этого ответа структура каналов и заводилась: перечень говорит, ЧТО брокер
+    // переносит, индекс — кто кладёт событие и кто его ждёт. Записей у него нет:
+    // строки собраны из пометок в текстах схем логики вызывающих.
+    setup([channel()], true, [
+      {
+        channel_id: "ch1", channel_name: "orders.created",
+        field_id: "f1", field_name: "order_id", mode: "publish",
+        doc_id: "d1", doc_name: "POST /orders", node_id: "n2", node_name: "Заказы",
+      },
+      {
+        channel_id: "ch1", channel_name: "orders.created",
+        field_id: null, field_name: null, mode: "consume",
+        doc_id: "d2", doc_name: "Обработчик", node_id: "n3", node_name: "Склад",
+      },
+    ]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
+    // Индекс живёт в теле раскрывашки — как мета доставки и поля.
+    expect(screen.queryByText("публикует")).toBeNull();
+
+    await userEvent.click(screen.getByLabelText("Развернуть канал"));
+
+    expect(screen.getByText("Кто публикует / кто потребляет")).toBeInTheDocument();
+    expect(screen.getByText("публикует")).toBeInTheDocument();
+    expect(screen.getByText("потребляет")).toBeInTheDocument();
+    // Глубина «канал.поле» видна: вопрос «откуда в событии значение» без неё не закрыт.
+    expect(screen.getByText("orders.created.order_id")).toBeInTheDocument();
+    expect(screen.getByText("Заказы · POST /orders")).toBeInTheDocument();
+    expect(screen.getByText("Склад · Обработчик")).toBeInTheDocument();
+  });
+
+  it("пометок на канал нет — говорим это конкретно, а не молчим", async () => {
+    // Молчание читалось бы как «событие никому не нужно», а «обращений не описано»
+    // отправляло бы искать форму ввода, которой нет.
+    setup([channel()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть канал"));
+
+    expect(
+      screen.getByText("Пометок «публикует:/потребляет:» на этот канал в схемах логики нет"),
+    ).toBeInTheDocument();
+  });
+
+  it("строки чужого канала в карточку не попадают", async () => {
+    setup([channel(), channel({ id: "ch2", name: "audit" })], true, [
+      {
+        channel_id: "ch2", channel_name: "audit", field_id: null, field_name: null,
+        mode: "publish", doc_id: "d1", doc_name: "POST /orders",
+        node_id: "n2", node_name: "Заказы",
+      },
+    ]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders.created")).toBeInTheDocument());
+    const [первый] = screen.getAllByLabelText("Развернуть канал");
+    await userEvent.click(первый);
+
+    expect(
+      screen.getByText("Пометок «публикует:/потребляет:» на этот канал в схемах логики нет"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Заказы · POST /orders")).toBeNull();
   });
 });

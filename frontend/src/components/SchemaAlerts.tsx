@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { SchemaAlerts as Alerts, UnresolvedDataRefAlert } from "../types";
+import type {
+  SchemaAlerts as Alerts,
+  UnresolvedChannelRefAlert,
+  UnresolvedDataRefAlert,
+} from "../types";
 import "./schemaAlerts.css";
 
 /**
@@ -32,7 +36,11 @@ import "./schemaAlerts.css";
  *     редактор-карта живёт отдельным роутом и обработчик не передаёт;
  *  7) Обращения к неописанным данным — пометка «читает:/пишет:» в схеме логики не
  *     нашла свою таблицу структуры (AL29). Пометка — обещание факта, и строка
- *     называет причину невыполнения: таблицы нет / имя неоднозначно / нет колонки.
+ *     называет причину невыполнения: таблицы нет / имя неоднозначно / нет колонки;
+ *  8) Обращения к неописанным каналам — то же для событий: «публикует:/потребляет:»
+ *     не нашла канал в структуре брокеров (AL30). Класс отдельный от (7): причины и
+ *     слова починки свои («укажите „Брокер / канал“»), а искать топик в структуре
+ *     базы человека посылать нельзя.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -84,6 +92,9 @@ const IcoNoReturn = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {.
 // Обращение к неописанным данным: цилиндр базы со знаком вопроса — цель пометки
 // не нашлась.
 const IcoUnknownData = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><ellipse cx="6.6" cy="3.6" rx="4.2" ry="1.7" /><path d="M2.4 3.6v6c0 .9 1.9 1.7 4.2 1.7" /><path d="M10.8 3.6v2.4" /><path d="M10.2 9.6a1.6 1.6 0 1 1 2.2 1.5v.9" /><path d="M12.4 13.7h.01" /></svg>;
+// Обращение к неописанному каналу: конверт события со знаком вопроса — цель
+// пометки не нашлась в структуре брокеров.
+const IcoUnknownChannel = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="1.8" y="3.4" width="9.4" height="7.2" rx="1.2" /><path d="M1.8 4.4 6.5 7.6l4.7-3.2" /><path d="M11.6 11.4a1.5 1.5 0 1 1 2 1.4v.7" /><path d="M13.6 15.1h.01" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
 
 // Почему пометка не срослась. Текст обязан подсказывать действие: неоднозначность
@@ -92,6 +103,14 @@ const REF_REASON: Record<UnresolvedDataRefAlert["reason"], string> = {
   unknown_table: "таблица не найдена",
   ambiguous: "имя неоднозначно — укажите „БД / таблица“",
   unknown_column: "колонки нет в таблице",
+};
+
+// То же для каналов: слова СВОИ — «Брокер / канал» вместо «БД / таблица», иначе
+// подсказка ведёт чинить не туда.
+const CHANNEL_REASON: Record<UnresolvedChannelRefAlert["reason"], string> = {
+  unknown_channel: "канал не найден у брокеров проекта",
+  ambiguous: "имя неоднозначно — укажите „Брокер / канал“",
+  unknown_field: "поля нет в канале",
 };
 
 export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props) {
@@ -122,6 +141,9 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // не подтверждает. Единственное место, где видна битая КОЛОНКА — обратный индекс
   // базы показывает такую пометку как обращение к таблице целиком.
   const unresolvedRefs = alerts.unresolved_data_refs;
+  // То же для событий: пометка обещала канал, а структура брокеров его не знает.
+  // Отдельный класс — чинится другими словами (см. CHANNEL_REASON).
+  const unresolvedChannelRefs = alerts.unresolved_channel_refs;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
@@ -130,7 +152,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   const total =
     disconnected.length + intermediate.length + isolatedProblems +
     containerOwn.length + personsInside.length + dangling.length + unbound.length +
-    orphanLegs.length + unresolvedRefs.length;
+    orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -257,6 +279,22 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
                 <span style={{ display: "block", lineHeight: 1.35 }}>
                   <span style={{ color: "#6b7280", fontWeight: 600 }}>{r.node_name} · {r.doc_name}:</span>{" "}
                   <span style={badEnd}>„{r.ref}“</span> — {REF_REASON[r.reason]}
+                </span>
+              </Item>
+            ))}
+          </Section>
+
+          {/* Событийный близнец предыдущей секции: строка так же ведёт к узлу-
+              ВЛАДЕЛЬЦУ дока — чинится текст пометки у него, а не структура брокера. */}
+          <Section icon={IcoUnknownChannel(13)} title="Обращения к неописанным каналам" count={unresolvedChannelRefs.length}>
+            {unresolvedChannelRefs.map((r) => (
+              <Item
+                key={`${r.doc_id}:${r.mode}:${r.ref}`}
+                onClick={onLocate && (() => locate({ kind: "node", id: r.node_id }))}
+              >
+                <span style={{ display: "block", lineHeight: 1.35 }}>
+                  <span style={{ color: "#6b7280", fontWeight: 600 }}>{r.node_name} · {r.doc_name}:</span>{" "}
+                  <span style={badEnd}>„{r.ref}“</span> — {CHANNEL_REASON[r.reason]}
                 </span>
               </Item>
             ))}

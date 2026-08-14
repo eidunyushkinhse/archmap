@@ -481,3 +481,103 @@ def test_порядок_алертов_детерминированный(db):
         ("Биллинг", "POST /pay", "счета"),
         ("Заказы", "GET /orders", "нет_такой"),
     ]
+
+
+# ====== 10) Пометки каналов, не нашедшие цели (AL30) ======
+# Зеркало AL29 для событий, но КЛАСС ОТДЕЛЬНЫЙ (решение §7.4 plan-broker-docs.md):
+# причины и слова починки свои («укажите „Брокер / канал“»), а мешать топики с
+# таблицами в одной строке панели значит запутать починку.
+
+
+def _канал(db, узел, name="созданные", group=""):
+    from app.models.broker_channel import BrokerChannel
+
+    c = BrokerChannel(id=uuid.uuid4(), node_id=узел.id, name=name, group_name=group)
+    db.add(c)
+    db.flush()
+    return c
+
+
+def _поле(db, канал, name="order_id"):
+    from app.models.channel_field import ChannelField
+
+    f = ChannelField(id=uuid.uuid4(), channel_id=канал.id, name=name, type="uuid")
+    db.add(f)
+    db.flush()
+    return f
+
+
+def _каналы(db):
+    return get_alerts(db=db, project=ensure_project(db), _=None).unresolved_channel_refs
+
+
+def test_битая_канальная_пометка_даёт_алерт(db):
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы")
+    _канал(db, брокер, "созданные")
+    _док(db, сервис, "POST /orders", 'A["Оформить<br>публикует: создание"]')
+    db.commit()
+
+    [алерт] = _каналы(db)
+
+    # Адрес починки — у ВЫЗЫВАЮЩЕГО: чинится текст его схемы, а не структура брокера.
+    assert (алерт.node_name, алерт.doc_name) == ("Заказы", "POST /orders")
+    assert (алерт.ref, алерт.mode, алерт.reason) == ("создание", "publish", "unknown_channel")
+
+
+def test_здоровая_канальная_пометка_алерта_не_даёт(db):
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы")
+    канал = _канал(db, брокер, "созданные")
+    _поле(db, канал, "order_id")
+    _док(db, сервис, content='A["публикует: созданные.order_id"]')
+    _док(db, сервис, "Обзор")  # док без текста: не падаем и не шумим
+    db.commit()
+
+    assert _каналы(db) == []
+
+
+def test_неоднозначный_канал_и_отсутствующее_поле_названы_своими_причинами(db):
+    брокер = _node(db, "Kafka")
+    сосед = _node(db, "RabbitMQ")
+    сервис = _node(db, "Заказы")
+    канал = _канал(db, брокер, "события")
+    _поле(db, канал, "order_id")
+    _канал(db, сосед, "события")  # одноимённый у соседа → голое имя неоднозначно
+    док = _док(db, сервис, content='A["потребляет: события"]')
+    db.commit()
+
+    [алерт] = _каналы(db)
+    assert (алерт.reason, алерт.mode) == ("ambiguous", "consume")
+
+    # Квалификатор «Брокер / канал» снимает алерт — угадывать за пользователя нельзя,
+    # но и тупиком алерт не является.
+    док.content = 'A["потребляет: Kafka / события"]'
+    db.commit()
+    assert _каналы(db) == []
+
+    # Поля в канале нет — канал есть, а обещанной глубины нет: третья причина.
+    док.content = 'A["потребляет: Kafka / события.total"]'
+    db.commit()
+    [нет_поля] = _каналы(db)
+    assert нет_поля.reason == "unknown_field"
+
+
+def test_классы_разведены_канальное_не_попадает_в_AL29_и_наоборот(db):
+    """Разведение AL29/AL30 — суть решения: у «ambiguous» обеих семей один статус, и
+    только режим пометки говорит, чей он. Слитый класс отправил бы инженера искать
+    топик в структуре базы."""
+    бд = _node(db, "Хранилище")
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы")
+    _таблица(db, бд, "orders")
+    _канал(db, брокер, "созданные")
+    _док(db, сервис, "POST /orders", 'A["пишет: ordrs<br>публикует: создание"]')
+    db.commit()
+
+    отчёт = get_alerts(db=db, project=ensure_project(db), _=None)
+
+    [табличный] = отчёт.unresolved_data_refs
+    [канальный] = отчёт.unresolved_channel_refs
+    assert (табличный.ref, табличный.reason) == ("ordrs", "unknown_table")
+    assert (канальный.ref, канальный.reason) == ("создание", "unknown_channel")

@@ -908,6 +908,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/channels/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Usage
+         * @description Кто публикует и кто потребляет каналы этого брокера — разворот пометок из
+         *     схем логики проекта.
+         *
+         *     Ради этого ответа структура каналов и заводилась: перечень каналов говорит, ЧТО
+         *     брокер переносит, а обратный индекс — кто кладёт событие и кто его ждёт (вопрос
+         *     сопровождения «кого сломает изменение формата»). Источник — сам текст доков
+         *     (пивот §1 плана): разбор и резолв на чтении, хранения обращений нет.
+         *
+         *     ОБЪЯВЛЕН ДО путей с {channel_id}: иначе «usage» поехало бы в разбор uuid.
+         */
+        get: operations["list_usage_api_v1_nodes__node_id__channels_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/channels/{channel_id}": {
         parameters: {
             query?: never;
@@ -1559,6 +1587,11 @@ export interface components {
              * @default []
              */
             unresolved_data_refs: components["schemas"]["UnresolvedDataRefAlert"][];
+            /**
+             * Unresolved Channel Refs
+             * @default []
+             */
+            unresolved_channel_refs: components["schemas"]["UnresolvedChannelRefAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1796,6 +1829,46 @@ export interface components {
             legs: components["schemas"]["LegOut"][];
         };
         /**
+         * ChannelUsage
+         * @description Обратный индекс: кто публикует и кто потребляет этот канал.
+         *
+         *     Разворот пометок «публикует:/потребляет:» из схем логики проекта — ради него
+         *     структура каналов и заводилась: перечень каналов говорит, ЧТО брокер переносит,
+         *     а индекс — кто кладёт событие и кто его ждёт (вопрос «кого сломает изменение»).
+         */
+        ChannelUsage: {
+            /**
+             * Channel Id
+             * Format: uuid
+             */
+            channel_id: string;
+            /** Channel Name */
+            channel_name: string;
+            /** Field Id */
+            field_id: string | null;
+            /** Field Name */
+            field_name: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "publish" | "consume";
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+        };
+        /**
          * ContainerOwnDocsAlert
          * @description Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): узел стал
          *     контейнером (появились дети), но логика/спека остались на нём самом.
@@ -1913,12 +1986,12 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "read" | "write";
+            mode: "read" | "write" | "publish" | "consume";
             /**
              * Status
              * @enum {string}
              */
-            status: "ok" | "unknown_table" | "ambiguous" | "unknown_column";
+            status: "ok" | "unknown_table" | "unknown_column" | "unknown_channel" | "unknown_field" | "ambiguous";
             /** Target */
             target: string | null;
         };
@@ -3906,6 +3979,43 @@ export interface components {
             participant_id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * UnresolvedChannelRefAlert
+         * @description Пометка «публикует:/потребляет:» в схеме логики, не нашедшая свой канал.
+         *
+         *     ОТДЕЛЬНЫЙ класс, а не расширение AL29 (решение §7.4 plan-broker-docs.md): у
+         *     каналов свой каталог, свои причины и свои слова починки — «укажите „Брокер /
+         *     канал“» вместо «„БД / таблица“». Смешать их значило бы предложить инженеру
+         *     искать топик в структуре базы.
+         */
+        UnresolvedChannelRefAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /** Ref */
+            ref: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "publish" | "consume";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "unknown_channel" | "ambiguous" | "unknown_field";
         };
         /**
          * UnresolvedDataRefAlert
@@ -5905,6 +6015,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BrokerChannelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_usage_api_v1_nodes__node_id__channels_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelUsage"][];
                 };
             };
             /** @description Validation Error */

@@ -3,11 +3,16 @@
 Чистые функции без БД. Проверяется нормативная грамматика (spec.md) и правила
 резолва — особенно неоднозначность «x.y»: молча выбрать одну из гипотез — значит
 казаться работающим, атрибутируя обращение не туда.
+
+Каналы брокеров (docs/plan-broker-docs.md §3) живут здесь же, но в ДРУГОМ каталоге:
+«пишет: orders» и «публикует: orders» обязаны вести в разные места — ради этого
+маркеры и разведены (решение §7.1).
 """
 
 import uuid
 
 from app.data_refs import (
+    CatalogChannel,
     CatalogTable,
     DataRefIn,
     parse_data_refs,
@@ -107,14 +112,49 @@ def test_разбор_пустой_хвост_не_даёт_ссылок():
     assert parse_data_refs('A["читает:"] B["пишет: , ,"]') == []
 
 
+def test_разбор_маркеры_каналов_ru_и_en():
+    # Свои слова, а не «пишет/читает»: семантика доставки другая, и каталог свой.
+    doc = (
+        'A["Оформить<br>публикует: orders.created"] --> B["Списать<br>потребляет: payments"]\n'
+        'C["Publishes: audit.log"]\n'
+        "D(consumes: events)"
+    )
+    assert parse_data_refs(doc) == [
+        DataRefIn(ref="orders.created", mode="publish"),
+        DataRefIn(ref="payments", mode="consume"),
+        DataRefIn(ref="audit.log", mode="publish"),
+        DataRefIn(ref="events", mode="consume"),
+    ]
+
+
+def test_разбор_слитный_маркер_каналов_даёт_обе_пометки():
+    # «публикует/потребляет:» агент пишет сам — как «читает/пишет:» у данных.
+    assert parse_data_refs('A["Реле<br>публикует/потребляет: orders.created"]') == [
+        DataRefIn(ref="orders.created", mode="publish"),
+        DataRefIn(ref="orders.created", mode="consume"),
+    ]
+    assert parse_data_refs('A["Publishes / Consumes: events"]') == [
+        DataRefIn(ref="events", mode="publish"),
+        DataRefIn(ref="events", mode="consume"),
+    ]
+
+
+def test_разбор_маркер_канала_внутри_слова_не_считается():
+    assert parse_data_refs('A["перепубликует: orders"]') == []
+
+
 # ── Резолв ────────────────────────────────────────────────────────────────────
 
 N_STORE = uuid.uuid4()
 N_BILLING_DB = uuid.uuid4()
+N_KAFKA = uuid.uuid4()
+N_RABBIT = uuid.uuid4()
 
 PATHS = {
     N_STORE: "Ярмарка / Хранилище",
     N_BILLING_DB: "Ярмарка / Биллинг / БД биллинга",
+    N_KAFKA: "Ярмарка / Kafka",
+    N_RABBIT: "Ярмарка / Биллинг / RabbitMQ",
 }
 
 
@@ -130,9 +170,26 @@ def _t(
     )
 
 
-def _resolve(ref: str, tables: list[CatalogTable], mode: str = "read"):
+def _c(
+    node: uuid.UUID, name: str, group: str = "", fields: tuple[str, ...] = ()
+) -> CatalogChannel:
+    return CatalogChannel(
+        id=uuid.uuid4(),
+        node_id=node,
+        group_name=group,
+        name=name,
+        fields={f: uuid.uuid4() for f in fields},
+    )
+
+
+def _resolve(
+    ref: str,
+    tables: list[CatalogTable],
+    mode: str = "read",
+    channels: list[CatalogChannel] | None = None,
+):
     [out] = resolve_data_refs(
-        [DataRefIn(ref=ref, mode=mode)], tables, PATHS  # type: ignore[arg-type]
+        [DataRefIn(ref=ref, mode=mode)], tables, channels or [], PATHS  # type: ignore[arg-type]
     )
     return out
 
@@ -194,7 +251,9 @@ def test_резолв_квалификатор_не_цепляется_к_час
     t = CatalogTable(
         id=uuid.uuid4(), node_id=n_my, schema_name="", name="orders", columns={}
     )
-    [got] = resolve_data_refs([DataRefIn(ref="Заказы / orders", mode="read")], [t], paths)
+    [got] = resolve_data_refs(
+        [DataRefIn(ref="Заказы / orders", mode="read")], [t], [], paths
+    )
     assert got.status == "unknown_table"
 
 
@@ -209,3 +268,113 @@ def test_резолв_битые_сегменты_не_гадаются():
     orders = _t(N_STORE, "orders", cols=("status",))
     assert _resolve("orders.", [orders]).status == "unknown_table"
     assert _resolve("a.b.c.d", [orders]).status == "unknown_table"
+
+
+# ── Резолв каналов ────────────────────────────────────────────────────────────
+# Своя семья маркеров и СВОЙ каталог: read/write ищутся только среди таблиц,
+# publish/consume — только среди каналов. Именно это делает одноимённые «orders»
+# в базе и в брокере разными целями, а не двусмысленностью.
+
+
+def _ch(ref: str, channels: list[CatalogChannel], mode: str = "publish"):
+    return _resolve(ref, [], mode=mode, channels=channels)
+
+
+def test_резолв_канал_и_поле():
+    created = _c(N_KAFKA, "orders", fields=("order_id",))
+    got = _ch("orders.order_id", [created])
+    assert (got.status, got.channel_id) == ("ok", created.id)
+    assert got.field_id == created.fields["order_id"]
+    assert got.field_name == "order_id"
+    # Табличные поля у канальной пометки пусты — семьи не перепутаны.
+    assert (got.table_id, got.column_id) == (None, None)
+
+
+def test_резолв_только_канал_поле_законно_не_указано():
+    created = _c(N_KAFKA, "payments", fields=("amount",))
+    got = _ch("payments", [created], mode="consume")
+    assert (got.status, got.channel_id, got.field_id) == ("ok", created.id, None)
+
+
+def test_резолв_каталоги_разведены_одноимённые_таблица_и_канал_не_конфликтуют():
+    # ГЛАВНЫЙ инвариант фазы: «пишет: orders» — таблица, «публикует: orders» — канал.
+    # Слитый каталог сделал бы обе пометки неоднозначными (или увёл бы не туда).
+    orders_t = _t(N_STORE, "orders", cols=("status",))
+    orders_c = _c(N_KAFKA, "orders", fields=("order_id",))
+
+    записал = _resolve("orders", [orders_t], mode="write", channels=[orders_c])
+    assert (записал.status, записал.table_id, записал.channel_id) == (
+        "ok", orders_t.id, None,
+    )
+
+    опубликовал = _resolve("orders", [orders_t], mode="publish", channels=[orders_c])
+    assert (опубликовал.status, опубликовал.channel_id, опубликовал.table_id) == (
+        "ok", orders_c.id, None,
+    )
+
+
+def test_резолв_табличная_пометка_канал_не_видит():
+    # Обратная сторона того же правила: канал есть, таблицы нет — «пишет: orders»
+    # обязано остаться невыполненным обещанием, а не тихо уехать в топик.
+    assert _resolve("orders", [], mode="write", channels=[_c(N_KAFKA, "orders")]).status == (
+        "unknown_table"
+    )
+    # И симметрично: таблица есть, канала нет.
+    assert _ch("orders", [], mode="publish").status == "unknown_channel"
+    assert _resolve("orders", [_t(N_STORE, "orders")], mode="publish").status == (
+        "unknown_channel"
+    )
+
+
+def test_резолв_xy_канала_неоднозначно_между_полем_и_группой():
+    # «x.y» у каналов — те же две гипотезы: «канал x, поле y» против «группа x,
+    # канал y». Сработали обе → выбирать за пользователя запрещено.
+    channels = [
+        _c(N_RABBIT, "orders", fields=("created",)),
+        _c(N_RABBIT, "created", group="orders"),
+    ]
+    assert _ch("orders.created", channels).status == "ambiguous"
+
+
+def test_резолв_xy_канала_как_группа_канал():
+    # vhost/namespace в роли раздела: «биллинг.orders» — канал orders в группе.
+    ch = _c(N_RABBIT, "orders", group="биллинг")
+    got = _ch("биллинг.orders", [ch], mode="consume")
+    assert (got.status, got.channel_id, got.field_id) == ("ok", ch.id, None)
+
+
+def test_резолв_неизвестное_поле_подсвечивается_но_канал_найден():
+    ch = _c(N_KAFKA, "orders", fields=("order_id",))
+    got = _ch("orders.total", [ch])
+    # Зеркало unknown_column: событие через канал ходит, а поля в контракте нет —
+    # обращение считается к каналу ЦЕЛИКОМ и подсвечивается алертом.
+    assert (got.status, got.channel_id, got.field_id) == ("unknown_field", ch.id, None)
+
+
+def test_резолв_одноимённые_каналы_требуют_квалификатора_брокера():
+    channels = [_c(N_KAFKA, "orders"), _c(N_RABBIT, "orders")]
+    assert _ch("orders", channels).status == "ambiguous"
+
+    got = _ch("RabbitMQ / orders", channels)
+    assert (got.status, got.channel_id) == ("ok", channels[1].id)
+    # Квалификатором годится и хвост пути — агент корневого контейнера не знает.
+    got2 = _ch("Биллинг / RabbitMQ / orders", channels)
+    assert (got2.status, got2.channel_id) == ("ok", channels[1].id)
+
+
+def test_резолв_проза_после_маркера_канала_видима_как_обещание():
+    got = _ch("события из очереди", [_c(N_KAFKA, "orders")])
+    assert got.status == "unknown_channel"
+
+
+def test_резолв_смешанного_дока_каждая_пометка_идёт_в_свой_каталог():
+    # Обычный док сервиса: и данные, и события рядом. Порядок ответа = порядок
+    # пометок, и каждая резолвится своим каталогом.
+    orders_t = _t(N_STORE, "orders", cols=("status",))
+    created_c = _c(N_KAFKA, "созданные", fields=("order_id",))
+    doc = 'A["Оформить<br>пишет: orders.status<br>публикует: созданные.order_id"]'
+
+    got = resolve_data_refs(parse_data_refs(doc), [orders_t], [created_c], PATHS)
+
+    assert [(r.mode, r.status) for r in got] == [("write", "ok"), ("publish", "ok")]
+    assert (got[0].table_id, got[1].channel_id) == (orders_t.id, created_c.id)

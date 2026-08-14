@@ -3,8 +3,9 @@
 // Зеркало «Структуры» у базы (DbStructureSection) по устройству, но не по смыслу:
 // канал — «контракт» брокера (docs/plan-broker-docs.md §2), и у него есть своя мета
 // доставки (ключ партиционирования, гарантия, retention), которой у таблицы нет.
-// Хранится ЗАПИСЯМИ: обратный индекс «кто публикует / кто потребляет» (Ф2) — разворот
-// пометок из схем логики, и собрать его из текста mermaid было бы нечем.
+// Хранится ЗАПИСЯМИ: обратный индекс «кто публикует / кто потребляет» — разворот
+// пометок из схем логики, и собрать его из текста mermaid было бы нечем. Сам индекс
+// (Ф2) СВОЕГО ввода не имеет: он производен от текста доков и правится в них.
 //
 // Правки идут по blur/change поштучно (как инлайн-поля свойств узла), без формы и
 // кнопки «Сохранить»: каналов много, а правка — точечная.
@@ -15,7 +16,7 @@ import { useCollapse } from "./useCollapse";
 import { useFlipRows } from "./useFlipRows";
 import { useShrinkAnchor } from "./useShrinkAnchor";
 import { ChevronDownIcon } from "../ui/icons";
-import type { BrokerChannel, ChannelField } from "../types";
+import type { BrokerChannel, ChannelField, ChannelUsage } from "../types";
 import "./brokerChannels.css";
 
 interface Props {
@@ -56,6 +57,9 @@ export default function BrokerChannelsSection({ nodeId, isArchitect }: Props) {
   const [error, setError] = useState<string | null>(null);
   // Свёрнутые группы (по умолчанию раскрыты — иначе структура выглядит пустой).
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
+  // Обратный индекс: кто публикует и кто потребляет каналы этого брокера. Разворот
+  // пометок из схем логики вызывающих — ответ на «кого сломает изменение формата».
+  const [usage, setUsage] = useState<ChannelUsage[]>([]);
   // Сворачивание укорачивает страницу, и внизу скролл упирается в новый конец —
   // содержимое уезжает из-под курсора. Якорь придерживает позицию (см. хук).
   const holdScroll = useShrinkAnchor();
@@ -71,6 +75,9 @@ export default function BrokerChannelsSection({ nodeId, isArchitect }: Props) {
     brokerChannelsApi.list(nodeId)
       .then((cs) => { if (alive) { setChannels(cs); setError(null); } })
       .catch(() => { if (alive) setError("Не удалось загрузить каналы"); });
+    brokerChannelsApi.usage(nodeId)
+      .then((u) => { if (alive) setUsage(u); })
+      .catch(() => { if (alive) setUsage([]); });
     return () => { alive = false; };
   }, [nodeId, seq]);
 
@@ -128,6 +135,7 @@ export default function BrokerChannelsSection({ nodeId, isArchitect }: Props) {
       channel={c}
       nodeId={nodeId}
       isArchitect={isArchitect}
+      usage={usage.filter((u) => u.channel_id === c.id)}
       expanded={open.has(c.id)}
       onToggle={(el) => {
         // Придерживаем скролл ДО правки: свернуть — значит укоротить страницу.
@@ -222,11 +230,12 @@ function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
 }
 
 function ChannelCard({
-  channel, nodeId, isArchitect, expanded, onToggle, apply, onAddField,
+  channel, nodeId, isArchitect, usage, expanded, onToggle, apply, onAddField,
 }: {
   channel: BrokerChannel;
   nodeId: string;
   isArchitect: boolean;
+  usage: ChannelUsage[];
   expanded: boolean;
   onToggle: (el: HTMLElement) => void;
   apply: (fn: () => Promise<unknown>) => Promise<void>;
@@ -390,6 +399,29 @@ function ChannelCard({
                 + Поле
               </button>
             )}
+          </div>
+
+          {/* Кто трогает этот канал. Пометок нет — так и говорим, и говорим
+              КОНКРЕТНО: молчание значило бы «событие никому не нужно», а «обращений
+              не описано» отправляло бы искать форму ввода, которой нет — публикация
+              и потребление живут строкой в тексте схемы логики вызывающего. */}
+          <div className="bch-usage">
+            <div className="np-sublabel">Кто публикует / кто потребляет</div>
+            {usage.length === 0 ? (
+              <p className="np-empty">
+                Пометок «публикует:/потребляет:» на этот канал в схемах логики нет
+              </p>
+            ) : usage.map((u) => (
+              <div key={`${u.doc_id}:${u.field_id ?? ""}:${u.mode}`} className="bch-usagerow">
+                <span className={`bch-mode bch-mode--${u.mode}`}>
+                  {u.mode === "publish" ? "публикует" : "потребляет"}
+                </span>
+                <span className="bch-ro bch-uname">
+                  {u.field_name ? `${u.channel_name}.${u.field_name}` : u.channel_name}
+                </span>
+                <span className="bch-ro bch-udesc">{u.node_name} · {u.doc_name}</span>
+              </div>
+            ))}
           </div>
           </div>
         </div>

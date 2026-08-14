@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.broker_channel import ChannelAccessMode
 from app.schemas.db_doc import DataAccessMode
 from app.schemas.node_doc import NodeDocMeta
 
@@ -330,6 +331,26 @@ class UnresolvedDataRefAlert(BaseModel):
     reason: Literal["unknown_table", "ambiguous", "unknown_column"]
 
 
+class UnresolvedChannelRefAlert(BaseModel):
+    """Пометка «публикует:/потребляет:» в схеме логики, не нашедшая свой канал.
+
+    ОТДЕЛЬНЫЙ класс, а не расширение AL29 (решение §7.4 plan-broker-docs.md): у
+    каналов свой каталог, свои причины и свои слова починки — «укажите „Брокер /
+    канал“» вместо «„БД / таблица“». Смешать их значило бы предложить инженеру
+    искать топик в структуре базы.
+    """
+
+    # Узел-ВЛАДЕЛЕЦ дока (публикующий/потребляющий), а не брокер: чинят текст у него.
+    node_id: uuid.UUID
+    node_name: str
+    doc_id: uuid.UUID
+    doc_name: str
+    ref: str  # ссылка как написана в тексте
+    mode: ChannelAccessMode
+    # Почему не срослось: канала нет / имя подходит нескольким / поля нет в канале.
+    reason: Literal["unknown_channel", "ambiguous", "unknown_field"]
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
@@ -340,6 +361,9 @@ class AlertsResponse(BaseModel):
     unbound_participants: list[UnboundParticipantAlert] = []
     orphan_legs: list[OrphanLegAlert] = []
     unresolved_data_refs: list[UnresolvedDataRefAlert] = []
+    # Дефолт [] обязателен: старые клиенты (в т.ч. MCP-сервер пользователя) читают
+    # ответ, ничего не зная о новом классе, и обязательное поле сломало бы их.
+    unresolved_channel_refs: list[UnresolvedChannelRefAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

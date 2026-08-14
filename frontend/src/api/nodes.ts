@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { TableUsage, BrokerChannel, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { TableUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -187,4 +187,8 @@ export const brokerChannelsApi = {
     api.patch<ChannelField>(`/nodes/${nodeId}/channels/${channelId}/fields/${fieldId}`, data),
   deleteField: (nodeId: string, channelId: string, fieldId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/channels/${channelId}/fields/${fieldId}`),
+  // Кто публикует и кто потребляет каналы этого брокера — разворот пометок
+  // «публикует:/потребляет:» из схем логики проекта (записей обращений нет).
+  usage: (nodeId: string): Promise<ChannelUsage[]> =>
+    api.get<ChannelUsage[]>(`/nodes/${nodeId}/channels/usage`),
 };

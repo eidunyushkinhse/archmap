@@ -12,8 +12,10 @@ import uuid
 from conftest import ensure_architect, ensure_project
 
 from app.models.node import Node
+from app.routers.broker_channels import create_channel, create_field
 from app.routers.data_refs import preview_data_refs
 from app.routers.db_docs import create_column, create_table
+from app.schemas.broker_channel import BrokerChannelCreate, ChannelFieldCreate
 from app.schemas.data_refs import DataRefPreviewIn
 from app.schemas.db_doc import DbColumnCreate, DbTableCreate
 
@@ -153,3 +155,99 @@ def test_текст_без_пометок_даёт_пустой_ответ(db):
     assert _preview(db, "") == []
     # И обычная проза без маркеров — тоже: плашки на таком доке не будет.
     assert _preview(db, 'A["Проверить заказ"] --> B["Готово"]') == []
+
+
+# ── Каналы брокера (Ф2) ───────────────────────────────────────────────────────
+# Плашка одна на док: рядом стоят и «пишет: orders», и «публикует: созданные», и
+# резолвер у них общий — отдельной работы почти нет, но подпись цели своя.
+
+
+def _channel(db, node, name="созданные", group=""):
+    return create_channel(
+        node.id,
+        BrokerChannelCreate(name=name, group_name=group),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+
+
+def _field(db, node, channel, name="order_id"):
+    return create_field(
+        node.id,
+        channel.id,
+        ChannelFieldCreate(name=name, type="uuid"),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+
+
+def test_пометка_канала_с_полем_показывает_готовую_подпись(db):
+    брокер = _node(db, "Kafka", shape="broker")
+    канал = _channel(db, брокер)
+    _field(db, брокер, канал)
+
+    [item] = _preview(db, 'A["Оформить<br>публикует: созданные.order_id"]')
+
+    assert (item.ref, item.mode, item.status) == ("созданные.order_id", "publish", "ok")
+    assert item.target == "Kafka · созданные.order_id"
+
+
+def test_пометка_канала_без_поля_ведёт_к_каналу(db):
+    брокер = _node(db, "Kafka", shape="broker")
+    _channel(db, брокер)
+
+    [item] = _preview(db, 'A["потребляет: созданные"]')
+
+    assert (item.mode, item.status, item.target) == ("consume", "ok", "Kafka · созданные")
+
+
+def test_неизвестный_канал_цели_не_имеет(db):
+    брокер = _node(db, "Kafka", shape="broker")
+    _channel(db, брокер)
+
+    [item] = _preview(db, 'A["публикует: создание"]')
+
+    assert (item.status, item.target) == ("unknown_channel", None)
+
+
+def test_нет_поля_в_канале_показывает_канал(db):
+    брокер = _node(db, "Kafka", shape="broker")
+    канал = _channel(db, брокер)
+    _field(db, брокер, канал, "order_id")
+
+    [item] = _preview(db, 'A["публикует: созданные.total"]')
+
+    # Канал нашёлся — обращение считается к нему целиком; несуществующее поле
+    # показывать как найденное нельзя.
+    assert (item.status, item.target) == ("unknown_field", "Kafka · созданные")
+
+
+def test_одноимённые_каналы_у_разных_брокеров_дают_неоднозначность(db):
+    kafka = _node(db, "Kafka", shape="broker")
+    rabbit = _node(db, "RabbitMQ", shape="broker")
+    _channel(db, kafka, "события")
+    _channel(db, rabbit, "события")
+
+    [item] = _preview(db, 'A["публикует: события"]')
+    assert (item.status, item.target) == ("ambiguous", None)
+
+    # Лечится квалификатором — той же пометкой, дописанной человеком.
+    [уточнённая] = _preview(db, 'A["публикует: RabbitMQ / события"]')
+    assert (уточнённая.status, уточнённая.target) == ("ok", "RabbitMQ · события")
+
+
+def test_одноимённые_таблица_и_канал_не_мешают_друг_другу(db):
+    # Каталоги разведены: маркер выбирает мир, и подпись цели это показывает.
+    бд = _node(db, "Хранилище")
+    брокер = _node(db, "Kafka", shape="broker")
+    _table(db, бд, "заказы")
+    _channel(db, брокер, "заказы")
+
+    [записал, опубликовал] = _preview(
+        db, 'A["Оформить<br>пишет: заказы<br>публикует: заказы"]'
+    )
+
+    assert (записал.status, записал.target) == ("ok", "Хранилище · заказы")
+    assert (опубликовал.status, опубликовал.target) == ("ok", "Kafka · заказы")

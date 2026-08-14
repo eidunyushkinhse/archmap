@@ -16,13 +16,16 @@ from fastapi import HTTPException
 
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
+from app.models.db_table import DbTable
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.routers.broker_channels import (
     create_channel,
     create_field,
     delete_channel,
     list_channels,
+    list_usage,
     update_channel,
     update_field,
 )
@@ -322,3 +325,162 @@ def test_мутации_двигают_meta_rev_а_не_graph_rev(db):
     # Структура — МЕТА узла (видна на его странице, не на схеме): поллинг редактора
     # не обязан из-за неё перестраивать холст.
     assert (проект.graph_rev, проект.meta_rev) == (g0, m0 + 1)
+
+
+# ── Обратный индекс: кто публикует и кто потребляет (Ф2) ──────────────────────
+# Источник — ПОМЕТКИ «публикует:/потребляет:» в тексте схем логики вызывающих
+# (пивот §1 плана), а не отдельные записи: факт «сервис публикует событие»
+# существует ровно один раз, прозой в диаграмме, и разойтись с ней индекс не может.
+
+
+def _doc(db, node, name="POST /pay", content=""):
+    d = NodeDoc(id=uuid.uuid4(), node_id=node.id, name=name, kind="operation", content=content)
+    db.add(d)
+    db.flush()
+    return d
+
+
+def _usage(db, брокер, project=None):
+    return list_usage(
+        брокер.id,
+        db=db,
+        project=project or ensure_project(db),
+        _=ensure_architect(db),
+    )
+
+
+def test_обратный_индекс_отвечает_кто_публикует_и_кто_потребляет(db):
+    брокер = _node(db, "Kafka")
+    заказы = _node(db, "Заказы", shape="service")
+    склад = _node(db, "Склад", shape="service")
+    канал = _channel(db, брокер, "созданные")
+    поле = _field(db, брокер, канал, "order_id")
+    _doc(db, заказы, "POST /orders", 'A["Оформить<br>публикует: созданные.order_id"]')
+    _doc(db, склад, "Обработчик", 'A["Резерв<br>потребляет: созданные"]')
+    _doc(db, склад, "Обзор")  # док без текста: не падаем и не шумим
+
+    строки = _usage(db, брокер)
+
+    # Ради этого ответа структура каналов и заводилась: не «есть канал созданные»,
+    # а «его публикует POST /orders Заказов и потребляет обработчик Склада».
+    assert len(строки) == 2
+    публикация = next(u for u in строки if u.mode == "publish")
+    потребление = next(u for u in строки if u.mode == "consume")
+    assert (публикация.channel_name, публикация.field_name) == ("созданные", "order_id")
+    assert (публикация.channel_id, публикация.field_id) == (канал.id, поле.id)
+    assert (публикация.node_name, публикация.doc_name) == ("Заказы", "POST /orders")
+    assert (потребление.node_name, потребление.field_id) == ("Склад", None)
+
+
+def test_табличная_пометка_в_индекс_канала_не_попадает(db):
+    """Каталоги разведены: «пишет: заказы» — про таблицу, «публикует: заказы» — про
+    канал. Одноимённые сущности не должны перетекать друг в друга (решение §7.1)."""
+    брокер = _node(db, "Kafka")
+    бд = _node(db, "Хранилище", shape="database")
+    сервис = _node(db, "Заказы", shape="service")
+    _channel(db, брокер, "заказы")
+    db.add(DbTable(id=uuid.uuid4(), node_id=бд.id, name="заказы", schema_name=""))
+    db.flush()
+    _doc(db, сервис, "POST /orders", 'A["Оформить<br>пишет: заказы"]')
+
+    assert _usage(db, брокер) == []
+
+    # А та же строка под своим маркером — уже факт брокера.
+    _doc(db, сервис, "Публикатор", 'A["Оформить<br>публикует: заказы"]')
+    [u] = _usage(db, брокер)
+    assert (u.channel_name, u.mode, u.doc_name) == ("заказы", "publish", "Публикатор")
+
+
+def test_обратный_индекс_видит_только_свои_каналы(db):
+    брокер = _node(db, "Kafka")
+    чужой_брокер = _node(db, "RabbitMQ")
+    сервис = _node(db, "Заказы", shape="service")
+    _channel(db, брокер, "созданные")  # свой канал есть — фильтр не вырожденный
+    _channel(db, чужой_брокер, "письма")
+    _doc(db, сервис, content='A["публикует: письма"]')
+
+    assert _usage(db, брокер) == []
+
+
+def test_неизвестное_поле_даёт_строку_на_уровне_канала(db):
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы", shape="service")
+    канал = _channel(db, брокер, "созданные")
+    _field(db, брокер, канал, "order_id")
+    _doc(db, сервис, content='A["публикует: созданные.total"]')
+
+    [u] = _usage(db, брокер)
+    # Канал нашёлся → обращение к нему ЦЕЛИКОМ; несуществующее поле в индекс не
+    # тащим (его подсветит алерт), но и обращение не прячем.
+    assert (u.channel_name, u.field_id, u.field_name) == ("созданные", None, None)
+
+
+def test_битая_пометка_в_индекс_не_попадает(db):
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы", shape="service")
+    _channel(db, брокер, "созданные")
+    _doc(db, сервис, content='A["публикует: создание"]')
+
+    # Опечатка в имени канала — не факт, а обещание факта: место такой пометке в
+    # алертах, а не в индексе брокера (домысливать «наверное, созданные» нельзя).
+    assert _usage(db, брокер) == []
+
+
+def test_неоднозначная_ссылка_показывается_только_с_квалификатором(db):
+    брокер = _node(db, "Kafka")
+    другой = _node(db, "RabbitMQ")
+    сервис = _node(db, "Заказы", shape="service")
+    _channel(db, брокер, "события")
+    _channel(db, другой, "события")  # одноимённый канал у соседа → голое имя неоднозначно
+    док = _doc(db, сервис, "POST /orders", 'A["публикует: события"]')
+
+    assert _usage(db, брокер) == []
+
+    док.content = 'A["публикует: Kafka / события"]'
+    db.flush()
+    [u] = _usage(db, брокер)
+    assert (u.channel_name, u.node_name, u.mode) == ("события", "Заказы", "publish")
+
+
+def test_два_написания_одной_цели_дают_одну_строку(db):
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы", shape="service")
+    канал = _channel(db, брокер, "созданные")
+    _field(db, брокер, канал, "order_id")
+    _doc(
+        db,
+        сервис,
+        content=(
+            'A["Оформить<br>публикует: созданные.order_id"] --> '
+            'B["Повтор<br>публикует: Kafka / созданные.order_id"]'
+        ),
+    )
+
+    assert len(_usage(db, брокер)) == 1
+
+
+def test_обратный_индекс_не_видит_чужой_проект(db):
+    """Скоуп индекса — проект: и доки чужого проекта не показываются, и одноимённый
+    канал оттуда не делает свою ссылку неоднозначной. Проверка отдельная, потому что
+    резолв идёт по каталогу ВСЕГО проекта — ровно на этой формулировке легко потерять
+    границу (тот же тест у базы однажды теряли)."""
+    свой = ensure_project(db)
+    брокер = _node(db, "Kafka")
+    сервис = _node(db, "Заказы", shape="service")
+    канал = _channel(db, брокер, "созданные")
+    _field(db, брокер, канал, "order_id")
+    _doc(db, сервис, "POST /orders", 'A["публикует: созданные.order_id"]')
+
+    чужой = Project(id=uuid.uuid4(), name="Другой проект")
+    db.add(чужой)
+    db.flush()
+    чужой_брокер = _node(db, "Kafka", project=чужой)
+    чужой_сервис = _node(db, "Заказы", shape="service", project=чужой)
+    db.add(BrokerChannel(id=uuid.uuid4(), node_id=чужой_брокер.id, name="созданные", group_name=""))
+    _doc(db, чужой_сервис, "POST /charge", 'A["потребляет: созданные"]')
+    db.flush()
+
+    [u] = _usage(db, брокер, project=свой)
+    # Чужой док в индекс не попал (иначе строк было бы две), а чужой одноимённый
+    # канал не сделал свою пометку неоднозначной (иначе строк не было бы вовсе).
+    assert (u.doc_name, u.field_name) == ("POST /orders", "order_id")

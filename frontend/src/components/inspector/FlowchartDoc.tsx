@@ -24,19 +24,45 @@ interface Props {
 // время письма: иначе конвенцию не выучить, а промах именем обнаружится когда-то
 // потом в панели алертов. Наблюдателю плашка не нужна — пометки он читает в самой
 // диаграмме, а исправить всё равно не может.
+// События («публикует:/потребляет:» → канал брокера) плашка понимает тем же
+// механизмом: резолвер на бэке един, здесь дописаны только слова.
 
 // Дешёвый локальный гейт: грамматику маркера держит бэк (app/data_refs.py), тут
 // достаточно понять, есть ли в тексте хоть один — на доках без данных (их
 // большинство) сеть не дёргается вовсе. \b не ставим: в JS он ASCII-ный и перед
 // кириллическим «ч» не сработал бы.
-const REF_MARKER = /(читает|пишет|reads|writes)\s*:/i;
+const REF_MARKER = /(читает|пишет|reads|writes|публикует|потребляет|publishes|consumes)\s*:/i;
 
 // Почему пометка не срослась — ТЕ ЖЕ слова, что в панели алертов (SchemaAlerts):
 // один факт, увиденный из двух мест, не должен читаться как две разные проблемы.
+// «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму
+// пометки (см. reasonOf): «БД / таблица» у данных, «Брокер / канал» у событий.
 const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = {
   unknown_table: "таблица не найдена",
   ambiguous: "имя неоднозначно — укажите „БД / таблица“",
   unknown_column: "колонки нет в таблице",
+  unknown_channel: "канал не найден у брокеров проекта",
+  unknown_field: "поля нет в канале",
+};
+const AMBIGUOUS_CHANNEL = "имя неоднозначно — укажите „Брокер / канал“";
+
+const isChannelMode = (mode: DataRefPreviewItem["mode"]): boolean =>
+  mode === "publish" || mode === "consume";
+
+function reasonOf(
+  status: Exclude<DataRefPreviewItem["status"], "ok">,
+  mode: DataRefPreviewItem["mode"],
+): string {
+  return status === "ambiguous" && isChannelMode(mode) ? AMBIGUOUS_CHANNEL : REF_REASON[status];
+}
+
+// Подпись действия. Слова каналов свои: «публикует» — не «пишет», и путать их
+// нельзя (разные вопросы к карте, разные каталоги резолва).
+const MODE_LABEL: Record<DataRefPreviewItem["mode"], string> = {
+  read: "читает",
+  write: "пишет",
+  publish: "публикует",
+  consume: "потребляет",
 };
 
 function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
@@ -45,19 +71,19 @@ function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
       <div className="doc-refshead">Обращения</div>
       {refs.map((r, i) => (
         <div key={`${r.mode}:${r.ref}:${i}`} className="doc-refrow">
-          <span className={`doc-refmode doc-refmode--${r.mode}`}>
-            {r.mode === "write" ? "пишет" : "читает"}
-          </span>
+          <span className={`doc-refmode doc-refmode--${r.mode}`}>{MODE_LABEL[r.mode]}</span>
           <span className="doc-reftext">
             <span className="doc-refname">{r.ref}</span>{" "}
             {r.status === "ok" ? (
               <span className="doc-refok">→ {r.target} ✓</span>
             ) : (
-              // unknown_column: таблица-то нашлась — называем её, иначе непонятно,
-              // куда смотреть, чтобы свериться с колонками.
+              // unknown_column / unknown_field: таблица (канал) нашлась — называем
+              // её, иначе непонятно, куда смотреть, чтобы свериться с содержимым.
               <span className="doc-refbad">
-                ⚠ {REF_REASON[r.status]}
-                {r.status === "unknown_column" && r.target ? ` (${r.target})` : ""}
+                ⚠ {reasonOf(r.status, r.mode)}
+                {(r.status === "unknown_column" || r.status === "unknown_field") && r.target
+                  ? ` (${r.target})`
+                  : ""}
               </span>
             )}
           </span>
