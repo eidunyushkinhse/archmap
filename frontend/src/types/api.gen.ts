@@ -989,6 +989,67 @@ export interface paths {
         patch: operations["update_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__patch"];
         trace?: never;
     };
+    "/api/v1/channels-import/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Channels Prompt
+         * @description Промпт агенту с узлами-брокерами ЭТОГО проекта: адрес владельца слабая модель
+         *     без списка выдумывает, и пакет блокируется целиком (урок Н8).
+         */
+        get: operations["channels_prompt_api_v1_channels_import_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/channels-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Channels Import Preview
+         * @description Dry-run: план без записи.
+         */
+        post: operations["channels_import_preview_api_v1_channels_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/channels-import/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Channels Import Apply
+         * @description Применение: план пересчитывается на живом состоянии; при errors не пишем ничего.
+         */
+        post: operations["channels_import_apply_api_v1_channels_import_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -1837,6 +1898,27 @@ export interface components {
             /** Order */
             order?: number | null;
         };
+        /**
+         * ChannelItem
+         * @description Строка превью по каналу: что приедет и что с ним станет.
+         */
+        ChannelItem: {
+            /** Node Path */
+            node_path: string;
+            /** Source */
+            source: string;
+            /** Group Name */
+            group_name: string;
+            /** Name */
+            name: string;
+            /** Fields */
+            fields: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "overwrite" | "skip" | "unchanged";
+        };
         /** ChannelOut */
         ChannelOut: {
             /**
@@ -1902,6 +1984,56 @@ export interface components {
             node_id: string;
             /** Node Name */
             node_name: string;
+        };
+        /** ChannelsImportIn */
+        ChannelsImportIn: {
+            /** Files */
+            files: components["schemas"]["DocsFileIn"][];
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Overwrite
+             * @default false
+             */
+            overwrite: boolean;
+        };
+        /** ChannelsImportReport */
+        ChannelsImportReport: {
+            /**
+             * Channels
+             * @default []
+             */
+            channels: components["schemas"]["ChannelItem"][];
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Channels Written
+             * @default 0
+             */
+            channels_written: number;
+            /**
+             * Fields Written
+             * @default 0
+             */
+            fields_written: number;
+        };
+        /** ChannelsPromptOut */
+        ChannelsPromptOut: {
+            /** Prompt */
+            prompt: string;
         };
         /**
          * ContainerOwnDocsAlert
@@ -6273,6 +6405,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChannelFieldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    channels_prompt_api_v1_channels_import_prompt_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelsPromptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    channels_import_preview_api_v1_channels_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelsImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelsImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    channels_import_apply_api_v1_channels_import_apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelsImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelsImportReport"];
                 };
             };
             /** @description Validation Error */
