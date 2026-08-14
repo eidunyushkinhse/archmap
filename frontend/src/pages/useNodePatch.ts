@@ -5,7 +5,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { Node, NodeDocMeta, NodeUpdate } from "../types";
 import { nodesApi } from "../api/nodes";
-import { isConflict } from "../api/client";
+import { ApiError, isConflict } from "../api/client";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { docToMeta } from "../components/inspector/docMeta";
 
@@ -17,6 +17,7 @@ interface NodePatch {
   technology: string;
   isExternal: boolean;
   status: Node["status"];
+  shape: Node["shape"];
   // Сеттеры
   setName: (v: string) => void;
   setDescription: (v: string) => void;
@@ -32,8 +33,14 @@ interface NodePatch {
   commitOpenapi: (value: string) => void;
   toggleExternal: () => void;
   pickStatus: (st: Node["status"]) => void;
+  // Смена типа узла (форма C4): структурная правка со своими запретами на сервере
+  // (дети / описанная структура БД) — отказ приезжает в error, не молчанием.
+  pickShape: (sh: Node["shape"]) => void;
   // Конфликт CAS
   conflict: string | null;
+  // Отказ сервера, НЕ конфликт версий (400 с причиной: смена типа у контейнера,
+  // у базы со структурой). Гаснет при следующей успешной правке.
+  error: string | null;
   // Свежий узел (после последнего успешного коммита или 409-рефреша)
   node: Node;
   // Мутация меты доков (секция «Логика»): событие FlowchartDocs несёт полные
@@ -55,7 +62,9 @@ export function useNodePatch(
   const [technology, setTechnology] = useState(initial.technology ?? "");
   const [isExternal, setIsExternal] = useState(initial.is_external);
   const [status, setStatus] = useState<Node["status"]>(initial.status);
+  const [shape, setShape] = useState<Node["shape"]>(initial.shape);
   const [conflict, setConflict] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [node, setNode] = useState(initial);
   const beforeRef = useRef<Node>(initial);
 
@@ -69,6 +78,7 @@ export function useNodePatch(
     setTechnology(fresh.technology ?? "");
     setIsExternal(fresh.is_external);
     setStatus(fresh.status);
+    setShape(fresh.shape);
   }, []);
 
   const save = useCallback(
@@ -81,7 +91,7 @@ export function useNodePatch(
         technology: technology || null,
         openapi_spec: before.openapi_spec,
         is_external: isExternal,
-        shape: before.shape,
+        shape,
         status,
         ...over,
         base_version: before.version,
@@ -91,18 +101,30 @@ export function useNodePatch(
         beforeRef.current = saved;
         setNode(saved);
         setConflict(null);
+        setError(null);
         onSaved?.(saved);
       } catch (e: unknown) {
-        if (!isConflict(e)) return;
+        if (!isConflict(e)) {
+          // Не конфликт версий, а ОТКАЗ с причиной (400: смена типа у узла с детьми
+          // либо у базы с описанной структурой). Раньше такие ошибки глотались молча —
+          // правка «не срабатывала» без единого слова, худший из исходов. Показываем
+          // текст сервера и откатываем поля, которые коммитятся сразу, без blur
+          // (форма): иначе интерфейс показывал бы тип, которого в БД нет.
+          setShape(beforeRef.current.shape);
+          setConflict(null);
+          setError(e instanceof ApiError ? e.message : "Правка не сохранена");
+          return;
+        }
         try {
           refresh(await nodesApi.get(before.id));
         } catch {
           // узел могли удалить
         }
+        setError(null);
         setConflict("Узел изменён в другой сессии — данные обновлены, повторите правку");
       }
     },
-    [name, description, role, technology, isExternal, status, onSaved, refresh],
+    [name, description, role, technology, isExternal, status, shape, onSaved, refresh],
   );
 
   const commitName = useCallback(() => {
@@ -144,6 +166,12 @@ export function useNodePatch(
     void save({ status: st });
   }, [status, save]);
 
+  const pickShape = useCallback((sh: Node["shape"]) => {
+    if (sh === shape) return;
+    setShape(sh);
+    void save({ shape: sh });
+  }, [shape, save]);
+
   const applyDocEvent = useCallback((evt: NodeDocEvent) => {
     const patchDocs = (mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) => {
       setNode((n) => ({ ...n, docs: mut(n.docs) }));
@@ -155,9 +183,10 @@ export function useNodePatch(
   }, []);
 
   return {
-    name, description, role, technology, isExternal, status,
+    name, description, role, technology, isExternal, status, shape,
     setName, setDescription, setRole, setTechnology, setIsExternal, setStatus,
-    commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal, pickStatus,
-    conflict, node, applyDocEvent, refresh,
+    commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal,
+    pickStatus, pickShape,
+    conflict, error, node, applyDocEvent, refresh,
   };
 }

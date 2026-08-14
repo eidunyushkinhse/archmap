@@ -178,6 +178,7 @@ function NodePageInner({
   const [menuOpen, setMenuOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [shapeOpen, setShapeOpen] = useState(false);
   // Оверлей документации. `child` задан, когда открываем доку/спеку РЕБЁНКА прямо
   // со страницы контейнера (из объединённого списка) — тогда оверлей работает в
   // контексте ребёнка (его id/имя/спека), а не контейнера.
@@ -382,14 +383,50 @@ function NodePageInner({
 
         {/* Конфликт CAS */}
         {patch.conflict && <p className="np-conflict">{patch.conflict}</p>}
+        {/* Отказ сервера с причиной (400): правка не применилась — причина обязана
+            быть видна, «молча не сработало» хуже любого текста. Гаснет при
+            следующей успешной правке. */}
+        {patch.error && <p className="np-conflict">{patch.error}</p>}
 
         {/* ── Свойства ──────────────────────────────────────────── */}
         <div className="np-card">
           <h3 className="np-card-title">Свойства</h3>
           <div className="np-props">
-            {/* Тип */}
+            {/* Тип. Архитектор меняет форму прямо здесь (импорт мог ошибиться в
+                типе — кейс «Monitored Hosts» с типом «Пользователь»). Запреты на
+                стороне сервера: контейнером бывает только сервис, базу с описанной
+                структурой не увести (спека N4а); причина отказа — плашкой выше. */}
             <span className="np-term">Тип</span>
-            <span className="np-value">{SHAPE_LABEL[shape]}</span>
+            <span className="np-value">
+              {isArchitect ? (
+                <span className="np-selwrap">
+                  <button
+                    type="button"
+                    className="np-select"
+                    onClick={() => setShapeOpen((o) => !o)}
+                    aria-haspopup="listbox"
+                    aria-expanded={shapeOpen}
+                  >
+                    {SHAPE_LABEL[patch.shape]}
+                    <ChevronDownIcon />
+                  </button>
+                  {shapeOpen && (
+                    <>
+                      <div className="np-backdrop" onClick={() => setShapeOpen(false)} />
+                      <ul className="np-menu">
+                        {SHAPE_ORDER.map((sh) => (
+                          <li key={sh} onClick={() => { setShapeOpen(false); patch.pickShape(sh); }}>
+                            {SHAPE_LABEL[sh]}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </span>
+              ) : (
+                SHAPE_LABEL[shape]
+              )}
+            </span>
 
             {/* Размещение. Внешность — относительно контура ОРГАНИЗАЦИИ (спека
                 N2а): чужой продукт/сторона, а не «вне системы» — границу системы
@@ -1026,6 +1063,9 @@ const EXTERNAL_HINT =
   "границы системы: границу системы выражает дерево, а не этот флаг";
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
+
+// Порядок типов в выпадашке — от самого частого (сервис) к самому редкому.
+const SHAPE_ORDER: NodeShape[] = ["service", "database", "broker", "person"];
 
 function statusDotColor(status: NodeStatus, isExternal: boolean): string {
   if (status === "existing") return isExternal ? "#9ca3af" : "#9ca3af";

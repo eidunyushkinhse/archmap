@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
 import { nodesApi, nodeDocsApi } from "../../api/nodes";
+import { ApiError } from "../../api/client";
 import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
@@ -299,6 +300,50 @@ describe("NodePage: правила контейнеров", () => {
     );
     // Модалка закрылась после успеха
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
+  });
+});
+
+// ── Смена типа узла ─────────────────────────────────────────────────────────
+// Тип (форма C4) правится с самой страницы: импорт мог ошибиться («Monitored
+// Hosts» приехал «Пользователем»), и раньше починить это можно было только
+// пересозданием объекта. Запреты держит сервер — страница обязана показать его
+// причину, а не проглотить отказ.
+describe("NodePage: смена типа", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupType(over: Partial<Node> = {}, isArchitect = true) {
+    const n = node("n1", { name: "Monitored Hosts", ...over });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />);
+  }
+
+  it("архитектор меняет тип из выпадашки — PATCH с новой формой", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
+    setupType({ shape: "person" });
+    const кнопка = await screen.findByRole("button", { name: "Пользователь" });
+    await userEvent.click(кнопка);
+    await userEvent.click(screen.getByText("Сервис"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1].shape).toBe("service");
+  });
+
+  it("наблюдателю тип показан текстом, редактора нет", async () => {
+    setupType({ shape: "person" }, false);
+    await waitFor(() => expect(screen.getByText("Пользователь")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Пользователь" })).toBeNull();
+  });
+
+  it("отказ сервера виден на странице, а не проглатывается", async () => {
+    const причина = "У узла есть вложенные объекты — тип «Сервис» единственный, который может их иметь";
+    vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
+    setupType({ shape: "service", has_children: true, child_count: 1 });
+    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }));
+    await userEvent.click(screen.getByText("База данных"));
+    expect(await screen.findByText(причина)).toBeInTheDocument();
   });
 });
 

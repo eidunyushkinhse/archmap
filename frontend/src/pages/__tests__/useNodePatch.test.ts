@@ -138,6 +138,46 @@ describe("useNodePatch", () => {
     expect(result.current.node.version).toBe(7);
   });
 
+  it("pickShape: коммитит смену типа с CAS", async () => {
+    // Кейс, ради которого поле стало редактируемым: импорт выдал серверу тип
+    // «Пользователь», архитектор правит его со страницы.
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ shape: "service", version: 2 }));
+    const { result } = renderHook(() => useNodePatch(makeNode({ shape: "person", version: 1 })));
+    expect(result.current.shape).toBe("person");
+    act(() => result.current.pickShape("service"));
+    expect(result.current.shape).toBe("service");
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    const [, payload] = vi.mocked(nodesApi.update).mock.calls[0];
+    expect(payload.shape).toBe("service");
+    expect(payload.base_version).toBe(1);
+    await waitFor(() => expect(result.current.node.shape).toBe("service"));
+  });
+
+  it("pickShape: тот же тип — без запроса", () => {
+    const { result } = renderHook(() => useNodePatch(makeNode({ shape: "database" })));
+    act(() => result.current.pickShape("database"));
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("отказ 400: причина видна, показанный тип откатывается, гаснет при следующем успехе", async () => {
+    // «Молча не сработало» — худший исход: текст сервера обязан доехать до глаз.
+    const причина = "У узла есть вложенные объекты — тип «Сервис» единственный, который может их иметь";
+    vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
+    const { result } = renderHook(() => useNodePatch(makeNode({ shape: "service" })));
+    act(() => result.current.pickShape("database"));
+    await waitFor(() => expect(result.current.error).toBe(причина));
+    // Показанный тип вернулся к сохранённому: интерфейс не показывает того, чего в БД нет
+    expect(result.current.shape).toBe("service");
+    // Это не конфликт версий — ни баннера, ни ресинка
+    expect(result.current.conflict).toBeNull();
+    expect(nodesApi.get).not.toHaveBeenCalled();
+    // Следующая успешная правка гасит плашку
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ name: "Новое", version: 2 }));
+    act(() => result.current.setName("Новое"));
+    act(() => result.current.commitName());
+    await waitFor(() => expect(result.current.error).toBeNull());
+  });
+
   it("toggleExternal: инвертирует и коммитит", async () => {
     vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ is_external: true, version: 2 }));
     const { result } = renderHook(() => useNodePatch(makeNode({ is_external: false })));

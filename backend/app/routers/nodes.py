@@ -12,6 +12,7 @@ from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
 from app.graph_queries import build_graph, project_has_status_info
 from app.models.business_process import BusinessProcess
+from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_participant import ProcessParticipant
@@ -331,6 +332,36 @@ def get_node(
     return node
 
 
+def validate_shape_change(db: Session, node: Node, new_shape: str) -> str | None:
+    """Причина, по которой форму узла менять нельзя, либо None. Чистая проверка, без HTTP.
+
+    Оба запрета — про то, чем узел УЖЕ владеет и чего новая форма держать не умеет:
+
+      • ДЕТИ. Вкладывать объекты можно только в сервис (спека node.md N4, зеркало
+        фронтового canHaveChildren): сменив форму контейнеру, мы оставили бы
+        поддерево у формы, которая ни детей не показывает, ни внутрь не пускает.
+      • СТРУКТУРА БД. Таблицы — «контракт» узла-базы (routers/db_docs.py), и страница
+        рендерит их ТОЛЬКО у shape=database. Правка прошла бы, а структура исчезла из
+        интерфейса, оставшись в БД: применённое-но-невидимое хуже честного отказа.
+
+    Доки логики и OpenAPI смену на person/broker не держат осознанно: страница
+    показывает «неположенное» содержимое legacy-механикой (legacyLogic/legacySpec) —
+    с предупреждением и без кнопок добавления, то есть унести его есть чем.
+    """
+    if new_shape not in reparent.CONTAINER_SHAPES:
+        has_children = db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
+        if has_children:
+            return (
+                "У узла есть вложенные объекты — тип «Сервис» единственный, "
+                "который может их иметь"
+            )
+    if node.shape == "database" and new_shape != "database":
+        has_tables = db.query(DbTable.id).filter(DbTable.node_id == node.id).first() is not None
+        if has_tables:
+            return "У узла описана структура БД — сначала перенесите или удалите её"
+    return None
+
+
 @router.patch("/{node_id}", response_model=NodeResponse)
 def update_node(
     node_id: uuid.UUID,
@@ -355,6 +386,13 @@ def update_node(
         moved = "parent_id" in data and data["parent_id"] != old_parent
         if moved:
             reason = reparent.validate_reparent(db, project, node, data["parent_id"])
+            if reason:
+                raise HTTPException(status_code=400, detail=reason)
+        # Смена ФОРМЫ — вторая правка с запретами: форма решает, может ли узел иметь
+        # детей и чем он владеет. Проверяем ДО присваивания (узел ещё в исходном
+        # состоянии — старая форма нужна самой проверке).
+        if "shape" in data and data["shape"] != node.shape:
+            reason = validate_shape_change(db, node, data["shape"])
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
         # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:

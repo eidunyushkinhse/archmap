@@ -4,12 +4,12 @@
 // тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
 import { useCallback, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { DeletionSnapshot, Node, NodeShape, NodeStatus, NodeUpdate } from "../../types";
 import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
-import { isConflict } from "../../api/client";
+import { ApiError, isConflict } from "../../api/client";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import { useContainerChildren } from "../../pages/useContainerChildren";
@@ -26,6 +26,14 @@ interface Props {
 }
 
 const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
+// Порядок типов в выпадашке — от самого частого (сервис) к самому редкому.
+const SHAPE_ORDER: NodeShape[] = ["service", "database", "broker", "person"];
+
+// Плашка-уведомление панели: и конфликт версий, и отказ сервера с причиной.
+const noticeStyle: CSSProperties = {
+  color: "#92400e", background: "#fef3c7", border: "1px solid #fcd34d",
+  borderRadius: 8, padding: "6px 10px", fontSize: 12.5, margin: "0 0 10px",
+};
 
 export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode }: Props) {
   // Локальные значения полей. Сбрасываются на смену выбора: ObjectInspector монтирует
@@ -37,10 +45,14 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const [isExternal, setIsExternal] = useState(node.is_external);
   const [status, setStatus] = useState<NodeStatus>(node.status);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [shapeOpen, setShapeOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
   // обновлены с сервера — пользователь повторяет правку поверх свежего.
   const [conflict, setConflict] = useState<string | null>(null);
+  // Отказ сервера с причиной (400: смена типа у узла с детьми / у базы с описанной
+  // структурой). Гаснет при следующей успешной правке.
+  const [error, setError] = useState<string | null>(null);
 
   // Узел ДО последней правки — для обратимой записи в историю. Обновляем после
   // успешного коммита.
@@ -79,8 +91,16 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         onNodeSaved(saved, false, before);
         beforeRef.current = saved;
         setConflict(null);
+        setError(null);
       } catch (e: unknown) {
-        if (!isConflict(e)) return; // прочее — молча, как fire-and-forget (было всегда)
+        if (!isConflict(e)) {
+          // Отказ с причиной (400: смена типа у узла с детьми / у базы со
+          // структурой). Раньше прочие ошибки уходили молча — правка «не
+          // срабатывала» без объяснения; показываем текст сервера плашкой.
+          setConflict(null);
+          setError(e instanceof ApiError ? e.message : "Правка не сохранена");
+          return;
+        }
         // 409: подтягиваем свежие данные (правка НЕ применилась — чужая работа цела),
         // показываем плашку; в историю ничего не кладём (onNodeSaved не зовём).
         try {
@@ -95,6 +115,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         } catch {
           // узел могли удалить — уровень догонит поллинг/ресинк
         }
+        setError(null);
         setConflict("Узел изменён в другой сессии — данные обновлены, повторите правку");
       }
     },
@@ -132,17 +153,22 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
     setStatus(st);
     void save({ status: st });
   };
+  // Смена типа: локального зеркала у формы нет осознанно — значение показываем из
+  // самого узла (пропа), который обновится тем же путём, что имя (onNodeSaved →
+  // данные узла в редакторе → холст). Отказ 400 приезжает плашкой, и показанный
+  // тип остаётся прежним, потому что прошлое значение никто не перетирал.
+  const pickShape = (sh: NodeShape) => {
+    setShapeOpen(false);
+    if (sh === shape) return;
+    void save({ shape: sh });
+  };
 
   const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
 
   return (
     <div>
-      {conflict && (
-        <p style={{ color: "#92400e", background: "#fef3c7", border: "1px solid #fcd34d",
-          borderRadius: 8, padding: "6px 10px", fontSize: 12.5, margin: "0 0 10px" }}>
-          {conflict}
-        </p>
-      )}
+      {conflict && <p style={noticeStyle}>{conflict}</p>}
+      {error && <p style={noticeStyle}>{error}</p>}
       {/* Шапка-идентификатор: глиф формы + имя + строка типа */}
       <div className="insp-head">
         <span className="insp-headglyph"><ShapeGlyph container={isContainer} shape={shape} /></span>
@@ -179,7 +205,42 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       {/* Список меты «терм → значение» */}
       <dl className="insp-meta">
         <Row icon={META_ICON.type} label="Тип">
-          <span className="insp-value">{SHAPE_LABEL[shape]}</span>
+          {isArchitect ? (
+            <span className="insp-value">
+              <span className="insp-selwrap">
+                <button
+                  type="button"
+                  className="insp-field insp-select"
+                  onClick={() => setShapeOpen((o) => !o)}
+                  aria-haspopup="listbox"
+                  aria-expanded={shapeOpen}
+                >
+                  <span className="insp-select-label">{SHAPE_LABEL[shape]}</span>
+                  <span className="insp-chev"><ChevronDown /></span>
+                </button>
+                {shapeOpen && (
+                  <>
+                    <div className="insp-backdrop" onClick={() => setShapeOpen(false)} />
+                    <ul className="insp-menu" role="listbox">
+                      {SHAPE_ORDER.map((sh) => (
+                        <li
+                          key={sh}
+                          role="option"
+                          aria-selected={sh === shape}
+                          onClick={() => pickShape(sh)}
+                        >
+                          {SHAPE_LABEL[sh]}
+                          {sh === shape && <span className="insp-menu-check"><CheckMark /></span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </span>
+            </span>
+          ) : (
+            <span className="insp-value">{SHAPE_LABEL[shape]}</span>
+          )}
         </Row>
 
         <Row icon={META_ICON.placement} label="Размещение">
