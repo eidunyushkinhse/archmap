@@ -9,10 +9,11 @@ passthrough одного файла, нечувствительность к п�
 инвариант «родители раньше детей» (совместимость с seed_import), адресация
 замечаний по происхождению виновных сущностей (Ф6 разложила по корзинам, Ф7 увела
 адресата от класса замечания к происхождению — состав панели на него не влияет),
-тюнинг федерации Ф0: содержательный вклад бьёт заглушку (П2), мягкий матчер якорей
-(П3), сироты строкой на файл-владельца (П4) и снимок одно-файлового прогона,
-удерживающий его байт-в-байт; Ф1: контейнерное замечание несёт перечень реальных
-компонентов и всегда адресуется файлу связи (П5).
+тюнинг федерации Ф0: содержательный вклад бьёт заглушку (П2), матчер якорей (П3),
+сироты строкой на файл-владельца (П4) и снимок одно-файлового прогона, удерживающий
+его байт-в-байт; Ф1: контейнерное замечание несёт перечень реальных компонентов и
+всегда адресуется файлу связи (П5); вторая итерация тюнинга Ф0: совпадение слабого
+якоря не гасит спор сильного поля (К3).
 """
 
 import uuid
@@ -1464,56 +1465,162 @@ def test_равная_содержательность_решается_перв
     ) in report.conflicts
 
 
-def test_плагин_с_чужим_репо_но_общим_хостом_склеивается_с_продуктом():
-    """П3: совпадение ЛЮБОГО якорного поля гасит противоречие остальных. Плагин
-    указал своё repo при общем host — до Ф0 это давало «встречается как РАЗНЫЕ
-    объекты», и продукт федерации оставался раздвоенным."""
-    merged, report = merge_imports(
-        [_parse(t) for t in (_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)]
-    )
-    пути = _path_list(merged)
+# ── К3: слабое совпадение не гасит спор сильных (Р2-Ф0, docs/plan-tuning-round2.md) ─
+#
+# Матрица федерации (docs/qa-federation-matrix.md, находка 3) поймала цену мягкого
+# правила П3: узел плагина {repo плагина, host grafana} слился с ядром продукта
+# {repo продукта, host grafana} — общий host погасил спор repo, и плагин выдал себя за
+# ядро (6 из 12 схемных строк «имя/родитель/role/technology/description отброшено»).
+# К3 сузил правило до иерархии сил identity.KEY_ORDER: слабое совпадение гасит спор
+# сильного поля ТОЛЬКО когда у одной из сторон этого поля нет.
 
-    assert [p for p in пути if p.casefold() == "grafana"] == ["Grafana"]
-    # Компоненты обоих репозиториев оказались внутри одного продукта.
-    assert "Grafana / grafana-server" in пути and "Grafana / zabbix-datasource" in пути
+_ЯДРО_ПРОДУКТА = """
+nodes:
+  - name: Grafana
+    children:
+      - name: grafana-server
+        source: {repo: github.com/grafana/grafana, path: pkg/cmd/grafana, host: grafana}
+      - name: grafana-frontend
+        source: {repo: github.com/grafana/grafana, path: public/app}
+edges:
+  - from: grafana-frontend
+    to: grafana-server
+"""
+# Полевая форма плагина: своё имя, своё репо, образ — и тот же сетевой хост, потому
+# что плагин живёт ВНУТРИ процесса продукта.
+_ПЛАГИН_ПОЛЕ = """
+nodes:
+  - name: grafana-zabbix
+    source:
+      repo: https://github.com/alexanderzobnin/grafana-zabbix
+      host: grafana
+      image: alexanderzobnin-zabbix-app
+    children:
+      - name: datasource
+      - name: panel-triggers
+"""
+
+
+def _дети(p: ParsedImport, idx: int) -> set[str]:
+    return {n.name for n in p.nodes if n.parent_idx == idx}
+
+
+def _с_ключом(p: ParsedImport, key: str) -> list[int]:
+    return [i for i, n in enumerate(p.nodes) if key in n.source_keys]
+
+
+def test_заглушка_без_репозитория_склеивается_с_продуктом():
+    """К3, кейс (а) — главный успех прошлой итерации, регрессия недопустима. У
+    заглушки соседа repo НЕТ вовсе: спорить о сильном поле не с чем (общего типа
+    ключа у них не находится), и склейку решает имя, как до появления якорей."""
+    for порядок in ([_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ], [_СВОЙ_РЕПОЗИТОРИЙ, _ЗАГЛУШКА_СОСЕДА]):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+        пути = _path_list(merged)
+
+        assert [p for p in пути if p.casefold() == "grafana"] == ["Grafana"], порядок
+        assert "Grafana / grafana-server" in пути, порядок
+        # Заглушка принесла свою грань источника — по ней продукт найдёт третий файл.
+        grafana = _node_by_path(merged, "Grafana")
+        assert sorted(grafana.source_keys) == ["git:github.com/grafana/grafana", "host:grafana"]
+        assert not any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+
+
+def test_заглушка_склеивается_по_общему_хосту_с_узлом_знающим_репо():
+    """К3, кейс (а), вторая ветка: общий тип ключа ЕСТЬ, и он слабый (host). Сильное
+    поле знает только одна сторона — противоречия нет, слабое совпадение решает, и
+    вызывающий склеивается с ядром поверх разных имён (ради этого якорь и заводился:
+    «свой репозиторий знает git, вызывающий — только сетевое имя»)."""
+    сосед = "nodes:\n  - name: мониторинг\n    source: {host: grafana}\n"
+    merged, report = merge_imports([_parse(_ЯДРО_ПРОДУКТА), _parse(сосед)])
+
+    assert _path_list(merged) == ["Grafana", "Grafana / grafana-server", "Grafana / grafana-frontend"]
+    assert any("имя" in c and "мониторинг" in c for c in report.conflicts)
     assert not any("РАЗНЫЕ объекты" in w for w in report.warnings)
-    # П2 для якоря: канонический ключ (он же будущий source_ref) — репо ПРОДУКТА,
-    # а не репо плагина, вписавшего в чужой узел своё.
-    grafana = _node_by_path(merged, "Grafana")
-    assert grafana.source_keys[0] == "git:github.com/grafana/grafana"
-    assert "git:github.com/alexanderzobnin/grafana-zabbix" in grafana.source_keys
+
+
+def test_плагин_со_своим_репо_не_склеивается_с_ядром_продукта():
+    """К3, кейс (б) — полевая ложная склейка находки 3. Плагин и ядро знают своё repo,
+    и оно разное: общий host их больше не сводит. Раньше плагин затирал ядро именем,
+    родителем и полями (и оставался единственным узлом на два репозитория)."""
+    for порядок in ([_ЯДРО_ПРОДУКТА, _ПЛАГИН_ПОЛЕ], [_ПЛАГИН_ПОЛЕ, _ЯДРО_ПРОДУКТА]):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+        пути = _path_list(merged)
+
+        assert "Grafana / grafana-server" in пути, порядок
+        assert {"grafana-zabbix / datasource", "grafana-zabbix / panel-triggers"} <= set(пути)
+        # Ни один узел не несёт оба репозитория — значит склейки не было.
+        assert all(
+            len([k for k in n.source_keys if k.startswith("git:")]) <= 1 for n in merged.nodes
+        ), порядок
+        assert report.conflicts == [], порядок
+
+
+def test_плагин_тёзка_продукта_остаётся_отдельным_узлом():
+    """Та же К3 на форме прошлой итерации: плагин назвал свой узел ИМЕНЕМ ПРОДУКТА и
+    вписал в него своё repo. До К3 это давало «один продукт» (мягкое правило гасило
+    спор repo общим host); теперь тёзки с разными репозиториями раздельны, и
+    расхождение названо вслух — молчаливой склейки нет."""
+    merged, report = merge_imports([_parse(t) for t in (_СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)])
+    ядро = _с_ключом(merged, "git:github.com/grafana/grafana")
+    плагин = _с_ключом(merged, "git:github.com/alexanderzobnin/grafana-zabbix")
+
+    assert len(ядро) == 1 and len(плагин) == 1 and ядро != плагин
+    assert _дети(merged, ядро[0]) == {"grafana-server", "grafana-frontend"}
+    assert _дети(merged, плагин[0]) == {"zabbix-datasource", "zabbix-panel"}
+    assert any("РАЗНЫЕ объекты" in w for w in report.warnings)
 
 
 def test_склейка_федерации_не_зависит_от_порядка_файлов():
     """Инвариант матчера v3: исход не зависит от порядка панели (тот же инвариант,
-    что у П2). Инкрементальный матчер ему не отвечал — узел копит ключи, и продукт,
-    легший ПОСЛЕ плагина, противоречил уже накопленному чужому repo: в двух
-    перестановках из шести Grafana оставалась раздвоенной. Стабилизация (_regroup)
-    сравнивает ВКЛАДЫ по отдельности и добирает такие склейки повторным проходом."""
+    что у П2). Инкрементальный матчер ему не отвечал — узел копит ключи, и кандидат
+    сравнивался с накопленным; стабилизация (_regroup) смотрит на ВКЛАДЫ и повторяет
+    проход. После К3 состав другой (плагин отделён от продукта, см. тест выше), а
+    инвариант тот же: в любом из шести порядков продукт ЕДИН (оба его компонента под
+    одним узлом), плагин цел рядом, и репозитории не смешаны.
+
+    Единственное, что порядок всё же решает, — к кому из двух тёзок прилипнет
+    заглушка соседа: у неё только host, общий у продукта и живущего в нём плагина, и
+    отличить их она не даёт. Спор полей это не задевает: П2 держит продукт от
+    покраски заглушкой в любом порядке."""
     for порядок in permutations((_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)):
         merged, report = merge_imports([_parse(t) for t in порядок])
-        пути = _path_list(merged)
-        продукт = [p for p in пути if p.casefold() == "grafana"]
+        ядро = _с_ключом(merged, "git:github.com/grafana/grafana")
+        плагин = _с_ключом(merged, "git:github.com/alexanderzobnin/grafana-zabbix")
 
-        assert len(продукт) == 1, порядок  # продукт един, а не раздвоен
-        assert len(merged.nodes) == 7, порядок
-        # Имя узла — от файла-создателя («Grafana» либо «grafana»), состав — общий.
-        корень = продукт[0]
-        assert {p for p in пути if p.startswith(f"{корень} / ")} == {
-            f"{корень} / grafana-server",
-            f"{корень} / grafana-frontend",
-            f"{корень} / zabbix-datasource",
-            f"{корень} / zabbix-panel",
-        }, порядок
-        grafana = _node_by_path(merged, корень)
-        assert sorted(grafana.source_keys) == [
-            "git:github.com/alexanderzobnin/grafana-zabbix",
-            "git:github.com/grafana/grafana",
-            "host:grafana",
-        ], порядок
+        assert len(merged.nodes) == 8, порядок
+        assert len(ядро) == 1 and len(плагин) == 1 and ядро != плагин, порядок
+        assert _дети(merged, ядро[0]) == {"grafana-server", "grafana-frontend"}, порядок
+        assert _дети(merged, плагин[0]) == {"zabbix-datasource", "zabbix-panel"}, порядок
         # П2 держится в любом порядке — заглушка не красит продукт.
-        assert (grafana.is_external, grafana.technology) == (False, "Go, TypeScript"), порядок
-        assert not any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+        продукт = merged.nodes[ядро[0]]
+        assert (продукт.is_external, продукт.technology) == (False, "Go, TypeScript"), порядок
+        assert merged.nodes[плагин[0]].is_external is False, порядок
+        assert any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+
+
+def test_свидетель_не_сводит_тёзок_спорящих_напрямую():
+    """Оборотная сторона стабилизации после К3: вклад-свидетель гасит противоречие
+    только там, где по К3 его нет. Третий файл знает «api» лишь по образу и не
+    противоречит ни одной команде — но связать через себя два разных репозитория он
+    не вправе, иначе К3 обходился бы транзитивностью union-find (A+свидетель,
+    свидетель+B → A и B в одной группе вопреки их прямому спору)."""
+    команда_a = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-a/api.git, host: api-a}\n"
+    )
+    команда_b = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-b/api.git, host: api-b}\n"
+    )
+    свидетель = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {image: reg.io/api}\n"
+    )
+    for порядок in permutations((команда_a, команда_b, свидетель)):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+
+        assert len([n for n in merged.nodes if n.name == "api"]) == 2, порядок
+        assert any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
 
 
 def test_тёзки_раздельны_во_всех_порядках_даже_с_безъякорной_заглушкой():
