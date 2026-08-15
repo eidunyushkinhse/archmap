@@ -152,21 +152,29 @@ def _прямой_доковый(db, project) -> str:
     )
 
 
-def _ручка_доков(db, project, variant="builder"):
-    """Вызов ручки доков со ВСЕМИ параметрами явно: у прямого вызова функции дефолты
-    Query(...) остаются объектами Query, а не значениями (в проде их подставляет
-    FastAPI). Значения — те же, что у дефолтов ручки."""
-    return docs_prompt(
-        node_id=None,
-        include="both",
-        lang="ru",
-        hints=None,
-        target=None,
-        variant=variant,
-        db=db,
-        project=project,
-        _=ensure_architect(db),
-    )
+# Отличает «variant не передан» от переданного значения: подставить дефолт самим
+# тестом значило бы проверять свой же дефолт, а не дефолт ручки (мутация «дефолт =
+# orchestrated» такой тест НЕ ломает — проверено фальсификацией).
+_БЕЗ_VARIANT = object()
+
+
+def _ручка_доков(db, project, variant=_БЕЗ_VARIANT):
+    """Вызов ручки доков с остальными параметрами явно: у прямого вызова функции
+    дефолты Query(...) остаются объектами Query, а не значениями (в проде их
+    подставляет FastAPI). Значения — те же, что у дефолтов ручки."""
+    прочие = {
+        "node_id": None,
+        "include": "both",
+        "lang": "ru",
+        "hints": None,
+        "target": None,
+        "db": db,
+        "project": project,
+        "_": ensure_architect(db),
+    }
+    if variant is _БЕЗ_VARIANT:
+        return docs_prompt(**прочие)
+    return docs_prompt(variant=variant, **прочие)
 
 
 @pytest.mark.parametrize("variant", ВАРИАНТЫ)
