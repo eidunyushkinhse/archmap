@@ -14,6 +14,12 @@
 намеренно ТОЛЕРАНТНЫЙ (урок импорта репозитория): неизвестные ключи игнорируются,
 кривая запись даёт ошибку в отчёте, а не роняет пакет целиком.
 
+Одна таблица может приехать НЕСКОЛЬКИМИ файлами пакета: файлы собраны разными прогонами
+агента, и обзорный файл по миграциям пересекается с подробным по конкретной таблице.
+Правило — слить в одну таблицу, первый описавший побеждает (_merge_duplicate). Иначе
+смысл карты зависел бы от порядка файлов в пакете, а он случаен: агент кладёт файлы как
+получилось. Та же политика, что у доливки пакетов из разных репозиториев.
+
 УДАЛЕНИЙ НЕТ: чего агент не увидел, то остаётся. Расхождение должно быть видно
 человеку, а не молча исчезать (та же политика, что у дозаливки доков).
 """
@@ -38,6 +44,10 @@ NODE_HEADER = re.compile(r"^#\s*archmap-node:\s*(.+?)\s*$", re.MULTILINE)
 # `access` тут остался намеренно: пакет по старому промпту — всё ещё НАШ файл, и битый
 # YAML в нём должен получить внятный ответ, а не считаться чужим.
 LOOKS_LIKE_DATA = re.compile(r"^(tables|access):", re.MULTILINE)
+
+# Кап у таблиц, описанных НЕСКОЛЬКИМИ файлами пакета. Считает ТАБЛИЦЫ, а не строки:
+# к заметке о дубле может добавиться расхождение описания между файлами.
+MAX_DUPLICATE_WARNINGS = 8
 
 
 @dataclass
@@ -106,12 +116,21 @@ def parse_data_file(content: str) -> ParsedData | None:
             schema_name=_as_str(raw.get("schema")),
             description=_as_str(raw.get("description")) or None,
         )
+        seen_columns: set[str] = set()
         for rc in raw.get("columns") or []:
             if not isinstance(rc, dict) or not _as_str(rc.get("name")):
                 continue
+            col_name = _as_str(rc.get("name"))
+            # Одно имя колонки дважды в одной таблице — та же неряшливость агента, что и
+            # колонка без имени выше, и молча пропустить её тут дешевле, чем ловить
+            # уникальностью (table_id, name) уже на записи: превью показало бы завышенное
+            # число колонок, а применение упало бы 500-й.
+            if col_name in seen_columns:
+                continue
+            seen_columns.add(col_name)
             t.columns.append(
                 ColumnIn(
-                    name=_as_str(rc.get("name")),
+                    name=col_name,
                     type=_as_str(rc.get("type")),
                     pk=_as_bool(rc.get("pk")),
                     required=_as_bool(rc.get("required")),
@@ -133,6 +152,20 @@ class DataPlan:
     tables: list[tuple[Node, TableIn, str]] = field(default_factory=list)
     # Пути узлов проекта: нужны и плану, и применению (резолв адреса владельца).
     path_of: dict[uuid.UUID, str] = field(default_factory=dict)
+
+
+@dataclass
+class _Merged:
+    """Таблица плана: первое вхождение плюс всё, что долили следующие файлы пакета."""
+
+    owner: Node
+    table: TableIn
+    # Файл ПЕРВОГО вхождения — он и стоит источником в строке превью.
+    source: str
+    # Все файлы пакета, описавшие эту таблицу, в порядке пакета и без повторов.
+    files: list[str] = field(default_factory=list)
+    # Расхождения описания МЕЖДУ файлами пакета — поимённо, значение первого.
+    meta_notes: list[str] = field(default_factory=list)
 
 
 def _db_nodes_hint(flat: list[Node], fulls: list[str]) -> str:
@@ -233,6 +266,9 @@ def build_data_plan(
             )
 
     # --- Таблицы ---------------------------------------------------------------
+    # Таблица плана — одна на «узел + схема БД + имя», сколькими бы файлами пакета она
+    # ни была описана. Порядок вставки = порядок пакета, он же порядок строк превью.
+    merged: dict[tuple[uuid.UUID, str, str], _Merged] = {}
     for fname, pd in parsed:
         if not pd.tables:
             continue
@@ -252,23 +288,114 @@ def build_data_plan(
                 f"Узлы-БД проекта: {db_hint}"
             )
             continue
-        existing = {
-            (t.schema_name, t.name): t
-            for t in db.query(DbTable).filter(DbTable.node_id == owner.id).all()
-        }
         for t in pd.tables:
-            live = existing.get((t.schema_name, t.name))
-            action = "create" if live is None else ("overwrite" if overwrite else "unchanged")
-            plan.report.tables.append(
-                DataTableItem(
-                    node_path=path_of.get(owner.id, owner.name), source=fname,
-                    schema_name=t.schema_name, name=t.name, columns=len(t.columns),
-                    action=action,  # type: ignore[arg-type]
-                )
+            # Ключ таблицы — тот же, что у уникальности в БД: узел + схема БД + имя.
+            # Одно имя в РАЗНЫХ базах (и в разных схемах одной базы) — законно разные
+            # таблицы, и сливать их нельзя.
+            key = (owner.id, t.schema_name, t.name)
+            m = merged.get(key)
+            if m is None:
+                merged[key] = _Merged(owner=owner, table=t, source=fname, files=[fname])
+            else:
+                _merge_duplicate(m, fname, t)
+
+    _warn_duplicate_tables(plan, list(merged.values()))
+
+    # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
+    # скольким владельцам приехал пакет, а строка превью нужна одна на таблицу.
+    live_by_key: dict[tuple[uuid.UUID, str, str], DbTable] = {}
+    owner_ids = {m.owner.id for m in merged.values()}
+    if owner_ids:
+        for tb in db.query(DbTable).filter(DbTable.node_id.in_(owner_ids)).all():
+            live_by_key[(tb.node_id, tb.schema_name, tb.name)] = tb
+
+    for key, m in merged.items():
+        t, owner = m.table, m.owner
+        live = live_by_key.get(key)
+        action = "create" if live is None else ("overwrite" if overwrite else "unchanged")
+        plan.report.tables.append(
+            DataTableItem(
+                node_path=path_of.get(owner.id, owner.name), source=m.source,
+                schema_name=t.schema_name, name=t.name, columns=len(t.columns),
+                action=action,  # type: ignore[arg-type]
             )
-            plan.tables.append((owner, t, fname))
+        )
+        plan.tables.append((owner, t, m.source))
 
     return plan
+
+
+def _merge_duplicate(m: _Merged, fname: str, t: TableIn) -> None:
+    """Долить в таблицу плана её же описание из другого файла ЭТОГО пакета.
+
+    Политика — та же, что у доливки пакетов РАЗНЫХ репозиториев: колонки объединяются
+    по имени, а при расхождении побеждает описанное раньше. Иначе смысл карты зависел
+    бы от порядка файлов в пакете — а он случаен: обзорный файл по миграциям и
+    подробный файл по одной таблице приезжают как получилось.
+
+    Пустое значение спором не считается: файл про один срез кода не видит того, что
+    видел другой, и «не знаю» не должно вытеснять «знаю».
+    """
+    if fname not in m.files:
+        m.files.append(fname)
+    first = m.table
+    if not first.description:
+        first.description = t.description
+    elif t.description and t.description != first.description:
+        # Описание — вся мета таблицы (схема и имя ушли в ключ), и молчать о том, что
+        # файлы говорят о таблице разное, тут не на что: расхождение видно только здесь.
+        m.meta_notes.append(
+            f"{fname}: таблица «{first.name}» — description «{t.description}», а в "
+            f"{m.source} «{first.description}»; оставлено значение из {m.source} "
+            "(описана раньше)"
+        )
+
+    by_name = {c.name: c for c in first.columns}
+    for c in t.columns:
+        earlier = by_name.get(c.name)
+        if earlier is None:
+            # Новая колонка встаёт в конец: порядок колонок — это порядок В ТАБЛИЦЕ (как
+            # в DDL), и доливка чужого файла не вправе его перемешивать.
+            first.columns.append(c)
+            by_name[c.name] = c
+            continue
+        # Имя совпало — побеждает колонка первого файла, доливаем только пустое.
+        # Поимённого замечания на каждую такую колонку нет: об этом уже сказано заметкой
+        # о таблице, а построчно вышел бы шум на весь пакет.
+        earlier.type = earlier.type or c.type
+        earlier.description = earlier.description or c.description
+        earlier.references = earlier.references or c.references
+        earlier.pk = earlier.pk or c.pk
+        earlier.required = earlier.required or c.required
+
+
+def _warn_duplicate_tables(plan: DataPlan, merged: list[_Merged]) -> None:
+    """Таблица описана НЕСКОЛЬКИМИ файлами пакета — план сливает её в одну строку.
+
+    Механизм тот же, что у каналов (7bbf9cd): живое состояние читалось по файлу и не
+    знало о таблицах, уже поставленных в план предыдущими файлами. Превью показывало
+    ДВЕ строки «create» с разным числом колонок, а применение падало 500-й — второй
+    файл лил одноимённую колонку в таблицу, только что созданную первым (уникальность
+    uq_db_column_name; у свежесозданной таблицы коллекция columns после flush пуста).
+    Дубль внутри пакета — норма (файлы собраны разными прогонами агента), поэтому
+    сливаем и предупреждаем, а не падаем и не молчим.
+
+    Порядок — как в пакете: он осмыслен, в отличие от произвольного порядка строк из БД.
+    """
+    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
+    for m in dups[:MAX_DUPLICATE_WARNINGS]:
+        if len(m.files) > 1:
+            plan.report.warnings.append(
+                f"таблица «{m.table.name}» описана в нескольких файлах пакета "
+                f'({", ".join(m.files)}): колонки сольются в одну таблицу, при совпадении '
+                "имени колонки и расхождении меты побеждает первый файл"
+            )
+        plan.report.warnings.extend(m.meta_notes)
+    if len(dups) > MAX_DUPLICATE_WARNINGS:
+        plan.report.warnings.append(
+            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} таблиц описаны в нескольких "
+            "файлах пакета"
+        )
 
 
 def apply_data_plan(db: Session, plan: DataPlan, overwrite: bool) -> None:

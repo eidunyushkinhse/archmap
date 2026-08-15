@@ -8,10 +8,15 @@
 passthrough одного файла, нечувствительность к порядку файлов, суммарные лимиты,
 инвариант «родители раньше детей» (совместимость с seed_import), адресация
 замечаний по происхождению виновных сущностей (Ф6 разложила по корзинам, Ф7 увела
-адресата от класса замечания к происхождению — состав панели на него не влияет).
+адресата от класса замечания к происхождению — состав панели на него не влияет),
+тюнинг федерации Ф0: содержательный вклад бьёт заглушку (П2), мягкий матчер якорей
+(П3), сироты строкой на файл-владельца (П4) и снимок одно-файлового прогона,
+удерживающий его байт-в-байт; Ф1: контейнерное замечание несёт перечень реальных
+компонентов и всегда адресуется файлу связи (П5).
 """
 
 import uuid
+from itertools import permutations
 
 from conftest import ensure_project
 
@@ -474,7 +479,7 @@ def test_связь_в_контейнер_с_компонентами_назыв
     assert errors == []
     assert (
         "связь «vote → redis»: конец в контейнере «vote», у которого есть компоненты, — "
-        "уточните её до конкретного компонента («vote / …»)"
+        "уточните её до конкретного компонента: «vote / web-api»"
     ) in report.warnings
     # Ребро от компонента — законное, про него не предупреждаем.
     assert len([w for w in report.warnings if "уточните её до конкретного" in w]) == 1
@@ -496,9 +501,90 @@ def test_оба_конца_контейнеры_названы_оба():
     ])
 
     assert errors == []
-    warn = next(w for w in report.warnings if "оба конца" in w)
-    assert "«vote»" in warn and "«worker»" in warn
-    assert "«vote / …»" in warn and "«worker / …»" in warn
+    assert (
+        "связь «vote → worker»: оба конца в контейнерах «vote» и «worker», у которых "
+        "есть компоненты, — уточните её до конкретных компонентов: «vote / web-api»; "
+        "«worker / queue-reader»"
+    ) in report.warnings
+
+
+# ── «цель с ответом»: перечень компонентов прямо в замечании (П5) ─────────────
+#
+# Урок Ф8 брокерного эпика, подтверждённый трижды: замечание, несущее ОТВЕТ,
+# слабая модель чинит за один круг, а «уточните до конкретного компонента» без
+# перечня она чинила лениво и частично — это был главный поглотитель кругов
+# полевых раундов (docs/qa-multirepo-federation.md). Форма «Контейнер / компонент»
+# — дословно квалификатор, который понимает parse_import: строку можно вписать в
+# YAML как есть.
+
+
+def test_замечание_несёт_перечень_компонентов_контейнера():
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Zabbix\n"
+            "  children:\n"
+            "  - name: server\n"
+            "    children:\n"
+            "    - name: poller\n"
+            "    - name: trapper\n"
+            "    - name: escalator\n"
+            "  - name: db\n",
+            "edges:\n- from: db\n  to: server\n",
+        )
+    ])
+
+    assert errors == []
+    # Компонентов мало — названы все, хвоста нет; порядок — как дети лежат в схеме.
+    assert (
+        "связь «db → server»: конец в контейнере «server», у которого есть компоненты, — "
+        "уточните её до конкретного компонента: «server / poller», «server / trapper», "
+        "«server / escalator»"
+    ) in report.warnings
+
+
+def test_перечень_компонентов_капится_хвостом():
+    # Контейнер на девять компонентов не должен вытеснить остальные замечания:
+    # шесть имён + счётчик остатка (кап того же порядка, что у имён в группе).
+    дети = "".join(f"    - name: c{i}\n" for i in range(1, 10))
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Zabbix\n  children:\n  - name: server\n    children:\n"
+            + дети
+            + "  - name: db\n",
+            "edges:\n- from: db\n  to: server\n",
+        )
+    ])
+
+    assert errors == []
+    assert (
+        "связь «db → server»: конец в контейнере «server», у которого есть компоненты, — "
+        "уточните её до конкретного компонента: «server / c1», «server / c2», "
+        "«server / c3», «server / c4», «server / c5», «server / c6» и ещё 3"
+    ) in report.warnings
+
+
+def test_при_двух_перечнях_кап_строже():
+    # Два перечня в одной строке нечитаемы, поэтому на конец показываем четыре
+    # имени, остальное — счётчиком. Перечень свой у КАЖДОГО конца.
+    левые = "".join(f"    - name: l{i}\n" for i in range(1, 7))
+    правые = "".join(f"    - name: r{i}\n" for i in range(1, 7))
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Voting App\n  children:\n  - name: vote\n    children:\n"
+            + левые
+            + "  - name: worker\n    children:\n"
+            + правые,
+            "edges:\n- from: vote\n  to: worker\n",
+        )
+    ])
+
+    assert errors == []
+    assert (
+        "связь «vote → worker»: оба конца в контейнерах «vote» и «worker», у которых "
+        "есть компоненты, — уточните её до конкретных компонентов: «vote / l1», "
+        "«vote / l2», «vote / l3», «vote / l4» и ещё 2; «worker / r1», «worker / r2», "
+        "«worker / r3», «worker / r4» и ещё 2"
+    ) in report.warnings
 
 
 def test_связи_только_в_листья_молчат():
@@ -1228,30 +1314,33 @@ edges:
 """
 
 
-def test_контейнер_раскрытый_чужим_файлом_это_замечание_пользователю():
-    """Агент файла 1 видит на конце атомарный сервис: чужих компонентов он не знает и
-    «уточнить до компонента» не может физически. Замечание уходит человеку и называет
-    обе стороны — чья связь и чьи компоненты."""
+def test_контейнер_раскрытый_чужим_файлом_адресован_агенту_связи():
+    """Ф7-вариант «замечание уходит человеку» ВЫТЕСНЕН П5. Прежде агент файла 1 видел
+    на конце атомарный сервис (компоненты пришли только из файла 2) и уточнить его не
+    мог физически — строка уезжала в схемную корзину. Теперь недостающее знание
+    вложено в текст перечнем, и виновная сущность остаётся ровно одна — сама связь:
+    замечание уходит её первоисточнику (правило Ф7 то же, круг виновных сужен)."""
     файлы, _ошибки, схема = _корзины(_Ф7_СВЯЗЬ_В_REDIS, _Ф7_КОМПОНЕНТЫ_REDIS)
 
-    assert схема == [
-        "связь «vote → redis» (файл 1) упирается в контейнер «redis», компоненты "
-        "которого описаны в файле 2, — агент файла 1 их не видит и уточнить конец "
-        "не может: перенесите его на нужный компонент («redis / …») сами"
+    assert файлы[0].file == 1
+    assert файлы[0].warnings == [
+        "связь «vote → redis»: конец в контейнере «redis», у которого есть компоненты, — "
+        "уточните её до конкретного компонента: «redis / redis-core»"
     ]
-    assert not any("упирается в контейнер" in w for f in файлы for w in f.warnings)
+    assert not any("контейнер" in w for w in схема)
 
 
 def test_контейнер_с_вкладом_своего_файла_адресован_агенту_связи():
-    """Тот же второй файл, но компонент redis есть и в файле связи: агент видит обе
-    половины, чинит сам — текст прежний, корзина файловая."""
+    """Тот же второй файл, но компонент redis есть и в файле связи. Адресат прежний
+    (файл связи), а перечень не двоится: redis-core обоих файлов — один узел слитого
+    дерева, из него перечень и берётся."""
     файлы, _ошибки, схема = _корзины(_Ф7_СВОЙ_КОНТЕЙНЕР, _Ф7_КОМПОНЕНТЫ_REDIS)
 
     assert (
         "связь «vote → redis»: конец в контейнере «redis», у которого есть компоненты, — "
-        "уточните её до конкретного компонента («redis / …»)"
+        "уточните её до конкретного компонента: «redis / redis-core»"
     ) in файлы[0].warnings
-    assert not any("упирается в контейнер" in w for w in схема)
+    assert not any("контейнер" in w for w in схема)
 
 
 _Ф7_АКТОР = """
@@ -1276,3 +1365,470 @@ def test_объект_обоих_файлов_адресуется_первом�
 
     assert any("человек" in w and "Оператор" in w for w in файлы[0].warnings)
     assert файлы[1].warnings == [] and схема == []
+
+
+# ── федерация: содержательный вклад против заглушки (П2) и матчер якорей v2 (П3) ─
+#
+# Полевой мультирепо-QA Zabbix+Grafana (docs/qa-multirepo-federation.md): один продукт
+# описан с трёх сторон. Сосед знает Grafana только СНАРУЖИ — имя, сетевое имя,
+# угаданная technology, external: true и ни одного компонента. Свой репозиторий
+# разобрал её ИЗНУТРИ. Плагин вписал в узел продукта СВОЁ репо: для него Grafana —
+# место жительства. До Ф0 спор полей выигрывал первый по порядку файл (в проекте
+# настоящая Grafana оказывалась внешней с оскоплённой technology), а плагин не
+# склеивался вовсе («различаются источники»), и продукт оставался раздвоенным.
+
+_ЗАГЛУШКА_СОСЕДА = """
+nodes:
+  - name: Zabbix
+    children:
+      - name: server
+  - name: Grafana
+    technology: Go
+    external: true
+    source: {host: grafana}
+edges:
+  - from: server
+    to: Grafana
+    label: datasource
+"""
+_СВОЙ_РЕПОЗИТОРИЙ = """
+nodes:
+  - name: Grafana
+    technology: Go, TypeScript
+    source: {repo: 'https://github.com/grafana/grafana', path: ''}
+    children:
+      - name: grafana-server
+      - name: grafana-frontend
+edges:
+  - from: grafana-frontend
+    to: grafana-server
+    label: HTTP API
+"""
+_ПЛАГИН = """
+nodes:
+  - name: grafana
+    source: {repo: 'https://github.com/alexanderzobnin/grafana-zabbix.git', host: grafana}
+    children:
+      - name: zabbix-datasource
+      - name: zabbix-panel
+edges:
+  - from: zabbix-datasource
+    to: zabbix-panel
+    label: рендер
+"""
+
+
+def test_содержательный_вклад_бьёт_заглушку_независимо_от_порядка():
+    """П2: содержательность вклада (компоненты ЛИБО source.repo) сильнее порядка
+    файлов. Заглушка соседа не красит продукт ни внешностью, ни угаданной технологией
+    — ни первой, ни второй в панели."""
+    for порядок in ([_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ], [_СВОЙ_РЕПОЗИТОРИЙ, _ЗАГЛУШКА_СОСЕДА]):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+        grafana = _node_by_path(merged, "Grafana")
+
+        assert grafana.is_external is False
+        assert grafana.technology == "Go, TypeScript"
+        # Заглушка и содержательный склеились в один продукт (компоненты на месте).
+        assert "Grafana / grafana-server" in _path_list(merged)
+        # Спор не решён молча: строка есть, номера файлов честные (кто дал оставленное
+        # значение, а кто отброшенное), а не «первый вкладчик узла».
+        свой = порядок.index(_СВОЙ_РЕПОЗИТОРИЙ) + 1
+        чужой = порядок.index(_ЗАГЛУШКА_СОСЕДА) + 1
+        assert (
+            f"Grafana: technology: оставлено «Go, TypeScript» (файл {свой}), "
+            f"отброшено «Go» (файл {чужой})"
+        ) in report.conflicts
+        assert (
+            f"Grafana: external: файлы {min(свой, чужой)} и {max(свой, чужой)} расходятся "
+            f"— оставлено false"
+        ) in report.conflicts
+
+
+def test_равная_содержательность_решается_первым_файлом():
+    """Оба файла видели сервис изнутри (репо + компоненты) — рассудить их
+    содержательностью нечем, работает прежний tie-break «побеждает первый»
+    (пара «заглушка + заглушка» — в test_field_conflict_first_wins)."""
+    a = _parse(
+        "nodes:\n  - name: svc\n    technology: Python\n"
+        "    source: {repo: github.com/org/svc}\n    children:\n      - name: api\n"
+    )
+    b = _parse(
+        "nodes:\n  - name: svc\n    technology: Go\n"
+        "    source: {repo: github.com/org/svc}\n    children:\n      - name: core\n"
+    )
+    merged, report = merge_imports([a, b])
+
+    assert _node_by_path(merged, "svc").technology == "Python"
+    assert (
+        "svc: technology: оставлено «Python» (файл 1), отброшено «Go» (файл 2)"
+    ) in report.conflicts
+
+
+def test_плагин_с_чужим_репо_но_общим_хостом_склеивается_с_продуктом():
+    """П3: совпадение ЛЮБОГО якорного поля гасит противоречие остальных. Плагин
+    указал своё repo при общем host — до Ф0 это давало «встречается как РАЗНЫЕ
+    объекты», и продукт федерации оставался раздвоенным."""
+    merged, report = merge_imports(
+        [_parse(t) for t in (_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)]
+    )
+    пути = _path_list(merged)
+
+    assert [p for p in пути if p.casefold() == "grafana"] == ["Grafana"]
+    # Компоненты обоих репозиториев оказались внутри одного продукта.
+    assert "Grafana / grafana-server" in пути and "Grafana / zabbix-datasource" in пути
+    assert not any("РАЗНЫЕ объекты" in w for w in report.warnings)
+    # П2 для якоря: канонический ключ (он же будущий source_ref) — репо ПРОДУКТА,
+    # а не репо плагина, вписавшего в чужой узел своё.
+    grafana = _node_by_path(merged, "Grafana")
+    assert grafana.source_keys[0] == "git:github.com/grafana/grafana"
+    assert "git:github.com/alexanderzobnin/grafana-zabbix" in grafana.source_keys
+
+
+def test_склейка_федерации_не_зависит_от_порядка_файлов():
+    """Инвариант матчера v3: исход не зависит от порядка панели (тот же инвариант,
+    что у П2). Инкрементальный матчер ему не отвечал — узел копит ключи, и продукт,
+    легший ПОСЛЕ плагина, противоречил уже накопленному чужому repo: в двух
+    перестановках из шести Grafana оставалась раздвоенной. Стабилизация (_regroup)
+    сравнивает ВКЛАДЫ по отдельности и добирает такие склейки повторным проходом."""
+    for порядок in permutations((_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+        пути = _path_list(merged)
+        продукт = [p for p in пути if p.casefold() == "grafana"]
+
+        assert len(продукт) == 1, порядок  # продукт един, а не раздвоен
+        assert len(merged.nodes) == 7, порядок
+        # Имя узла — от файла-создателя («Grafana» либо «grafana»), состав — общий.
+        корень = продукт[0]
+        assert {p for p in пути if p.startswith(f"{корень} / ")} == {
+            f"{корень} / grafana-server",
+            f"{корень} / grafana-frontend",
+            f"{корень} / zabbix-datasource",
+            f"{корень} / zabbix-panel",
+        }, порядок
+        grafana = _node_by_path(merged, корень)
+        assert sorted(grafana.source_keys) == [
+            "git:github.com/alexanderzobnin/grafana-zabbix",
+            "git:github.com/grafana/grafana",
+            "host:grafana",
+        ], порядок
+        # П2 держится в любом порядке — заглушка не красит продукт.
+        assert (grafana.is_external, grafana.technology) == (False, "Go, TypeScript"), порядок
+        assert not any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+
+
+def test_тёзки_раздельны_во_всех_порядках_даже_с_безъякорной_заглушкой():
+    """Обратная сторона стабилизации: свидетелем работает только вклад С ЯКОРЯМИ.
+    Безъякорная тёзка попадает в узел по имени и не должна связывать двух чужих друг
+    другу «api» — иначе порядконезависимость купилась бы ценой молчаливой ложной
+    склейки, которая хуже дубля (дубль видно, склейка выглядит корректной схемой)."""
+    команда_a = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-a/api.git, host: api-a}\n"
+    )
+    команда_b = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-b/api.git, host: api-b}\n"
+    )
+    безъякорная = "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+    for порядок in permutations((команда_a, команда_b, безъякорная)):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+
+        assert len([n for n in merged.nodes if n.name == "api"]) == 2, порядок
+        assert any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+
+
+def test_настоящие_тёзки_без_единого_совпадения_остаются_раздельными():
+    """Обратная сторона П3: не совпало НИ ОДНО поле якоря (разные repo И разные host)
+    — это два сервиса двух команд. Иначе Ф0 обменяла бы видимый дубль на молчаливую
+    ложную склейку, которая выглядит как корректная схема."""
+    a = _parse("nodes:\n  - name: api\n    source: {repo: github.com/team-a/api.git, host: api-a}\n")
+    b = _parse("nodes:\n  - name: api\n    source: {repo: github.com/team-b/api.git, host: api-b}\n")
+    merged, report = merge_imports([a, b])
+
+    assert len([n for n in merged.nodes if n.name == "api"]) == 2
+    assert any("РАЗНЫЕ объекты" in w for w in report.warnings)
+
+
+# ── сборные списки сирот — по файлам-владельцам (П4) ──────────────────────────
+#
+# «Объектов без единой связи: 17» собирало сирот ВСЕЙ слитой схемы одной строкой:
+# общего виновника у неё нет, и строка уезжала человеку — хотя каждого сироту чинит
+# агент его репозитория.
+
+_П4_ВИТРИНА = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: vote
+      - name: redis
+      - name: витрина
+      - name: справочник
+edges:
+  - from: vote
+    to: redis
+"""
+_П4_РАССЫЛЬНЫЙ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: payments
+      - name: vote
+      - name: рассыльный
+      - name: справочник
+edges:
+  - from: payments
+    to: vote
+"""
+
+
+def _сироты(текст: str) -> str:
+    return (
+        f"объектов без единой связи: 1 («{текст}») — проверьте, не потерялись ли связи; "
+        f"такие объекты попадут в «Незавершённость схемы»"
+    )
+
+
+def test_сироты_разложены_по_файлам_владельцам():
+    """Строка на владельца: сироты, весь вклад в которых сделал один файл, — его
+    агенту; сирота-склейка обоих файлов идёт ОТДЕЛЬНОЙ строкой, адресат которой
+    считается общим правилом Ф7 (наименьший общий файл)."""
+    файлы, _ошибки, схема = _корзины(_П4_ВИТРИНА, _П4_РАССЫЛЬНЫЙ)
+
+    assert файлы[0].warnings == [_сироты("витрина"), _сироты("справочник")]
+    assert файлы[1].warnings == [_сироты("рассыльный")]
+    assert схема == []
+
+
+def test_сироты_без_общего_файла_остаются_пользователю():
+    """Разбиение не выдумывает адресата: сирота, собранная файлами 1–2, и сирота,
+    собранная файлами 3–4, общего файла не имеют — их строка уезжает человеку."""
+
+    def один(имя: str) -> str:
+        return f"nodes:\n  - name: Ярмарка\n    children:\n      - name: {имя}\n"
+
+    ядро = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: vote\n"
+        "      - name: redis\n      - name: склад\nedges:\n  - from: vote\n    to: redis\n"
+    )
+    файлы, _ошибки, схема = _корзины(ядро, один("склад"), один("почта"), один("почта"))
+
+    assert схема == [
+        "объектов без единой связи: 2 («склад», «почта») — проверьте, не потерялись "
+        "ли связи; такие объекты попадут в «Незавершённость схемы»"
+    ]
+    assert all(f.warnings == [] for f in файлы)
+
+
+# ── эквивалентность одно-файлового прогона (главный риск Ф0) ──────────────────
+#
+# Ф0 меняет только МНОГОФАЙЛОВЫЙ мир: содержательность вклада (П2) и мягкий матчер
+# якорей (П3) живут внутри слияния, которого при одном файле нет вовсе (merge_imports
+# — passthrough), а пофайловые списки сирот (П4) при единственном владельце дают ровно
+# одну прежнюю строку. Снимок держит это утверждение целиком: дерево, все плоские
+# списки, разметка природы и корзины сверяются с эталоном, снятым с кода ДО правки.
+# Любой сдвиг текста, порядка или адресации в одно-репо прогоне — красный тест.
+#
+# Ф1 (П5) — ЕДИНСТВЕННОЕ санкционированное планом изменение эталона: контейнерные
+# строки расширены перечнем компонентов («… : «payments / api», …» вместо «(«payments
+# / …»)»). Всё прочее в снимках осталось прежним, и это здесь же и проверяется.
+
+
+def _снимок(*файлы_yaml: str) -> dict[str, object]:
+    """Весь результат прогона одним значением: слитое дерево (путь + все поля узла),
+    связи, ВСЕ списки отчёта, разметка природы и корзины split_remarks."""
+    merged, report, errors = parse_and_merge(list(файлы_yaml))
+    assert merged is not None
+    файлы, ошибки_схемы, предупреждения_схемы = split_remarks(report)
+    пути = _path_list(merged)
+    return {
+        "errors": errors,
+        "nodes": [
+            (
+                пути[i],
+                n.shape,
+                n.status,
+                n.role,
+                n.technology,
+                n.is_external,
+                n.description,
+                n.source_keys,
+            )
+            for i, n in enumerate(merged.nodes)
+        ],
+        "edges": [
+            (пути[e.source_idx], пути[e.target_idx], e.label, e.technology, e.channel)
+            for e in merged.edges
+        ],
+        "roots": merged.roots,
+        "merged_paths": report.merged_paths,
+        "dropped_edges": report.dropped_edges,
+        "conflicts": report.conflicts,
+        "warnings": report.warnings,
+        "warning_files": report.warning_files,
+        "report_errors": report.errors,
+        "error_files": report.error_files,
+        "file_remarks": [(f.file, f.errors, f.warnings) for f in файлы],
+        "schema": (ошибки_схемы, предупреждения_схемы),
+    }
+
+
+_ГОЛЫЙ = ("service", "existing", None, None, False, None, [])  # узел без единого поля
+
+
+def test_снимок_одно_файлового_прогона_file_a():
+    предупреждения = [
+        "объектов без единой связи: 2 («api», «charge-worker») — проверьте, не "
+        "потерялись ли связи; такие объекты попадут в «Незавершённость схемы»",
+        "связь «payments → payments-db»: конец в контейнере «payments», у которого есть "
+        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "«payments / charge-worker»",
+        "связь «payments → Stripe»: конец в контейнере «payments», у которого есть "
+        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "«payments / charge-worker»",
+        "связь «orders → payments»: конец в контейнере «payments», у которого есть "
+        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "«payments / charge-worker»",
+    ]
+    assert _снимок(FILE_A) == {
+        "errors": [],
+        "nodes": [
+            ("Ярмарка", "service", "existing", "система", None, False, None, []),
+            (
+                "Ярмарка / payments",
+                "service",
+                "existing",
+                None,
+                "Python",
+                False,
+                "Сервис платежей",
+                [],
+            ),
+            ("Ярмарка / payments / api", "service", "existing", "компонент", None, False, None, []),
+            (
+                "Ярмарка / payments / charge-worker",
+                "service",
+                "existing",
+                "воркер",
+                None,
+                False,
+                None,
+                [],
+            ),
+            ("Ярмарка / payments-db", "database", "existing", None, "PostgreSQL", False, None, []),
+            ("Ярмарка / orders", *_ГОЛЫЙ),
+            ("Stripe", "service", "existing", None, None, True, None, []),
+        ],
+        "edges": [
+            ("Ярмарка / payments", "Ярмарка / payments-db", "хранит", None, None),
+            ("Ярмарка / payments", "Stripe", "charge", None, None),
+            ("Ярмарка / orders", "Ярмарка / payments", "REST", None, None),
+        ],
+        "roots": ["Ярмарка", "Stripe"],
+        "merged_paths": [],
+        "dropped_edges": 0,
+        "conflicts": [],
+        "warnings": предупреждения,
+        "warning_files": [0, 0, 0, 0],
+        "report_errors": [],
+        "error_files": [],
+        # Корзина единственного файла повторяет плоский список — это и есть Ф7 для
+        # одно-репо: виновные сущности все его, схемным быть нечему.
+        "file_remarks": [(1, [], предупреждения)],
+        "schema": ([], []),
+    }
+
+
+# Один документ со ВСЕМИ классами замечаний разом: актор внутри системы, семь сирот
+# (кап имён 6 + хвост), связь в контейнер с компонентами, связь в брокер без канала,
+# перечень каналов в channel, оторванная группа — и якорь источника у узла.
+_ВСЕ_КЛАССЫ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        technology: Go
+        source: {repo: github.com/org/orders, host: orders}
+        children:
+          - name: api
+      - name: kafka
+        shape: broker
+      - name: Оператор
+        shape: person
+      - name: Админка
+      - name: сирота1
+      - name: сирота2
+      - name: сирота3
+      - name: сирота4
+      - name: сирота5
+      - name: сирота6
+      - name: сирота7
+edges:
+  - from: orders
+    to: kafka
+  - from: api
+    to: kafka
+    label: события
+    channel: "orders.created, orders.paid"
+  - from: Оператор
+    to: Админка
+"""
+
+
+def test_снимок_одно_файлового_прогона_со_всеми_классами_замечаний():
+    предупреждения = [
+        "внутри системы оказались люди («Оператор») — по C4 человек пользуется системой, "
+        "а не входит в неё; перенесите их в корень",
+        "объектов без единой связи: 7 («сирота1», «сирота2», «сирота3», «сирота4», "
+        "«сирота5», «сирота6» и ещё 1) — проверьте, не потерялись ли связи; такие "
+        "объекты попадут в «Незавершённость схемы»",
+        "связь «orders → kafka»: конец в контейнере «orders», у которого есть "
+        "компоненты, — уточните её до конкретного компонента: «orders / api»",
+        "связь «orders → kafka»: конец — брокер «kafka», а канал не указан — добавьте "
+        "channel: имя топика/очереди",
+        "связь «api → kafka»: в channel перечень «orders.created, orders.paid» — "
+        "разделите на отдельные связи, по одной на канал",
+        "группа из 2 объектов не связана с остальной схемой: «Оператор», «Админка» — "
+        "дорисуйте связь с ядром или проверьте, не потерялась ли она",
+    ]
+    assert _снимок(_ВСЕ_КЛАССЫ) == {
+        "errors": [],
+        "nodes": [
+            ("Ярмарка", *_ГОЛЫЙ),
+            (
+                "Ярмарка / orders",
+                "service",
+                "existing",
+                None,
+                "Go",
+                False,
+                None,
+                ["git:github.com/org/orders", "host:orders"],
+            ),
+            ("Ярмарка / orders / api", *_ГОЛЫЙ),
+            ("Ярмарка / kafka", "broker", "existing", None, None, False, None, []),
+            ("Ярмарка / Оператор", "person", "existing", None, None, False, None, []),
+            ("Ярмарка / Админка", *_ГОЛЫЙ),
+            *[(f"Ярмарка / сирота{i}", *_ГОЛЫЙ) for i in range(1, 8)],
+        ],
+        "edges": [
+            ("Ярмарка / orders", "Ярмарка / kafka", None, None, None),
+            (
+                "Ярмарка / orders / api",
+                "Ярмарка / kafka",
+                "события",
+                None,
+                "orders.created, orders.paid",
+            ),
+            ("Ярмарка / Оператор", "Ярмарка / Админка", None, None, None),
+        ],
+        "roots": ["Ярмарка"],
+        "merged_paths": [],
+        "dropped_edges": 0,
+        "conflicts": [],
+        "warnings": предупреждения,
+        "warning_files": [0] * 6,
+        "report_errors": [],
+        "error_files": [],
+        "file_remarks": [(1, [], предупреждения)],
+        "schema": ([], []),
+    }

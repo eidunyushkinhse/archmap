@@ -211,11 +211,26 @@ async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
 
 # ── Правила формата (BYOA-промпты) ───────────────────────────────────────────
 
+def _variant(args: dict[str, Any], params: dict[str, Any]) -> None:
+    """Вариант промпта в query — ТОЛЬКО когда его попросили явно.
+
+    Дефолт ручки и дефолт инструмента — «builder», поэтому пустой вызов обязан
+    уходить на сервер прежним байт-в-байт: на строительном промпте сидят уже
+    работающие агенты, и лишний параметр в запросе — это уже другой запрос."""
+    variant = args.get("variant")
+    if variant:
+        params["variant"] = variant
+
+
 async def t_import_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
     params: dict[str, Any] = {"system_name": args["system_name"]}
     for key in ("depth", "hints"):
         if args.get(key) is not None:
             params[key] = args[key]
+    _variant(args, params)
+    # Ложь = серверный дефолт: не шлём её, чтобы одно-продуктовый вызов не менялся.
+    if args.get("multi_product"):
+        params["multi_product"] = True
     data = await client.request("GET", "/projects/import/prompt", params=params)
     return str(data["prompt"])
 
@@ -225,6 +240,7 @@ async def t_docs_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
     params: dict[str, Any] = {"include": args.get("include", "both")}
     if args.get("node_id"):
         params["node_id"] = args["node_id"]
+    _variant(args, params)
     data = await client.request("GET", "/docs-import/prompt", project_id=pid, params=params)
     return str(data["prompt"])
 
@@ -236,7 +252,11 @@ def _docs(args: dict[str, Any]) -> list[dict[str, str]]:
 
 
 async def t_import_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
-    body = {"contents": [{"name": f["name"], "content": f["content"]} for f in args["files"]]}
+    # ⚠️ Контракт ручки (ImportPreviewIn.contents) — СПИСОК ТЕКСТОВ, не записей
+    # {name, content}: имён файлов он не принимает вовсе, а нумерация замечаний
+    # («файл 2») идёт по порядку списка. Записи давали латентную 422 на живом
+    # сервере — тесты на подменённом транспорте формы не проверяли.
+    body = {"contents": [f["content"] for f in args["files"]]}
     data = await client.request("POST", "/projects/import/preview", json=body)
     if not data.get("ok"):
         return "Импорт НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in data.get("errors", []))
@@ -263,7 +283,8 @@ async def t_import_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
         "name": args["name"],
         "description": args.get("description"),
         "start": "import",
-        "import_yamls": [{"name": f["name"], "content": f["content"]} for f in args["files"]],
+        # ⚠️ То же, что у превью: ProjectCreate.import_yamls — список ТЕКСТОВ.
+        "import_yamls": [f["content"] for f in args["files"]],
     }
     data = await client.request("POST", "/projects/", json=body)
     return (
@@ -289,9 +310,9 @@ async def t_sync_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
 
 
 def _sync_body(args: dict[str, Any]) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "contents": [{"name": f["name"], "content": f["content"]} for f in args["files"]]
-    }
+    # ⚠️ SyncPreviewIn.contents — тоже список ТЕКСТОВ (вход синка совпадает с
+    # входом импорта, отличаются только политики). Имена файлов контракт не берёт.
+    body: dict[str, Any] = {"contents": [f["content"] for f in args["files"]]}
     for flag in (
         "update_descriptions",
         "update_names",
@@ -430,6 +451,16 @@ async def t_update_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
 
 # ── Реестр ───────────────────────────────────────────────────────────────────
 
+VARIANT_ARG = {
+    "type": "string",
+    "enum": ["builder", "orchestrated", "skeptic"],
+    "description": (
+        "Вариант промпта: builder — строительный (по умолчанию); "
+        "orchestrated — обёртка «построил → аудит скептика → починил», требует субагентов; "
+        "skeptic — только промпт аудита готового пакета."
+    ),
+}
+
 FILES_ARG = {
     "type": "array",
     "description": "Файлы прогона агента: [{name, content}].",
@@ -504,13 +535,18 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_import_prompt",
-        "description": "ПРАВИЛА ФОРМАТА: как построить YAML архитектуры по исходникам репозитория. Вызывать ДО построения YAML — промпт задаёт слои C4, правила связей и запреты.",
+        "description": "ПРАВИЛА ФОРМАТА: как построить YAML архитектуры по исходникам репозитория. Вызывать ДО построения YAML — промпт задаёт слои C4, правила связей и запреты. variant — какой промпт вернуть: строительный (по умолчанию), оркестраторный с аудитом скептика (для него нужны субагенты) или один аудит. multi_product — проект объединяет несколько самостоятельных продуктов (федерация репозиториев).",
         "schema": {
             "type": "object",
             "properties": {
                 "system_name": {"type": "string", "description": "Имя системы в схеме."},
                 "depth": {"type": "integer", "description": "Глубина C4: 2 или 3 (по умолчанию 3)."},
                 "hints": {"type": "string", "description": "Подсказки про систему свободным текстом."},
+                "variant": VARIANT_ARG,
+                "multi_product": {
+                    "type": "boolean",
+                    "description": "Проект из нескольких продуктов: свой — контейнером, соседние — заглушками без детей. По умолчанию false.",
+                },
             },
             "required": ["system_name"],
         },
@@ -518,13 +554,14 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_docs_prompt",
-        "description": "ПРАВИЛА ФОРМАТА: как оформить схемы логики (.mmd с шапкой «%% archmap-name») и OpenAPI-спеки для дозаливки. include: logic | api | both.",
+        "description": "ПРАВИЛА ФОРМАТА: как оформить схемы логики (.mmd с шапкой «%% archmap-name») и OpenAPI-спеки для дозаливки. include: logic | api | both. variant — строительный промпт (по умолчанию), оркестраторный с аудитом скептика (нужны субагенты) или один аудит.",
         "schema": {
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
                 "node_id": {"type": "string", "description": "Объект, для которого готовим доки."},
                 "include": {"type": "string", "enum": ["logic", "api", "both"]},
+                "variant": VARIANT_ARG,
             },
             "required": ["project"],
         },

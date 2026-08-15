@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
+import importlib
+import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,6 +19,25 @@ import pytest
 from archmap_mcp.client import ArchMapClient, Config
 
 PROJECT_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def backend(module: str) -> Any:
+    """Модуль БЭКЕНДА по имени («schemas.project», «skeptic_prompt»).
+
+    Зачем в тестах MCP: подменённый транспорт тело запроса НЕ валидирует, поэтому
+    инструмент может годами слать словари туда, где контракт ждёт строки, — тесты
+    зелёные, живой сервер отвечает 422 (ровно это было у /projects/import/preview).
+    Единственный честный судья формы — схема самого бэкенда; сравнивать с ней
+    дешевле, чем поднимать сервис: схемы и промпт-литералы тянут только pydantic
+    и стандартную библиотеку.
+
+    Ломается импорт — тест обязан упасть, а не «пропуститься»: молчаливый скип
+    вернул бы ту же слепоту, ради которой всё это и написано.
+    """
+    root = Path(__file__).resolve().parents[2] / "backend"
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return importlib.import_module(f"app.{module}")
 
 
 class FakeApi:
