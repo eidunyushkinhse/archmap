@@ -47,6 +47,7 @@ from app.schemas.docs_import import (
     SpecOrigin,
 )
 from app.schemas.node_doc import NodeDocKind
+from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/docs-import", tags=["docs-import"])
@@ -87,6 +88,7 @@ def docs_prompt(
     lang: str = Query("ru", max_length=8),
     hints: str | None = Query(None, max_length=4000),
     target: str | None = Query(None, max_length=256),
+    variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
@@ -94,7 +96,9 @@ def docs_prompt(
     """Промпт агенту со вложенным срезом схемы: node_id — поддерево (агенту
     одного сервиса хватает его контейнера), без node_id — весь проект.
     target — гранулярный режим «по одной схеме»: фокусирует агента на одном
-    воркере/эндпоинте (крупные монолиты, которые не переварить за один заход)."""
+    воркере/эндпоинте (крупные монолиты, которые не переварить за один заход).
+    variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
+    (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     if node_id is not None:
@@ -107,7 +111,11 @@ def docs_prompt(
     export_slice = build_export(nodes, edges, root_id=node_id)
     tables, channels = _name_catalogs(db, project.id)
     return DocsPromptOut(
-        prompt=build_docs_prompt(export_slice, include, lang, hints, target, tables, channels)
+        prompt=prompt_for_variant(
+            variant,
+            "docs",
+            build_docs_prompt(export_slice, include, lang, hints, target, tables, channels),
+        )
     )
 
 
