@@ -19,6 +19,7 @@ from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.data_import import DataImportIn, DataImportReport, DataPromptOut
+from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/data-import", tags=["data-import"])
@@ -26,16 +27,19 @@ router = APIRouter(prefix="/data-import", tags=["data-import"])
 
 @router.get("/prompt", response_model=DataPromptOut)
 def data_prompt(
+    variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
 ) -> DataPromptOut:
     """Промпт агенту с узлами-БД ЭТОГО проекта: адрес владельца записей слабая
-    модель без списка выдумывает, и пакет блокируется целиком (находка QA)."""
+    модель без списка выдумывает, и пакет блокируется целиком (находка QA).
+    variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
+    (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     flat, fulls, _by_bare, _by_path = _node_paths(nodes)
     db_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "database"]
-    return DataPromptOut(prompt=build_data_prompt(db_paths))
+    return DataPromptOut(prompt=prompt_for_variant(variant, "data", build_data_prompt(db_paths)))
 
 
 def _plan(db: Session, project: Project, payload: DataImportIn, window: uuid.UUID | None):

@@ -11,17 +11,18 @@
 // Ручной ввод для базы с сорока таблицами непригоден, так что это основной путь
 // наполнения структуры; редактор на странице базы остаётся для правок.
 // Применение НЕ кладётся в undo — страховка та же: превью + дефолт «не перезаписывать».
-import { useEffect, useRef, useState } from "react";
-import type { DataImportReport } from "../../types";
-import { dataImportApi } from "../../api/docsImport";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { DataImportReport, PromptVariant } from "../../types";
+import { dataImportApi, type DocsFile } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {
-  ACTION_LABEL, countAction,
+  ACTION_LABEL, countAction, inputFingerprint, useRepeatedInput,
   head, sub, cols, leftCol, rightCol, leftNote,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow, radioRow,
 } from "./agentModalShared";
-import { ItemList, NoteList } from "./agentModalReport";
+import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
+import PromptTriple from "./PromptTriple";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -41,7 +42,6 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
   const [overwrite, setOverwrite] = useState(false);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [promptCopied, setPromptCopied] = useState(false);
   const [remarksCopied, setRemarksCopied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
@@ -49,6 +49,14 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
 
   // Пустые файлы прячут отчёт ПРОИЗВОДНО — эффект не зеркалит состояние в состояние.
   const report = pkg.hasContent ? rawReport : null;
+
+  // Гвард «вход не изменился»: тот же байт-в-байт пакет, что в прошлый заход, —
+  // повод посмотреть на файлы агента, а не на замечание (находка полевой приёмки).
+  const fingerprint = useMemo(() => inputFingerprint(pkg.files), [pkg.files]);
+  const repeatedInput = useRepeatedInput(pkg.files, fingerprint);
+  // Пакет, к которому задан вопрос об устаревании (после копирования замечаний).
+  // Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
+  const [askedFor, setAskedFor] = useState<DocsFile[] | null>(null);
 
   useEffect(() => {
     const nonEmpty = pkg.files.filter((f) => f.content.trim() !== "");
@@ -71,13 +79,10 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
     return () => window.clearTimeout(t);
   }, [pkg.files, overwrite, nodeId]);
 
-  function copyPrompt() {
-    void dataImportApi.prompt().then(({ prompt }) =>
-      navigator.clipboard.writeText(prompt).then(() => {
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2000);
-      }),
-    );
+  // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
+  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  function copyPrompt(variant: PromptVariant): Promise<void> {
+    return dataImportApi.prompt(variant).then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
 
   const remarks = report === null ? [] : [...report.errors, ...report.warnings];
@@ -94,7 +99,18 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
     void navigator.clipboard.writeText(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
+      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
+      // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
+      setAskedFor(pkg.files);
     });
+  }
+
+  // Убрать пакет из панели: файлы и отчёт уходят целиком (зеркало снятия
+  // последнего файла крестиком) — новый заход сравнивать будет не с чем.
+  function clearPackage() {
+    setAskedFor(null);
+    pkg.reset();
+    setRawReport(null);
   }
 
   function apply() {
@@ -126,9 +142,12 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
 
       <div style={cols}>
         <div style={leftCol}>
-          <button type="button" style={primaryBtn} onClick={copyPrompt}>
-            {promptCopied ? "Скопировано ✓" : "Скопировать промпт"}
-          </button>
+          <PromptTriple
+            label="Скопировать промпт"
+            copiedLabel="Скопировано ✓"
+            kind="primary"
+            copy={copyPrompt}
+          />
           <label style={{ ...radioRow, marginTop: 14 }}>
             <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
             Перезаписывать заполненное
@@ -187,6 +206,9 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
 
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
+            {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
+                повторится, и чинить надо не его, а разговор с агентом. */}
+            {repeatedInput && <UnchangedInputNote />}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
                 Применено: таблиц {report.tables_written}, колонок {report.columns_written}.
@@ -226,6 +248,9 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
                 onClick={copyRemarks}>
                 {remarksCopied ? "Скопировано ✓" : "Скопировать замечания для агента"}
               </button>
+            )}
+            {askedFor === pkg.files && (
+              <StaleFilesConfirm onKeep={() => setAskedFor(null)} onClear={clearPackage} />
             )}
           </div>
 

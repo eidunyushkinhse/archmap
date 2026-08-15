@@ -9,17 +9,18 @@
 // «Добавить ещё». Применение НЕ кладётся в undo — страховка: превью + дефолт
 // «не перезаписывать». Закрытие после успешного применения — отсюда (onClose);
 // родитель через onApplied только освежает мету узла.
-import { useEffect, useRef, useState } from "react";
-import type { DocsImportReport } from "../../types";
-import { docsImportApi } from "../../api/docsImport";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { DocsImportReport, PromptVariant } from "../../types";
+import { docsImportApi, type DocsFile } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {
-  ACTION_LABEL, countAction,
+  ACTION_LABEL, countAction, inputFingerprint, useRepeatedInput,
   head, sub, cols, leftCol, rightCol, radioRow, hintsArea,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
-import { ItemList, NoteList } from "./agentModalReport";
+import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
+import PromptTriple from "./PromptTriple";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -37,7 +38,6 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   // ── параметры промпта (include зафиксирован на API-спеке) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  const [promptCopied, setPromptCopied] = useState(false);
   // ── файлы пакета и превью ──
   const pkg = useDocsFiles();
   // Отчёт последнего превью/применения. Пустые файлы прячут его ПРОИЗВОДНО
@@ -53,6 +53,14 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
 
   const report = pkg.hasContent ? rawReport : null;
+
+  // Гвард «вход не изменился»: тот же байт-в-байт пакет, что в прошлый заход, —
+  // повод посмотреть на файлы агента, а не на замечание (находка полевой приёмки).
+  const fingerprint = useMemo(() => inputFingerprint(pkg.files), [pkg.files]);
+  const repeatedInput = useRepeatedInput(pkg.files, fingerprint);
+  // Пакет, к которому задан вопрос об устаревании (после копирования замечаний).
+  // Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
+  const [askedFor, setAskedFor] = useState<DocsFile[] | null>(null);
 
   // Дебаунс-превью по файлам и тумблеру; план фильтруется по спекам (only="api").
   // Все setState — в таймере/ответе (асинхронно); seq отбрасывает устаревшие
@@ -78,13 +86,12 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
     return () => window.clearTimeout(t);
   }, [pkg.files, nodeId]);
 
-  function copyPrompt() {
-    void docsImportApi.prompt({ nodeId, include: "api", lang, hints }).then(({ prompt }) =>
-      navigator.clipboard.writeText(prompt).then(() => {
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2000);
-      }),
-    );
+  // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
+  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  function copyPrompt(variant: PromptVariant): Promise<void> {
+    return docsImportApi
+      .prompt({ nodeId, include: "api", lang, hints, variant })
+      .then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
 
   // Замечания для агента: ошибки/конфликты/предупреждения по спеке.
@@ -98,7 +105,18 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
     void navigator.clipboard.writeText(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
+      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
+      // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
+      setAskedFor(pkg.files);
     });
+  }
+
+  // Убрать пакет из панели: файлы и отчёт уходят целиком (зеркало снятия
+  // последнего файла крестиком) — новый заход сравнивать будет не с чем.
+  function clearPackage() {
+    setAskedFor(null);
+    pkg.reset();
+    setRawReport(null);
   }
 
   function apply() {
@@ -152,9 +170,13 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
             placeholder={"Например: спеку возьми из swagger.yaml;\nесли её нет — синтезируй по хендлерам."}
           />
 
-          <button type="button" style={{ ...primaryBtn, marginTop: 4 }} onClick={copyPrompt}>
-            {promptCopied ? "Скопировано ✓" : "Скопировать промпт"}
-          </button>
+          <PromptTriple
+            label="Скопировать промпт"
+            copiedLabel="Скопировано ✓"
+            kind="primary"
+            buttonStyle={{ marginTop: 4 }}
+            copy={copyPrompt}
+          />
         </div>
 
         {/* ── Справа: файлы пакета + превью + применение ── */}
@@ -217,6 +239,9 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
           {/* Отчёт превью / применения */}
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
+            {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
+                повторится, и чинить надо не его, а разговор с агентом. */}
+            {repeatedInput && <UnchangedInputNote />}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
                 Применено: спек записано {report.specs_written}.
@@ -267,6 +292,9 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
               >
                 {remarksCopied ? "Скопировано ✓" : "Скопировать замечания для агента"}
               </button>
+            )}
+            {askedFor === pkg.files && (
+              <StaleFilesConfirm onKeep={() => setAskedFor(null)} onClear={clearPackage} />
             )}
           </div>
 

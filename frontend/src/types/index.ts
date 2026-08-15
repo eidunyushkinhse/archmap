@@ -3,9 +3,11 @@
 // привычные фронту имена-алиасы. Менять контракт — правкой Pydantic-схем +
 // перегенерацией, НЕ здесь. Рукописным остаётся только чисто фронтовое
 // (canHaveChildren, UserRole); NodeShape и EdgePoint выводятся из генерата.
-import type { components } from "./api.gen";
+import type { components, operations } from "./api.gen";
 
 type Schemas = components["schemas"];
+// Параметры ручек (query) генерируются отдельно от схем — берём их отсюда.
+type Operations = operations;
 
 // C4-формы узла — выводим из сгенерированного контракта (Literal на бэке).
 export type NodeShape = Schemas["NodeResponse"]["shape"];
@@ -49,6 +51,14 @@ export type TemplateNode = Schemas["TemplateNodeOut"];
 export type TemplateEdge = Schemas["TemplateEdgeOut"];
 export type ImportPreviewOut = Schemas["ImportPreviewOut"];
 export type ImportPromptOut = Schemas["ImportPromptOut"];
+
+// Вариант BYOA-промпта, общий для всех четырёх промпт-ручек: строительный
+// (дефолт, прежний байт-в-байт), оркестраторная обёртка с аудитом вторым
+// агентом-скептиком и отдельный промпт аудита. Литерал ВЫВОДИМ из генерата —
+// значения контракта руками не переписываем.
+export type PromptVariant = NonNullable<
+  NonNullable<Operations["data_prompt_api_v1_data_import_prompt_get"]["parameters"]["query"]>["variant"]
+>;
 
 // Синхронизация живого проекта со свежим прогоном агента (docs/plan-arch-sync.md):
 // dry-run плана и отчёт применения.

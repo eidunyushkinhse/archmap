@@ -94,6 +94,10 @@ export interface paths {
          * @description Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
          *     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
          *     сливает merge_imports. Параметры вшиваются в текст (docs/archive/plan-repo-import.md).
+         *
+         *     variant — что отдать кнопке: строительный промпт (дефолт, байт-в-байт прежний —
+         *     на нём сидят MCP-тулзы), оркестраторную обёртку с аудитом или один промпт аудита
+         *     (docs/plan-skeptic-audit.md).
          */
         get: operations["import_prompt_api_v1_projects_import_prompt_get"];
         put?: never;
@@ -722,6 +726,8 @@ export interface paths {
          * Data Prompt
          * @description Промпт агенту с узлами-БД ЭТОГО проекта: адрес владельца записей слабая
          *     модель без списка выдумывает, и пакет блокируется целиком (находка QA).
+         *     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
+         *     (docs/plan-skeptic-audit.md).
          */
         get: operations["data_prompt_api_v1_data_import_prompt_get"];
         put?: never;
@@ -999,7 +1005,11 @@ export interface paths {
         /**
          * Channels Prompt
          * @description Промпт агенту с узлами-брокерами ЭТОГО проекта: адрес владельца слабая модель
-         *     без списка выдумывает, и пакет блокируется целиком (урок Н8).
+         *     без списка выдумывает, и пакет блокируется целиком (урок Н8). Плюс каналы,
+         *     которые УЖЕ называют связи схемы, — минимум пакета (находка №4 полевого QA:
+         *     канальная сессия не нашла очередь, в которую код только публикует).
+         *     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
+         *     (docs/plan-skeptic-audit.md).
          */
         get: operations["channels_prompt_api_v1_channels_import_prompt_get"];
         put?: never;
@@ -1063,6 +1073,8 @@ export interface paths {
          *     одного сервиса хватает его контейнера), без node_id — весь проект.
          *     target — гранулярный режим «по одной схеме»: фокусирует агента на одном
          *     воркере/эндпоинте (крупные монолиты, которые не переварить за один заход).
+         *     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
+         *     (docs/plan-skeptic-audit.md).
          */
         get: operations["docs_prompt_api_v1_docs_import_prompt_get"];
         put?: never;
@@ -2667,6 +2679,26 @@ export interface components {
             /** Content */
             content: string;
         };
+        /**
+         * FileRemarksOut
+         * @description Замечания к ОДНОМУ файлу пакета: их чинит агент того репозитория, из которого
+         *     файл пришёл (он видит только свой код и переписывает только свой YAML). Тексты —
+         *     без префикса «файл N: »: адресация уже в поле file.
+         */
+        FileRemarksOut: {
+            /** File */
+            file: number;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+        };
         /** FragmentCreate */
         FragmentCreate: {
             /**
@@ -2939,6 +2971,21 @@ export interface components {
              * @default []
              */
             node_names: string[];
+            /**
+             * File Remarks
+             * @default []
+             */
+            file_remarks: components["schemas"]["FileRemarksOut"][];
+            /**
+             * Schema Errors
+             * @default []
+             */
+            schema_errors: string[];
+            /**
+             * Schema Warnings
+             * @default []
+             */
+            schema_warnings: string[];
         };
         /**
          * ImportPromptOut
@@ -4511,6 +4558,7 @@ export interface operations {
                 depth?: number;
                 lang?: "ru" | "en";
                 hints?: string | null;
+                variant?: "builder" | "orchestrated" | "skeptic";
             };
             header?: never;
             path?: never;
@@ -5728,7 +5776,9 @@ export interface operations {
     };
     data_prompt_api_v1_data_import_prompt_get: {
         parameters: {
-            query?: never;
+            query?: {
+                variant?: "builder" | "orchestrated" | "skeptic";
+            };
             header?: {
                 "X-Project-Id"?: string | null;
             };
@@ -6430,7 +6480,9 @@ export interface operations {
     };
     channels_prompt_api_v1_channels_import_prompt_get: {
         parameters: {
-            query?: never;
+            query?: {
+                variant?: "builder" | "orchestrated" | "skeptic";
+            };
             header?: {
                 "X-Project-Id"?: string | null;
             };
@@ -6537,6 +6589,7 @@ export interface operations {
                 lang?: string;
                 hints?: string | null;
                 target?: string | null;
+                variant?: "builder" | "orchestrated" | "skeptic";
             };
             header?: {
                 "X-Project-Id"?: string | null;

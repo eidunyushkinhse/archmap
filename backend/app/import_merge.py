@@ -52,6 +52,23 @@ _MAX_GROUP_NAMES = 6
 T = TypeVar("T", bound=Hashable)
 
 
+def _least(files: set[int]) -> int | None:
+    """Адресат из множества кандидатов — файл с наименьшим номером; пусто → None.
+
+    Наименьший не произволен: при слиянии выигрывает первый по порядку файл (имя,
+    родитель, поля, канал — всё решается в его пользу), значит именно его правка
+    доедет до слитой схемы и погасит замечание."""
+    return min(files) if files else None
+
+
+def _files_phrase(files: Iterable[int], one: str, many: str) -> str:
+    """«файлом 2» / «файлами 1 и 3» — номера файлов с 1 в нужной форме слова."""
+    nums = [str(f + 1) for f in sorted(files)]
+    if len(nums) < 2:
+        return f"{one} {nums[0]}" if nums else one
+    return f"{many} {', '.join(nums[:-1])} и {nums[-1]}"
+
+
 def connected_components(edges: Iterable[tuple[T, T]]) -> list[list[T]]:
     """Связные компоненты графа РЁБЕР; компоненты из одного узла не возвращаются.
 
@@ -94,7 +111,20 @@ def connected_components(edges: Iterable[tuple[T, T]]) -> list[list[T]]:
 @dataclass
 class MergeReport:
     """Человеческий отчёт слияния для превью модалки. errors — только нарушение
-    суммарных лимитов (per-file лимиты держит parse_import)."""
+    суммарных лимитов (per-file лимиты держит parse_import).
+
+    Плоские списки (conflicts/warnings/errors) — исторический контракт превью, их
+    наполнение не меняется. Поверх них живёт РАЗМЕТКА ПРИРОДЫ замечания (Ф6): пакет
+    собирают N агентов, каждый видит только свой репозиторий и переписывает только
+    свой файл, поэтому замечание, порождённое содержимым одного файла, адресуемо
+    его агенту, а свойство слитой картины — только человеку (split_remarks).
+
+    Адресат считается по ПРОИСХОЖДЕНИЮ виновных сущностей, а не по классу замечания
+    (Ф7, находка пользователя): класс давал разный ответ на один и тот же файл в
+    зависимости от того, сколько документов лежит рядом в панели. Правило одно на все
+    классы: собери виновные сущности замечания; есть файл, внёсший вклад в каждую из
+    них, — ему замечание и адресуется (при нескольких кандидатах — наименьший номер,
+    _least), нет — схемная корзина."""
 
     files: int
     merged_paths: list[str] = field(default_factory=list)  # узлы, склеенные из ≥2 файлов
@@ -102,6 +132,111 @@ class MergeReport:
     warnings: list[str] = field(default_factory=list)  # fuzzy-пары, разные корни, похожие рёбра
     dropped_edges: int = 0  # выброшенные точные дубли рёбер
     errors: list[str] = field(default_factory=list)
+    # ── разметка природы замечаний (Ф6, docs/plan-skeptic-audit.md) ────────────
+    # Для каждой строки warnings/errors — индекс файла-виновника (с 0) либо None
+    # («виноватого» файла нет: свойство слитой картины или отношений между файлами).
+    # Длины держатся равными len(warnings)/len(errors) методами warn()/error().
+    warning_files: list[int | None] = field(default_factory=list)
+    error_files: list[int | None] = field(default_factory=list)
+    # Ошибки РАЗБОРА отдельных файлов, БЕЗ префикса «файл N: » (адресация уже в
+    # структуре). Плоский список ошибок собирает parse_and_merge — с префиксом, как раньше.
+    file_errors: dict[int, list[str]] = field(default_factory=dict)
+    # Служебная атрибуция слитого дерева (не для показа): какие файлы внесли вклад
+    # в каждый узел / каждую связь. По ней проверки содержания решают, кому
+    # адресовать замечание о конкретном объекте.
+    node_files: list[set[int]] = field(default_factory=list)
+    edge_files: list[set[int]] = field(default_factory=list)
+
+    def warn(self, text: str, file: int | None = None) -> None:
+        """Предупреждение: в плоский список (как раньше) и в разметку природы."""
+        self.warnings.append(text)
+        self.warning_files.append(file)
+
+    def error(self, text: str, file: int | None = None) -> None:
+        self.errors.append(text)
+        self.error_files.append(file)
+
+    def _common(self, attribution: list[set[int]], idxs: Iterable[int]) -> set[int]:
+        """Файлы, внёсшие вклад в КАЖДЫЙ из названных объектов (пересечение
+        атрибуций). Пусто — общего файла нет: замечание не адресуемо ни одному
+        агенту и уедет пользователю. Ложная адресация вреднее пропущенной.
+
+        Пересечение, а не «ровно один файл на все объекты» (Ф7): узел, склеенный из
+        двух прогонов, принадлежит обоим — и не должен лишать адресата замечание,
+        где остальные виновники из одного файла."""
+        common: set[int] | None = None
+        for i in idxs:
+            if i >= len(attribution):
+                return set()
+            common = set(attribution[i]) if common is None else common & attribution[i]
+            if not common:
+                return set()
+        return common or set()
+
+    def files_of_nodes(self, idxs: Iterable[int]) -> set[int]:
+        return self._common(self.node_files, idxs)
+
+    def files_of_edges(self, idxs: Iterable[int]) -> set[int]:
+        """Для связи «внёс вклад» = принёс ровно её (первоисточник или принесший
+        тот же дубль); ссылки внутри файла резолвит parse_import, поэтому файл
+        связи заведомо объявил и оба её конца."""
+        return self._common(self.edge_files, idxs)
+
+    def owner_of_nodes(self, idxs: Iterable[int]) -> int | None:
+        return _least(self.files_of_nodes(idxs))
+
+    def owner_of_edges(self, idxs: Iterable[int]) -> int | None:
+        return _least(self.files_of_edges(idxs))
+
+
+@dataclass
+class FileRemarks:
+    """Замечания к ОДНОМУ входному файлу — то, что чинит агент его репозитория:
+    он видит только свой код и переписывает только свой YAML-документ."""
+
+    file: int  # номер файла с 1 — та же нумерация, что в текстах «(файл 2)» и в чипах UI
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def split_remarks(report: MergeReport) -> tuple[list[FileRemarks], list[str], list[str]]:
+    """Разложить замечания превью по ПРИРОДЕ: (пофайловые, ошибки слитой схемы,
+    предупреждения слитой схемы). Записей пофайловых замечаний ровно столько,
+    сколько входных файлов, — включая файлы без единого замечания (фронт адресует
+    их по индексу активного чипа).
+
+    Конфликты слияния всегда в схемной корзине: конфликт — это и есть расхождение
+    ДВУХ файлов, рассудить его может только тот, кто видит оба репозитория.
+
+    Одно-файловый режим НЕ особый (Ф7): у единственного файла все сущности его, и
+    общее правило само уводит каждое замечание — включая изоляцию и прочую «слитую
+    картину» — в file_remarks[0], оставляя схемные корзины пустыми. Отдельной ветки
+    «при files==1 клади всё в первый файл» здесь быть не должно: она и означала бы,
+    что адресат зависит от состава панели, а не от происхождения виновных."""
+    per_errors: list[list[str]] = [[] for _ in range(report.files)]
+    per_warnings: list[list[str]] = [[] for _ in range(report.files)]
+    schema_errors: list[str] = []
+    schema_warnings: list[str] = []
+
+    def put(bucket: list[list[str]], schema: list[str], text: str, file: int | None) -> None:
+        if file is None:
+            schema.append(text)
+        else:
+            bucket[file].append(text)
+
+    for i, errs in report.file_errors.items():
+        per_errors[i].extend(errs)
+    for text, owner in zip(report.errors, report.error_files, strict=True):
+        put(per_errors, schema_errors, text, owner)
+    for text in report.conflicts:
+        put(per_warnings, schema_warnings, text, None)
+    for text, owner in zip(report.warnings, report.warning_files, strict=True):
+        put(per_warnings, schema_warnings, text, owner)
+    files = [
+        FileRemarks(file=i + 1, errors=per_errors[i], warnings=per_warnings[i])
+        for i in range(report.files)
+    ]
+    return files, schema_errors, schema_warnings
 
 
 def _norm(name: str) -> str:
@@ -143,6 +278,9 @@ class _Merger:
         # прогоны положили под разных родителей или назвали по-разному.
         self.by_source: dict[str, int] = {}
         self.edges: list[_ImpEdge] = []
+        # какие файлы принесли связь (первоисточник + принесшие тот же дубль) —
+        # атрибуция замечаний о конкретной связи (Ф6).
+        self.edge_files: list[set[int]] = []
         # ключ дубля → (индекс в self.edges, файл-первоисточник). Индекс нужен,
         # чтобы дубль мог ДОЛИТЬ каналом уже принятую связь, а не пропасть целиком.
         self.edge_seen: dict[tuple[int, int, str, str], tuple[int, int]] = {}
@@ -201,7 +339,8 @@ class _Merger:
         предохранителем: тёзка с противоречащим якорем НЕ склеивается."""
         for idx in self.by_key.get((parent_m, _norm(node.name)), []):
             if compare_identity(self.nodes[idx].source_keys, node.source_keys) == "different":
-                self.report.warnings.append(
+                # Замечание о ФАЙЛАХ (тёзки из разных прогонов) — виноватого нет.
+                self.report.warn(
                     f"«{node.name}» ({self._where(parent_m)}) встречается в файлах как РАЗНЫЕ "
                     f"объекты (различаются источники) — оставлены раздельно"
                 )
@@ -222,7 +361,10 @@ class _Merger:
                 # git-remote на все сервисы монорепо, не различив их путями.
                 # Склеивать нельзя (см. _match_by_source), но следующие файлы
                 # найдут по этому ключу только первого — предупреждаем.
-                self.report.warnings.append(
+                # Природа — схемная: имена пары приходят из разных прогонов, а
+                # последствие («следующие файлы свяжутся только с первым») — про
+                # весь пакет, а не про один документ.
+                self.report.warn(
                     f"«{self.nodes[taken].name}» и «{node.name}» указывают один источник "
                     f"({k}) — уточните source.path у каждого, иначе следующие файлы "
                     f"свяжутся только с первым"
@@ -290,10 +432,12 @@ class _Merger:
         seen = self.edge_seen.get(key)
         if seen is not None:
             self.report.dropped_edges += 1
+            self.edge_files[seen[0]].add(fi)
             self._merge_channel(seen, e.channel, fi)
             return
         self.edge_seen[key] = (len(self.edges), fi)
         self.edges.append(_ImpEdge(src, dst, e.label, e.technology, e.channel))
+        self.edge_files.append({fi})
         self.pair_labels.setdefault((src, dst), []).append((e.label or "", fi))
 
     def _merge_channel(self, seen: tuple[int, int], new: str | None, fi: int) -> None:
@@ -327,7 +471,8 @@ class _Merger:
             if len({lbl for lbl, _ in entries}) < 2 or len({f for _, f in entries}) < 2:
                 continue
             labels = ", ".join(f"«{lbl or '—'}»" for lbl, _ in entries[:4])
-            self.report.warnings.append(
+            # Замечание существует только потому, что файлов несколько, — схемное.
+            self.report.warn(
                 f"связи {self.paths[src]} → {self.paths[dst]}: разные подписи из разных "
                 f"файлов ({labels}) — проверьте, не дубли ли это"
             )
@@ -350,7 +495,8 @@ class _Merger:
                     if not _similar(norms[a], norms[b]):
                         continue
                     where = f"внутри «{self.paths[parent]}»" if parent is not None else "на верхнем уровне"
-                    self.report.warnings.append(
+                    # Пара заведомо из РАЗНЫХ файлов (условие выше) — схемное.
+                    self.report.warn(
                         f"«{self.nodes[ia].name}» и «{self.nodes[ib].name}» ({where}) похожи — "
                         f"возможно, один объект из разных файлов; если да, приведите имена к одному"
                     )
@@ -365,23 +511,29 @@ class _Merger:
         if any(len(self.sources[i]) > 1 for i in roots):
             return
         names = ", ".join(f"«{self.nodes[i].name}»" for i in roots[:6])
-        self.report.warnings.append(
+        self.report.warn(
             f"файлы не имеют общих корневых узлов ({names}) — если это одна система, "
             f"задайте всем файлам одно имя корня и повторите"
         )
 
     def finish(self, parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
+        # Атрибуция — до предупреждений содержания: по ней warn_content решает,
+        # чей файл виноват в замечании о конкретном узле/связи.
+        self.report.node_files = [set(s) for s in self.sources]
+        self.report.edge_files = self.edge_files
         self.warn_similar_edges()
         self.warn_fuzzy_siblings()
         self.warn_roots(parts)
         if len(self.report.warnings) > _MAX_WARNINGS:
             extra = len(self.report.warnings) - _MAX_WARNINGS
             del self.report.warnings[_MAX_WARNINGS:]
-            self.report.warnings.append(f"…и ещё {extra} предупреждений")
+            del self.report.warning_files[_MAX_WARNINGS:]  # разметка идёт строка в строку
+            self.report.warn(f"…и ещё {extra} предупреждений")
+        # Лимиты — свойство СЛИТОЙ картины: один файл в них не виноват.
         if len(self.nodes) > MAX_NODES:
-            self.report.errors.append(f"После слияния слишком много узлов (больше {MAX_NODES})")
+            self.report.error(f"После слияния слишком много узлов (больше {MAX_NODES})")
         if len(self.edges) > MAX_EDGES:
-            self.report.errors.append(f"После слияния слишком много связей (больше {MAX_EDGES})")
+            self.report.error(f"После слияния слишком много связей (больше {MAX_EDGES})")
         roots = [n.name for n in self.nodes if n.parent_idx is None]
         return ParsedImport(nodes=self.nodes, edges=self.edges, roots=roots), self.report
 
@@ -391,7 +543,13 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
     непустой report.errors означает «результат непригоден» (суммарные лимиты).
     Один файл — passthrough без отчётных записей."""
     if len(parts) == 1:
-        return parts[0], MergeReport(files=1)
+        # Атрибуция вырожденная (всё из файла 0), но заполняем: warn_content не
+        # должен знать, сколько было файлов.
+        return parts[0], MergeReport(
+            files=1,
+            node_files=[{0} for _ in parts[0].nodes],
+            edge_files=[{0} for _ in parts[0].edges],
+        )
     m = _Merger(files=len(parts))
     for fi, part in enumerate(parts):
         idx_map: list[int] = []  # индекс узла в файле → индекс в merged
@@ -414,12 +572,21 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
 
     Только предупреждения: тихо перестраивать чужое дерево (поднимать актора в
     корень) хуже, чем строка в отчёте, — пользователь не поймёт, что произошло.
+
+    Адресат каждого замечания — по происхождению виновных сущностей (Ф7): агент
+    своего репозитория положил актора внутрь системы, ему это и чинить. Как только
+    замечание собирает объекты, у которых нет общего файла, виноватого нет — оно
+    уходит в схемную корзину (owner_of_* возвращает None).
     """
-    actors = [n.name for n in merged.nodes if n.shape == "person" and n.parent_idx is not None]
-    if actors:
-        report.warnings.append(
+    actor_idxs = [
+        i for i, n in enumerate(merged.nodes) if n.shape == "person" and n.parent_idx is not None
+    ]
+    if actor_idxs:
+        actors = [merged.nodes[i].name for i in actor_idxs]
+        report.warn(
             f"внутри системы оказались люди ({', '.join(f'«{a}»' for a in actors[:6])}) — "
-            f"по C4 человек пользуется системой, а не входит в неё; перенесите их в корень"
+            f"по C4 человек пользуется системой, а не входит в неё; перенесите их в корень",
+            report.owner_of_nodes(actor_idxs),
         )
     # «Подвисшим» считается ТОЛЬКО атомарный узел: у контейнера прямых связей и
     # быть не должно — их несут его дети, а связь, упирающаяся в контейнер, ловится
@@ -427,17 +594,19 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
     # превью пугало бы тем, чего схема потом не показывает.
     parents = {n.parent_idx for n in merged.nodes if n.parent_idx is not None}
     linked = {e.source_idx for e in merged.edges} | {e.target_idx for e in merged.edges}
-    lonely = [
-        n.name
+    lonely_idxs = [
+        i
         for i, n in enumerate(merged.nodes)
         if i not in linked and i not in parents and n.parent_idx is not None
     ]
-    if lonely:
+    if lonely_idxs:
+        lonely = [merged.nodes[i].name for i in lonely_idxs]
         names = ", ".join(f"«{x}»" for x in lonely[:6])
         tail = f" и ещё {len(lonely) - 6}" if len(lonely) > 6 else ""
-        report.warnings.append(
+        report.warn(
             f"объектов без единой связи: {len(lonely)} ({names}{tail}) — проверьте, "
-            f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»"
+            f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»",
+            report.owner_of_nodes(lonely_idxs),
         )
     _warn_container_edges(merged, report, parents)
     _warn_broker_edges(merged, report)
@@ -458,32 +627,81 @@ def _warn_container_edges(
 
     Определение контейнера — зеркало app/alerts.compute_alerts (узел с детьми),
     но по СЛИТОМУ дереву: проекта на этот момент ещё не существует.
+
+    Виновных здесь двое (Ф7): сама связь и то, что сделало её конец контейнером, —
+    его дети. Файл, написавший связь и давший хотя бы один компонент этого конца,
+    видит обе половины и чинит замечание сам — текст ему уходит прежний. Если
+    компоненты пришли ТОЛЬКО из чужих файлов, агент связи видит на этом конце
+    атомарный сервис: «уточнить до компонента» он не может физически, поэтому
+    замечание уходит человеку, и текст называет обе стороны поимённо.
     """
+    opened = _opened_by(merged, report)
     shown = hidden = 0
-    for e in merged.edges:
+    hidden_common: set[int] = set()
+    for ei, e in enumerate(merged.edges):
         # dict.fromkeys — на случай петли «узел сам на себя»: конец один, не два.
         ends = [i for i in dict.fromkeys((e.source_idx, e.target_idx)) if i in parents]
         if not ends:
             continue
+        wrote_edge = report.files_of_edges([ei])  # кто написал связь
+        common = set(wrote_edge)
+        for i in ends:
+            common &= opened.get(i, set())
         if shown >= _MAX_CONTAINER_EDGES:
+            hidden_common = set(common) if hidden == 0 else hidden_common & common
             hidden += 1
             continue
         shown += 1
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         names = [merged.nodes[i].name for i in ends]
-        if len(names) == 1:
-            report.warnings.append(
-                f"связь «{a} → {b}»: конец в контейнере «{names[0]}», у которого есть "
-                f"компоненты, — уточни её до конкретного компонента («{names[0]} / …»)"
+        targets = ", ".join(f"«{n} / …»" for n in names)
+        one = len(names) == 1
+        if common:
+            head = (
+                f"конец в контейнере «{names[0]}», у которого есть компоненты, — "
+                f"уточните её до конкретного компонента ({targets})"
+                if one
+                else f"оба конца в контейнерах «{names[0]}» и «{names[1]}», у которых есть "
+                f"компоненты, — уточните её до конкретных компонентов ({targets})"
             )
-        else:
-            report.warnings.append(
-                f"связь «{a} → {b}»: оба конца в контейнерах «{names[0]}» и «{names[1]}», "
-                f"у которых есть компоненты, — уточни её до конкретных компонентов "
-                f"(«{names[0]} / …», «{names[1]} / …»)"
-            )
+            report.warn(f"связь «{a} → {b}»: {head}", _least(common))
+            continue
+        # Схемный вариант: общего файла у связи и у компонентов её конца нет.
+        others: set[int] = set()
+        for i in ends:
+            others |= opened.get(i, set())
+        where = (
+            f"контейнер «{names[0]}», компоненты которого описаны"
+            if one
+            else f"контейнеры «{names[0]}» и «{names[1]}», компоненты которых описаны"
+        )
+        fix = (
+            f"перенесите его на нужный компонент ({targets})"
+            if one
+            else f"перенесите их на нужные компоненты ({targets})"
+        )
+        report.warn(
+            f"связь «{a} → {b}» ({_files_phrase(wrote_edge, 'файл', 'файлы')}) упирается "
+            f"в {where} в {_files_phrase(others, 'файле', 'файлах')}, — агент "
+            f"{_files_phrase(wrote_edge, 'файла', 'файлов')} их не видит и уточнить "
+            f"{'конец' if one else 'концы'} не может: {fix} сами"
+        )
     if hidden:
-        report.warnings.append(f"…ещё {hidden} таких связей")
+        # Хвост-счётчик адресуем, только если у всех скрытых связей общий файл.
+        report.warn(f"…ещё {hidden} таких связей", _least(hidden_common))
+
+
+def _opened_by(merged: ParsedImport, report: MergeReport) -> dict[int, set[int]]:
+    """Кто «раскрыл» узел до контейнера: файлы, принёсшие хотя бы одного его ребёнка.
+
+    Контейнерность — свойство не самого узла, а его детей: файл, не давший ни одного
+    компонента, видит здесь атомарный сервис и уточнить конец связи не может."""
+    out: dict[int, set[int]] = {}
+    for i, n in enumerate(merged.nodes):
+        if n.parent_idx is None or i >= len(report.node_files):
+            continue
+        out.setdefault(n.parent_idx, set()).update(report.node_files[i])
+    return out
 
 
 def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
@@ -497,9 +715,16 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
     конец, а не правило.
 
     Брокер узнаём по shape СЛИТОГО дерева: проекта на этот момент ещё нет.
+
+    Виновные (Ф7) — связь и её конец-брокер, но пересекать их атрибуции не с чем:
+    файл, написавший связь, объявил и оба её конца (ссылки резолвятся внутри файла),
+    так что общий файл есть всегда и адресат — первоисточник связи. Даже когда
+    «брокером» конец сделал ЧУЖОЙ файл своим shape, замечание остаётся выполнимым:
+    от агента требуется дописать одно поле — имя топика, в который пишет его код.
     """
     shown = hidden = 0
-    for e in merged.edges:
+    hidden_idxs: list[int] = []
+    for ei, e in enumerate(merged.edges):
         if _fill(e.channel):
             continue
         # dict.fromkeys — на случай петли: конец один, не два. Оба конца брокеры —
@@ -513,15 +738,19 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
             continue
         if shown >= _MAX_BROKER_EDGES:
             hidden += 1
+            hidden_idxs.append(ei)
             continue
         shown += 1
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
-        report.warnings.append(
+        report.warn(
             f"связь «{a} → {b}»: конец — брокер «{merged.nodes[ends[0]].name}», а канал "
-            f"не указан — добавьте channel: имя топика/очереди"
+            f"не указан — добавьте channel: имя топика/очереди",
+            report.owner_of_edges([ei]),
         )
     if hidden:
-        report.warnings.append(f"…ещё {hidden} таких связей с брокером")
+        report.warn(
+            f"…ещё {hidden} таких связей с брокером", report.owner_of_edges(hidden_idxs)
+        )
 
 
 def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
@@ -538,20 +767,26 @@ def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
     канала — норма («orders.created», «notify-orders»), и подозрений не вызывают.
     """
     shown = hidden = 0
-    for e in merged.edges:
+    hidden_idxs: list[int] = []
+    for ei, e in enumerate(merged.edges):
         if not _fill(e.channel) or not any(sep in e.channel for sep in (",", ";")):
             continue
         if shown >= _MAX_CHANNEL_LIST_EDGES:
             hidden += 1
+            hidden_idxs.append(ei)
             continue
         shown += 1
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
-        report.warnings.append(
-            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}» — раздели "
-            f"на отдельные связи, по одной на канал"
+        report.warn(
+            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}» — разделите "
+            f"на отдельные связи, по одной на канал",
+            report.owner_of_edges([ei]),
         )
     if hidden:
-        report.warnings.append(f"…ещё {hidden} таких связей с перечнем в channel")
+        report.warn(
+            f"…ещё {hidden} таких связей с перечнем в channel",
+            report.owner_of_edges(hidden_idxs),
+        )
 
 
 def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
@@ -566,6 +801,14 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
     Ядро связности — общее с алертом (connected_components), поэтому вердикты сходятся.
     Крупнейшую компоненту не называем: она и есть схема, а замечание должно указывать,
     ЧТО прицепить, а не пересказывать проект.
+
+    Виновные (Ф7) — узлы самой группы: у одного файла остров получился, ему и
+    дорисовывать связь (в Ф6 класс был жёстко схемным, и один и тот же файл получал
+    разный ответ в зависимости от того, сколько документов лежит рядом, — находка
+    пользователя). Остров из узлов РАЗНЫХ файлов адресата не имеет: свести его с
+    ядром может только тот, кто видит оба репозитория. Остров, ПОГАШЕННЫЙ слиянием,
+    в слитом графе не существует — замечания нет вовсе, и это правильно: подсистема
+    вправе держаться за мир через чужой репозиторий.
     """
     comps = connected_components([(e.source_idx, e.target_idx) for e in merged.edges])
     if len(comps) < 2:
@@ -577,30 +820,38 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
         names = [merged.nodes[i].name for i in sorted(comp)]
         shown = ", ".join(f"«{n}»" for n in names[:_MAX_GROUP_NAMES])
         tail = f" и ещё {len(names) - _MAX_GROUP_NAMES}" if len(names) > _MAX_GROUP_NAMES else ""
-        report.warnings.append(
+        report.warn(
             f"группа из {len(names)} объектов не связана с остальной схемой: {shown}{tail} — "
-            f"дорисуй связь с ядром или проверь, не потерялась ли она"
+            f"дорисуйте связь с ядром или проверьте, не потерялась ли она",
+            report.owner_of_nodes(comp),
         )
-    hidden = len(comps) - 1 - _MAX_ISOLATED_GROUPS
-    if hidden > 0:
-        report.warnings.append(f"…ещё {hidden} таких групп")
+    hidden_comps = comps[_MAX_ISOLATED_GROUPS + 1 :]
+    if hidden_comps:
+        # Хвост-счётчик — только тому, чьи все скрытые группы (как у соседних классов).
+        report.warn(
+            f"…ещё {len(hidden_comps)} таких групп",
+            report.owner_of_nodes([i for comp in hidden_comps for i in comp]),
+        )
 
 
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:
     """Общий путь превью и создания: разобрать N текстов и слить. Возвращает
     (результат, отчёт, ошибки); при любых ошибках результат None. Ошибки
-    парсинга при N>1 префиксуются «файл N: …» (нумерация с 1, как в UI)."""
+    парсинга при N>1 префиксуются «файл N: …» (нумерация с 1, как в UI); в отчёт
+    те же ошибки уходят БЕЗ префикса, разложенные по файлам (split_remarks)."""
     parts: list[ParsedImport] = []
     errors: list[str] = []
+    file_errors: dict[int, list[str]] = {}
     for i, text in enumerate(texts):
         parsed, errs = parse_import(text)
         if parsed is None:
             prefix = f"файл {i + 1}: " if len(texts) > 1 else ""
             errors.extend(prefix + e for e in errs)
+            file_errors[i] = list(errs)
         else:
             parts.append(parsed)
     if errors:
-        return None, MergeReport(files=len(texts)), errors
+        return None, MergeReport(files=len(texts), file_errors=file_errors), errors
     merged, report = merge_imports(parts)
     if report.errors:
         return None, report, list(report.errors)

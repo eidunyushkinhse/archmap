@@ -7,6 +7,10 @@
 пакетами из РАЗНЫХ репозиториев, и второй пакет обязан ДОЛИТЬ поля к уже описанному
 каналу, а не переоткрыть его.
 
+Тот же дубль бывает и ВНУТРИ одного пакета: файлы собраны разными прогонами агента,
+и перечень очередей брокера пересекается с подробным файлом по одной из них. Правило
+одно на оба случая — слить в один канал, первый описавший побеждает (_merge_duplicate).
+
 Отсюда конфликт меты: два репозитория честно видят разное (у продюсера настроен
 retention, консьюмер знает свою гарантию доставки). Молча перетереть значение —
 худшее из решений: карта начнёт менять смысл от порядка загрузки пакетов. Поэтому
@@ -51,6 +55,9 @@ META_KEYS = ("kind", "partition_key", "delivery", "retention")
 MAX_ADDRESS_WARNINGS = 8
 # Свой кап у непокрытых каналов связей — чтобы один класс не съедал квоту другого.
 MAX_COVERAGE_WARNINGS = 8
+# Свой кап у каналов, описанных НЕСКОЛЬКИМИ файлами пакета. Считает КАНАЛЫ, а не
+# строки: к заметке о дубле может добавиться расхождение меты между файлами.
+MAX_DUPLICATE_WARNINGS = 8
 
 
 def split_channel_names(raw: str | None) -> list[str]:
@@ -164,12 +171,21 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
             retention=_as_str(raw.get("retention")),
             description=_as_str(raw.get("description")) or None,
         )
+        seen_fields: set[str] = set()
         for rf in raw.get("fields") or []:
             if not isinstance(rf, dict) or not _as_str(rf.get("name")):
                 continue
+            field_name = _as_str(rf.get("name"))
+            # Одно имя поля дважды в одном канале — та же неряшливость агента, что и
+            # поле без имени выше, и молча пропустить её тут дешевле, чем ловить
+            # уникальностью (channel_id, name) уже на записи: превью показало бы
+            # завышенное число полей, а применение упало бы 500-й.
+            if field_name in seen_fields:
+                continue
+            seen_fields.add(field_name)
             c.fields.append(
                 FieldIn(
-                    name=_as_str(rf.get("name")),
+                    name=field_name,
                     type=_as_str(rf.get("type")),
                     required=_as_bool(rf.get("required")),
                     description=_as_str(rf.get("description")) or None,
@@ -189,6 +205,20 @@ class ChannelsPlan:
     channels: list[tuple[Node, ChannelIn, str]] = field(default_factory=list)
     # Пути узлов проекта: нужны и плану, и применению (резолв адреса владельца).
     path_of: dict[uuid.UUID, str] = field(default_factory=dict)
+
+
+@dataclass
+class _Merged:
+    """Канал плана: первое вхождение плюс всё, что долили следующие файлы пакета."""
+
+    owner: Node
+    channel: ChannelIn
+    # Файл ПЕРВОГО вхождения — он и стоит источником в строке превью.
+    source: str
+    # Все файлы пакета, описавшие этот канал, в порядке пакета и без повторов.
+    files: list[str] = field(default_factory=list)
+    # Расхождения меты МЕЖДУ файлами пакета — поимённо, как у расхождения с ArchMap.
+    meta_notes: list[str] = field(default_factory=list)
 
 
 def _broker_nodes_hint(flat: list[Node], fulls: list[str]) -> str:
@@ -283,6 +313,9 @@ def build_channels_plan(
                 "комментарием «# archmap-node: …»; каналы уедут к объекту окна"
             )
 
+    # Канал плана — один на «узел + группа + имя», сколькими бы файлами пакета он ни
+    # был описан. Порядок вставки = порядок пакета, он же порядок строк превью.
+    merged: dict[tuple[uuid.UUID, str, str], _Merged] = {}
     for fname, pc in parsed:
         if not pc.channels:
             continue
@@ -302,27 +335,126 @@ def build_channels_plan(
                 f"Узлы-брокеры проекта: {broker_hint}"
             )
             continue
-        existing = {
-            (c.group_name, c.name): c
-            for c in db.query(BrokerChannel).filter(BrokerChannel.node_id == owner.id).all()
-        }
         for c in pc.channels:
-            live = existing.get((c.group_name, c.name))
-            action = "create" if live is None else ("overwrite" if overwrite else "unchanged")
-            if live is not None and not overwrite:
-                _warn_meta_conflicts(plan, fname, live, c)
-            plan.report.channels.append(
-                ChannelItem(
-                    node_path=path_of.get(owner.id, owner.name), source=fname,
-                    group_name=c.group_name, name=c.name, fields=len(c.fields),
-                    action=action,  # type: ignore[arg-type]
-                )
+            # Ключ канала — тот же, что у уникальности в БД: узел + группа + имя.
+            # Одно имя у РАЗНЫХ брокеров — законно разные каналы (два движка возят
+            # одноимённое), и сливать их нельзя.
+            key = (owner.id, c.group_name, c.name)
+            m = merged.get(key)
+            if m is None:
+                merged[key] = _Merged(owner=owner, channel=c, source=fname, files=[fname])
+            else:
+                _merge_duplicate(m, fname, c)
+
+    _warn_duplicate_channels(plan, list(merged.values()))
+
+    # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
+    # скольким владельцам приехал пакет, а строка превью нужна одна на канал.
+    live_by_key: dict[tuple[uuid.UUID, str, str], BrokerChannel] = {}
+    owner_ids = {m.owner.id for m in merged.values()}
+    if owner_ids:
+        for ch in db.query(BrokerChannel).filter(BrokerChannel.node_id.in_(owner_ids)).all():
+            live_by_key[(ch.node_id, ch.group_name, ch.name)] = ch
+
+    for key, m in merged.items():
+        c, owner = m.channel, m.owner
+        live = live_by_key.get(key)
+        action = "create" if live is None else ("overwrite" if overwrite else "unchanged")
+        if live is not None and not overwrite:
+            # Сверяем СЛИТУЮ мету: после слияния пакет говорит одним голосом, и
+            # спорить с ArchMap ему тоже положено один раз, а не по разу на файл.
+            _warn_meta_conflicts(plan, m.source, live, c)
+        plan.report.channels.append(
+            ChannelItem(
+                node_path=path_of.get(owner.id, owner.name), source=m.source,
+                group_name=c.group_name, name=c.name, fields=len(c.fields),
+                action=action,  # type: ignore[arg-type]
             )
-            plan.channels.append((owner, c, fname))
+        )
+        plan.channels.append((owner, c, m.source))
 
     _warn_wrong_broker(db, plan, flat)
     _warn_uncovered_edge_channels(db, plan, flat)
     return plan
+
+
+def _merge_duplicate(m: _Merged, fname: str, c: ChannelIn) -> None:
+    """Долить в канал плана его же описание из другого файла ЭТОГО пакета.
+
+    Политика — та же, что у доливки пакетов РАЗНЫХ репозиториев (§5): поля
+    объединяются по имени, а при расхождении побеждает описанное раньше. Иначе смысл
+    карты зависел бы от порядка файлов в пакете — а он случаен, агент кладёт файлы
+    как получилось, и один прогон уже давал «deferred_work» и с пятью полями, и с
+    нулём.
+
+    Пустое значение спором не считается ни здесь, ни у меты из ArchMap: файл про
+    один срез кода не видит того, что видел другой, и «не знаю» не должно вытеснять
+    «знаю».
+    """
+    if fname not in m.files:
+        m.files.append(fname)
+    first = m.channel
+    for key in META_KEYS:
+        theirs, ours = c.meta(key), first.meta(key)
+        if not theirs or theirs == ours:
+            continue
+        if not ours:
+            setattr(first, key, theirs)
+            continue
+        m.meta_notes.append(
+            f"{fname}: канал «{first.name}» — {key} «{theirs}», а в {m.source} "
+            f"«{ours}»; оставлено значение из {m.source} (описан раньше)"
+        )
+    # description намеренно без замечания (как и в META_KEYS): два файла опишут канал
+    # разными словами почти всегда, и такой шум хоронил бы настоящие расхождения.
+    if not first.description:
+        first.description = c.description
+
+    by_name = {f.name: f for f in first.fields}
+    for f in c.fields:
+        earlier = by_name.get(f.name)
+        if earlier is None:
+            # Новое поле встаёт в конец: порядок полей — это порядок В СООБЩЕНИИ, и
+            # доливка чужого файла не вправе его перемешивать.
+            first.fields.append(f)
+            by_name[f.name] = f
+            continue
+        # Имя совпало — побеждает поле первого файла, доливаем только пустое.
+        # Поимённого замечания на каждое такое поле нет: об этом уже сказано
+        # заметкой о канале, а построчно вышел бы шум на весь пакет.
+        earlier.type = earlier.type or f.type
+        earlier.description = earlier.description or f.description
+        earlier.required = earlier.required or f.required
+
+
+def _warn_duplicate_channels(plan: ChannelsPlan, merged: list[_Merged]) -> None:
+    """Канал описан НЕСКОЛЬКИМИ файлами пакета — план сливает его в одну строку.
+
+    Находка полевого QA Ф3: в пакете Zulip четыре очереди приехали в двух файлах
+    каждая (перечень очередей rabbitmq плюс подробный файл по конкретной). Превью
+    молчало и показывало их ДВУМЯ строками «create» с разным числом полей, а
+    применение падало 500-й: второй файл лил одноимённое поле в канал, только что
+    созданный первым (duplicate key uq_channel_field_name). Дубль внутри пакета —
+    норма (у брокера нет репозитория-владельца, файлы собраны разными прогонами),
+    поэтому сливаем и предупреждаем, а не падаем и не молчим.
+
+    Порядок — как в пакете: он осмыслен, в отличие от произвольного порядка строк из
+    БД у соседних эвристик, который приходится сортировать.
+    """
+    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
+    for m in dups[:MAX_DUPLICATE_WARNINGS]:
+        if len(m.files) > 1:
+            plan.report.warnings.append(
+                f"канал «{m.channel.name}» описан в нескольких файлах пакета "
+                f'({", ".join(m.files)}): поля сольются в один канал, при совпадении '
+                "имени поля и расхождении меты побеждает первый файл"
+            )
+        plan.report.warnings.extend(m.meta_notes)
+    if len(dups) > MAX_DUPLICATE_WARNINGS:
+        plan.report.warnings.append(
+            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} каналов описаны в нескольких "
+            "файлах пакета"
+        )
 
 
 def _names_channel(pairs: set[tuple[str, str]], named: str) -> bool:

@@ -31,6 +31,7 @@ from app.schemas.channels_import import (
     ChannelsImportReport,
     ChannelsPromptOut,
 )
+from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/channels-import", tags=["channels-import"])
@@ -38,6 +39,7 @@ router = APIRouter(prefix="/channels-import", tags=["channels-import"])
 
 @router.get("/prompt", response_model=ChannelsPromptOut)
 def channels_prompt(
+    variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
     _: User = Depends(require_architect),
@@ -45,13 +47,19 @@ def channels_prompt(
     """Промпт агенту с узлами-брокерами ЭТОГО проекта: адрес владельца слабая модель
     без списка выдумывает, и пакет блокируется целиком (урок Н8). Плюс каналы,
     которые УЖЕ называют связи схемы, — минимум пакета (находка №4 полевого QA:
-    канальная сессия не нашла очередь, в которую код только публикует)."""
+    канальная сессия не нашла очередь, в которую код только публикует).
+    variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
+    (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     flat, fulls, _by_bare, _by_path = _node_paths(nodes)
     broker_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "broker"]
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return ChannelsPromptOut(
-        prompt=build_channels_prompt(broker_paths, _edge_channels(flat, fulls, edges))
+        prompt=prompt_for_variant(
+            variant,
+            "channels",
+            build_channels_prompt(broker_paths, _edge_channels(flat, fulls, edges)),
+        )
     )
 
 

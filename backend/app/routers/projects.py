@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
-from app.import_merge import parse_and_merge
+from app.import_merge import parse_and_merge, split_remarks
 from app.import_prompt import build_import_prompt
 from app.import_yaml import seed_import
 from app.models.edge import Edge
@@ -27,6 +27,7 @@ from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.projects import copy_project_schema
 from app.schemas.project import (
+    FileRemarksOut,
     ImportPreviewIn,
     ImportPreviewOut,
     ImportPromptOut,
@@ -44,6 +45,7 @@ from app.schemas.project import (
     SyncPreviewOut,
     TemplateOut,
 )
+from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
@@ -242,13 +244,23 @@ def import_prompt(
     depth: int = Query(default=3, ge=2, le=3),
     lang: Literal["ru", "en"] = "ru",
     hints: str | None = Query(default=None, max_length=2_000),
+    variant: PromptVariant = "builder",
     _user: User = Depends(require_architect),
 ) -> ImportPromptOut:
     """Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
-    сливает merge_imports. Параметры вшиваются в текст (docs/archive/plan-repo-import.md)."""
+    сливает merge_imports. Параметры вшиваются в текст (docs/archive/plan-repo-import.md).
+
+    variant — что отдать кнопке: строительный промпт (дефолт, байт-в-байт прежний —
+    на нём сидят MCP-тулзы), оркестраторную обёртку с аудитом или один промпт аудита
+    (docs/plan-skeptic-audit.md)."""
     return ImportPromptOut(
-        prompt=build_import_prompt(system_name, depth=depth, lang=lang, hints=hints)
+        prompt=prompt_for_variant(
+            variant,
+            "import",
+            build_import_prompt(system_name, depth=depth, lang=lang, hints=hints),
+            system_name=system_name,
+        )
     )
 
 
@@ -266,9 +278,23 @@ def import_preview(
     if not texts:
         raise HTTPException(status_code=400, detail="Не передан YAML для проверки")
     merged, report, errors = parse_and_merge(texts)
+    # Те же замечания, разложенные по природе: пофайловые уносит агент своего
+    # репозитория, схемные читает человек (Ф6, docs/plan-skeptic-audit.md).
+    file_remarks, schema_errors, schema_warnings = split_remarks(report)
+    remarks_out = [
+        FileRemarksOut(file=f.file, errors=f.errors, warnings=f.warnings) for f in file_remarks
+    ]
     if merged is None:
         return ImportPreviewOut(
-            ok=False, errors=errors, node_count=0, edge_count=0, roots=[], files=len(texts)
+            ok=False,
+            errors=errors,
+            node_count=0,
+            edge_count=0,
+            roots=[],
+            files=len(texts),
+            file_remarks=remarks_out,
+            schema_errors=schema_errors,
+            schema_warnings=schema_warnings,
         )
     return ImportPreviewOut(
         ok=True,
@@ -285,6 +311,9 @@ def import_preview(
         # Порядок узлов слияния стабилен (родители раньше детей) — фронт сравнивает
         # состав попыток агента, а не множества «на глаз».
         node_names=[n.name for n in merged.nodes],
+        file_remarks=remarks_out,
+        schema_errors=schema_errors,
+        schema_warnings=schema_warnings,
     )
 
 

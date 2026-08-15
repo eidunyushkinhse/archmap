@@ -17,6 +17,7 @@ from conftest import ensure_architect, ensure_project
 from app.channels_import import (
     MAX_ADDRESS_WARNINGS,
     MAX_COVERAGE_WARNINGS,
+    MAX_DUPLICATE_WARNINGS,
     parse_channels_file,
 )
 from app.channels_prompt import build_channels_prompt
@@ -548,6 +549,210 @@ def test_кап_непокрытых_каналов_и_хвост(db):
 
     assert len(_покрытие(r)) == MAX_COVERAGE_WARNINGS
     assert "…ещё 3 каналов, названных связями, не описаны" in r.warnings
+
+
+# ── Один канал в НЕСКОЛЬКИХ файлах пакета (находка полевого QA Ф3) ────────────
+# Пакет Zulip: перечень очередей rabbitmq и подробные файлы по отдельным очередям
+# описали четыре канала дважды. Превью молчало и показывало их ДВУМЯ строками
+# «create» с разным числом полей, а применение падало 500-й — второй файл лил
+# одноимённое поле в канал, только что созданный первым (uq_channel_field_name).
+# Дубль внутри пакета законен (файлы собраны разными прогонами), значит слияние —
+# по тому же правилу, что у пакетов разных репозиториев: побеждает описанный раньше.
+
+ФАЙЛ_ОЧЕРЕДЕЙ = """# archmap-node: Шина
+channels:
+  - name: notify_tornado
+    kind: queue
+    delivery: at-least-once
+    description: события веб-клиентам
+    fields:
+      - name: event
+        type: object
+        required: true
+        description: тело события
+      - name: users
+        type: object
+"""
+
+# Тот же канал подробным файлом: поле «event» пересекается, «port» — нет, delivery
+# расходится, retention виден только отсюда.
+ФАЙЛ_ПОДРОБНЫЙ = """# archmap-node: Шина
+channels:
+  - name: notify_tornado
+    kind: queue
+    delivery: exactly-once
+    retention: до ack
+    fields:
+      - name: event
+        type: string
+        description: сериализованное событие
+      - name: port
+        type: int64
+        required: true
+"""
+
+ДВА_ФАЙЛА = [("a.yaml", ФАЙЛ_ОЧЕРЕДЕЙ), ("b.yaml", ФАЙЛ_ПОДРОБНЫЙ)]
+
+
+def _пакет_из(файлы, overwrite=False, node_id=None):
+    return ChannelsImportIn(
+        files=[{"name": имя, "content": текст} for имя, текст in файлы],
+        overwrite=overwrite,
+        node_id=node_id,
+    )
+
+
+def _превью_файлами(db, файлы, node_id=None):
+    return channels_import_preview(
+        _пакет_из(файлы, node_id=node_id),
+        db=db,
+        project=ensure_project(db),
+        _=ensure_architect(db),
+    )
+
+
+def _применить_файлами(db, файлы, overwrite=False, node_id=None):
+    return channels_import_apply(
+        _пакет_из(файлы, overwrite=overwrite, node_id=node_id),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+
+
+def _дубли(r):
+    """Замечания о канале из нескольких файлов — по хвосту «побеждает первый файл»
+    (общее «в нескольких файлах» поймало бы и строку капа)."""
+    return [w for w in r.warnings if "побеждает первый файл" in w]
+
+
+def test_канал_из_двух_файлов_пакета_сливается_в_одну_строку(db):
+    _сцена(db)
+
+    r = _превью_файлами(db, ДВА_ФАЙЛА)
+
+    assert r.errors == []
+    [строка] = r.channels
+    # Источник — файл ПЕРВОГО вхождения, а число полей — уже после слияния:
+    # event (в обоих файлах) + users + port.
+    assert (строка.source, строка.name, строка.action) == (
+        "a.yaml", "notify_tornado", "create",
+    )
+    assert строка.fields == 3
+    [w] = _дубли(r)
+    assert "канал «notify_tornado» описан в нескольких файлах пакета (a.yaml, b.yaml)" in w
+    assert "поля сольются в один канал" in w
+    assert "при совпадении имени поля и расхождении меты побеждает первый файл" in w
+
+
+def test_межфайловый_дубль_применяется_и_побеждает_первый_файл(db):
+    """Тот самый 500-й: второй файл лил поле «event» в канал, только что созданный
+    первым, и падал на уникальности (channel_id, name)."""
+    _сцена(db)
+
+    r = _применить_файлами(db, ДВА_ФАЙЛА)
+
+    assert r.applied and r.errors == []
+    assert db.query(BrokerChannel).count() == 1
+    ch = _канал(db, "notify_tornado")
+    # Поля объединились по имени, порядок сообщения не перемешан.
+    assert [f.name for f in ch.fields] == ["event", "users", "port"]
+    event = next(f for f in ch.fields if f.name == "event")
+    assert (event.type, event.description) == ("object", "тело события")
+    assert ch.delivery == "at-least-once"
+    assert r.channels_written == 1 and r.fields_written == 3
+
+    # Повторный прогон того же пакета ничего не дописывает (инвариант модуля).
+    повтор = _применить_файлами(db, ДВА_ФАЙЛА)
+    assert db.query(BrokerChannel).count() == 1
+    assert db.query(ChannelField).count() == 3
+    assert (повтор.channels_written, повтор.fields_written) == (0, 0)
+    assert [i.action for i in повтор.channels] == ["unchanged"]
+
+
+def test_расхождение_меты_между_файлами_замечает_и_берёт_первое(db):
+    # Файлы собраны разными прогонами и честно видят разное. Молча взять последнее —
+    # значит поставить смысл карты в зависимость от порядка файлов в пакете.
+    _сцена(db)
+
+    r = _превью_файлами(db, ДВА_ФАЙЛА)
+
+    [w] = [w for w in r.warnings if "delivery" in w]
+    assert w == (
+        "b.yaml: канал «notify_tornado» — delivery «exactly-once», а в a.yaml "
+        "«at-least-once»; оставлено значение из a.yaml (описан раньше)"
+    )
+    # Применение оставляет ровно то значение, о котором сказало превью.
+    _применить_файлами(db, ДВА_ФАЙЛА)
+    assert _канал(db, "notify_tornado").delivery == "at-least-once"
+
+
+def test_мету_которой_нет_в_первом_файле_второй_доливает_молча(db):
+    # «Не знаю» не спорит со «знаю» — то же правило, что у меты из ArchMap: файл про
+    # один срез кода не видит того, что видел другой.
+    _сцена(db)
+
+    r = _применить_файлами(db, ДВА_ФАЙЛА)
+
+    assert _канал(db, "notify_tornado").retention == "до ack"  # только во втором файле
+    assert [w for w in r.warnings if "retention" in w] == []
+
+
+def test_превью_и_применение_дают_один_план(db):
+    # Расхождение этих двух планов и было багой: превью показывало две строки
+    # «create», применение — 500-ю.
+    _сцена(db)
+
+    п = _превью_файлами(db, ДВА_ФАЙЛА)
+    р = _применить_файлами(db, ДВА_ФАЙЛА)
+
+    assert [i.model_dump() for i in п.channels] == [i.model_dump() for i in р.channels]
+    assert п.warnings == р.warnings and р.errors == []
+
+
+def test_одно_имя_у_разных_брокеров_остаётся_двумя_каналами(db):
+    # Слияние — по «узел + группа + имя»: два движка законно возят одноимённый канал,
+    # и склейка потеряла бы один из них.
+    _сцена_двух_брокеров(db)
+
+    r = _применить_файлами(db, [
+        ("kafka.yaml", _пакет("audit", адрес="kafka")),
+        ("redis.yaml", _пакет("audit", адрес="redis")),
+    ])
+
+    assert len(r.channels) == 2
+    assert db.query(BrokerChannel).count() == 2
+    assert _дубли(r) == []
+
+
+def test_поле_названное_дважды_в_одном_канале_не_задваивается(db):
+    # Неряшливость того же класса внутри одного файла: превью показало бы завышенное
+    # число полей, а применение упало бы на той же уникальности.
+    _сцена(db)
+
+    r = _применить(
+        db,
+        "# archmap-node: Шина\nchannels:\n  - name: tasks\n    fields:\n"
+        "      - name: id\n        type: uuid\n"
+        "      - name: id\n        type: string\n",
+    )
+
+    assert r.applied and r.errors == []
+    assert [(f.name, f.type) for f in _канал(db, "tasks").fields] == [("id", "uuid")]
+    assert [i.fields for i in r.channels] == [1]
+
+
+def test_кап_замечаний_о_дублях_и_хвост(db):
+    _сцена(db)
+    имена = [f"очередь-{i}" for i in range(MAX_DUPLICATE_WARNINGS + 2)]
+
+    r = _превью_файлами(db, [
+        ("a.yaml", _пакет(*имена, адрес="Шина")),
+        ("b.yaml", _пакет(*имена, адрес="Шина")),
+    ])
+
+    assert len(_дубли(r)) == MAX_DUPLICATE_WARNINGS
+    assert "…ещё 2 каналов описаны в нескольких файлах пакета" in r.warnings
 
 
 # ── Промпт ────────────────────────────────────────────────────────────────────

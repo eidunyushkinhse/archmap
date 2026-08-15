@@ -16,17 +16,19 @@
 // родитель через onApplied только освежает мету узла.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { DocsImportReport, NodeDocKind } from "../../types";
-import { docsImportApi, type DocsOverride, type DocsPromptParams } from "../../api/docsImport";
+import type { DocsImportReport, NodeDocKind, PromptVariant } from "../../types";
+import { docsImportApi, type DocsFile, type DocsOverride, type DocsPromptParams } from "../../api/docsImport";
 import { validateMermaid } from "../mermaidLoader";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {
   ACTION_LABEL, countAction, checkMermaid, type MermaidCheck,
+  inputFingerprint, useRepeatedInput,
   head, sub, cols, leftCol, rightCol, radioRow, hintsArea,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
-import { ItemList, NoteList } from "./agentModalReport";
+import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
+import PromptTriple from "./PromptTriple";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -75,7 +77,6 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
   const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
-  const [promptCopied, setPromptCopied] = useState(false);
   // ── файлы пакета и превью (общие для обоих режимов) ──
   const pkg = useDocsFiles();
   const [overwrite, setOverwrite] = useState(false);
@@ -120,6 +121,13 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
       cur: { data: report.data_refs_total, channel: report.channel_refs_total },
     });
   }
+  // Гвард «вход не изменился»: тот же байт-в-байт пакет, что в прошлый заход, —
+  // повод посмотреть на файлы агента, а не на замечание (находка полевой приёмки).
+  const fingerprint = useMemo(() => inputFingerprint(pkg.files), [pkg.files]);
+  const repeatedInput = useRepeatedInput(pkg.files, fingerprint);
+  // Пакет, к которому задан вопрос об устаревании (после копирования замечаний).
+  // Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
+  const [askedFor, setAskedFor] = useState<DocsFile[] | null>(null);
   // Что уменьшилось между попытками. Рост и равенство — норма, о них молчим.
   const shrank = useMemo(() => {
     const was = seen.prev;
@@ -175,17 +183,15 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     return () => { alive = false; };
   }, [report]);
 
-  function copyPrompt() {
+  // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА (промежуточных await между
+  // кликом и writeText не добавляем). «Скопировано» показывает PromptTriple по
+  // разрешению этого обещания — своё у каждого из трёх вариантов.
+  function copyPrompt(variant: PromptVariant): Promise<void> {
     // include зафиксирован на схемах логики (OpenAPI-спека — окно SpecAgentModal);
     // в режиме «по одной» target фокусирует агента на одном воркере/эндпоинте
     // (пустой target в «пакетом» клиент не передаёт).
-    const params: DocsPromptParams = { nodeId, include: "logic", lang, hints, target };
-    void docsImportApi.prompt(params).then(({ prompt }) =>
-      navigator.clipboard.writeText(prompt).then(() => {
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2000);
-      }),
-    );
+    const params: DocsPromptParams = { nodeId, include: "logic", lang, hints, target, variant };
+    return docsImportApi.prompt(params).then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
 
   // ── правка строки превью (имя и вид схемы) ──
@@ -233,18 +239,28 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     void navigator.clipboard.writeText(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
+      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
+      // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
+      setAskedFor(pkg.files);
     });
+  }
+
+  // Убрать пакет из панели: файлы, отчёт, правки строк и история попыток —
+  // сравнивать после очистки не с чем (зеркало снятия последнего файла крестиком).
+  function clearPackage() {
+    setAskedFor(null);
+    pkg.reset();
+    setRawReport(null);
+    setMmdRes(null);
+    setOverrides([]);
+    setSeen(NO_ATTEMPTS);
   }
 
   // «Добавить ещё» (режим «по одной»): применить, затем очистить поля для
   // следующего воркера/эндпоинта (модалка остаётся открытой в режиме single).
   function resetSingleForNext() {
     setTarget("");
-    pkg.reset();
-    setRawReport(null);
-    setMmdRes(null);
-    setOverrides([]);
-    setSeen(NO_ATTEMPTS); // следующий воркер — новый пакет, сравнивать не с чем
+    clearPackage(); // следующий воркер — новый пакет, сравнивать не с чем
   }
 
   // Убрали последний файл — пакета больше нет: история попыток начинается заново
@@ -345,9 +361,13 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             placeholder={"Например: документируй только сервис billing;\nкаждый воркер опиши отдельной схемой."}
           />
 
-          <button type="button" style={{ ...primaryBtn, marginTop: 4 }} onClick={copyPrompt}>
-            {promptCopied ? "Скопировано ✓" : "Скопировать промпт"}
-          </button>
+          <PromptTriple
+            label="Скопировать промпт"
+            copiedLabel="Скопировано ✓"
+            kind="primary"
+            buttonStyle={{ marginTop: 4 }}
+            copy={copyPrompt}
+          />
         </div>
 
         {/* ── Справа: файлы пакета + превью + применение ── */}
@@ -410,6 +430,9 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
           {/* Отчёт превью / применения */}
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
+            {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
+                повторится, и чинить надо не его, а разговор с агентом. */}
+            {repeatedInput && <UnchangedInputNote />}
             {/* Ампутация пометок не должна быть молчаливой: пропавшие между
                 попытками — НАД сводкой, до зелёного «Схем: N». */}
             {!checking && shrank.map((line) => (
@@ -501,6 +524,9 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
               >
                 {remarksCopied ? "Скопировано ✓" : "Скопировать замечания для агента"}
               </button>
+            )}
+            {askedFor === pkg.files && (
+              <StaleFilesConfirm onKeep={() => setAskedFor(null)} onClear={clearPackage} />
             )}
           </div>
 
