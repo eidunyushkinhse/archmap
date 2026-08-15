@@ -41,6 +41,11 @@ _MAX_WARNINGS = 30
 # Связи в контейнер называем поимённо, но не все: замечания уезжают агенту одним
 # списком, и полсотни строк одного класса вытеснят остальное.
 _MAX_CONTAINER_EDGES = 10
+# Сколько компонентов контейнера перечисляем в таком замечании («цель с ответом»,
+# П5) и сколько — когда перечней в строке два (оба конца контейнеры): два длинных
+# перечисления в одной строке нечитаемы, поэтому там кап строже.
+_MAX_CONTAINER_KIDS = 6
+_MAX_CONTAINER_KIDS_BOTH = 4
 # Тот же кап у связей в брокер без канала — свой счётчик, чтобы один класс не
 # съедал квоту другого.
 _MAX_BROKER_EDGES = 10
@@ -153,14 +158,6 @@ def _least(files: set[int]) -> int | None:
     вкладов, П2), значит именно его правка доедет до слитой схемы и погасит
     замечание."""
     return min(files) if files else None
-
-
-def _files_phrase(files: Iterable[int], one: str, many: str) -> str:
-    """«файлом 2» / «файлами 1 и 3» — номера файлов с 1 в нужной форме слова."""
-    nums = [str(f + 1) for f in sorted(files)]
-    if len(nums) < 2:
-        return f"{one} {nums[0]}" if nums else one
-    return f"{many} {', '.join(nums[:-1])} и {nums[-1]}"
 
 
 def connected_components(edges: Iterable[tuple[T, T]]) -> list[list[T]]:
@@ -901,80 +898,74 @@ def _warn_container_edges(
     Определение контейнера — зеркало app/alerts.compute_alerts (узел с детьми),
     но по СЛИТОМУ дереву: проекта на этот момент ещё не существует.
 
-    Виновных здесь двое (Ф7): сама связь и то, что сделало её конец контейнером, —
-    его дети. Файл, написавший связь и давший хотя бы один компонент этого конца,
-    видит обе половины и чинит замечание сам — текст ему уходит прежний. Если
-    компоненты пришли ТОЛЬКО из чужих файлов, агент связи видит на этом конце
-    атомарный сервис: «уточнить до компонента» он не может физически, поэтому
-    замечание уходит человеку, и текст называет обе стороны поимённо.
+    Замечание несёт ОТВЕТ — перечень реальных компонентов конца в форме
+    «Контейнер / компонент» (П5; урок Ф8 брокерного эпика, подтверждён трижды:
+    замечание с готовой целью чинится за один круг, а «уточните до конкретного
+    компонента» слабая модель исполняла лениво и частично — это был главный
+    поглотитель кругов). Форма квалификатора дословно та, которую понимает
+    parse_import в ссылках связей: строку из замечания можно вписать в YAML как есть.
+
+    Адресат — ВСЕГДА файл-первоисточник связи. Виновная сущность здесь ровно одна —
+    сама связь (правило Ф7 не меняется, сужается круг виновных): знание о чужих
+    компонентах больше не требуется от агента, оно вложено в текст. До П5 у
+    контейнера, раскрытого ЧУЖИМ файлом, замечание уходило человеку («агент их не
+    видит») — в мульти-режиме туда оседал самый частый и самый механический класс
+    правок.
     """
-    opened = _opened_by(merged, report)
+    kids = _children_names(merged)
     shown = hidden = 0
-    hidden_common: set[int] = set()
+    hidden_idxs: list[int] = []
     for ei, e in enumerate(merged.edges):
         # dict.fromkeys — на случай петли «узел сам на себя»: конец один, не два.
         ends = [i for i in dict.fromkeys((e.source_idx, e.target_idx)) if i in parents]
         if not ends:
             continue
-        wrote_edge = report.files_of_edges([ei])  # кто написал связь
-        common = set(wrote_edge)
-        for i in ends:
-            common &= opened.get(i, set())
         if shown >= _MAX_CONTAINER_EDGES:
-            hidden_common = set(common) if hidden == 0 else hidden_common & common
             hidden += 1
+            hidden_idxs.append(ei)
             continue
         shown += 1
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         names = [merged.nodes[i].name for i in ends]
-        targets = ", ".join(f"«{n} / …»" for n in names)
         one = len(names) == 1
-        if common:
-            head = (
-                f"конец в контейнере «{names[0]}», у которого есть компоненты, — "
-                f"уточните её до конкретного компонента ({targets})"
-                if one
-                else f"оба конца в контейнерах «{names[0]}» и «{names[1]}», у которых есть "
-                f"компоненты, — уточните её до конкретных компонентов ({targets})"
-            )
-            report.warn(f"связь «{a} → {b}»: {head}", _least(common))
-            continue
-        # Схемный вариант: общего файла у связи и у компонентов её конца нет.
-        others: set[int] = set()
-        for i in ends:
-            others |= opened.get(i, set())
-        where = (
-            f"контейнер «{names[0]}», компоненты которого описаны"
+        cap = _MAX_CONTAINER_KIDS if one else _MAX_CONTAINER_KIDS_BOTH
+        targets = "; ".join(_kids_phrase(merged.nodes[i].name, kids[i], cap) for i in ends)
+        head = (
+            f"конец в контейнере «{names[0]}», у которого есть компоненты, — "
+            f"уточните её до конкретного компонента: {targets}"
             if one
-            else f"контейнеры «{names[0]}» и «{names[1]}», компоненты которых описаны"
+            else f"оба конца в контейнерах «{names[0]}» и «{names[1]}», у которых есть "
+            f"компоненты, — уточните её до конкретных компонентов: {targets}"
         )
-        fix = (
-            f"перенесите его на нужный компонент ({targets})"
-            if one
-            else f"перенесите их на нужные компоненты ({targets})"
-        )
-        report.warn(
-            f"связь «{a} → {b}» ({_files_phrase(wrote_edge, 'файл', 'файлы')}) упирается "
-            f"в {where} в {_files_phrase(others, 'файле', 'файлах')}, — агент "
-            f"{_files_phrase(wrote_edge, 'файла', 'файлов')} их не видит и уточнить "
-            f"{'конец' if one else 'концы'} не может: {fix} сами"
-        )
+        report.warn(f"связь «{a} → {b}»: {head}", report.owner_of_edges([ei]))
     if hidden:
-        # Хвост-счётчик адресуем, только если у всех скрытых связей общий файл.
-        report.warn(f"…ещё {hidden} таких связей", _least(hidden_common))
+        # Хвост-счётчик — тому, чьи все скрытые связи (как у соседних классов).
+        report.warn(f"…ещё {hidden} таких связей", report.owner_of_edges(hidden_idxs))
 
 
-def _opened_by(merged: ParsedImport, report: MergeReport) -> dict[int, set[int]]:
-    """Кто «раскрыл» узел до контейнера: файлы, принёсшие хотя бы одного его ребёнка.
+def _children_names(merged: ParsedImport) -> dict[int, list[str]]:
+    """Индекс контейнера → имена его компонентов в порядке СЛИТОГО дерева.
 
-    Контейнерность — свойство не самого узла, а его детей: файл, не давший ни одного
-    компонента, видит здесь атомарный сервис и уточнить конец связи не может."""
-    out: dict[int, set[int]] = {}
-    for i, n in enumerate(merged.nodes):
-        if n.parent_idx is None or i >= len(report.node_files):
-            continue
-        out.setdefault(n.parent_idx, set()).update(report.node_files[i])
+    Ключи — ровно те же индексы, что в `parents` у warn_content (оба множества
+    считаются по parent_idx одних и тех же узлов), поэтому перечень у контейнера
+    заведомо непустой. Порядок детерминирован обходом nodes: один и тот же пакет
+    даёт один и тот же перечень в замечании от прогона к прогону."""
+    out: dict[int, list[str]] = {}
+    for n in merged.nodes:
+        if n.parent_idx is not None:
+            out.setdefault(n.parent_idx, []).append(n.name)
     return out
+
+
+def _kids_phrase(container: str, names: list[str], cap: int) -> str:
+    """Перечень готовых целей для конца связи: «Y / poller», «Y / trapper» и ещё 6.
+
+    Кап нужен по той же причине, что и у соседних классов: замечания уезжают агенту
+    одним списком, и контейнер на полсотни компонентов вытеснил бы всё остальное.
+    Хвост считаем, а не молчим о нём: агент должен знать, что выбор шире показанного."""
+    shown = ", ".join(f"«{container} / {n}»" for n in names[:cap])
+    tail = f" и ещё {len(names) - cap}" if len(names) > cap else ""
+    return shown + tail
 
 
 def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
