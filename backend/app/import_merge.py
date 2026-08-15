@@ -16,9 +16,10 @@
 «родители раньше детей» сохраняется по построению).
 """
 
+from collections.abc import Hashable, Iterable
 from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
-from typing import TypeGuard
+from typing import TypeGuard, TypeVar
 
 from app.identity import compare_identity, merge_key_sets
 from app.import_yaml import (
@@ -39,6 +40,55 @@ _MAX_WARNINGS = 30
 # Связи в контейнер называем поимённо, но не все: замечания уезжают агенту одним
 # списком, и полсотни строк одного класса вытеснят остальное.
 _MAX_CONTAINER_EDGES = 10
+# Тот же кап у связей в брокер без канала — свой счётчик, чтобы один класс не
+# съедал квоту другого.
+_MAX_BROKER_EDGES = 10
+# И у связей, чей channel несёт ПЕРЕЧЕНЬ каналов вместо одного имени.
+_MAX_CHANNEL_LIST_EDGES = 10
+# Изолированные группы: сколько групп называем и сколько имён показываем в каждой.
+_MAX_ISOLATED_GROUPS = 10
+_MAX_GROUP_NAMES = 6
+
+T = TypeVar("T", bound=Hashable)
+
+
+def connected_components(edges: Iterable[tuple[T, T]]) -> list[list[T]]:
+    """Связные компоненты графа РЁБЕР; компоненты из одного узла не возвращаются.
+
+    Ядро, общее с алертом «изолированные группы» (app/alerts.compute_alerts, п.3), и
+    трактовка обязана совпадать с ним до буквы — иначе превью и алерты разойдутся в
+    вердиктах на одной и той же схеме:
+    - иерархия parent СВЯЗЬЮ НЕ СЧИТАЕТСЯ: через дерево связано вообще всё, и такой
+      критерий не отличал бы фрагментированную схему от целой;
+    - узлы без единой связи в компоненты не входят: о них говорит отдельная проверка
+      (в превью — «объектов без единой связи», в алертах — «подвисшие»), и дублировать
+      её замечанием про «группу из одного объекта» нельзя.
+
+    Порядок компонент и узлов внутри — от порядка рёбер: детерминирован при том же
+    входе, а показываем мы их всё равно отсортированными.
+    """
+    adjacency: dict[T, set[T]] = {}
+    for a, b in edges:
+        adjacency.setdefault(a, set()).add(b)
+        adjacency.setdefault(b, set()).add(a)
+    visited: set[T] = set()
+    out: list[list[T]] = []
+    for start in adjacency:
+        if start in visited:
+            continue
+        visited.add(start)
+        stack = [start]
+        comp: list[T] = []
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            for nxt in adjacency[cur]:
+                if nxt not in visited:
+                    visited.add(nxt)
+                    stack.append(nxt)
+        if len(comp) >= 2:
+            out.append(comp)
+    return out
 
 
 @dataclass
@@ -93,7 +143,9 @@ class _Merger:
         # прогоны положили под разных родителей или назвали по-разному.
         self.by_source: dict[str, int] = {}
         self.edges: list[_ImpEdge] = []
-        self.edge_seen: set[tuple[int, int, str, str]] = set()
+        # ключ дубля → (индекс в self.edges, файл-первоисточник). Индекс нужен,
+        # чтобы дубль мог ДОЛИТЬ каналом уже принятую связь, а не пропасть целиком.
+        self.edge_seen: dict[tuple[int, int, str, str], tuple[int, int]] = {}
         # (src, dst) → [(label, файл)] — для предупреждения о похожих рёбрах.
         self.pair_labels: dict[tuple[int, int], list[tuple[str, int]]] = {}
 
@@ -235,12 +287,36 @@ class _Merger:
     def add_edge(self, e: _ImpEdge, idx_map: list[int], fi: int) -> None:
         src, dst = idx_map[e.source_idx], idx_map[e.target_idx]
         key = (src, dst, e.label or "", e.technology or "")
-        if key in self.edge_seen:
+        seen = self.edge_seen.get(key)
+        if seen is not None:
             self.report.dropped_edges += 1
+            self._merge_channel(seen, e.channel, fi)
             return
-        self.edge_seen.add(key)
-        self.edges.append(_ImpEdge(src, dst, e.label, e.technology))
+        self.edge_seen[key] = (len(self.edges), fi)
+        self.edges.append(_ImpEdge(src, dst, e.label, e.technology, e.channel))
         self.pair_labels.setdefault((src, dst), []).append((e.label or "", fi))
+
+    def _merge_channel(self, seen: tuple[int, int], new: str | None, fi: int) -> None:
+        """Канал у дубля связи — та же политика, что у полей узла (_merge_str):
+        заполненное бьёт пустое, расхождение решается в пользу первого файла и
+        уезжает строкой в отчёт.
+
+        В КЛЮЧ дедупа канал не входит осознанно: один и тот же поток, названный в
+        двух репозиториях разными топиками, — это конфликт, который надо показать, а
+        не две самостоятельные связи между той же парой с той же подписью."""
+        idx, first = seen
+        cur = self.edges[idx].channel
+        if not _fill(new) or (_fill(cur) and cur.strip() == new.strip()):
+            return
+        if not _fill(cur):
+            self.edges[idx].channel = new
+            return
+        a = self.paths[self.edges[idx].source_idx]
+        b = self.paths[self.edges[idx].target_idx]
+        self.report.conflicts.append(
+            f"связь «{a} → {b}»: канал: оставлено «{cur}» (файл {first + 1}), "
+            f"отброшено «{new}» (файл {fi + 1})"
+        )
 
     # ── предупреждения ────────────────────────────────────────────────────
 
@@ -364,6 +440,9 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
             f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»"
         )
     _warn_container_edges(merged, report, parents)
+    _warn_broker_edges(merged, report)
+    _warn_channel_lists(merged, report)
+    _warn_isolated_groups(merged, report)
 
 
 def _warn_container_edges(
@@ -405,6 +484,106 @@ def _warn_container_edges(
             )
     if hidden:
         report.warnings.append(f"…ещё {hidden} таких связей")
+
+
+def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
+    """Связи, упирающиеся в БРОКЕР, но не называющие канал.
+
+    Решение пользователя №4 (docs/plan-broker-docs.md §4): стрелка в брокер обязана
+    назвать топик/очередь — иначе схема не отвечает на «откуда взялось событие».
+    После импорта это алерт AL31, но урок Х5 тот же, что у связей в контейнер: агент
+    к моменту алертов уже ушёл, поэтому предупреждаем ДО импорта и НАЗЫВАЕМ каждую
+    связь — замечание лечится дописыванием одного поля, и агенту нужен конкретный
+    конец, а не правило.
+
+    Брокер узнаём по shape СЛИТОГО дерева: проекта на этот момент ещё нет.
+    """
+    shown = hidden = 0
+    for e in merged.edges:
+        if _fill(e.channel):
+            continue
+        # dict.fromkeys — на случай петли: конец один, не два. Оба конца брокеры —
+        # называем первый (искать канал придётся у обоих, починка начинается с любого).
+        ends = [
+            i
+            for i in dict.fromkeys((e.source_idx, e.target_idx))
+            if merged.nodes[i].shape == "broker"
+        ]
+        if not ends:
+            continue
+        if shown >= _MAX_BROKER_EDGES:
+            hidden += 1
+            continue
+        shown += 1
+        a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
+        report.warnings.append(
+            f"связь «{a} → {b}»: конец — брокер «{merged.nodes[ends[0]].name}», а канал "
+            f"не указан — добавьте channel: имя топика/очереди"
+        )
+    if hidden:
+        report.warnings.append(f"…ещё {hidden} таких связей с брокером")
+
+
+def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
+    """Связи, у которых в channel не имя канала, а ПЕРЕЧЕНЬ имён.
+
+    Находка №2 полевого QA (docs/qa-zulip-brokers.md): агент кладёт в поле
+    «email, notify_orders, digest_emails». Правило промпта («одна пара ходит по
+    нескольким топикам — это несколько рёбер, по ребру на канал») есть и прямое, но
+    исполняется через раз, а машинной проверки формы не было ни в превью, ни в
+    валидаторе — промах всплывал уже после импорта нечитаемым AL31. Тот же урок Х5,
+    что у соседей: правило дисперсно, цель называет машина.
+
+    Разделителем считаем запятую и точку с запятой. Точки, дефисы и версии в имени
+    канала — норма («orders.created», «notify-orders»), и подозрений не вызывают.
+    """
+    shown = hidden = 0
+    for e in merged.edges:
+        if not _fill(e.channel) or not any(sep in e.channel for sep in (",", ";")):
+            continue
+        if shown >= _MAX_CHANNEL_LIST_EDGES:
+            hidden += 1
+            continue
+        shown += 1
+        a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
+        report.warnings.append(
+            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}» — раздели "
+            f"на отдельные связи, по одной на канал"
+        )
+    if hidden:
+        report.warnings.append(f"…ещё {hidden} таких связей с перечнем в channel")
+
+
+def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
+    """Группы объектов, связанные между собой, но оторванные от остальной схемы.
+
+    Полевая валидация Ф8: превью говорило про ОДИНОЧЕК, а компонента из двух узлов
+    («актор → его интерфейс», связанные друг с другом и больше ни с чем) проходила
+    молча и всплывала алертом «Незавершённость схемы» уже после создания проекта —
+    когда агент ушёл и дорисовать связь некому. Тот же урок Х5, что у связей в
+    контейнер: предупреждаем ДО импорта и НАЗЫВАЕМ группу поимённо.
+
+    Ядро связности — общее с алертом (connected_components), поэтому вердикты сходятся.
+    Крупнейшую компоненту не называем: она и есть схема, а замечание должно указывать,
+    ЧТО прицепить, а не пересказывать проект.
+    """
+    comps = connected_components([(e.source_idx, e.target_idx) for e in merged.edges])
+    if len(comps) < 2:
+        return  # один кластер (плюс, возможно, одиночки) — фрагментации нет
+    # Ядро — самая крупная; при равных размерах порядок задаёт первое имя, иначе
+    # «ядром» становилось бы то одно, то другое от прогона к прогону.
+    comps.sort(key=lambda c: (-len(c), sorted(merged.nodes[i].name for i in c)))
+    for comp in comps[1 : _MAX_ISOLATED_GROUPS + 1]:
+        names = [merged.nodes[i].name for i in sorted(comp)]
+        shown = ", ".join(f"«{n}»" for n in names[:_MAX_GROUP_NAMES])
+        tail = f" и ещё {len(names) - _MAX_GROUP_NAMES}" if len(names) > _MAX_GROUP_NAMES else ""
+        report.warnings.append(
+            f"группа из {len(names)} объектов не связана с остальной схемой: {shown}{tail} — "
+            f"дорисуй связь с ядром или проверь, не потерялась ли она"
+        )
+    hidden = len(comps) - 1 - _MAX_ISOLATED_GROUPS
+    if hidden > 0:
+        report.warnings.append(f"…ещё {hidden} таких групп")
 
 
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:

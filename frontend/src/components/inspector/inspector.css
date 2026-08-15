@@ -265,6 +265,22 @@
   color: #9ca3af;
   font-style: italic;
 }
+/* Подсказка резолва под полем (канал брокера): мягкая — она сообщает, а не запрещает.
+   Зелёная — канал найден в структуре брокера-конца, янтарная — нет (та же палитра
+   «замечание», что у панели алертов). */
+.insp-hint {
+  font-size: 11.5px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.insp-hint--ok {
+  color: #047857;
+}
+.insp-hint--warn {
+  color: #b45309;
+}
 .insp-value .insp-field {
   width: auto;
   flex: 1;

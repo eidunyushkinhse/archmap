@@ -57,6 +57,10 @@ class _ImpEdge:
     target_idx: int
     label: str | None
     technology: str | None
+    # Канал брокера, который называет связь (Edge.channel): у стрелок в брокер он
+    # обязателен по конвенции, но парсер его НЕ требует — отсутствие ловит
+    # предупреждение слияния (_warn_broker_edges) и алерт AL31, а не отказ импорта.
+    channel: str | None = None
 
 
 @dataclass
@@ -309,6 +313,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
                 target_idx=dst_idx,
                 label=opt_str(raw_e, "label", path, 256),
                 technology=opt_str(raw_e, "technology", path, 128),
+                channel=opt_str(raw_e, "channel", path, 256),
             )
         )
 
@@ -354,5 +359,6 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> Non
                 target_id=ids[e.target_idx],
                 label=e.label,
                 technology=e.technology,
+                channel=e.channel,
             )
         )

@@ -107,3 +107,8 @@ class DocsImportReport(BaseModel):
     created_docs: int = 0
     updated_docs: int = 0
     specs_written: int = 0
+    # Сколько пометок каждой семьи распознано в схемах пакета (до резолва). Окно
+    # сравнивает эти числа между попытками агента: упало — пометки, похоже, удалены
+    # вместо починки (находка №2 docs/qa-sentry-brokers.md, ампутация Х3 в доках).
+    data_refs_total: int = 0
+    channel_refs_total: int = 0

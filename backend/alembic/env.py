@@ -2,7 +2,9 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
+import app.models.broker_channel  # noqa: F401
 import app.models.business_process  # noqa: F401
+import app.models.channel_field  # noqa: F401
 import app.models.db_column  # noqa: F401
 import app.models.db_table  # noqa: F401
 import app.models.edge  # noqa: F401

@@ -2,14 +2,16 @@
 
 Нужен, чтобы читать и править ТЕКСТОВКИ панели алертов на живых данных: каждый
 класс из docs/specs/alerts.md представлен минимум одной записью, а те классы, где
-формулировка зависит от флагов (контейнер со своими доками), — всеми вариантами.
+формулировка зависит от флагов или причины (контейнер со своими доками, битые
+пометки данных и событий, связь с брокером), — ВСЕМИ вариантами.
 
 Запуск (из корня репозитория, бэкенд поднимать не нужно — пишем прямо в БД):
     backend/venv/bin/python scripts/seed-alerts-demo.py
 
 Идемпотентен: проект с тем же именем сносится и создаётся заново (каскадом уходят
-узлы, связи, процессы, раскладка, доки и структура БД). Схема нарочно кривая — это
-фикстура, а не пример для подражания.
+узлы, связи, процессы, раскладка, доки, структура БД и каналы брокеров). Схема
+нарочно кривая — это фикстура, а не пример для подражания. В конце печатаются
+счётчики классов: их совпадение от прогона к прогону и есть проверка идемпотентности.
 """
 
 import os
@@ -22,9 +24,13 @@ sys.path.insert(0, str(BACKEND))
 # Settings читает .env ОТ ТЕКУЩЕЙ ДИРЕКТОРИИ — иначе database_url не найдётся.
 os.chdir(BACKEND)
 
+from sqlalchemy.orm import Session  # noqa: E402
+
 # Регистрация моделей в реестре SQLAlchemy (как в alembic/env.py): без полного
 # набора импортов relationship'ы не резолвятся по строковым именам.
+import app.models.broker_channel  # noqa: E402
 import app.models.business_process  # noqa: E402
+import app.models.channel_field  # noqa: F401,E402
 import app.models.db_column  # noqa: F401,E402
 import app.models.db_table  # noqa: E402
 import app.models.edge  # noqa: E402
@@ -37,8 +43,11 @@ import app.models.project  # noqa: E402
 import app.models.user  # noqa: E402
 import app.models.view_layout  # noqa: F401,E402
 import app.models.view_state  # noqa: F401,E402
+from app.alerts import compute_alerts  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
+from app.models.broker_channel import BrokerChannel  # noqa: E402
 from app.models.business_process import BusinessProcess  # noqa: E402
+from app.models.channel_field import ChannelField  # noqa: E402
 from app.models.db_column import DbColumn  # noqa: E402
 from app.models.db_table import DbTable  # noqa: E402
 from app.models.edge import Edge  # noqa: E402
@@ -79,6 +88,40 @@ DOC_REFS = """flowchart TD
   B -- нет --> D["Отказать<br>пишет: Каталог-БД / orders.paid_at"]
   C --> E["Отметить оплату<br>пишет: Каталог-БД / orders.status"]
 """
+
+# AL30: то же самое для событий — пометки «публикует:/потребляет:», которым не во что
+# резолвиться. Все три причины разом плюс контроль ложных срабатываний:
+#   «orders.created»              → ambiguous       (две равноправные трактовки:
+#                                                    канал «orders.created» целиком
+#                                                    против канала «orders» + поле
+#                                                    «created»; лечится «Брокер / канал»)
+#   «ordrs.created»               → unknown_channel (опечатка в имени топика)
+#   «payments.settled.currency»   → unknown_field   (канал нашёлся, поля в нём нет)
+#   «payments.settled»            → ok              (КОНТРОЛЬ: резолвится, в алерты
+#                                                    не попадает)
+DOC_CHANNEL_REFS = """flowchart TD
+  A["Принять событие<br>потребляет: orders.created"] --> B{"Заказ известен?"}
+  B -- да --> C["Списать средства<br>публикует: payments.settled"]
+  B -- нет --> D["Отправить в разбор<br>потребляет: ordrs.created"]
+  C --> E["Дописать валюту в квитанцию<br>потребляет: payments.settled.currency"]
+"""
+
+
+def _report(db: Session, pid: uuid.UUID) -> None:
+    """Счётчики классов алертов после посева — фикспойнт стенда.
+
+    Печатаются НАРОЧНО: идемпотентность сида проверяется не «скрипт не упал», а
+    совпадением этих чисел от прогона к прогону (посев с тем же именем сносит
+    прежний проект каскадом, и задвоение класса иначе заметить нечем).
+    """
+    alerts = compute_alerts(db, pid)
+    print("Классы алертов:")
+    for field in type(alerts).model_fields:
+        print(f"  {field}: {len(getattr(alerts, field))}")
+    for a in alerts.unresolved_channel_refs:
+        print(f"  AL30 {a.node_name} / «{a.doc_name}»: {a.ref} [{a.mode} → {a.reason}]")
+    for a in alerts.broker_edge_channels:
+        print(f"  AL31 {a.source_name} → {a.target_name}: {a.channel!r} [{a.reason}]")
 
 
 def main() -> None:
@@ -139,6 +182,12 @@ def main() -> None:
         )
         # AL25: человек ВНУТРИ системы — по C4 актор живёт за её границей.
         operator = node("Оператор поддержки", parent=platform.id, shape="person", role="человек")
+        # Брокер с ОПИСАННОЙ структурой каналов: на нём держатся AL30 (пометки
+        # событий) и AL31 (связи без канала). Отдельный от «Старого обменника» —
+        # тот обязан остаться вовсе без связей, иначе пропадёт его класс AL5.
+        bus = node(
+            "Шина событий", parent=platform.id, shape="broker", role="брокер", technology="Kafka"
+        )
 
         # Второй кластер, ничем не связанный с первым (AL7).
         storefront = node("Витрина", role="сервис", technology="Node.js")
@@ -177,11 +226,80 @@ def main() -> None:
             NodeDoc(node_id=gateway.id, name="Приём платежа", kind="operation", content=DOC_REFS)
         )
 
+        # --- Структура каналов и пометки событий (AL30) -----------------------
+        def channel(
+            owner: Node,
+            name: str,
+            fields: list[tuple[str, str]],
+            *,
+            kind: str = "topic",
+            partition_key: str = "",
+            delivery: str = "at-least-once",
+            retention: str = "7d",
+        ) -> BrokerChannel:
+            c = BrokerChannel(
+                node_id=owner.id,
+                name=name,
+                group_name="",
+                kind=kind,
+                partition_key=partition_key,
+                delivery=delivery,
+                retention=retention,
+            )
+            db.add(c)
+            db.flush()
+            for i, (fname, ftype) in enumerate(fields):
+                db.add(ChannelField(channel_id=c.id, name=fname, type=ftype, order=i))
+            return c
+
+        # Пара «orders» + «orders.created» — РЕАЛЬНАЯ неоднозначность (находка Ф2в):
+        # у каналов точка бывает частью имени, поэтому «orders.created» одинаково
+        # законно читается и как имя топика целиком, и как «канал orders, поле created».
+        channel(
+            bus,
+            "orders",
+            [("id", "uuid"), ("created", "timestamp"), ("status", "string")],
+            partition_key="id",
+        )
+        channel(
+            bus,
+            "orders.created",
+            [("order_id", "uuid"), ("total", "numeric")],
+            partition_key="order_id",
+        )
+        channel(
+            bus,
+            "payments.settled",
+            [("payment_id", "uuid"), ("amount", "numeric")],
+            partition_key="payment_id",
+            delivery="exactly-once",
+            retention="30d",
+        )
+        # Пометки событий — у ВОРКЕРА (тоже лист): фикстура AL24 не сдвигается.
+        db.add(
+            NodeDoc(
+                node_id=billing_worker.id,
+                name="Обработка события",
+                kind="operation",
+                content=DOC_CHANNEL_REFS,
+            )
+        )
+
         def edge(
-            src: uuid.UUID, dst: uuid.UUID, label: str, *, sync: bool | None = None
+            src: uuid.UUID,
+            dst: uuid.UUID,
+            label: str,
+            *,
+            sync: bool | None = None,
+            channel_name: str | None = None,
         ) -> Edge:
             e = Edge(
-                project_id=pid, source_id=src, target_id=dst, label=label, is_synchronous=sync
+                project_id=pid,
+                source_id=src,
+                target_id=dst,
+                label=label,
+                is_synchronous=sync,
+                channel=channel_name,
             )
             db.add(e)
             db.flush()
@@ -195,6 +313,23 @@ def main() -> None:
         queue = edge(gateway.id, billing_worker.id, "поставить в очередь", sync=False)
         edge(gateway.id, catalog_db.id, "читать товары")
         edge(operator.id, gateway.id, "оформляет заказ")
+        # AL31, обе причины плюс контроль. Все три связи держим в ПЕРВОМ кластере:
+        # мостик во второй склеил бы компоненты и погасил AL7.
+        edge(gateway.id, bus.id, "опубликовать заказ", sync=False)  # missing: канал не назван
+        edge(
+            billing_worker.id,
+            bus.id,
+            "опубликовать возврат",
+            sync=False,
+            channel_name="payments.refunded",  # unknown: такого канала у брокера нет
+        )
+        edge(
+            bus.id,
+            billing_worker.id,
+            "доставить заказ",
+            sync=False,
+            channel_name="orders.created",  # КОНТРОЛЬ: канал описан, алерта нет
+        )
         # Второй кластер.
         edge(storefront.id, storefront_cache.id, "читать кэш")
 
@@ -256,6 +391,7 @@ def main() -> None:
 
         db.commit()
         print(f"Проект «{PROJECT_NAME}» создан: {pid}")
+        _report(db, pid)
     finally:
         db.close()
 

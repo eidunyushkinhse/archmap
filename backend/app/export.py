@@ -97,6 +97,10 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
             d["label"] = e.label
         if e.technology:
             d["technology"] = e.technology
+        # Канал брокера — как остальная необязательная семантика: пишем, только если
+        # задан (у связей без брокера его и не бывает).
+        if e.channel:
+            d["channel"] = e.channel
         return d
 
     edge_dicts = [

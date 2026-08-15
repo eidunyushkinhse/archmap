@@ -82,10 +82,14 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
 
   const remarks = report === null ? [] : [...report.errors, ...report.warnings];
 
+  // «Чини, а не удаляй» — тот же урок, что у импорта и доков (полевой QA,
+  // docs/qa-sentry-brokers.md находка №2): на голое «исправь» слабая модель отвечает
+  // ампутацией — вырезает записи вместо того, чтобы искать верное имя.
   function copyRemarks() {
     const text =
       "Валидатор дозаливки данных ArchMap нашёл замечания к пакету. " +
-      "Исправь файлы и сообщи, какие изменились:\n" +
+      "Исправь файлы и сообщи, какие изменились. Записи чини по замечаниям, " +
+      "а не удаляй из пакета:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void navigator.clipboard.writeText(text).then(() => {
       setRemarksCopied(true);

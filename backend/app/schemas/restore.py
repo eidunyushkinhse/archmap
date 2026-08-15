@@ -48,6 +48,9 @@ class EdgeSnapshot(BaseModel):
     id: uuid.UUID
     label: str | None = None
     technology: str | None = None
+    # Канал брокера: без него откат удаления возвращал бы связь БЕЗ канала —
+    # молчаливая потеря поля (урок «nodeFields без status»).
+    channel: str | None = None
     source_id: uuid.UUID
     target_id: uuid.UUID
     is_synchronous: bool | None = None

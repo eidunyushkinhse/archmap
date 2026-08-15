@@ -10,6 +10,7 @@ from app.database import Base
 if TYPE_CHECKING:
     # Только для типов/линтера: связь Node ↔ Edge SQLAlchemy резолвит по строке
     # через свой реестр в рантайме, поэтому здесь импорт не нужен (и создал бы цикл).
+    from app.models.broker_channel import BrokerChannel
     from app.models.db_table import DbTable
     from app.models.edge import Edge
     from app.models.node_doc import NodeDoc
@@ -113,6 +114,16 @@ class Node(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="DbTable.schema_name, DbTable.name",
+    )
+    # Структура брокера (каналы) — тот же «контракт» узла, что таблицы у базы.
+    # Ленивость обычная по той же причине: каналы читает страница объекта, графу
+    # уровня они не нужны.
+    broker_channels: Mapped[list["BrokerChannel"]] = relationship(
+        "BrokerChannel",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="BrokerChannel.group_name, BrokerChannel.name",
     )
 
     # Вычисляемые атрибуты отдачи (в БД НЕ хранятся — не колонки). Проставляются

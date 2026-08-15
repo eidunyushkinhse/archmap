@@ -14,7 +14,7 @@
 // примечание к версионированию в tasks.md) — страховка: превью + дефолт
 // «не перезаписывать». Закрытие после успешного применения — отсюда (onClose);
 // родитель через onApplied только освежает мету узла.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { DocsImportReport, NodeDocKind } from "../../types";
 import { docsImportApi, type DocsOverride, type DocsPromptParams } from "../../api/docsImport";
@@ -22,7 +22,7 @@ import { validateMermaid } from "../mermaidLoader";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {
-  ACTION_LABEL, countAction,
+  ACTION_LABEL, countAction, checkMermaid, type MermaidCheck,
   head, sub, cols, leftCol, rightCol, radioRow, hintsArea,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
@@ -43,6 +43,24 @@ interface Props {
   // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
 }
+
+// Память попыток агента: сколько пометок каждой семьи несло ПРЕДЫДУЩЕЕ зелёное
+// превью. Текстовый запрет «не удаляй пометки» в замечаниях нужен, но тексты
+// дисперсны — число не врёт: упало между попытками, значит агент, скорее всего,
+// вырезал пометки вместо починки (находка №2 docs/qa-sentry-brokers.md).
+// from — отчёт, которому соответствует cur (сравнение по ссылке: каждый ответ
+// превью — новый объект). prev = null — попытка первая, сравнивать не с чем.
+interface RefCounts {
+  data: number;
+  channel: number;
+}
+interface Attempts {
+  from: DocsImportReport | null;
+  prev: RefCounts | null;
+  cur: RefCounts;
+}
+const NO_REFS: RefCounts = { data: 0, channel: 0 };
+const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: NO_REFS };
 
 const KIND_LABEL: Record<NodeDocKind, string> = {
   overview: "Обзор",
@@ -67,7 +85,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const [checking, setChecking] = useState(false);
   // Результаты mermaid-валидации привязаны к породившему их отчёту (сравнение
   // по ссылке — паттерн importSummary.forDocs): чужому отчёту не показываются.
-  const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; errs: (string | null)[] } | null>(null);
+  const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; check: MermaidCheck } | null>(null);
   const [applying, setApplying] = useState(false);
   const [remarksCopied, setRemarksCopied] = useState(false);
   // Правки строк превью: ключ — ФАЙЛ-источник (одна схема = один файл .mmd).
@@ -81,7 +99,40 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
 
   const report = pkg.hasContent ? rawReport : null;
-  const mmdErrs = report !== null && mmdRes?.forReport === report ? mmdRes.errs : null;
+  // Проверка схем — производное от отчёта: пока её нет (парс ещё идёт), окно не
+  // делает вид, что схемы здоровы, а прямо говорит «проверяю».
+  const mmdCheck = report !== null && mmdRes?.forReport === report ? mmdRes.check : null;
+  const mmdErrs = mmdCheck?.errs ?? null;
+  const mmdBroken = mmdErrs === null ? 0 : mmdErrs.filter((e) => e !== null).length;
+  const mmdPending = report !== null && report.logic.length > 0 && mmdCheck === null;
+
+  // Дифф числа пометок между попытками. Переставляем ПРИ РЕНДЕРЕ по смене ссылки
+  // отчёта (React-паттерн «adjusting state when props change», как в ImportPane), а
+  // не зеркалящим эффектом: setState в useEffect запрещён линтом и дал бы лишний
+  // кадр со старыми числами. Считаем только ЗЕЛЁНЫЕ превью: у отчёта с ошибками
+  // плана нет вовсе, и его нули не попытка агента, а отсутствие разбора.
+  const [seen, setSeen] = useState<Attempts>(NO_ATTEMPTS);
+  const counted = report !== null && !report.applied && report.errors.length === 0;
+  if (counted && seen.from !== report) {
+    setSeen({
+      from: report,
+      prev: seen.cur,
+      cur: { data: report.data_refs_total, channel: report.channel_refs_total },
+    });
+  }
+  // Что уменьшилось между попытками. Рост и равенство — норма, о них молчим.
+  const shrank = useMemo(() => {
+    const was = seen.prev;
+    if (was === null) return [];
+    const out: string[] = [];
+    if (was.data > seen.cur.data) {
+      out.push(`Пометок данных было ${was.data} → стало ${seen.cur.data}.`);
+    }
+    if (was.channel > seen.cur.channel) {
+      out.push(`Пометок каналов было ${was.channel} → стало ${seen.cur.channel}.`);
+    }
+    return out;
+  }, [seen]);
 
   // Дебаунс-превью по файлам и тумблеру; план фильтруется по схемам логики
   // (only="logic"). Все setState — в таймере/ответе (асинхронно); seq отбрасывает
@@ -109,12 +160,17 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     // ПЛАН (создание вместо перезаписи), и пользователь должен видеть это сразу.
   }, [pkg.files, overwrite, nodeId, overrides]);
 
-  // Mermaid-валидация текстов схем из превью (советующая, ленивый чанк mermaid).
+  // Mermaid-валидация текстов схем из превью НАСТОЯЩИМ парсером (ленивый чанк
+  // mermaid грузится только когда пакет уже разобран). Асинхронна по природе,
+  // поэтому эффект — с отменой по смене отчёта: результат чужого пакета показывать
+  // нельзя. Полевая находка (Zulip v2): 9 из 30 схем приехали с рассогласованными
+  // скобками вершины — парсер такой класс ловит, но замечание должно назвать ФАЙЛ и
+  // быть видно ДО применения, иначе схемы применяются мёртвыми для рендера.
   useEffect(() => {
     if (report === null || report.logic.length === 0) return;
     let alive = true;
-    void Promise.all(report.logic.map((l) => validateMermaid(l.mermaid))).then((errs) => {
-      if (alive) setMmdRes({ forReport: report, errs });
+    void checkMermaid(report.logic, validateMermaid).then((check) => {
+      if (alive) setMmdRes({ forReport: report, check });
     });
     return () => { alive = false; };
   }, [report]);
@@ -149,20 +205,30 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     });
   }
 
-  // Замечания для агента: ошибки/конфликты/предупреждения + mermaid-ошибки фронта.
-  const mmdRemarks =
-    report === null || mmdErrs === null
+  // Замечания для агента: ошибки/конфликты/предупреждения бэка + mermaid-замечания
+  // фронта (собраны и закапированы в checkMermaid — там же формат «файл: …»).
+  const remarks =
+    report === null
       ? []
-      : report.logic
-          .map((l, i) => ({ l, err: mmdErrs[i] }))
-          .filter((x): x is { l: (typeof report.logic)[number]; err: string } => x.err !== null)
-          .map(({ l, err }) => `схема "${l.name}" узла «${l.node_path}»: ошибка mermaid — ${err.split("\n")[0]}`);
-  const remarks = report === null ? [] : [...report.errors, ...report.conflicts, ...report.warnings, ...mmdRemarks];
+      : [...report.errors, ...report.conflicts, ...report.warnings, ...(mmdCheck?.remarks ?? [])];
 
+  // Вступление к замечаниям несёт ЗАПРЕТ УДАЛЯТЬ пометки, и это не косметика:
+  // полевой QA (docs/qa-sentry-brokers.md, находка №2) показал ампутацию Х3 в новой
+  // одежде — по списку из семи битых пометок слабая модель «починила» их удалением
+  // ВСЕХ восьмидесяти трёх, и обратный индекс базы опустел при «идеальном» превью.
+  // Второй урок (docs/qa-zulip-brokers.md, находка №1): чинить «именем ИЛИ
+  // квалификатором» — это ВЫБОР ИЗ ДВУХ МЕХАНИК, и слабая модель оба круга берёт
+  // дешёвую — добавляет квалификатор, потом снимает его обратно, а имя так и не
+  // сверяет. Поэтому цель одна: ДОСЛОВНОЕ имя, и сказано, где его взять
+  // (подсказка «похоже на …» из замечания); квалификатор — только про омонимы.
   function copyRemarks() {
     const text =
       "Валидатор дозаливки доков ArchMap нашёл замечания к пакету archmap-docs. " +
-      "Исправь пакет и сообщи, какие файлы изменились:\n" +
+      "Исправь пакет и сообщи, какие файлы изменились. Битую пометку чини " +
+      "ДОСЛОВНЫМ именем: бери его из подсказки «похоже на …» в замечании, а нет " +
+      "подсказки — найди настоящее имя в структуре проекта или DDL. Квалификатор " +
+      "«Узел / имя» добавляй ТОЛЬКО когда одинаковое имя есть у разных узлов. " +
+      "НЕ удаляй пометки: удаление прячет факт, а не исправляет его:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void navigator.clipboard.writeText(text).then(() => {
       setRemarksCopied(true);
@@ -178,6 +244,20 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     setRawReport(null);
     setMmdRes(null);
     setOverrides([]);
+    setSeen(NO_ATTEMPTS); // следующий воркер — новый пакет, сравнивать не с чем
+  }
+
+  // Убрали последний файл — пакета больше нет: история попыток начинается заново
+  // (зеркало ImportPane), и вместе с ней уходит отчёт. Без этого отчёт прошлого
+  // пакета вернулся бы при первой же вставке (он лишь СКРЫТ производно) и стал бы
+  // «первой попыткой» нового — с ложной ампутацией на следующем превью.
+  function removeFile(i: number) {
+    if (pkg.files.length === 1) {
+      setSeen(NO_ATTEMPTS);
+      setRawReport(null);
+      setMmdRes(null);
+    }
+    pkg.removeFile(i);
   }
 
   function apply(closeAfter: boolean) {
@@ -278,7 +358,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
                 <button type="button" style={chipBtn} title={f.name} onClick={() => pkg.setActive(i)}>
                   {f.name}
                 </button>
-                <button type="button" style={chipX} title="Убрать файл" onClick={() => pkg.removeFile(i)}>×</button>
+                <button type="button" style={chipX} title="Убрать файл" onClick={() => removeFile(i)}>×</button>
               </span>
             ))}
             <input
@@ -330,6 +410,24 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
           {/* Отчёт превью / применения */}
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
+            {/* Ампутация пометок не должна быть молчаливой: пропавшие между
+                попытками — НАД сводкой, до зелёного «Схем: N». */}
+            {!checking && shrank.map((line) => (
+              <div key={line} style={shrankLine}>
+                {line} Проверьте: агент мог удалить их вместо починки
+              </div>
+            ))}
+            {/* Непарсящиеся схемы — строкой НАД сводкой, а не только значком ✗ в
+                строке файла: в пакете на три десятка схем значок в списке теряется,
+                и пакет применяют целиком (полевая находка Zulip v2). Применение не
+                блокируем: схема с битым mermaid — всё ещё текст, который правят. */}
+            {!checking && mmdPending && <div style={grayLine}>Проверяю схемы mermaid…</div>}
+            {!checking && report !== null && mmdBroken > 0 && (
+              <div style={shrankLine}>
+                Не парсятся mermaid: {mmdBroken} из {report.logic.length} схем — применение
+                их не оживит, почините пакет и загрузите снова
+              </div>
+            )}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
                 Применено: схем создано {report.created_docs}, перезаписано {report.updated_docs}.
@@ -468,6 +566,10 @@ const segBtnOn: CSSProperties = {
   boxShadow: "0 1px 3px rgba(15,23,42,.14)",
 };
 const segNote: CSSProperties = { fontSize: 12, color: "#94a3b8", lineHeight: 1.4 };
+// Тот же amber, что у «Исчезли:» в панели импорта и у заголовков отчёта.
+const shrankLine: CSSProperties = {
+  fontSize: 12.5, fontWeight: 600, color: "#b45309", marginBottom: 6,
+};
 const targetInput: CSSProperties = {
   width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px",
   border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a",

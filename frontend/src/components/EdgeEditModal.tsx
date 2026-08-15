@@ -98,6 +98,10 @@ function EdgeEditForm({ data, onClose, onChanged }: {
       id: data.edge.id,
       label: data.edge.label,
       technology: data.edge.technology,
+      // Своего поля «Канал» в модалке страницы нет (правится в инспекторе
+      // редактора-карты), но значение прокидываем: иначе коммит любой другой
+      // правки затёр бы канал null'ом.
+      channel: data.edge.channel ?? null,
       source_id: data.edge.source_id,
       target_id: data.edge.target_id,
       version: data.edge.version,

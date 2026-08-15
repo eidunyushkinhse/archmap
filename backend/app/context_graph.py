@@ -83,6 +83,7 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
                 id=e.id,
                 label=e.label,
                 technology=e.technology,
+                channel=e.channel,
                 source_id=e.source_id,
                 target_id=e.target_id,
                 version=e.version,

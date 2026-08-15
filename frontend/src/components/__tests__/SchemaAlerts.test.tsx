@@ -19,6 +19,8 @@ const EMPTY: Alerts = {
   dangling_messages: [],
   unbound_participants: [], orphan_legs: [],
   unresolved_data_refs: [],
+  unresolved_channel_refs: [],
+  broker_edge_channels: [],
 };
 
 const DANGLING = {
@@ -222,5 +224,144 @@ describe("SchemaAlerts: обращения к неописанным данны�
     await openPanel();
 
     expect(screen.queryByText("Обращения к неописанным данным")).toBeNull();
+  });
+});
+
+const BROKEN_CHANNEL = {
+  node_id: "n1",
+  node_name: "Заказы",
+  doc_id: "d1",
+  doc_name: "POST /orders",
+  ref: "создание",
+  mode: "publish" as const,
+  reason: "unknown_channel" as const,
+};
+
+describe("SchemaAlerts: обращения к неописанным каналам", () => {
+  it("строка называет объект, док, пометку и причину", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_channel_refs: [BROKEN_CHANNEL] }} />);
+
+    // Знак есть только при ненулевом total — значит класс входит в общий счётчик.
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    await openPanel();
+
+    expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
+    expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
+    expect(screen.getByText("„создание“")).toBeTruthy();
+    expect(screen.getByText(/канал не найден у брокеров проекта/)).toBeTruthy();
+  });
+
+  it("причина зависит от reason, и неоднозначность зовёт квалификатор БРОКЕРА", async () => {
+    const { unmount } = render(
+      <SchemaAlerts alerts={{ ...EMPTY, unresolved_channel_refs: [{ ...BROKEN_CHANNEL, reason: "ambiguous" }] }} />,
+    );
+    await openPanel();
+    // «БД / таблица» здесь послало бы чинить не туда — слова свои.
+    expect(screen.getByText(/имя неоднозначно — укажите „Брокер \/ канал“/)).toBeTruthy();
+    unmount();
+
+    render(
+      <SchemaAlerts alerts={{ ...EMPTY, unresolved_channel_refs: [{ ...BROKEN_CHANNEL, reason: "unknown_field" }] }} />,
+    );
+    await openPanel();
+    expect(screen.getByText(/поля нет в канале/)).toBeTruthy();
+  });
+
+  it("класс отдельный от данных: секции не смешиваются", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF], unresolved_channel_refs: [BROKEN_CHANNEL] }}
+      />,
+    );
+    // Оба класса считаются в общем счётчике незавершённости.
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 2" })).toBeTruthy();
+    await openPanel();
+
+    expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
+    expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
+    expect(screen.getByText("„ordrs.status“")).toBeTruthy();
+    expect(screen.getByText("„создание“")).toBeTruthy();
+  });
+
+  it("ведёт к узлу-владельцу дока: чинится текст пометки, а не структура брокера", async () => {
+    const onLocate = vi.fn();
+    render(
+      <SchemaAlerts alerts={{ ...EMPTY, unresolved_channel_refs: [BROKEN_CHANNEL] }} onLocate={onLocate} />,
+    );
+    await openPanel();
+
+    await userEvent.click(screen.getByText("„создание“"));
+
+    expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n1" });
+  });
+
+  it("пустая группа не рендерится", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF] }} />);
+    await openPanel();
+
+    expect(screen.queryByText("Обращения к неописанным каналам")).toBeNull();
+  });
+});
+
+// ── Связи с брокером без канала (AL31) ───────────────────────────────────────
+// Стрелка «сервис → брокер» обязана назвать топик (решение пользователя №4). Канал —
+// ссылка по ИМЕНИ, не FK, поэтому шов «стрелка ↔ структура брокера» виден только здесь.
+// Чинится в инспекторе самой связи, поэтому строка ведёт К СВЯЗИ, а не к брокеру.
+
+const BROKER_EDGE = {
+  edge_id: "e1",
+  source_name: "orders",
+  target_name: "Kafka",
+  broker_name: "Kafka",
+  channel: null as string | null,
+  reason: "missing" as const,
+};
+
+describe("SchemaAlerts: связи с брокером без канала", () => {
+  it("связь без канала названа концами и считается в общем счётчике", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, broker_edge_channels: [BROKER_EDGE] }} />);
+
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    await openPanel();
+
+    expect(screen.getByText("Связи с брокером без канала")).toBeTruthy();
+    expect(screen.getByText(/orders → Kafka/)).toBeTruthy();
+    expect(screen.getByText(/канал не указан/)).toBeTruthy();
+  });
+
+  it("неизвестный канал показан вместе с брокером, у которого его искали", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{
+          ...EMPTY,
+          broker_edge_channels: [{ ...BROKER_EDGE, channel: "orders.creted", reason: "unknown" }],
+        }}
+      />,
+    );
+    await openPanel();
+
+    // Причины разные по смыслу починки: дописать канал ≠ исправить опечатку/описать канал.
+    expect(screen.getByText("«orders.creted»")).toBeTruthy();
+    expect(screen.getByText(/не найден у брокера «Kafka»/)).toBeTruthy();
+    expect(screen.queryByText(/канал не указан/)).toBeNull();
+  });
+
+  it("ведёт к СВЯЗИ на схеме: канал правится в её инспекторе", async () => {
+    const onLocate = vi.fn();
+    render(
+      <SchemaAlerts alerts={{ ...EMPTY, broker_edge_channels: [BROKER_EDGE] }} onLocate={onLocate} />,
+    );
+    await openPanel();
+
+    await userEvent.click(screen.getByText(/orders → Kafka/));
+
+    expect(onLocate).toHaveBeenCalledWith({ kind: "edge", id: "e1" });
+  });
+
+  it("пустая группа не рендерится", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF] }} />);
+    await openPanel();
+
+    expect(screen.queryByText("Связи с брокером без канала")).toBeNull();
   });
 });

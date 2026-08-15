@@ -890,6 +890,166 @@ export interface paths {
         patch: operations["update_column_api_v1_nodes__node_id__tables__table_id__columns__column_id__patch"];
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Channels */
+        get: operations["list_channels_api_v1_nodes__node_id__channels_get"];
+        put?: never;
+        /** Create Channel */
+        post: operations["create_channel_api_v1_nodes__node_id__channels_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/channels/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Usage
+         * @description Кто публикует и кто потребляет каналы этого брокера — разворот пометок из
+         *     схем логики проекта.
+         *
+         *     Ради этого ответа структура каналов и заводилась: перечень каналов говорит, ЧТО
+         *     брокер переносит, а обратный индекс — кто кладёт событие и кто его ждёт (вопрос
+         *     сопровождения «кого сломает изменение формата»). Источник — сам текст доков
+         *     (пивот §1 плана): разбор и резолв на чтении, хранения обращений нет.
+         *
+         *     ОБЪЯВЛЕН ДО путей с {channel_id}: иначе «usage» поехало бы в разбор uuid.
+         */
+        get: operations["list_usage_api_v1_nodes__node_id__channels_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/channels/{channel_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Channel */
+        delete: operations["delete_channel_api_v1_nodes__node_id__channels__channel_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Channel */
+        patch: operations["update_channel_api_v1_nodes__node_id__channels__channel_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/channels/{channel_id}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Field */
+        post: operations["create_field_api_v1_nodes__node_id__channels__channel_id__fields_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/channels/{channel_id}/fields/{field_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Field */
+        delete: operations["delete_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Field */
+        patch: operations["update_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/channels-import/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Channels Prompt
+         * @description Промпт агенту с узлами-брокерами ЭТОГО проекта: адрес владельца слабая модель
+         *     без списка выдумывает, и пакет блокируется целиком (урок Н8).
+         */
+        get: operations["channels_prompt_api_v1_channels_import_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/channels-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Channels Import Preview
+         * @description Dry-run: план без записи.
+         */
+        post: operations["channels_import_preview_api_v1_channels_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/channels-import/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Channels Import Apply
+         * @description Применение: план пересчитывается на живом состоянии; при errors не пишем ничего.
+         */
+        post: operations["channels_import_apply_api_v1_channels_import_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -924,7 +1084,7 @@ export interface paths {
         put?: never;
         /**
          * Docs Import Preview
-         * @description Dry-run: план без записи (build_docs_plan — чистая функция).
+         * @description Dry-run: план без записи (build_docs_plan БД только читает).
          */
         post: operations["docs_import_preview_api_v1_docs_import_preview_post"];
         delete?: never;
@@ -1488,6 +1648,16 @@ export interface components {
              * @default []
              */
             unresolved_data_refs: components["schemas"]["UnresolvedDataRefAlert"][];
+            /**
+             * Unresolved Channel Refs
+             * @default []
+             */
+            unresolved_channel_refs: components["schemas"]["UnresolvedChannelRefAlert"][];
+            /**
+             * Broker Edge Channels
+             * @default []
+             */
+            broker_edge_channels: components["schemas"]["BrokerEdgeChannelAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -1555,6 +1725,200 @@ export interface components {
             /** Guard */
             guard: string | null;
         };
+        /** BrokerChannelCreate */
+        BrokerChannelCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Group Name
+             * @default
+             */
+            group_name: string;
+            /**
+             * Kind
+             * @default
+             */
+            kind: string;
+            /**
+             * Partition Key
+             * @default
+             */
+            partition_key: string;
+            /**
+             * Delivery
+             * @default
+             */
+            delivery: string;
+            /**
+             * Retention
+             * @default
+             */
+            retention: string;
+            /** Description */
+            description?: string | null;
+        };
+        /** BrokerChannelResponse */
+        BrokerChannelResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Group Name */
+            group_name: string;
+            /** Kind */
+            kind: string;
+            /** Partition Key */
+            partition_key: string;
+            /** Delivery */
+            delivery: string;
+            /** Retention */
+            retention: string;
+            /** Description */
+            description: string | null;
+            /** Version */
+            version: number;
+            /**
+             * Fields
+             * @default []
+             */
+            fields: components["schemas"]["ChannelFieldResponse"][];
+        };
+        /** BrokerChannelUpdate */
+        BrokerChannelUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Group Name */
+            group_name?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Partition Key */
+            partition_key?: string | null;
+            /** Delivery */
+            delivery?: string | null;
+            /** Retention */
+            retention?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Base Version */
+            base_version?: number | null;
+        };
+        /**
+         * BrokerEdgeChannelAlert
+         * @description Связь с брокером, которая не называет канал либо называет несуществующий.
+         *
+         *     Решение пользователя №4 (docs/plan-broker-docs.md §4): стрелка «сервис → брокер»
+         *     ОБЯЗАНА назвать топик/очередь — без этого схема не отвечает на «откуда взялось
+         *     событие». Канал на связи — ссылка по ИМЕНИ, а не FK, поэтому шов держит алерт:
+         *     `missing` — канал не указан вовсе, `unknown` — указан, но структура брокера-конца
+         *     такого канала не знает (опечатка либо канал не описан).
+         */
+        BrokerEdgeChannelAlert: {
+            /**
+             * Edge Id
+             * Format: uuid
+             */
+            edge_id: string;
+            /** Source Name */
+            source_name: string;
+            /** Target Name */
+            target_name: string;
+            /** Broker Name */
+            broker_name: string;
+            /** Channel */
+            channel?: string | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "missing" | "unknown";
+        };
+        /** ChannelFieldCreate */
+        ChannelFieldCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default
+             */
+            type: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /** Description */
+            description?: string | null;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+        };
+        /** ChannelFieldResponse */
+        ChannelFieldResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Channel Id
+             * Format: uuid
+             */
+            channel_id: string;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Required */
+            required: boolean;
+            /** Description */
+            description: string | null;
+            /** Order */
+            order: number;
+        };
+        /** ChannelFieldUpdate */
+        ChannelFieldUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Type */
+            type?: string | null;
+            /** Required */
+            required?: boolean | null;
+            /** Description */
+            description?: string | null;
+            /** Order */
+            order?: number | null;
+        };
+        /**
+         * ChannelItem
+         * @description Строка превью по каналу: что приедет и что с ним станет.
+         */
+        ChannelItem: {
+            /** Node Path */
+            node_path: string;
+            /** Source */
+            source: string;
+            /** Group Name */
+            group_name: string;
+            /** Name */
+            name: string;
+            /** Fields */
+            fields: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "overwrite" | "skip" | "unchanged";
+        };
         /** ChannelOut */
         ChannelOut: {
             /**
@@ -1580,6 +1944,96 @@ export interface components {
             synchronous: boolean;
             /** Legs */
             legs: components["schemas"]["LegOut"][];
+        };
+        /**
+         * ChannelUsage
+         * @description Обратный индекс: кто публикует и кто потребляет этот канал.
+         *
+         *     Разворот пометок «публикует:/потребляет:» из схем логики проекта — ради него
+         *     структура каналов и заводилась: перечень каналов говорит, ЧТО брокер переносит,
+         *     а индекс — кто кладёт событие и кто его ждёт (вопрос «кого сломает изменение»).
+         */
+        ChannelUsage: {
+            /**
+             * Channel Id
+             * Format: uuid
+             */
+            channel_id: string;
+            /** Channel Name */
+            channel_name: string;
+            /** Field Id */
+            field_id: string | null;
+            /** Field Name */
+            field_name: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "publish" | "consume";
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+        };
+        /** ChannelsImportIn */
+        ChannelsImportIn: {
+            /** Files */
+            files: components["schemas"]["DocsFileIn"][];
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Overwrite
+             * @default false
+             */
+            overwrite: boolean;
+        };
+        /** ChannelsImportReport */
+        ChannelsImportReport: {
+            /**
+             * Channels
+             * @default []
+             */
+            channels: components["schemas"]["ChannelItem"][];
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Channels Written
+             * @default 0
+             */
+            channels_written: number;
+            /**
+             * Fields Written
+             * @default 0
+             */
+            fields_written: number;
+        };
+        /** ChannelsPromptOut */
+        ChannelsPromptOut: {
+            /** Prompt */
+            prompt: string;
         };
         /**
          * ContainerOwnDocsAlert
@@ -1699,12 +2153,12 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "read" | "write";
+            mode: "read" | "write" | "publish" | "consume";
             /**
              * Status
              * @enum {string}
              */
-            status: "ok" | "unknown_table" | "ambiguous" | "unknown_column";
+            status: "ok" | "unknown_table" | "unknown_column" | "unknown_channel" | "unknown_field" | "ambiguous";
             /** Target */
             target: string | null;
         };
@@ -2022,6 +2476,16 @@ export interface components {
              * @default 0
              */
             specs_written: number;
+            /**
+             * Data Refs Total
+             * @default 0
+             */
+            data_refs_total: number;
+            /**
+             * Channel Refs Total
+             * @default 0
+             */
+            channel_refs_total: number;
         };
         /** DocsLogicItem */
         DocsLogicItem: {
@@ -2106,6 +2570,8 @@ export interface components {
             target_id: string;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
+            /** Channel */
+            channel?: string | null;
         };
         /** EdgeResponse */
         EdgeResponse: {
@@ -2128,6 +2594,8 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
+            /** Channel */
+            channel?: string | null;
             /** Is Synchronous */
             is_synchronous?: boolean | null;
             /**
@@ -2152,6 +2620,8 @@ export interface components {
             label?: string | null;
             /** Technology */
             technology?: string | null;
+            /** Channel */
+            channel?: string | null;
             /**
              * Source Id
              * Format: uuid
@@ -2171,6 +2641,8 @@ export interface components {
             label?: string | null;
             /** Technology */
             technology?: string | null;
+            /** Channel */
+            channel?: string | null;
             /** Source Id */
             source_id?: string | null;
             /** Target Id */
@@ -2329,6 +2801,8 @@ export interface components {
              * Format: uuid
              */
             target_id: string;
+            /** Channel */
+            channel?: string | null;
             /**
              * Version
              * @default 1
@@ -3692,6 +4166,43 @@ export interface components {
             participant_id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * UnresolvedChannelRefAlert
+         * @description Пометка «публикует:/потребляет:» в схеме логики, не нашедшая свой канал.
+         *
+         *     ОТДЕЛЬНЫЙ класс, а не расширение AL29 (решение §7.4 plan-broker-docs.md): у
+         *     каналов свой каталог, свои причины и свои слова починки — «укажите „Брокер /
+         *     канал“» вместо «„БД / таблица“». Смешать их значило бы предложить инженеру
+         *     искать топик в структуре базы.
+         */
+        UnresolvedChannelRefAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /** Ref */
+            ref: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "publish" | "consume";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "unknown_channel" | "ambiguous" | "unknown_field";
         };
         /**
          * UnresolvedDataRefAlert
@@ -5621,6 +6132,390 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DbColumnResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_channels_api_v1_nodes__node_id__channels_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrokerChannelResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_channel_api_v1_nodes__node_id__channels_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrokerChannelCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrokerChannelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_usage_api_v1_nodes__node_id__channels_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelUsage"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_channel_api_v1_nodes__node_id__channels__channel_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_channel_api_v1_nodes__node_id__channels__channel_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrokerChannelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrokerChannelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_field_api_v1_nodes__node_id__channels__channel_id__fields_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelFieldCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelFieldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_field_api_v1_nodes__node_id__channels__channel_id__fields__field_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                channel_id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelFieldUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelFieldResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    channels_prompt_api_v1_channels_import_prompt_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelsPromptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    channels_import_preview_api_v1_channels_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelsImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelsImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    channels_import_apply_api_v1_channels_import_apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelsImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelsImportReport"];
                 };
             };
             /** @description Validation Error */

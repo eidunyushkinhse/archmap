@@ -21,6 +21,8 @@ from app.docs_import import (
     build_docs_plan,
     pkg_from_mmd,
 )
+from app.models.broker_channel import BrokerChannel
+from app.models.channel_field import ChannelField
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -713,3 +715,354 @@ def test_кап_пометок_и_хвост_сколько_ещё(db):
 
     assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
     assert "…ещё 3 пометок не резолвится" in plan.warnings
+
+
+# ── пометки каналов в превью пакета (Ф2 docs/plan-broker-docs.md) ──────────────
+# Тот же механизм и тот же кап, но СВОИ слова: послать агента искать топик в
+# «структуре проекта» значит гарантированно получить неверную правку.
+
+
+def _broker_node(db, name, parent=None):
+    n = _node(db, name, parent=parent)
+    n.shape = "broker"
+    db.commit()
+    return n
+
+
+def _channel(db, node, name="созданные", fields=(), group=""):
+    c = BrokerChannel(id=uuid.uuid4(), node_id=node.id, name=name, group_name=group)
+    db.add(c)
+    db.flush()
+    for i, f in enumerate(fields):
+        db.add(ChannelField(id=uuid.uuid4(), channel_id=c.id, name=f, type="uuid", order=i))
+    db.commit()
+    return c
+
+
+def test_битая_канальная_пометка_названа_своими_словами(db):
+    _root, orders, *_ = _tree(db)
+    kafka = _broker_node(db, "Kafka")
+    сосед = _broker_node(db, "RabbitMQ")
+    _channel(db, kafka, "созданные", ["order_id"])
+    _channel(db, kafka, "события")
+    _channel(db, сосед, "события")  # одноимённый → голое «события» неоднозначно
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("публикует: создание", name="Публикация")),
+        ("b.mmd", _refs_mmd("потребляет: события", name="Потребление")),
+        ("c.mmd", _refs_mmd("публикует: созданные.total", name="Глубина")),
+    ], window=orders)
+
+    тексты = [w for w in plan.warnings if "пометка «" in w]
+    # У «создание» есть уверенный сосед по каталогу — замечание несёт и подсказку
+    # (Ф8б); у «созданные.total» кандидата в полях канала нет, и текст голый.
+    assert (
+        "a.mmd: пометка «создание» — канал не найден у брокеров проекта — "
+        "похоже на «созданные»" in тексты
+    )
+    assert "b.mmd: пометка «события» — имя неоднозначно, укажите «Брокер / канал»" in тексты
+    assert "c.mmd: пометка «созданные.total» — поля нет в канале" in тексты
+
+
+def test_здоровая_канальная_пометка_превью_не_беспокоит(db):
+    _root, orders, *_ = _tree(db)
+    kafka = _broker_node(db, "Kafka")
+    _channel(db, kafka, "созданные", ["order_id"])
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("публикует: созданные.order_id"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+
+
+def test_заметки_о_неописанной_структуре_независимы(db):
+    """Таблицы могут быть описаны, а каналы — нет (и наоборот): порядок «структура
+    раньше доков» соблюдают не всегда, и молчать о своей половине нельзя."""
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("читает: orders.status", name="Чтение")),
+        ("b.mmd", _refs_mmd("публикует: созданные", name="Публикация")),
+    ], window=orders)
+
+    # Таблицы описаны — здоровая табличная пометка молчит; каналов нет вовсе, и
+    # вместо шума на каждую канальную пометку — одна заметка на пакет.
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert not any("структура БД в проекте ещё не описана" in w for w in plan.warnings)
+    каналы = [w for w in plan.warnings if "каналы брокеров в проекте ещё не описаны" in w]
+    assert len(каналы) == 1
+
+    # Пометок каналов в пакете нет — и заметки нет: молчим о том, чего не писали.
+    тихо = _plan(db, [("c.mmd", _refs_mmd("читает: orders.status", name="Только данные"))],
+                 window=orders)
+    assert not any("каналы брокеров" in w for w in тихо.warnings)
+
+
+def test_счётчики_пометок_считают_обе_семьи_отдельно(db):
+    """Число пометок в отчёте — машинный гвард против ампутации (находка №2
+    docs/qa-sentry-brokers.md): по списку из семи битых пометок агент удалил все
+    восемьдесят три, и превью стало «идеальным». Окно сравнивает эти числа между
+    попытками, поэтому считаются они ДО резолва — числу всё равно, битая пометка
+    или здоровая."""
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+
+    report = docs_import_preview(
+        _mmd_payload(
+            db,
+            ("a.mmd", _refs_mmd("читает: orders.status, accounts<br>публикует: созданные")),
+            node=orders,
+        ),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    # Два обращения к данным (одно из них битое — «accounts» нет) и одно к каналам.
+    assert (report.data_refs_total, report.channel_refs_total) == (2, 1)
+
+
+def test_счётчики_пометок_не_зависят_от_резолва(db):
+    # Каталогов в проекте нет вовсе (структура ещё не описана) — резолв выключен, а
+    # считать пометки надо всё равно: иначе гвард молчал бы ровно в том прогоне, где
+    # доки грузят раньше структуры.
+    _root, orders, *_ = _tree(db)
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("пишет: orders<br>потребляет: событие"))],
+                 window=orders)
+
+    assert (plan.data_refs_total, plan.channel_refs_total) == (1, 1)
+
+
+def test_пакет_без_пометок_даёт_нули(db):
+    # Ноль — законное значение, а не «не считали»: он и есть база сравнения попыток.
+    _root, orders, *_ = _tree(db)
+
+    plan = _plan(db, [("a.mmd", _mmd("Без пометок"))], window=orders)
+
+    assert (plan.data_refs_total, plan.channel_refs_total) == (0, 0)
+
+
+def test_счётчики_доезжают_и_до_применения(db):
+    # Отчёт применения — тот же объект: если бы счётчики жили только в превью, окно
+    # сравнивало бы попытки с дырой ровно на применённой.
+    _root, orders, *_ = _tree(db)
+
+    report = docs_import_apply(
+        _mmd_payload(
+            db, ("a.mmd", _refs_mmd("пишет: orders<br>публикует: созданные")), node=orders
+        ),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+    assert report.applied
+    assert (report.data_refs_total, report.channel_refs_total) == (1, 1)
+
+
+def test_общий_кап_на_обе_семьи_пометок(db):
+    # Замечания уезжают агенту одним списком: кап общий, иначе один класс вытеснит
+    # другой ровно так же, как раньше вытеснял всё остальное.
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+    kafka = _broker_node(db, "Kafka")
+    _channel(db, kafka, "созданные")
+    половина = MAX_DATA_REF_WARNINGS
+    данные = "пишет: " + ", ".join(f"нет_т{i}" for i in range(половина))
+    каналы = "публикует: " + ", ".join(f"нет_к{i}" for i in range(половина))
+
+    plan = _plan(db, [("a.mmd", _refs_mmd(f"{данные}<br>{каналы}"))], window=orders)
+
+    assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
+    assert f"…ещё {половина} пометок не резолвится" in plan.warnings
+
+
+# ── подсказка «похоже на …» в замечаниях (Ф8б, находка №1 qa-zulip-brokers.md) ─
+# Замечание без ответа даёт колебательный контур: из двух путей починки («сверь имя»
+# и «добавь квалификатор») слабая модель оба круга выбирала дешёвый механический —
+# добавила квалификатор, потом сняла, а имя так и не сверила. Каталог у превью уже
+# есть: назвать ближайшее имя машина умеет точнее, чем агент.
+
+
+def test_битая_пометка_подсказывает_ближайшее_описанное_имя(db):
+    # Разрыв «имя ORM-класса против имени таблицы» — префикс приложения и число:
+    # ровно тот случай, ради которого суффиксный матч идёт впереди difflib.
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "zerver_message", ["content"])
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("пишет: messages"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == [
+        "a.mmd: пометка «messages» — таблица не найдена в структуре проекта — "
+        "похоже на «zerver_message»"
+    ]
+
+
+def test_длинный_префикс_и_множественное_число_ловятся_суффиксом(db):
+    """Почему суффиксный матч идёт ПЕРВЫМ, а не «хватит difflib».
+
+    Чем длиннее префикс приложения в имени таблицы, тем ниже похожесть строк целиком:
+    «queues» против «background_jobs_queue» — 0.37, ниже порога, и difflib промолчал
+    бы. А это ровно тот разрыв, который дают ORM-имена; плюс агент пишет во
+    множественном числе, а таблица названа в единственном.
+    """
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "background_jobs_queue")
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("пишет: queues"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == [
+        "a.mmd: пометка «queues» — таблица не найдена в структуре проекта — "
+        "похоже на «background_jobs_queue»"
+    ]
+
+
+def test_битая_канальная_пометка_подсказывает_имя_канала(db):
+    _root, orders, *_ = _tree(db)
+    kafka = _broker_node(db, "Kafka")
+    _channel(db, kafka, "notify_tornado")
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("публикует: notify-tornado"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == [
+        "a.mmd: пометка «notify-tornado» — канал не найден у брокеров проекта — "
+        "похоже на «notify_tornado»"
+    ]
+
+
+def test_подсказка_колонки_ищется_в_найденной_таблице(db):
+    # Таблица нашлась, колонки нет — кандидаты ТОЛЬКО её колонки: у соседней таблицы
+    # имя похоже даже сильнее, но обращение к ней тут ни при чём, и подсказать её
+    # значило бы увести агента в другую таблицу.
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "accounts", ["balance"])
+    _table(db, хранилище, "orders", ["last_balnce"])
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("пишет: accounts.balnce"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == [
+        "a.mmd: пометка «accounts.balnce» — колонки нет в таблице — похоже на «balance»"
+    ]
+
+
+def test_далёкое_имя_подсказки_не_получает(db):
+    """Ложная подсказка ХУЖЕ её отсутствия: слабая модель копирует предложенное имя
+    не глядя, и вместо битой пометки выходит пометка, битая по-другому. Пометка на
+    кэше (находка №3) — как раз такой случай: похожего имени в структуре нет."""
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "orders", ["status"])
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("читает: query_cache"))], window=orders)
+
+    assert [w for w in plan.warnings if "пометка «" in w] == [
+        "a.mmd: пометка «query_cache» — таблица не найдена в структуре проекта"
+    ]
+
+
+def test_сосед_по_префиксу_приложения_подсказки_не_получает(db):
+    """Полевая валидация Ф8 (4-й круг замечаний): по СЛАБЫМ подсказкам модель
+    «починила» пометки в семантически ДРУГИЕ таблицы — «…projectoptions» уехало в
+    «…projectcodeowners». Похожесть там набирается общим префиксом приложения (0.79 —
+    выше любого разумного порога), а расходятся имена целым словом. Ложная цель хуже
+    отсутствия цели: замечание без подсказки модель хотя бы идёт проверять.
+    """
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    for имя in ("sentry_projectcodeowners", "sentry_recentsearch", "sentry_apiapplication"):
+        _table(db, хранилище, имя)
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("пишет: sentry_projectoptions", name="Опции")),
+        ("b.mmd", _refs_mmd("читает: sentry-cache", name="Кэш")),
+        ("c.mmd", _refs_mmd("пишет: sentry_dynamicsampling", name="Сэмплирование")),
+    ], window=orders)
+
+    тексты = [w for w in plan.warnings if "пометка «" in w]
+    # Сами промахи названы по-прежнему — молчать о них нельзя, нельзя лишь угадывать.
+    assert len(тексты) == 3
+    assert not any("похоже на" in w for w in тексты)
+
+
+def test_то_же_имя_с_другими_разделителями_подсказку_даёт(db):
+    """Класс, который подсказывать НАДО: то же имя, записанное иначе — склейка,
+    разделитель, окончание. Такие подсказки та же слабая модель исполняла верно, и
+    ужесточение порога не должно их выключить."""
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "sentry_organizationmember_teams")
+    _table(db, хранилище, "zerver_userprofile")
+
+    plan = _plan(db, [
+        ("a.mmd", _refs_mmd("пишет: sentry_organizationmemberteam", name="Склейка")),
+        ("b.mmd", _refs_mmd("читает: user_profile", name="Разделители")),
+    ], window=orders)
+
+    тексты = [w for w in plan.warnings if "пометка «" in w]
+    # Расхождение мелкое и абсолютное: один разделитель и окончание.
+    assert any("похоже на «sentry_organizationmember_teams»" in w for w in тексты)
+    # Сравниваем имена БЕЗ разделителей: на сырых строках «user_profile» не узнаёт
+    # себя в склеенном DDL-имени, и подсказки бы не было.
+    assert any("похоже на «zerver_userprofile»" in w for w in тексты)
+
+
+def test_подсказки_не_ломают_дедуп_и_кап(db):
+    # Подсказка — часть текста замечания, а не новое замечание: одна ссылка в двух
+    # режимах остаётся одним промахом, а кап считает строки как считал.
+    _root, orders, *_ = _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "zerver_message", ["content"])
+    marks = "читает/пишет: messages, " + ", ".join(
+        f"нет{i}" for i in range(MAX_DATA_REF_WARNINGS + 3)
+    )
+
+    plan = _plan(db, [("a.mmd", _refs_mmd(marks))], window=orders)
+
+    строки = [w for w in plan.warnings if "пометка «" in w]
+    assert строки.count(
+        "a.mmd: пометка «messages» — таблица не найдена в структуре проекта — "
+        "похоже на «zerver_message»"
+    ) == 1
+    assert len(строки) == MAX_DATA_REF_WARNINGS
+    assert "…ещё 4 пометок не резолвится" in plan.warnings
+
+
+# ── перечни описанных имён в промпте (Ф8а, находка №1 docs/qa-zulip-brokers.md) ─
+# Промпт обязан назвать имена, которые в проекте УЖЕ описаны: пометки писались
+# именами ORM-классов, и петля замечаний этого не лечила. Здесь проверяется
+# проводка каталогов из БД в промпт — сама раскладка перечня в test_docs_prompt.
+
+
+def test_endpoint_prompt_несёт_описанные_имена_проекта(db):
+    _tree(db)
+    хранилище = _db_node(db, "Хранилище")
+    _table(db, хранилище, "zerver_message", ["content"])
+    _table(db, хранилище, "audit", schema="public")
+    kafka = _broker_node(db, "Kafka")
+    _channel(db, kafka, "notify_tornado")
+
+    out = docs_prompt(
+        lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    # Адрес узла — тот же полный путь, которым адресуют пометки; таблица с разделом
+    # названа «раздел.имя» — ровно так её видит резолвер.
+    assert "- Хранилище: public.audit, zerver_message" in out.prompt
+    assert "- Kafka: notify_tornado" in out.prompt
+
+
+def test_endpoint_prompt_на_проекте_без_структуры_перечней_не_несёт(db):
+    # Доки часто грузят раньше структуры: заголовок над пустотой сказал бы агенту
+    # «описанных имён нет», и он вычистил бы верные пометки.
+    _tree(db)
+
+    out = docs_prompt(
+        lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert "уже описанные" not in out.prompt

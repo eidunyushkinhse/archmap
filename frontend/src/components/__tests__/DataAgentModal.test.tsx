@@ -107,6 +107,28 @@ describe("DataAgentModal", () => {
     expect(screen.getByText("Применить")).toBeEnabled();
   });
 
+  it("замечания уносят агенту «чини, а не удаляй»", async () => {
+    // На голое «исправь» слабая модель отвечает ампутацией — вырезает записи, на
+    // которые жалуется валидатор (docs/qa-sentry-brokers.md, находка №2: так из
+    // доков исчезли все 83 пометки по списку из семи битых).
+    const w = "data.yaml: таблица «orders» без колонок";
+    vi.mocked(dataImportApi.preview).mockResolvedValue(
+      report({ tables: [table()], warnings: [w] }),
+    );
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    open();
+    await вставить("tables:");
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+    await waitFor(() => expect(screen.getByText(w)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("Скопировать замечания для агента"));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const текст = writeText.mock.calls[0][0];
+    expect(текст).toContain("Записи чини по замечаниям, а не удаляй из пакета");
+    expect(текст).toContain(w);
+  });
+
   it("тумблер перезаписи уезжает в запрос", async () => {
     vi.mocked(dataImportApi.preview).mockResolvedValue(report({ tables: [table()] }));
     open();

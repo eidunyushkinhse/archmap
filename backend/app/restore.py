@@ -136,6 +136,7 @@ def restore_from_snapshot(
                 project_id=project_id,
                 label=es.label,
                 technology=es.technology,
+                channel=es.channel,
                 source_id=es.source_id,
                 target_id=es.target_id,
                 is_synchronous=es.is_synchronous,

@@ -142,6 +142,7 @@ def build_graph(
                 id=edge.id,
                 label=edge.label,
                 technology=edge.technology,
+                channel=edge.channel,
                 source_id=edge.source_id,
                 target_id=edge.target_id,
                 version=edge.version,

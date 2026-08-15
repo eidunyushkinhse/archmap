@@ -102,3 +102,54 @@ describe("FlowchartDoc: плашка обращений", () => {
     expect(dataRefsApi.preview).not.toHaveBeenCalled();
   });
 });
+
+describe("FlowchartDoc: плашка каналов", () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ shouldAdvanceTime: true }); });
+  afterEach(() => vi.useRealTimers());
+
+  it("пометка «публикует: …» — свой чип и найденная цель", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      item({ ref: "созданные.order_id", mode: "publish", target: "Kafka · созданные.order_id" }),
+    ]);
+    renderDoc('graph TD\n  A["Оформить<br>публикует: созданные.order_id"]');
+
+    await пережить_дебаунс();
+
+    // Слово своё: «публикует» — не «пишет» (разные вопросы к карте и разные каталоги).
+    await waitFor(() => expect(screen.getByText("публикует")).toBeInTheDocument());
+    expect(screen.getByText(/→ Kafka · созданные\.order_id ✓/)).toBeInTheDocument();
+  });
+
+  it("битые канальные пометки: причины теми же словами, что в панели алертов", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      item({ ref: "создание", mode: "publish", status: "unknown_channel", target: null }),
+      item({ ref: "события", mode: "consume", status: "ambiguous", target: null }),
+      item({ ref: "созданные.total", mode: "consume", status: "unknown_field", target: "Kafka · созданные" }),
+    ]);
+    renderDoc('graph TD\n  A["Реле<br>публикует: создание"]');
+
+    await пережить_дебаунс();
+
+    await waitFor(() =>
+      expect(screen.getByText(/канал не найден у брокеров проекта/)).toBeInTheDocument(),
+    );
+    // Квалификатор в подсказке — БРОКЕРА: «БД / таблица» послало бы чинить не туда.
+    expect(screen.getByText(/имя неоднозначно — укажите „Брокер \/ канал“/)).toBeInTheDocument();
+    // У «нет поля» канал известен — его называем, иначе не с чем сверяться.
+    expect(screen.getByText(/поля нет в канале \(Kafka · созданные\)/)).toBeInTheDocument();
+    // Оба потребления получили свой чип — режим показан у каждой строки.
+    expect(screen.getAllByText("потребляет")).toHaveLength(2);
+  });
+
+  it("маркер канала распознаётся локально — без него запроса бы не было", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      item({ ref: "созданные", mode: "consume", target: "Kafka · созданные" }),
+    ]);
+    renderDoc('graph TD\n  A["Обработчик<br>потребляет: созданные"]');
+
+    await пережить_дебаунс();
+
+    expect(vi.mocked(dataRefsApi.preview).mock.calls[0][0]).toContain("потребляет: созданные");
+    await waitFor(() => expect(screen.getByText("Обращения")).toBeInTheDocument());
+  });
+});

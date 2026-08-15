@@ -15,8 +15,9 @@ openapi/paths, серверное зеркало docValidate) — warnings, не
 
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
 import yaml
@@ -29,7 +30,7 @@ from app.models.node_doc import NodeDoc
 if TYPE_CHECKING:
     # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
     # верхнеуровневый импорт замкнул бы цикл (в рантайме — локальные импорты).
-    from app.data_refs import CatalogTable
+    from app.data_refs import CatalogChannel, CatalogTable, ResolvedRef
 
 # Схем на объект. Поднято с 50 при переезде на .mmd: там схема — отдельный файл,
 # и потолок пакета стал ближе (docs/plan-docs-mmd.md, таблица лимитов).
@@ -179,6 +180,11 @@ class DocsPlan:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
+    # Сколько пометок каждой семьи РАСПОЗНАНО в схемах пакета (до резолва: числу
+    # всё равно, битая ссылка или здоровая). Нужны окну, чтобы сравнить попытки
+    # агента и поймать ампутацию — находка №2 docs/qa-sentry-brokers.md.
+    data_refs_total: int = 0
+    channel_refs_total: int = 0
 
 
 def _node_paths(nodes: list[Node]) -> tuple[list[Node], list[str], dict[str, list[int]], dict[str, list[int]]]:
@@ -257,12 +263,99 @@ _DATA_REF_PROBLEM: dict[str, str] = {
     "unknown_table": "таблица не найдена в структуре проекта",
     "ambiguous": "имя неоднозначно, укажите «Узел-БД / таблица»",
     "unknown_column": "колонки нет в таблице",
+    # Канальная семья («публикует:/потребляет:») — свои слова: посылать агента искать
+    # топик в структуре базы значит гарантированно получить неверную правку.
+    "unknown_channel": "канал не найден у брокеров проекта",
+    "unknown_field": "поля нет в канале",
 }
+# «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму.
+_AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите «Брокер / канал»"
+
+# Порог похожести для подсказки «похоже на …». НИЖЕ НЕ ОПУСКАТЬ: ложная подсказка
+# хуже её отсутствия — слабая модель копирует предложенное имя не глядя, и вместо
+# битой пометки получается пометка, битая по-другому. Полевая валидация Ф8 показала
+# это буквально: по подсказкам-мусору модель «починила» три пометки в СЕМАНТИЧЕСКИ
+# ДРУГИЕ таблицы, а сильные подсказки того же круга исполнила верно.
+_HINT_CUTOFF = 0.75
+# Суффиксным матчем короткие хвосты не проверяем: «id» есть в конце половины имён.
+_HINT_MIN_TAIL = 3
+# Сколько символов ВСЕГО (на обе строки) может не совпасть у «того же имени, записанного
+# иначе». Одной похожести мало: у таблиц одного приложения общий длинный префикс, и
+# difflib даёт «sentry_projectoptions» ↔ «sentry_projectcodeowners» целых 0.79 при
+# девяти несовпавших символах — это РАЗНЫЕ таблицы. У настоящих же кандидатов расхождение
+# АБСОЛЮТНО мелкое: разделитель, окончание, опечатка (0–3 символа).
+_HINT_MAX_DIFF = 3
+# Разделители, которыми одно и то же имя пишут по-разному: «...member_teams» против
+# «...memberteam», «task-worker» против «taskworker».
+_SEPARATORS = str.maketrans("", "", "_-. ")
+
+
+def _norm_name(s: str) -> str:
+    """Имя без регистра и разделителей — для сравнения «то же имя, записанное иначе»."""
+    return s.lower().translate(_SEPARATORS)
+
+
+def _tiny_diff(ref: str, cand: str) -> float | None:
+    """Похожесть, если имена расходятся ТОЛЬКО мелочью, иначе None.
+
+    Два условия, и второе главное: похожесть выше порога И абсолютное расхождение не
+    больше _HINT_MAX_DIFF символов. Порога одного недостаточно — соседи по префиксу
+    приложения набирают 0.75+ на общем начале, ничего общего не имея по смыслу.
+    """
+    m = SequenceMatcher(None, ref, cand)
+    ratio = m.ratio()
+    if ratio < _HINT_CUTOFF:
+        return None
+    matched = sum(block.size for block in m.get_matching_blocks())
+    if (len(ref) - matched) + (len(cand) - matched) > _HINT_MAX_DIFF:
+        return None
+    return ratio
+
+
+def _closest_name(tail: str, names: Iterable[str]) -> str | None:
+    """Ближайшее описанное имя к хвосту битой ссылки — или None.
+
+    Сначала СУФФИКС: «messages» → «app_message». Разрыв «имя ORM-класса против имени
+    таблицы» почти всегда состоит из префикса приложения и числа (находка №1
+    docs/qa-zulip-brokers.md), а difflib на нём слабеет тем сильнее, чем длиннее
+    префикс: «queues» против «background_jobs_queue» — 0.37, ниже порога. Сравниваем
+    имена БЕЗ РАЗДЕЛИТЕЛЕЙ, иначе «user_profile» не узнаёт себя в «zerver_userprofile».
+
+    difflib идёт добором и только на мелких расхождениях (_tiny_diff): опечатка,
+    окончание, разделитель. Подсказка ОДНА и только уверенная — не нашли уверенного
+    кандидата, замечание остаётся как было.
+    """
+    by_low: dict[str, str] = {}
+    for name in names:
+        if name != tail:  # точное совпадение чинить нечем — там дело не в имени
+            by_low.setdefault(name.lower(), name)
+    if not by_low:
+        return None
+    norm = _norm_name(tail)
+    # Единственное и множественное: агент пишет имя таблицы во множественном
+    # («messages»), а в DDL она в единственном («app_message»), и наоборот.
+    variants = [
+        v for v in (norm, norm[:-1] if norm.endswith("s") else "") if len(v) >= _HINT_MIN_TAIL
+    ]
+    hits = [
+        orig for cand, orig in by_low.items() if any(_norm_name(cand).endswith(v) for v in variants)
+    ]
+    if hits:
+        return min(hits, key=lambda n: (-SequenceMatcher(None, norm, _norm_name(n)).ratio(), n))
+    by_norm: dict[str, str] = {}
+    for cand, orig in by_low.items():
+        by_norm.setdefault(_norm_name(cand), orig)
+    best: tuple[float, str] | None = None
+    for cand in sorted(by_norm):  # порядок каталога произволен — выбор должен быть один
+        ratio = _tiny_diff(norm, cand)
+        if ratio is not None and (best is None or ratio > best[0]):
+            best = (ratio, cand)
+    return by_norm[best[1]] if best is not None else None
 
 
 class _DataRefCheck:
-    """Резолв пометок «читает:/пишет:» в текстах пакета — та же проверка, что
-    показывает плашка редактора схемы (app/data_refs.py).
+    """Резолв пометок «читает:/пишет:» и «публикует:/потребляет:» в текстах пакета —
+    та же проверка, что показывает плашка редактора схемы (app/data_refs.py).
 
     Зачем в превью: детерминированные классы ошибок агента закрываются промптом, а
     дисциплина пометок — нет (полевой QA docs/qa-zabbix-7.md, раунд 3: 46 битых
@@ -270,19 +363,28 @@ class _DataRefCheck:
     кнопка «Скопировать замечания для агента» должна унести КОНКРЕТНЫЕ битые
     ссылки, а не правило.
 
-    Пустой каталог (структуры БД в проекте ещё нет) — не повод шуметь на каждую
-    пометку: доки грузят раньше структуры, и это нормальный порядок. Тогда — одна
-    заметка на весь план.
+    Пустой каталог (структуры БД или каналов в проекте ещё нет) — не повод шуметь на
+    каждую пометку: доки грузят раньше структуры, и это нормальный порядок. Тогда —
+    одна заметка на весь план, и заметки ДВЕ НЕЗАВИСИМЫЕ: описанные таблицы ничего
+    не говорят о каналах, и наоборот.
+
+    СЧЁТ пометок ведётся ВСЕГДА — и без каталога, и без db: он производен от разбора,
+    а не от резолва. Числа уезжают в отчёт, и окно сравнивает попытки агента (упало
+    число — пометки, скорее всего, удалены, а не починены).
     """
 
     def __init__(self, db: Session | None, project_id: uuid.UUID | None) -> None:
         self.tables: list[CatalogTable] = []
+        self.channels: list[CatalogChannel] = []
         self.node_paths: dict[uuid.UUID, str] = {}
         self.enabled = db is not None and project_id is not None
         self.seen: set[tuple[str, str, str]] = set()  # (файл, ссылка, статус)
         self.warnings: list[str] = []
         self.over = 0  # сколько ссылок не поместилось в кап
-        self.saw_refs = False
+        self.saw_table_refs = False
+        self.saw_channel_refs = False
+        self.data_total = 0  # пометок «читает:/пишет:» в пакете
+        self.channel_total = 0  # пометок «публикует:/потребляет:» в пакете
         if db is not None and project_id is not None:
             # Импорт локальный: app.data_refs берёт из этого модуля _node_paths, и
             # верхнеуровневый импорт замкнул бы цикл. Каталог собирается ОДИН раз
@@ -290,23 +392,84 @@ class _DataRefCheck:
             # проекта, а не одного узла).
             from app.data_refs import catalog_for_project
 
-            self.tables, self.node_paths = catalog_for_project(db, project_id)
+            self.tables, self.channels, self.node_paths = catalog_for_project(
+                db, project_id
+            )
+
+    def _hint(self, r: "ResolvedRef") -> str | None:
+        """Подсказка «похоже на …» к битой ссылке: имя из каталога, если оно есть.
+
+        Замечание без ответа даёт слабой модели колебательный контур (находка №1
+        docs/qa-zulip-brokers.md): из двух путей починки — «сверь имя» и «добавь
+        квалификатор» — она оба круга выбирала дешёвый механический, а имя так и не
+        сверила. Подсказка закрывает петлю в один заход, как подсказка про кавычки
+        закрыла класс битого YAML: каталог имён у превью уже есть, и молчать о нём
+        значит требовать от агента работы, которую машина делает точнее.
+        """
+        names: list[str] = []
+        tails: list[str] = []
+        bare = r.ref.rpartition(" / ")[2]  # квалификатор узла в сравнении не участвует
+        parts = bare.split(".")
+        if r.status == "unknown_table":
+            for t in self.tables:
+                names.append(t.name)
+                if t.schema_name:
+                    names.append(f"{t.schema_name}.{t.name}")
+            # «таблица.колонка» и «раздел.таблица» в ссылке неотличимы — пробуем оба
+            # чтения (первое сработавшее и даёт подсказку) и ссылку целиком.
+            tails = [*parts[:2], bare]
+        elif r.status == "unknown_channel":
+            for c in self.channels:
+                names.append(c.name)
+                if c.group_name:
+                    names.append(f"{c.group_name}.{c.name}")
+            # У каналов точка чаще ЧАСТЬ имени («orders.created»): первым — хвост
+            # целиком, затем он же без последнего сегмента (тот был бы полем).
+            tails = [bare, bare.rpartition(".")[0], parts[0]]
+        elif r.status == "unknown_column":
+            # Таблица нашлась (её id в ResolvedRef) — кандидаты только её колонки.
+            names = [c for t in self.tables if t.id == r.table_id for c in t.columns]
+            tails = [parts[-1]]
+        elif r.status == "unknown_field":
+            names = [f for c in self.channels if c.id == r.channel_id for f in c.fields]
+            tails = [parts[-1]]
+        for tail in dict.fromkeys(t for t in tails if t):
+            hit = _closest_name(tail, names)
+            if hit is not None:
+                return hit
+        return None
 
     def check(self, fname: str, content: str) -> None:
         """Пометки одного файла пакета. Дедуп по (файл, ссылка, статус): одна и та
         же ссылка в режимах «читает» и «пишет» — один промах, а не два."""
-        if not self.enabled or not content:
+        if not content:
             return
         # Локальный импорт — цикл, см. __init__.
-        from app.data_refs import parse_data_refs, resolve_data_refs
+        from app.data_refs import CHANNEL_MODES, parse_data_refs, resolve_data_refs
 
         refs = parse_data_refs(content)
         if not refs:
             return
-        self.saw_refs = True
-        if not self.tables:
+        for parsed in refs:
+            if parsed.mode in CHANNEL_MODES:
+                self.saw_channel_refs = True
+                self.channel_total += 1
+            else:
+                self.saw_table_refs = True
+                self.data_total += 1
+        # Считать — считаем всегда, а резолвить нечем: без db каталогов нет.
+        if not self.enabled:
             return
-        for r in resolve_data_refs(refs, self.tables, self.node_paths):
+        # Резолвим только те пометки, чей каталог непуст: «структуры ещё нет» — это
+        # не промах агента, и гонять по нему нечего (заметку добавит flush).
+        usable = [
+            r
+            for r in refs
+            if (self.channels if r.mode in CHANNEL_MODES else self.tables)
+        ]
+        if not usable:
+            return
+        for r in resolve_data_refs(usable, self.tables, self.channels, self.node_paths):
             if r.status == "ok":
                 continue
             key = (fname, r.ref, r.status)
@@ -316,21 +479,40 @@ class _DataRefCheck:
             if len(self.warnings) >= MAX_DATA_REF_WARNINGS:
                 self.over += 1
                 continue
-            self.warnings.append(f"{fname}: пометка «{r.ref}» — {_DATA_REF_PROBLEM[r.status]}")
+            problem = (
+                _AMBIGUOUS_CHANNEL
+                if r.status == "ambiguous" and r.mode in CHANNEL_MODES
+                else _DATA_REF_PROBLEM[r.status]
+            )
+            # «ambiguous» подсказки не получает: имя там как раз НАШЛОСЬ, и лечится
+            # оно квалификатором — предлагать «похожее» значило бы звать не туда.
+            hint = self._hint(r)
+            tail = f" — похоже на «{hint}»" if hint else ""
+            self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}{tail}")
 
     def flush(self, plan: DocsPlan) -> None:
+        # Счётчики — часть отчёта, а не резолва: без каталога они тоже осмысленны
+        # (окно сравнивает попытки агента, а не проверяет структуру).
+        plan.data_refs_total = self.data_total
+        plan.channel_refs_total = self.channel_total
         if not self.enabled:
-            return
-        if not self.tables:
-            if self.saw_refs:
-                plan.warnings.append(
-                    "В пакете есть пометки данных (читает:/пишет:), а структура БД в "
-                    "проекте ещё не описана — резолв пометок проверится, когда она появится"
-                )
             return
         plan.warnings.extend(self.warnings)
         if self.over:
             plan.warnings.append(f"…ещё {self.over} пометок не резолвится")
+        # Заметки о неописанной структуре независимы: таблицы могут быть описаны, а
+        # каналы нет (порядок Р4 плана — структура раньше доков — соблюдают не всегда).
+        if self.saw_table_refs and not self.tables:
+            plan.warnings.append(
+                "В пакете есть пометки данных (читает:/пишет:), а структура БД в "
+                "проекте ещё не описана — резолв пометок проверится, когда она появится"
+            )
+        if self.saw_channel_refs and not self.channels:
+            plan.warnings.append(
+                "В пакете есть пометки каналов (публикует:/потребляет:), а каналы "
+                "брокеров в проекте ещё не описаны — резолв пометок проверится, когда "
+                "они появятся"
+            )
 
 
 def build_docs_plan(

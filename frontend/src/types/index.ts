@@ -23,12 +23,18 @@ export const canHaveChildren = (shape: NodeShape): boolean => shape === "service
 // того, ни другого не бывает — её «контракт» это СТРУКТУРА (таблицы/колонки); промпт
 // агента это правило проговаривает давно («у узла без собственного HTTP API спеки нет
 // вовсе»), а страница объекта до 2026-08-12 всё равно предлагала слоты под них.
-// Брокеру предстоят КАНАЛЫ (второй круг эпика) — пока собственной документации нет.
-export interface ShapeDocs { logic: boolean; spec: boolean; structure: boolean }
+// У брокера «контракт» свой — КАНАЛЫ с полями сообщений (docs/plan-broker-docs.md).
+export interface ShapeDocs {
+  logic: boolean;
+  spec: boolean;
+  structure: boolean;
+  channels: boolean;
+}
 export const shapeDocs = (shape: NodeShape): ShapeDocs => ({
   logic: shape === "service",
   spec: shape === "service",
   structure: shape === "database",
+  channels: shape === "broker",
 });
 
 // Проект — изолированная схема. Мета (счётчики/редактор/даты) считается бэком.
@@ -157,6 +163,11 @@ export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
 export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 // Пометка «читает:/пишет:» в схеме логики, не нашедшая таблицу структуры (AL29).
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
+// То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
+export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
+// Связь с брокером, не назвавшая канал (missing) либо назвавшая неизвестный (unknown) —
+// шов «стрелка ↔ структура брокера», который держат алерты, а не FK (AL31).
+export type BrokerEdgeChannelAlert = Schemas["BrokerEdgeChannelAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
@@ -214,8 +225,23 @@ export type DbColumnCreate = Schemas["DbColumnCreate"];
 export type DbColumnUpdate = Schemas["DbColumnUpdate"];
 // Обратный индекс базы («кто ко мне ходит») — разворот тех же пометок на чтении.
 export type TableUsage = Schemas["TableUsage"];
+
+// Структура брокера (docs/plan-broker-docs.md): каналы и поля сообщений — тот же
+// «контракт» узла, что таблицы у базы, но своей сущностью (у канала своя мета:
+// доставка, ключ партиционирования, retention). Кто публикует и кто потребляет —
+// пометки «публикует:/потребляет:» в текстах схем логики, записями не хранятся.
+export type BrokerChannel = Schemas["BrokerChannelResponse"];
+export type BrokerChannelCreate = Schemas["BrokerChannelCreate"];
+export type BrokerChannelUpdate = Schemas["BrokerChannelUpdate"];
+export type ChannelField = Schemas["ChannelFieldResponse"];
+export type ChannelFieldCreate = Schemas["ChannelFieldCreate"];
+export type ChannelFieldUpdate = Schemas["ChannelFieldUpdate"];
+// Обратный индекс брокера («кто публикует / кто потребляет») — разворот пометок.
+export type ChannelUsage = Schemas["ChannelUsage"];
 // Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
 // (POST /data-refs/preview) — статус резолва и готовая подпись цели.
 export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
 // Дозаливка структуры БД от агента: отчёт превью/применения.
 export type DataImportReport = Schemas["DataImportReport"];
+// Дозаливка каналов брокера от агента: свой отчёт — у канала своя мета и свои поля.
+export type ChannelsImportReport = Schemas["ChannelsImportReport"];

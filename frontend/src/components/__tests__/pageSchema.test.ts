@@ -56,6 +56,17 @@ describe("toLevelEdges", () => {
     expect(edges[1].original_target_name).toBe("");
   });
 
+  it("канал брокера едет с ребром: инспектор правит его прямо на уровне", () => {
+    // Без переноса поле «Канал» показывало бы пустоту у заполненной связи, а первый
+    // же коммит соседнего поля затёр бы канал null'ом.
+    const g = graph({
+      nodes: [node("a", "orders"), node("k", "Kafka")],
+      edges: [{ ...edge("e1", "a", "k"), channel: "orders.created" }],
+    });
+
+    expect(toLevelEdges(g)[0].channel).toBe("orders.created");
+  });
+
   it("пустой граф — пустой список", () => {
     expect(toLevelEdges(graph({}))).toEqual([]);
   });

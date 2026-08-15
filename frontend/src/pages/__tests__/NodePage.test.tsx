@@ -25,6 +25,9 @@ vi.mock("../../api/nodes", () => ({
   nodeDocsApi: { distribute: vi.fn() },
   // Секция «Структура» рендерится на странице базы данных и сама ходит за таблицами.
   dbTablesApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
+  // Секция «Каналы» — то же самое на странице брокера. Мок модуля ЦЕЛИКОМ: забыть
+  // здесь новый экспорт значит уронить страницу на «не функция» в первом же тесте.
+  brokerChannelsApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
   viewsApi: { state: vi.fn() },
   edgesApi: { update: vi.fn() },
   exportApi: { subtree: vi.fn() },
@@ -432,11 +435,20 @@ describe("NodePage: документация по форме узла", () => {
     expect(screen.queryByText("OpenAPI")).not.toBeInTheDocument();
   });
 
-  it("у брокера тоже нет — каналы будут вторым кругом", async () => {
+  it("у брокера тоже нет — вместо них его собственные «Каналы»", async () => {
     setupShape({ shape: "broker", name: "Очередь" });
     await waitFor(() => expect(screen.getByDisplayValue("Очередь")).toBeInTheDocument());
     expect(screen.queryByText("Логика")).not.toBeInTheDocument();
     expect(screen.queryByText("OpenAPI")).not.toBeInTheDocument();
+    expect(screen.getByText("Каналы")).toBeInTheDocument();
+  });
+
+  it("«Каналы» — только у брокера: у сервиса их нет", async () => {
+    // Симметрично «Структуре» базы: канал без брокера бессмысленен, и бэкенд их даже
+    // не примет (гвард формы Ф0) — предлагать слот было бы обманом.
+    setupShape({ shape: "service" });
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    expect(screen.queryByText("Каналы")).not.toBeInTheDocument();
   });
 
   it("легаси-содержимое у базы не прячется, а объясняется", async () => {

@@ -9,12 +9,22 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.schemas.db_doc import DataAccessMode
+# Режим пометки — ОБЕ семьи сразу: плашка одна на док, а в одном доке рядом стоят и
+# «пишет: orders», и «публикует: orders.created». Зеркалит app.data_refs.Mode.
+DataRefMode = Literal["read", "write", "publish", "consume"]
 
 # Итог резолва одной пометки. Зеркалит доменный app.data_refs.RefStatus (там —
 # внутренний тип, здесь — контракт наружу); расхождение поймает mypy на
-# присваивании в роутере.
-DataRefStatus = Literal["ok", "unknown_table", "ambiguous", "unknown_column"]
+# присваивании в роутере. Статусы табличной и канальной семей разные («таблицы нет»
+# и «канала нет» — разные починки), общий у них только «ambiguous».
+DataRefStatus = Literal[
+    "ok",
+    "unknown_table",
+    "unknown_column",
+    "unknown_channel",
+    "unknown_field",
+    "ambiguous",
+]
 
 
 class DataRefPreviewIn(BaseModel):
@@ -27,9 +37,10 @@ class DataRefPreviewItem(BaseModel):
     """Одна пометка глазами резолва: что написано, что это значит и куда ведёт."""
 
     ref: str  # ссылка как написана в тексте
-    mode: DataAccessMode
+    mode: DataRefMode
     status: DataRefStatus
-    # Готовая подпись цели для плашки: «<база> · <таблица>[.<колонка>]». None у
-    # unknown_table/ambiguous — цели нет вовсе, показывать нечего (у ambiguous
-    # выбрать одну из подходящих запрещено: см. app/data_refs.py).
+    # Готовая подпись цели для плашки: «<база> · <таблица>[.<колонка>]», у каналов —
+    # «<брокер> · <канал>[.<поле>]». None у unknown_table/unknown_channel/ambiguous —
+    # цели нет вовсе, показывать нечего (у ambiguous выбрать одну из подходящих
+    # запрещено: см. app/data_refs.py).
     target: str | None

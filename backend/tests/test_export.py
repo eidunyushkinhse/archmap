@@ -30,13 +30,14 @@ def _node(db, name, parent=None, **kw):
     return n
 
 
-def _edge(db, src, tgt, label=None, technology=None):
+def _edge(db, src, tgt, label=None, technology=None, channel=None):
     e = Edge(
         id=uuid.uuid4(),
         source_id=src.id,
         target_id=tgt.id,
         label=label,
         technology=technology,
+        channel=channel,
         project_id=ensure_project(db).id,
     )
     db.add(e)
@@ -163,3 +164,22 @@ def test_export_subtree_unknown_id_404(db):
 def test_export_empty_schema(db):
     doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
     assert doc == {"nodes": [], "edges": []}
+
+
+def test_export_канал_связи_пишется_только_когда_задан(db):
+    """Канал брокера (Ф3) — такая же необязательная семантика, как label/technology:
+    ключ появляется, только если он есть. Иначе экспорт зашумило бы «channel: null» у
+    каждой стрелки, а модель читает его как «канал существует и пуст»."""
+    корень = _node(db, "Ярмарка")
+    сервис = _node(db, "orders", корень, shape="service")
+    брокер = _node(db, "Kafka", корень, shape="broker")
+    _edge(db, сервис, брокер, label="событие", channel="orders.created")
+    _edge(db, брокер, сервис)  # доставка подписчику, канал не назван
+    db.commit()
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+
+    публикация = next(e for e in doc["edges"] if e["from"] == "orders")
+    доставка = next(e for e in doc["edges"] if e["from"] == "Kafka")
+    assert публикация["channel"] == "orders.created"
+    assert "channel" not in доставка

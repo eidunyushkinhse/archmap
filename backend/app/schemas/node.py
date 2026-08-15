@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.broker_channel import ChannelAccessMode
 from app.schemas.db_doc import DataAccessMode
 from app.schemas.node_doc import NodeDocMeta
 
@@ -168,6 +169,10 @@ class GraphEdgeResponse(BaseModel):
     technology: str | None
     source_id: uuid.UUID
     target_id: uuid.UUID
+    # Канал брокера, названный связью: в уровневом контракте он есть (в отличие от
+    # is_synchronous), потому что его правят прямо в инспекторе редактора-карты —
+    # без значения поле показывало бы пустоту при заполненной связи.
+    channel: str | None = None
     # Версия связи для optimistic CAS правок из инспектора (base_version в PATCH).
     version: int = 1
 
@@ -330,6 +335,47 @@ class UnresolvedDataRefAlert(BaseModel):
     reason: Literal["unknown_table", "ambiguous", "unknown_column"]
 
 
+class UnresolvedChannelRefAlert(BaseModel):
+    """Пометка «публикует:/потребляет:» в схеме логики, не нашедшая свой канал.
+
+    ОТДЕЛЬНЫЙ класс, а не расширение AL29 (решение §7.4 plan-broker-docs.md): у
+    каналов свой каталог, свои причины и свои слова починки — «укажите „Брокер /
+    канал“» вместо «„БД / таблица“». Смешать их значило бы предложить инженеру
+    искать топик в структуре базы.
+    """
+
+    # Узел-ВЛАДЕЛЕЦ дока (публикующий/потребляющий), а не брокер: чинят текст у него.
+    node_id: uuid.UUID
+    node_name: str
+    doc_id: uuid.UUID
+    doc_name: str
+    ref: str  # ссылка как написана в тексте
+    mode: ChannelAccessMode
+    # Почему не срослось: канала нет / имя подходит нескольким / поля нет в канале.
+    reason: Literal["unknown_channel", "ambiguous", "unknown_field"]
+
+
+class BrokerEdgeChannelAlert(BaseModel):
+    """Связь с брокером, которая не называет канал либо называет несуществующий.
+
+    Решение пользователя №4 (docs/plan-broker-docs.md §4): стрелка «сервис → брокер»
+    ОБЯЗАНА назвать топик/очередь — без этого схема не отвечает на «откуда взялось
+    событие». Канал на связи — ссылка по ИМЕНИ, а не FK, поэтому шов держит алерт:
+    `missing` — канал не указан вовсе, `unknown` — указан, но структура брокера-конца
+    такого канала не знает (опечатка либо канал не описан).
+    """
+
+    edge_id: uuid.UUID
+    source_name: str
+    target_name: str
+    # Конец-БРОКЕР, по чьей структуре искали канал (оба конца брокеры — назван первый:
+    # искали у обоих, и починка начинается с любого).
+    broker_name: str
+    # Как написано на связи; null — не указан вовсе (reason=missing).
+    channel: str | None = None
+    reason: Literal["missing", "unknown"]
+
+
 class AlertsResponse(BaseModel):
     disconnected_nodes: list[DisconnectedNodeAlert] = []
     intermediate_edges: list[IntermediateEdgeAlert] = []
@@ -340,6 +386,12 @@ class AlertsResponse(BaseModel):
     unbound_participants: list[UnboundParticipantAlert] = []
     orphan_legs: list[OrphanLegAlert] = []
     unresolved_data_refs: list[UnresolvedDataRefAlert] = []
+    # Дефолт [] обязателен: старые клиенты (в т.ч. MCP-сервер пользователя) читают
+    # ответ, ничего не зная о новом классе, и обязательное поле сломало бы их.
+    unresolved_channel_refs: list[UnresolvedChannelRefAlert] = []
+    # Связи с брокером без канала / с неизвестным каналом (AL31) — дефолт [] по той же
+    # причине.
+    broker_edge_channels: list[BrokerEdgeChannelAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

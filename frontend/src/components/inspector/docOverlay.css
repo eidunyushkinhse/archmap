@@ -308,6 +308,10 @@
 }
 .doc-refmode--read { color: #0369a1; background: #e0f2fe; }
 .doc-refmode--write { color: #9a3412; background: #ffedd5; }
+/* События — свои краски (те же, что в обратном индексе брокера, brokerChannels.css):
+   «публикует» не должно читаться как «пишет», это разные вопросы к карте. */
+.doc-refmode--publish { color: #6d28d9; background: #ede9fe; }
+.doc-refmode--consume { color: #047857; background: #d1fae5; }
 /* Цель переносится, а не обрезается: усечённое имя таблицы бесполезно — сверять
    его с реальностью нечем. Колонка редактора бывает и узкой (правая панель). */
 .doc-reftext {

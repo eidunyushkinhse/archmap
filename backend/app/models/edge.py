@@ -24,6 +24,13 @@ class Edge(Base):
     )
     label: Mapped[str | None] = mapped_column(String(256), nullable=True)
     technology: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # КАНАЛ брокера, который называет эта стрелка (решение пользователя №4,
+    # docs/plan-broker-docs.md §4): «сервис → брокер» обязана назвать топик/очередь.
+    # Строка-ССЫЛКА, а не FK: тот же принцип, что у пометок «публикует:/потребляет:» —
+    # связь по имени, шов проверяют алерты (AL31), резолв — на чтении по каталогу
+    # каналов брокера-конца. FK привязал бы стрелку к строке структуры и потребовал
+    # бы инвалидации при каждом переименовании канала.
+    channel: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
     )
