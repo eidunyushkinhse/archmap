@@ -142,10 +142,91 @@ def test_prompt_depth_and_lang_and_hints():
     assert "Дополнительные указания" not in p3  # без hints секции нет
 
 
+def test_профилактика_конфабуляций_в_разделе_честности():
+    """П13 тюнинга федерации (docs/qa-semantic-review.md): три полевых класса лжи
+    строителя — слитые шины, выдуманные хранилища, угаданные technology. Правила
+    БЕЗУСЛОВНЫЕ (стоят в промпте всегда) и короткие: раздел честности читают все
+    прогоны, а регрессию сторожит только полевая матрица."""
+    for p in (build_import_prompt("Zabbix 7"), build_import_prompt("Zabbix 7", depth=2)):
+        assert (
+            "Каждая технологическая шина — ОТДЕЛЬНЫЙ узел-брокер: Kafka и очередь задач "
+            "(Celery, RQ) — разные узлы, не сливай их в один." in p
+        )
+        assert (
+            "Узел-хранилище или поисковый движок добавляй ТОЛЬКО с основанием в коде или "
+            "конфиге деплоя — не по типовой аналогии („раз поиск, то Elasticsearch“ — "
+            "не основание)." in p
+        )
+        assert (
+            "technology бери из манифестов (package.json, Cargo.toml, requirements*.txt, "
+            "go.mod), а не угадывай по роли узла." in p
+        )
+        # Чек-лист — последнее, что модель читает перед выводом: правило про манифесты
+        # продублировано и там (как правило кавычек).
+        assert "technology каждого узла взята из манифеста сборки" in p
+
+
+# ── Федерация продуктов (П1) ──────────────────────────────────────────────────
+
+
+МУЛЬТИ_ЗАГОЛОВОК = "## Проект объединяет НЕСКОЛЬКО продуктов"
+
+
+def test_мультипродукт_учит_оборачивать_свой_продукт_контейнером():
+    """Инсайт 1 мультирепо-QA: конвенция «имя системы = название проекта» растворяет
+    продукт в корне — заглушки соседей не находят пары, продукт существует дважды."""
+    p = build_import_prompt("Zabbix+Grafana", multi_product=True)
+    assert МУЛЬТИ_ЗАГОЛОВОК in p
+    assert "Система «Zabbix+Grafana» состоит из нескольких самостоятельных продуктов" in p
+    assert "ВСЁ содержимое ЭТОГО репозитория оформи ОДНИМ контейнером под корнем системы" in p
+    assert "Контейнеры и компоненты клади ВНУТРЬ него, а не в корень" in p
+    assert "заглушками-контейнерами НА ТОМ ЖЕ уровне" in p
+    assert "external им НЕ ставь" in p
+    # ⚠ Полевой урок: плагин вписал в узел Grafana СВОЙ repo, и продукт едва не
+    # расщепился надвое — заглушке соседа положено только сетевое имя.
+    assert "В source заглушке соседа пиши ТОЛЬКО сетевое имя (host)" in p
+    assert "Свой repo ей НЕ приписывай" in p
+    # Раздел стоит рядом с конвенциями склейки — между именованием и полем source.
+    assert p.index("## Правила именования") < p.index(МУЛЬТИ_ЗАГОЛОВОК) < p.index("## Поле source")
+
+
+def test_без_мультипродукта_промпт_байт_в_байт():
+    """⚠ Сентинел (ловушка №1 плана): одно-репо прогоны НЕ регрессируют. Флаг обязан
+    ДОБАВЛЯТЬ раздел и ничего больше — вырезав раздел из мультипродуктового текста,
+    получаем прежний байт-в-байт. Тест падает и если генератор флаг игнорирует
+    (раздела нет — разрезать нечего), и если флаг заодно правит что-то ещё."""
+    парам = {"depth": 3, "lang": "ru", "hints": "монорепо"}
+    без = build_import_prompt("Zabbix+Grafana", **парам)
+    assert без == build_import_prompt("Zabbix+Grafana", **парам, multi_product=False)
+    assert МУЛЬТИ_ЗАГОЛОВОК not in без
+
+    с_флагом = build_import_prompt("Zabbix+Grafana", **парам, multi_product=True)
+    голова, хвост = с_флагом.split(МУЛЬТИ_ЗАГОЛОВОК)
+    assert голова + "## Поле source" + хвост.split("## Поле source", 1)[1] == без
+
+
 def test_prompt_endpoint(db):
     user = ensure_architect(db)
     out = import_prompt(system_name="Ярмарка", depth=3, lang="ru", hints=None, _user=user)
     assert "«Ярмарка»" in out.prompt and "```yaml\nnodes:" in out.prompt
+
+
+def test_ручка_пробрасывает_мультипродукт_в_строительный_и_в_обёртку(db):
+    """Флаг живёт в строительном промпте, поэтому доезжает и до блока А обёртки —
+    отдельного пути у оркестраторного варианта нет и быть не должно."""
+    user = ensure_architect(db)
+    парам = {"system_name": "Zabbix+Grafana", "depth": 3, "lang": "ru", "hints": None}
+
+    выкл = import_prompt(**парам, _user=user)
+    вкл = import_prompt(**парам, multi_product=True, _user=user)
+    assert МУЛЬТИ_ЗАГОЛОВОК not in выкл.prompt
+    assert вкл.prompt == build_import_prompt("Zabbix+Grafana", multi_product=True)
+
+    обёртка = import_prompt(**парам, variant="orchestrated", multi_product=True, _user=user)
+    assert МУЛЬТИ_ЗАГОЛОВОК in обёртка.prompt
+    assert МУЛЬТИ_ЗАГОЛОВОК not in import_prompt(
+        **парам, variant="orchestrated", _user=user
+    ).prompt
 
 
 def test_example_carries_source_anchors():
