@@ -72,6 +72,11 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [promptLang, setPromptLang] = useState<"ru" | "en">("ru");
   const [promptHints, setPromptHints] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
+  // «Несколько продуктов»: null = пользователь галку не трогал, и она следует за
+  // именем проекта («Zabbix+Grafana» — почти всегда федерация). Тронул руками —
+  // значение перестаёт зависеть от имени навсегда (защёлка null → boolean), а
+  // производное считается в рендере, а не эффектом.
+  const [multiProduct, setMultiProduct] = useState<boolean | null>(null);
 
   // Загрузка каталога шаблонов (легитимный эффект). По умолчанию выбран webapp,
   // иначе первый из ответа.
@@ -123,6 +128,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     ? importSummary.res
     : null;
   const importish = mode === "import" || mode === "repo";
+  const multiProductOn = multiProduct ?? name.includes("+");
 
   const canSubmit =
     name.trim().length > 0 &&
@@ -145,6 +151,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         lang: promptLang,
         hints: promptHints.trim() || undefined,
         variant,
+        multiProduct: multiProductOn,
       })
       .then((res) => navigator.clipboard.writeText(res.prompt))
       .catch((e: unknown) => {
@@ -300,6 +307,25 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                       <option value="en">Английский</option>
                     </select>
                   </div>
+                  {/* Федерация продуктов: без этого сигнала каждый агент растворяет
+                      свой продукт прямо в корне системы, заглушки соседей не находят
+                      пары и продукт оказывается в проекте дважды (полевой
+                      мультирепо-QA). Предвключено по «+» в названии проекта — пока
+                      пользователь не тронул галку сам. */}
+                  <div>
+                    <label style={checkRow}>
+                      <input
+                        type="checkbox"
+                        checked={multiProductOn}
+                        onChange={(e) => setMultiProduct(e.target.checked)}
+                      />
+                      Проект объединяет несколько продуктов
+                    </label>
+                    <p style={checkNote}>
+                      Каждый репозиторий станет контейнером-продуктом под корнем
+                      системы, соседние продукты — заглушками рядом.
+                    </p>
+                  </div>
                   <div>
                     <label style={labelStyle}>
                       Подсказки агенту <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span>
@@ -425,6 +451,12 @@ const glyphBox: CSSProperties = {
   justifyContent: "center", color: "#64748b",
 };
 const blurbStyle: CSSProperties = { margin: "8px 0 12px", fontSize: 13.5, lineHeight: 1.55, color: "#475569" };
+// Строка-галка в стиле подписей соседних параметров промпта (labelStyle без блока).
+const checkRow: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 8,
+  fontSize: 13, fontWeight: 600, color: "#475569",
+};
+const checkNote: CSSProperties = { margin: "6px 0 0", fontSize: 11.5, lineHeight: 1.5, color: "#94a3b8" };
 const techChip: CSSProperties = {
   padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600,
   background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0",
