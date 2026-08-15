@@ -79,7 +79,7 @@ class ImportPreviewOut(BaseModel):
     # при одном файле ВСЁ лежит в file_remarks[0], а schema_* пусты.
     file_remarks: list[FileRemarksOut] = []
     schema_errors: list[str] = []  # нарушенные лимиты слияния
-    schema_warnings: list[str] = []  # конфликты слияния, изоляция, похожие имена/рёбра
+    schema_warnings: list[str] = []  # без общего файла-виновника: конфликты слияния, межфайловая изоляция…
 
 
 class SyncPreviewIn(BaseModel):
