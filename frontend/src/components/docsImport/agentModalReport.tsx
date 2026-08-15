@@ -1,9 +1,11 @@
 // Компоненты отчёта превью/применения BYOA-модалок (DocsAgentModal /
-// SpecAgentModal): строки плана (ItemList) и списки замечаний (NoteList).
-// Файл экспортирует ТОЛЬКО компоненты (требование react-refresh); бейдж-стиль —
-// в agentModalShared.ts.
-import type { ReactNode } from "react";
-import { badge } from "./agentModalShared";
+// SpecAgentModal) и панели импорта: строки плана (ItemList), списки замечаний
+// (NoteList), заметка гварда «вход не изменился» (UnchangedInputNote) и вопрос об
+// устаревших файлах после копирования замечаний (StaleFilesConfirm).
+// Файл экспортирует ТОЛЬКО компоненты (требование react-refresh); бейдж-стиль,
+// текст заметки и сам гвард — в agentModalShared.ts.
+import type { CSSProperties, ReactNode } from "react";
+import { badge, UNCHANGED_INPUT_NOTE } from "./agentModalShared";
 
 // Строки превью: текст + бейдж действия + советующий статус + опциональный
 // доп. элемент справа (например, селект вида схемы в режиме «по одной»).
@@ -38,6 +40,34 @@ export function ItemList({ title, rows }: {
   );
 }
 
+// Заметка гварда: вход тот же, что в прошлый заход. Стоит НАД сводкой, тем же
+// amber, что «Исчезли:» и «Пометок данных было …» — это один класс сообщений
+// «посмотрите на пакет, прежде чем применять».
+export function UnchangedInputNote() {
+  return <div style={amberLine}>{UNCHANGED_INPUT_NOTE}</div>;
+}
+
+// Вопрос после успешного копирования замечаний: агент вернёт исправленную версию, и
+// файлы, лежащие сейчас в панели, устареют — пользователь либо оставляет их, либо
+// убирает сразу (находка приёмки: старый файл оставался, и его приходилось убирать
+// догадкой). ⚠ ИНЛАЙН-плашка, а не вложенный <dialog>: cancel вложенного диалога
+// всплывает и закрывает оба окна (ui/Modal.tsx, ловушка native-dialog-gotchas).
+export function StaleFilesConfirm({ onKeep, onClear }: { onKeep: () => void; onClear: () => void }) {
+  return (
+    <div style={confirmBox}>
+      <span style={{ color: "#475569" }}>
+        Агент вернёт исправленную версию — текущие файлы в панели устареют. Оставить их?
+      </span>
+      <button type="button" className="btn-soft" style={confirmBtn} onClick={onKeep}>
+        Оставить
+      </button>
+      <button type="button" className="btn-soft" style={confirmBtn} onClick={onClear}>
+        Убрать из панели
+      </button>
+    </div>
+  );
+}
+
 // Список замечаний (конфликты файлов / предупреждения превью)
 export function NoteList({ title, items }: { title: string; items: string[] }) {
   return (
@@ -50,3 +80,15 @@ export function NoteList({ title, items }: { title: string; items: string[] }) {
     </div>
   );
 }
+
+// ── inline-стили заметки и вопроса ────────────────────────────────────
+// Тот же amber, что у «Исчезли:» в панели импорта и у заголовков отчёта.
+const amberLine: CSSProperties = {
+  fontSize: 12.5, fontWeight: 600, color: "#b45309", marginBottom: 6,
+};
+const confirmBox: CSSProperties = {
+  display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8,
+  padding: "8px 10px", fontSize: 12.5, lineHeight: 1.45,
+  border: "1px solid #fde68a", borderRadius: 8, background: "#fffbeb",
+};
+const confirmBtn: CSSProperties = { padding: "3px 9px", fontSize: 12.5 };

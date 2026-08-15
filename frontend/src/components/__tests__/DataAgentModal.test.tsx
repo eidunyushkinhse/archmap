@@ -129,6 +129,50 @@ describe("DataAgentModal", () => {
     expect(текст).toContain(w);
   });
 
+  it("после копирования замечаний предлагает убрать устаревшие файлы", async () => {
+    // Находка приёмки: агент вернёт исправленную версию, а старый пакет остаётся в
+    // панели — пользователь догадывался убрать его сам. Вопрос ИНЛАЙНОВЫЙ: вложенный
+    // <dialog> закрыл бы Escape'ом оба окна (ловушка native-dialog-gotchas).
+    const w = "data.yaml: таблица «orders» без колонок";
+    vi.mocked(dataImportApi.preview).mockResolvedValue(report({ tables: [table()], warnings: [w] }));
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    open();
+    await вставить("tables:");
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+    await waitFor(() => expect(screen.getByText(w)).toBeInTheDocument());
+    expect(screen.queryByText(/Оставить их\?/)).toBeNull();
+
+    await userEvent.click(screen.getByText("Скопировать замечания для агента"));
+    await waitFor(() => expect(screen.getByText(/Оставить их\?/)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("Убрать из панели"));
+    // Пакета в панели нет: ни чипа файла, ни редактора — снова зона приёма.
+    expect(screen.queryByPlaceholderText("вставьте содержимое файла")).toBeNull();
+    expect(screen.queryByText("вставка-1")).toBeNull();
+    expect(screen.queryByText(/Оставить их\?/)).toBeNull();
+    expect(screen.queryByText(w)).toBeNull();
+  });
+
+  it("«Оставить» закрывает вопрос, пакет остаётся в панели", async () => {
+    const w = "data.yaml: таблица «orders» без колонок";
+    vi.mocked(dataImportApi.preview).mockResolvedValue(report({ tables: [table()], warnings: [w] }));
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    open();
+    await вставить("tables:");
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+    await waitFor(() => expect(screen.getByText(w)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("Скопировать замечания для агента"));
+    await waitFor(() => expect(screen.getByText(/Оставить их\?/)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("Оставить"));
+    expect(screen.queryByText(/Оставить их\?/)).toBeNull();
+    expect(screen.getByPlaceholderText("вставьте содержимое файла")).toHaveValue("tables:");
+    expect(screen.getByText(w)).toBeInTheDocument();
+  });
+
   it("тумблер перезаписи уезжает в запрос", async () => {
     vi.mocked(dataImportApi.preview).mockResolvedValue(report({ tables: [table()] }));
     open();

@@ -10,17 +10,17 @@
 // Обращений («кто публикует / кто потребляет») здесь НЕТ: они приезжают пометками
 // «публикует:/потребляет:» внутри схем логики, то есть окном дозаливки доков.
 // Применение НЕ кладётся в undo — страховка та же: превью + дефолт «не перезаписывать».
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChannelsImportReport, PromptVariant } from "../../types";
-import { channelsImportApi } from "../../api/docsImport";
+import { channelsImportApi, type DocsFile } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {
-  ACTION_LABEL, countAction,
+  ACTION_LABEL, countAction, inputFingerprint, useRepeatedInput,
   head, sub, cols, leftCol, rightCol, leftNote,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow, radioRow,
 } from "./agentModalShared";
-import { ItemList, NoteList } from "./agentModalReport";
+import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
 import PromptTriple from "./PromptTriple";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
@@ -48,6 +48,14 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
 
   // Пустые файлы прячут отчёт ПРОИЗВОДНО — эффект не зеркалит состояние в состояние.
   const report = pkg.hasContent ? rawReport : null;
+
+  // Гвард «вход не изменился»: тот же байт-в-байт пакет, что в прошлый заход, —
+  // повод посмотреть на файлы агента, а не на замечание (находка полевой приёмки).
+  const fingerprint = useMemo(() => inputFingerprint(pkg.files), [pkg.files]);
+  const repeatedInput = useRepeatedInput(pkg.files, fingerprint);
+  // Пакет, к которому задан вопрос об устаревании (после копирования замечаний).
+  // Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
+  const [askedFor, setAskedFor] = useState<DocsFile[] | null>(null);
 
   useEffect(() => {
     const nonEmpty = pkg.files.filter((f) => f.content.trim() !== "");
@@ -90,7 +98,18 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
     void navigator.clipboard.writeText(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
+      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
+      // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
+      setAskedFor(pkg.files);
     });
+  }
+
+  // Убрать пакет из панели: файлы и отчёт уходят целиком (зеркало снятия
+  // последнего файла крестиком) — новый заход сравнивать будет не с чем.
+  function clearPackage() {
+    setAskedFor(null);
+    pkg.reset();
+    setRawReport(null);
   }
 
   function apply() {
@@ -188,6 +207,9 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
 
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю пакет…</div>}
+            {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
+                повторится, и чинить надо не его, а разговор с агентом. */}
+            {repeatedInput && <UnchangedInputNote />}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
                 Применено: каналов {report.channels_written}, полей {report.fields_written}.
@@ -229,6 +251,9 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
                 onClick={copyRemarks}>
                 {remarksCopied ? "Скопировано ✓" : "Скопировать замечания для агента"}
               </button>
+            )}
+            {askedFor === pkg.files && (
+              <StaleFilesConfirm onKeep={() => setAskedFor(null)} onClear={clearPackage} />
             )}
           </div>
 

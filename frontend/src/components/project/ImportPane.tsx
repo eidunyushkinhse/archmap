@@ -3,6 +3,8 @@ import type { CSSProperties } from "react";
 import type { ImportPreviewOut } from "../../types";
 import { plural } from "../../ui/plural";
 import { useFileDrop } from "../docsImport/useFileDrop";
+import { inputFingerprint, useRepeatedInput } from "../docsImport/agentModalShared";
+import { StaleFilesConfirm, UnchangedInputNote } from "../docsImport/agentModalReport";
 
 /**
  * Правая панель импорта YAML в модалке создания проекта: несколько документов
@@ -47,6 +49,13 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
   if (summary?.ok && seen.from !== summary) {
     setSeen({ from: summary, prev: seen.cur, cur: summary.node_names });
   }
+  // Гвард «вход не изменился»: тот же байт-в-байт документ, что в прошлый заход, —
+  // повод посмотреть на файл, а не на замечание (находка полевой приёмки).
+  const fingerprint = useMemo(() => inputFingerprint(docs), [docs]);
+  const repeatedInput = useRepeatedInput(docs, fingerprint);
+  // Набор документов, к которому задан вопрос об устаревании (после копирования
+  // замечаний). Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
+  const [askedFor, setAskedFor] = useState<string[] | null>(null);
 
   function setDoc(i: number, text: string) {
     onDocs(docs.map((d, k) => (k === i ? text : d)));
@@ -118,7 +127,19 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
+      // панели документ устареет. Спрашиваем сразу, пока пользователь здесь.
+      setAskedFor(docs);
     });
+  }
+
+  // «Убрать из панели»: то же, что снятие последнего файла крестиком, — пустой
+  // документ и история попыток с чистого листа (сравнивать станет не с чем).
+  function clearDocs() {
+    setAskedFor(null);
+    setSeen(NO_ATTEMPTS);
+    onDocs([""]);
+    setActiveRaw(0);
   }
 
   return (
@@ -195,6 +216,9 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
       )}
 
       <div style={{ marginTop: 10 }}>
+        {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
+            повторится, и чинить надо не его, а разговор с агентом. */}
+        {repeatedInput && <UnchangedInputNote />}
         {/* Ампутация не должна быть молчаливой: пропавшие между попытками объекты —
             над сводкой, до зелёного «Готово к импорту». */}
         {summary?.ok && vanished.length > 0 && (
@@ -243,6 +267,9 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
           <button type="button" className="btn-soft" style={{ marginTop: 8 }} onClick={copyRemarks}>
             {copied ? "Скопировано ✓" : "Скопировать замечания для агента"}
           </button>
+        )}
+        {askedFor === docs && (
+          <StaleFilesConfirm onKeep={() => setAskedFor(null)} onClear={clearDocs} />
         )}
       </div>
     </>

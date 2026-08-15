@@ -37,6 +37,13 @@ function paint(summary: ImportPreviewOut | null) {
     view.rerender(<ImportPane docs={["nodes:"]} onDocs={vi.fn()} summary={next} />);
 }
 
+// То же, но документы задаёт тест: заход пользователя — новый массив docs.
+function paintDocs(docs: string[], summary: ImportPreviewOut | null, onDocs = vi.fn()) {
+  const view = render(<ImportPane docs={docs} onDocs={onDocs} summary={summary} />);
+  return (nextDocs: string[], next: ImportPreviewOut | null) =>
+    view.rerender(<ImportPane docs={nextDocs} onDocs={onDocs} summary={next} />);
+}
+
 async function copyRemarks(): Promise<string> {
   await userEvent.click(screen.getByRole("button", { name: /Скопировать замечания/ }));
   expect(writeText).toHaveBeenCalledTimes(1);
@@ -59,6 +66,57 @@ describe("замечания для агента", () => {
     expect(text).toContain("а НЕ удаляй объекты: удаление хуже недостающей связи");
     expect(text).not.toContain("Исправь их");
     expect(text).toContain("- объектов без единой связи: 1 («api»)");
+  });
+});
+
+describe("гвард «вход не изменился»", () => {
+  // Находка полевой приёмки: агент отчитывался «Исправление: добавлена связь…», не
+  // тронув файл, — пользователь трижды нёс сюда байт-в-байт тот же документ и трижды
+  // получал то же замечание. Панель обязана назвать это вслух.
+  it("тот же документ вторым заходом — заметка над сводкой", () => {
+    const again = paintDocs(["nodes: a"], green(["Система"]));
+    expect(screen.queryByText(/Содержимое не изменилось/)).toBeNull();
+
+    again(["nodes: a"], green(["Система"]));
+    expect(screen.getByText(/Содержимое не изменилось с прошлой проверки/)).toHaveTextContent(
+      "агент мог отчитаться об исправлении, не внеся его",
+    );
+  });
+
+  it("изменившийся документ заметку снимает", () => {
+    const again = paintDocs(["nodes: a"], green(["Система"]));
+    again(["nodes: a"], green(["Система"]));
+    expect(screen.getByText(/Содержимое не изменилось/)).toBeInTheDocument();
+    // Тот же ОДИН документ, но другого содержания: гвард сравнивает текст, а не счёт.
+    again(["nodes: b"], green(["Система"]));
+    expect(screen.queryByText(/Содержимое не изменилось/)).toBeNull();
+  });
+});
+
+describe("вопрос об устаревших файлах", () => {
+  // Второе замечание приёмки: после круга замечаний пользователь тащит новый файл, а
+  // старый остаётся в панели — убрать его приходилось догадкой.
+  it("после копирования замечаний спрашивает, оставить ли файлы, и убирает их", async () => {
+    const onDocs = vi.fn();
+    paintDocs(["nodes: a"], red(["Некорректный YAML: ошибка (строка 3)"]), onDocs);
+    expect(screen.queryByText(/Оставить их\?/)).toBeNull();
+
+    await copyRemarks();
+    expect(screen.getByText(/текущие файлы в панели устареют. Оставить их\?/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Убрать из панели" }));
+    expect(onDocs).toHaveBeenCalledWith([""]);
+    expect(screen.queryByText(/Оставить их\?/)).toBeNull();
+  });
+
+  it("«Оставить» закрывает вопрос и файлы не трогает", async () => {
+    const onDocs = vi.fn();
+    paintDocs(["nodes: a"], red(["Некорректный YAML: ошибка (строка 3)"]), onDocs);
+    await copyRemarks();
+
+    await userEvent.click(screen.getByRole("button", { name: "Оставить" }));
+    expect(screen.queryByText(/Оставить их\?/)).toBeNull();
+    expect(onDocs).not.toHaveBeenCalled();
   });
 });
 
