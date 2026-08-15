@@ -52,17 +52,25 @@ export function UnchangedInputNote() {
 // убирает сразу (находка приёмки: старый файл оставался, и его приходилось убирать
 // догадкой). ⚠ ИНЛАЙН-плашка, а не вложенный <dialog>: cancel вложенного диалога
 // всплывает и закрывает оба окна (ui/Modal.tsx, ловушка native-dialog-gotchas).
-export function StaleFilesConfirm({ onKeep, onClear }: { onKeep: () => void; onClear: () => void }) {
+//
+// text/clearLabel — для мульти-файлового импорта, где замечания копируются пофайлово
+// и устаревает ОДИН файл, а не весь вход (Ф6). Дефолты — прежние тексты дозаливок.
+export function StaleFilesConfirm({ onKeep, onClear, text, clearLabel }: {
+  onKeep: () => void;
+  onClear: () => void;
+  text?: string;
+  clearLabel?: string;
+}) {
   return (
     <div style={confirmBox}>
       <span style={{ color: "#475569" }}>
-        Агент вернёт исправленную версию — текущие файлы в панели устареют. Оставить их?
+        {text ?? "Агент вернёт исправленную версию — текущие файлы в панели устареют. Оставить их?"}
       </span>
       <button type="button" className="btn-soft" style={confirmBtn} onClick={onKeep}>
         Оставить
       </button>
       <button type="button" className="btn-soft" style={confirmBtn} onClick={onClear}>
-        Убрать из панели
+        {clearLabel ?? "Убрать из панели"}
       </button>
     </div>
   );
