@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
-from app.import_merge import parse_and_merge
+from app.import_merge import parse_and_merge, split_remarks
 from app.import_prompt import build_import_prompt
 from app.import_yaml import seed_import
 from app.models.edge import Edge
@@ -27,6 +27,7 @@ from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.projects import copy_project_schema
 from app.schemas.project import (
+    FileRemarksOut,
     ImportPreviewIn,
     ImportPreviewOut,
     ImportPromptOut,
@@ -277,9 +278,23 @@ def import_preview(
     if not texts:
         raise HTTPException(status_code=400, detail="Не передан YAML для проверки")
     merged, report, errors = parse_and_merge(texts)
+    # Те же замечания, разложенные по природе: пофайловые уносит агент своего
+    # репозитория, схемные читает человек (Ф6, docs/plan-skeptic-audit.md).
+    file_remarks, schema_errors, schema_warnings = split_remarks(report)
+    remarks_out = [
+        FileRemarksOut(file=f.file, errors=f.errors, warnings=f.warnings) for f in file_remarks
+    ]
     if merged is None:
         return ImportPreviewOut(
-            ok=False, errors=errors, node_count=0, edge_count=0, roots=[], files=len(texts)
+            ok=False,
+            errors=errors,
+            node_count=0,
+            edge_count=0,
+            roots=[],
+            files=len(texts),
+            file_remarks=remarks_out,
+            schema_errors=schema_errors,
+            schema_warnings=schema_warnings,
         )
     return ImportPreviewOut(
         ok=True,
@@ -296,6 +311,9 @@ def import_preview(
         # Порядок узлов слияния стабилен (родители раньше детей) — фронт сравнивает
         # состав попыток агента, а не множества «на глаз».
         node_names=[n.name for n in merged.nodes],
+        file_remarks=remarks_out,
+        schema_errors=schema_errors,
+        schema_warnings=schema_warnings,
     )
 
 

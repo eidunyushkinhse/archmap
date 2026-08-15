@@ -2679,6 +2679,26 @@ export interface components {
             /** Content */
             content: string;
         };
+        /**
+         * FileRemarksOut
+         * @description Замечания к ОДНОМУ файлу пакета: их чинит агент того репозитория, из которого
+         *     файл пришёл (он видит только свой код и переписывает только свой YAML). Тексты —
+         *     без префикса «файл N: »: адресация уже в поле file.
+         */
+        FileRemarksOut: {
+            /** File */
+            file: number;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+        };
         /** FragmentCreate */
         FragmentCreate: {
             /**
@@ -2951,6 +2971,21 @@ export interface components {
              * @default []
              */
             node_names: string[];
+            /**
+             * File Remarks
+             * @default []
+             */
+            file_remarks: components["schemas"]["FileRemarksOut"][];
+            /**
+             * Schema Errors
+             * @default []
+             */
+            schema_errors: string[];
+            /**
+             * Schema Warnings
+             * @default []
+             */
+            schema_warnings: string[];
         };
         /**
          * ImportPromptOut

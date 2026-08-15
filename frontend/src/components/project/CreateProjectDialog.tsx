@@ -107,6 +107,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
           setImportSummary({ forDocs, res: {
             ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [], node_names: [],
             files: texts.length, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
+            // Отказ проверки — беда всего пакета, а не чьего-то файла: агенту такое
+            // не адресуем (в панели показывается схемной строкой).
+            file_remarks: [], schema_errors: [msg], schema_warnings: [],
           } });
         },
       );

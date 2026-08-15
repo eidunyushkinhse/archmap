@@ -395,6 +395,74 @@ def test_preview_multi_errors_prefixed_by_file(db):
     assert any(e.startswith("файл 2: ") for e in out.errors)
 
 
+def test_preview_splits_remarks_by_file_and_schema(db):
+    """Ф6: те же замечания превью дополнительно разложены по природе — что уносят
+    агенту конкретного репозитория (он видит только свой код) и что решает человек,
+    видящий весь ландшафт.
+
+    Плоские conflicts/warnings/errors — прежний контракт (их читают MCP-тулза
+    archmap_import_preview и нынешний фронт): новые поля лишь повторяют их разбивкой,
+    объединение корзин обязано совпасть со списком.
+    """
+    user = ensure_architect(db)
+    b = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        technology: Go\n"
+        "      - name: Оператор\n"
+        "        shape: person\n"
+    )
+    out = import_preview(ImportPreviewIn(contents=[_MULTI_A, b]), _user=user)
+
+    assert out.ok and out.files == 2
+    assert [f.file for f in out.file_remarks] == [1, 2]
+    # Человек внутри системы и объект без связей — содержимое файла 2, его агенту.
+    assert out.file_remarks[0].warnings == []
+    assert any("человек" in w for w in out.file_remarks[1].warnings)
+    assert any("без единой связи" in w for w in out.file_remarks[1].warnings)
+    # Расхождение technology между файлами — только пользователю.
+    assert any("оставлено «Python»" in w for w in out.schema_warnings)
+    assert out.schema_errors == []
+    # Совместимость: плоские списки — те же строки, ничего не потеряно и не удвоено.
+    assert sorted(
+        [w for f in out.file_remarks for w in f.warnings] + out.schema_warnings
+    ) == sorted(out.conflicts + out.warnings)
+
+
+def test_preview_single_file_keeps_everything_in_one_bucket(db):
+    """Одно-файловый режим не меняется ничем: агент видит всю систему и чинит всё,
+    поэтому схемные корзины пусты, а замечания лежат единственным списком."""
+    user = ensure_architect(db)
+    content = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: vote\n"
+        "      - name: redis\n"
+        "      - name: Оператор\n"
+        "        shape: person\n"
+        "      - name: Админка\n"
+        "edges:\n"
+        "  - from: vote\n"
+        "    to: redis\n"
+        "  - from: Оператор\n"
+        "    to: Админка\n"
+    )
+    out = import_preview(ImportPreviewIn(content=content), _user=user)
+
+    assert out.ok and out.files == 1
+    assert (out.schema_errors, out.schema_warnings) == ([], [])
+    assert len(out.file_remarks) == 1 and out.file_remarks[0].file == 1
+    assert out.file_remarks[0].warnings == out.conflicts + out.warnings
+    # В том числе изоляция — при нескольких файлах она схемная, здесь чинит агент.
+    assert any("не связана с остальной схемой" in w for w in out.file_remarks[0].warnings)
+
+    bad = import_preview(ImportPreviewIn(content="nodes:\n  - name: [x"), _user=user)
+    assert bad.ok is False and bad.file_remarks[0].errors == bad.errors
+
+
 def test_preview_requires_some_content(db):
     user = ensure_architect(db)
     with pytest.raises(HTTPException) as ei:

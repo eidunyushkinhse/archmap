@@ -13,7 +13,7 @@ import uuid
 
 from conftest import ensure_project
 
-from app.import_merge import merge_imports, parse_and_merge
+from app.import_merge import merge_imports, parse_and_merge, split_remarks
 from app.import_yaml import ParsedImport, parse_import
 from app.models.edge import Edge
 from app.models.node import Node
@@ -898,3 +898,155 @@ def test_паритет_с_алертом_изолированных_групп(
     assert errors2 == []
     assert get_alerts(db=db, project=ensure_project(db)).isolated_groups == []
     assert _группы(report2) == []
+
+
+# ── природа замечаний: файловые против схемных (Ф6, docs/plan-skeptic-audit.md) ──
+#
+# Пакет собирают N агентов, каждый видит ТОЛЬКО свой репозиторий и переписывает
+# только свой YAML. Значит, замечание, порождённое содержимым одного файла, надо
+# уметь отдать его агенту, а свойство слитой картины (конфликт двух файлов,
+# оторванная группа) — оставить человеку: рассудить это может только тот, кто
+# видит весь ландшафт. Инвариант суммы держит совместимость с плоскими списками.
+
+# Два «репозитория» одной системы. В первом — актор внутри системы и стрелка в
+# брокер без канала (лечится в файле 1), во втором — перечень каналов в одном поле
+# (лечится в файле 2). Плюс два схемных: расхождение technology у общего сервиса и
+# группа «Оператор → Админка», оторванная от ядра.
+_Ф6_ЗАКАЗЫ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        technology: Go
+      - name: kafka
+        shape: broker
+      - name: Оператор
+        shape: person
+      - name: Админка
+edges:
+  - from: orders
+    to: kafka
+  - from: Оператор
+    to: Админка
+"""
+_Ф6_ПЛАТЕЖИ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: payments
+      - name: orders
+        technology: Rust
+edges:
+  - from: payments
+    to: orders
+    channel: "orders.created, orders.paid"
+"""
+
+
+def test_замечания_разложены_по_файлу_виновнику():
+    _merged, report, errors = parse_and_merge([_Ф6_ЗАКАЗЫ, _Ф6_ПЛАТЕЖИ])
+    файлы, ошибки_схемы, предупреждения_схемы = split_remarks(report)
+
+    assert errors == [] and ошибки_схемы == []
+    assert [f.file for f in файлы] == [1, 2]
+    # Файловые: каждое ушло к своему агенту и НЕ ушло к чужому.
+    assert any("человек" in w and "Оператор" in w for w in файлы[0].warnings)
+    assert any("а канал не указан" in w for w in файлы[0].warnings)
+    assert any("в channel перечень" in w for w in файлы[1].warnings)
+    assert not any("в channel перечень" in w for w in файлы[0].warnings)
+    assert not any("человек" in w for w in файлы[1].warnings)
+    # Схемные: конфликт полей и оторванная группа — только пользователю.
+    assert any("technology: оставлено «Go»" in w for w in предупреждения_схемы)
+    assert any("не связана с остальной схемой" in w for w in предупреждения_схемы)
+    assert not any(
+        "не связана с остальной схемой" in w or "оставлено «Go»" in w
+        for f in файлы
+        for w in f.warnings
+    )
+
+
+def test_сумма_корзин_равна_плоским_спискам():
+    """Зеркало: каждое замечание ровно в одной корзине, объединение == плоскому
+    списку. Плоские warnings/conflicts/errors — исторический контракт превью
+    (их читают MCP-тулза и нынешний фронт), и раскладка не имеет права их менять."""
+    _merged, report, errors = parse_and_merge([_Ф6_ЗАКАЗЫ, _Ф6_ПЛАТЕЖИ])
+    файлы, ошибки_схемы, предупреждения_схемы = split_remarks(report)
+
+    assert errors == []
+    assert sorted([w for f in файлы for w in f.warnings] + предупреждения_схемы) == sorted(
+        report.conflicts + report.warnings
+    )
+    assert sorted([e for f in файлы for e in f.errors] + ошибки_схемы) == sorted(report.errors)
+
+
+def test_замечание_об_объектах_из_разных_файлов_остаётся_пользователю():
+    """Одно замечание на объекты ДВУХ файлов виноватого не имеет: адресовать его
+    агенту одного из них — значит прислать ему замечание о чужом коде."""
+    а = "nodes:\n- name: Ярмарка\n  children:\n  - name: vote\n  - name: Оператор\n    shape: person\n"
+    б = "nodes:\n- name: Ярмарка\n  children:\n  - name: vote\n  - name: Админ\n    shape: person\n"
+    рёбра = "edges:\n- from: Оператор\n  to: vote\n"
+    _merged, report, errors = parse_and_merge(
+        [а + рёбра, б + "edges:\n- from: Админ\n  to: vote\n"]
+    )
+    файлы, _ошибки, предупреждения_схемы = split_remarks(report)
+
+    assert errors == []
+    assert any("человек" in w and "Оператор" in w and "Админ" in w for w in предупреждения_схемы)
+    assert all(f.warnings == [] for f in файлы)
+
+
+def test_ошибки_разбора_адресованы_своему_файлу_без_префикса():
+    merged, report, errors = parse_and_merge([_Ф6_ЗАКАЗЫ, "nodes:\n  - name: [оборвано"])
+    файлы, ошибки_схемы, _предупреждения = split_remarks(report)
+
+    assert merged is None
+    # Плоский список — как раньше, с префиксом файла (его показывает шапка превью).
+    assert errors and all(e.startswith("файл 2: ") for e in errors)
+    assert файлы[0].errors == []
+    # В корзине — те же строки без префикса: адресация уже в структуре.
+    assert файлы[1].errors == [e.removeprefix("файл 2: ") for e in errors]
+    assert ошибки_схемы == []
+
+
+def test_лимит_слияния_это_замечание_к_слитой_схеме():
+    def много(префикс: str) -> str:
+        return "nodes:\n" + "\n".join(f"  - name: {префикс}{i}" for i in range(1200)) + "\n"
+
+    _merged, report, errors = parse_and_merge([много("a"), много("b")])
+    файлы, ошибки_схемы, _предупреждения = split_remarks(report)
+
+    assert any("слишком много узлов" in e.lower() for e in errors)
+    assert any("слишком много узлов" in e.lower() for e in ошибки_схемы)
+    assert all(f.errors == [] for f in файлы)
+
+
+def test_одно_файловый_режим_кладёт_всё_в_единственный_файл():
+    """Решение пользователя: в одно-файловом мире агент видит всю систему и чинит
+    всё — включая изоляцию, которая при нескольких файлах схемная. Схемные корзины
+    пусты, панель импорта работает ровно как до Ф6."""
+    _merged, report, errors = parse_and_merge([_doc(_ФРАГМЕНТ, _ФРАГМЕНТ_РЁБРА)])
+    файлы, ошибки_схемы, предупреждения_схемы = split_remarks(report)
+
+    assert errors == [] and (ошибки_схемы, предупреждения_схемы) == ([], [])
+    assert len(файлы) == 1 and файлы[0].file == 1
+    assert файлы[0].warnings == report.conflicts + report.warnings
+    assert any("не связана с остальной схемой" in w for w in файлы[0].warnings)
+
+
+def test_кап_предупреждений_режет_разметку_вместе_со_списком():
+    """Свёртка «…и ещё N предупреждений» режет плоский список — разметка природы
+    обязана укоротиться строка в строку, иначе корзины разъедутся со списком."""
+    файлы_яml = [
+        "nodes:\n- name: Система\n  children:\n"
+        + "".join(f"  - name: сервис-{i}-{суффикс}\n" for i in range(40))
+        for суффикс in ("a", "b")
+    ]
+    _merged, report, errors = parse_and_merge(файлы_яml)
+    файлы, _ошибки, предупреждения_схемы = split_remarks(report)
+
+    assert errors == []
+    assert len(report.warnings) == len(report.warning_files)
+    assert any("и ещё" in w for w in report.warnings)
+    assert sorted([w for f in файлы for w in f.warnings] + предупреждения_схемы) == sorted(
+        report.conflicts + report.warnings
+    )
