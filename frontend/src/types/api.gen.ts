@@ -1674,6 +1674,11 @@ export interface components {
              * @default []
              */
             broker_edge_channels: components["schemas"]["BrokerEdgeChannelAlert"][];
+            /**
+             * Descendant Edges
+             * @default []
+             */
+            descendant_edges: components["schemas"]["DescendantEdgeAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -2342,6 +2347,40 @@ export interface components {
              * @default []
              */
             node_docs: components["schemas"]["NodeDocSnapshot"][];
+        };
+        /**
+         * DescendantEdgeAlert
+         * @description Связь между узлом и его СОБСТВЕННЫМ потомком (ребёнком, внуком, любой
+         *     глубины и в любую сторону): вложенность уже выражена иерархией, и стрелка
+         *     ничего к ней не добавляет — её удаляют либо перевешивают на другой узел.
+         *
+         *     Отдельный класс от IntermediateEdgeAlert: там конец уточняют до компонента, а
+         *     здесь конец УЖЕ компонент — этого же контейнера, и совет «уточните» бессмыслен.
+         */
+        DescendantEdgeAlert: {
+            /**
+             * Edge Id
+             * Format: uuid
+             */
+            edge_id: string;
+            /** Label */
+            label: string | null;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Name */
+            source_name: string;
+            /**
+             * Target Id
+             * Format: uuid
+             */
+            target_id: string;
+            /** Target Name */
+            target_name: string;
+            /** Source Is Part */
+            source_is_part: boolean;
         };
         /**
          * DirectionOut

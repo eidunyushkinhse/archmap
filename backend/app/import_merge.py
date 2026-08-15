@@ -862,12 +862,14 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
         if i not in linked and i not in parents and n.parent_idx is not None
     ]
     _warn_lonely(merged, report, lonely_idxs)
-    # Связь узла с собственным потомком разбирается ПЕРВОЙ и снимается с
-    # контейнерного класса: у неё свой диагноз и свой ответ (см. _warn_descendant_edges).
+    # Связь узла с собственным потомком разбирается ПЕРВОЙ и снимается со ВСЕХ
+    # остальных классов о связях: её ответ — «удалите или перевесьте», и совет
+    # «уточните конец» / «допишите канал» / «разделите перечень» рядом с ним
+    # противоречив (см. _warn_descendant_edges).
     внутренние = _warn_descendant_edges(merged, report)
     _warn_container_edges(merged, report, parents, внутренние)
-    _warn_broker_edges(merged, report)
-    _warn_channel_lists(merged, report)
+    _warn_broker_edges(merged, report, внутренние)
+    _warn_channel_lists(merged, report, внутренние)
     _warn_isolated_groups(merged, report)
 
 
@@ -1059,7 +1061,7 @@ def _kids_phrase(container: str, names: list[str], cap: int) -> str:
     return shown + tail
 
 
-def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
+def _warn_broker_edges(merged: ParsedImport, report: MergeReport, skip: set[int]) -> None:
     """Связи, упирающиеся в БРОКЕР, но не называющие канал.
 
     Решение пользователя №4 (docs/plan-broker-docs.md §4): стрелка в брокер обязана
@@ -1076,11 +1078,14 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
     так что общий файл есть всегда и адресат — первоисточник связи. Даже когда
     «брокером» конец сделал ЧУЖОЙ файл своим shape, замечание остаётся выполнимым:
     от агента требуется дописать одно поле — имя топика, в который пишет его код.
+
+    skip — связи класса «узел и его собственный потомок» (_warn_descendant_edges):
+    им велено исчезнуть, а не обзавестись каналом.
     """
     shown = hidden = 0
     hidden_idxs: list[int] = []
     for ei, e in enumerate(merged.edges):
-        if _fill(e.channel):
+        if ei in skip or _fill(e.channel):
             continue
         # dict.fromkeys — на случай петли: конец один, не два. Оба конца брокеры —
         # называем первый (искать канал придётся у обоих, починка начинается с любого).
@@ -1108,7 +1113,7 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
         )
 
 
-def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
+def _warn_channel_lists(merged: ParsedImport, report: MergeReport, skip: set[int]) -> None:
     """Связи, у которых в channel не имя канала, а ПЕРЕЧЕНЬ имён.
 
     Находка №2 полевого QA (docs/qa-zulip-brokers.md): агент кладёт в поле
@@ -1120,11 +1125,14 @@ def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
 
     Разделителем считаем запятую и точку с запятой. Точки, дефисы и версии в имени
     канала — норма («orders.created», «notify-orders»), и подозрений не вызывают.
+
+    skip — связи класса «узел и его собственный потомок» (та же причина, что у
+    брокерного класса: разделять на несколько связей нечего, связь лишняя целиком).
     """
     shown = hidden = 0
     hidden_idxs: list[int] = []
     for ei, e in enumerate(merged.edges):
-        if not _fill(e.channel) or not any(sep in e.channel for sep in (",", ";")):
+        if ei in skip or not _fill(e.channel) or not any(sep in e.channel for sep in (",", ";")):
             continue
         if shown >= _MAX_CHANNEL_LIST_EDGES:
             hidden += 1

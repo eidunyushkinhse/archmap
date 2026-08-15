@@ -16,7 +16,7 @@ function node(id: string, parent_id: string | null): Node {
 }
 const ALL: Node[] = [node("A", null), node("A1", "A"), node("B", null)];
 
-const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], broker_edge_channels: [] };
+const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], broker_edge_channels: [], descendant_edges: [] };
 
 describe("resolveAlertLocate", () => {
   it("узел: уровень = родитель, запрос node", () => {
@@ -42,6 +42,20 @@ describe("resolveAlertLocate", () => {
     // общий предок A1 (цепочка A→null) и B (цепочка null) = null (корень)
     expect(level).toBeNull();
     expect(request).toEqual({ kind: "edge", ids: ["e1"], endIds: ["A1", "B"], token: 3 });
+  });
+
+  it("связь в собственный компонент: концы берутся из своего класса алерта", () => {
+    // Класс отдельный от intermediate_edges (AL32), но концы несёт так же — иначе
+    // переход к связи терял бы endIds и не знал уровня.
+    const alerts: Alerts = {
+      ...EMPTY_ALERTS,
+      descendant_edges: [{
+        edge_id: "e2", label: null, source_id: "A", source_name: "A",
+        target_id: "A1", target_name: "A1", source_is_part: false,
+      }],
+    };
+    const { request } = resolveAlertLocate(ALL, { kind: "edge", id: "e2" }, alerts, 4);
+    expect(request).toEqual({ kind: "edge", ids: ["e2"], endIds: ["A", "A1"], token: 4 });
   });
 
   it("связь не найдена в алертах: фолбэк без endIds", () => {
@@ -71,6 +85,7 @@ describe("useSchemaAlerts", () => {
       unbound_participants: [], orphan_legs: [], unresolved_data_refs: [],
       unresolved_channel_refs: [],
       broker_edge_channels: [],
+      descendant_edges: [],
       container_own_docs: [], persons_inside: [], dangling_messages: [],
     } as Alerts;
     vi.mocked(nodesApi.getAlerts).mockResolvedValue(alerts);

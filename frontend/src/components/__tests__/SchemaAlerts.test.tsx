@@ -21,6 +21,7 @@ const EMPTY: Alerts = {
   unresolved_data_refs: [],
   unresolved_channel_refs: [],
   broker_edge_channels: [],
+  descendant_edges: [],
 };
 
 const DANGLING = {
@@ -363,5 +364,76 @@ describe("SchemaAlerts: связи с брокером без канала", () 
     await openPanel();
 
     expect(screen.queryByText("Связи с брокером без канала")).toBeNull();
+  });
+});
+
+// ── Связи в собственный компонент (AL32) ─────────────────────────────────────
+// Совет здесь ПРОТИВОПОЛОЖЕН соседней секции «Связи в контейнер»: не «уточните конец
+// до компонента» (конец уже компонент — этого же контейнера), а «удалите или
+// перевесьте». Паритет с превью импорта (К4): два взаимоисключающих совета на одну
+// связь — то, ради чего класс и заведён.
+
+const SELF_NEST = {
+  edge_id: "e9",
+  label: null as string | null,
+  source_id: "n1",
+  source_name: "background-workers",
+  target_id: "n2",
+  target_name: "email-senders",
+  source_is_part: false,
+};
+
+describe("SchemaAlerts: связи в собственный компонент", () => {
+  it("названа концами, объясняет вложенность и считается в общем счётчике", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, descendant_edges: [SELF_NEST] }} />);
+
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    await openPanel();
+
+    expect(screen.getByText("Связи в собственный компонент")).toBeTruthy();
+    expect(screen.getByText(/background-workers → email-senders/)).toBeTruthy();
+    // Часть подсвечена как конец-нарушитель, целое названо рядом.
+    expect(screen.getByText("«email-senders»")).toBeTruthy();
+    expect(screen.getByText(/часть «background-workers»/)).toBeTruthy();
+    expect(screen.getByText(/удалите связь или перевесьте её/)).toBeTruthy();
+  });
+
+  it("обратное направление называет частью источник", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{
+          ...EMPTY,
+          descendant_edges: [{
+            ...SELF_NEST,
+            source_name: "email-senders",
+            target_name: "background-workers",
+            source_is_part: true,
+          }],
+        }}
+      />,
+    );
+    await openPanel();
+
+    expect(screen.getByText("«email-senders»")).toBeTruthy();
+    expect(screen.getByText(/часть «background-workers»/)).toBeTruthy();
+  });
+
+  it("ведёт к СВЯЗИ на схеме: чинится сама связь", async () => {
+    const onLocate = vi.fn();
+    render(
+      <SchemaAlerts alerts={{ ...EMPTY, descendant_edges: [SELF_NEST] }} onLocate={onLocate} />,
+    );
+    await openPanel();
+
+    await userEvent.click(screen.getByText(/background-workers → email-senders/));
+
+    expect(onLocate).toHaveBeenCalledWith({ kind: "edge", id: "e9" });
+  });
+
+  it("пустая группа не рендерится", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF] }} />);
+    await openPanel();
+
+    expect(screen.queryByText("Связи в собственный компонент")).toBeNull();
   });
 });

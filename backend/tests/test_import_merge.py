@@ -759,6 +759,30 @@ def test_кап_на_связях_с_собственным_потомком():
     assert "…ещё 2 таких связей с собственным потомком" in report.warnings
 
 
+def test_на_связи_с_потомком_молчат_и_брокерный_класс_и_перечень_каналов():
+    """Ответ на такую связь один — «удалите или перевесьте». «Добавьте channel» и
+    «разделите перечень» рядом с ним противоречивы: делить и заполнять нечего, связь
+    лишняя целиком (то же правило, что у контейнерного класса)."""
+    узлы = (
+        "- name: Заказы\n"
+        "  children:\n"
+        "  - name: kafka\n"
+        "    shape: broker\n"
+        "  - name: сборщик\n"
+    )
+    for рёбра in (
+        "edges:\n- from: Заказы\n  to: kafka\n",
+        "edges:\n- from: Заказы\n  to: kafka\n  channel: \"orders.created, orders.paid\"\n",
+    ):
+        _merged, report, errors = parse_and_merge([_doc(узлы, рёбра)])
+
+        assert errors == []
+        assert len([w for w in report.warnings if "Заказы → kafka" in w]) == 1
+        assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
+        assert not any("а канал не указан" in w for w in report.warnings)
+        assert not any("в channel перечень" in w for w in report.warnings)
+
+
 def test_замечание_о_потомке_адресовано_файлу_связи():
     """Виновная сущность одна — сама связь, поэтому адресат общего правила Ф7 здесь
     всегда файл-первоисточник связи (её концы объявлены тем же файлом)."""
@@ -1071,13 +1095,14 @@ def _db_узел(db, name, parent=None):
     return n
 
 
-def _db_связь(db, src, tgt):
+def _db_связь(db, src, tgt, **kw):
     db.add(
         Edge(
             id=uuid.uuid4(),
             source_id=src.id,
             target_id=tgt.id,
             project_id=ensure_project(db).id,
+            **kw,
         )
     )
 
@@ -1120,6 +1145,46 @@ def test_паритет_с_алертом_изолированных_групп(
     assert errors2 == []
     assert get_alerts(db=db, project=ensure_project(db)).isolated_groups == []
     assert _группы(report2) == []
+
+
+def test_паритет_с_алертом_связи_в_собственного_потомка(db):
+    """Зеркало К4 ↔ AL32 на ОДНОМ дереве: превью импорта и панель проекта обязаны
+    классифицировать связь одинаково, иначе пользователь получает противоположные
+    советы на одну связь — превью «удалите», проект «уточните конец до компонента»
+    (и заодно «допишите канал», раз конец — брокер). Ровно это и происходило до
+    добивки К4: класса AL32 не существовало, и связь приезжала в intermediate_edges.
+    """
+    заказы = _db_узел(db, "Заказы")
+    kafka = _db_узел(db, "kafka", заказы)
+    kafka.shape = "broker"
+    _db_узел(db, "сборщик", заказы)
+    _db_связь(db, заказы, kafka)
+    db.commit()
+
+    алерт = get_alerts(db=db, project=ensure_project(db))
+    узлы = (
+        "- name: Заказы\n"
+        "  children:\n"
+        "  - name: kafka\n"
+        "    shape: broker\n"
+        "  - name: сборщик\n"
+    )
+    _merged, report, errors = parse_and_merge([
+        _doc(узлы, "edges:\n- from: Заказы\n  to: kafka\n")
+    ])
+
+    assert errors == []
+    # Обе стороны опознали КЛАСС: связь узла с собственным потомком.
+    assert len(алерт.descendant_edges) == 1
+    assert (алерт.descendant_edges[0].source_name, алерт.descendant_edges[0].target_name) == (
+        "Заказы",
+        "kafka",
+    )
+    assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
+    # И обе молчат об остальном: ни «уточните конец», ни «канал».
+    assert алерт.intermediate_edges == [] and алерт.broker_edge_channels == []
+    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("а канал не указан" in w for w in report.warnings)
 
 
 # ── природа замечаний: файловые против схемных (Ф6, docs/plan-skeptic-audit.md) ──

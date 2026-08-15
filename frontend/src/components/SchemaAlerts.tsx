@@ -43,7 +43,11 @@ import "./schemaAlerts.css";
  *     базы человека посылать нельзя;
  *  9) Связи с брокером без канала — стрелка в брокер не назвала топик/очередь либо
  *     назвала неизвестный структуре (AL31). Чинится в инспекторе самой связи,
- *     поэтому строка ведёт К СВЯЗИ на схеме.
+ *     поэтому строка ведёт К СВЯЗИ на схеме;
+ * 10) Связи в собственный компонент — связь между узлом и его же потомком (AL32).
+ *     Класс ОТДЕЛЬНЫЙ от (2): там конец уточняют до компонента, а здесь конец уже
+ *     компонент этого самого контейнера — вложенность выражает иерархия, и связь
+ *     удаляют либо перевешивают. Строка ведёт К СВЯЗИ на схеме.
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -82,6 +86,8 @@ const CheckIcon = ({ size = 15, sw = 2.2 }: { size?: number; sw?: number }) => (
 const sIco = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 const IcoUnlink = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="4.2" /><path d="M3.2 12.8 12.8 3.2" /></svg>;
 const IcoArrowBox = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="9" y="3.4" width="3.8" height="9.2" rx="1" /><path d="M2 8h5.2" /><path d="M5.2 5.6 7.6 8l-2.4 2.4" /></svg>;
+// Связь в собственный компонент: стрелка из рамки контейнера в коробочку внутри неё.
+const IcoSelfNest = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="1.6" y="2.4" width="12.8" height="11.2" rx="1.6" /><rect x="8.6" y="7.2" width="4" height="4.2" rx="1" /><path d="M4.4 5.2v4.1h4.2" /><path d="M7.2 7.9 8.8 9.3 7.2 10.7" /></svg>;
 const IcoScatter = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="4.2" cy="5" r="1.9" /><circle cx="11.6" cy="4.4" r="1.9" /><circle cx="8" cy="11.4" r="1.9" /></svg>;
 // Контейнер со своими схемами: бокс-контейнер с точкой («своя» схема внутри)
 const IcoBoxDocs = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="2.4" y="3" width="11.2" height="10" rx="1.6" /><path d="M2.4 6.2h11.2" /><circle cx="8" cy="9.8" r="1.2" fill="currentColor" stroke="none" /></svg>;
@@ -127,6 +133,9 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
 
   const disconnected = alerts.disconnected_nodes;
   const intermediate = alerts.intermediate_edges;
+  // Связи узла с его же потомком: иерархия вложенность уже выразила. Отдельно от
+  // «связей в контейнер» — там конец уточняют до компонента, здесь связь лишняя целиком.
+  const descendant = alerts.descendant_edges;
   const isolated = alerts.isolated_groups;
   // Правила контейнеров: контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather) —
   // каждая такая запись = 1 проблема (схемы/спеку надо распределить по детям).
@@ -158,7 +167,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // показываются как «2», но в сумму незавершённости дают «1».
   const isolatedProblems = Math.max(0, isolated.length - 1);
   const total =
-    disconnected.length + intermediate.length + isolatedProblems +
+    disconnected.length + intermediate.length + descendant.length + isolatedProblems +
     containerOwn.length + personsInside.length + dangling.length + unbound.length +
     orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length +
     brokerEdges.length;
@@ -256,6 +265,26 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
                 </span>
               </Item>
             ))}
+          </Section>
+
+          {/* Связь узла с его же потомком: совет тут ПРОТИВОПОЛОЖЕН соседней секции —
+              не «уточните конец», а «удалите или перевесьте». Строка ведёт К СВЯЗИ. */}
+          <Section icon={IcoSelfNest(13)} title="Связи в собственный компонент" count={descendant.length}>
+            {descendant.map((e) => {
+              const part = e.source_is_part ? e.source_name : e.target_name;
+              const whole = e.source_is_part ? e.target_name : e.source_name;
+              return (
+                <Item key={e.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: e.edge_id }))}>
+                  <span style={{ display: "block", lineHeight: 1.35 }}>
+                    <span style={{ color: "#6b7280", fontWeight: 600 }}>{e.source_name} → {e.target_name}:</span>{" "}
+                    <span style={badEnd}>«{part}»</span> — часть «{whole}»
+                  </span>
+                  <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", lineHeight: 1.35 }}>
+                    иерархия уже выражает вложенность — удалите связь или перевесьте её
+                  </span>
+                </Item>
+              );
+            })}
           </Section>
 
           <Section icon={IcoScatter(13)} title="Изолированные группы" count={isolated.length}>

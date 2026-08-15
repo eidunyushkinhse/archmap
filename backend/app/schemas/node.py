@@ -234,6 +234,25 @@ class IntermediateEdgeAlert(BaseModel):
     target_is_intermediate: bool
 
 
+class DescendantEdgeAlert(BaseModel):
+    """Связь между узлом и его СОБСТВЕННЫМ потомком (ребёнком, внуком, любой
+    глубины и в любую сторону): вложенность уже выражена иерархией, и стрелка
+    ничего к ней не добавляет — её удаляют либо перевешивают на другой узел.
+
+    Отдельный класс от IntermediateEdgeAlert: там конец уточняют до компонента, а
+    здесь конец УЖЕ компонент — этого же контейнера, и совет «уточните» бессмыслен."""
+    edge_id: uuid.UUID
+    label: str | None
+    source_id: uuid.UUID
+    source_name: str
+    target_id: uuid.UUID
+    target_name: str
+    # Какой конец является ЧАСТЬЮ другого: True — источник внутри приёмника,
+    # False — приёмник внутри источника. Одного флага хватает: обоими частями
+    # друг друга концы быть не могут.
+    source_is_part: bool
+
+
 class IsolatedGroupAlert(BaseModel):
     """Изолированная группа: связная компонента графа рёбер (≥2 узла),
     не имеющая ни одной связи с другими частями схемы. Считается только
@@ -392,6 +411,8 @@ class AlertsResponse(BaseModel):
     # Связи с брокером без канала / с неизвестным каналом (AL31) — дефолт [] по той же
     # причине.
     broker_edge_channels: list[BrokerEdgeChannelAlert] = []
+    # Связи узла с собственным потомком (AL32) — дефолт [] по той же причине.
+    descendant_edges: list[DescendantEdgeAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

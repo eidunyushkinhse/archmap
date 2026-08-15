@@ -178,6 +178,8 @@ export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
 // Связь с брокером, не назвавшая канал (missing) либо назвавшая неизвестный (unknown) —
 // шов «стрелка ↔ структура брокера», который держат алерты, а не FK (AL31).
 export type BrokerEdgeChannelAlert = Schemas["BrokerEdgeChannelAlert"];
+// Связь узла с его собственным потомком: вложенность уже выражена иерархией (AL32).
+export type DescendantEdgeAlert = Schemas["DescendantEdgeAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
