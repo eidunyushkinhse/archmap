@@ -41,6 +41,8 @@ _MAX_WARNINGS = 30
 # Связи в контейнер называем поимённо, но не все: замечания уезжают агенту одним
 # списком, и полсотни строк одного класса вытеснят остальное.
 _MAX_CONTAINER_EDGES = 10
+# Тот же кап у связей узла с собственным потомком — свой счётчик на класс.
+_MAX_DESCENDANT_EDGES = 10
 # Сколько компонентов контейнера перечисляем в таком замечании («цель с ответом»,
 # П5) и сколько — когда перечней в строке два (оба конца контейнеры): два длинных
 # перечисления в одной строке нечитаемы, поэтому там кап строже.
@@ -826,8 +828,9 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
     Находки ручной проверки 2026-08-08: агент кладёт людей внутрь системы
     (3 прогона из 4) и создаёт компоненты, не связанные ни с чем (2 объекта из
     10); третья — полевого QA (связи, упирающиеся в контейнер с компонентами,
-    см. _warn_container_edges). Промпт про это говорит, но соблюдает его модель
-    через раз — поэтому предупреждаем ЗДЕСЬ, до создания проекта.
+    см. _warn_container_edges); четвёртая — матрицы федерации (связи узла с его
+    собственным потомком, см. _warn_descendant_edges). Промпт про это говорит, но
+    соблюдает его модель через раз — поэтому предупреждаем ЗДЕСЬ, до создания проекта.
 
     Только предупреждения: тихо перестраивать чужое дерево (поднимать актора в
     корень) хуже, чем строка в отчёте, — пользователь не поймёт, что произошло.
@@ -859,7 +862,10 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
         if i not in linked and i not in parents and n.parent_idx is not None
     ]
     _warn_lonely(merged, report, lonely_idxs)
-    _warn_container_edges(merged, report, parents)
+    # Связь узла с собственным потомком разбирается ПЕРВОЙ и снимается с
+    # контейнерного класса: у неё свой диагноз и свой ответ (см. _warn_descendant_edges).
+    внутренние = _warn_descendant_edges(merged, report)
+    _warn_container_edges(merged, report, parents, внутренние)
     _warn_broker_edges(merged, report)
     _warn_channel_lists(merged, report)
     _warn_isolated_groups(merged, report)
@@ -895,8 +901,76 @@ def _warn_lonely(merged: ParsedImport, report: MergeReport, lonely_idxs: list[in
         )
 
 
+def _descends(nodes: list[_ImpNode], child: int, ancestor: int) -> bool:
+    """Потомок ли child для ancestor (ребёнок, внук, любая глубина).
+
+    Подъём по parent_idx конечен: родитель узла всегда создан раньше него самого
+    (add_node кладёт parent_m, уже существующий), поэтому индекс родителя строго
+    меньше индекса ребёнка и цикла в дереве быть не может."""
+    parent = nodes[child].parent_idx
+    while parent is not None:
+        if parent == ancestor:
+            return True
+        parent = nodes[parent].parent_idx
+    return False
+
+
+def _warn_descendant_edges(merged: ParsedImport, report: MergeReport) -> set[int]:
+    """Связи между узлом и его СОБСТВЕННЫМ потомком (в любую сторону, любой глубины).
+    Возвращает индексы таких связей — контейнерный класс их уже не разбирает.
+
+    Полевая находка матрицы федерации (docs/qa-federation-matrix.md, находка 4):
+    у Zulip таких связей пять («background-workers → email-senders», где цель —
+    компонент источника), у федерации они же сидят в intermediate_edges. Агент
+    рисует их сам под интро «дописывай недостающие связи»: вложенность ему кажется
+    отношением, которое надо провести стрелкой.
+
+    Почему отдельный класс, а не прежний контейнерный: связь между контейнером и его
+    компонентом СЕМАНТИЧЕСКИ ПУСТА — иерархия уже сказала всё, что стрелка пыталась
+    сказать, — а контейнерное замечание отвечало на неё бессмыслицей («уточните её до
+    конкретного компонента», хотя конец УЖЕ компонент, притом этого же контейнера).
+    Проверено полем: круги её не лечили. Ответ здесь другой — удалить или перевесить,
+    поэтому и класс свой (урок Х5 «цель с ответом» тот же).
+
+    Связь в ЧУЖОЙ контейнер («A → C / компонент», C ≠ A) под правило не подпадает и
+    остаётся прежним контейнерным классом с перечнем компонентов.
+
+    Адресат — файл-первоисточник связи: виновная сущность ровно одна (сама связь), а
+    её концы объявлены тем же файлом (ссылки резолвятся внутри файла).
+    """
+    shown = hidden = 0
+    hidden_idxs: list[int] = []
+    свои: set[int] = set()
+    for ei, e in enumerate(merged.edges):
+        if _descends(merged.nodes, e.target_idx, e.source_idx):
+            часть, целое = e.target_idx, e.source_idx
+        elif _descends(merged.nodes, e.source_idx, e.target_idx):
+            часть, целое = e.source_idx, e.target_idx
+        else:
+            continue
+        свои.add(ei)
+        if shown >= _MAX_DESCENDANT_EDGES:
+            hidden += 1
+            hidden_idxs.append(ei)
+            continue
+        shown += 1
+        a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
+        report.warn(
+            f"связь «{a} → {b}»: «{merged.nodes[часть].name}» — часть "
+            f"«{merged.nodes[целое].name}», иерархия уже выражает вложенность — "
+            f"удалите связь или перевесьте её на другой узел",
+            report.owner_of_edges([ei]),
+        )
+    if hidden:
+        report.warn(
+            f"…ещё {hidden} таких связей с собственным потомком",
+            report.owner_of_edges(hidden_idxs),
+        )
+    return свои
+
+
 def _warn_container_edges(
-    merged: ParsedImport, report: MergeReport, parents: set[int]
+    merged: ParsedImport, report: MergeReport, parents: set[int], skip: set[int]
 ) -> None:
     """Связи, упирающиеся в контейнер, У КОТОРОГО ЕСТЬ компоненты.
 
@@ -922,11 +996,17 @@ def _warn_container_edges(
     контейнера, раскрытого ЧУЖИМ файлом, замечание уходило человеку («агент их не
     видит») — в мульти-режиме туда оседал самый частый и самый механический класс
     правок.
+
+    skip — связи, уже разобранные классом «узел и его собственный потомок»
+    (_warn_descendant_edges): у них другой диагноз и другой ответ, и два замечания на
+    одну связь противоречили бы друг другу.
     """
     kids = _children_names(merged)
     shown = hidden = 0
     hidden_idxs: list[int] = []
     for ei, e in enumerate(merged.edges):
+        if ei in skip:
+            continue
         # dict.fromkeys — на случай петли «узел сам на себя»: конец один, не два.
         ends = [i for i in dict.fromkeys((e.source_idx, e.target_idx)) if i in parents]
         if not ends:

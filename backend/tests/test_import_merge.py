@@ -13,7 +13,8 @@ passthrough одного файла, нечувствительность к п�
 сироты строкой на файл-владельца (П4) и снимок одно-файлового прогона, удерживающий
 его байт-в-байт; Ф1: контейнерное замечание несёт перечень реальных компонентов и
 всегда адресуется файлу связи (П5); вторая итерация тюнинга Ф0: совпадение слабого
-якоря не гасит спор сильного поля (К3).
+якоря не гасит спор сильного поля (К3), связь узла с собственным потомком — свой
+класс замечания вместо контейнерного (К4).
 """
 
 import uuid
@@ -638,6 +639,138 @@ def test_контейнер_со_связанными_детьми_подвис�
 
     assert errors == []
     assert not any("без единой связи" in w for w in report.warnings)
+
+
+# ── связь узла с собственным потомком (Р2-Ф0, К4) ─────────────────────────────
+#
+# Полевая находка матрицы федерации (docs/qa-federation-matrix.md, находка 4): у Zulip
+# пять связей «background-workers → email-senders», где цель — компонент источника.
+# Иерархия уже выражает вложенность, стрелка семантически пуста, а прежний
+# контейнерный текст отвечал на неё бессмыслицей («уточните её до конкретного
+# компонента» — конец УЖЕ компонент, притом этого же контейнера), и круги её не лечили.
+
+_К4_ВЛОЖЕННОСТЬ = (
+    "- name: Zulip\n"
+    "  children:\n"
+    "  - name: background-workers\n"
+    "    children:\n"
+    "    - name: email-senders\n"
+    "      children:\n"
+    "      - name: smtp-client\n"
+    "  - name: redis\n"
+)
+
+
+def test_связь_в_собственного_ребёнка_это_свой_класс():
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: background-workers\n  to: email-senders\n")
+    ])
+
+    assert errors == []
+    assert (
+        "связь «background-workers → email-senders»: «email-senders» — часть "
+        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
+        "перевесьте её на другой узел"
+    ) in report.warnings
+
+
+def test_связь_во_внука_тоже_вложенность():
+    """Потомок — любой глубины: внук ничем не отличается от ребёнка, иерархия и его
+    вложенность уже выразила."""
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: background-workers\n  to: smtp-client\n")
+    ])
+
+    assert errors == []
+    assert (
+        "связь «background-workers → smtp-client»: «smtp-client» — часть "
+        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
+        "перевесьте её на другой узел"
+    ) in report.warnings
+
+
+def test_связь_потомка_в_свой_контейнер_зеркальна():
+    """Направление роли не играет: пуста и стрелка изнутри наружу, — но текст
+    называет частью того, кто ею и является."""
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: smtp-client\n  to: background-workers\n")
+    ])
+
+    assert errors == []
+    assert (
+        "связь «smtp-client → background-workers»: «smtp-client» — часть "
+        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
+        "перевесьте её на другой узел"
+    ) in report.warnings
+
+
+def test_на_связь_с_потомком_приходится_ровно_одно_замечание():
+    """Приоритет у нового класса: контейнерное замечание на ту же связь не выдаётся —
+    два ответа на одну связь противоречили бы друг другу («удалите» против
+    «уточните до компонента»)."""
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: background-workers\n  to: email-senders\n")
+    ])
+
+    assert errors == []
+    assert len([w for w in report.warnings if "background-workers → email-senders" in w]) == 1
+    assert not any("уточните её до конкретн" in w for w in report.warnings)
+
+
+def test_связь_в_чужой_контейнер_остаётся_прежним_классом():
+    """Не путать с законной связью в ДРУГОЙ контейнер: её конец уточняется до
+    компонента, и перечень целей на месте."""
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Zulip\n"
+            "  children:\n"
+            "  - name: background-workers\n"
+            "    children:\n"
+            "    - name: email-senders\n"
+            "  - name: zulip-web\n"
+            "    children:\n"
+            "    - name: django-app\n",
+            "edges:\n- from: background-workers\n  to: zulip-web\n",
+        )
+    ])
+
+    assert errors == []
+    assert (
+        "связь «background-workers → zulip-web»: оба конца в контейнерах "
+        "«background-workers» и «zulip-web», у которых есть компоненты, — уточните её "
+        "до конкретных компонентов: «background-workers / email-senders»; "
+        "«zulip-web / django-app»"
+    ) in report.warnings
+    assert not any("иерархия уже выражает вложенность" in w for w in report.warnings)
+
+
+def test_кап_на_связях_с_собственным_потомком():
+    # Кап и хвост — как у соседних классов: одинокий класс не вытесняет остальные.
+    сколько = 12
+    nodes = "- name: Zulip\n  children:\n"
+    for i in range(сколько):
+        nodes += f"  - name: svc{i}\n    children:\n    - name: part{i}\n"
+    edges = "edges:\n" + "".join(f"- from: svc{i}\n  to: part{i}\n" for i in range(сколько))
+
+    _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
+
+    assert errors == []
+    assert len([w for w in report.warnings if "иерархия уже выражает вложенность" in w]) == 10
+    assert "…ещё 2 таких связей с собственным потомком" in report.warnings
+
+
+def test_замечание_о_потомке_адресовано_файлу_связи():
+    """Виновная сущность одна — сама связь, поэтому адресат общего правила Ф7 здесь
+    всегда файл-первоисточник связи (её концы объявлены тем же файлом)."""
+    дерево = "nodes:\n- name: Zulip\n  children:\n  - name: workers\n    children:\n    - name: email-senders\n"
+    _merged, report, errors = parse_and_merge(
+        [дерево, дерево + "edges:\n- from: workers\n  to: email-senders\n"]
+    )
+    файлы, _ошибки_схемы, предупреждения_схемы = split_remarks(report)
+
+    assert errors == []
+    assert any("иерархия уже выражает вложенность" in w for w in файлы[1].warnings)
+    assert файлы[0].warnings == [] and предупреждения_схемы == []
 
 
 # ── канал на связи (Ф3 брокеров) ─────────────────────────────────────────────
