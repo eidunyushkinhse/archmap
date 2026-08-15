@@ -7,13 +7,14 @@
 имя в пределах одного СМЕРДЖЕННОГО родителя (то есть фактически путь
 «Система / Сервис / …»). Поля сливаются по правилу «богатое побеждает»
 (заполненное бьёт пустое, не-дефолт бьёт дефолт); расхождения заполненных
-значений не решаются молча — берётся первое по порядку файлов, а факт уходит
+значений не решаются молча — побеждает СОДЕРЖАТЕЛЬНЫЙ вклад (_substantial), а при
+равной содержательности первое по порядку файлов, и факт в обоих случаях уходит
 строкой в отчёт. Fuzzy-похожие имена НИКОГДА не склеиваются автоматически
 (ложная склейка двух разных сервисов хуже дубля) — только предупреждение.
 
-Результат детерминирован; порядок файлов влияет лишь на tie-break конфликтов,
-и это видно в отчёте. Выход совместим с seed_import без изменений (порядок
-«родители раньше детей» сохраняется по построению).
+Результат детерминирован; порядок файлов влияет лишь на tie-break конфликтов
+равной содержательности, и это видно в отчёте. Выход совместим с seed_import без
+изменений (порядок «родители раньше детей» сохраняется по построению).
 """
 
 from collections.abc import Hashable, Iterable
@@ -21,7 +22,7 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import TypeGuard, TypeVar
 
-from app.identity import compare_identity, merge_key_sets
+from app.identity import KEY_ORDER, key_type, merge_key_sets
 from app.import_yaml import (
     MAX_EDGES,
     MAX_NODES,
@@ -48,16 +49,82 @@ _MAX_CHANNEL_LIST_EDGES = 10
 # Изолированные группы: сколько групп называем и сколько имён показываем в каждой.
 _MAX_ISOLATED_GROUPS = 10
 _MAX_GROUP_NAMES = 6
+# Поля узла, которые СЛИВАЮТСЯ вкладами разных файлов (и, значит, могут спорить).
+# Имени и родителя здесь нет намеренно: их решает создатель узла — перевешивать
+# поддерево поздним файлом опаснее, чем оставить расхождение видимым в отчёте.
+_MERGED_FIELDS = ("role", "technology", "description", "shape", "status", "is_external")
 
 T = TypeVar("T", bound=Hashable)
+
+
+def _substantial(node: _ImpNode, has_children: bool) -> bool:
+    """Содержательность ВКЛАДА файла в узел: файл раскрыл узел компонентами либо
+    назвал его репозиторий (source.repo → ключ типа git).
+
+    Формализация полевого кейса федерации (docs/plan-federation-tuning.md, П2):
+    сосед описывает чужой продукт ЗАГЛУШКОЙ — имя, сетевой хост, угаданная
+    technology, external: true, — и такой вклад не должен решать спор о полях с
+    файлом, который этот продукт реально разбирал. Градаций ровно две: «видел
+    изнутри» (репозиторий или компоненты) против «видел снаружи»; тонких шкал не
+    вводим — их пришлось бы объяснять пользователю в отчёте.
+
+    Дети считаются по СВОЕМУ файлу, а не по слитому дереву: в слитом узел раскрыт
+    чужими компонентами, и заглушка задним числом стала бы содержательной."""
+    return has_children or any(key_type(k) == "git" for k in node.source_keys)
+
+
+def _by_type(keys: list[str]) -> dict[str, set[str]]:
+    """Ключи якоря по типам («git» → {git:…}, «host» → {host:…})."""
+    acc: dict[str, set[str]] = {}
+    for k in keys:
+        acc.setdefault(key_type(k), set()).add(k)
+    return acc
+
+
+def _compare_anchors(a: list[str], b: list[str]) -> str:
+    """Один ли это узел по якорям: «same» | «different» | «unknown» (матчер v2, П3).
+
+    Отличие от app.identity.compare_identity, где спор решает СИЛЬНЕЙШИЙ общий тип
+    ключа: здесь противоречие считается ПО-ПОЛЬНО (repo против repo, host против
+    host), отсутствующее у одной стороны поле не противоречит вовсе, а СОВПАДЕНИЕ
+    ЛЮБОГО типа ГАСИТ противоречие остальных.
+
+    Почему мягче: host — сетевое имя, по которому к сервису ходят ИЗ ЧУЖОГО
+    репозитория, то есть единственный межрепозиторный идентификатор в семантике
+    якоря («чужим сервисам — только сетевое имя, по которому к ним ходят»). Полевой
+    случай федерации Zabbix+Grafana: плагин вписал в узел продукта СВОЁ repo (для
+    него Grafana — место жительства), host у обоих «grafana» — по строгому правилу
+    продукт оставался раздвоенным, и защита от тёзок работала против воссоединения.
+
+    Настоящие тёзки (есть противоречащий тип и НЕТ ни одного совпавшего) по-прежнему
+    раздельны. Синк живой схемы (app/sync_plan) остаётся на строгом compare_identity:
+    там ложная склейка правит чужой узел в БД, а не строку превью."""
+    ta, tb = _by_type(a), _by_type(b)
+    shared = [t for t in ta if t in tb]
+    if not shared:
+        return "unknown"
+    return "same" if any(ta[t] & tb[t] for t in shared) else "different"
+
+
+def _rank_keys(keys: list[str], strong: list[str]) -> list[str]:
+    """Порядок якорей склеенного узла: тип по убыванию силы (как merge_key_sets), а
+    внутри типа — ключи СОДЕРЖАТЕЛЬНОГО вклада раньше.
+
+    Первый ключ уезжает в nodes.source_ref (seed_import) и служит опознанием узла
+    для будущих прогонов: у продукта там обязано стоять репо продукта, а не репо
+    плагина, вписавшего в его узел своё (П2 для якоря). Сортировка стабильная —
+    порядок внутри равных групп остаётся от merge_key_sets."""
+    order = {t: i for i, t in enumerate(KEY_ORDER)}
+    return sorted(keys, key=lambda k: (order.get(key_type(k), len(order)), k not in strong))
 
 
 def _least(files: set[int]) -> int | None:
     """Адресат из множества кандидатов — файл с наименьшим номером; пусто → None.
 
     Наименьший не произволен: при слиянии выигрывает первый по порядку файл (имя,
-    родитель, поля, канал — всё решается в его пользу), значит именно его правка
-    доедет до слитой схемы и погасит замечание."""
+    родитель, канал — всё решается в его пользу; поля — при равной содержательности
+    вкладов, П2), значит именно его правка доедет до слитой схемы и погасит
+    замечание."""
     return min(files) if files else None
 
 
@@ -128,7 +195,7 @@ class MergeReport:
 
     files: int
     merged_paths: list[str] = field(default_factory=list)  # узлы, склеенные из ≥2 файлов
-    conflicts: list[str] = field(default_factory=list)  # расхождения полей (оставлено первое)
+    conflicts: list[str] = field(default_factory=list)  # расхождения полей (кто победил — в тексте)
     warnings: list[str] = field(default_factory=list)  # fuzzy-пары, разные корни, похожие рёбра
     dropped_edges: int = 0  # выброшенные точные дубли рёбер
     errors: list[str] = field(default_factory=list)
@@ -269,6 +336,14 @@ class _Merger:
         self.nodes: list[_ImpNode] = []  # копии узлов, порядок «родители раньше детей»
         self.paths: list[str] = []  # полный путь merged-узла (для отчёта)
         self.sources: list[set[int]] = []  # какие файлы внесли вклад в узел
+        # Был ли среди вкладов хоть один СОДЕРЖАТЕЛЬНЫЙ (_substantial): им решается
+        # порядок якорей склеенного узла (_rank_keys).
+        self.substantial: list[bool] = []
+        # Чей вклад дал ТЕКУЩЕЕ значение каждого сливаемого поля: (файл,
+        # содержательность вклада). Нужно и для честных номеров файлов в строке
+        # конфликта, и для правила П2: спорит не «файл с файлом», а источник
+        # текущего значения с источником нового.
+        self.value_src: list[dict[str, tuple[int, bool]]] = []
         # (merged-родитель, норм-имя) → кандидаты. Список, а не один idx: якорь
         # может РАЗВЕСТИ двух тёзок в одном родителе (разные репозитории), и оба
         # обязаны остаться адресуемыми для следующих файлов.
@@ -289,37 +364,64 @@ class _Merger:
 
     # ── узлы ──────────────────────────────────────────────────────────────
 
-    def _conflict(self, idx: int, fld: str, kept: str, dropped: str, fi: int) -> None:
-        first = min(self.sources[idx]) + 1
+    def _conflict(
+        self, idx: int, fld: str, kept: str, dropped: str, keep_fi: int, drop_fi: int
+    ) -> None:
+        """Строка расхождения: номера файлов — источники ОСТАВЛЕННОГО и ОТБРОШЕННОГО
+        значений (а не «первый вкладчик узла»: значение могло прийти не с созданием,
+        а доливкой третьего файла, и победить тоже мог не первый — см. _decide)."""
         self.report.conflicts.append(
-            f"{self.paths[idx]}: {fld}: оставлено «{kept}» (файл {first}), "
-            f"отброшено «{dropped}» (файл {fi + 1})"
+            f"{self.paths[idx]}: {fld}: оставлено «{kept}» (файл {keep_fi + 1}), "
+            f"отброшено «{dropped}» (файл {drop_fi + 1})"
         )
 
-    def _merge_str(self, idx: int, fld: str, new: str | None, fi: int) -> None:
+    def _decide(self, idx: int, fld: str, cur: str, new: str, fi: int, sub: bool) -> None:
+        """Спор двух ЗАПОЛНЕННЫХ значений одного поля (П2): побеждает СОДЕРЖАТЕЛЬНЫЙ
+        вклад независимо от порядка файлов, при равной содержательности — прежнее
+        «первый побеждает». Строка отчёта остаётся в обоих случаях: молча слияние
+        не решает, кто прав."""
+        keep_fi, keep_sub = self.value_src[idx][fld]
+        if sub and not keep_sub:
+            setattr(self.nodes[idx], fld, new)
+            self.value_src[idx][fld] = (fi, sub)
+            self._conflict(idx, fld, new, cur, fi, keep_fi)
+            return
+        self._conflict(idx, fld, cur, new, keep_fi, fi)
+
+    def _merge_str(self, idx: int, fld: str, new: str | None, fi: int, sub: bool) -> None:
         cur = getattr(self.nodes[idx], fld)
         if not _fill(new) or (_fill(cur) and cur.strip() == new.strip()):
             return
         if not _fill(cur):
+            # Пустое против заполненного — не спор, а доливка (правило прежнее).
             setattr(self.nodes[idx], fld, new)
+            self.value_src[idx][fld] = (fi, sub)
             return
-        self._conflict(idx, fld, cur, new, fi)
+        self._decide(idx, fld, cur, new, fi, sub)
 
-    def _merge_enum(self, idx: int, fld: str, new: str, default: str, fi: int) -> None:
+    def _merge_enum(self, idx: int, fld: str, new: str, default: str, fi: int, sub: bool) -> None:
         # shape/status: не-дефолт бьёт дефолт (явный дефолт после парсинга
-        # неотличим от отсутствия поля — считаем его самым слабым утверждением).
+        # неотличим от отсутствия поля — считаем его самым слабым утверждением;
+        # содержательность вклада этого не меняет — утверждения тут просто нет).
         cur = getattr(self.nodes[idx], fld)
         if new == default or new == cur:
             return
         if cur == default:
             setattr(self.nodes[idx], fld, new)
+            self.value_src[idx][fld] = (fi, sub)
             return
-        self._conflict(idx, fld, cur, new, fi)
+        self._decide(idx, fld, cur, new, fi, sub)
 
     def _match_by_source(self, node: _ImpNode, fi: int) -> int | None:
-        """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии. Кандидат по слабому
-        ключу отбрасывается, если по сильному он противоречит (общий host «api»
-        при разных git — разные сервисы двух команд).
+        """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии: склеивает ЛЮБОЙ
+        совпавший ключ (матчер v2, П3).
+
+        Прежде кандидат по слабому ключу отбрасывался, если по сильному он
+        противоречил (общий host при разных git). Полевая федерация показала цену:
+        плагин вписал в узел продукта СВОЁ репо при общем host — и продукт остался
+        раздвоенным. Теперь совпадение любого якорного поля гасит противоречие
+        остальных (_compare_anchors), а расхождение полей решает содержательность
+        вклада (П2), а не разрыв узла надвое.
 
         Узлы ОДНОГО файла не склеиваются никогда, даже при совпавшем якоре: внутри
         файла агент развёл их осознанно (тот же принцип, что в warn_fuzzy_siblings).
@@ -330,15 +432,18 @@ class _Merger:
             hit = self.by_source.get(k)
             if hit is None or fi in self.sources[hit]:
                 continue
-            if compare_identity(self.nodes[hit].source_keys, node.source_keys) != "different":
-                return hit
+            # Ключ k общий по построению (by_source отдаёт узел, у которого он есть),
+            # то есть _compare_anchors здесь заведомо ответил бы «same».
+            return hit
         return None
 
     def _match_by_name(self, node: _ImpNode, parent_m: int | None) -> int | None:
         """Матч по имени в пределах слитого родителя — прежнее поведение, но с
-        предохранителем: тёзка с противоречащим якорем НЕ склеивается."""
+        предохранителем: тёзка с ПРОТИВОРЕЧАЩИМ якорем не склеивается. Противоречие
+        считается по-польно и гасится любым совпадением (_compare_anchors, П3):
+        раздельны только настоящие тёзки — разные репозитории И разные хосты."""
         for idx in self.by_key.get((parent_m, _norm(node.name)), []):
-            if compare_identity(self.nodes[idx].source_keys, node.source_keys) == "different":
+            if _compare_anchors(self.nodes[idx].source_keys, node.source_keys) == "different":
                 # Замечание о ФАЙЛАХ (тёзки из разных прогонов) — виноватого нет.
                 self.report.warn(
                     f"«{node.name}» ({self._where(parent_m)}) встречается в файлах как РАЗНЫЕ "
@@ -372,7 +477,7 @@ class _Merger:
                 continue
             self.by_source.setdefault(k, idx)
 
-    def add_node(self, node: _ImpNode, parent_m: int | None, fi: int) -> int:
+    def add_node(self, node: _ImpNode, parent_m: int | None, fi: int, sub: bool) -> int:
         hit = self._match_by_source(node, fi)
         if hit is None:
             hit = self._match_by_name(node, parent_m)
@@ -382,6 +487,10 @@ class _Merger:
             prefix = f"{self.paths[parent_m]} / " if parent_m is not None else ""
             self.paths.append(prefix + node.name)
             self.sources.append({fi})
+            self.substantial.append(sub)
+            # Все поля нового узла пришли из этого файла — спорить с ними следующие
+            # будут против его содержательности.
+            self.value_src.append(dict.fromkeys(_MERGED_FIELDS, (fi, sub)))
             self._register(idx, node, parent_m, fi)
             return idx
         # Узел уже есть — склейка полей. Имя оставляем первое встреченное
@@ -392,8 +501,9 @@ class _Merger:
         # «app», вызывающие ходят на «payments») либо положенные под разных родителей.
         # Оставляем первое — перевешивать поддерево по позднему файлу опаснее, чем
         # оставить расхождение видимым в отчёте.
+        creator = min(self.sources[hit])  # имя и место узла всегда от создателя
         if _norm(node.name) != _norm(self.nodes[hit].name):
-            self._conflict(hit, "имя", self.nodes[hit].name, node.name, fi)
+            self._conflict(hit, "имя", self.nodes[hit].name, node.name, creator, fi)
         kept_parent = self.nodes[hit].parent_idx
         if parent_m != kept_parent:
             top = "верхний уровень"
@@ -402,26 +512,47 @@ class _Merger:
                 "родитель",
                 self.paths[kept_parent] if kept_parent is not None else top,
                 self.paths[parent_m] if parent_m is not None else top,
+                creator,
                 fi,
             )
         # Грани источника у прогонов разные — склеенный узел наследует все, иначе
-        # следующий файл не найдёт его по той грани, которой не досталось.
-        self.nodes[hit].source_keys = merge_key_sets(self.nodes[hit].source_keys, node.source_keys)
+        # следующий файл не найдёт его по той грани, которой не досталось. Порядок
+        # внутри типа решает содержательность: канонический ключ (он же будущий
+        # source_ref) должен принадлежать тому, кто видел узел изнутри.
+        strong = (
+            node.source_keys
+            if sub and not self.substantial[hit]
+            else self.nodes[hit].source_keys
+        )
+        self.nodes[hit].source_keys = _rank_keys(
+            merge_key_sets(self.nodes[hit].source_keys, node.source_keys), strong
+        )
         for k in self.nodes[hit].source_keys:
             self.by_source.setdefault(k, hit)
-        self._merge_str(hit, "role", node.role, fi)
-        self._merge_str(hit, "technology", node.technology, fi)
-        self._merge_str(hit, "description", node.description, fi)
-        self._merge_enum(hit, "shape", node.shape, "service", fi)
-        self._merge_enum(hit, "status", node.status, "existing", fi)
+        self._merge_str(hit, "role", node.role, fi, sub)
+        self._merge_str(hit, "technology", node.technology, fi, sub)
+        self._merge_str(hit, "description", node.description, fi, sub)
+        self._merge_enum(hit, "shape", node.shape, "service", fi, sub)
+        self._merge_enum(hit, "status", node.status, "existing", fi, sub)
         if node.is_external != self.nodes[hit].is_external:
-            # external обычно ставят осознанно — расхождение решаем в пользу true.
-            first = min(self.sources[hit]) + 1
+            keep_fi, keep_sub = self.value_src[hit]["is_external"]
+            if sub != keep_sub:
+                # Заглушка соседа («чужой продукт — внешняя система») не красит узел,
+                # который другой файл разбирал изнутри: там external — свойство места
+                # соседа, а не самого продукта (П2, полевой кейс Grafana).
+                winner = node.is_external if sub else self.nodes[hit].is_external
+            else:
+                # Равные вклады: external ставят осознанно — решаем в пользу true.
+                winner = True
             self.report.conflicts.append(
-                f"{self.paths[hit]}: external: файлы {first} и {fi + 1} расходятся — оставлено true"
+                f"{self.paths[hit]}: external: файлы {keep_fi + 1} и {fi + 1} расходятся — "
+                f"оставлено {'true' if winner else 'false'}"
             )
-            self.nodes[hit].is_external = True
+            if winner != self.nodes[hit].is_external:
+                self.nodes[hit].is_external = winner
+                self.value_src[hit]["is_external"] = (fi, sub)
         self.sources[hit].add(fi)
+        self.substantial[hit] = self.substantial[hit] or sub
         return hit
 
     # ── рёбра ─────────────────────────────────────────────────────────────
@@ -552,10 +683,13 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
         )
     m = _Merger(files=len(parts))
     for fi, part in enumerate(parts):
+        # Кто раскрыт компонентами В ЭТОМ файле — половина признака содержательности
+        # вклада (_substantial); считаем до обхода, дети идут после родителя.
+        opened = {n.parent_idx for n in part.nodes if n.parent_idx is not None}
         idx_map: list[int] = []  # индекс узла в файле → индекс в merged
-        for node in part.nodes:
+        for ni, node in enumerate(part.nodes):
             parent_m = idx_map[node.parent_idx] if node.parent_idx is not None else None
-            idx_map.append(m.add_node(node, parent_m, fi))
+            idx_map.append(m.add_node(node, parent_m, fi, _substantial(node, ni in opened)))
         for e in part.edges:
             m.add_edge(e, idx_map, fi)
     return m.finish(parts)
@@ -599,19 +733,41 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
         for i, n in enumerate(merged.nodes)
         if i not in linked and i not in parents and n.parent_idx is not None
     ]
-    if lonely_idxs:
-        lonely = [merged.nodes[i].name for i in lonely_idxs]
+    _warn_lonely(merged, report, lonely_idxs)
+    _warn_container_edges(merged, report, parents)
+    _warn_broker_edges(merged, report)
+    _warn_channel_lists(merged, report)
+    _warn_isolated_groups(merged, report)
+
+
+def _warn_lonely(merged: ParsedImport, report: MergeReport, lonely_idxs: list[int]) -> None:
+    """«Объектов без единой связи» — СТРОКОЙ НА ФАЙЛ-ВЛАДЕЛЕЦ (П4).
+
+    Сборный список сирот всей слитой схемы уходил в схемную корзину, стоило сиротам
+    прийти из разных файлов: файла, внёсшего вклад в КАЖДОГО из них, нет, и по общему
+    правилу Ф7 адресата у строки не находилось. А чинит каждого сироту его агент —
+    поэтому список режется по владельцу: сироты, весь вклад в которые сделал один
+    файл, собираются в его строку (формулировка, счёт и кап имён — прежние, только
+    про его объекты), а сироты-склейки нескольких файлов идут одной общей строкой,
+    адресат которой считается всё тем же правилом Ф7 (наименьший общий файл; общего
+    нет — схемная корзина, свести таких может только видящий весь ландшафт).
+
+    При единственном файле группа ровно одна, и текст совпадает с прежним байт-в-байт."""
+    groups: dict[int | None, list[int]] = {}
+    for i in lonely_idxs:
+        files = report.node_files[i] if i < len(report.node_files) else set()
+        groups.setdefault(next(iter(files)) if len(files) == 1 else None, []).append(i)
+    # Детерминированный порядок строк: владельцы по номеру файла, общая — последней.
+    for owner in sorted(groups, key=lambda f: (f is None, f or 0)):
+        idxs = groups[owner]
+        lonely = [merged.nodes[i].name for i in idxs]
         names = ", ".join(f"«{x}»" for x in lonely[:6])
         tail = f" и ещё {len(lonely) - 6}" if len(lonely) > 6 else ""
         report.warn(
             f"объектов без единой связи: {len(lonely)} ({names}{tail}) — проверьте, "
             f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»",
-            report.owner_of_nodes(lonely_idxs),
+            report.owner_of_nodes(idxs),
         )
-    _warn_container_edges(merged, report, parents)
-    _warn_broker_edges(merged, report)
-    _warn_channel_lists(merged, report)
-    _warn_isolated_groups(merged, report)
 
 
 def _warn_container_edges(
