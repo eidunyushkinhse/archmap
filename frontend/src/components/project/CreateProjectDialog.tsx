@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ImportPreviewOut, Project, TemplateOut } from "../../types";
+import type { ImportPreviewOut, Project, PromptVariant, TemplateOut } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import PromptTriple from "../docsImport/PromptTriple";
 import C4Preview from "./C4Preview";
 import ImportPane from "./ImportPane";
 import "./createProject.css";
@@ -71,7 +72,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [promptLang, setPromptLang] = useState<"ru" | "en">("ru");
   const [promptHints, setPromptHints] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
-  const [promptCopied, setPromptCopied] = useState(false);
 
   // Загрузка каталога шаблонов (легитимный эффект). По умолчанию выбран webapp,
   // иначе первый из ответа.
@@ -129,24 +129,24 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     !(importish && !summary?.ok);
 
   // Промпт собирает бэкенд (истина формата — рядом с валидатором импорта);
-  // копирование после fetch — в пределах жеста, Chrome это допускает.
-  function copyPrompt() {
-    if (!name.trim() || promptBusy) return;
+  // копирование после fetch — в пределах жеста, Chrome это допускает. Имя системы
+  // вшито в промпт ЛЮБОГО варианта (в том числе аудитного), поэтому вся тройка
+  // неактивна, пока проект без имени. «Скопировано» показывает PromptTriple по
+  // разрешению обещания — ошибку пробрасываем, чтобы её не показал.
+  function copyPrompt(variant: PromptVariant): Promise<void> {
     setPromptBusy(true);
-    projectsApi
+    return projectsApi
       .importPrompt({
         systemName: name.trim(),
         depth: promptDepth,
         lang: promptLang,
         hints: promptHints.trim() || undefined,
+        variant,
       })
       .then((res) => navigator.clipboard.writeText(res.prompt))
-      .then(() => {
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2500);
-      })
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : "Не удалось скопировать промпт");
+        throw e;
       })
       .finally(() => setPromptBusy(false));
   }
@@ -308,14 +308,14 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                       placeholder="например: монорепо, сервисы в services/*"
                     />
                   </div>
-                  <button
-                    type="button"
-                    style={{ ...secondaryBtn, opacity: name.trim() ? 1 : 0.55 }}
+                  <PromptTriple
+                    label="Скопировать промпт"
+                    copiedLabel="Промпт скопирован ✓"
+                    kind="secondary"
+                    buttonStyle={{ opacity: name.trim() ? 1 : 0.55 }}
                     disabled={!name.trim() || promptBusy}
-                    onClick={copyPrompt}
-                  >
-                    {promptCopied ? "Промпт скопирован ✓" : "Скопировать промпт"}
-                  </button>
+                    copy={copyPrompt}
+                  />
                 </div>
               )}
             </div>

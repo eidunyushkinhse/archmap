@@ -11,13 +11,14 @@
 // Слева — тот же промпт «Из репозитория» (его запускают в каждом репозитории
 // системы), справа — файлы прогона, политики и план.
 import { useEffect, useRef, useState } from "react";
-import type { SyncApplyOut, SyncPreviewOut } from "../../types";
+import type { PromptVariant, SyncApplyOut, SyncPreviewOut } from "../../types";
 import { projectsApi, type SyncPolicies } from "../../api/projects";
 import { ApiError } from "../../api/client";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import { planSections, planSummary, applySummary } from "./syncPlanView";
 import { NoteList } from "./agentModalReport";
+import PromptTriple from "./PromptTriple";
 import {
   head, sub, cols, leftCol, rightCol, hintsArea, leftNote,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
@@ -69,7 +70,6 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   const [projectName, setProjectName] = useState("");
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  const [promptCopied, setPromptCopied] = useState(false);
   const pkg = useDocsFiles();
   const [policies, setPolicies] = useState<SyncPolicies>({
     update_descriptions: false,
@@ -133,16 +133,12 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
     return () => window.clearTimeout(t);
   }, [pkg.files, policies, projectId]);
 
-  const copyPrompt = () => {
+  // Запрос задания + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
+  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  const copyPrompt = (variant: PromptVariant): Promise<void> =>
     projectsApi
-      .importPrompt({ systemName: projectName, depth: 3, lang, hints: hints.trim() || undefined })
-      .then((r) => navigator.clipboard.writeText(r.prompt))
-      .then(() => {
-        setPromptCopied(true);
-        window.setTimeout(() => setPromptCopied(false), 1800);
-      })
-      .catch(() => setPromptCopied(false));
-  };
+      .importPrompt({ systemName: projectName, depth: 3, lang, hints: hints.trim() || undefined, variant })
+      .then((r) => navigator.clipboard.writeText(r.prompt));
 
   const apply = () => {
     if (!preview?.ok || preview.is_noop) return;
@@ -209,14 +205,14 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             onChange={(e) => setHints(e.target.value)}
             placeholder="Например: игнорируй каталог legacy/"
           />
-          <button
-            type="button"
-            style={{ ...secondaryBtn, marginTop: 10 }}
-            onClick={copyPrompt}
+          <PromptTriple
+            label="Скопировать задание для агента"
+            copiedLabel="Скопировано"
+            kind="secondary"
+            buttonStyle={{ marginTop: 10 }}
             disabled={!projectName}
-          >
-            {promptCopied ? "Скопировано" : "Скопировать задание для агента"}
-          </button>
+            copy={copyPrompt}
+          />
           <p style={leftNote}>
             В задании система названа «{projectName}». Одно и то же задание выполняется в каждом
             репозитории: объекты узнаются по репозиторию, образу и сетевому имени, поэтому
