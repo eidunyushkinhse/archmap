@@ -15,6 +15,7 @@ passthrough одного файла, нечувствительность к п�
 """
 
 import uuid
+from itertools import permutations
 
 from conftest import ensure_project
 
@@ -1396,6 +1397,59 @@ def test_плагин_с_чужим_репо_но_общим_хостом_скл
     grafana = _node_by_path(merged, "Grafana")
     assert grafana.source_keys[0] == "git:github.com/grafana/grafana"
     assert "git:github.com/alexanderzobnin/grafana-zabbix" in grafana.source_keys
+
+
+def test_склейка_федерации_не_зависит_от_порядка_файлов():
+    """Инвариант матчера v3: исход не зависит от порядка панели (тот же инвариант,
+    что у П2). Инкрементальный матчер ему не отвечал — узел копит ключи, и продукт,
+    легший ПОСЛЕ плагина, противоречил уже накопленному чужому repo: в двух
+    перестановках из шести Grafana оставалась раздвоенной. Стабилизация (_regroup)
+    сравнивает ВКЛАДЫ по отдельности и добирает такие склейки повторным проходом."""
+    for порядок in permutations((_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+        пути = _path_list(merged)
+        продукт = [p for p in пути if p.casefold() == "grafana"]
+
+        assert len(продукт) == 1, порядок  # продукт един, а не раздвоен
+        assert len(merged.nodes) == 7, порядок
+        # Имя узла — от файла-создателя («Grafana» либо «grafana»), состав — общий.
+        корень = продукт[0]
+        assert {p for p in пути if p.startswith(f"{корень} / ")} == {
+            f"{корень} / grafana-server",
+            f"{корень} / grafana-frontend",
+            f"{корень} / zabbix-datasource",
+            f"{корень} / zabbix-panel",
+        }, порядок
+        grafana = _node_by_path(merged, корень)
+        assert sorted(grafana.source_keys) == [
+            "git:github.com/alexanderzobnin/grafana-zabbix",
+            "git:github.com/grafana/grafana",
+            "host:grafana",
+        ], порядок
+        # П2 держится в любом порядке — заглушка не красит продукт.
+        assert (grafana.is_external, grafana.technology) == (False, "Go, TypeScript"), порядок
+        assert not any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+
+
+def test_тёзки_раздельны_во_всех_порядках_даже_с_безъякорной_заглушкой():
+    """Обратная сторона стабилизации: свидетелем работает только вклад С ЯКОРЯМИ.
+    Безъякорная тёзка попадает в узел по имени и не должна связывать двух чужих друг
+    другу «api» — иначе порядконезависимость купилась бы ценой молчаливой ложной
+    склейки, которая хуже дубля (дубль видно, склейка выглядит корректной схемой)."""
+    команда_a = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-a/api.git, host: api-a}\n"
+    )
+    команда_b = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-b/api.git, host: api-b}\n"
+    )
+    безъякорная = "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+    for порядок in permutations((команда_a, команда_b, безъякорная)):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+
+        assert len([n for n in merged.nodes if n.name == "api"]) == 2, порядок
+        assert any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
 
 
 def test_настоящие_тёзки_без_единого_совпадения_остаются_раздельными():

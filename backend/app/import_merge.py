@@ -53,6 +53,10 @@ _MAX_GROUP_NAMES = 6
 # Имени и родителя здесь нет намеренно: их решает создатель узла — перевешивать
 # поддерево поздним файлом опаснее, чем оставить расхождение видимым в отчёте.
 _MERGED_FIELDS = ("role", "technology", "description", "shape", "status", "is_external")
+# Сколько раз повторяем проход ради стабилизации склейки (_regroup). Каждый повтор
+# строго уменьшает число узлов, так что цикл сходится сам; кап — защита от
+# патологического входа, а не рабочий предел (на практике хватает одного повтора).
+_MAX_STABILIZE_PASSES = 5
 
 T = TypeVar("T", bound=Hashable)
 
@@ -104,6 +108,29 @@ def _compare_anchors(a: list[str], b: list[str]) -> str:
     if not shared:
         return "unknown"
     return "same" if any(ta[t] & tb[t] for t in shared) else "different"
+
+
+def _bridged(a: list[tuple[int, int, list[str]]], b: list[tuple[int, int, list[str]]]) -> bool:
+    """Есть ли между двумя узлами ВКЛАД-СВИДЕТЕЛЬ (матчер v3): пара вкладов (по
+    одному с каждой стороны), у ОБОИХ есть якоря и они друг другу не противоречат.
+
+    Зачем сравнивать вклады, а не накопленные множества ключей: накопленное растёт
+    по ходу прохода, поэтому строгая проверка против него делает результат зависимым
+    от порядка файлов. Полевой контрпример — тот же продукт: если плагин лёг РАНЬШЕ
+    своего продукта, узел уже нёс чужое repo, и продукт (у которого только repo)
+    противоречил ему, хотя с вкладом-заглушкой (только host) не спорил ничем.
+    Свидетель гасит противоречие соседнего вклада ровно так же, как в П3 его гасит
+    совпадение поля: узел один, просто разные файлы видят разные его грани.
+
+    Почему у обоих сторон якоря обязательны: вклад БЕЗ якорей не свидетельствует ни
+    о чём — он попал в узел по имени, и позволить ему связать двух чужих друг другу
+    тёзок значило бы вернуть молчаливую ложную склейку, ради которой якоря и
+    заводились (она хуже дубля: выглядит как корректная схема)."""
+    return any(
+        ka and kb and _compare_anchors(ka, kb) != "different"
+        for _fa, _na, ka in a
+        for _fb, _nb, kb in b
+    )
 
 
 def _rank_keys(keys: list[str], strong: list[str]) -> list[str]:
@@ -331,11 +358,20 @@ def _similar(a: str, b: str) -> bool:
 class _Merger:
     """Состояние одного прогона слияния (класс вместо замыканий — читаемость)."""
 
-    def __init__(self, files: int):
+    def __init__(self, files: int, force: dict[tuple[int, int], int] | None = None):
         self.report = MergeReport(files=files)
         self.nodes: list[_ImpNode] = []  # копии узлов, порядок «родители раньше детей»
         self.paths: list[str] = []  # полный путь merged-узла (для отчёта)
         self.sources: list[set[int]] = []  # какие файлы внесли вклад в узел
+        # Вклады узла ПО ОТДЕЛЬНОСТИ: (файл, индекс узла в файле, его якорные ключи).
+        # Слитый набор ключей (_ImpNode.source_keys) для сравнения идентичности не
+        # годится — он растёт по ходу прохода и делает исход зависимым от порядка
+        # файлов; стабилизация (_regroup) сравнивает именно вклады.
+        self.contribs: list[list[tuple[int, int, list[str]]]] = []
+        # Склейки, установленные стабилизацией предыдущего прохода: атом (файл,
+        # индекс в файле) → номер группы, и группа → уже созданный узел.
+        self.force = force or {}
+        self.by_group: dict[int, int] = {}
         # Был ли среди вкладов хоть один СОДЕРЖАТЕЛЬНЫЙ (_substantial): им решается
         # порядок якорей склеенного узла (_rank_keys).
         self.substantial: list[bool] = []
@@ -477,8 +513,27 @@ class _Merger:
                 continue
             self.by_source.setdefault(k, idx)
 
-    def add_node(self, node: _ImpNode, parent_m: int | None, fi: int, sub: bool) -> int:
-        hit = self._match_by_source(node, fi)
+    def _remember_group(self, idx: int, fi: int, ni: int) -> None:
+        """Узел, в который лёг атом группы, — адресат для остальных её атомов."""
+        gid = self.force.get((fi, ni))
+        if gid is not None:
+            self.by_group.setdefault(gid, idx)
+
+    def _match_by_group(self, fi: int, ni: int) -> int | None:
+        """Склейка, УЖЕ установленная стабилизацией предыдущего прохода (v3): решение
+        принято на полном результате, где виден каждый вклад, поэтому оно сильнее
+        инкрементальных матчеров и проверяется первым. Узлы одного файла не
+        склеиваются и здесь — правило общее для всех матчеров."""
+        gid = self.force.get((fi, ni))
+        if gid is None:
+            return None
+        hit = self.by_group.get(gid)
+        return None if hit is None or fi in self.sources[hit] else hit
+
+    def add_node(self, node: _ImpNode, parent_m: int | None, fi: int, ni: int, sub: bool) -> int:
+        hit = self._match_by_group(fi, ni)
+        if hit is None:
+            hit = self._match_by_source(node, fi)
         if hit is None:
             hit = self._match_by_name(node, parent_m)
         if hit is None:
@@ -488,11 +543,15 @@ class _Merger:
             self.paths.append(prefix + node.name)
             self.sources.append({fi})
             self.substantial.append(sub)
+            self.contribs.append([(fi, ni, list(node.source_keys))])
             # Все поля нового узла пришли из этого файла — спорить с ними следующие
             # будут против его содержательности.
             self.value_src.append(dict.fromkeys(_MERGED_FIELDS, (fi, sub)))
+            self._remember_group(idx, fi, ni)
             self._register(idx, node, parent_m, fi)
             return idx
+        self.contribs[hit].append((fi, ni, list(node.source_keys)))
+        self._remember_group(hit, fi, ni)
         # Узел уже есть — склейка полей. Имя оставляем первое встреченное
         # (различие лишь в регистре/пробелах — в отчёт не шумим).
         if fi not in self.sources[hit] and len(self.sources[hit]) == 1:
@@ -681,7 +740,23 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
             node_files=[{0} for _ in parts[0].nodes],
             edge_files=[{0} for _ in parts[0].edges],
         )
-    m = _Merger(files=len(parts))
+    # Проход инкрементальный (файл за файлом), поэтому чувствителен к порядку: узел
+    # копит ключи, и поздний кандидат сравнивается уже с накопленным. Стабилизация
+    # (_regroup) смотрит на ГОТОВЫЙ результат, где каждый вклад виден по отдельности,
+    # и повторяет проход с найденными склейками — пока новых не находится. Так исход
+    # перестаёт зависеть от порядка панели (тот же инвариант, что у П2).
+    m = _run_merge(parts, {})
+    for _ in range(_MAX_STABILIZE_PASSES):
+        force = _regroup(m)
+        if force is None:
+            break
+        m = _run_merge(parts, force)
+    return m.finish(parts)
+
+
+def _run_merge(parts: list[ParsedImport], force: dict[tuple[int, int], int]) -> _Merger:
+    """Один проход слияния: файлы по порядку, узлы «родители раньше детей»."""
+    m = _Merger(files=len(parts), force=force)
     for fi, part in enumerate(parts):
         # Кто раскрыт компонентами В ЭТОМ файле — половина признака содержательности
         # вклада (_substantial); считаем до обхода, дети идут после родителя.
@@ -689,10 +764,52 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
         idx_map: list[int] = []  # индекс узла в файле → индекс в merged
         for ni, node in enumerate(part.nodes):
             parent_m = idx_map[node.parent_idx] if node.parent_idx is not None else None
-            idx_map.append(m.add_node(node, parent_m, fi, _substantial(node, ni in opened)))
+            idx_map.append(m.add_node(node, parent_m, fi, ni, _substantial(node, ni in opened)))
         for e in part.edges:
             m.add_edge(e, idx_map, fi)
-    return m.finish(parts)
+    return m
+
+
+def _regroup(m: _Merger) -> dict[tuple[int, int], int] | None:
+    """Стабилизация склейки (матчер v3): какие узлы результата на самом деле один и
+    тот же объект. Возвращает разметку «атом (файл, индекс в файле) → группа» для
+    повторного прохода либо None, если объединять нечего.
+
+    Правило симметрично и не зависит от порядка файлов: ОДНОИМЁННЫЕ узлы одного
+    родителя объединяются, если между ними есть вклад-свидетель (_bridged) — пара
+    вкладов с якорями, друг другу не противоречащих. Голые противоречия (ни одна
+    пара вкладов не совместима) держат узлы раздельно, как и раньше: настоящие тёзки
+    двух команд остаются двумя узлами в любом порядке файлов.
+
+    Разметка описывает ВЕСЬ результат (не только новые склейки): повторный проход
+    обязан воспроизвести и то, что матчеры уже нашли сами, иначе он разошёлся бы с
+    предыдущим. Возвращаем группы атомами, а не индексами узлов, потому что индексы
+    следующего прохода будут другими.
+    """
+    root = list(range(len(m.nodes)))
+
+    def find(x: int) -> int:
+        while root[x] != x:
+            root[x] = root[root[x]]
+            x = root[x]
+        return x
+
+    changed = False
+    namesakes: dict[tuple[int | None, str], list[int]] = {}
+    for i, n in enumerate(m.nodes):
+        namesakes.setdefault((n.parent_idx, _norm(n.name)), []).append(i)
+    for idxs in namesakes.values():
+        for a in range(len(idxs)):
+            for b in range(a + 1, len(idxs)):
+                ra, rb = find(idxs[a]), find(idxs[b])
+                if ra == rb or not _bridged(m.contribs[idxs[a]], m.contribs[idxs[b]]):
+                    continue
+                # Представитель — наименьший индекс: детерминированные номера групп.
+                root[max(ra, rb)] = min(ra, rb)
+                changed = True
+    if not changed:
+        return None
+    return {(fi, ni): find(i) for i, cs in enumerate(m.contribs) for fi, ni, _keys in cs}
 
 
 def warn_content(merged: ParsedImport, report: MergeReport) -> None:
