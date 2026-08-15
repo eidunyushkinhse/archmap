@@ -165,6 +165,85 @@ def test_unknown_edge_ref_is_error():
     parsed, errors = parse_import("nodes:\n  - name: A\nedges:\n  - from: A\n    to: B\n")
     assert parsed is None
     assert any('узел "B" не найден' in e and "edges[0]" in e for e in errors)
+    # СЕНТИНЕЛ: уверенного кандидата нет («B» против «A») — текст ошибки прежний
+    # байт-в-байт, did-you-mean ничего к нему не приписал.
+    assert errors == ['edges[0]: узел "B" не найден']
+
+
+def test_подсказка_находит_тот_же_компонент_в_другом_контейнере():
+    """Полевой промах агента (docs/qa-federation-matrix.md, находка 2): имя
+    компонента взято верное, привязка потеряна. Ошибка называет правильный путь —
+    и его можно вписать в документ как есть, без второго круга переписки."""
+    doc = (
+        "nodes:\n"
+        "  - name: zabbix-ui\n"
+        "    children:\n"
+        "      - name: web-api\n"
+        "  - name: zabbix-server\n"
+        "    children:\n"
+        "      - name: poller\n"
+        "edges:\n"
+        "  - from: zabbix-server / poller\n"
+        "    to: "
+    )
+    parsed, errors = parse_import(doc + "zabbix-server / web-api\n")
+    assert parsed is None
+    assert errors == [
+        'edges[0]: узел "zabbix-server / web-api" не найден — есть "zabbix-ui / web-api"'
+    ]
+    # Подсказка резолвится: агент чинит связь копированием предложенного пути.
+    parsed, errors = parse_import(doc + "zabbix-ui / web-api\n")
+    assert errors == [] and parsed is not None and len(parsed.edges) == 1
+
+
+def test_подсказка_на_опечатку_и_молчание_на_далёком_имени():
+    """Порог Ф8ж дословно: мелкое расхождение (опечатка) — подсказка; далёкое имя —
+    МОЛЧАНИЕ. Ложная подсказка хуже отсутствия: слабая модель копирует
+    предложенное не глядя, и ссылка становится битой по-другому."""
+    doc = (
+        "nodes:\n"
+        "  - name: zabbix-server\n"
+        "    children:\n"
+        "      - name: api-gateway\n"
+        "  - name: gate\n"
+        "edges:\n"
+        "  - from: gate\n"
+        "    to: "
+    )
+    parsed, errors = parse_import(doc + "zabbix-server / api-gatewey\n")
+    assert parsed is None
+    assert errors == [
+        'edges[0]: узел "zabbix-server / api-gatewey" не найден'
+        ' — есть "zabbix-server / api-gateway"'
+    ]
+    # «cache» не похоже ни на один узел документа — текст прежний байт-в-байт.
+    parsed, errors = parse_import(doc + "cache\n")
+    assert parsed is None
+    assert errors == ['edges[0]: узел "cache" не найден']
+
+
+def test_подсказка_детерминирована_при_нескольких_одноимённых_листьях():
+    """Одноимённых листьев несколько — подсказка одна и та же от прогона к прогону:
+    ближайший по полному пути, при равенстве — первый в порядке документа
+    (а не по алфавиту: «aaa» лежит ниже «bbb»)."""
+    doc = (
+        "nodes:\n"
+        "  - name: bbb\n"
+        "    children:\n"
+        "      - name: api\n"
+        "  - name: aaa\n"
+        "    children:\n"
+        "      - name: api\n"
+        "  - name: x\n"
+        "edges:\n"
+        "  - from: x\n"
+        "    to: "
+    )
+    runs = {parse_import(doc + "ccc / api\n")[1][0] for _ in range(3)}
+    assert runs == {'edges[0]: узел "ccc / api" не найден — есть "bbb / api"'}
+    # Когда кандидаты неравноудалены, выигрывает ближайший, а не первый.
+    _, errors = parse_import(doc + "aaa-legacy / api\n")
+    assert errors == ['edges[0]: узел "aaa-legacy / api" не найден — есть "aaa / api"']
 
 
 def test_qualified_path_resolves_and_bare_duplicate_is_ambiguous(db):
