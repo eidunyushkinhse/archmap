@@ -472,10 +472,10 @@ def test_связь_в_контейнер_с_компонентами_назыв
     assert errors == []
     assert (
         "связь «vote → redis»: конец в контейнере «vote», у которого есть компоненты, — "
-        "уточни её до конкретного компонента («vote / …»)"
+        "уточните её до конкретного компонента («vote / …»)"
     ) in report.warnings
     # Ребро от компонента — законное, про него не предупреждаем.
-    assert len([w for w in report.warnings if "уточни её до конкретного" in w]) == 1
+    assert len([w for w in report.warnings if "уточните её до конкретного" in w]) == 1
 
 
 def test_оба_конца_контейнеры_названы_оба():
@@ -513,7 +513,7 @@ def test_связи_только_в_листья_молчат():
     ])
 
     assert errors == []
-    assert not any("уточни её до конкретн" in w for w in report.warnings)
+    assert not any("уточните её до конкретн" in w for w in report.warnings)
 
 
 def test_кап_на_связях_в_контейнер():
@@ -528,7 +528,7 @@ def test_кап_на_связях_в_контейнер():
     _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
 
     assert errors == []
-    assert len([w for w in report.warnings if "уточни её до конкретного" in w]) == 10
+    assert len([w for w in report.warnings if "уточните её до конкретного" in w]) == 10
     assert "…ещё 2 таких связей" in report.warnings
 
 
@@ -682,7 +682,7 @@ def test_перечень_каналов_в_channel_называется_пои�
     # имена, а не «в этой связи что-то не так».
     assert (
         "связь «orders → Kafka»: в channel перечень «email, notify_tornado» — "
-        "раздели на отдельные связи, по одной на канал"
+        "разделите на отдельные связи, по одной на канал"
     ) in report.warnings
 
 
@@ -775,7 +775,7 @@ def test_изолированная_группа_называется_поимё
     # а не пересказывать схему.
     assert _группы(report) == [
         "группа из 2 объектов не связана с остальной схемой: «Оператор», «Admin UI» — "
-        "дорисуй связь с ядром или проверь, не потерялась ли она"
+        "дорисуйте связь с ядром или проверьте, не потерялась ли она"
     ]
 
 

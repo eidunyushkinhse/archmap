@@ -474,12 +474,12 @@ def _warn_container_edges(
         if len(names) == 1:
             report.warnings.append(
                 f"связь «{a} → {b}»: конец в контейнере «{names[0]}», у которого есть "
-                f"компоненты, — уточни её до конкретного компонента («{names[0]} / …»)"
+                f"компоненты, — уточните её до конкретного компонента («{names[0]} / …»)"
             )
         else:
             report.warnings.append(
                 f"связь «{a} → {b}»: оба конца в контейнерах «{names[0]}» и «{names[1]}», "
-                f"у которых есть компоненты, — уточни её до конкретных компонентов "
+                f"у которых есть компоненты, — уточните её до конкретных компонентов "
                 f"(«{names[0]} / …», «{names[1]} / …»)"
             )
     if hidden:
@@ -547,7 +547,7 @@ def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
         shown += 1
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         report.warnings.append(
-            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}» — раздели "
+            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}» — разделите "
             f"на отдельные связи, по одной на канал"
         )
     if hidden:
@@ -579,7 +579,7 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
         tail = f" и ещё {len(names) - _MAX_GROUP_NAMES}" if len(names) > _MAX_GROUP_NAMES else ""
         report.warnings.append(
             f"группа из {len(names)} объектов не связана с остальной схемой: {shown}{tail} — "
-            f"дорисуй связь с ядром или проверь, не потерялась ли она"
+            f"дорисуйте связь с ядром или проверьте, не потерялась ли она"
         )
     hidden = len(comps) - 1 - _MAX_ISOLATED_GROUPS
     if hidden > 0:
