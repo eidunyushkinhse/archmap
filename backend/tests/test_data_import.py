@@ -12,7 +12,7 @@ import uuid
 
 from conftest import ensure_architect, ensure_project
 
-from app.data_import import parse_data_file
+from app.data_import import MAX_DUPLICATE_WARNINGS, parse_data_file
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -280,3 +280,241 @@ def test_структура_рядом_с_разделом_access_всё_рав�
     assert r.applied and r.errors == []
     assert db.query(DbTable).count() == 2
     assert sum("access" in w for w in r.warnings) == 1
+
+
+# ── Одна таблица в НЕСКОЛЬКИХ файлах пакета (П7 тюнинга федерации) ────────────
+# Механизм тот же, что у каналов (7bbf9cd): живое состояние читалось по файлу и не
+# знало о таблицах, уже поставленных в план предыдущими файлами. Превью молчало и
+# показывало такую таблицу ДВУМЯ строками «create» с разным числом колонок, а
+# применение падало 500-й — второй файл лил одноимённую колонку в таблицу, только что
+# созданную первым (uq_db_column_name). Дубль внутри пакета законен (обзорный файл по
+# миграциям пересекается с подробным по одной таблице), значит слияние — по тому же
+# правилу, что у пакетов разных репозиториев: побеждает описавший раньше.
+
+ФАЙЛ_ОБЗОРНЫЙ = """# archmap-node: Хранилище
+tables:
+  - name: orders
+    description: заказы покупателей
+    columns:
+      - name: id
+        type: uuid
+        pk: true
+        required: true
+      - name: status
+        description: new|paid|shipped
+"""
+
+# Та же таблица подробным файлом: «id» пересекается, «created_at» — нет, описание
+# таблицы расходится, а тип «status» виден только отсюда.
+ФАЙЛ_ПОДРОБНЫЙ = """# archmap-node: Хранилище
+tables:
+  - name: orders
+    description: заказы маркетплейса
+    columns:
+      - name: id
+        type: bigint
+        description: суррогатный ключ
+      - name: status
+        type: varchar(16)
+      - name: created_at
+        type: timestamptz
+        required: true
+"""
+
+ДВА_ФАЙЛА = [("a.yaml", ФАЙЛ_ОБЗОРНЫЙ), ("b.yaml", ФАЙЛ_ПОДРОБНЫЙ)]
+
+
+def _пакет_из(файлы, overwrite=False, node_id=None):
+    return DataImportIn(
+        files=[{"name": имя, "content": текст} for имя, текст in файлы],
+        overwrite=overwrite,
+        node_id=node_id,
+    )
+
+
+def _превью_файлами(db, файлы, node_id=None):
+    return data_import_preview(
+        _пакет_из(файлы, node_id=node_id),
+        db=db,
+        project=ensure_project(db),
+        _=ensure_architect(db),
+    )
+
+
+def _применить_файлами(db, файлы, overwrite=False, node_id=None):
+    return data_import_apply(
+        _пакет_из(файлы, overwrite=overwrite, node_id=node_id),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+
+
+def _дубли(r):
+    """Замечания о таблице из нескольких файлов — по хвосту «побеждает первый файл»
+    (общее «в нескольких файлах» поймало бы и строку капа)."""
+    return [w for w in r.warnings if "побеждает первый файл" in w]
+
+
+def _таблица(db, имя):
+    return db.query(DbTable).filter(DbTable.name == имя).one()
+
+
+def _пакет_таблиц(*имена, адрес="Хранилище"):
+    return f"# archmap-node: {адрес}\ntables:\n" + "".join(f"  - name: {и}\n" for и in имена)
+
+
+def test_таблица_из_двух_файлов_пакета_сливается_в_одну_строку(db):
+    _сцена(db)
+
+    r = _превью_файлами(db, ДВА_ФАЙЛА)
+
+    assert r.errors == []
+    [строка] = r.tables
+    # Источник — файл ПЕРВОГО вхождения, а число колонок — уже после слияния:
+    # id (в обоих файлах) + status + created_at.
+    assert (строка.source, строка.name, строка.action) == ("a.yaml", "orders", "create")
+    assert строка.columns == 3
+    [w] = _дубли(r)
+    assert "таблица «orders» описана в нескольких файлах пакета (a.yaml, b.yaml)" in w
+    assert "колонки сольются в одну таблицу" in w
+    assert "при совпадении имени колонки и расхождении меты побеждает первый файл" in w
+
+
+def test_межфайловый_дубль_применяется_и_побеждает_первый_файл(db):
+    """Тот самый 500-й: второй файл лил колонку «id» в таблицу, только что созданную
+    первым, и падал на уникальности (table_id, name)."""
+    _сцена(db)
+
+    r = _применить_файлами(db, ДВА_ФАЙЛА)
+
+    assert r.applied and r.errors == []
+    assert db.query(DbTable).count() == 1
+    orders = _таблица(db, "orders")
+    # Колонки объединились по имени, порядок первого файла не перемешан.
+    assert [c.name for c in orders.columns] == ["id", "status", "created_at"]
+    id_ = next(c for c in orders.columns if c.name == "id")
+    assert (id_.type, id_.is_primary_key, id_.nullable) == ("uuid", True, False)
+    # Пустое доливается вторым файлом: описание «id» и тип «status» есть только там.
+    assert id_.description == "суррогатный ключ"
+    status = next(c for c in orders.columns if c.name == "status")
+    assert (status.type, status.description) == ("varchar(16)", "new|paid|shipped")
+    assert orders.description == "заказы покупателей"
+    assert (r.tables_written, r.columns_written) == (1, 3)
+
+    # Повторный прогон того же пакета ничего не дописывает (инвариант модуля).
+    повтор = _применить_файлами(db, ДВА_ФАЙЛА)
+    assert db.query(DbTable).count() == 1 and db.query(DbColumn).count() == 3
+    assert (повтор.tables_written, повтор.columns_written) == (0, 0)
+    assert [i.action for i in повтор.tables] == ["unchanged"]
+
+
+def test_расхождение_описания_таблицы_замечает_и_берёт_первое(db):
+    # Файлы собраны разными прогонами и честно видят разное. Молча взять последнее —
+    # значит поставить смысл карты в зависимость от порядка файлов в пакете.
+    _сцена(db)
+
+    r = _превью_файлами(db, ДВА_ФАЙЛА)
+
+    [w] = [w for w in r.warnings if "description" in w]
+    assert w == (
+        "b.yaml: таблица «orders» — description «заказы маркетплейса», а в a.yaml "
+        "«заказы покупателей»; оставлено значение из a.yaml (описана раньше)"
+    )
+    # Применение оставляет ровно то значение, о котором сказало превью.
+    _применить_файлами(db, ДВА_ФАЙЛА)
+    assert _таблица(db, "orders").description == "заказы покупателей"
+
+
+def test_описание_которого_нет_в_первом_файле_второй_доливает_молча(db):
+    # «Не знаю» не спорит со «знаю» — то же правило, что у меты каналов: файл про один
+    # срез кода не видит того, что видел другой.
+    _сцена(db)
+
+    r = _применить_файлами(db, [
+        ("a.yaml", "# archmap-node: Хранилище\ntables:\n  - name: orders\n"),
+        ("b.yaml", ФАЙЛ_ПОДРОБНЫЙ),
+    ])
+
+    assert _таблица(db, "orders").description == "заказы маркетплейса"
+    assert [w for w in r.warnings if "description" in w] == []
+
+
+def test_превью_и_применение_дают_один_план(db):
+    # Расхождение этих двух планов и было багой: превью показывало две строки
+    # «create», применение — 500-ю.
+    _сцена(db)
+
+    п = _превью_файлами(db, ДВА_ФАЙЛА)
+    р = _применить_файлами(db, ДВА_ФАЙЛА)
+
+    assert [i.model_dump() for i in п.tables] == [i.model_dump() for i in р.tables]
+    assert п.warnings == р.warnings and р.errors == []
+
+
+def test_одно_имя_в_разных_базах_и_схемах_остаётся_разными_таблицами(db):
+    # Слияние — по «узел + схема БД + имя»: одноимённая таблица в другой базе (или в
+    # другой схеме той же базы) законна, и склейка потеряла бы одну из них.
+    _сцена(db)
+    _node(db, "Архив")
+
+    r = _применить_файлами(db, [
+        ("a.yaml", "# archmap-node: Хранилище\ntables:\n  - name: orders\n"),
+        ("b.yaml", "# archmap-node: Архив\ntables:\n  - name: orders\n"),
+        ("c.yaml", "# archmap-node: Хранилище\ntables:\n  - name: orders\n    schema: billing\n"),
+    ])
+
+    assert len(r.tables) == 3
+    assert db.query(DbTable).count() == 3
+    assert _дубли(r) == []
+
+
+def test_колонка_названная_дважды_в_одной_таблице_не_задваивается(db):
+    # Неряшливость того же класса внутри одного файла: превью показало бы завышенное
+    # число колонок, а применение упало бы на той же уникальности.
+    _сцена(db)
+
+    r = _применить(
+        db,
+        "# archmap-node: Хранилище\ntables:\n  - name: orders\n    columns:\n"
+        "      - name: id\n        type: uuid\n"
+        "      - name: id\n        type: bigint\n",
+    )
+
+    assert r.applied and r.errors == []
+    assert [(c.name, c.type) for c in _таблица(db, "orders").columns] == [("id", "uuid")]
+    assert [i.columns for i in r.tables] == [1]
+
+
+def test_таблица_названная_дважды_в_одном_файле_сливается_молча(db):
+    # Тот же 500-й внутри ОДНОГО файла, и то же слияние. Предупреждения нет: «описана в
+    # нескольких файлах пакета» тут было бы неправдой — файл один.
+    _сцена(db)
+
+    r = _применить(
+        db,
+        "# archmap-node: Хранилище\ntables:\n"
+        "  - name: orders\n    columns:\n      - name: id\n        type: uuid\n"
+        "  - name: orders\n    columns:\n      - name: id\n        type: bigint\n"
+        "      - name: total\n        type: numeric\n",
+    )
+
+    assert r.applied and r.errors == []
+    assert [i.columns for i in r.tables] == [2]
+    assert [(c.name, c.type) for c in _таблица(db, "orders").columns] == [
+        ("id", "uuid"), ("total", "numeric"),
+    ]
+    assert _дубли(r) == []
+
+
+def test_кап_замечаний_о_дублях_и_хвост(db):
+    _сцена(db)
+    имена = [f"t{i}" for i in range(MAX_DUPLICATE_WARNINGS + 2)]
+
+    r = _превью_файлами(db, [
+        ("a.yaml", _пакет_таблиц(*имена)),
+        ("b.yaml", _пакет_таблиц(*имена)),
+    ])
+
+    assert len(_дубли(r)) == MAX_DUPLICATE_WARNINGS
+    assert "…ещё 2 таблиц описаны в нескольких файлах пакета" in r.warnings
