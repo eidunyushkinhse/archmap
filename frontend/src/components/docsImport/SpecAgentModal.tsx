@@ -10,7 +10,7 @@
 // «не перезаписывать». Закрытие после успешного применения — отсюда (onClose);
 // родитель через onApplied только освежает мету узла.
 import { useEffect, useRef, useState } from "react";
-import type { DocsImportReport } from "../../types";
+import type { DocsImportReport, PromptVariant } from "../../types";
 import { docsImportApi } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
@@ -20,6 +20,7 @@ import {
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
 import { ItemList, NoteList } from "./agentModalReport";
+import PromptTriple from "./PromptTriple";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -37,7 +38,6 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   // ── параметры промпта (include зафиксирован на API-спеке) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  const [promptCopied, setPromptCopied] = useState(false);
   // ── файлы пакета и превью ──
   const pkg = useDocsFiles();
   // Отчёт последнего превью/применения. Пустые файлы прячут его ПРОИЗВОДНО
@@ -78,13 +78,12 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
     return () => window.clearTimeout(t);
   }, [pkg.files, nodeId]);
 
-  function copyPrompt() {
-    void docsImportApi.prompt({ nodeId, include: "api", lang, hints }).then(({ prompt }) =>
-      navigator.clipboard.writeText(prompt).then(() => {
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2000);
-      }),
-    );
+  // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
+  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  function copyPrompt(variant: PromptVariant): Promise<void> {
+    return docsImportApi
+      .prompt({ nodeId, include: "api", lang, hints, variant })
+      .then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
 
   // Замечания для агента: ошибки/конфликты/предупреждения по спеке.
@@ -152,9 +151,13 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
             placeholder={"Например: спеку возьми из swagger.yaml;\nесли её нет — синтезируй по хендлерам."}
           />
 
-          <button type="button" style={{ ...primaryBtn, marginTop: 4 }} onClick={copyPrompt}>
-            {promptCopied ? "Скопировано ✓" : "Скопировать промпт"}
-          </button>
+          <PromptTriple
+            label="Скопировать промпт"
+            copiedLabel="Скопировано ✓"
+            kind="primary"
+            buttonStyle={{ marginTop: 4 }}
+            copy={copyPrompt}
+          />
         </div>
 
         {/* ── Справа: файлы пакета + превью + применение ── */}

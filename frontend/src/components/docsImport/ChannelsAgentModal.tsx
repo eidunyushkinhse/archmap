@@ -11,7 +11,7 @@
 // «публикует:/потребляет:» внутри схем логики, то есть окном дозаливки доков.
 // Применение НЕ кладётся в undo — страховка та же: превью + дефолт «не перезаписывать».
 import { useEffect, useRef, useState } from "react";
-import type { ChannelsImportReport } from "../../types";
+import type { ChannelsImportReport, PromptVariant } from "../../types";
 import { channelsImportApi } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
@@ -21,6 +21,7 @@ import {
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow, radioRow,
 } from "./agentModalShared";
 import { ItemList, NoteList } from "./agentModalReport";
+import PromptTriple from "./PromptTriple";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -40,7 +41,6 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
   const [overwrite, setOverwrite] = useState(false);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [promptCopied, setPromptCopied] = useState(false);
   const [remarksCopied, setRemarksCopied] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
@@ -70,13 +70,10 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
     return () => window.clearTimeout(t);
   }, [pkg.files, overwrite, nodeId]);
 
-  function copyPrompt() {
-    void channelsImportApi.prompt().then(({ prompt }) =>
-      navigator.clipboard.writeText(prompt).then(() => {
-        setPromptCopied(true);
-        setTimeout(() => setPromptCopied(false), 2000);
-      }),
-    );
+  // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
+  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  function copyPrompt(variant: PromptVariant): Promise<void> {
+    return channelsImportApi.prompt(variant).then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
 
   const remarks = report === null ? [] : [...report.errors, ...report.warnings];
@@ -126,9 +123,12 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
 
       <div style={cols}>
         <div style={leftCol}>
-          <button type="button" style={primaryBtn} onClick={copyPrompt}>
-            {promptCopied ? "Скопировано ✓" : "Скопировать промпт"}
-          </button>
+          <PromptTriple
+            label="Скопировать промпт"
+            copiedLabel="Скопировано ✓"
+            kind="primary"
+            copy={copyPrompt}
+          />
           <label style={{ ...radioRow, marginTop: 14 }}>
             <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
             Перезаписывать заполненное
