@@ -321,7 +321,54 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     assert "Ничего не записано" in out
     body = json.loads(api.calls[-1].content)
     assert body["mark_missing_deprecated"] is True
-    assert body["contents"][0]["name"] == "r.yaml"
+    # Было `body["contents"][0]["name"] == "r.yaml"` — тест закреплял СЛОМАННУЮ
+    # форму: SyncPreviewIn.contents принимает тексты, имён файлов у него нет.
+    assert body["contents"] == ["x"]
+    check_contract("SyncPreviewIn", body)
+
+
+async def test_создание_проекта_шлёт_yaml_текстами(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Третий носитель той же ошибки формы: ProjectCreate.import_yamls — список
+    # текстов. Без этого теста чинилось бы только превью, а запись всё равно
+    # ловила бы 422 на живом сервере.
+    api.post("/projects/", {"id": PROJECT_ID, "name": "Zabbix", "object_count": 12})
+
+    out = await tools.call(
+        "archmap_import_apply",
+        {"name": "Zabbix",
+         "files": [{"name": "a.yaml", "content": "первый"},
+                   {"name": "b.yaml", "content": "второй"}]},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body["import_yamls"] == ["первый", "второй"]
+    assert body["start"] == "import"
+    check_contract("ProjectCreate", body)
+    assert "создан" in out
+
+
+async def test_применение_синка_шлёт_contents_текстами(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.post(f"/projects/{PROJECT_ID}/sync/apply", {
+        "nodes_created": 1, "nodes_updated": 0, "nodes_unchanged": 4, "nodes_missing": 0,
+        "nodes_returned": 0, "edges_created": 0, "nodes": [], "edges": [],
+    })
+
+    await tools.call(
+        "archmap_sync_apply",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "прогон"}],
+         "base_graph_rev": 7},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body["contents"] == ["прогон"]
+    assert body["base_graph_rev"] == 7  # курсор схемы не потерялся вместе с формой
+    check_contract("SyncApplyIn", body)
 
 
 async def test_правка_узла_без_полей_отклоняется(client: ArchMapClient) -> None:

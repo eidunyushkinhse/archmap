@@ -283,7 +283,8 @@ async def t_import_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
         "name": args["name"],
         "description": args.get("description"),
         "start": "import",
-        "import_yamls": [{"name": f["name"], "content": f["content"]} for f in args["files"]],
+        # ⚠️ То же, что у превью: ProjectCreate.import_yamls — список ТЕКСТОВ.
+        "import_yamls": [f["content"] for f in args["files"]],
     }
     data = await client.request("POST", "/projects/", json=body)
     return (
@@ -309,9 +310,9 @@ async def t_sync_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
 
 
 def _sync_body(args: dict[str, Any]) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "contents": [{"name": f["name"], "content": f["content"]} for f in args["files"]]
-    }
+    # ⚠️ SyncPreviewIn.contents — тоже список ТЕКСТОВ (вход синка совпадает с
+    # входом импорта, отличаются только политики). Имена файлов контракт не берёт.
+    body: dict[str, Any] = {"contents": [f["content"] for f in args["files"]]}
     for flag in (
         "update_descriptions",
         "update_names",
