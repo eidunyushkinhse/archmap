@@ -1,4 +1,4 @@
-// Окно «Разведать точки входа» (BYOA) — НУЛЕВОЙ шаг документирования монолита.
+// Окно «Список операций от агента» (BYOA) — НУЛЕВОЙ шаг документирования монолита.
 //
 // Пятое окно того же семейства (схемы логики, спека, структура БД, каналы), но
 // принимает оно не документацию, а ОГЛАВЛЕНИЕ: агент обходит репозиторий и
@@ -18,6 +18,7 @@ import type { NodeDocKind, PromptVariant, ReconAction, ReconImportReport, ReconI
 import { reconApi, type DocsFile } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
+import { OPEN_LIMIT } from "../docsCollapse";
 import {
   inputFingerprint, useRepeatedInput,
   head, sub, cols, leftCol, rightCol, leftNote,
@@ -52,9 +53,9 @@ const KIND_LABEL: Record<NodeDocKind, string> = {
   worker: "воркер",
 };
 
-// Группа длиннее — стартует свёрнутой: двести строк «создадим» человек не читает, он
-// смотрит на число в заголовке и разворачивает, если хочет проверить выборочно.
-const OPEN_LIMIT = 12;
+// Группа длиннее OPEN_LIMIT — стартует свёрнутой: двести строк «создадим» человек не
+// читает, он смотрит на число в заголовке и разворачивает, если хочет проверить
+// выборочно. Порог общий с витриной «Логики» (components/docsCollapse).
 
 // Строка превью. doc_name приходит, только когда имя УЖЕ существующей схемы отличается
 // от строки перечня («POST /messages» описан схемой «Отправка сообщения»), — и человек
@@ -211,7 +212,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
       <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>Разведать точки входа с помощью ИИ-агента</h2>
+        <h2 style={{ margin: 0, fontSize: 17 }}>Список операций от агента</h2>
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>

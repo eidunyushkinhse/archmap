@@ -54,7 +54,7 @@ vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
 }));
 
-// Окно разведки точек входа: маркер вместо настоящего окна — здесь проверяется вход в
+// Окно «Список операций от агента»: маркер вместо настоящего окна — здесь проверяется вход в
 // него из меню «+ Добавить», а само окно покрыто своим тестом (ReconAgentModal.test).
 vi.mock("../../components/docsImport/ReconAgentModal", () => ({
   default: ({ nodeName }: { nodeName: string }) => (
@@ -616,7 +616,7 @@ describe("NodePage: заглушки разведки и счётчик «опи
     expect(метки[0].closest("button")).toHaveTextContent("POST /orders");
   });
 
-  it("меню «+ Добавить» ведёт в разведку точек входа", async () => {
+  it("меню «+ Добавить» ведёт в составление списка операций", async () => {
     setupDocs([]);
     await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
     expect(screen.queryByTestId("recon-modal")).toBeNull();
@@ -624,7 +624,7 @@ describe("NodePage: заглушки разведки и счётчик «опи
     // «+ Добавить» на странице два (Логика и OpenAPI) — берём меню секции «Логика».
     const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
     await userEvent.click(within(карточка).getByText("+ Добавить"));
-    await userEvent.click(screen.getByRole("menuitem", { name: "Разведать точки входа" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Составить список операций" }));
     expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-name", "Сервис оплаты");
   });
 
