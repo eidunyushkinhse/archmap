@@ -1305,3 +1305,45 @@ def test_endpoint_prompt_на_проекте_без_структуры_пере�
     )
 
     assert "уже описанные" not in out.prompt
+
+
+# ── два перечня точек входа в промпте (Ф3 docs/plan-recon.md) ──────────────────
+# Здесь проверяется ПРОВОДКА каталога из БД в промпт (раскладка — в
+# test_docs_prompt): заглушка обязана попасть во второй перечень, а не в первый.
+
+
+def test_endpoint_prompt_делит_точки_входа_на_описанные_и_ждущие(db):
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "GET /orders", operation="GET /orders", content="graph TD; A")
+    _stub(db, orders, "Создание заказа", operation="POST /orders", content="graph TD; B")
+    _stub(db, orders, "DELETE /orders/{id}", operation="DELETE /orders/{id}")
+    _stub(db, orders, "email_senders", kind="worker")
+    # Обзор точкой входа не является: в перечень разведки он не входит по природе.
+    _stub(db, orders, "Обзор сервиса", kind="overview", content="graph TD; C")
+
+    out = docs_prompt(
+        lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    описано = out.prompt.index("Уже ОПИСАНЫ")
+    осталось = out.prompt.index("Разведаны, но НЕ ОПИСАНЫ")
+    # Схема с человеческим именем названа вместе с адресом: без него перечень не
+    # отвечает на вопрос «какая операция уже закрыта».
+    assert "- Ярмарка / orders: GET /orders, Создание заказа (POST /orders)" in out.prompt
+    assert "- Ярмарка / orders: DELETE /orders/{id}, email_senders" in out.prompt
+    assert "Обзор сервиса" not in out.prompt
+    # Главное: заглушки нет в половине «описанного» — иначе агент её пропустит.
+    assert "DELETE /orders/{id}" not in out.prompt[описано:осталось]
+
+
+def test_endpoint_prompt_на_проекте_без_разведки_перечня_точек_входа_не_несёт(db):
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "Обзор", kind="overview", content="graph TD; A")
+
+    out = docs_prompt(
+        lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert "Точки входа этого объекта" not in out.prompt

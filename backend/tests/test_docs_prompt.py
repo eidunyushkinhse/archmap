@@ -11,7 +11,7 @@
 import re
 
 from app.data_refs import parse_data_refs
-from app.docs_prompt import MAX_CATALOG_NAMES, build_docs_prompt
+from app.docs_prompt import MAX_CATALOG_NAMES, MAX_ENTRY_POINTS, build_docs_prompt
 from app.mmd_header import example_mmd, parse_mmd_header
 
 SLICE = "nodes:\n- name: Ярмарка\n  shape: service\nedges: []\n"
@@ -359,7 +359,95 @@ def test_кап_перечня_называет_число_а_не_обреза�
     assert "- Ярмарка / Малая: orders" in prompt
 
 
-def test_prompt_markers_and_slice():
+# ── два перечня точек входа (Ф3 docs/plan-recon.md) ───────────────────────────
+# Сентинелы промптов ОТНОСИТЕЛЬНЫЕ и безусловных строк не сторожат — на новый раздел
+# заведены явные тесты: два перечня печатаются раздельно, и заглушка не попадает в
+# «описанное» (иначе агент решит, что операция готова, и пропустит её).
+
+
+def test_два_перечня_точек_входа_печатаются_раздельно():
+    prompt = build_docs_prompt(
+        SLICE,
+        include="logic",
+        described_entries={"Ярмарка / orders": ["GET /orders", "Создание заказа (POST /orders)"]},
+        pending_entries={"Ярмарка / orders": ["DELETE /orders/{id}", "email_senders"]},
+    )
+
+    описано = prompt.index("Уже ОПИСАНЫ")
+    осталось = prompt.index("Разведаны, но НЕ ОПИСАНЫ")
+    assert описано < осталось  # сначала «не трогай», потом «бери отсюда»
+
+    # Описанное и неописанное — в РАЗНЫХ перечнях, каждый со своим адресом узла.
+    assert "  - Ярмарка / orders: GET /orders, Создание заказа (POST /orders)" in prompt
+    assert "  - Ярмарка / orders: DELETE /orders/{id}, email_senders" in prompt
+    # Заглушки в половине «описанного» нет — ровно то, ради чего перечень разделён.
+    описанный_кусок = prompt[описано:осталось]
+    assert "DELETE /orders/{id}" not in описанный_кусок
+    assert "email_senders" not in описанный_кусок
+
+    assert "заново не описывай и не переписывай" in prompt
+    assert "бери работу отсюда" in prompt
+    # Имя и адрес из перечня — ДОСЛОВНО: иначе схема заведёт второй слот на ту же
+    # операцию вместо того, чтобы сесть в готовую заглушку.
+    assert "бери из перечня ДОСЛОВНО" in prompt
+    # Перечень собран прошлым прогоном: молчать о найденном сверх него нельзя.
+    assert "нашёл в коде точку входа, которой в нём нет" in prompt
+
+    # В окне спеки схем логики нет — и перечням точек входа там не место.
+    assert "Точки входа этого объекта" not in build_docs_prompt(
+        SLICE, include="api", pending_entries={"Ярмарка / orders": ["GET /orders"]}
+    )
+
+
+def test_без_разведки_раздела_точек_входа_нет_вовсе():
+    """У большинства проектов разведки не было — лишнего раздела им не нужно, и
+    текст обязан деградировать до прежнего байт-в-байт."""
+    base = build_docs_prompt(SLICE, include="logic")
+
+    assert build_docs_prompt(SLICE, include="logic", described_entries={}, pending_entries={}) == base
+    # Узел в каталоге есть, а точек входа у него нет — тот же случай.
+    assert (
+        build_docs_prompt(
+            SLICE,
+            include="logic",
+            described_entries={"Ярмарка / orders": []},
+            pending_entries={"Ярмарка / orders": []},
+        )
+        == base
+    )
+    assert "Точки входа этого объекта" not in base
+
+
+def test_одна_половина_перечня_не_тянет_за_собой_вторую():
+    # Ничего ещё не описано: заголовка «уже описаны» быть не должно — пустой перечень
+    # под ним читался бы как «описано ничего», а это и так видно.
+    только_остаток = build_docs_prompt(
+        SLICE, include="logic", pending_entries={"Ярмарка / orders": ["GET /orders"]}
+    )
+    assert "Разведаны, но НЕ ОПИСАНЫ" in только_остаток
+    assert "Уже ОПИСАНЫ" not in только_остаток
+
+    # Всё описано: работы нет, и правило «бери из перечня дословно» уже ни к чему.
+    только_описанное = build_docs_prompt(
+        SLICE, include="logic", described_entries={"Ярмарка / orders": ["GET /orders"]}
+    )
+    assert "Уже ОПИСАНЫ" in только_описанное
+    assert "Разведаны, но НЕ ОПИСАНЫ" not in только_описанное
+    assert "бери из перечня ДОСЛОВНО" not in только_описанное
+
+
+def test_длинный_перечень_режется_по_строкам_а_хвост_назван_числом():
+    """Кап здесь работает иначе, чем у таблиц: перечень точек входа — ОЧЕРЕДЬ работы,
+    и первые сто адресов полезны сами по себе (пакет всё равно не примет больше).
+    Заменить их счётом значило бы оставить агента вовсе без адресов."""
+    много = [f"GET /p{i:03d}" for i in range(MAX_ENTRY_POINTS + 12)]
+    prompt = build_docs_prompt(SLICE, include="logic", pending_entries={"Ярмарка / orders": много})
+
+    assert "GET /p000" in prompt  # очередь напечатана, а не свёрнута в число
+    assert prompt.count("GET /p") == MAX_ENTRY_POINTS
+    assert много[-1] not in prompt
+    # Молча очередь не обрывается: не влезшее названо числом и объяснено.
+    assert "…и ещё 12 — их опишет следующий заход" in prompt
     prompt = build_docs_prompt(SLICE, include="both")
     assert SLICE.rstrip() in prompt  # срез вложен
     for marker in (

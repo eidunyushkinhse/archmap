@@ -23,6 +23,7 @@ from app.docs_import import (
     DocsPlan,
     MmdOverride,
     ParsedPkg,
+    _node_paths,
     apply_docs_plan,
     build_docs_plan,
     pkg_from_mmd,
@@ -34,6 +35,7 @@ from app.export import build_export
 from app.mmd_header import looks_like_mermaid
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.docs_import import (
@@ -81,6 +83,44 @@ def _name_catalogs(
     return table_catalog, channel_catalog
 
 
+def _entry_point_catalogs(
+    db: Session, nodes: list[Node]
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Точки входа среза, разделённые надвое: описанные и ждущие описания (Ф3).
+
+    Каталог — по узлам СРЕЗА (а не всего проекта): адреса в нём должны совпадать с
+    путями из вложенного среза схемы, иначе агент увидит перечень для объектов,
+    которых в срезе нет.
+
+    Тела схем НЕ грузим: у монолита их две сотни, а вопрос тут булев — тянуть ради
+    него мегабайты mermaid нельзя. «Описана» считает выражение в БД (NodeDoc.described,
+    длина тела после trim), тем же способом, что признак в мете витрины.
+    """
+    _flat, fulls, _bare, _paths = _node_paths(nodes)
+    path_by_id = {n.id: fulls[i] for i, n in enumerate(_flat)}
+    described: dict[str, list[str]] = {}
+    pending: dict[str, list[str]] = {}
+    rows = (
+        db.query(NodeDoc.node_id, NodeDoc.name, NodeDoc.operation, NodeDoc.described)
+        .filter(
+            NodeDoc.node_id.in_(path_by_id),
+            # Обзорная схема точкой входа не является — в перечень разведки она не
+            # входит по природе, и объявлять её «неописанной работой» неверно.
+            NodeDoc.kind.in_(("operation", "worker")),
+        )
+        .all()
+    )
+    for node_id, name, operation, is_described in rows:
+        path = path_by_id.get(node_id)
+        if path is None:
+            continue
+        # Адрес операции показываем рядом с именем, когда они разошлись: агент назвал
+        # схему по-человечески, и без адреса перечень не отвечает «что уже закрыто».
+        подпись = f"{name} ({operation})" if operation and operation != name else name
+        (described if is_described else pending).setdefault(path, []).append(подпись)
+    return described, pending
+
+
 @router.get("/prompt", response_model=DocsPromptOut)
 def docs_prompt(
     node_id: uuid.UUID | None = None,
@@ -110,11 +150,15 @@ def docs_prompt(
         edges = [e for e in edges if e.source_id in sub_ids and e.target_id in sub_ids]
     export_slice = build_export(nodes, edges, root_id=node_id)
     tables, channels = _name_catalogs(db, project.id)
+    described, pending = _entry_point_catalogs(db, nodes)
     return DocsPromptOut(
         prompt=prompt_for_variant(
             variant,
             "docs",
-            build_docs_prompt(export_slice, include, lang, hints, target, tables, channels),
+            build_docs_prompt(
+                export_slice, include, lang, hints, target, tables, channels,
+                described, pending,
+            ),
         )
     )
 
