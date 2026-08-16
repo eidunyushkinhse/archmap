@@ -21,6 +21,7 @@ import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
+import ReconAgentModal from "../components/docsImport/ReconAgentModal";
 import SpecAgentModal from "../components/docsImport/SpecAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
@@ -190,6 +191,8 @@ function NodePageInner({
   const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
   // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = текущий объект
   const [specAgent, setSpecAgent] = useState(false);
+  // Модалка «Разведать точки входа» (BYOA, перечень операций и воркеров одним файлом)
+  const [reconAgent, setReconAgent] = useState(false);
   // Модалка-редактор связи (архитектор): id связи из строки таблицы «Связи»
   const [edgeEditId, setEdgeEditId] = useState<string | null>(null);
   // Токен мутации (правка связи со страницы): секция «Схема» перерисовывает
@@ -290,16 +293,30 @@ function NodePageInner({
 
   // Меню «+ Добавить» секции «Логика»: вручную / через ИИ-агента («Через
   // ИИ-агента» открывает модалку режимом «Пакетом» по умолчанию; на «По одной»
-  // пользователь переключится в модалке сам, если нужно).
+  // пользователь переключится в модалке сам, если нужно) / разведка точек входа —
+  // нулевой шаг: агент приносит не документацию, а ПЕРЕЧЕНЬ, и он ложится
+  // заглушками (docs/plan-recon.md). Оба агентских пути — в одной группе.
   // Правила контейнеров: контейнеру новую логику создавать нельзя (!isContainer).
   const addLogicMenu = !isContainer && allow.logic && isArchitect ? (
     <AddDocsMenu
       groups={[
         [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
-        [{ label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") }],
+        [
+          { label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") },
+          { label: "Разведать точки входа", onSelect: () => setReconAgent(true) },
+        ],
       ]}
     />
   ) : null;
+
+  // Счётчик «описано N из M» — ПРОИЗВОДНОЕ в рендере (эффект с setState тут запрещён
+  // линтом и рассинхронился бы с метой). Знаменатель — только точки входа: схема-обзор
+  // от разведки не зависит и завышала бы его на постоянную величину.
+  const entryDocs = useMemo(
+    () => node.docs.filter((d) => d.kind === "operation" || d.kind === "worker"),
+    [node.docs],
+  );
+  const describedCount = useMemo(() => entryDocs.filter((d) => d.described).length, [entryDocs]);
 
   // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
   // Контейнеру спеку создавать нельзя (правила контейнеров).
@@ -623,7 +640,14 @@ function NodePageInner({
         {(allow.logic || legacyLogic || container.docGroups.length > 0)
           && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
           <div className="np-card">
-            <h3 className="np-card-title">Логика</h3>
+            <h3 className="np-card-title">
+              Логика
+              {/* Точек входа нет вовсе — счётчика нет: «описано 0 из 0» это шум на
+                  каждом узле проекта, а не полезное знание. */}
+              {entryDocs.length > 0 && (
+                <span style={docsCounter}>описано {describedCount} из {entryDocs.length}</span>
+              )}
+            </h3>
             {isContainer ? (
               <>
                 {/* Собственные (grandfather) схемы контейнера: по правилам у
@@ -645,6 +669,7 @@ function NodePageInner({
                           <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
                             {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
                           </span>
+                          {!d.described && <StubMark />}
                           {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
                           <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
                         </button>
@@ -733,6 +758,7 @@ function NodePageInner({
                       <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
                         {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
                       </span>
+                      {!d.described && <StubMark />}
                       {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
                       <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
                     </button>
@@ -901,6 +927,22 @@ function NodePageInner({
         />
       )}
 
+      {/* Разведка точек входа (BYOA, секция «Логика»): агент приносит ПЕРЕЧЕНЬ
+          операций и воркеров, он ложится заглушками. Закрытие после успешного
+          применения — за самой модалкой. */}
+      {reconAgent && (
+        <ReconAgentModal
+          nodeId={node.id}
+          nodeName={node.name}
+          onClose={() => setReconAgent(false)}
+          onApplied={() => {
+            // Заглушки — те же схемы логики: тянем свежий узел целиком, и секция
+            // «Логика» показывает их сразу, вместе со счётчиком «описано N из M».
+            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
+          }}
+        />
+      )}
+
       {/* Спека от агента (BYOA, секция «OpenAPI»): скоуп = текущий объект.
           Закрытие после успешного применения — за самой модалкой. */}
       {specAgent && (
@@ -947,6 +989,26 @@ function NodePageInner({
   );
 }
 
+// Метка заглушки: схема в списке есть, а тела у неё нет — разведка точек входа
+// создала её как строку перечня (docs/plan-recon.md). Спокойный пунктирный контур, а
+// НЕ красная тревога: неописанная точка входа — нормальное состояние работы по
+// списку, а не ошибка. Компонент на верхнем уровне модуля (объявленный внутри
+// другого ремаунтился бы каждый рендер).
+function StubMark() {
+  return <span style={stubMark}>не описана</span>;
+}
+
+// Счётчик «описано N из M» в заголовке секции «Логика» — знаменателем идут только
+// точки входа (операции и воркеры).
+const docsCounter: CSSProperties = {
+  marginLeft: 8, fontSize: 12, fontWeight: 500, color: "#64748b",
+};
+const stubMark: CSSProperties = {
+  flex: "none", fontSize: 11, fontWeight: 600, color: "#64748b",
+  background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 5, padding: "1px 6px",
+  whiteSpace: "nowrap",
+};
+
 // Split-кнопка схемы потомка в объединении контейнера: левая (широкая) часть
 // открывает схему владельца напрямую (в его контексте), правая (узкая) ведёт на
 // страницу владельца — доки принадлежат ему.
@@ -968,6 +1030,7 @@ function DocSplitRow({ doc, child, onOpen, onNavigateNode }: {
         <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>
           {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
         </span>
+        {!doc.described && <StubMark />}
         {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
       </button>

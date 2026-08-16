@@ -2,7 +2,7 @@
 // навигация. Тяжёлый канвас (EmbeddedSchemaBlock → LevelGraph) замокан —
 // тестируем страницу-документ и её данные. Имя/роль/технология — инлайн-инпуты
 // (CAS-правка по blur), поэтому ищутся по displayValue.
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -52,6 +52,14 @@ vi.mock("../../components/EmbeddedSchemaBlock", () => ({
 // (паттерн DocOverlay.test) — тестируем форму распределения, не фокус-менеджмент.
 vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
+}));
+
+// Окно разведки точек входа: маркер вместо настоящего окна — здесь проверяется вход в
+// него из меню «+ Добавить», а само окно покрыто своим тестом (ReconAgentModal.test).
+vi.mock("../../components/docsImport/ReconAgentModal", () => ({
+  default: ({ nodeName }: { nodeName: string }) => (
+    <div data-testid="recon-modal" data-node-name={nodeName} />
+  ),
 }));
 
 // Оверлей документации: маркер с контекстом (nodeId/initialDocId/mode) — проверить,
@@ -554,5 +562,88 @@ describe("NodePage: документация по форме узла", () => {
     expect(screen.getByText(/OpenAPI описывает HTTP-API/)).toBeInTheDocument();
     // Заводить новое всё равно нельзя — только унести существующее.
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+  });
+});
+
+// ── Витрина разведки: остаток работы виден числом ───────────────────────────
+// Разведка кладёт в «Логику» ЗАГЛУШКИ — схемы с пустым телом. Витрина обязана их
+// отличать (иначе заглушку не спутать с документацией нельзя) и показывать остаток
+// работы числом: без знаменателя «опиши монолит» снова становится безразмерным.
+describe("NodePage: заглушки разведки и счётчик «описано N из M»", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function док(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
+    return { id: "d1", name: "Схема", kind: "operation", operation: null, version: 1, described: true, ...over };
+  }
+
+  function setupDocs(docs: NodeDocMeta[]) {
+    const n = node("n1", { docs, shape: "service", has_children: false, child_count: 0 });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+  }
+
+  it("счётчик считает точки входа: обзор в знаменатель не входит", async () => {
+    // Обзор — не точка входа, от разведки он не зависит и завышал бы знаменатель.
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview", described: true }),
+      док({ id: "d1", name: "POST /orders", kind: "operation", described: true }),
+      док({ id: "d2", name: "GET /orders", kind: "operation", described: false }),
+      док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("описано 1 из 3")).toBeInTheDocument());
+  });
+
+  it("точек входа нет — счётчика нет вовсе", async () => {
+    // «описано 0 из 0» это шум на каждом узле проекта, а не полезное знание.
+    setupDocs([док({ id: "d0", name: "Обзор сервиса", kind: "overview" })]);
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    expect(screen.queryByText(/описано \d+ из/)).toBeNull();
+  });
+
+  it("строка-заглушка помечена «не описана», описанная — нет", async () => {
+    setupDocs([
+      док({ id: "d1", name: "POST /orders", described: false }),
+      док({ id: "d2", name: "GET /orders", described: true }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    const метки = screen.getAllByText("не описана");
+    expect(метки).toHaveLength(1);
+    // Метка стоит в строке заглушки, а не где-то рядом.
+    expect(метки[0].closest("button")).toHaveTextContent("POST /orders");
+  });
+
+  it("меню «+ Добавить» ведёт в разведку точек входа", async () => {
+    setupDocs([]);
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    expect(screen.queryByTestId("recon-modal")).toBeNull();
+
+    // «+ Добавить» на странице два (Логика и OpenAPI) — берём меню секции «Логика».
+    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
+    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Разведать точки входа" }));
+    expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-name", "Сервис оплаты");
+  });
+
+  it("читателю видно состояние схем, но разведка ему не предлагается", async () => {
+    // Окно только архитектору (меню целиком под isArchitect) — а вот остаток работы
+    // читатель видеть вправе: это состояние документации, а не действие над ней.
+    const n = node("n1", {
+      docs: [док({ id: "d1", name: "POST /orders", described: false })],
+      shape: "service",
+    });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    render(<NodePage nodeId="n1" isArchitect={false} {...nav} />);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.getByText("не описана")).toBeInTheDocument();
+    expect(screen.getByText("описано 0 из 1")).toBeInTheDocument();
+    expect(screen.queryByText("+ Добавить")).toBeNull();
   });
 });
