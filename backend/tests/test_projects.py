@@ -19,6 +19,8 @@ from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
+from app.models.process_message import ProcessMessage
+from app.models.process_participant import ProcessParticipant
 from app.routers.projects import (
     archive_project,
     create_project,
@@ -360,6 +362,47 @@ def test_deep_copy_keeps_alt_branches(db):
     copy_proc = db.query(BusinessProcess).filter(BusinessProcess.project_id == copy.id).one()
     frag = db.query(ProcessFragment).filter(ProcessFragment.process_id == copy_proc.id).one()
     assert [(b.start_order, b.guard) for b in frag.branches] == [(1, "отказ"), (2, "таймаут")]
+
+
+def test_deep_copy_keeps_unbound_participant_and_dangling_step(db):
+    """Непривязанный участник (node_id = NULL) и повисший шаг (edge_id = NULL) —
+    законные состояния (импорт процесса, удалённый узел/связь). Копия обязана их
+    сохранить: расхождение со схемой должно быть ВИДНО и в копии, а не исчезать.
+    Концы шага при этом перевешиваются на участников КОПИИ."""
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-процесс"), db=db, user=user)
+    svc = Node(id=uuid.uuid4(), name="Сервис", project_id=src.id)
+    db.add(svc)
+    proc = BusinessProcess(id=uuid.uuid4(), name="Оплата", project_id=src.id)
+    db.add(proc)
+    db.flush()
+    bound = ProcessParticipant(id=uuid.uuid4(), process_id=proc.id, node_id=svc.id, name="Сервис", order=0)
+    unbound = ProcessParticipant(
+        id=uuid.uuid4(), process_id=proc.id, node_id=None, name="Внешний биллинг", order=1
+    )
+    db.add_all([bound, unbound])
+    db.flush()
+    db.add(
+        ProcessMessage(
+            id=uuid.uuid4(), process_id=proc.id, order=0, edge_id=None, leg="forward",
+            from_participant_id=bound.id, to_participant_id=unbound.id, caption="списать",
+        )
+    )
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-процесс", start=f"copy:{src.id}"), db=db, user=user
+    )
+    copy_proc = db.query(BusinessProcess).filter(BusinessProcess.project_id == copy.id).one()
+    parts = sorted(
+        db.query(ProcessParticipant).filter(ProcessParticipant.process_id == copy_proc.id).all(),
+        key=lambda p: p.order,
+    )
+    assert [(p.name, p.node_id is None) for p in parts] == [("Сервис", False), ("Внешний биллинг", True)]
+    msg = db.query(ProcessMessage).filter(ProcessMessage.process_id == copy_proc.id).one()
+    assert msg.edge_id is None and msg.caption == "списать"
+    # Концы ведут на участников копии, а не исходного процесса.
+    assert (msg.from_participant_id, msg.to_participant_id) == (parts[0].id, parts[1].id)
 
 
 def test_copy_unknown_source_404(db):
