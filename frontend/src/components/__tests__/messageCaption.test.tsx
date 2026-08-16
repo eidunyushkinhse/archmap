@@ -222,6 +222,39 @@ describe("карточка шага: подпись", () => {
     );
   });
 
+  // П3 челленджа дизайна (2026-08-16): тумблер закрывал карточку ДО сохранения, и
+  // набранная подпись пропадала молча — человек печатал текст, переключал канал и
+  // терял работу без единого слова.
+  it("смена типа канала не закрывает карточку и не теряет набранную подпись", async () => {
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+    await userEvent.clear(field());
+    await userEvent.type(field(), "проверка лимита");
+
+    await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
+
+    await waitFor(() => expect(edgesApi.update).toHaveBeenCalled());
+    expect(screen.getByText("Шаг сценария")).toBeTruthy();
+    expect(field().value).toBe("проверка лимита");
+  });
+
+  it("после смены типа канала подпись всё ещё сохраняется", async () => {
+    await renderCanvas();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+    await userEvent.clear(field());
+    await userEvent.type(field(), "проверка лимита");
+    await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
+    await waitFor(() => expect(edgesApi.update).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() =>
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита" }),
+    );
+  });
+
   it("повторный выбор того же типа связь не трогает", async () => {
     await renderCanvas();
     await userEvent.click(screen.getByText("click-m1"));
