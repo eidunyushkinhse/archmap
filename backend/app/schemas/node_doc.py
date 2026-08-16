@@ -39,6 +39,10 @@ class NodeDocMeta(BaseModel):
     kind: NodeDocKind
     operation: str | None
     version: int = 1
+    # Схема описана (тело непустое) — производное NodeDoc.described, считается в БД.
+    # Без него витрина не отличает ЗАГЛУШКУ разведки от готовой схемы: content в
+    # мете нет и не будет (docs/plan-recon.md, Ф2).
+    described: bool
 
     model_config = {"from_attributes": True}
 

@@ -3541,6 +3541,8 @@ export interface components {
              * @default 1
              */
             version: number;
+            /** Described */
+            described: boolean;
         };
         /** NodeDocResponse */
         NodeDocResponse: {

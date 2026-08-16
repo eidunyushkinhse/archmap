@@ -66,6 +66,10 @@ _PROJECT = "копия принадлежит НОВОМУ проекту"
 _VERSION = "счётчик CAS: у копии своя история правок, начинается с нуля"
 _CREATED = "время создания копии — своё"
 _UPDATED = "время правки копии — своё"
+# Атрибут, которого в таблице нет: column_property считает его ВЫРАЖЕНИЕМ поверх
+# копируемых колонок. Копировать нечего — у копии он посчитается сам; передать его
+# в конструктор значило бы посадить на строку копии значение источника.
+_DERIVED = "признак производный (column_property поверх тела схемы): в БД не хранится"
 
 # Перемэппинг ссылок: все карты «старый id → новый» аллоцируются в copy_project_schema
 # заранее, до вставки, — порядок обхода не важен.
@@ -94,7 +98,13 @@ COPY_PLAN: dict[type[Base], TablePlan] = {
         ),
     ),
     NodeDoc: TablePlan(
-        own={"id": _ID, "version": _VERSION, "created_at": _CREATED, "updated_at": _UPDATED},
+        own={
+            "id": _ID,
+            "version": _VERSION,
+            "created_at": _CREATED,
+            "updated_at": _UPDATED,
+            "described": _DERIVED,
+        },
         mapped={"node_id": _BY_NMAP},
         data=("name", "kind", "operation", "content"),
     ),

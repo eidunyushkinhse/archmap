@@ -179,7 +179,7 @@ describe("NodePage: правила контейнеров", () => {
   beforeEach(() => vi.clearAllMocks());
 
   function docMeta(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
-    return { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, ...over };
+    return { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, described: true, ...over };
   }
 
   function setupContainer(over: { own?: Partial<Node>; children?: Node[] } = {}) {
@@ -547,7 +547,7 @@ describe("NodePage: документация по форме узла", () => {
   });
 
   it("легаси-содержимое у базы не прячется, а объясняется", async () => {
-    const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1 };
+    const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, described: true };
     setupShape({ shape: "database", name: "Хранилище", docs: [док], openapi_spec: "openapi: 3.0.0" });
     await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
     expect(screen.getByText(/у этого объекта его нет — перенесите/)).toBeInTheDocument();
