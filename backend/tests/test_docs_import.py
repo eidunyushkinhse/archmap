@@ -149,6 +149,98 @@ def test_plan_unchanged(db):
     assert [a.action for a in plan.logic] == ["unchanged"]
 
 
+# ── заглушки разведки (Ф3 docs/plan-recon.md) ─────────────────────────────────
+# Разведка создаёт схемы с ПУСТЫМ телом («POST /orders» без диаграммы). Политика
+# «не перезаписывать» защищает РАБОТУ, а в заглушке работы нет: без отдельной ветки
+# двести заглушек пропустили бы всю дозаливку с отчётом «слот занят» — и выглядело
+# бы это как «уже описано».
+
+
+def _stub(db, node, name, kind="operation", operation=None, content=""):
+    """Заглушка разведки у объекта: тело пусто, имя — адрес операции."""
+    doc = NodeDoc(node_id=node.id, name=name, kind=kind, operation=operation, content=content)
+    db.add(doc)
+    db.commit()
+    return doc
+
+
+def test_заглушка_заполняется_и_без_галки_перезаписи(db):
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "POST /orders", operation="POST /orders")
+    files = [("a.mmd", _mmd("POST /orders", kind="operation", operation="POST /orders"))]
+
+    plan = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["fill"]
+    assert plan.logic[0].doc_id is not None  # заполняем ту же строку, а не плодим вторую
+
+
+def test_заглушка_из_одних_пробелов_это_та_же_заглушка(db):
+    # «Пусто» считаем strip-ом — ровно как признак «описана» в БД (NodeDoc.described)
+    # и резолвер пометок: схема из переводов строки документацией не становится.
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "Приём", kind="overview", content=" \n\t ")
+
+    plan = _plan(db, [("a.mmd", _mmd("Приём"))], window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["fill"]
+
+
+def test_описанная_схема_по_прежнему_под_защитой_политики(db):
+    # Обратное направление: тело есть — значит есть работа, и без галки её не трогаем.
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "Приём", kind="overview", content="graph TD; OLD")
+
+    plan = _plan(db, [("a.mmd", _mmd("Приём"))], window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["skip"]
+
+
+def test_пустой_вход_поверх_описанной_схемы_не_обнуляет_тело(db):
+    """Заполнение — только В заглушку. Пустая схема ОТ агента поверх описанной это не
+    заполнение, а стирание работы: остаётся на прежней политике."""
+    _root, orders, *_ = _tree(db)
+    doc = _stub(db, orders, "Приём", kind="overview", content="graph TD; OLD")
+    doc_id, orders_id = doc.id, orders.id
+    files = [("a.mmd", "%% archmap-name: Приём\n\n   \n")]
+
+    plan = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["skip"]
+    assert apply_docs_plan(db, plan) == (0, 0, 0, 0)
+    db.commit()
+    assert db.get(NodeDoc, doc_id).content == "graph TD; OLD"
+    assert db.query(NodeDoc).filter(NodeDoc.node_id == orders_id).count() == 1
+
+
+def test_применение_считает_заполненные_отдельно_от_перезаписанных(db):
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "POST /orders", operation="POST /orders")
+    _stub(db, orders, "Отчёт", kind="overview", content="graph TD; OLD")
+    orders_id = orders.id
+    files = [
+        ("a.mmd", _mmd("POST /orders", kind="operation", operation="POST /orders")),
+        ("b.mmd", _mmd("Новая")),
+    ]
+
+    plan = _plan(db, files, window=orders, overwrite=False)
+    # (создано, перезаписано, спек, заполнено): перезаписей нет — описанную «Отчёт»
+    # пакет вообще не трогал, а заглушка ушла в своё число.
+    assert apply_docs_plan(db, plan) == (1, 0, 0, 1)
+    db.commit()
+
+    filled = db.query(NodeDoc).filter(
+        NodeDoc.node_id == orders_id, NodeDoc.name == "POST /orders"
+    ).one()
+    assert "A --> B" in filled.content and filled.version == 2  # CAS-версия бампается
+    assert db.get(NodeDoc, _stub_id(db, orders_id, "Отчёт")).content == "graph TD; OLD"
+
+    # Повтор того же пакета — уже «без изменений», заглушки кончились
+    again = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in again.logic] == ["unchanged", "unchanged"]
+    assert apply_docs_plan(db, again) == (0, 0, 0, 0)
+
+
+def _stub_id(db, node_id, name):
+    return db.query(NodeDoc).filter(NodeDoc.node_id == node_id, NodeDoc.name == name).one().id
+
+
 def test_plan_merge_two_files_first_wins(db):
     _, orders, *_ = _tree(db)
     plan = _plan(db, [
@@ -206,9 +298,9 @@ def test_apply_and_idempotent(db):
     files = [("a.mmd", _mmd("Приём"))]
 
     plan = _plan(db, files, window=orders, overwrite=True)
-    created, updated, specs = apply_docs_plan(db, plan)
+    created, updated, specs, filled = apply_docs_plan(db, plan)
     db.commit()
-    assert (created, updated, specs) == (0, 1, 0)
+    assert (created, updated, specs, filled) == (0, 1, 0, 0)
 
     doc = db.query(NodeDoc).filter(NodeDoc.node_id == orders_id).one()
     assert "A --> B" in doc.content and doc.version == 2  # перезапись бампает CAS-версию
@@ -216,7 +308,7 @@ def test_apply_and_idempotent(db):
     # Повторный прогон того же пакета — всё «без изменений», ничего не пишется
     again = _plan(db, files, window=orders, overwrite=True)
     assert [a.action for a in again.logic] == ["unchanged"]
-    assert apply_docs_plan(db, again) == (0, 0, 0)
+    assert apply_docs_plan(db, again) == (0, 0, 0, 0)
 
 
 # ── Эндпоинты ──────────────────────────────────────────────────────────────────
@@ -311,6 +403,32 @@ def test_endpoint_apply_writes_and_bumps(db):
     assert (again.created_docs, again.updated_docs, again.specs_written) == (0, 0, 0)
     db.refresh(project)
     assert project.meta_rev == rev0 + 1
+
+
+def test_endpoint_кнопка_описать_заполняет_именно_свою_заглушку(db):
+    """Путь из витрины: «Описать» у строки → агент прислал ОДНУ схему → она села в
+    свою заглушку, соседние остались пустыми, галка перезаписи не понадобилась."""
+    _root, orders, *_ = _tree(db)
+    project = ensure_project(db)
+    for адрес in ("GET /orders", "POST /orders", "DELETE /orders/{id}"):
+        _stub(db, orders, адрес, operation=адрес)
+    orders_id = orders.id
+
+    report = docs_import_apply(
+        _payload(
+            ("a.mmd", _mmd("POST /orders", kind="operation", operation="POST /orders")),
+            node=orders, only="logic",
+        ),
+        db=db, project=project, user=ensure_architect(db),
+    )
+
+    assert report.applied is True and report.errors == []
+    assert [a.action for a in report.logic] == ["fill"]
+    assert (report.created_docs, report.filled_docs, report.updated_docs) == (0, 1, 0)
+    docs = {d.name: d.content for d in db.query(NodeDoc).filter(NodeDoc.node_id == orders_id)}
+    assert len(docs) == 3  # ни одной новой схемы не появилось
+    assert "A --> B" in docs["POST /orders"]
+    assert docs["GET /orders"] == "" and docs["DELETE /orders/{id}"] == ""
 
 
 def test_endpoint_apply_blocked_by_errors(db):

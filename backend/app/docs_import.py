@@ -5,7 +5,7 @@
 разбирает mmd_header), спека — самим файлом OpenAPI. Оба вида превращаются в
 PkgEntry — единую внутреннюю запись «этому узлу такие-то документы», — и дальше
 работает общий конвейер: build_docs_plan мержит записи против ЖИВОГО дерева
-проекта в действия (create | overwrite | skip | unchanged) + отчёт,
+проекта в действия (create | fill | overwrite | skip | unchanged) + отчёт,
 apply_docs_plan пишет их в БД. Разделение — ради общего dry-run превью.
 
 Mermaid здесь НЕ валидируется (валидатора на бэке нет — проверяет фронт по
@@ -81,6 +81,16 @@ class MmdOverride:
     name: str | None = None
     kind: str | None = None
     node: str | None = None
+
+
+def _is_stub(doc: NodeDoc) -> bool:
+    """Схема — ЗАГЛУШКА разведки: тело пусто (docs/plan-recon.md, §5).
+
+    «Пусто» — по strip(), ровно как считают признак «описана» (NodeDoc.described,
+    выражение в БД) и резолвер пометок: схема из одних пробелов документацией не
+    становится, и три места обязаны понимать пустоту одинаково.
+    """
+    return not doc.content.strip()
 
 
 def _name_from_file(fname: str) -> str:
@@ -624,6 +634,13 @@ def build_docs_plan(
                     and (cur.operation or None) == (logic.operation or None)
                 ):
                     action, doc_id = "unchanged", cur.id
+                elif _is_stub(cur) and logic.mermaid.strip():
+                    # Р25: политика «не перезаписывать» защищает РАБОТУ, а в заглушке
+                    # разведки её нет — иначе разведка сама себя и заблокировала бы:
+                    # двести пустых слотов пропустили бы всю дозаливку с отчётом
+                    # «занято». Обратное направление (пустое поверх описанного) сюда
+                    # НЕ попадает и остаётся на прежней политике: это стирание.
+                    action, doc_id = "fill", cur.id
                 else:
                     action, doc_id = ("overwrite" if overwrite else "skip"), cur.id
                 plan.logic.append(
@@ -699,11 +716,14 @@ def build_docs_plan(
     return plan
 
 
-def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int]:
-    """Записать действия плана: (создано доков, перезаписано доков, спек записано).
+def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int, int]:
+    """Записать действия плана: (создано доков, перезаписано доков, спек записано,
+    заполнено заглушек). Заполнение идёт тем же путём, что перезапись (та же строка
+    БД, тот же бамп CAS-версии), но считается ОТДЕЛЬНО: перезапись трогает работу,
+    заполнение — пустой слот.
     Вызывать только при пустых errors; skip/unchanged не трогаются. Бампы
     graph_rev/touch_project и commit — на вызывающей стороне (как seed_import)."""
-    created = updated = specs = 0
+    created = updated = specs = filled = 0
     for act in plan.logic:
         if act.action == "create":
             db.add(
@@ -716,16 +736,21 @@ def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int]:
                 )
             )
             created += 1
-        elif act.action == "overwrite":
+        elif act.action in ("overwrite", "fill"):
             doc = db.get(NodeDoc, act.doc_id)
             if doc is None:
                 continue  # удалён между превью и применением — план пересчитывается, но страхуемся
+            # Имя пишется и при заполнении: заглушку могли найти по операции, а не по
+            # имени (Р27), и осмысленное имя от агента ценнее адреса-заголовка.
             doc.name = act.name
             doc.kind = act.kind
             doc.operation = act.operation
             doc.content = act.mermaid
             doc.version += 1
-            updated += 1
+            if act.action == "fill":
+                filled += 1
+            else:
+                updated += 1
     for spec in plan.specs:
         if spec.action not in ("create", "overwrite"):
             continue
@@ -735,4 +760,4 @@ def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int]:
         node.openapi_spec = spec.content
         node.version += 1
         specs += 1
-    return created, updated, specs
+    return created, updated, specs, filled

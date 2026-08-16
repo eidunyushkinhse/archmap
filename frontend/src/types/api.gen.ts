@@ -2126,7 +2126,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "create" | "overwrite" | "skip" | "unchanged";
+            action: "create" | "fill" | "overwrite" | "skip" | "unchanged";
         };
         /** ChannelOut */
         ChannelOut: {
@@ -2390,7 +2390,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "create" | "overwrite" | "skip" | "unchanged";
+            action: "create" | "fill" | "overwrite" | "skip" | "unchanged";
         };
         /** DbColumnCreate */
         DbColumnCreate: {
@@ -2803,6 +2803,11 @@ export interface components {
              */
             created_docs: number;
             /**
+             * Filled Docs
+             * @default 0
+             */
+            filled_docs: number;
+            /**
              * Updated Docs
              * @default 0
              */
@@ -2842,7 +2847,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "create" | "overwrite" | "skip" | "unchanged";
+            action: "create" | "fill" | "overwrite" | "skip" | "unchanged";
             /** Mermaid */
             mermaid: string;
         };
@@ -2880,7 +2885,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "create" | "overwrite" | "skip" | "unchanged";
+            action: "create" | "fill" | "overwrite" | "skip" | "unchanged";
             /** Valid Yaml */
             valid_yaml: boolean;
             /** Looks Openapi */
