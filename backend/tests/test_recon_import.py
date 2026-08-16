@@ -9,15 +9,28 @@
 поле.
 """
 
+import uuid
+
+from conftest import ensure_architect, ensure_project
+
+from app.alerts import compute_alerts
+from app.models.node import Node
+from app.models.node_doc import NodeDoc
+from app.models.project import Project
+from app.projects import copy_project_schema
 from app.recon_import import (
     MAX_ENTRY_LEN,
     MAX_RECON_LINES,
     ParsedRecon,
+    apply_recon_plan,
+    build_recon_plan,
     looks_like_spec,
     parse_recon_file,
     recon_stubs,
 )
 from app.recon_prompt import build_recon_prompt
+from app.restore import build_deletion_snapshot, restore_from_snapshot
+from app.routers.nodes import delete_node
 
 ПЕРЕЧЕНЬ = """# archmap-recon
 node: Zulip / backend
@@ -206,3 +219,261 @@ def test_потолок_строк_блокирует_перечень():
 def test_спасённый_файл_помечен_замечанием():
     _, warnings, _ = recon_stubs(ParsedRecon(operations=["GET /a"], salvaged=True))
     assert any("разобран построчно" in w for w in warnings)
+
+
+# ── План и применение ─────────────────────────────────────────────────────────
+def _node(db, name, parent=None, shape="service"):
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        shape=shape,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+    )
+    db.add(n)
+    db.flush()
+    return n
+
+
+def _doc(db, node, name, kind="operation", operation=None, content=""):
+    d = NodeDoc(
+        id=uuid.uuid4(),
+        node_id=node.id,
+        name=name,
+        kind=kind,
+        operation=operation,
+        content=content,
+    )
+    db.add(d)
+    db.flush()
+    return d
+
+
+def _план(db, текст=ПЕРЕЧЕНЬ, window=None, имя="archmap-recon.yaml"):
+    nodes = db.query(Node).filter(Node.project_id == ensure_project(db).id).all()
+    return build_recon_plan(db, nodes, [(имя, текст)], window)
+
+
+def _применить(db, текст=ПЕРЕЧЕНЬ, window=None):
+    plan = _план(db, текст, window)
+    if not plan.report.errors:
+        apply_recon_plan(db, plan)
+        db.flush()
+    return plan.report
+
+
+def _действия(report) -> dict[str, str]:
+    return {i.name: i.action for i in report.items}
+
+
+ПЕРЕЧЕНЬ_BACKEND = """# archmap-recon
+node: backend
+operations:
+  - GET /messages
+  - POST /messages
+workers:
+  - email_senders
+"""
+
+
+def test_четыре_действия_превью(db):
+    """Ключ сопоставления: операция описана по ИМЕНИ ИЛИ по operation, воркер — по имени."""
+    backend = _node(db, "backend")
+    # Схема, написанная ДО разведки: называется по-человечески, операция — в поле.
+    _doc(db, backend, "Отправка сообщения", operation="POST /messages", content="flowchart TD\n A")
+    # Заглушка прошлого захода разведки: имя совпадает со строкой, тело пустое.
+    _doc(db, backend, "GET /messages", operation="GET /messages")
+    # Схема, которой в перечне больше нет.
+    _doc(db, backend, "GET /old", operation="GET /old")
+    # Обзор в перечень не входит по природе — исчезнувшим его объявлять нельзя.
+    _doc(db, backend, "Обзор", kind="overview", content="flowchart TD\n B")
+
+    report = _план(db, ПЕРЕЧЕНЬ_BACKEND).report
+    assert not report.errors
+    assert report.node_path == "backend"
+    assert _действия(report) == {
+        "GET /messages": "unchanged",
+        "POST /messages": "described",
+        "email_senders": "create",
+        "GET /old": "vanished",
+    }
+    # Человек должен видеть, ЧТО закрыло операцию, если имена разошлись.
+    описана = next(i for i in report.items if i.action == "described")
+    assert описана.doc_name == "Отправка сообщения"
+
+
+def test_применение_создаёт_заглушки(db):
+    backend = _node(db, "backend")
+    report = _применить(db, ПЕРЕЧЕНЬ_BACKEND)
+
+    assert (report.applied, report.created) == (True, 3)
+    docs = {d.name: d for d in db.query(NodeDoc).filter(NodeDoc.node_id == backend.id).all()}
+    assert set(docs) == {"GET /messages", "POST /messages", "email_senders"}
+    assert docs["POST /messages"].kind == "operation"
+    assert docs["POST /messages"].operation == "POST /messages"
+    # Тело пустое — это и есть заглушка; воркеру адрес операции не положен.
+    assert docs["POST /messages"].content == ""
+    assert (docs["email_senders"].kind, docs["email_senders"].operation) == ("worker", None)
+
+
+def test_повторный_прогон_идемпотентен(db):
+    """Критерий приёмки 2 эпика: второй заход — ноль созданий, ноль дублей, описанное цело."""
+    backend = _node(db, "backend")
+    _doc(db, backend, "Отправка сообщения", operation="POST /messages", content="flowchart TD\n A")
+    _применить(db, ПЕРЕЧЕНЬ_BACKEND)
+    db.flush()
+
+    второй = _применить(db, ПЕРЕЧЕНЬ_BACKEND)
+
+    assert второй.created == 0
+    assert set(_действия(второй).values()) == {"unchanged", "described"}
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id == backend.id).all()
+    # Дубля поверх описанной операции нет: схема «POST /messages» так и не создана.
+    assert {d.name for d in docs} == {"GET /messages", "email_senders", "Отправка сообщения"}
+    описана = next(d for d in docs if d.name == "Отправка сообщения")
+    assert описана.content == "flowchart TD\n A" and описана.version == 1
+
+
+def test_исчезнувшее_не_удаляется(db):
+    """Расхождение показываем, а сносят его руками (Р13)."""
+    backend = _node(db, "backend")
+    _doc(db, backend, "GET /old", operation="GET /old", content="flowchart TD\n A")
+    report = _применить(db, ПЕРЕЧЕНЬ_BACKEND)
+
+    assert _действия(report)["GET /old"] == "vanished"
+    старая = db.query(NodeDoc).filter(NodeDoc.name == "GET /old").one()
+    assert старая.content == "flowchart TD\n A"
+
+
+def test_воркер_сопоставляется_только_по_имени(db):
+    """Поле operation воркерам не положено — не угадываем, показываем создание."""
+    backend = _node(db, "backend")
+    _doc(db, backend, "Рассылка писем", operation="email_senders", content="flowchart TD\n A")
+    report = _план(db, "node: backend\nworkers:\n  - email_senders\n").report
+    assert _действия(report) == {"email_senders": "create", "Рассылка писем": "vanished"}
+
+
+# ── Адресация (Р9, Р10) ───────────────────────────────────────────────────────
+def test_адрес_частичным_путём(db):
+    корень = _node(db, "Zulip")
+    _node(db, "backend", корень)
+    report = _план(db, "node: Zulip / backend\noperations:\n  - GET /a\n").report
+    assert (report.node_path, report.errors) == ("Zulip / backend", [])
+
+
+def test_адрес_не_найден_подсказывает(db):
+    корень = _node(db, "Zulip")
+    _node(db, "backend", корень)
+    report = _план(db, "node: Zulip / bakend\noperations:\n  - GET /a\n").report
+    assert report.errors and "не найден" in report.errors[0]
+    # did-you-mean и перечень объектов проекта: без них слабая модель гадает вслепую.
+    assert "похоже на «Zulip / backend»" in report.errors[0]
+    assert "Zulip / backend" in report.errors[0]
+    assert report.items == []
+
+
+def test_без_адреса_берётся_объект_окна(db):
+    backend = _node(db, "backend")
+    report = _применить(db, "operations:\n  - GET /a\n", window=backend.id)
+    assert report.node_path == "backend" and report.created == 1
+    # Без адреса И без окна применять некуда — это ошибка, а не тихий пропуск.
+    пустой = _план(db, "operations:\n  - GET /b\n").report
+    assert пустой.errors and "не сказало" in пустой.errors[0]
+
+
+def test_несколько_перечней_вопрос_а_не_угадывание(db):
+    _node(db, "backend")
+    nodes = db.query(Node).all()
+    plan = build_recon_plan(
+        db,
+        nodes,
+        [("recon-1.yaml", ПЕРЕЧЕНЬ_BACKEND), ("recon-2.yaml", ПЕРЕЧЕНЬ_BACKEND)],
+        None,
+    )
+    assert plan.report.errors and "несколько перечней" in plan.report.errors[0]
+    assert "recon-1.yaml" in plan.report.errors[0] and "recon-2.yaml" in plan.report.errors[0]
+
+
+def test_спека_вместо_перечня_объясняется(db):
+    _node(db, "backend")
+    nodes = db.query(Node).all()
+    plan = build_recon_plan(db, nodes, [("openapi.yaml", СПЕКА)], None)
+    assert plan.report.errors and "OpenAPI-спека" in plan.report.errors[0]
+
+
+def test_перечень_среди_папки_находится(db):
+    """Пользователь вправе перетащить папку целиком — соседи перечню не мешают."""
+    backend = _node(db, "backend")
+    nodes = db.query(Node).all()
+    plan = build_recon_plan(
+        db,
+        nodes,
+        [
+            ("api.yaml", СПЕКА),
+            ("logic.mmd", "flowchart TD\n  A --> B\n"),
+            ("archmap-recon.yaml", ПЕРЕЧЕНЬ_BACKEND),
+        ],
+        None,
+    )
+    assert not plan.report.errors and plan.node is not None and plan.node.id == backend.id
+
+
+def test_контейнер_адресат_предупреждает(db):
+    """Р15: заглушки у контейнера дадут штатный алерт AL24 — узнать об этом надо здесь."""
+    корень = _node(db, "Zulip")
+    _node(db, "backend", корень)
+    report = _план(db, "node: Zulip\noperations:\n  - GET /a\n").report
+    assert not report.errors
+    assert any("контейнер" in w for w in report.warnings)
+
+
+# ── Ловушки: заглушка — это документация, которой нет ─────────────────────────
+def test_массовые_заглушки_не_рождают_алертов(db):
+    """Пустая схема не участвует в резолве пометок (alerts.py: `if not content`), но
+    двести пустых схем не должны родить и никакого другого алерта."""
+    _node(db, "backend")
+    db.flush()
+    было = compute_alerts(db, ensure_project(db).id).model_dump()
+
+    перечень = "node: backend\noperations:\n" + "".join(f"  - GET /op{i}\n" for i in range(200))
+    report = _применить(db, перечень)
+    assert report.created == 200
+
+    assert compute_alerts(db, ensure_project(db).id).model_dump() == было
+    # Заглушка у ЛИСТА алерта «контейнер со своей документацией» не даёт.
+    assert compute_alerts(db, ensure_project(db).id).container_own_docs == []
+
+
+def test_копия_проекта_переживает_заглушки(db):
+    backend = _node(db, "backend")
+    _применить(db, ПЕРЕЧЕНЬ_BACKEND)
+    db.commit()
+
+    dst = Project(id=uuid.uuid4(), name="Копия")
+    db.add(dst)
+    db.flush()
+    copy_project_schema(db, ensure_project(db).id, dst.id)
+    db.commit()
+
+    копия = db.query(Node).filter(Node.project_id == dst.id).one()
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id == копия.id).all()
+    assert sorted(d.name for d in docs) == sorted(
+        d.name for d in db.query(NodeDoc).filter(NodeDoc.node_id == backend.id).all()
+    )
+    assert all(d.content == "" for d in docs)
+
+
+def test_удаление_и_восстановление_переживают_заглушки(db):
+    backend = _node(db, "backend")
+    _применить(db, ПЕРЕЧЕНЬ_BACKEND)
+    db.commit()
+
+    snap = build_deletion_snapshot(db, backend.id)
+    delete_node(backend.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert db.query(NodeDoc).count() == 0
+
+    restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
+    db.flush()
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id == backend.id).all()
+    assert sorted(d.name for d in docs) == ["GET /messages", "POST /messages", "email_senders"]
+    assert all(d.content == "" for d in docs)
