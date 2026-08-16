@@ -14,11 +14,11 @@
 // плоский столбец в нём так же нечитаем, как в витрине.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { NodeDocKind, PromptVariant, ReconAction, ReconImportReport, ReconItem } from "../../types";
+import type { PromptVariant, ReconAction, ReconImportReport, ReconItem } from "../../types";
 import { reconApi, type DocsFile } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
-import { OPEN_LIMIT } from "../docsCollapse";
+import { KIND_LABEL, OPEN_LIMIT } from "../docsList";
 import {
   inputFingerprint, useRepeatedInput,
   head, sub, cols, leftCol, rightCol, leftNote,
@@ -47,15 +47,9 @@ const GROUPS: { action: ReconAction; title: string; note?: string }[] = [
   },
 ];
 
-const KIND_LABEL: Record<NodeDocKind, string> = {
-  overview: "обзор",
-  operation: "операция",
-  worker: "воркер",
-};
-
 // Группа длиннее OPEN_LIMIT — стартует свёрнутой: двести строк «создадим» человек не
 // читает, он смотрит на число в заголовке и разворачивает, если хочет проверить
-// выборочно. Порог общий с витриной «Логики» (components/docsCollapse).
+// выборочно. Порог общий с витриной «Логики» (components/docsList).
 
 // Строка превью. doc_name приходит, только когда имя УЖЕ существующей схемы отличается
 // от строки перечня («POST /messages» описан схемой «Отправка сообщения»), — и человек

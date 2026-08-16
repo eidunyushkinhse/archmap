@@ -567,9 +567,10 @@ describe("NodePage: документация по форме узла", () => {
 
 // ── Витрина разведки: остаток работы виден числом ───────────────────────────
 // Разведка кладёт в «Логику» ЗАГЛУШКИ — схемы с пустым телом. Витрина обязана их
-// отличать (иначе заглушку не спутать с документацией нельзя) и показывать остаток
-// работы числом: без знаменателя «опиши монолит» снова становится безразмерным.
-describe("NodePage: заглушки разведки и счётчик «описано N из M»", () => {
+// отличать (иначе заглушку не спутать с документацией нельзя), показывать остаток
+// работы числом (без знаменателя «опиши монолит» снова становится безразмерным) и
+// пережить две сотни строк: до разведки полевым максимумом были тринадцать.
+describe("NodePage: заглушки разведки, счётчик «описано N из M» и группы по видам", () => {
   beforeEach(() => vi.clearAllMocks());
 
   function док(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
@@ -614,6 +615,57 @@ describe("NodePage: заглушки разведки и счётчик «опи
     expect(метки).toHaveLength(1);
     // Метка стоит в строке заглушки, а не где-то рядом.
     expect(метки[0].closest("button")).toHaveTextContent("POST /orders");
+  });
+
+  // ── Масштаб списка: группы по видам ───────────────────────────────────────
+  it("маленький объект: группы развёрнуты, схемы видны без единого клика", async () => {
+    // Порог сворачивания не должен менять привычный вид там, где схем немного.
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      док({ id: "d1", name: "POST /orders" }),
+      док({ id: "d2", name: "email_senders", kind: "worker" }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.getByText("Обзор сервиса")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
+  });
+
+  it("двести схем: группы стартуют свёрнутыми, строки — по клику", async () => {
+    const много = Array.from({ length: 200 }, (_, i) =>
+      док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
+    setupDocs([док({ id: "d0", name: "Обзор сервиса", kind: "overview" }), ...много]);
+    await waitFor(() => expect(screen.getByText("описано 0 из 200")).toBeInTheDocument());
+    // Стены из двухсот кнопок нет — на экране только заголовки групп.
+    expect(screen.queryByText("GET /r0")).toBeNull();
+    expect(screen.queryByText("Обзор сервиса")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
+    expect(screen.getByText("GET /r0")).toBeInTheDocument();
+    expect(screen.getByText("GET /r199")).toBeInTheDocument();
+  });
+
+  it("в заголовке группы — число строк и остаток; у обзоров остатка нет", async () => {
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      док({ id: "d1", name: "POST /orders", described: true }),
+      док({ id: "d2", name: "GET /orders", described: false }),
+      док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    const операции = screen.getByRole("button", { name: /^Операции/ });
+    expect(операции).toHaveTextContent("(2)");
+    expect(операции).toHaveTextContent("описано 1");
+    expect(screen.getByRole("button", { name: /^Воркеры/ })).toHaveTextContent("описано 0");
+    // Обзор — не точка входа: его нет в счётчике секции, и «описано» у группы не
+    // пишем, иначе два разных числа на одном экране читались бы как ошибка.
+    expect(screen.getByRole("button", { name: /^Обзоры/ })).not.toHaveTextContent("описано");
+  });
+
+  it("пустая группа не рисуется вовсе", async () => {
+    setupDocs([док({ id: "d1", name: "POST /orders" })]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /^Обзоры/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
   });
 
   it("меню «+ Добавить» ведёт в составление списка операций", async () => {

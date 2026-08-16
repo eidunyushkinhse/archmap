@@ -20,6 +20,8 @@ import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
+import NodeDocsList, { StubMark } from "../components/NodeDocsList";
+import { KIND_LABEL } from "../components/docsList";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import ReconAgentModal from "../components/docsImport/ReconAgentModal";
 import SpecAgentModal from "../components/docsImport/SpecAgentModal";
@@ -317,6 +319,10 @@ function NodePageInner({
     [node.docs],
   );
   const describedCount = useMemo(() => entryDocs.filter((d) => d.described).length, [entryDocs]);
+
+  // Открытие своей схемы из списка «Логики» (стабильная ссылка — список схем
+  // монолита длинный, лишних ре-рендеров ему не нужно).
+  const openDoc = useCallback((docId: string) => setDoc({ mode: "flowchart", docId }), []);
 
   // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
   // Контейнеру спеку создавать нельзя (правила контейнеров).
@@ -666,9 +672,7 @@ function NodePageInner({
                           onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
                         >
                           <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
-                          <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
-                            {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
-                          </span>
+                          <span className={`np-doc-chip np-doc-chip--${d.kind}`}>{KIND_LABEL[d.kind]}</span>
                           {!d.described && <StubMark />}
                           {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
                           <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
@@ -747,23 +751,10 @@ function NodePageInner({
                     Схемы логики описывают код сервиса, а у этого объекта его нет — перенесите их на сервис, который с ним работает
                   </p>
                 )}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {node.docs.map((d) => (
-                    <button
-                      key={d.id}
-                      className="np-doc-row"
-                      onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
-                      <span className={`np-doc-chip np-doc-chip--${d.kind}`}>
-                        {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
-                      </span>
-                      {!d.described && <StubMark />}
-                      {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
-                      <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                    </button>
-                  ))}
-                </div>
+                {/* Свои схемы — группами по видам: разведка приносит сюда двести с
+                    лишним строк, и плоский столбец в них нечитаем. На маленьком
+                    объекте группы стартуют развёрнутыми. */}
+                <NodeDocsList docs={node.docs} onOpen={openDoc} />
                 {addLogicMenu}
               </>
             )}
@@ -989,24 +980,11 @@ function NodePageInner({
   );
 }
 
-// Метка заглушки: схема в списке есть, а тела у неё нет — разведка точек входа
-// создала её как строку перечня (docs/plan-recon.md). Спокойный пунктирный контур, а
-// НЕ красная тревога: неописанная точка входа — нормальное состояние работы по
-// списку, а не ошибка. Компонент на верхнем уровне модуля (объявленный внутри
-// другого ремаунтился бы каждый рендер).
-function StubMark() {
-  return <span style={stubMark}>не описана</span>;
-}
-
 // Счётчик «описано N из M» в заголовке секции «Логика» — знаменателем идут только
-// точки входа (операции и воркеры).
+// точки входа (операции и воркеры). Метка заглушки «не описана» и подписи видов
+// живут в NodeDocsList: список схем и его строки — одна ответственность.
 const docsCounter: CSSProperties = {
   marginLeft: 8, fontSize: 12, fontWeight: 500, color: "#64748b",
-};
-const stubMark: CSSProperties = {
-  flex: "none", fontSize: 11, fontWeight: 600, color: "#64748b",
-  background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 5, padding: "1px 6px",
-  whiteSpace: "nowrap",
 };
 
 // Split-кнопка схемы потомка в объединении контейнера: левая (широкая) часть
@@ -1027,9 +1005,7 @@ function DocSplitRow({ doc, child, onOpen, onNavigateNode }: {
         title={`Открыть схему «${doc.name}»`}
       >
         <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
-        <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>
-          {doc.kind === "overview" ? "обзор" : doc.kind === "operation" ? "операция" : "воркер"}
-        </span>
+        <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
         {!doc.described && <StubMark />}
         {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
