@@ -448,6 +448,9 @@ def test_длинный_перечень_режется_по_строкам_а_�
     assert много[-1] not in prompt
     # Молча очередь не обрывается: не влезшее названо числом и объяснено.
     assert "…и ещё 12 — их опишет следующий заход" in prompt
+
+
+def test_prompt_markers_and_slice():
     prompt = build_docs_prompt(SLICE, include="both")
     assert SLICE.rstrip() in prompt  # срез вложен
     for marker in (
