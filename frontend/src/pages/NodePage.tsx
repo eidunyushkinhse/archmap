@@ -31,11 +31,13 @@ import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, 
 import { plural } from "../ui/plural";
 import "./NodePage.css";
 
-// Сигнатура меты узла, отображаемой на странице, — для сверки при удалённом
-// изменении (meta_rev): совпала → изменение своё (уже применено локально),
-// тост не нужен; отличается → чужая сессия, освежить и показать тост.
-const metaSig = (n: Node): string => JSON.stringify([
-  n.name, n.role, n.technology, n.status, n.description, n.is_external, n.openapi_spec,
+// Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
+// удалённом изменении: совпала → изменение своё (уже применено локально), тост не
+// нужен; отличается → чужая сессия, освежить и показать тост. Несёт и СТРУКТУРНЫЕ
+// поля (имя, форма): они двигают graph_rev, а не meta_rev (view.md V48/V53), но
+// «Свойства» страницы показывают именно их — сигнатура обязана их различать.
+const nodeSig = (n: Node): string => JSON.stringify([
+  n.name, n.shape, n.role, n.technology, n.status, n.description, n.is_external, n.openapi_spec,
   [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation, d.version]),
 ]);
 
@@ -212,14 +214,22 @@ function NodePageInner({
   const childSpecBaseRef = useRef<Node | null>(null);
   const [childSpecConflict, setChildSpecConflict] = useState<string | null>(null);
 
-  // Мета узла обновилась в ДРУГОЙ сессии (вырос meta_rev): тянем свежий узел и
-  // сверяем содержимое — совпало (своя запись уже применена локально) → молча;
-  // отличается → применяем + тост «Данные обновлены в другой сессии».
+  // Узел изменился в ДРУГОЙ сессии — зовётся ЛЮБЫМ из двух курсоров поллинга:
+  // meta_rev (роль/технология/статус/описание/внешность/openapi/доки) и graph_rev
+  // (имя/форма — структурные поля, V48). Слушать только meta_rev было ошибкой:
+  // чужая смена имени или типа освежала встроенную схему и не трогала «Свойства».
+  // Канал один: тянем свежий узел и сверяем — совпало (своя запись уже применена
+  // локально) → молча; отличается → применяем + тост «Данные обновлены».
   const [metaToast, showMetaToast] = useToast();
-  const handleMetaChange = useCallback(() => {
+  const handleNodeChanged = useCallback(() => {
     nodesApi.get(node.id)
       .then((fresh) => {
-        if (metaSig(fresh) === metaSig(patch.node)) return;
+        // Свежесть решает version строки, а не порядок прихода ответов (тот же
+        // критерий, что у withOwnEdits, context.md X20): запрос, выпущенный до
+        // собственной правки, мог вернуться после неё — устаревшим снимком
+        // страницу не откатываем.
+        if (fresh.version < patch.node.version) return;
+        if (nodeSig(fresh) === nodeSig(patch.node)) return;
         patch.refresh(fresh);
         showMetaToast();
       })
@@ -558,7 +568,7 @@ function NodePageInner({
             isArchitect={isArchitect}
             onNavigateNode={onNavigateNode}
             onNavigateMap={onNavigateMap}
-            onMetaChange={handleMetaChange}
+            onNodeChanged={handleNodeChanged}
             viewMeta={viewMetaRef}
             mutationToken={mutationToken}
           />
@@ -1187,7 +1197,7 @@ function SchemaSection({
   isArchitect,
   onNavigateNode,
   onNavigateMap,
-  onMetaChange,
+  onNodeChanged,
   viewMeta,
   mutationToken,
 }: {
@@ -1196,9 +1206,10 @@ function SchemaSection({
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
-  // Рост meta_rev (мета узла изменилась в другой сессии) — страница освежает
-  // данные узла и показывает тост «Данные обновлены в другой сессии».
-  onMetaChange?: () => void;
+  // Узел изменён в другой сессии — страница освежает свои данные и показывает
+  // тост «Данные обновлены в другой сессии». Зовётся ОБОИМИ курсорами: meta_rev
+  // (атрибуты/доки/спеки) и graph_rev (структурные имя/форма, V48).
+  onNodeChanged?: () => void;
   // Общий с страницей курсор конкурентности (страница тихо обновляет его после
   // СВОИХ записей — echo-suppression, V53).
   viewMeta: { current: ViewMetaState };
@@ -1214,7 +1225,7 @@ function SchemaSection({
   // Курсоры изменений для remote-sync И fence персиста: context-graph несёт
   // version (вид фокуса) / graph_rev / meta_rev; рефетч обновляет курсоры. Свои
   // записи раскладки (архитектор) обновляют курсор из ответа PUT — поллинг не даёт
-  // ложного тоста; чужие правки меты давятся сверкой содержимого в onMetaChange.
+  // ложного тоста; чужие правки узла давятся сверкой содержимого в onNodeChanged.
   const metaCursorRef = viewMeta; // алиас: eslint разрешает писать только в *Ref
   // Флаг «идёт жест драга» для поллинга (рефетч не врывается в жест): его же
   // ставит/снимает канвас через бандл персиста (архитектор).
@@ -1239,7 +1250,7 @@ function SchemaSection({
 
   // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
   // тихий рефетч контекста + тост «Схема обновлена в другой сессии»; meta_rev
-  // вырос → onMetaChange (тост «Данные обновлены» — хозяин страница).
+  // вырос → освежение узла (тост «Данные обновлены» — хозяин страница).
   useRemoteSync({
     currentParentId: null,
     viewMeta: metaCursorRef,
@@ -1247,11 +1258,16 @@ function SchemaSection({
     onRemoteChange: () => {
       refetch();
       showRemoteToast();
+      // Структурные поля узла (имя/форма) двигают graph_rev, а НЕ meta_rev (V48):
+      // без этого зова чужая смена имени/типа перерисовывала схему, а «Свойства»
+      // страницы оставались старыми до перезахода. Канал тот же (сверка свежего
+      // узла по version+сигнатуре), поэтому лишнего тоста своя правка не даёт.
+      onNodeChanged?.();
     },
-    onMetaChange: onMetaChange
+    onMetaChange: onNodeChanged
       ? (rev) => {
           metaCursorRef.current = { ...metaCursorRef.current, metaRev: rev };
-          onMetaChange();
+          onNodeChanged();
         }
       : undefined,
   });

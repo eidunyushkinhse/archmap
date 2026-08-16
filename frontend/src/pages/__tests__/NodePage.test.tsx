@@ -2,12 +2,12 @@
 // навигация. Тяжёлый канвас (EmbeddedSchemaBlock → LevelGraph) замокан —
 // тестируем страницу-документ и её данные. Имя/роль/технология — инлайн-инпуты
 // (CAS-правка по blur), поэтому ищутся по displayValue.
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
-import { nodesApi, nodeDocsApi } from "../../api/nodes";
+import { nodesApi, nodeDocsApi, viewsApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
 import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem } from "../../types";
 
@@ -402,6 +402,101 @@ describe("NodePage: правки меты и схема страницы", () =>
     await userEvent.click(screen.getByText("Проектируется"));
 
     await waitFor(() => expect(схема()).toContain("n1:service:planned"));
+  });
+});
+
+// ── Чужая правка узла догоняет «Свойства» страницы ──────────────────────────
+// Структурные поля (имя, форма) двигают graph_rev, а мета (роль/статус/…) — meta_rev
+// (V48/V53). Страница слушала только meta_rev: чужая смена имени/типа перерисовывала
+// встроенную схему (она поллит graph_rev), а «Свойства» оставались старыми до
+// перезахода. Канал освежения один — сверка свежего узла по version и сигнатуре.
+describe("NodePage: чужая правка узла и «Свойства»", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupPoll(own: Partial<Node> = {}) {
+    const n = node("n1", own);
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    // Курсоры при загрузке — как в контекст-графе (graph_rev 1 / meta_rev 1).
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1 });
+    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+  }
+
+  // Тик поллинга: фокус окна сверяет курсоры немедленно (useRemoteSync), без таймеров.
+  async function тик() {
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+  }
+
+  it("чужая смена ТИПА (graph_rev) освежает «Свойства», а не только схему", async () => {
+    setupPoll({ shape: "service" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument());
+
+    // Другая сессия сменила тип: структурная правка двигает graph_rev, meta_rev
+    // стоит на месте. Форма — единственное отличие, поэтому тест ловит и «слушаем
+    // только meta_rev», и «сигнатура не различает форму».
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { shape: "database", version: 5 }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    await тик();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument());
+    expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument();
+  });
+
+  it("чужое переименование (graph_rev) доезжает до поля имени", async () => {
+    setupPoll({ name: "Сервис оплаты" });
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Платёжный шлюз", version: 5 }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    await тик();
+
+    await waitFor(() => expect(screen.getByDisplayValue("Платёжный шлюз")).toBeInTheDocument());
+  });
+
+  it("чужая смена статуса (meta_rev) освежает «Свойства» — прежний канал цел", async () => {
+    setupPoll({ status: "existing" });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Существует/ })).toBeInTheDocument());
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { status: "deprecated", version: 5 }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 2 });
+    await тик();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /Выводится/ })).toBeInTheDocument());
+  });
+
+  it("своя правка тем же тиком страницу не дёргает (эхо-подавление)", async () => {
+    // Тик застал СВОЮ правку: сервер отдаёт ровно то, что уже показано, —
+    // ни подмены полей, ни тоста «Данные обновлены» быть не должно.
+    setupPoll({ name: "Сервис оплаты", shape: "service" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument());
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Сервис оплаты", shape: "service", version: 5 }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    await тик();
+
+    expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument();
+    expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
+  });
+
+  it("устаревший ответ страницу не откатывает: свежесть решает version", async () => {
+    // Своя правка типа доехала (version 5), а следом возвращается ответ запроса,
+    // выпущенного ДО неё (version 2 со старым типом). Порядок прихода не решает —
+    // решает version строки (тот же критерий, что у withOwnEdits, X20).
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "database", version: 5 }));
+    setupPoll({ shape: "service" });
+    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }));
+    await userEvent.click(screen.getByText("База данных"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument());
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    await тик();
+
+    expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument();
+    expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
   });
 });
 
