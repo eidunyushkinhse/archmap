@@ -1130,6 +1130,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/recon/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recon Prompt
+         * @description Промпт агенту на разведку точек входа узла.
+         *
+         *     node_id ОБЯЗАТЕЛЕН: перечень принадлежит объекту, разведка без адреса бессмысленна,
+         *     а необязательный параметр дал бы лишнюю ветку и лишний класс ошибок. Узла нет в
+         *     проекте — 404, как у промпта доков.
+         *
+         *     ⚠ Ни среза схемы, ни ранее разведанного перечня промпт НЕ несёт (решение
+         *     пользователя, §3 плана): разведка всегда идёт от кода, иначе второй заход
+         *     унаследует пропуски первого. Единственная подстановка — адрес узла.
+         *
+         *     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит. У
+         *     оркестраторной обёртки разведки петля своя (два независимых прогона в разные файлы
+         *     и объединение), поэтому ей передаётся ГЕНЕРАТОР промпта по пути результата, а не
+         *     готовый текст: пути прогонов знает обёртка.
+         */
+        get: operations["recon_prompt_api_v1_recon_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/edges/": {
         parameters: {
             query?: never;
@@ -4043,6 +4076,11 @@ export interface components {
             /** Attached Ids */
             attached_ids: string[];
         };
+        /** ReconPromptOut */
+        ReconPromptOut: {
+            /** Prompt */
+            prompt: string;
+        };
         /** ReorderPayload */
         ReorderPayload: {
             /** Ids */
@@ -6926,6 +6964,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocsImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recon_prompt_api_v1_recon_prompt_get: {
+        parameters: {
+            query: {
+                node_id: string;
+                variant?: "builder" | "orchestrated" | "skeptic";
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconPromptOut"];
                 };
             };
             /** @description Validation Error */

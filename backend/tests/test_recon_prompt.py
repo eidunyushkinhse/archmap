@@ -19,11 +19,40 @@
 поймает только явная подстрока — потому здесь их так много.
 """
 
-import yaml
+import uuid
 
+import pytest
+import yaml
+from conftest import ensure_architect, ensure_project
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from app.auth import require_architect
+from app.database import get_db
+from app.deps import get_current_project
+from app.main import app
+from app.models.node import Node
 from app.recon_prompt import RECON_FILE, build_recon_prompt
+from app.routers.recon import recon_prompt
+from app.skeptic_prompt import (
+    BLOCK_A_END,
+    BLOCK_A_START,
+    BLOCK_B_END,
+    BLOCK_B_START,
+    BLOCK_C_END,
+    BLOCK_C_START,
+    RECON_RUN_1,
+    RECON_RUN_2,
+)
 
 АДРЕС = "Zabbix 7 / zabbix-server"
+# Порог V1 — маркер того, что перед нами именно промпт аудита (литерал, а не импорт
+# константы: сверка константы с самой собой не поймала бы её правку).
+ПОРОГ_V1 = (
+    "Сомнение записывается ТОЛЬКО при конкретном доказательстве: процитированная "
+    "строка кода, доказывающая обратное"
+)
+ВАРИАНТЫ = ("builder", "orchestrated", "skeptic")
 
 
 def _есть(промпт: str, кусок: str) -> bool:
@@ -232,3 +261,126 @@ def test_путь_результата_параметризуется_целик
     # Остальное от пути не зависит: правила и образец те же.
     дефолтный = build_recon_prompt(АДРЕС)
     assert p.split("## Формат ответа")[0] == дефолтный.split("## Формат ответа")[0]
+
+
+# ── Ручка GET /recon/prompt ───────────────────────────────────────────────────
+
+
+def _схема(db):
+    """Проект с контейнером и сервисом внутри: адрес узла — ПОЛНЫЙ путь, и именно его
+    промпт обязан донести до агента."""
+    p = ensure_project(db)
+    система = Node(id=uuid.uuid4(), name="Zabbix 7", shape="service", project_id=p.id)
+    db.add(система)
+    db.flush()
+    сервис = Node(
+        id=uuid.uuid4(), name="zabbix-server", shape="service", project_id=p.id,
+        parent_id=система.id,
+    )
+    db.add(сервис)
+    db.flush()
+    return p, сервис
+
+
+@pytest.mark.parametrize("variant", ВАРИАНТЫ)
+def test_ручка_все_варианты_отдают_текст(db, variant):
+    p, сервис = _схема(db)
+    out = recon_prompt(
+        node_id=сервис.id, variant=variant, db=db, project=p, _=ensure_architect(db)
+    )
+    assert out.prompt.strip()
+
+
+def test_ручка_дефолт_байт_в_байт_и_с_полным_путём_узла(db):
+    """Адрес — ПОЛНЫЙ путь узла, тот же, что понимает резолвер дозаливки. И дефолт
+    равен прямому вызову генератора: на нём будут сидеть MCP-тулза и окно фронта."""
+    p, сервис = _схема(db)
+    прямой = build_recon_prompt(АДРЕС)
+
+    без = recon_prompt(node_id=сервис.id, db=db, project=p, _=ensure_architect(db))
+    явный = recon_prompt(
+        node_id=сервис.id, variant="builder", db=db, project=p, _=ensure_architect(db)
+    )
+    assert без.prompt == прямой
+    assert явный.prompt == прямой
+    assert АДРЕС in без.prompt
+
+
+def test_ручка_404_если_узла_нет_в_проекте(db):
+    """⚠ Разведка без адреса бессмысленна: чужой или удалённый узел — 404, а не
+    молчаливый промпт с выдуманным адресом."""
+    p, _сервис = _схема(db)
+    with pytest.raises(HTTPException) as ошибка:
+        recon_prompt(node_id=uuid.uuid4(), db=db, project=p, _=ensure_architect(db))
+    assert ошибка.value.status_code == 404
+
+
+def test_ручка_обёртка_несёт_два_прогона_в_разные_файлы(db):
+    """Оркестраторный вариант: блоки А и Б — промпты разведчиков с РАЗНЫМИ файлами
+    результата, блок В — аудит. Один файл на два прогона = потерянный второй прогон."""
+    p, сервис = _схема(db)
+    out = recon_prompt(
+        node_id=сервис.id, variant="orchestrated", db=db, project=p, _=ensure_architect(db)
+    )
+
+    блок_а = out.prompt.split(BLOCK_A_START)[1].split(BLOCK_A_END)[0]
+    блок_б = out.prompt.split(BLOCK_B_START)[1].split(BLOCK_B_END)[0]
+    блок_в = out.prompt.split(BLOCK_C_START)[1].split(BLOCK_C_END)[0]
+
+    assert блок_а == f"\n{build_recon_prompt(АДРЕС, result_path=RECON_RUN_1)}\n"
+    assert блок_б == f"\n{build_recon_prompt(АДРЕС, result_path=RECON_RUN_2)}\n"
+    assert ПОРОГ_V1 in блок_в
+    # Адрес узла доехал до ОБОИХ разведчиков — иначе объединять будет нечего.
+    assert АДРЕС in блок_а and АДРЕС in блок_б
+
+
+def test_ручка_скептик_это_аудит_а_не_разведка(db):
+    p, сервис = _схема(db)
+    out = recon_prompt(
+        node_id=сервис.id, variant="skeptic", db=db, project=p, _=ensure_architect(db)
+    )
+    assert ПОРОГ_V1 in out.prompt
+    assert "archmap-skeptic-report.md" in out.prompt
+    # Чек-лист именно разведки, и строительного промпта здесь нет.
+    assert "КАЖДЫЙ источник из раздела `sources`" in out.prompt
+    assert "## Порядок обследования" not in out.prompt
+
+
+def test_три_варианта_различаются(db):
+    p, сервис = _схема(db)
+    тексты = {
+        v: recon_prompt(
+            node_id=сервис.id, variant=v, db=db, project=p, _=ensure_architect(db)
+        ).prompt
+        for v in ВАРИАНТЫ
+    }
+    assert len(set(тексты.values())) == 3
+
+
+@pytest.fixture()
+def клиент(db):
+    """HTTP-клиент с подменёнными зависимостями: обязательность query-параметра и
+    валидацию его значения проверяет FastAPI — видно это только настоящим запросом."""
+    p, сервис = _схема(db)
+    user = ensure_architect(db)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_project] = lambda: p
+    app.dependency_overrides[require_architect] = lambda: user
+    try:
+        yield TestClient(app), сервис
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ручка_требует_node_id_и_валидирует_variant(клиент):
+    c, сервис = клиент
+    # ⚠ node_id обязателен (Р4): без него — 422, а не промпт «в никуда».
+    assert c.get("/api/v1/recon/prompt").status_code == 422
+    assert c.get(f"/api/v1/recon/prompt?node_id={сервис.id}&variant=разведка-лайт").status_code == 422
+    # А валидные значения проходят — 422 не от чего-то другого.
+    for v in ВАРИАНТЫ:
+        ok = c.get(f"/api/v1/recon/prompt?node_id={сервис.id}&variant={v}")
+        assert ok.status_code == 200, (v, ok.text)
+        assert ok.json()["prompt"].strip()
+    # Узел не из этого проекта — 404 и через HTTP.
+    assert c.get(f"/api/v1/recon/prompt?node_id={uuid.uuid4()}").status_code == 404
