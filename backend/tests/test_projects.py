@@ -11,7 +11,11 @@ import pytest
 from conftest import ensure_architect
 from fastapi import HTTPException
 
+from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
+from app.models.channel_field import ChannelField
+from app.models.db_column import DbColumn
+from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
@@ -166,6 +170,168 @@ def test_deep_copy_keeps_node_status(db):
         n.name: n.status for n in db.query(Node).filter(Node.project_id == copy.id).all()
     }
     assert statuses == {"Планируемый": "planned", "Уходящий": "deprecated"}
+
+
+def test_deep_copy_keeps_edge_channel(db):
+    """Регрессия 2026-08-16 (П1): копия связи теряла channel — имя канала брокера,
+    который эта стрелка называет. Ссылка мягкая (по имени, не FK), поэтому имя обязано
+    доехать до копии без изменений — иначе связь копии остаётся без канала."""
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-канал"), db=db, user=user)
+    svc = Node(id=uuid.uuid4(), name="Сервис", project_id=src.id)
+    broker = Node(id=uuid.uuid4(), name="Кафка", project_id=src.id, shape="broker")
+    db.add_all([svc, broker])
+    db.flush()
+    db.add(
+        Edge(
+            id=uuid.uuid4(),
+            source_id=svc.id,
+            target_id=broker.id,
+            project_id=src.id,
+            label="публикует",
+            channel="orders.created",
+            is_synchronous=False,
+        )
+    )
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-канал", start=f"copy:{src.id}"), db=db, user=user
+    )
+    edge = db.query(Edge).filter(Edge.project_id == copy.id).one()
+    assert edge.channel == "orders.created"
+    assert edge.is_synchronous is False and edge.label == "публикует"
+
+
+def test_deep_copy_keeps_node_source_ref(db):
+    """Регрессия 2026-08-16 (П1): копия узла теряла source_ref — якорь, которым узел
+    опознаётся между прогонами агента. Без него синк «Архитектура из кода» на копии
+    начинает с нуля и плодит дубли вместо обновления."""
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-якорь"), db=db, user=user)
+    db.add(
+        Node(
+            id=uuid.uuid4(),
+            name="Платежи",
+            project_id=src.id,
+            source_ref="git:github.com/org/payments",
+        )
+    )
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-якорь", start=f"copy:{src.id}"), db=db, user=user
+    )
+    node = db.query(Node).filter(Node.project_id == copy.id).one()
+    assert node.source_ref == "git:github.com/org/payments"
+
+
+def test_deep_copy_keeps_db_structure(db):
+    """Регрессия 2026-08-16 (П1): структура БД (таблицы и колонки) не копировалась
+    ВОВСЕ — копия проекта с документацией базы приходила без неё.
+
+    Отдельно проверяем ссылку колонки на колонку (внешний ключ КАРТЫ): она обязана
+    указывать внутрь КОПИИ, иначе ER копии молча смотрит в исходный проект.
+    """
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-БД"), db=db, user=user)
+    base = Node(id=uuid.uuid4(), name="Основная БД", project_id=src.id, shape="database")
+    db.add(base)
+    db.flush()
+    orders = DbTable(id=uuid.uuid4(), node_id=base.id, name="orders", schema_name="public")
+    payments = DbTable(id=uuid.uuid4(), node_id=base.id, name="payments")
+    db.add_all([orders, payments])
+    db.flush()
+    orders_id = DbColumn(
+        id=uuid.uuid4(), table_id=orders.id, name="id", type="uuid",
+        nullable=False, is_primary_key=True, order=0,
+    )
+    db.add(orders_id)
+    db.add(
+        DbColumn(
+            id=uuid.uuid4(), table_id=orders.id, name="status", type="varchar(32)",
+            description="new|paid", order=1,
+        )
+    )
+    db.flush()
+    db.add(
+        DbColumn(
+            id=uuid.uuid4(), table_id=payments.id, name="order_id", type="uuid",
+            references_column_id=orders_id.id, order=0,
+        )
+    )
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-БД", start=f"copy:{src.id}"), db=db, user=user
+    )
+    copy_node = db.query(Node).filter(Node.project_id == copy.id).one()
+    tables = {t.name: t for t in copy_node.db_tables}
+    assert set(tables) == {"orders", "payments"}
+    assert tables["orders"].schema_name == "public"
+    cols = {c.name: c for c in tables["orders"].columns}
+    assert set(cols) == {"id", "status"}
+    assert (cols["id"].type, cols["id"].is_primary_key, cols["id"].nullable) == ("uuid", True, False)
+    assert cols["status"].description == "new|paid"
+    # Ссылка ведёт на колонку КОПИИ, а не исходного проекта.
+    ref = tables["payments"].columns[0].references_column_id
+    assert ref == cols["id"].id and ref != orders_id.id
+
+
+def test_deep_copy_keeps_broker_channels(db):
+    """Регрессия 2026-08-16 (П1): каналы брокера и поля их сообщений не копировались
+    ВОВСЕ. Плюс шов: связь называет канал ПО ИМЕНИ, значит имена каналов в копии
+    обязаны совпасть с channel скопированной связи — иначе стрелка теряет канал."""
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-брокер"), db=db, user=user)
+    svc = Node(id=uuid.uuid4(), name="Сервис", project_id=src.id)
+    broker = Node(id=uuid.uuid4(), name="Кафка", project_id=src.id, shape="broker")
+    db.add_all([svc, broker])
+    db.flush()
+    channel = BrokerChannel(
+        id=uuid.uuid4(), node_id=broker.id, name="orders.created", kind="topic",
+        partition_key="order_id", delivery="at-least-once", retention="7d",
+        description="факт создания заказа",
+    )
+    db.add(channel)
+    db.add(
+        Edge(
+            id=uuid.uuid4(), source_id=svc.id, target_id=broker.id, project_id=src.id,
+            channel="orders.created", is_synchronous=False,
+        )
+    )
+    db.flush()
+    db.add_all(
+        [
+            ChannelField(
+                id=uuid.uuid4(), channel_id=channel.id, name="order_id", type="uuid",
+                required=True, order=0,
+            ),
+            ChannelField(
+                id=uuid.uuid4(), channel_id=channel.id, name="status", type="string",
+                description="new|paid", order=1,
+            ),
+        ]
+    )
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-брокер", start=f"copy:{src.id}"), db=db, user=user
+    )
+    copy_broker = (
+        db.query(Node).filter(Node.project_id == copy.id, Node.shape == "broker").one()
+    )
+    assert len(copy_broker.broker_channels) == 1
+    ch = copy_broker.broker_channels[0]
+    assert (ch.name, ch.kind, ch.partition_key) == ("orders.created", "topic", "order_id")
+    assert (ch.delivery, ch.retention) == ("at-least-once", "7d")
+    assert [(f.name, f.type, f.required) for f in ch.fields] == [
+        ("order_id", "uuid", True),
+        ("status", "string", False),
+    ]
+    # Шов «стрелка → канал» цел: имя канала копии совпадает с channel связи копии.
+    edge = db.query(Edge).filter(Edge.project_id == copy.id).one()
+    assert edge.channel == ch.name
 
 
 def test_deep_copy_keeps_alt_branches(db):
