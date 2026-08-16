@@ -5,6 +5,7 @@ import type {
   DocsImportReport,
   NodeDocKind,
   PromptVariant,
+  ReconImportReport,
 } from "../types";
 
 // Дозаливка доков от ИИ-агента: промпт со срезом схемы, dry-run превью пакета
@@ -114,4 +115,36 @@ export const channelsImportApi = {
     api.post<ChannelsImportReport>("/channels-import/preview", dataBody(p)),
   apply: (p: DataImportParams): Promise<ChannelsImportReport> =>
     api.post<ChannelsImportReport>("/channels-import/apply", dataBody(p)),
+};
+
+// РАЗВЕДКА точек входа (docs/plan-recon.md): нулевой шаг документирования монолита.
+// Агент обходит репозиторий и возвращает не документацию, а ПЕРЕЧЕНЬ операций и
+// фоновых процессов; его строки становятся заглушками — схемами с пустым телом.
+//
+// Свой контракт, а не режим docs-import: там приезжают схемы, здесь — оглавление.
+// Поля overwrite здесь НЕТ и не будет: применение только создаёт, описанное не
+// трогается ни при какой политике, удалений нет вовсе.
+export interface ReconImportParams {
+  files: DocsFile[];
+  /** Объект, из окна которого открыта разведка: к нему уедет перечень без строки node. */
+  nodeId?: string | null;
+}
+
+function reconBody(p: ReconImportParams): Record<string, unknown> {
+  const out: Record<string, unknown> = { files: p.files };
+  if (p.nodeId) out.node_id = p.nodeId;
+  return out;
+}
+
+export const reconApi = {
+  // node_id ОБЯЗАТЕЛЕН: перечень принадлежит объекту, разведка без адреса бессмысленна.
+  prompt: (nodeId: string, variant?: PromptVariant): Promise<{ prompt: string }> => {
+    const q = new URLSearchParams({ node_id: nodeId });
+    if (variant) q.set("variant", variant);
+    return api.get<{ prompt: string }>(`/recon/prompt?${q.toString()}`);
+  },
+  preview: (p: ReconImportParams): Promise<ReconImportReport> =>
+    api.post<ReconImportReport>("/recon/preview", reconBody(p)),
+  apply: (p: ReconImportParams): Promise<ReconImportReport> =>
+    api.post<ReconImportReport>("/recon/apply", reconBody(p)),
 };
