@@ -1163,6 +1163,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/recon/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recon Import Preview
+         * @description Dry-run: план без записи (build_recon_plan БД только читает).
+         *
+         *     Он же дифф повторной разведки: строки «уже описана» и «исчезла из кода» видны
+         *     здесь, до всякой записи.
+         */
+        post: operations["recon_import_preview_api_v1_recon_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/recon/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recon Import Apply
+         * @description Применение: план пересчитывается на живом состоянии (между превью и применением
+         *     мир мог измениться); при errors не пишется ничего.
+         */
+        post: operations["recon_import_apply_api_v1_recon_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/edges/": {
         parameters: {
             query?: never;
@@ -4075,6 +4119,74 @@ export interface components {
             dangling: number;
             /** Attached Ids */
             attached_ids: string[];
+        };
+        /**
+         * ReconImportIn
+         * @description Принесённые файлы: перечень среди них ищет приёмник (папку тащат целиком).
+         */
+        ReconImportIn: {
+            /** Files */
+            files: components["schemas"]["DocsFileIn"][];
+            /** Node Id */
+            node_id?: string | null;
+        };
+        /**
+         * ReconImportReport
+         * @description Отчёт превью и применения (общая форма; applied различает).
+         */
+        ReconImportReport: {
+            /**
+             * Node Path
+             * @default
+             */
+            node_path: string;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ReconItem"][];
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Created
+             * @default 0
+             */
+            created: number;
+        };
+        /**
+         * ReconItem
+         * @description Строка превью: точка входа и что с ней станет.
+         */
+        ReconItem: {
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "overview" | "operation" | "worker";
+            /** Operation */
+            operation?: string | null;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "unchanged" | "described" | "vanished";
+            /** Doc Name */
+            doc_name?: string | null;
         };
         /** ReconPromptOut */
         ReconPromptOut: {
@@ -6998,6 +7110,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconPromptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recon_import_preview_api_v1_recon_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReconImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recon_import_apply_api_v1_recon_apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReconImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconImportReport"];
                 };
             };
             /** @description Validation Error */

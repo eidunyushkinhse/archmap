@@ -31,6 +31,8 @@ from app.recon_import import (
 from app.recon_prompt import build_recon_prompt
 from app.restore import build_deletion_snapshot, restore_from_snapshot
 from app.routers.nodes import delete_node
+from app.routers.recon import recon_import_apply, recon_import_preview
+from app.schemas.recon import ReconImportIn
 
 ПЕРЕЧЕНЬ = """# archmap-recon
 node: Zulip / backend
@@ -477,3 +479,63 @@ def test_удаление_и_восстановление_переживают_�
     docs = db.query(NodeDoc).filter(NodeDoc.node_id == backend.id).all()
     assert sorted(d.name for d in docs) == ["GET /messages", "POST /messages", "email_senders"]
     assert all(d.content == "" for d in docs)
+
+
+# ── Ручки ─────────────────────────────────────────────────────────────────────
+def _вход(текст=ПЕРЕЧЕНЬ_BACKEND, node_id=None, имя="archmap-recon.yaml"):
+    return ReconImportIn(files=[{"name": имя, "content": текст}], node_id=node_id)
+
+
+def test_превью_ничего_не_пишет(db):
+    _node(db, "backend")
+    r = recon_import_preview(
+        _вход(), db=db, project=ensure_project(db), _=ensure_architect(db)
+    )
+    assert not r.applied and r.created == 0
+    assert [i.action for i in r.items] == ["create", "create", "create"]
+    assert db.query(NodeDoc).count() == 0
+
+
+def test_применение_пишет_и_двигает_курсор_меты(db):
+    """Схемы — мета узла: поллинг страницы обязан увидеть появление заглушек, а тост
+    схемы (graph_rev) от этого всплывать не должен."""
+    _node(db, "backend")
+    project = ensure_project(db)
+    db.commit()
+    g0, m0 = project.graph_rev, project.meta_rev
+
+    r = recon_import_apply(_вход(), db=db, project=project, user=ensure_architect(db))
+    db.refresh(project)
+
+    assert (r.applied, r.created) == (True, 3)
+    assert db.query(NodeDoc).count() == 3
+    assert (project.graph_rev, project.meta_rev) == (g0, m0 + 1)
+
+
+def test_ошибка_не_пишет_ничего(db):
+    _node(db, "backend")
+    r = recon_import_apply(
+        _вход("node: нет-такого\noperations:\n  - GET /a\n"),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+    assert not r.applied and r.errors and r.created == 0
+    assert db.query(NodeDoc).count() == 0
+
+
+def test_повторное_применение_ручкой_не_двигает_мету(db):
+    """Второй прогон того же перечня — ноль созданий, и курсор меты стоит: сессиям
+    соседей нечего перечитывать."""
+    _node(db, "backend")
+    project = ensure_project(db)
+    arch = ensure_architect(db)
+    recon_import_apply(_вход(), db=db, project=project, user=arch)
+    db.refresh(project)
+    m1 = project.meta_rev
+
+    r = recon_import_apply(_вход(), db=db, project=project, user=arch)
+    db.refresh(project)
+
+    assert r.created == 0 and db.query(NodeDoc).count() == 3
+    assert project.meta_rev == m1
