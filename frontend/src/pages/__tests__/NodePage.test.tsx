@@ -62,6 +62,15 @@ vi.mock("../../components/docsImport/ReconAgentModal", () => ({
   ),
 }));
 
+// Окно «Доки от агента»: маркер с режимом и адресом — здесь проверяется, что кнопка
+// «Описать» у строки открывает его «по одной» и с заполненным «Что описать»; само
+// окно покрыто своим тестом (DocsAgentModal.test).
+vi.mock("../../components/docsImport/DocsAgentModal", () => ({
+  default: ({ initialMode, initialTarget }: { initialMode?: string; initialTarget?: string }) => (
+    <div data-testid="docs-modal" data-mode={initialMode ?? ""} data-target={initialTarget ?? ""} />
+  ),
+}));
+
 // Оверлей документации: маркер с контекстом (nodeId/initialDocId/mode) — проверить,
 // что split-кнопка открывает доку в контексте РЕБЁНКА, не рендеря тяжёлый FlowchartDocs.
 vi.mock("../../components/inspector/DocOverlay", () => ({
@@ -668,6 +677,53 @@ describe("NodePage: заглушки разведки, счётчик «опис
     expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
   });
 
+  // ── Прямой путь «описать вот эту строку» ──────────────────────────────────
+  it("«Описать» открывает окно доков «по одной» с адресом строки, а схему не открывает", async () => {
+    // У схемы, написанной до разведки, имя человеческое, а точка входа — в поле
+    // operation: адресом агенту идёт именно она.
+    setupDocs([
+      док({ id: "d1", name: "Оформление заказа", operation: "POST /orders", described: false }),
+      док({ id: "d2", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("Оформление заказа")).toBeInTheDocument());
+    const кнопки = screen.getAllByRole("button", { name: "Описать" });
+    expect(кнопки).toHaveLength(2);
+
+    await userEvent.click(кнопки[0]);
+    const окно = screen.getByTestId("docs-modal");
+    expect(окно).toHaveAttribute("data-mode", "single");
+    expect(окно).toHaveAttribute("data-target", "POST /orders");
+    // Кнопка не проваливается в строку: оверлей схемы заодно не открылся.
+    expect(screen.queryByTestId("doc-overlay")).toBeNull();
+  });
+
+  it("адрес воркера — имя очереди: поля operation у него нет", async () => {
+    // Имена классов-обработчиков недоверенные (замер 4/14), адрес воркера — очередь,
+    // а она и есть имя схемы-заглушки.
+    setupDocs([док({ id: "d2", name: "email_senders", kind: "worker", described: false })]);
+    await waitFor(() => expect(screen.getByText("email_senders")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Описать" }));
+    expect(screen.getByTestId("docs-modal")).toHaveAttribute("data-target", "email_senders");
+  });
+
+  it("клик по строке по-прежнему открывает схему, а не окно агента", async () => {
+    setupDocs([док({ id: "d1", name: "POST /orders", described: false })]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("POST /orders"));
+    expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "d1");
+    expect(screen.queryByTestId("docs-modal")).toBeNull();
+  });
+
+  it("у описанной строки и у обзора кнопки «Описать» нет", async () => {
+    // Описанную открывают («открыть →»), а обзор не адресуется как точка входа.
+    setupDocs([
+      док({ id: "d1", name: "POST /orders", described: true }),
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
+  });
+
   it("меню «+ Добавить» ведёт в составление списка операций", async () => {
     setupDocs([]);
     await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
@@ -697,5 +753,7 @@ describe("NodePage: заглушки разведки, счётчик «опис
     expect(screen.getByText("не описана")).toBeInTheDocument();
     expect(screen.getByText("описано 0 из 1")).toBeInTheDocument();
     expect(screen.queryByText("+ Добавить")).toBeNull();
+    // «Описать» — тоже действие над документацией, читателю его не предлагаем.
+    expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
   });
 });

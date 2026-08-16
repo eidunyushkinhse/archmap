@@ -189,8 +189,10 @@ function NodePageInner({
   // со страницы контейнера (из объединённого списка) — тогда оверлей работает в
   // контексте ребёнка (его id/имя/спека), а не контейнера.
   const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean; child?: Node } | null>(null);
-  // Модалка «Доки от агента» (BYOA, логика): скоуп = текущий объект, режим открытия
-  const [docsAgent, setDocsAgent] = useState<"batch" | "single" | null>(null);
+  // Модалка «Доки от агента» (BYOA, логика): скоуп = текущий объект, режим открытия и
+  // (для «по одной») адрес точки входа — кнопка «Описать» у строки списка открывает
+  // окно уже заполненным.
+  const [docsAgent, setDocsAgent] = useState<{ mode: "batch" | "single"; target?: string } | null>(null);
   // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = текущий объект
   const [specAgent, setSpecAgent] = useState(false);
   // Модалка «Список операций от агента» (BYOA, перечень операций и воркеров одним файлом)
@@ -304,7 +306,7 @@ function NodePageInner({
       groups={[
         [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
         [
-          { label: "Через ИИ-агента", onSelect: () => setDocsAgent("batch") },
+          { label: "Через ИИ-агента", onSelect: () => setDocsAgent({ mode: "batch" }) },
           { label: "Составить список операций", onSelect: () => setReconAgent(true) },
         ],
       ]}
@@ -323,6 +325,14 @@ function NodePageInner({
   // Открытие своей схемы из списка «Логики» (стабильная ссылка — список схем
   // монолита длинный, лишних ре-рендеров ему не нужно).
   const openDoc = useCallback((docId: string) => setDoc({ mode: "flowchart", docId }), []);
+
+  // «Описать» у неописанной строки: то же окно доков режимом «по одной», но с уже
+  // заполненным «Что описать». Адресом идёт operation («POST /orders») — он и есть
+  // точка входа в коде; у воркера его нет, там адрес — имя очереди, то есть имя
+  // схемы (имена классов-обработчиков недоверенные, docs/plan-recon.md).
+  const describeDoc = useCallback((d: NodeDocMeta) => {
+    setDocsAgent({ mode: "single", target: d.operation ?? d.name });
+  }, []);
 
   // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
   // Контейнеру спеку создавать нельзя (правила контейнеров).
@@ -753,8 +763,13 @@ function NodePageInner({
                 )}
                 {/* Свои схемы — группами по видам: разведка приносит сюда двести с
                     лишним строк, и плоский столбец в них нечитаем. На маленьком
-                    объекте группы стартуют развёрнутыми. */}
-                <NodeDocsList docs={node.docs} onOpen={openDoc} />
+                    объекте группы стартуют развёрнутыми. У неописанной точки входа —
+                    кнопка «Описать»: из строки списка сразу в окно доков с адресом. */}
+                <NodeDocsList
+                  docs={node.docs}
+                  onOpen={openDoc}
+                  onDescribe={isArchitect && allow.logic ? describeDoc : undefined}
+                />
                 {addLogicMenu}
               </>
             )}
@@ -908,7 +923,8 @@ function NodePageInner({
         <DocsAgentModal
           nodeId={node.id}
           nodeName={node.name}
-          initialMode={docsAgent}
+          initialMode={docsAgent.mode}
+          initialTarget={docsAgent.target}
           onClose={() => setDocsAgent(null)}
           onApplied={() => {
             // Дозаливка изменила мету доков узла — тянем свежий узел и

@@ -203,3 +203,42 @@ describe("DocsAgentModal · дифф пометок между попыткам�
     expect(текст).toContain("замечание бэка");
   });
 });
+
+// ── Окно, открытое с адресом точки входа ────────────────────────────────────
+// Кнопка «Описать» у неописанной строки списка схем открывает это же окно, но уже
+// заполненным: режим «по одной» и адрес в поле «Что описать» (docs/plan-recon.md,
+// Ф2). Механику переизобретать было не нужно — нужен был только адрес.
+describe("DocsAgentModal · адрес точки входа из списка схем", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    validateMermaidMock.mockResolvedValue(null);
+  });
+
+  it("режим «по одной» и «Что описать» заполнены с порога, адрес уезжает в промпт", async () => {
+    vi.mocked(docsImportApi.prompt).mockResolvedValue({ prompt: "промпт" });
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(
+      <DocsAgentModal
+        nodeId="n1"
+        nodeName="orders"
+        initialMode="single"
+        initialTarget="POST /orders"
+        onClose={vi.fn()}
+        onApplied={vi.fn()}
+      />,
+    );
+
+    // Поле «Что описать» есть только в режиме «по одной» — значит и режим доехал.
+    expect(screen.getByDisplayValue("POST /orders")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Скопировать промпт"));
+    await waitFor(() => expect(docsImportApi.prompt).toHaveBeenCalled());
+    expect(vi.mocked(docsImportApi.prompt).mock.calls[0][0].target).toBe("POST /orders");
+  });
+
+  it("без адреса окно прежнее: пакетом и с пустым полем", async () => {
+    render(<DocsAgentModal nodeId="n1" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()} />);
+    expect(screen.queryByText("Что описать")).toBeNull();
+  });
+});

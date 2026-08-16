@@ -41,6 +41,9 @@ interface Props {
   nodeName: string;
   // Режим открытия модалки (пункты меню «+ Добавить» в секции «Логика»).
   initialMode?: Mode;
+  // Начальное «Что описать» — адрес точки входа из списка схем объекта (кнопка
+  // «Описать» у неописанной строки открывает окно уже заполненным).
+  initialTarget?: string;
   onClose: () => void;
   // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
@@ -71,12 +74,12 @@ const KIND_LABEL: Record<NodeDocKind, string> = {
 };
 const KIND_ORDER: NodeDocKind[] = ["overview", "operation", "worker"];
 
-export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", onClose, onApplied }: Props) {
+export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", initialTarget = "", onClose, onApplied }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
   // ── параметры промпта (include зафиксирован на схемах логики) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
+  const [target, setTarget] = useState(initialTarget); // «По одной»: воркер/эндпоинт
   // ── файлы пакета и превью (общие для обоих режимов) ──
   const pkg = useDocsFiles();
   const [overwrite, setOverwrite] = useState(false);
