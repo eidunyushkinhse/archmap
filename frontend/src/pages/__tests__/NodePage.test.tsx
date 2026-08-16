@@ -639,18 +639,39 @@ describe("NodePage: заглушки разведки, счётчик «опис
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("двести схем: группы стартуют свёрнутыми, строки — по клику", async () => {
+  it("двести схем: свёрнута только группа-стена, обзоры и воркеры видны сразу", async () => {
     const много = Array.from({ length: 200 }, (_, i) =>
       док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
-    setupDocs([док({ id: "d0", name: "Обзор сервиса", kind: "overview" }), ...много]);
-    await waitFor(() => expect(screen.getByText("описано 0 из 200")).toBeInTheDocument());
-    // Стены из двухсот кнопок нет — на экране только заголовки групп.
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      ...много,
+      док({ id: "w1", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("описано 0 из 201")).toBeInTheDocument());
+    // Стены из двухсот кнопок нет, а соседние группы — не стена, и прятать их незачем.
     expect(screen.queryByText("GET /r0")).toBeNull();
-    expect(screen.queryByText("Обзор сервиса")).toBeNull();
+    expect(screen.getByText("Обзор сервиса")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
     expect(screen.getByText("GET /r0")).toBeInTheDocument();
     expect(screen.getByText("GET /r199")).toBeInTheDocument();
+  });
+
+  it("тринадцать схем: порог считается по группе, а не по объекту", async () => {
+    // Полевой Zulip до разведки — тринадцать схем: схем больше порога, но стены нет
+    // ни в одной группе. Свернуть их значило бы забрать читаемый список без выигрыша.
+    const операции = Array.from({ length: 10 }, (_, i) => док({ id: `o${i}`, name: `GET /r${i}` }));
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      ...операции,
+      док({ id: "w1", name: "email_senders", kind: "worker" }),
+      док({ id: "w2", name: "embed_links", kind: "worker" }),
+    ]);
+    await waitFor(() => expect(screen.getByText("Обзор сервиса")).toBeInTheDocument());
+    expect(screen.getByText("GET /r0")).toBeInTheDocument();
+    expect(screen.getByText("GET /r9")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
   it("в заголовке группы — число строк и остаток; у обзоров остатка нет", async () => {

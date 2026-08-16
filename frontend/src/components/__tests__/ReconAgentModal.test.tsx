@@ -57,11 +57,27 @@ describe("ReconAgentModal", () => {
   beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ shouldAdvanceTime: true }); });
   afterEach(() => vi.useRealTimers());
 
-  it("окно названо по семье — «Список операций от агента»", () => {
-    // Пункт меню («Составить список операций») и заголовок окна — одна пара имён:
+  it("окно названо по семье — «Составить список операций с помощью ИИ-агента»", () => {
+    // Форма заголовка — общая с четырьмя соседними окнами («Описать логику с помощью
+    // агента» и прочие), а первые три слова дословно совпадают с пунктом меню:
     // разъедутся — человек не поймёт, куда попал.
     open();
-    expect(screen.getByRole("heading", { name: "Список операций от агента" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Составить список операций с помощью ИИ-агента" }))
+      .toBeInTheDocument();
+  });
+
+  it("слова «разведка» в текстах окна нет — пользователь выбирал название без него", async () => {
+    // Термин пользователю не нравится (название выбрано как «без слова „разведка“ и
+    // без „точек входа“»), и в прозе окна он не должен возвращаться. В коде и планах
+    // термин остаётся — там он точный.
+    await превью(report({
+      items: [
+        item({ name: "POST /messages", action: "described", doc_name: "Отправка" }),
+        item({ name: "DELETE /legacy", action: "vanished" }),
+      ],
+    }));
+    await waitFor(() => expect(screen.getByText(/Повторный сбор списка не затирает работу/)).toBeInTheDocument());
+    expect(document.body.textContent).not.toMatch(/разведк/i);
   });
 
   it("превью группируется по действию, числа — в заголовках групп", async () => {
@@ -100,7 +116,7 @@ describe("ReconAgentModal", () => {
     }));
     await waitFor(() => expect(screen.getByText("POST /messages")).toBeInTheDocument());
     expect(screen.getByText("→ Отправка сообщения")).toBeInTheDocument();
-    expect(screen.getByText(/Повторная разведка не затирает работу/)).toBeInTheDocument();
+    expect(screen.getByText(/Повторный сбор списка не затирает работу/)).toBeInTheDocument();
   });
 
   it("«исчезло из кода» говорит, что ничего не удаляется", async () => {
@@ -158,5 +174,8 @@ describe("ReconAgentModal", () => {
     const текст = writeText.mock.calls[0][0];
     expect(текст).toContain("Строки чини по замечаниям, а не удаляй из перечня");
     expect(текст).toContain(w);
+    // Замечания уезжают агенту текстом, который пользователь видит и правит, —
+    // слова «разведка» нет и здесь.
+    expect(текст).not.toMatch(/разведк/i);
   });
 });

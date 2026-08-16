@@ -38,7 +38,7 @@ const GROUPS: { action: ReconAction; title: string; note?: string }[] = [
   {
     action: "described",
     title: "Уже описаны — не тронем",
-    note: "Повторная разведка не затирает работу: описанная схема остаётся как есть.",
+    note: "Повторный сбор списка не затирает работу: описанная схема остаётся как есть.",
   },
   {
     action: "vanished",
@@ -156,7 +156,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
   // слабая модель отвечает ампутацией, вырезая строки, на которые жалуется валидатор.
   function copyRemarks() {
     const text =
-      "Валидатор разведки ArchMap нашёл замечания к перечню точек входа. " +
+      "Валидатор списка операций ArchMap нашёл замечания. " +
       "Исправь файл и сообщи, что изменилось. Строки чини по замечаниям, " +
       "а не удаляй из перечня:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
@@ -206,7 +206,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
       <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>Список операций от агента</h2>
+        <h2 style={{ margin: 0, fontSize: 17 }}>Составить список операций с помощью ИИ-агента</h2>
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
@@ -226,7 +226,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
           />
           <p style={leftNote}>
             Перезаписывать нечего: применение только создаёт недостающие заглушки.
-            Уже описанные схемы разведка не трогает, удалений здесь нет вовсе — поэтому
+            Уже описанные схемы не трогаем, удалений здесь нет вовсе — поэтому
             перечень можно приносить повторно после релиза, он даст дифф, а не дубли.
           </p>
         </div>
