@@ -22,10 +22,31 @@
 первого. Единственный параметр — адрес узла-адресата.
 """
 
+import yaml
+
 # Куда разведчик кладёт перечень по умолчанию. ⚠ КОРЕНЬ репозитория, не archmap-docs/
 # и не archmap-orch/: обе папки сносятся соседними BYOA-потоками и оркестратором на
 # шаге 1 (см. комментарий к IMPORT_RESULT в skeptic_prompt.py) — перечень там не жилец.
 RECON_FILE = "archmap-recon.yaml"
+
+
+def _node_line(node_path: str) -> str:
+    """Строка `node:` ОБРАЗЦА — yaml-дампом, а не подстановкой в f-строку.
+
+    ⚠ Имена узлов в ArchMap свободные, и подстановка как есть делает пример НЕВАЛИДНЫМ
+    YAML: «Zulip: сервер / backend» роняет разбор («mapping values are not allowed
+    here»), «Zulip #1» обрезается комментарием до «Zulip», так же ломают ведущие
+    `-`/`[`/`{`/`*`/`&`/`!`/`%`/`@`, хвостовые пробелы и кавычки. А пример сильнее
+    правила: агент скопирует поломку в свой файл, и приёмник перечень не разберёт.
+
+    Кавычки ставит библиотека — ровно там, где нужны, и канонично; самодельная
+    эвристика этот класс не закрывает. Обычный адрес («Zulip / backend») остаётся БЕЗ
+    кавычек: типичный случай образца не меняется. width — чтобы длинный адрес не
+    переносился дампером на две строки.
+    """
+    return yaml.safe_dump(
+        {"node": node_path}, allow_unicode=True, default_flow_style=False, width=10**9
+    ).rstrip("\n")
 
 
 def build_recon_prompt(node_path: str, *, result_path: str = RECON_FILE) -> str:
@@ -100,7 +121,7 @@ k8s-манифесты, puppet/ansible — из них видны процесс
 
 ```yaml
 # archmap-recon
-node: {node_path}
+{_node_line(node_path)}
 operations:
   - GET /messages
   - POST /messages
