@@ -171,9 +171,10 @@ def _federated(doc: dict) -> dict:
     return doc
 
 
-def example_yaml(depth: int = 3, multi_product: bool = False) -> str:
-    """Пример документа для промпта. depth=2 — без слоя компонентов (children
-    контейнеров вырезаются), чтобы пример не противоречил инструкции.
+def _example_doc(depth: int = 3, multi_product: bool = False) -> dict:
+    """Пример документа СТРУКТУРОЙ (в промпт уезжает дампом — example_yaml).
+    depth=2 — без слоя компонентов (children контейнеров вырезаются), чтобы пример
+    не противоречил инструкции.
 
     multi_product — федеративная укладка (_federated). ⚠ Порядок обязателен: сначала
     режем компоненты, потом оборачиваем в продукт. Иначе depth<3 срезал бы детей
@@ -187,9 +188,44 @@ def example_yaml(depth: int = 3, multi_product: bool = False) -> str:
                 container.pop("children", None)
     if multi_product:
         doc = _federated(doc)
+    return doc
+
+
+def example_yaml(depth: int = 3, multi_product: bool = False) -> str:
+    """Пример документа для промпта (дамп _example_doc)."""
     return yaml.safe_dump(
-        doc, allow_unicode=True, sort_keys=False, default_flow_style=False, width=4096
+        _example_doc(depth, multi_product),
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+        width=4096,
     )
+
+
+def _deepest_path(nodes: list[dict], prefix: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """Самый длинный путь от корня в примере; при равной длине — первый по документу."""
+    best = prefix
+    for node in nodes:
+        found = _deepest_path(node.get("children", []), (*prefix, node["name"]))
+        if len(found) > len(best):
+            best = found
+    return best
+
+
+def _path_examples(depth: int = 3, multi_product: bool = False) -> tuple[str, str]:
+    """Две иллюстрации пути для раздела формата: путь от корня и его однозначный хвост.
+
+    Считаются ПО САМОМУ ПРИМЕРУ, а не пишутся текстом: при федерации между системой и
+    контейнером стоит ещё один слой (продукт), а на глубине 2 компонентов в примере нет
+    вовсе — прежнее «Ярмарка / orders / api» указывало бы на узел, которого в образце не
+    существует. Для слабой модели ОБРАЗЕЦ сильнее правила (находка 1 матрицы
+    docs/qa-federation-matrix.md), поэтому иллюстрация обязана быть путём В ПРИМЕРЕ.
+
+    Хвост — суффикс без корня, но не длиннее двух звеньев: на глубине 3 это прежнее
+    «orders / api» и с федерацией, и без неё."""
+    path = _deepest_path(_example_doc(depth, multi_product)["nodes"])
+    tail = path[-2:] if len(path) > 2 else path[-1:]
+    return " / ".join(path), " / ".join(tail)
 
 
 _LANG_LINE = {"ru": "русский", "en": "английский (English)"}
@@ -272,11 +308,9 @@ def build_import_prompt(
     # ⚠ Пример при федерации ПЕРЕСТРАИВАЕТСЯ (находка 1 матрицы: агент прочитал раздел
     # П1 и всё равно уложил семь узлов в корень — образец перевесил правило).
     example = example_yaml(depth, multi_product=multi_product)
-    # Иллюстрация пути от корня обязана быть путём В ПРИМЕРЕ: при федерации между
-    # системой и контейнером стоит ещё один слой — продукт.
-    path_example = (
-        f"Ярмарка / {_PRODUCT} / orders / api" if multi_product else "Ярмарка / orders / api"
-    )
+    # Иллюстрации пути от корня обязаны быть путями В ПРИМЕРЕ — считаем их по нему же
+    # (подробности и цена расхождения — в _path_examples).
+    path_example, path_tail = _path_examples(depth, multi_product)
 
     return f"""Ты — ИИ-агент с доступом к файлам репозитория (умеешь искать по дереву и читать файлы).
 Задача: построй архитектурную модель системы «{name}» по этому репозиторию и выведи её ОДНИМ YAML-документом в формате ArchMap (описан ниже).
@@ -317,7 +351,7 @@ def build_import_prompt(
 
 ## Формат YAML
 Поля узла: name (обязательное), shape (service | database | broker | person; по умолчанию service), status (existing | planned | deprecated; по умолчанию existing), role (короткая роль: «сервис», «БД», «очередь», «воркер»...), technology («Python + FastAPI», «PostgreSQL»...), external (true только у чужих продуктов), description (1–3 предложения о назначении, не пересказ кода), source (приметы узла, см. раздел выше: repo/path/image/deployment/host), children (вложенные узлы).
-Связи — список edges: from/to (имя узла; если имя в документе встречается не один раз — путь от корня с разделителем « / », например «{path_example}»; достаточно однозначного хвоста пути: «orders / api»), label (коротко: «читает», «REST», «публикует события»), technology («HTTP», «Kafka», «gRPC»...).
+Связи — список edges: from/to (имя узла; если имя в документе встречается не один раз — путь от корня с разделителем « / », например «{path_example}»; достаточно однозначного хвоста пути: «{path_tail}»), label (коротко: «читает», «REST», «публикует события»), technology («HTTP», «Kafka», «gRPC»...).
 СВЯЗЬ С БРОКЕРОМ НАЗЫВАЕТ КАНАЛ: у ребра, один конец которого shape: broker, добавь поле channel с именем топика/очереди ДОСЛОВНО из кода или конфига — «channel: orders.created» (см. пример). Стрелка «сервис → брокер» — публикация, «брокер → сервис» — доставка подписчику. Одна пара ходит по нескольким топикам — это несколько рёбер, по ребру на канал. Имени канала в коде не нашёл — оставь channel пустым, но связь сохрани.
 shape подбирай по сути: database — всё, что хранит данные (включая поисковые индексы вроде Elasticsearch); broker — только очереди и шины сообщений; прокси, шлюзы и утилиты — service.
 ВАЖНО: ЛЮБОЕ значение, внутри которого есть двоеточие с пробелом («описание: детали»), ОБЯЗАТЕЛЬНО бери в двойные кавычки — это самая частая причина битого YAML. Решётка и кавычки внутри значения — так же в двойные кавычки.
