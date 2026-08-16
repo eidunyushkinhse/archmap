@@ -35,7 +35,7 @@ import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_
 import { toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
-import { readSchemaView, SCHEMA_VIEW_KEY, showStatusControls, type SchemaView } from "../components/schemaView";
+import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
@@ -104,7 +104,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Сигнал перезагрузки дерева (создание/удаление узла, undo/redo)
   const [treeReload, setTreeReload] = useState(0);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
-  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+  useEffect(() => { writeSchemaView(schemaView); }, [schemaView]);
   const [remoteToast, showRemoteToast] = useToast();
 
   const history = useHistory();

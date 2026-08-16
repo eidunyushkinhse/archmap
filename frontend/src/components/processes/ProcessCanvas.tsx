@@ -19,7 +19,7 @@ import { deriveActivations, newBranchRow } from "./sequence/layout";
 import { detailToSeq, orderedBranches } from "./sequence/fromDetail";
 import { BPT, BROKEN } from "./tokens";
 import { useProcessHistory } from "./useProcessHistory";
-import { readSchemaView, SCHEMA_VIEW_KEY, type SchemaView } from "../schemaView";
+import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
 import "./processes.css";
 
 interface Props {
@@ -95,9 +95,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
   const [delPartErr, setDelPartErr] = useState<string | null>(null);
-  // Вид схемы — общая привычка пользователя (тот же ключ, что у C4-схемы).
+  // Вид схемы — общий с C4-схемой ключ ЭТОГО проекта (в другом проекте свой).
   const [view, setView] = useState<SchemaView>(readSchemaView);
-  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, view); }, [view]);
+  useEffect(() => { writeSchemaView(view); }, [view]);
 
   const reload = useCallback(() => {
     processesApi

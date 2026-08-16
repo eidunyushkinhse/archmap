@@ -218,6 +218,11 @@ export default function SequenceDiagram({
   const isDraggedK = (k: number) => reorder?.fromK === k;
 
   // Приглушение по виду схемы: участник со статусом вне вида гаснет (см. ТЗ статусов).
+  // ⚠️ Гашение — ТОЛЬКО визуальный слой: управление оно не отбирает (на C4-холсте
+  // приглушённый узел ещё и глухой к мыши — node.md N11, но там до объекта есть
+  // другие дороги; в процессе шаг — единственное место, где живут его подпись, канал
+  // и починка, и глухой шаг делал бы процесс нередактируемым без единого объяснения,
+  // П4 челленджа 2026-08-16).
   const statusOf = (id: string): NodeStatus => pById[id]?.status ?? "existing";
   const dimP = (id: string) => !viewShows(view, statusOf(id));
   const dimMsg = (m: SeqMessage) => dimP(m.from) || dimP(m.to);
@@ -379,8 +384,10 @@ export default function SequenceDiagram({
   // Полоса нужна и под клик (он открывает карточку шага): раньше подпись отзывалась,
   // а стрелка не делала ничего — одна и та же сущность вела себя по-разному в
   // зависимости от того, куда попал курсор (выровнено 2026-08-10).
-  const grabbable = (m: SeqMessage) =>
-    (!!onReorderMessages || !!onMessageClick) && !selectMode && !dimMsg(m);
+  // Приглушение видом управление НЕ отбирает (см. dimP выше): шаг остаётся на месте
+  // и его по-прежнему можно открыть и перетащить — поэтому от самого сообщения
+  // признак больше не зависит.
+  const grabbable = (!!onReorderMessages || !!onMessageClick) && !selectMode;
   const grabProps = (m: SeqMessage) => ({
     fill: "none" as const,
     stroke: "transparent",
@@ -782,7 +789,7 @@ export default function SequenceDiagram({
                   markerEnd={marker}
                   opacity={dimMsg(m) ? 0.12 : 1}
                 />
-                {grabbable(m) && (
+                {grabbable && (
                   <path d={d} {...grabProps(m)} />
                 )}
               </g>
@@ -807,7 +814,7 @@ export default function SequenceDiagram({
               opacity={dimMsg(m) ? 0.12 : 1}
               style={{ transition: dragged ? undefined : "x1 .15s ease, x2 .15s ease" }}
             />
-            {grabbable(m) && (
+            {grabbable && (
               <line x1={x1} y1={y} x2={x2} y2={y} {...grabProps(m)} />
             )}
             </g>
@@ -861,7 +868,7 @@ export default function SequenceDiagram({
               gap: 5,
               zIndex: 3,
               opacity: dimMsg(m) ? 0.12 : 1,
-              pointerEvents: dimMsg(m) ? "none" : onMessageClick ? "auto" : "none",
+              pointerEvents: onMessageClick ? "auto" : "none",
               cursor: onMessageClick ? "pointer" : "default",
               transition:
                 dragged || rowDrag ? undefined : "left .15s ease, width .15s ease, top .15s ease",
@@ -1008,7 +1015,6 @@ export default function SequenceDiagram({
               boxSizing: "border-box",
               zIndex: isDragged ? 7 : 4,
               opacity: dimmed ? 0.12 : 1,
-              pointerEvents: dimmed ? "none" : undefined,
               // Тянемая шапка следует за курсором без задержки; остальные плавно
               // разъезжаются (transition left), освобождая целевую колонку.
               transition: isDragged ? undefined : "left .15s ease",

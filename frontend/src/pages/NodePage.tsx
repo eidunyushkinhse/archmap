@@ -25,7 +25,7 @@ import SpecAgentModal from "../components/docsImport/SpecAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
-import { readSchemaView, SCHEMA_VIEW_KEY, showStatusControls, type SchemaView } from "../components/schemaView";
+import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/types";
 import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
 import { plural } from "../ui/plural";
@@ -1218,7 +1218,7 @@ function SchemaSection({
   mutationToken: number;
 }) {
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
-  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+  useEffect(() => { writeSchemaView(schemaView); }, [schemaView]);
 
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [loading, setLoading] = useState(true);

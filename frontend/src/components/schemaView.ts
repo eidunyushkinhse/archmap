@@ -3,6 +3,7 @@
 // отдельным модулем: компонентный файл не должен экспортировать ещё и константы/функции
 // (правило react-refresh). Семантика: цвет = статус узла всегда; вид = какие статусы
 // показывать (остальные приглушаются на холсте, но не удаляются).
+import { getCurrentProjectId } from "../api/projectScope";
 import type { NodeStatus } from "../types";
 
 export type SchemaView = "asis" | "all" | "tobe";
@@ -51,12 +52,38 @@ export function showStatusControls(
   return projectHasStatuses || levelItems.some((arr) => arr.some((i) => i.status !== "existing"));
 }
 
-// Ключ localStorage для выбранного вида. Глобальный, не по проектам: вид — привычка
-// пользователя, не свойство конкретной схемы.
-export const SCHEMA_VIEW_KEY = "archmap-schema-view";
+// Ключ localStorage для выбранного вида — СВОЙ у каждого проекта. Прежде ключ был
+// один на всё приложение, и вид, выставленный в одном проекте, гасил узлы и шаги в
+// другом (П4 челленджа 2026-08-16). Вид описывает КОНКРЕТНУЮ схему («что здесь
+// работает сейчас»), а не привычку читателя вообще: в проекте без планируемых узлов
+// он вообще ни на что не влияет, и переносить его туда не за чем.
+//
+// Прежний глобальный ключ — это тот же префикс без суффикса проекта. Он оставлен
+// РАЗОВЫМ семенем: проект, в котором человек работает сейчас, унаследует уже
+// выставленный вид (иначе картинка сменилась бы у него под руками), а на первой же
+// записи ключ удаляется — дальше вид у каждого проекта свой.
+const VIEW_KEY = "archmap-schema-view";
 
-// Прочитать сохранённый вид (дефолт «переход»/all).
+function viewKey(projectId: string | null): string {
+  return projectId ? `${VIEW_KEY}:${projectId}` : VIEW_KEY;
+}
+
+function parseView(raw: string | null): SchemaView | null {
+  return raw === "asis" || raw === "tobe" || raw === "all" ? raw : null;
+}
+
+// Прочитать сохранённый вид текущего проекта (дефолт «переход»/all).
 export function readSchemaView(): SchemaView {
-  const saved = localStorage.getItem(SCHEMA_VIEW_KEY);
-  return saved === "asis" || saved === "tobe" || saved === "all" ? saved : "all";
+  const pid = getCurrentProjectId();
+  return parseView(localStorage.getItem(viewKey(pid)))
+    ?? parseView(localStorage.getItem(VIEW_KEY))
+    ?? "all";
+}
+
+// Запомнить вид текущего проекта. Заодно гасит старый глобальный ключ: отслужив
+// семенем, он иначе вечно подсовывал бы чужой вид каждому новому проекту.
+export function writeSchemaView(view: SchemaView): void {
+  const pid = getCurrentProjectId();
+  localStorage.setItem(viewKey(pid), view);
+  if (pid) localStorage.removeItem(VIEW_KEY);
 }

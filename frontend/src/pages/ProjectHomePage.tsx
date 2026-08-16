@@ -9,7 +9,7 @@ import { processesApi } from "../api/processes";
 import { nodesApi } from "../api/nodes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import type { LevelPersistenceProps } from "../components/graph/types";
-import { readSchemaView, SCHEMA_VIEW_KEY, showStatusControls, type SchemaView } from "../components/schemaView";
+import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import { useLevelSchema } from "./useLevelSchema";
 import { useToast } from "./useToast";
 import { useRemoteSync } from "./useRemoteSync";
@@ -34,7 +34,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   const lvl = useLevelSchema({ containerId: null });
 
-  useEffect(() => { localStorage.setItem(SCHEMA_VIEW_KEY, schemaView); }, [schemaView]);
+  useEffect(() => { writeSchemaView(schemaView); }, [schemaView]);
 
   // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
   // перезагрузка уровня + тост. Собственные записи (драг архитектора) курсор
