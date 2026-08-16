@@ -395,17 +395,38 @@ def test_без_адреса_берётся_объект_окна(db):
     assert пустой.errors and "не сказало" in пустой.errors[0]
 
 
-def test_несколько_перечней_вопрос_а_не_угадывание(db):
-    """Оркестраторный прогон (дефолт кнопки) оставляет в репозитории ТРИ похожих файла:
-    два служебных прогона разведчиков и объединённый в корне. Папку тащат целиком —
-    значит ответ обязан назвать, какой из них нужен."""
+def test_оркестраторный_прогон_берёт_объединённый_файл(db):
+    """ОСНОВНОЙ путь: оркестраторная кнопка (дефолт) оставляет в репозитории три похожих
+    файла — объединённый перечень в корне и два служебных прогона разведчиков. Папку
+    тащат целиком, и отказ там, где машина знает ответ, — лишняя ручная работа."""
+    backend = _node(db, "backend")
+    nodes = db.query(Node).all()
+    plan = build_recon_plan(
+        db,
+        nodes,
+        [
+            ("archmap-orch/recon-1.yaml", ПЕРЕЧЕНЬ_BACKEND),
+            (f"zulip/{RECON_FILE}", ПЕРЕЧЕНЬ_BACKEND),  # базовое имя, а не полный путь
+            ("archmap-orch/recon-2.yaml", ПЕРЕЧЕНЬ_BACKEND),
+        ],
+        None,
+    )
+    assert not plan.report.errors
+    assert plan.node is not None and plan.node.id == backend.id
+    # Пропуск громкий: отбрасывать принесённые файлы молча нельзя.
+    взято = next(w for w in plan.report.warnings if "взят объединённый" in w)
+    assert f"«zulip/{RECON_FILE}»" in взято
+    assert "archmap-orch/recon-1.yaml" in взято and "archmap-orch/recon-2.yaml" in взято
+
+
+def test_несколько_перечней_без_канонического_вопрос(db):
+    """Прогоны разведчиков без объединённого файла — выбирать не из чего, это вопрос."""
     _node(db, "backend")
     nodes = db.query(Node).all()
     plan = build_recon_plan(
         db,
         nodes,
         [
-            (RECON_FILE, ПЕРЕЧЕНЬ_BACKEND),
             ("archmap-orch/recon-1.yaml", ПЕРЕЧЕНЬ_BACKEND),
             ("archmap-orch/recon-2.yaml", ПЕРЕЧЕНЬ_BACKEND),
         ],
@@ -414,6 +435,24 @@ def test_несколько_перечней_вопрос_а_не_угадыва
     assert plan.report.errors and "несколько перечней" in plan.report.errors[0]
     assert "archmap-orch/recon-1.yaml" in plan.report.errors[0]
     assert f"«{RECON_FILE}»" in plan.report.errors[0]
+    assert plan.node is None
+
+
+def test_два_канонических_имени_вопрос(db):
+    """Один и тот же файл из разных папок — разные объекты; молчаливый выбор первого
+    увёл бы перечень не туда."""
+    _node(db, "backend")
+    nodes = db.query(Node).all()
+    plan = build_recon_plan(
+        db,
+        nodes,
+        [
+            (f"zulip/{RECON_FILE}", ПЕРЕЧЕНЬ_BACKEND),
+            (f"zabbix/{RECON_FILE}", ПЕРЕЧЕНЬ_BACKEND),
+        ],
+        None,
+    )
+    assert plan.report.errors and "несколько перечней" in plan.report.errors[0]
     assert plan.node is None
 
 
