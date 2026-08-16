@@ -181,6 +181,10 @@ export default function ProjectShell({
             openForFix={!!pendingProc}
             onSelectedChange={setProcSelection}
             onChanged={reloadAlerts}
+            // Обратный ход к переходу «страница объекта → процесс»: страница узла
+            // живёт в режиме «Объекты», поэтому режим переключаем тем же приёмом,
+            // что и клик по узловому алерту в шапке (handleAlertLocate).
+            onOpenNode={(nid) => { setMode("schema"); onNavigateNode(nid); }}
           />
         ) : (
           <>

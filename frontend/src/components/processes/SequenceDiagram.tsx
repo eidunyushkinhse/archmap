@@ -7,7 +7,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { FragmentKind, NodeStatus } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { viewShows, type SchemaView } from "../schemaView";
-import { C4Glyph, IcoBrokenLink, IcoClose, IcoPlus, IcoSelf } from "./icons";
+import { C4Glyph, IcoArrowR, IcoBrokenLink, IcoClose, IcoPlus, IcoSelf } from "./icons";
 import { legMeta } from "./legMeta";
 import { arrayMove, strongestStatus } from "./sequence/layout";
 import type { SeqActivation, SeqBranch, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
@@ -61,6 +61,10 @@ interface Props {
   // Привязать непривязанного участника (nodeId == null) к узлу схемы. Кнопка живёт
   // на его шапке: расхождение и путь исправления должны быть в одном месте.
   onBindParticipant?: (participantId: string) => void;
+  // Открыть страницу объекта, стоящего за линией жизни (id — УЗЛА). Зеркало перехода
+  // «страница объекта → процесс» (NodePage, секция «Участвует в процессах»). У
+  // непривязанного участника узла нет — перехода у него не будет.
+  onOpenNode?: (nodeId: string) => void;
   // Перестановка участников перетаскиванием шапки (живой reorder). nodeIds — новый
   // порядок линий жизни слева-направо (id = node_id). Только в режиме редактирования.
   onReorderParticipants?: (nodeIds: string[]) => void;
@@ -98,6 +102,7 @@ export default function SequenceDiagram({
   onMessageClick,
   onDeleteParticipant,
   onBindParticipant,
+  onOpenNode,
   onReorderParticipants,
   onReorderMessages,
   onResizeFragment,
@@ -986,7 +991,9 @@ export default function SequenceDiagram({
       {participants.map((p, k) => {
         // Непривязанный участник: узла в схеме нет, значит нет ни статуса, ни формы.
         // Шапка красится «сломанным» янтарным — тем же, что повисшая стрелка.
-        const unbound = p.nodeId === null;
+        // nodeId держим отдельной константой: узкий тип должен дожить до колбэка.
+        const nodeId = p.nodeId;
+        const unbound = nodeId === null;
         const st = statusOf(p.id);
         const isStatus = !unbound && st !== "existing";
         const sc = getNodeColors(false, 0, st);
@@ -1113,6 +1120,22 @@ export default function SequenceDiagram({
                 {p.external ? " · внеш." : ""}
               </div>
             </div>
+            {/* Переход на страницу объекта — зеркало «страница объекта → процесс».
+                Проявляется по ховеру, как и крестик удаления. У непривязанного
+                участника узла нет, значит и открывать нечего. */}
+            {nodeId && onOpenNode && (
+              <button
+                type="button"
+                className="bp-phead-open"
+                title={`Открыть страницу «${p.name}»`}
+                aria-label={`Открыть страницу «${p.name}»`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onOpenNode(nodeId); }}
+                style={pheadOpen}
+              >
+                <IcoArrowR s={13} />
+              </button>
+            )}
           </div>
         );
       })}
@@ -1307,6 +1330,23 @@ const pheadDel: CSSProperties = {
   cursor: "pointer",
   boxShadow: "0 1px 3px rgba(15,23,42,.12)",
   zIndex: 5,
+};
+// Стрелка «на страницу объекта» в правом краю шапки. Проявление по ховеру — в
+// bp-phead-open (processes.css), как у крестика удаления.
+const pheadOpen: CSSProperties = {
+  marginLeft: "auto",
+  flex: "none",
+  width: 20,
+  height: 20,
+  border: "none",
+  background: "none",
+  borderRadius: 5,
+  color: BPT.mut,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  cursor: "pointer",
 };
 
 // Кружок «+» под участником — источник/цель drag-to-connect.

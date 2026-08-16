@@ -328,6 +328,20 @@
   border-color: #fca5a5;
 }
 
+/* Стрелка «на страницу объекта» — проявляется по ховеру, как крестик удаления. */
+.bp-phead-open {
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.bp-phead:hover .bp-phead-open,
+.bp-phead-open:focus-visible {
+  opacity: 1;
+}
+.bp-phead-open:hover {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
 .bp-channel {
   border: 1px solid #e2e8f0;
   border-radius: 10px;

@@ -25,6 +25,9 @@ interface Props {
   // Уведомление родителя (ProjectShell) о выбранном процессе — чтобы кнопка экспорта
   // в шапке знала, какой процесс выгружать в Mermaid. null = ничего не выбрано.
   onSelectedChange?: (sel: { id: string; name: string } | null) => void;
+  // Переход на страницу объекта с линии жизни участника (id — УЗЛА): оболочка
+  // переключает режим на «Объекты» и открывает страницу.
+  onOpenNode?: (nodeId: string) => void;
   // Процесс изменили (любая мутация канваса). Оболочке это нужно, чтобы освежить
   // знак «Незавершённость схемы»: класс «Незадокументированные сообщения» считается по
   // сообщениям, а они живут здесь — без сигнала знак висел бы протухшим
@@ -46,7 +49,7 @@ function readPrefs(): Prefs {
 }
 
 export default function ProcessWorkspace({
-  isArchitect, initialProcessId, openForFix, onSelectedChange, onChanged,
+  isArchitect, initialProcessId, openForFix, onSelectedChange, onChanged, onOpenNode,
 }: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +183,7 @@ export default function ProcessWorkspace({
           editing={editing}
           onToggleEditing={(v) => setEditingPref(v)}
           onChanged={() => { void reload(); onChanged?.(); }}
+          onOpenNode={onOpenNode}
         />
       ) : (
         <div style={emptyWrap}>

@@ -30,6 +30,9 @@ interface Props {
   // Дёргается после успешной мутации (число сообщений/статусы могли смениться) —
   // воркспейс обновляет список в рейле.
   onChanged: () => void;
+  // Переход на страницу объекта с линии жизни участника (id — УЗЛА). Зеркало
+  // обратного перехода со страницы объекта в процесс.
+  onOpenNode?: (nodeId: string) => void;
 }
 
 const FRAGMENTS: FragmentKind[] = ["alt", "opt", "loop", "par"];
@@ -53,7 +56,7 @@ function IcoCheck({ s = 15 }: { s?: number }) {
   );
 }
 
-export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged }: Props) {
+export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode }: Props) {
   const [detail, setDetail] = useState<ProcessDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
@@ -919,6 +922,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 setMsgEdit(mid);
               } : undefined}
               onBindParticipant={editing ? (pid) => setBindPart(pid) : undefined}
+              // Переход на страницу объекта — не правка: доступен и в просмотре.
+              onOpenNode={onOpenNode}
               onDeleteParticipant={editing ? (pid) => {
                 const p = partById[pid];
                 if (p) requestRemoveParticipant(p);
