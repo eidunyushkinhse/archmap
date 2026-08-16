@@ -440,6 +440,47 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   useEffect(() => { reloadDirections(); }, [reloadDirections, detail]);
 
+  // Закрыть ВЕРХНИЙ открытый оверлей. Порядок списка = порядок наложения: сверху то,
+  // что открывается поверх остального (подтверждение привязки лежит над пикером).
+  // Каждая строка повторяет ровно то, что делает «Отмена»/клик по подложке своего
+  // оверлея, — второй логики закрытия не заводим.
+  const closeTopOverlay = useCallback((): boolean => {
+    const stack: [boolean, () => void][] = [
+      [!!bindConfirm, () => setBindConfirm(null)],
+      [!!bindPart, () => setBindPart(null)],
+      // Идущее удаление не бросаем — как и клик по подложке.
+      [!!delPart && !delPartBusy, () => setDelPart(null)],
+      [!!msgEdit, () => setMsgEdit(null)],
+      [!!branchEdit, () => setBranchEdit(null)],
+      [!!pendingFrag, () => setPendingFrag(null)],
+      [!!delFrag, () => setDelFrag(null)],
+      [!!selfMsg, () => setSelfMsg(null)],
+      [!!composer, () => { setComposer(null); reloadDirections(); }],
+      [!!partPanel, () => setPartPanel(false)],
+    ];
+    const top = stack.find(([open]) => open);
+    if (!top) return false;
+    top[1]();
+    return true;
+  }, [bindConfirm, bindPart, delPart, delPartBusy, msgEdit, branchEdit, pendingFrag,
+      delFrag, selfMsg, composer, partPanel, reloadDirections]);
+
+  // Escape закрывает верхний оверлей — как все окна проекта (ui/Modal.tsx получает это
+  // даром от нативного <dialog>). Здесь оверлеи — обычные div: вложенные <dialog> в
+  // проекте запрещены (их cancel всплывает и гасит соседа), поэтому клавишу ловим сами.
+  // ⚠️ Ведём себя ровно как <dialog>: закрываем и когда фокус в поле ввода — иначе
+  // Escape не работал бы почти нигде, у всех карточек поле autoFocus. Исключение одно
+  // и то же, что у браузера: во время IME-композиции Escape отменяет НАБОР и до окна
+  // не доходит. С Ctrl+Z не спорим: там обработчик требует Ctrl/Cmd, здесь — нет.
+  useEffect(() => {
+    function onEsc(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.isComposing) return;
+      if (closeTopOverlay()) e.preventDefault();
+    }
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [closeTopOverlay]);
+
   function handleMessageAdded(created: ProcessMessage, payload: MessageCreate) {
     let mid = created.id;
     hist.push({
