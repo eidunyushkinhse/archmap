@@ -68,7 +68,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Параметры промпта «Из репозитория» (имя системы = название проекта).
-  const [promptDepth, setPromptDepth] = useState<2 | 3>(3);
   const [promptLang, setPromptLang] = useState<"ru" | "en">("ru");
   const [promptHints, setPromptHints] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
@@ -147,7 +146,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     return projectsApi
       .importPrompt({
         systemName: name.trim(),
-        depth: promptDepth,
+        // Глубина у агента всегда просится одна — два слоя (решение пользователя
+        // 2026-08-16): выбора в интерфейсе нет, и под федерацией физических уровней
+        // получается три (контейнер-продукт плюс два), что пользователя не касается.
+        depth: 2,
         lang: promptLang,
         hints: promptHints.trim() || undefined,
         variant,
@@ -285,17 +287,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                     Каждый прогон вернёт YAML. Вставьте их все справа, файлы
                     сольются автоматически.
                   </p>
-                  <div>
-                    <label style={labelStyle}>Глубина модели</label>
-                    <select
-                      style={{ ...input, marginBottom: 0 }}
-                      value={promptDepth}
-                      onChange={(e) => setPromptDepth(e.target.value === "2" ? 2 : 3)}
-                    >
-                      <option value={3}>3 слоя — до компонентов сервисов</option>
-                      <option value={2}>2 слоя — система и контейнеры</option>
-                    </select>
-                  </div>
                   <div>
                     <label style={labelStyle}>Язык описаний</label>
                     <select

@@ -135,9 +135,12 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
 
   // Запрос задания + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
   // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  // Глубина у агента всегда просится одна — два слоя, как и при создании проекта
+  // (решение пользователя 2026-08-16): синк и создание обязаны просить одно и то же,
+  // иначе прогон синка предложит план по более дробной схеме, чем построенная.
   const copyPrompt = (variant: PromptVariant): Promise<void> =>
     projectsApi
-      .importPrompt({ systemName: projectName, depth: 3, lang, hints: hints.trim() || undefined, variant })
+      .importPrompt({ systemName: projectName, depth: 2, lang, hints: hints.trim() || undefined, variant })
       .then((r) => navigator.clipboard.writeText(r.prompt));
 
   const apply = () => {
