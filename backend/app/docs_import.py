@@ -584,6 +584,21 @@ def build_docs_plan(
     logic_owner: dict[tuple[uuid.UUID, str], str] = {}  # слот → имя файла-первоисточника
     spec_owner: dict[uuid.UUID, str] = {}
     used_assets: set[str] = set()
+    # Заглушки узла по адресу операции + уже занятые заглушки пакета (Р27). Индекс
+    # общий на все файлы: узел приезжает несколькими записями, и вторая не должна
+    # снова целиться в ту же заглушку.
+    stub_ops: dict[uuid.UUID, dict[str, list[NodeDoc]]] = {}
+    claimed: set[uuid.UUID] = set()
+
+    def stubs_by_operation(node: Node) -> dict[str, list[NodeDoc]]:
+        index = stub_ops.get(node.id)
+        if index is None:
+            index = {}
+            for doc in node.docs:
+                if doc.operation and _is_stub(doc):
+                    index.setdefault(doc.operation, []).append(doc)
+            stub_ops[node.id] = index
+        return index
 
     for fname, pkg in entries:
         for entry in pkg.entries:
@@ -626,6 +641,40 @@ def build_docs_plan(
                         f"без поля operation"
                     )
                 cur = existing.get(logic.name)
+                if cur is None and logic.operation and logic.mermaid.strip():
+                    # Р27: конвенция «имя схемы = METHOD /путь» — правило, а правило
+                    # слабее примера: агент вправе назвать схему «Создание заказа» и
+                    # положить адрес в operation. По имени она не сойдётся, и рядом с
+                    # заглушкой выросла бы ВТОРАЯ схема на ту же операцию, а заглушка
+                    # осталась бы пустой навсегда — счётчик «описано N из M» начал бы
+                    # врать в обе стороны. Ищем ТОЛЬКО среди заглушек: описанную схему
+                    # с той же операцией не трогаем никогда, это чужая работа.
+                    свободные = [
+                        d
+                        for d in stubs_by_operation(node).get(logic.operation, [])
+                        if d.id not in claimed
+                    ]
+                    if len(свободные) == 1:
+                        cur = свободные[0]
+                    elif len(свободные) > 1:
+                        имена = sorted(d.name for d in свободные)
+                        хвост = (
+                            f" …и ещё {len(имена) - 3}" if len(имена) > 3 else ""
+                        )
+                        plan.warnings.append(
+                            f'{fname}: схема "{logic.name}" узла «{path}» — заглушек с '
+                            f"операцией «{logic.operation}» несколько "
+                            f'({", ".join(имена[:3])}{хвост}), какую заполнить — не '
+                            f"угадываем: создана новая схема"
+                        )
+                if cur is not None and cur.id in claimed:
+                    # Заглушку уже забрал файл выше (нашёл по операции) — второй раз
+                    # писать в ту же строку нельзя: одна из двух схем пропала бы молча.
+                    plan.conflicts.append(
+                        f'заглушку "{cur.name}" узла «{path}» уже заполняет другой файл — '
+                        f'схема "{logic.name}" из {fname} пропущена'
+                    )
+                    continue
                 if cur is None:
                     action, doc_id = "create", None
                 elif (
@@ -641,6 +690,7 @@ def build_docs_plan(
                     # «занято». Обратное направление (пустое поверх описанного) сюда
                     # НЕ попадает и остаётся на прежней политике: это стирание.
                     action, doc_id = "fill", cur.id
+                    claimed.add(cur.id)
                 else:
                     action, doc_id = ("overwrite" if overwrite else "skip"), cur.id
                 plan.logic.append(

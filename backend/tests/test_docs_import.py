@@ -241,6 +241,127 @@ def _stub_id(db, node_id, name):
     return db.query(NodeDoc).filter(NodeDoc.node_id == node_id, NodeDoc.name == name).one().id
 
 
+# ── страховка: агент назвал схему не по конвенции (Р27) ───────────────────────
+# «Имя схемы — тоже METHOD /путь» это ПРАВИЛО, а правило слабее примера: агент
+# вправе прислать «Создание заказа» с operation: POST /orders. По имени такая схема
+# не сойдётся, рядом с заглушкой вырастет вторая схема на ту же операцию, а заглушка
+# останется пустой навсегда — и счётчик «описано N из M» начнёт врать в обе стороны.
+
+
+def test_схема_с_осмысленным_именем_садится_в_заглушку_своей_операции(db):
+    _root, orders, *_ = _tree(db)
+    заглушка = _stub(db, orders, "POST /orders", operation="POST /orders")
+    stub_id, orders_id = заглушка.id, orders.id
+    files = [("a.mmd", _mmd("Создание заказа", kind="operation", operation="POST /orders"))]
+
+    plan = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["fill"]
+    assert plan.logic[0].doc_id == stub_id
+    assert apply_docs_plan(db, plan) == (0, 0, 0, 1)
+    db.commit()
+
+    # Имя берём ПРИСЛАННОЕ: осмысленное имя от агента ценнее адреса-заголовка, а
+    # адрес и так виден в поле operation.
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id == orders_id).all()
+    assert len(docs) == 1  # второй схемы на ту же операцию не появилось
+    assert docs[0].name == "Создание заказа" and docs[0].operation == "POST /orders"
+    assert "A --> B" in docs[0].content
+
+    # Повтор того же пакета уже сходится по имени — и ничего не пишет
+    again = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in again.logic] == ["unchanged"]
+
+
+def test_описанную_схему_с_той_же_операцией_страховка_не_трогает(db):
+    """Ищем только среди ЗАГЛУШЕК: молча слить две схемы в одну нельзя."""
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "Создание заказа", operation="POST /orders", content="graph TD; OLD")
+    orders_id = orders.id
+    files = [("a.mmd", _mmd("POST /orders", kind="operation", operation="POST /orders"))]
+
+    plan = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["create"]
+    assert apply_docs_plan(db, plan) == (1, 0, 0, 0)
+    db.commit()
+
+    docs = {d.name: d.content for d in db.query(NodeDoc).filter(NodeDoc.node_id == orders_id)}
+    assert docs["Создание заказа"] == "graph TD; OLD"  # чужая работа цела
+    assert "A --> B" in docs["POST /orders"]
+
+
+def test_нескольких_заглушек_на_одну_операцию_не_угадываем(db):
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "POST /orders", operation="POST /orders")
+    _stub(db, orders, "Создание", operation="POST /orders")
+    files = [("a.mmd", _mmd("Заведение заказа", kind="operation", operation="POST /orders"))]
+
+    plan = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["create"]  # ведём себя как раньше
+    предупреждение = [w for w in plan.warnings if "не угадываем" in w]
+    assert len(предупреждение) == 1
+    assert "«POST /orders» несколько" in предупреждение[0]
+    assert "Создание" in предупреждение[0] and "POST /orders" in предупреждение[0]
+
+
+def test_совпадение_по_имени_сильнее_страховки_по_операции(db):
+    # Имя нашлось — заглушку по операции даже не ищем: политика описанной схемы
+    # остаётся прежней, а заглушка остаётся ждать своей схемы.
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "Создание заказа", operation="GET /orders", content="graph TD; OLD")
+    _stub(db, orders, "POST /orders", operation="POST /orders")
+    orders_id = orders.id
+    files = [("a.mmd", _mmd("Создание заказа", kind="operation", operation="POST /orders"))]
+
+    plan = _plan(db, files, window=orders, overwrite=False)
+    assert [a.action for a in plan.logic] == ["skip"]
+    assert apply_docs_plan(db, plan) == (0, 0, 0, 0)
+    db.commit()
+    assert db.get(NodeDoc, _stub_id(db, orders_id, "POST /orders")).content == ""
+
+
+def test_одну_заглушку_два_файла_не_делят(db):
+    # Оба файла целятся в одну заглушку по операции: первый заполняет, второй
+    # получает конфликт — иначе одна из двух схем пропала бы молча.
+    _root, orders, *_ = _tree(db)
+    _stub(db, orders, "POST /orders", operation="POST /orders")
+    orders_id = orders.id
+    plan = _plan(db, [
+        ("один.mmd", _mmd("Создание заказа", kind="operation", operation="POST /orders")),
+        ("два.mmd", _mmd("Заведение заказа", kind="operation", operation="POST /orders")),
+    ], window=orders, overwrite=False)
+
+    assert [a.action for a in plan.logic] == ["fill", "create"]
+    assert apply_docs_plan(db, plan) == (1, 0, 0, 1)
+    db.commit()
+    имена = {d.name for d in db.query(NodeDoc).filter(NodeDoc.node_id == orders_id)}
+    assert имена == {"Создание заказа", "Заведение заказа"}
+
+
+def test_endpoint_кнопка_описать_ловит_переименованную_схему(db):
+    """Гранулярный путь целиком: «Описать» у строки → агент прислал ОДНУ схему под
+    своим именем → она села в свою заглушку, соседние не тронуты."""
+    _root, orders, *_ = _tree(db)
+    project = ensure_project(db)
+    for адрес in ("GET /orders", "POST /orders"):
+        _stub(db, orders, адрес, operation=адрес)
+    orders_id = orders.id
+
+    report = docs_import_apply(
+        _payload(
+            ("a.mmd", _mmd("Создание заказа", kind="operation", operation="POST /orders")),
+            node=orders, only="logic",
+        ),
+        db=db, project=project, user=ensure_architect(db),
+    )
+
+    assert report.applied is True and report.errors == []
+    assert [a.action for a in report.logic] == ["fill"]
+    assert (report.created_docs, report.filled_docs) == (0, 1)
+    docs = {d.name: d.content for d in db.query(NodeDoc).filter(NodeDoc.node_id == orders_id)}
+    assert set(docs) == {"GET /orders", "Создание заказа"}  # дубля не появилось
+    assert docs["GET /orders"] == ""
+
+
 def test_plan_merge_two_files_first_wins(db):
     _, orders, *_ = _tree(db)
     plan = _plan(db, [
