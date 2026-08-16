@@ -274,6 +274,80 @@ def test_qualified_path_resolves_and_bare_duplicate_is_ambiguous(db):
     assert (target.name, parent.name) == ("БД", "A")
 
 
+def _dup_doc(first: str, second: str, ref: str) -> str:
+    """Документ с двумя одноимёнными листьями «api» под разными корнями + связь на ref."""
+    return (
+        "nodes:\n"
+        f"  - name: {first}\n"
+        "    children:\n"
+        "      - name: api\n"
+        f"  - name: {second}\n"
+        "    children:\n"
+        "      - name: api\n"
+        "  - name: x\n"
+        "edges:\n"
+        "  - from: x\n"
+        f"    to: {ref}\n"
+    )
+
+
+def test_неоднозначность_называет_кандидатов():
+    """Кандидатов резолвер уже посчитал (ими он неоднозначность и обнаружил) — они
+    едут в замечание: агент видит, МЕЖДУ ЧЕМ выбирать, и чинит ссылку копированием
+    готового пути, а не вторым кругом переписки. Образец формы — поток каналов;
+    формулировка утвердительная, цель несёт ответ, а не выбор способа записи."""
+    parsed, errors = parse_import(_dup_doc("zzz", "aaa", "api"))
+    assert parsed is None
+    assert errors == [
+        'edges[0]: имя "api" неоднозначно (есть "aaa / api", "zzz / api")'
+        " — укажите один из них"
+    ]
+
+
+def test_порядок_кандидатов_не_зависит_от_порядка_узлов():
+    """Перестановка узлов во входном документе НЕ шевелит текст замечания: иначе
+    одно и то же замечание дрожит между прогонами агента (порядок — по алфавиту,
+    а не по документу)."""
+    straight = parse_import(_dup_doc("aaa", "zzz", "api"))[1]
+    swapped = parse_import(_dup_doc("zzz", "aaa", "api"))[1]
+    assert straight == swapped
+    assert straight == [
+        'edges[0]: имя "api" неоднозначно (есть "aaa / api", "zzz / api")'
+        " — укажите один из них"
+    ]
+
+
+def test_единственное_совпадение_молчит_о_кандидатах():
+    """Совпадение одно — неоднозначности нет: связь резолвится, ни слова о кандидатах."""
+    parsed, errors = parse_import(_dup_doc("aaa", "zzz", "aaa / api"))
+    assert errors == [] and parsed is not None and len(parsed.edges) == 1
+
+
+def test_одинаковые_пути_кандидатов_не_печатаются():
+    """Узел-близнец повторён в документе: полные пути совпадают, называть нечего —
+    перечень вёл бы обратно в «неоднозначно», а это хуже молчания (порог Ф8ж).
+    СЕНТИНЕЛ: текст остаётся прежним байт-в-байт."""
+    parsed, errors = parse_import(_dup_doc("aaa", "aaa", "aaa / api"))
+    assert parsed is None
+    assert errors == ['edges[0]: имя "aaa / api" неоднозначно, укажите путь через " / "']
+
+
+def test_перечень_кандидатов_обрезан_с_честным_хвостом():
+    """Кап — как у соседних перечней слияния: на проекте с полусотней одноимённых
+    узлов список вытеснил бы остальные замечания. Хвост считаем, а не молчим о нём."""
+    doc = (
+        "nodes:\n"
+        + "".join(f"  - name: c{i}\n    children:\n      - name: api\n" for i in range(8))
+        + "  - name: x\nedges:\n  - from: x\n    to: api\n"
+    )
+    parsed, errors = parse_import(doc)
+    assert parsed is None
+    shown = ", ".join(f'"c{i} / api"' for i in range(6))
+    assert errors == [
+        f'edges[0]: имя "api" неоднозначно (есть {shown} и ещё 2) — укажите один из них'
+    ]
+
+
 def test_invalid_shape_and_type_errors_carry_paths():
     parsed, errors = parse_import(
         "nodes:\n"
