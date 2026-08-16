@@ -22,7 +22,7 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import TypeGuard, TypeVar
 
-from app.identity import KEY_ORDER, key_type, merge_key_sets
+from app.identity import KEY_ORDER, compare_identity, key_type, merge_key_sets
 from app.import_yaml import (
     MAX_EDGES,
     MAX_NODES,
@@ -41,6 +41,8 @@ _MAX_WARNINGS = 30
 # Связи в контейнер называем поимённо, но не все: замечания уезжают агенту одним
 # списком, и полсотни строк одного класса вытеснят остальное.
 _MAX_CONTAINER_EDGES = 10
+# Тот же кап у связей узла с собственным потомком — свой счётчик на класс.
+_MAX_DESCENDANT_EDGES = 10
 # Сколько компонентов контейнера перечисляем в таком замечании («цель с ответом»,
 # П5) и сколько — когда перечней в строке два (оба конца контейнеры): два длинных
 # перечисления в одной строке нечитаемы, поэтому там кап строже.
@@ -82,60 +84,59 @@ def _substantial(node: _ImpNode, has_children: bool) -> bool:
     return has_children or any(key_type(k) == "git" for k in node.source_keys)
 
 
-def _by_type(keys: list[str]) -> dict[str, set[str]]:
-    """Ключи якоря по типам («git» → {git:…}, «host» → {host:…})."""
-    acc: dict[str, set[str]] = {}
-    for k in keys:
-        acc.setdefault(key_type(k), set()).add(k)
-    return acc
-
-
 def _compare_anchors(a: list[str], b: list[str]) -> str:
-    """Один ли это узел по якорям: «same» | «different» | «unknown» (матчер v2, П3).
+    """Один ли это узел по якорям: «same» | «different» | «unknown» (матчер v3 + К3).
 
-    Отличие от app.identity.compare_identity, где спор решает СИЛЬНЕЙШИЙ общий тип
-    ключа: здесь противоречие считается ПО-ПОЛЬНО (repo против repo, host против
-    host), отсутствующее у одной стороны поле не противоречит вовсе, а СОВПАДЕНИЕ
-    ЛЮБОГО типа ГАСИТ противоречие остальных.
+    Решает СИЛЬНЕЙШИЙ ОБЩИЙ тип ключа — ровно правило app.identity.compare_identity,
+    к которому мердж вернулся в К3 (docs/plan-tuning-round2.md, находка 3 матрицы
+    docs/qa-federation-matrix.md). Читается оно так: совпадение СЛАБОГО поля гасит
+    противоречие СИЛЬНОГО только тогда, когда у одной из сторон сильного поля НЕТ
+    (тогда общим оказывается слабый тип, и он же решает). Знают своё repo обе
+    стороны, и оно разное — это разные сущности, никакой общий host их не спасает.
 
-    Почему мягче: host — сетевое имя, по которому к сервису ходят ИЗ ЧУЖОГО
-    репозитория, то есть единственный межрепозиторный идентификатор в семантике
-    якоря («чужим сервисам — только сетевое имя, по которому к ним ходят»). Полевой
-    случай федерации Zabbix+Grafana: плагин вписал в узел продукта СВОЁ repo (для
-    него Grafana — место жительства), host у обоих «grafana» — по строгому правилу
-    продукт оставался раздвоенным, и защита от тёзок работала против воссоединения.
+    Почему прежнее мягкое правило («совпадение ЛЮБОГО типа гасит противоречие
+    остальных», П3 прошлой итерации) снято: оно чинило один полевой случай и ломало
+    другой. Чинило — заглушку соседа {host: grafana}, у которой repo НЕТ вовсе: она
+    обязана склеиться с продуктом (и склеивается до сих пор, потому что общего
+    сильного типа у них нет). Ломало — плагин {repo плагина, host grafana}, который
+    сливался с ядром продукта {repo продукта, host grafana}: совпавший host гасил
+    противоречие repo, и в схеме федерации плагин выдавал себя за ядро (6 из 12
+    схемных строк «имя/родитель/role/technology/description отброшено» и путаница
+    ролей). Ложная склейка хуже дубля: дубль видно глазами, склейка выглядит
+    корректной схемой.
 
-    Настоящие тёзки (есть противоречащий тип и НЕТ ни одного совпавшего) по-прежнему
-    раздельны. Синк живой схемы (app/sync_plan) остаётся на строгом compare_identity:
-    там ложная склейка правит чужой узел в БД, а не строку превью."""
-    ta, tb = _by_type(a), _by_type(b)
-    shared = [t for t in ta if t in tb]
-    if not shared:
-        return "unknown"
-    return "same" if any(ta[t] & tb[t] for t in shared) else "different"
+    Настоящие тёзки (сильнейший общий тип расходится) раздельны, как и были. Синк
+    живой схемы (app/sync_plan) держится того же compare_identity — после К3 у
+    мерджа и синка ОДИН предикат идентичности, отдельного «мягкого» режима нет."""
+    return compare_identity(a, b)
 
 
 def _bridged(a: list[tuple[int, int, list[str]]], b: list[tuple[int, int, list[str]]]) -> bool:
-    """Есть ли между двумя узлами ВКЛАД-СВИДЕТЕЛЬ (матчер v3): пара вкладов (по
-    одному с каждой стороны), у ОБОИХ есть якоря и они друг другу не противоречат.
+    """Можно ли объединить две группы вкладов (матчер v3 + К3): есть пара вкладов с
+    якорями по обе стороны, и НИ ОДНА пара вкладов друг другу не противоречит.
 
     Зачем сравнивать вклады, а не накопленные множества ключей: накопленное растёт
     по ходу прохода, поэтому строгая проверка против него делает результат зависимым
-    от порядка файлов. Полевой контрпример — тот же продукт: если плагин лёг РАНЬШЕ
-    своего продукта, узел уже нёс чужое repo, и продукт (у которого только repo)
-    противоречил ему, хотя с вкладом-заглушкой (только host) не спорил ничем.
-    Свидетель гасит противоречие соседнего вклада ровно так же, как в П3 его гасит
-    совпадение поля: узел один, просто разные файлы видят разные его грани.
+    от порядка файлов. Полевой контрпример — продукт федерации: если заглушка соседа
+    легла РАНЬШЕ своего продукта, узел уже нёс её host, и вклад продукта сравнивался
+    бы с накопленным, а не с тем, кто его туда положил.
 
     Почему у обоих сторон якоря обязательны: вклад БЕЗ якорей не свидетельствует ни
     о чём — он попал в узел по имени, и позволить ему связать двух чужих друг другу
     тёзок значило бы вернуть молчаливую ложную склейку, ради которой якоря и
-    заводились (она хуже дубля: выглядит как корректная схема)."""
-    return any(
-        ka and kb and _compare_anchors(ka, kb) != "different"
-        for _fa, _na, ka in a
-        for _fb, _nb, kb in b
-    )
+    заводились (она хуже дубля: выглядит как корректная схема).
+
+    Почему «ни одна пара не противоречит», а не «хоть одна не противоречит» (К3):
+    свидетель гасит противоречие только там, где его нет по К3-предикату. Иначе
+    заглушка {host: grafana}, совместимая и с ядром продукта, и с плагином, служила
+    бы мостом между ними — и стабилизация задним числом собрала бы ровно ту ложную
+    склейку, которую К3 запретил в паре. Проверка идёт по ВСЕМ вкладам обеих групп
+    (не только тех двух узлов, что сравниваются), иначе мост навела бы транзитивность
+    union-find: A+свидетель, свидетель+B → A и B в одной группе вопреки их спору."""
+    verdicts = [
+        _compare_anchors(ka, kb) for _fa, _na, ka in a for _fb, _nb, kb in b if ka and kb
+    ]
+    return bool(verdicts) and all(v != "different" for v in verdicts)
 
 
 def _rank_keys(keys: list[str], strong: list[str]) -> list[str]:
@@ -446,15 +447,14 @@ class _Merger:
         self._decide(idx, fld, cur, new, fi, sub)
 
     def _match_by_source(self, node: _ImpNode, fi: int) -> int | None:
-        """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии: склеивает ЛЮБОЙ
-        совпавший ключ (матчер v2, П3).
+        """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии: ловит сервис, которого
+        разные прогоны назвали по-разному или положили под разных родителей.
 
-        Прежде кандидат по слабому ключу отбрасывался, если по сильному он
-        противоречил (общий host при разных git). Полевая федерация показала цену:
-        плагин вписал в узел продукта СВОЁ репо при общем host — и продукт остался
-        раздвоенным. Теперь совпадение любого якорного поля гасит противоречие
-        остальных (_compare_anchors), а расхождение полей решает содержательность
-        вклада (П2), а не разрыв узла надвое.
+        Совпавшего ключа МАЛО (К3): решает тот же предикат, что и везде, —
+        сильнейший общий тип (_compare_anchors). Совпал host, но обе стороны знают
+        своё repo и оно разное — кандидат не подходит, ищем дальше по остальным
+        ключам. Полевой случай федерации: плагин и ядро продукта живут на одном
+        сетевом имени «grafana», и до К3 это склеивало их в один узел.
 
         Узлы ОДНОГО файла не склеиваются никогда, даже при совпавшем якоре: внутри
         файла агент развёл их осознанно (тот же принцип, что в warn_fuzzy_siblings).
@@ -466,15 +466,18 @@ class _Merger:
             if hit is None or fi in self.sources[hit]:
                 continue
             # Ключ k общий по построению (by_source отдаёт узел, у которого он есть),
-            # то есть _compare_anchors здесь заведомо ответил бы «same».
+            # поэтому вердикт здесь — только «same» либо «different».
+            if _compare_anchors(self.nodes[hit].source_keys, node.source_keys) == "different":
+                continue
             return hit
         return None
 
     def _match_by_name(self, node: _ImpNode, parent_m: int | None) -> int | None:
         """Матч по имени в пределах слитого родителя — прежнее поведение, но с
         предохранителем: тёзка с ПРОТИВОРЕЧАЩИМ якорем не склеивается. Противоречие
-        считается по-польно и гасится любым совпадением (_compare_anchors, П3):
-        раздельны только настоящие тёзки — разные репозитории И разные хосты."""
+        решает сильнейший общий тип ключа (_compare_anchors, К3): тёзки с разными
+        репозиториями раздельны, даже когда сетевое имя у них общее, а тёзка, у
+        которой репозитория НЕТ вовсе, склеивается как раньше."""
         for idx in self.by_key.get((parent_m, _norm(node.name)), []):
             if _compare_anchors(self.nodes[idx].source_keys, node.source_keys) == "different":
                 # Замечание о ФАЙЛАХ (тёзки из разных прогонов) — виноватого нет.
@@ -773,10 +776,14 @@ def _regroup(m: _Merger) -> dict[tuple[int, int], int] | None:
     повторного прохода либо None, если объединять нечего.
 
     Правило симметрично и не зависит от порядка файлов: ОДНОИМЁННЫЕ узлы одного
-    родителя объединяются, если между ними есть вклад-свидетель (_bridged) — пара
-    вкладов с якорями, друг другу не противоречащих. Голые противоречия (ни одна
-    пара вкладов не совместима) держат узлы раздельно, как и раньше: настоящие тёзки
-    двух команд остаются двумя узлами в любом порядке файлов.
+    родителя объединяются, если их вклады совместимы (_bridged) — есть свидетель с
+    якорями по обе стороны и ни одна пара вкладов не противоречит по К3. Противоречия
+    держат узлы раздельно: настоящие тёзки двух команд остаются двумя узлами в любом
+    порядке файлов, и плагин, вписавший в тёзку продукта своё repo, — тоже (К3).
+
+    Совместимость проверяется по вкладам ГРУППЫ, а не двух сравниваемых узлов: union-
+    find транзитивен, и общий свидетель иначе связал бы через себя две группы,
+    спорящие друг с другом напрямую.
 
     Разметка описывает ВЕСЬ результат (не только новые склейки): повторный проход
     обязан воспроизвести и то, что матчеры уже нашли сами, иначе он разошёлся бы с
@@ -784,6 +791,10 @@ def _regroup(m: _Merger) -> dict[tuple[int, int], int] | None:
     следующего прохода будут другими.
     """
     root = list(range(len(m.nodes)))
+    # Вклады группы по её представителю: пополняются при каждом объединении.
+    members: dict[int, list[tuple[int, int, list[str]]]] = {
+        i: list(cs) for i, cs in enumerate(m.contribs)
+    }
 
     def find(x: int) -> int:
         while root[x] != x:
@@ -799,10 +810,12 @@ def _regroup(m: _Merger) -> dict[tuple[int, int], int] | None:
         for a in range(len(idxs)):
             for b in range(a + 1, len(idxs)):
                 ra, rb = find(idxs[a]), find(idxs[b])
-                if ra == rb or not _bridged(m.contribs[idxs[a]], m.contribs[idxs[b]]):
+                if ra == rb or not _bridged(members[ra], members[rb]):
                     continue
                 # Представитель — наименьший индекс: детерминированные номера групп.
-                root[max(ra, rb)] = min(ra, rb)
+                keep, gone = min(ra, rb), max(ra, rb)
+                root[gone] = keep
+                members[keep].extend(members.pop(gone))
                 changed = True
     if not changed:
         return None
@@ -815,8 +828,9 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
     Находки ручной проверки 2026-08-08: агент кладёт людей внутрь системы
     (3 прогона из 4) и создаёт компоненты, не связанные ни с чем (2 объекта из
     10); третья — полевого QA (связи, упирающиеся в контейнер с компонентами,
-    см. _warn_container_edges). Промпт про это говорит, но соблюдает его модель
-    через раз — поэтому предупреждаем ЗДЕСЬ, до создания проекта.
+    см. _warn_container_edges); четвёртая — матрицы федерации (связи узла с его
+    собственным потомком, см. _warn_descendant_edges). Промпт про это говорит, но
+    соблюдает его модель через раз — поэтому предупреждаем ЗДЕСЬ, до создания проекта.
 
     Только предупреждения: тихо перестраивать чужое дерево (поднимать актора в
     корень) хуже, чем строка в отчёте, — пользователь не поймёт, что произошло.
@@ -848,9 +862,14 @@ def warn_content(merged: ParsedImport, report: MergeReport) -> None:
         if i not in linked and i not in parents and n.parent_idx is not None
     ]
     _warn_lonely(merged, report, lonely_idxs)
-    _warn_container_edges(merged, report, parents)
-    _warn_broker_edges(merged, report)
-    _warn_channel_lists(merged, report)
+    # Связь узла с собственным потомком разбирается ПЕРВОЙ и снимается со ВСЕХ
+    # остальных классов о связях: её ответ — «удалите или перевесьте», и совет
+    # «уточните конец» / «допишите канал» / «разделите перечень» рядом с ним
+    # противоречив (см. _warn_descendant_edges).
+    внутренние = _warn_descendant_edges(merged, report)
+    _warn_container_edges(merged, report, parents, внутренние)
+    _warn_broker_edges(merged, report, внутренние)
+    _warn_channel_lists(merged, report, внутренние)
     _warn_isolated_groups(merged, report)
 
 
@@ -884,8 +903,76 @@ def _warn_lonely(merged: ParsedImport, report: MergeReport, lonely_idxs: list[in
         )
 
 
+def _descends(nodes: list[_ImpNode], child: int, ancestor: int) -> bool:
+    """Потомок ли child для ancestor (ребёнок, внук, любая глубина).
+
+    Подъём по parent_idx конечен: родитель узла всегда создан раньше него самого
+    (add_node кладёт parent_m, уже существующий), поэтому индекс родителя строго
+    меньше индекса ребёнка и цикла в дереве быть не может."""
+    parent = nodes[child].parent_idx
+    while parent is not None:
+        if parent == ancestor:
+            return True
+        parent = nodes[parent].parent_idx
+    return False
+
+
+def _warn_descendant_edges(merged: ParsedImport, report: MergeReport) -> set[int]:
+    """Связи между узлом и его СОБСТВЕННЫМ потомком (в любую сторону, любой глубины).
+    Возвращает индексы таких связей — контейнерный класс их уже не разбирает.
+
+    Полевая находка матрицы федерации (docs/qa-federation-matrix.md, находка 4):
+    у Zulip таких связей пять («background-workers → email-senders», где цель —
+    компонент источника), у федерации они же сидят в intermediate_edges. Агент
+    рисует их сам под интро «дописывай недостающие связи»: вложенность ему кажется
+    отношением, которое надо провести стрелкой.
+
+    Почему отдельный класс, а не прежний контейнерный: связь между контейнером и его
+    компонентом СЕМАНТИЧЕСКИ ПУСТА — иерархия уже сказала всё, что стрелка пыталась
+    сказать, — а контейнерное замечание отвечало на неё бессмыслицей («уточните её до
+    конкретного компонента», хотя конец УЖЕ компонент, притом этого же контейнера).
+    Проверено полем: круги её не лечили. Ответ здесь другой — удалить или перевесить,
+    поэтому и класс свой (урок Х5 «цель с ответом» тот же).
+
+    Связь в ЧУЖОЙ контейнер («A → C / компонент», C ≠ A) под правило не подпадает и
+    остаётся прежним контейнерным классом с перечнем компонентов.
+
+    Адресат — файл-первоисточник связи: виновная сущность ровно одна (сама связь), а
+    её концы объявлены тем же файлом (ссылки резолвятся внутри файла).
+    """
+    shown = hidden = 0
+    hidden_idxs: list[int] = []
+    свои: set[int] = set()
+    for ei, e in enumerate(merged.edges):
+        if _descends(merged.nodes, e.target_idx, e.source_idx):
+            часть, целое = e.target_idx, e.source_idx
+        elif _descends(merged.nodes, e.source_idx, e.target_idx):
+            часть, целое = e.source_idx, e.target_idx
+        else:
+            continue
+        свои.add(ei)
+        if shown >= _MAX_DESCENDANT_EDGES:
+            hidden += 1
+            hidden_idxs.append(ei)
+            continue
+        shown += 1
+        a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
+        report.warn(
+            f"связь «{a} → {b}»: «{merged.nodes[часть].name}» — часть "
+            f"«{merged.nodes[целое].name}», иерархия уже выражает вложенность — "
+            f"удалите связь или перевесьте её на другой узел",
+            report.owner_of_edges([ei]),
+        )
+    if hidden:
+        report.warn(
+            f"…ещё {hidden} таких связей с собственным потомком",
+            report.owner_of_edges(hidden_idxs),
+        )
+    return свои
+
+
 def _warn_container_edges(
-    merged: ParsedImport, report: MergeReport, parents: set[int]
+    merged: ParsedImport, report: MergeReport, parents: set[int], skip: set[int]
 ) -> None:
     """Связи, упирающиеся в контейнер, У КОТОРОГО ЕСТЬ компоненты.
 
@@ -911,11 +998,17 @@ def _warn_container_edges(
     контейнера, раскрытого ЧУЖИМ файлом, замечание уходило человеку («агент их не
     видит») — в мульти-режиме туда оседал самый частый и самый механический класс
     правок.
+
+    skip — связи, уже разобранные классом «узел и его собственный потомок»
+    (_warn_descendant_edges): у них другой диагноз и другой ответ, и два замечания на
+    одну связь противоречили бы друг другу.
     """
     kids = _children_names(merged)
     shown = hidden = 0
     hidden_idxs: list[int] = []
     for ei, e in enumerate(merged.edges):
+        if ei in skip:
+            continue
         # dict.fromkeys — на случай петли «узел сам на себя»: конец один, не два.
         ends = [i for i in dict.fromkeys((e.source_idx, e.target_idx)) if i in parents]
         if not ends:
@@ -968,7 +1061,7 @@ def _kids_phrase(container: str, names: list[str], cap: int) -> str:
     return shown + tail
 
 
-def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
+def _warn_broker_edges(merged: ParsedImport, report: MergeReport, skip: set[int]) -> None:
     """Связи, упирающиеся в БРОКЕР, но не называющие канал.
 
     Решение пользователя №4 (docs/plan-broker-docs.md §4): стрелка в брокер обязана
@@ -985,11 +1078,14 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
     так что общий файл есть всегда и адресат — первоисточник связи. Даже когда
     «брокером» конец сделал ЧУЖОЙ файл своим shape, замечание остаётся выполнимым:
     от агента требуется дописать одно поле — имя топика, в который пишет его код.
+
+    skip — связи класса «узел и его собственный потомок» (_warn_descendant_edges):
+    им велено исчезнуть, а не обзавестись каналом.
     """
     shown = hidden = 0
     hidden_idxs: list[int] = []
     for ei, e in enumerate(merged.edges):
-        if _fill(e.channel):
+        if ei in skip or _fill(e.channel):
             continue
         # dict.fromkeys — на случай петли: конец один, не два. Оба конца брокеры —
         # называем первый (искать канал придётся у обоих, починка начинается с любого).
@@ -1017,7 +1113,7 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport) -> None:
         )
 
 
-def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
+def _warn_channel_lists(merged: ParsedImport, report: MergeReport, skip: set[int]) -> None:
     """Связи, у которых в channel не имя канала, а ПЕРЕЧЕНЬ имён.
 
     Находка №2 полевого QA (docs/qa-zulip-brokers.md): агент кладёт в поле
@@ -1029,11 +1125,14 @@ def _warn_channel_lists(merged: ParsedImport, report: MergeReport) -> None:
 
     Разделителем считаем запятую и точку с запятой. Точки, дефисы и версии в имени
     канала — норма («orders.created», «notify-orders»), и подозрений не вызывают.
+
+    skip — связи класса «узел и его собственный потомок» (та же причина, что у
+    брокерного класса: разделять на несколько связей нечего, связь лишняя целиком).
     """
     shown = hidden = 0
     hidden_idxs: list[int] = []
     for ei, e in enumerate(merged.edges):
-        if not _fill(e.channel) or not any(sep in e.channel for sep in (",", ";")):
+        if ei in skip or not _fill(e.channel) or not any(sep in e.channel for sep in (",", ";")):
             continue
         if shown >= _MAX_CHANNEL_LIST_EDGES:
             hidden += 1

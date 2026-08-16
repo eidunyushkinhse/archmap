@@ -30,6 +30,7 @@ from app.schemas.node import (
     BrokerEdgeChannelAlert,
     ContainerOwnDocsAlert,
     DanglingMessageAlert,
+    DescendantEdgeAlert,
     DisconnectedNodeAlert,
     IntermediateEdgeAlert,
     IsolatedGroupAlert,
@@ -78,6 +79,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
     2) связи, у которых хотя бы один конец упирается в промежуточный
        (контейнерный) узел, а не в атомарный;
+    2а) связи между узлом и его собственным потомком — вложенность уже выражена
+       иерархией; класс свой, и такие связи не попадают ни в (2), ни в (11):
+       «уточните конец» и «допишите канал» противоречат совету «удалите связь»;
     3) изолированные группы — связные компоненты графа рёбер;
     4) контейнеры с СОБСТВЕННЫМИ доками/спекой (grandfather) — логика и спеки
        должны жить на атомарных детях, такие доки распределяют по детям;
@@ -120,8 +124,52 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         if n.id not in intermediate_ids and n.id not in connected_ids
     ]
 
+    # 2а) Связь узла с СОБСТВЕННЫМ потомком (AL32) — разбирается ДО связей в
+    #     контейнер и снимается с них. Вложенность уже выражена иерархией: такая
+    #     стрелка семантически пуста, и совет AL6 («уточните конец до конкретного
+    #     компонента») отвечает на неё бессмыслицей — конец УЖЕ компонент, притом
+    #     этого же контейнера. Полевая находка матрицы федерации (находка 4,
+    #     docs/qa-federation-matrix.md): в превью импорта класс уже отделён (К4),
+    #     здесь закрывается паритет — иначе превью советует удалить связь, а панель
+    #     проекта тут же требует обратного.
+    parent_by_id = {n.id: n.parent_id for n in all_nodes}
+
+    def _descends(child: uuid.UUID, ancestor: uuid.UUID) -> bool:
+        """Потомок ли child для ancestor (любой глубины). Дерево БД без циклов
+        (parent_id — FK на узел того же проекта, цикл создать нечем), но счётчик
+        шагов держим: битые данные не должны вешать запрос алертов."""
+        parent = parent_by_id.get(child)
+        for _ in range(len(parent_by_id) + 1):
+            if parent is None:
+                return False
+            if parent == ancestor:
+                return True
+            parent = parent_by_id.get(parent)
+        return False
+
+    descendant_edges: list[DescendantEdgeAlert] = []
+    descendant_edge_ids: set[uuid.UUID] = set()
+    for e in all_edges:
+        source_is_part = _descends(e.source_id, e.target_id)
+        if not source_is_part and not _descends(e.target_id, e.source_id):
+            continue
+        descendant_edge_ids.add(e.id)
+        descendant_edges.append(
+            DescendantEdgeAlert(
+                edge_id=e.id,
+                label=e.label,
+                source_id=e.source_id,
+                source_name=name_by_id.get(e.source_id, "?"),
+                target_id=e.target_id,
+                target_name=name_by_id.get(e.target_id, "?"),
+                source_is_part=source_is_part,
+            )
+        )
+
     intermediate_edges: list[IntermediateEdgeAlert] = []
     for e in all_edges:
+        if e.id in descendant_edge_ids:
+            continue  # свой класс (AL32) — два совета на одну связь противоречивы
         src_inter = e.source_id in intermediate_ids
         tgt_inter = e.target_id in intermediate_ids
         if src_inter or tgt_inter:
@@ -397,6 +445,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     shape_by_id = {n.id: n.shape for n in all_nodes}
     broker_edge_channels: list[BrokerEdgeChannelAlert] = []
     for e in all_edges:
+        if e.id in descendant_edge_ids:
+            continue  # AL32 велит связь удалить — «допишите канал» рядом с этим
+            # советом противоречиво (тот же принцип, что у превью импорта).
         # dict.fromkeys — на случай петли «узел сам на себя»: конец один, не два.
         broker_ends = [
             nid
@@ -437,4 +488,5 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         unresolved_data_refs=unresolved_data_refs,
         unresolved_channel_refs=unresolved_channel_refs,
         broker_edge_channels=broker_edge_channels,
+        descendant_edges=descendant_edges,
     )

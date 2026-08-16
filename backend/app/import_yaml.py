@@ -19,6 +19,7 @@ import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 
 import yaml
 from sqlalchemy.orm import Session
@@ -103,6 +104,101 @@ def _load_doc(content: str) -> tuple[dict | None, list[str]]:
     return doc, []
 
 
+# --- did-you-mean к «узел не найден» -----------------------------------------
+# Полевой промах агента (docs/qa-federation-matrix.md, находка 2): перечень
+# компонентов в замечании превью предлагает «zabbix-ui / web-api», агент берёт
+# ИМЯ компонента, но приклеивает его к ЧУЖОМУ контейнеру — пишет в связи
+# «zabbix-server / web-api». Без подсказки слабая модель гадает заново; лишний
+# круг случился дважды (изолированный Zabbix и федерация).
+#
+# Пороги — ДОСЛОВНО из дозаливки доков (app/docs_import.py, Ф8ж), и ниже их не
+# опускать: ложная подсказка ХУЖЕ её отсутствия — слабая модель копирует
+# предложенное имя не глядя, и вместо битой ссылки получается ссылка, битая
+# по-другому.
+_HINT_CUTOFF = 0.75
+# Сколько символов ВСЕГО (на обе строки) может не совпасть у «того же пути,
+# записанного иначе». Одной похожести мало: у соседей по контейнеру общий длинный
+# префикс, и difflib даёт им 0.75+ на совершенно разных именах листа. У настоящих
+# же кандидатов расхождение мелкое: разделитель, окончание, опечатка (0–3).
+_HINT_MAX_DIFF = 3
+# Разделители, которыми одно и то же имя пишут по-разному: «web-api» / «web_api».
+_HINT_SEPARATORS = str.maketrans("", "", "_-. ")
+
+
+def _norm_name(s: str) -> str:
+    """Имя без регистра и разделителей — «то же имя, записанное иначе»."""
+    return s.lower().translate(_HINT_SEPARATORS)
+
+
+def _norm_path(ref: str) -> str:
+    """Ссылка → канонический путь «A / B» (слэшем без пробелов пишут слабые модели)."""
+    if "/" not in ref:
+        return ref.strip()
+    return " / ".join(part.strip() for part in ref.split("/") if part.strip())
+
+
+def _closest_node(
+    ref: str,
+    fulls: list[str],
+    by_bare: dict[str, list[int]],
+    by_path: dict[str, list[int]],
+) -> str | None:
+    """Ближайший узел ЭТОГО документа к неразрешённой ссылке — или None (молчим).
+
+    Кандидаты берутся только из разобранного документа: парсер видит один файл, и
+    выдумывать соседей ему неоткуда. Порядок поиска — от уверенного к рискованному:
+
+    1. ТОЧНОЕ совпадение имени листа под другим родителем: «zabbix-server /
+       web-api» → «zabbix-ui / web-api». Это и есть главный полевой промах —
+       имя компонента агент взял верное, потерял привязку, — поэтому подсказка
+       здесь выдаётся уверенно. Несколько одноимённых листьев → ближайший по
+       difflib к полному пути, при равенстве — первый в порядке документа.
+    2. Добор difflib по ПОЛНОМУ пути и только на МЕЛКОМ расхождении (опечатка,
+       окончание, разделитель): порог _HINT_CUTOFF И не больше _HINT_MAX_DIFF
+       несовпавших символов.
+    3. Иначе подсказки нет.
+
+    Подсказка ОДНА, самая уверенная, и только та, которую агент может вписать как
+    есть: путь-дубль (одноимённые узлы под одноимёнными предками) дал бы ему
+    «имя неоднозначно» вместо починки — такой кандидат отбрасывается.
+    """
+
+    def resolvable(i: int) -> bool:
+        return len(by_path.get(fulls[i]) or ()) == 1
+
+    path = _norm_path(ref)
+    leaf = path.rpartition(" / ")[2]
+    same_leaf = [i for i in (by_bare.get(leaf) or []) if resolvable(i)]
+    if same_leaf:
+        return fulls[
+            min(same_leaf, key=lambda i: (-SequenceMatcher(None, path, fulls[i]).ratio(), i))
+        ]
+    norm = _norm_name(path)
+    if not norm:  # ссылка из одних разделителей — сравнивать нечем
+        return None
+    matcher = SequenceMatcher(None)
+    matcher.set_seq2(norm)  # b индексируется один раз, меняем только a
+    best: tuple[float, int] | None = None
+    for i, full in enumerate(fulls):
+        cand = _norm_name(full)
+        # Длина отсеивает даром: расхождение в _HINT_MAX_DIFF символов невозможно
+        # при большей разнице длин (документ бывает на MAX_NODES узлов).
+        if abs(len(cand) - len(norm)) > _HINT_MAX_DIFF or not resolvable(i):
+            continue
+        matcher.set_seq1(cand)
+        if matcher.real_quick_ratio() < _HINT_CUTOFF or matcher.quick_ratio() < _HINT_CUTOFF:
+            continue
+        ratio = matcher.ratio()
+        if ratio < _HINT_CUTOFF:
+            continue
+        matched = sum(block.size for block in matcher.get_matching_blocks())
+        if (len(norm) - matched) + (len(cand) - matched) > _HINT_MAX_DIFF:
+            continue
+        if best is None or ratio > best[0]:  # равенство оставляет первого по документу
+            best = (ratio, i)
+    return fulls[best[1]] if best is not None else None
+
+
 def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     """Разбор + валидация YAML импорта. Возвращает (результат, ошибки): при любой
     ошибке результат None, список — все найденные проблемы (не первая попавшаяся).
@@ -152,6 +248,8 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     by_bare: dict[str, list[int]] = defaultdict(list)
     by_path: dict[str, list[int]] = defaultdict(list)
     fulls: list[str] = []
+    # Кэш did-you-mean: одна и та же битая ссылка приходит из десятка связей.
+    hints: dict[str, str | None] = {}
     overflow = False  # превысили MAX_NODES — обход остановлен, ошибка уже в списке
 
     def opt_str(raw: dict, key: str, path: str, max_len: int | None) -> str | None:
@@ -260,7 +358,9 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     def resolve(ref: str, path: str) -> int | None:
         """Ссылка из edges → индекс узла: точный полный путь, иначе голое имя
         (если уникально), иначе однозначный ХВОСТ пути («backend / api» находит
-        «Система / backend / api»). Тексты ошибок — как в ТЗ витрины импорта."""
+        «Система / backend / api»). Тексты ошибок — как в ТЗ витрины импорта;
+        к «не найден» добавляется did-you-mean, когда кандидат уверенный
+        (_closest_node), — без него слабая модель гадает имя заново."""
         hits = by_path.get(ref)
         if not hits:
             hits = by_bare.get(ref)
@@ -279,7 +379,12 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
                 tail = f" / {norm}"
                 hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
         if not hits:
-            errors.append(f'{path}: узел "{ref}" не найден')
+            if ref not in hints:
+                hints[ref] = _closest_node(ref, fulls, by_bare, by_path)
+            hint = hints[ref]
+            # Уверенного кандидата нет — текст остаётся БАЙТ-В-БАЙТ прежним.
+            suffix = f' — есть "{hint}"' if hint is not None else ""
+            errors.append(f'{path}: узел "{ref}" не найден{suffix}')
             return None
         if len(hits) > 1:
             errors.append(f'{path}: имя "{ref}" неоднозначно, укажите путь через " / "')

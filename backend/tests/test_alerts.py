@@ -716,3 +716,93 @@ def test_связи_чужого_проекта_не_видны(db):
     db.commit()
 
     assert get_alerts(db=db, project=свой, _=None).broker_edge_channels == []
+
+
+# ====== 12) Связи узла с собственным потомком (AL32) ======
+# Паритет с превью импорта (К4, docs/plan-tuning-round2.md): вложенность уже выражена
+# иерархией, стрелка семантически пуста. До AL32 такая связь приезжала классом «связи
+# в контейнер» с советом «уточните конец до конкретного компонента» — а конец УЖЕ
+# компонент, притом этого же контейнера. Превью после К4 советует связь удалить, и
+# панель проекта обязана говорить то же самое, а не обратное.
+
+
+def _свои_потомки(db):
+    return get_alerts(db=db, project=ensure_project(db), _=None).descendant_edges
+
+
+def test_связь_в_собственного_ребёнка_это_свой_класс(db):
+    контейнер = _node(db, "background-workers")
+    ребёнок = _node(db, "email-senders", контейнер)
+    _edge(db, контейнер, ребёнок)
+    db.commit()
+
+    [алерт] = _свои_потомки(db)
+
+    assert (алерт.source_name, алерт.target_name) == ("background-workers", "email-senders")
+    # Часть — приёмник: флаг говорит, кто внутри кого, и по нему строится текст.
+    assert алерт.source_is_part is False
+    # И этой же связи в «связях в контейнер» больше нет: два совета противоречили бы.
+    assert get_alerts(db=db, project=ensure_project(db), _=None).intermediate_edges == []
+
+
+def test_связь_во_внука_тоже_свой_класс(db):
+    контейнер = _node(db, "background-workers")
+    ребёнок = _node(db, "email-senders", контейнер)
+    внук = _node(db, "smtp-client", ребёнок)
+    _edge(db, контейнер, внук)
+    db.commit()
+
+    [алерт] = _свои_потомки(db)
+    assert (алерт.source_name, алерт.target_name) == ("background-workers", "smtp-client")
+    assert алерт.source_is_part is False
+
+
+def test_связь_потомка_в_свой_контейнер_помечает_источник(db):
+    контейнер = _node(db, "background-workers")
+    ребёнок = _node(db, "email-senders", контейнер)
+    _edge(db, ребёнок, контейнер)
+    db.commit()
+
+    [алерт] = _свои_потомки(db)
+    assert алерт.source_is_part is True
+
+
+def test_связь_в_чужой_контейнер_остаётся_прежним_классом(db):
+    # Не путать с законной связью в ДРУГОЙ контейнер: её конец уточняют до компонента.
+    первый = _node(db, "background-workers")
+    _node(db, "email-senders", первый)
+    второй = _node(db, "zulip-web")
+    _node(db, "django-app", второй)
+    _edge(db, первый, второй)
+    db.commit()
+
+    res = get_alerts(db=db, project=ensure_project(db), _=None)
+
+    assert res.descendant_edges == []
+    assert len(res.intermediate_edges) == 1
+
+
+def test_связь_в_собственный_брокер_про_канал_не_спрашивают(db):
+    # Брокер внутри своего же контейнера: AL31 велел бы дописать канал, AL32 — удалить
+    # связь. Совет должен быть ОДИН (то же правило, что в превью импорта).
+    контейнер = _node(db, "Заказы")
+    брокер = _node(db, "Kafka", контейнер, shape="broker")
+    _edge(db, контейнер, брокер)
+    db.commit()
+
+    res = get_alerts(db=db, project=ensure_project(db), _=None)
+
+    assert len(res.descendant_edges) == 1
+    assert res.broker_edge_channels == []
+    assert res.intermediate_edges == []
+
+
+def test_связь_между_детьми_одного_контейнера_алерта_не_даёт(db):
+    # Сиблинги — законная связь: ни один конец не является частью другого.
+    контейнер = _node(db, "Ярмарка")
+    a = _node(db, "vote", контейнер)
+    b = _node(db, "redis", контейнер)
+    _edge(db, a, b)
+    db.commit()
+
+    assert _свои_потомки(db) == []

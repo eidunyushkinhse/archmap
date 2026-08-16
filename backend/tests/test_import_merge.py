@@ -9,10 +9,12 @@ passthrough одного файла, нечувствительность к п�
 инвариант «родители раньше детей» (совместимость с seed_import), адресация
 замечаний по происхождению виновных сущностей (Ф6 разложила по корзинам, Ф7 увела
 адресата от класса замечания к происхождению — состав панели на него не влияет),
-тюнинг федерации Ф0: содержательный вклад бьёт заглушку (П2), мягкий матчер якорей
-(П3), сироты строкой на файл-владельца (П4) и снимок одно-файлового прогона,
-удерживающий его байт-в-байт; Ф1: контейнерное замечание несёт перечень реальных
-компонентов и всегда адресуется файлу связи (П5).
+тюнинг федерации Ф0: содержательный вклад бьёт заглушку (П2), матчер якорей (П3),
+сироты строкой на файл-владельца (П4) и снимок одно-файлового прогона, удерживающий
+его байт-в-байт; Ф1: контейнерное замечание несёт перечень реальных компонентов и
+всегда адресуется файлу связи (П5); вторая итерация тюнинга Ф0: совпадение слабого
+якоря не гасит спор сильного поля (К3), связь узла с собственным потомком — свой
+класс замечания вместо контейнерного (К4).
 """
 
 import uuid
@@ -639,6 +641,162 @@ def test_контейнер_со_связанными_детьми_подвис�
     assert not any("без единой связи" in w for w in report.warnings)
 
 
+# ── связь узла с собственным потомком (Р2-Ф0, К4) ─────────────────────────────
+#
+# Полевая находка матрицы федерации (docs/qa-federation-matrix.md, находка 4): у Zulip
+# пять связей «background-workers → email-senders», где цель — компонент источника.
+# Иерархия уже выражает вложенность, стрелка семантически пуста, а прежний
+# контейнерный текст отвечал на неё бессмыслицей («уточните её до конкретного
+# компонента» — конец УЖЕ компонент, притом этого же контейнера), и круги её не лечили.
+
+_К4_ВЛОЖЕННОСТЬ = (
+    "- name: Zulip\n"
+    "  children:\n"
+    "  - name: background-workers\n"
+    "    children:\n"
+    "    - name: email-senders\n"
+    "      children:\n"
+    "      - name: smtp-client\n"
+    "  - name: redis\n"
+)
+
+
+def test_связь_в_собственного_ребёнка_это_свой_класс():
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: background-workers\n  to: email-senders\n")
+    ])
+
+    assert errors == []
+    assert (
+        "связь «background-workers → email-senders»: «email-senders» — часть "
+        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
+        "перевесьте её на другой узел"
+    ) in report.warnings
+
+
+def test_связь_во_внука_тоже_вложенность():
+    """Потомок — любой глубины: внук ничем не отличается от ребёнка, иерархия и его
+    вложенность уже выразила."""
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: background-workers\n  to: smtp-client\n")
+    ])
+
+    assert errors == []
+    assert (
+        "связь «background-workers → smtp-client»: «smtp-client» — часть "
+        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
+        "перевесьте её на другой узел"
+    ) in report.warnings
+
+
+def test_связь_потомка_в_свой_контейнер_зеркальна():
+    """Направление роли не играет: пуста и стрелка изнутри наружу, — но текст
+    называет частью того, кто ею и является."""
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: smtp-client\n  to: background-workers\n")
+    ])
+
+    assert errors == []
+    assert (
+        "связь «smtp-client → background-workers»: «smtp-client» — часть "
+        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
+        "перевесьте её на другой узел"
+    ) in report.warnings
+
+
+def test_на_связь_с_потомком_приходится_ровно_одно_замечание():
+    """Приоритет у нового класса: контейнерное замечание на ту же связь не выдаётся —
+    два ответа на одну связь противоречили бы друг другу («удалите» против
+    «уточните до компонента»)."""
+    _merged, report, errors = parse_and_merge([
+        _doc(_К4_ВЛОЖЕННОСТЬ, "edges:\n- from: background-workers\n  to: email-senders\n")
+    ])
+
+    assert errors == []
+    assert len([w for w in report.warnings if "background-workers → email-senders" in w]) == 1
+    assert not any("уточните её до конкретн" in w for w in report.warnings)
+
+
+def test_связь_в_чужой_контейнер_остаётся_прежним_классом():
+    """Не путать с законной связью в ДРУГОЙ контейнер: её конец уточняется до
+    компонента, и перечень целей на месте."""
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Zulip\n"
+            "  children:\n"
+            "  - name: background-workers\n"
+            "    children:\n"
+            "    - name: email-senders\n"
+            "  - name: zulip-web\n"
+            "    children:\n"
+            "    - name: django-app\n",
+            "edges:\n- from: background-workers\n  to: zulip-web\n",
+        )
+    ])
+
+    assert errors == []
+    assert (
+        "связь «background-workers → zulip-web»: оба конца в контейнерах "
+        "«background-workers» и «zulip-web», у которых есть компоненты, — уточните её "
+        "до конкретных компонентов: «background-workers / email-senders»; "
+        "«zulip-web / django-app»"
+    ) in report.warnings
+    assert not any("иерархия уже выражает вложенность" in w for w in report.warnings)
+
+
+def test_кап_на_связях_с_собственным_потомком():
+    # Кап и хвост — как у соседних классов: одинокий класс не вытесняет остальные.
+    сколько = 12
+    nodes = "- name: Zulip\n  children:\n"
+    for i in range(сколько):
+        nodes += f"  - name: svc{i}\n    children:\n    - name: part{i}\n"
+    edges = "edges:\n" + "".join(f"- from: svc{i}\n  to: part{i}\n" for i in range(сколько))
+
+    _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
+
+    assert errors == []
+    assert len([w for w in report.warnings if "иерархия уже выражает вложенность" in w]) == 10
+    assert "…ещё 2 таких связей с собственным потомком" in report.warnings
+
+
+def test_на_связи_с_потомком_молчат_и_брокерный_класс_и_перечень_каналов():
+    """Ответ на такую связь один — «удалите или перевесьте». «Добавьте channel» и
+    «разделите перечень» рядом с ним противоречивы: делить и заполнять нечего, связь
+    лишняя целиком (то же правило, что у контейнерного класса)."""
+    узлы = (
+        "- name: Заказы\n"
+        "  children:\n"
+        "  - name: kafka\n"
+        "    shape: broker\n"
+        "  - name: сборщик\n"
+    )
+    for рёбра in (
+        "edges:\n- from: Заказы\n  to: kafka\n",
+        "edges:\n- from: Заказы\n  to: kafka\n  channel: \"orders.created, orders.paid\"\n",
+    ):
+        _merged, report, errors = parse_and_merge([_doc(узлы, рёбра)])
+
+        assert errors == []
+        assert len([w for w in report.warnings if "Заказы → kafka" in w]) == 1
+        assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
+        assert not any("а канал не указан" in w for w in report.warnings)
+        assert not any("в channel перечень" in w for w in report.warnings)
+
+
+def test_замечание_о_потомке_адресовано_файлу_связи():
+    """Виновная сущность одна — сама связь, поэтому адресат общего правила Ф7 здесь
+    всегда файл-первоисточник связи (её концы объявлены тем же файлом)."""
+    дерево = "nodes:\n- name: Zulip\n  children:\n  - name: workers\n    children:\n    - name: email-senders\n"
+    _merged, report, errors = parse_and_merge(
+        [дерево, дерево + "edges:\n- from: workers\n  to: email-senders\n"]
+    )
+    файлы, _ошибки_схемы, предупреждения_схемы = split_remarks(report)
+
+    assert errors == []
+    assert any("иерархия уже выражает вложенность" in w for w in файлы[1].warnings)
+    assert файлы[0].warnings == [] and предупреждения_схемы == []
+
+
 # ── канал на связи (Ф3 брокеров) ─────────────────────────────────────────────
 # Стрелка «сервис → брокер» обязана назвать топик (решение пользователя №4). В отчёте
 # это два разных класса: расхождение каналов у одной связи из двух файлов — конфликт
@@ -937,13 +1095,14 @@ def _db_узел(db, name, parent=None):
     return n
 
 
-def _db_связь(db, src, tgt):
+def _db_связь(db, src, tgt, **kw):
     db.add(
         Edge(
             id=uuid.uuid4(),
             source_id=src.id,
             target_id=tgt.id,
             project_id=ensure_project(db).id,
+            **kw,
         )
     )
 
@@ -986,6 +1145,46 @@ def test_паритет_с_алертом_изолированных_групп(
     assert errors2 == []
     assert get_alerts(db=db, project=ensure_project(db)).isolated_groups == []
     assert _группы(report2) == []
+
+
+def test_паритет_с_алертом_связи_в_собственного_потомка(db):
+    """Зеркало К4 ↔ AL32 на ОДНОМ дереве: превью импорта и панель проекта обязаны
+    классифицировать связь одинаково, иначе пользователь получает противоположные
+    советы на одну связь — превью «удалите», проект «уточните конец до компонента»
+    (и заодно «допишите канал», раз конец — брокер). Ровно это и происходило до
+    добивки К4: класса AL32 не существовало, и связь приезжала в intermediate_edges.
+    """
+    заказы = _db_узел(db, "Заказы")
+    kafka = _db_узел(db, "kafka", заказы)
+    kafka.shape = "broker"
+    _db_узел(db, "сборщик", заказы)
+    _db_связь(db, заказы, kafka)
+    db.commit()
+
+    алерт = get_alerts(db=db, project=ensure_project(db))
+    узлы = (
+        "- name: Заказы\n"
+        "  children:\n"
+        "  - name: kafka\n"
+        "    shape: broker\n"
+        "  - name: сборщик\n"
+    )
+    _merged, report, errors = parse_and_merge([
+        _doc(узлы, "edges:\n- from: Заказы\n  to: kafka\n")
+    ])
+
+    assert errors == []
+    # Обе стороны опознали КЛАСС: связь узла с собственным потомком.
+    assert len(алерт.descendant_edges) == 1
+    assert (алерт.descendant_edges[0].source_name, алерт.descendant_edges[0].target_name) == (
+        "Заказы",
+        "kafka",
+    )
+    assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
+    # И обе молчат об остальном: ни «уточните конец», ни «канал».
+    assert алерт.intermediate_edges == [] and алерт.broker_edge_channels == []
+    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("а канал не указан" in w for w in report.warnings)
 
 
 # ── природа замечаний: файловые против схемных (Ф6, docs/plan-skeptic-audit.md) ──
@@ -1464,56 +1663,162 @@ def test_равная_содержательность_решается_перв
     ) in report.conflicts
 
 
-def test_плагин_с_чужим_репо_но_общим_хостом_склеивается_с_продуктом():
-    """П3: совпадение ЛЮБОГО якорного поля гасит противоречие остальных. Плагин
-    указал своё repo при общем host — до Ф0 это давало «встречается как РАЗНЫЕ
-    объекты», и продукт федерации оставался раздвоенным."""
-    merged, report = merge_imports(
-        [_parse(t) for t in (_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)]
-    )
-    пути = _path_list(merged)
+# ── К3: слабое совпадение не гасит спор сильных (Р2-Ф0, docs/plan-tuning-round2.md) ─
+#
+# Матрица федерации (docs/qa-federation-matrix.md, находка 3) поймала цену мягкого
+# правила П3: узел плагина {repo плагина, host grafana} слился с ядром продукта
+# {repo продукта, host grafana} — общий host погасил спор repo, и плагин выдал себя за
+# ядро (6 из 12 схемных строк «имя/родитель/role/technology/description отброшено»).
+# К3 сузил правило до иерархии сил identity.KEY_ORDER: слабое совпадение гасит спор
+# сильного поля ТОЛЬКО когда у одной из сторон этого поля нет.
 
-    assert [p for p in пути if p.casefold() == "grafana"] == ["Grafana"]
-    # Компоненты обоих репозиториев оказались внутри одного продукта.
-    assert "Grafana / grafana-server" in пути and "Grafana / zabbix-datasource" in пути
+_ЯДРО_ПРОДУКТА = """
+nodes:
+  - name: Grafana
+    children:
+      - name: grafana-server
+        source: {repo: github.com/grafana/grafana, path: pkg/cmd/grafana, host: grafana}
+      - name: grafana-frontend
+        source: {repo: github.com/grafana/grafana, path: public/app}
+edges:
+  - from: grafana-frontend
+    to: grafana-server
+"""
+# Полевая форма плагина: своё имя, своё репо, образ — и тот же сетевой хост, потому
+# что плагин живёт ВНУТРИ процесса продукта.
+_ПЛАГИН_ПОЛЕ = """
+nodes:
+  - name: grafana-zabbix
+    source:
+      repo: https://github.com/alexanderzobnin/grafana-zabbix
+      host: grafana
+      image: alexanderzobnin-zabbix-app
+    children:
+      - name: datasource
+      - name: panel-triggers
+"""
+
+
+def _дети(p: ParsedImport, idx: int) -> set[str]:
+    return {n.name for n in p.nodes if n.parent_idx == idx}
+
+
+def _с_ключом(p: ParsedImport, key: str) -> list[int]:
+    return [i for i, n in enumerate(p.nodes) if key in n.source_keys]
+
+
+def test_заглушка_без_репозитория_склеивается_с_продуктом():
+    """К3, кейс (а) — главный успех прошлой итерации, регрессия недопустима. У
+    заглушки соседа repo НЕТ вовсе: спорить о сильном поле не с чем (общего типа
+    ключа у них не находится), и склейку решает имя, как до появления якорей."""
+    for порядок in ([_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ], [_СВОЙ_РЕПОЗИТОРИЙ, _ЗАГЛУШКА_СОСЕДА]):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+        пути = _path_list(merged)
+
+        assert [p for p in пути if p.casefold() == "grafana"] == ["Grafana"], порядок
+        assert "Grafana / grafana-server" in пути, порядок
+        # Заглушка принесла свою грань источника — по ней продукт найдёт третий файл.
+        grafana = _node_by_path(merged, "Grafana")
+        assert sorted(grafana.source_keys) == ["git:github.com/grafana/grafana", "host:grafana"]
+        assert not any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+
+
+def test_заглушка_склеивается_по_общему_хосту_с_узлом_знающим_репо():
+    """К3, кейс (а), вторая ветка: общий тип ключа ЕСТЬ, и он слабый (host). Сильное
+    поле знает только одна сторона — противоречия нет, слабое совпадение решает, и
+    вызывающий склеивается с ядром поверх разных имён (ради этого якорь и заводился:
+    «свой репозиторий знает git, вызывающий — только сетевое имя»)."""
+    сосед = "nodes:\n  - name: мониторинг\n    source: {host: grafana}\n"
+    merged, report = merge_imports([_parse(_ЯДРО_ПРОДУКТА), _parse(сосед)])
+
+    assert _path_list(merged) == ["Grafana", "Grafana / grafana-server", "Grafana / grafana-frontend"]
+    assert any("имя" in c and "мониторинг" in c for c in report.conflicts)
     assert not any("РАЗНЫЕ объекты" in w for w in report.warnings)
-    # П2 для якоря: канонический ключ (он же будущий source_ref) — репо ПРОДУКТА,
-    # а не репо плагина, вписавшего в чужой узел своё.
-    grafana = _node_by_path(merged, "Grafana")
-    assert grafana.source_keys[0] == "git:github.com/grafana/grafana"
-    assert "git:github.com/alexanderzobnin/grafana-zabbix" in grafana.source_keys
+
+
+def test_плагин_со_своим_репо_не_склеивается_с_ядром_продукта():
+    """К3, кейс (б) — полевая ложная склейка находки 3. Плагин и ядро знают своё repo,
+    и оно разное: общий host их больше не сводит. Раньше плагин затирал ядро именем,
+    родителем и полями (и оставался единственным узлом на два репозитория)."""
+    for порядок in ([_ЯДРО_ПРОДУКТА, _ПЛАГИН_ПОЛЕ], [_ПЛАГИН_ПОЛЕ, _ЯДРО_ПРОДУКТА]):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+        пути = _path_list(merged)
+
+        assert "Grafana / grafana-server" in пути, порядок
+        assert {"grafana-zabbix / datasource", "grafana-zabbix / panel-triggers"} <= set(пути)
+        # Ни один узел не несёт оба репозитория — значит склейки не было.
+        assert all(
+            len([k for k in n.source_keys if k.startswith("git:")]) <= 1 for n in merged.nodes
+        ), порядок
+        assert report.conflicts == [], порядок
+
+
+def test_плагин_тёзка_продукта_остаётся_отдельным_узлом():
+    """Та же К3 на форме прошлой итерации: плагин назвал свой узел ИМЕНЕМ ПРОДУКТА и
+    вписал в него своё repo. До К3 это давало «один продукт» (мягкое правило гасило
+    спор repo общим host); теперь тёзки с разными репозиториями раздельны, и
+    расхождение названо вслух — молчаливой склейки нет."""
+    merged, report = merge_imports([_parse(t) for t in (_СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)])
+    ядро = _с_ключом(merged, "git:github.com/grafana/grafana")
+    плагин = _с_ключом(merged, "git:github.com/alexanderzobnin/grafana-zabbix")
+
+    assert len(ядро) == 1 and len(плагин) == 1 and ядро != плагин
+    assert _дети(merged, ядро[0]) == {"grafana-server", "grafana-frontend"}
+    assert _дети(merged, плагин[0]) == {"zabbix-datasource", "zabbix-panel"}
+    assert any("РАЗНЫЕ объекты" in w for w in report.warnings)
 
 
 def test_склейка_федерации_не_зависит_от_порядка_файлов():
     """Инвариант матчера v3: исход не зависит от порядка панели (тот же инвариант,
-    что у П2). Инкрементальный матчер ему не отвечал — узел копит ключи, и продукт,
-    легший ПОСЛЕ плагина, противоречил уже накопленному чужому repo: в двух
-    перестановках из шести Grafana оставалась раздвоенной. Стабилизация (_regroup)
-    сравнивает ВКЛАДЫ по отдельности и добирает такие склейки повторным проходом."""
+    что у П2). Инкрементальный матчер ему не отвечал — узел копит ключи, и кандидат
+    сравнивался с накопленным; стабилизация (_regroup) смотрит на ВКЛАДЫ и повторяет
+    проход. После К3 состав другой (плагин отделён от продукта, см. тест выше), а
+    инвариант тот же: в любом из шести порядков продукт ЕДИН (оба его компонента под
+    одним узлом), плагин цел рядом, и репозитории не смешаны.
+
+    Единственное, что порядок всё же решает, — к кому из двух тёзок прилипнет
+    заглушка соседа: у неё только host, общий у продукта и живущего в нём плагина, и
+    отличить их она не даёт. Спор полей это не задевает: П2 держит продукт от
+    покраски заглушкой в любом порядке."""
     for порядок in permutations((_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)):
         merged, report = merge_imports([_parse(t) for t in порядок])
-        пути = _path_list(merged)
-        продукт = [p for p in пути if p.casefold() == "grafana"]
+        ядро = _с_ключом(merged, "git:github.com/grafana/grafana")
+        плагин = _с_ключом(merged, "git:github.com/alexanderzobnin/grafana-zabbix")
 
-        assert len(продукт) == 1, порядок  # продукт един, а не раздвоен
-        assert len(merged.nodes) == 7, порядок
-        # Имя узла — от файла-создателя («Grafana» либо «grafana»), состав — общий.
-        корень = продукт[0]
-        assert {p for p in пути if p.startswith(f"{корень} / ")} == {
-            f"{корень} / grafana-server",
-            f"{корень} / grafana-frontend",
-            f"{корень} / zabbix-datasource",
-            f"{корень} / zabbix-panel",
-        }, порядок
-        grafana = _node_by_path(merged, корень)
-        assert sorted(grafana.source_keys) == [
-            "git:github.com/alexanderzobnin/grafana-zabbix",
-            "git:github.com/grafana/grafana",
-            "host:grafana",
-        ], порядок
+        assert len(merged.nodes) == 8, порядок
+        assert len(ядро) == 1 and len(плагин) == 1 and ядро != плагин, порядок
+        assert _дети(merged, ядро[0]) == {"grafana-server", "grafana-frontend"}, порядок
+        assert _дети(merged, плагин[0]) == {"zabbix-datasource", "zabbix-panel"}, порядок
         # П2 держится в любом порядке — заглушка не красит продукт.
-        assert (grafana.is_external, grafana.technology) == (False, "Go, TypeScript"), порядок
-        assert not any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+        продукт = merged.nodes[ядро[0]]
+        assert (продукт.is_external, продукт.technology) == (False, "Go, TypeScript"), порядок
+        assert merged.nodes[плагин[0]].is_external is False, порядок
+        assert any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+
+
+def test_свидетель_не_сводит_тёзок_спорящих_напрямую():
+    """Оборотная сторона стабилизации после К3: вклад-свидетель гасит противоречие
+    только там, где по К3 его нет. Третий файл знает «api» лишь по образу и не
+    противоречит ни одной команде — но связать через себя два разных репозитория он
+    не вправе, иначе К3 обходился бы транзитивностью union-find (A+свидетель,
+    свидетель+B → A и B в одной группе вопреки их прямому спору)."""
+    команда_a = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-a/api.git, host: api-a}\n"
+    )
+    команда_b = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/team-b/api.git, host: api-b}\n"
+    )
+    свидетель = (
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {image: reg.io/api}\n"
+    )
+    for порядок in permutations((команда_a, команда_b, свидетель)):
+        merged, report = merge_imports([_parse(t) for t in порядок])
+
+        assert len([n for n in merged.nodes if n.name == "api"]) == 2, порядок
+        assert any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
 
 
 def test_тёзки_раздельны_во_всех_порядках_даже_с_безъякорной_заглушкой():
