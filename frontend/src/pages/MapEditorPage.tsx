@@ -330,8 +330,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // стрелки анимированно и нарисует новые (окно мутаций, AN28а).
   function noteMutation() { setMutationToken((t) => t + 1); }
 
+  // Компенсация правки меты для Undo/Redo: ПОЛНЫЙ снимок правимых панелью полей.
+  // Перечень обязан покрывать всё, что правит NodeInspector: PATCH разбирается с
+  // exclude_unset, поэтому пропущенное поле молча не откатывается (так статус не
+  // возвращался по Ctrl+Z, пока его тут не было). parent_id — осознанно вне списка:
+  // у переноса свой шаг истории со снимком раскладки (handleReparent).
   function nodeFields(n: Node): NodeUpdate {
-    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape };
+    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape, status: n.status };
   }
 
   // Перенос объекта на другой уровень (драг строки в дереве). Снимок раскладки

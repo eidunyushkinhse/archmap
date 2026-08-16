@@ -77,8 +77,14 @@ vi.mock("../../components/NodeTreePanel", () => ({
     return <div data-testid="tree-panel" />;
   },
 }));
+// Инспектор: заглушка, отдающая наружу свои колбэки — сама панель покрыта
+// NodeInspector.test.tsx, здесь проверяется оркестрация редактора (история правки).
+const inspectorProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 vi.mock("../../components/inspector/ObjectInspector", () => ({
-  default: () => <div data-testid="object-inspector" />,
+  default: (props: Record<string, unknown>) => {
+    inspectorProps.current = props;
+    return <div data-testid="object-inspector" />;
+  },
 }));
 vi.mock("../../components/CrossLevelEdgePicker", () => ({ default: () => null }));
 vi.mock("../../components/EdgeQuickCreate", () => ({ default: () => null }));
@@ -290,5 +296,61 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "old" });
     expect(vi.mocked(nodesApi.update).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(nodesApi.restore).mock.invocationCallOrder[0]);
+  });
+});
+
+// ── Правка меты объекта в истории (H2) ───────────────────────────────────────
+// Компенсация Undo/Redo — PATCH со снимком полей узла. PATCH на бэке разбирает
+// payload с exclude_unset, поэтому поле, не попавшее в снимок, откатывается
+// молча-никак: так статус не возвращался по Ctrl+Z, хотя форма возвращалась.
+describe("MapEditorPage: правка объекта в истории", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    inspectorProps.current = {};
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1") as never);
+  });
+
+  // Правка через панель: NodeInspector зовёт onNodeSaved(saved, false, before).
+  async function поправить(before: Node, saved: Node) {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("object-inspector");
+    const onNodeSaved = inspectorProps.current.onNodeSaved as (s: Node, c: boolean, b?: Node) => void;
+    await act(async () => { onNodeSaved(saved, false, before); });
+    return historyMock.push.mock.calls[0][0] as { label: string; undo: () => void; redo: () => void };
+  }
+
+  it("Undo правки статуса возвращает статус, Redo — применяет заново", async () => {
+    const before = node("n1", { status: "existing", version: 1 });
+    const saved = node("n1", { status: "planned", version: 2 });
+    const cmd = await поправить(before, saved);
+    expect(cmd.label).toBe("Правка объекта");
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.undo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({ status: "existing" }));
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.redo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({ status: "planned" }));
+  });
+
+  // Страховка от повторения бага в других полях: снимок несёт ВСЮ мету, правимую
+  // панелью, — а не только те поля, о которых вспомнили.
+  it("снимок компенсации несёт всю мету панели (форма, статус, внешность, тексты)", async () => {
+    const before = node("n1", {
+      name: "Было", description: "опис", role: "ядро", technology: "Python",
+      shape: "service", status: "existing", is_external: false, openapi_spec: "openapi: 3.0.0",
+    });
+    const saved = node("n1", { name: "Стало", shape: "database", status: "deprecated", is_external: true, version: 2 });
+    const cmd = await поправить(before, saved);
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.undo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", {
+      name: "Было", description: "опис", role: "ядро", technology: "Python",
+      openapi_spec: "openapi: 3.0.0", is_external: false, shape: "service", status: "existing",
+    });
   });
 });
