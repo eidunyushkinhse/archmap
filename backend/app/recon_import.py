@@ -265,6 +265,14 @@ def recon_stubs(parsed: ParsedRecon) -> tuple[list[ReconStub], list[str], list[s
             ReconStub(name=name, kind=kind, operation=name if kind == "operation" else None)
         )
 
+    if not lines:
+        # Пустое превью без объяснения — тупик: строки не «не показались», их нет.
+        # Про сохранность говорим сразу: при пустом перечне ВСЕ схемы объекта уйдут в
+        # «исчезли из кода», и человек вправе испугаться раньше, чем дочитает.
+        warnings.append(
+            "перечень пуст: в разделах operations/workers нет ни одной строки — проверьте "
+            "файл (существующие схемы никуда не денутся, приём ничего не удаляет)"
+        )
     if parsed.salvaged:
         warnings.append(
             "файл разобран построчно: YAML не читается — частая причина двоеточие или "

@@ -355,6 +355,18 @@ def test_воркер_сопоставляется_только_по_имени(
     assert _действия(report) == {"email_senders": "create", "Рассылка писем": "vanished"}
 
 
+def test_пустой_перечень_объясняется(db):
+    """Пустое превью без слов — тупик; и человек должен сразу знать, что схемы,
+    ушедшие в «исчезли из кода», никто не тронул."""
+    backend = _node(db, "backend")
+    _doc(db, backend, "GET /old", operation="GET /old", content="flowchart TD\n A")
+    report = _план(db, "node: backend\noperations: []\nworkers: []\n").report
+
+    assert not report.errors
+    assert any("перечень пуст" in w for w in report.warnings)
+    assert _действия(report) == {"GET /old": "vanished"}
+
+
 # ── Адресация (Р9, Р10) ───────────────────────────────────────────────────────
 def test_адрес_частичным_путём(db):
     корень = _node(db, "Zulip")
