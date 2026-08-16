@@ -1352,6 +1352,35 @@ export interface paths {
         patch: operations["update_process_api_v1_processes__process_id__patch"];
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Process Endpoint
+         * @description Копия процесса целиком — одной транзакцией на сервере.
+         *
+         *     Прежде копию собирал фронт из публичных ручек и терял на их 422 непривязанных
+         *     участников, повисшие шаги и ответы на ставшем асинхронным канале, а фрагмент
+         *     вообще мог свалить дублирование на полпути, оставив полусобранную копию.
+         *     Копия пишется строками (app/process_copy.py) и переносит ровно то, что есть,
+         *     включая незадокументированность; инварианты публичных ручек при этом не тронуты.
+         *
+         *     Имя как «endpoint»: доменная duplicate_process импортирована выше (та же грабля,
+         *     что у detach_messages).
+         */
+        post: operations["duplicate_process_endpoint_api_v1_processes__process_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/participants": {
         parameters: {
             query?: never;
@@ -7286,6 +7315,39 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_process_endpoint_api_v1_processes__process_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

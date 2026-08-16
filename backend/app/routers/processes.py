@@ -20,6 +20,7 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
+from app.process_copy import duplicate_process
 from app.process_import import apply_import, build_preview
 from app.processes import (
     bound_node_ids,
@@ -173,6 +174,34 @@ def update_process(
     db.commit()
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
+
+
+@router.post(
+    "/{process_id}/duplicate", response_model=ProcessDetail, status_code=status.HTTP_201_CREATED
+)
+def duplicate_process_endpoint(
+    process_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    user: User = Depends(require_architect),
+) -> ProcessDetail:
+    """Копия процесса целиком — одной транзакцией на сервере.
+
+    Прежде копию собирал фронт из публичных ручек и терял на их 422 непривязанных
+    участников, повисшие шаги и ответы на ставшем асинхронным канале, а фрагмент
+    вообще мог свалить дублирование на полпути, оставив полусобранную копию.
+    Копия пишется строками (app/process_copy.py) и переносит ровно то, что есть,
+    включая незадокументированность; инварианты публичных ручек при этом не тронуты.
+
+    Имя как «endpoint»: доменная duplicate_process импортирована выше (та же грабля,
+    что у detach_messages).
+    """
+    proc = _get_process(db, process_id, project)
+    copy = duplicate_process(db, proc)
+    touch_project(db, project, user.id)
+    db.commit()
+    db.refresh(copy)
+    return build_process_detail(db, copy, load_nodes(db, project.id))
 
 
 @router.delete("/{process_id}", status_code=status.HTTP_204_NO_CONTENT)
