@@ -27,6 +27,7 @@ from app.docs_import import _node_paths, spec_check
 from app.import_yaml import _FENCE_RE, _closest_node
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.recon_prompt import RECON_FILE
 from app.schemas.node_doc import NodeDocKind
 from app.schemas.recon import ReconImportReport, ReconItem
 
@@ -393,10 +394,14 @@ def _pick_file(files: list[tuple[str, str]], plan: ReconPlan) -> tuple[str, Pars
             f"или workers{tail}"
         )
         return None
+    # Подсказка про объединённый файл — не украшение: оркестраторная кнопка (дефолт)
+    # оставляет в репозитории ТРИ похожих файла — два служебных прогона в archmap-orch/
+    # и объединённый в корне, — и папку целиком пользователь притащит с ними всеми.
     plan.report.errors.append(
         "в пакете несколько перечней ("
         + ", ".join(sorted(n for n, _ in picked))
-        + ") — перечень принадлежит одному объекту, оставьте один файл"
+        + f") — перечень принадлежит одному объекту, оставьте один файл: у оркестратора "
+        f"это объединённый «{RECON_FILE}» из корня репозитория, а не прогоны разведчиков"
     )
     return None
 

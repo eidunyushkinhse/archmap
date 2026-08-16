@@ -28,7 +28,7 @@ from app.recon_import import (
     parse_recon_file,
     recon_stubs,
 )
-from app.recon_prompt import build_recon_prompt
+from app.recon_prompt import RECON_FILE, build_recon_prompt
 from app.restore import build_deletion_snapshot, restore_from_snapshot
 from app.routers.nodes import delete_node
 from app.routers.recon import recon_import_apply, recon_import_preview
@@ -384,16 +384,25 @@ def test_без_адреса_берётся_объект_окна(db):
 
 
 def test_несколько_перечней_вопрос_а_не_угадывание(db):
+    """Оркестраторный прогон (дефолт кнопки) оставляет в репозитории ТРИ похожих файла:
+    два служебных прогона разведчиков и объединённый в корне. Папку тащат целиком —
+    значит ответ обязан назвать, какой из них нужен."""
     _node(db, "backend")
     nodes = db.query(Node).all()
     plan = build_recon_plan(
         db,
         nodes,
-        [("recon-1.yaml", ПЕРЕЧЕНЬ_BACKEND), ("recon-2.yaml", ПЕРЕЧЕНЬ_BACKEND)],
+        [
+            (RECON_FILE, ПЕРЕЧЕНЬ_BACKEND),
+            ("archmap-orch/recon-1.yaml", ПЕРЕЧЕНЬ_BACKEND),
+            ("archmap-orch/recon-2.yaml", ПЕРЕЧЕНЬ_BACKEND),
+        ],
         None,
     )
     assert plan.report.errors and "несколько перечней" in plan.report.errors[0]
-    assert "recon-1.yaml" in plan.report.errors[0] and "recon-2.yaml" in plan.report.errors[0]
+    assert "archmap-orch/recon-1.yaml" in plan.report.errors[0]
+    assert f"«{RECON_FILE}»" in plan.report.errors[0]
+    assert plan.node is None
 
 
 def test_спека_вместо_перечня_объясняется(db):
