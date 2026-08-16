@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DeletionSnapshot, Node, NodeEdgeInfo } from "../types";
 import { nodesApi } from "../api/nodes";
+import { plural } from "../ui/plural";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { confirmListBox, confirmList } from "../ui/styles";
 
 /**
- * Подтверждение удаления узла со списком связей, которые исчезнут. Единый
- * источник предупреждения: используется и из NodeModal (кнопка «Удалить»), и при
- * удалении узла с канваса по Backspace/Delete.
+ * Подтверждение удаления узла со списком того, что исчезнет вместе с ним: связи
+ * поддерева и ДОКУМЕНТАЦИЯ (схемы логики, таблицы БД с колонками, каналы брокера
+ * с полями — всё это уносит БД-каскад). Единый источник предупреждения:
+ * используется и из NodeModal (кнопка «Удалить»), и при удалении узла с канваса
+ * по Backspace/Delete.
  *
- * Связи (внешние связи всего поддерева — узел + потомки) подгружаются при
- * открытии. Если терять нечего — узел без внешних связей И без детей — удаляем
- * сразу, без модалки (показывать нечего, лишнее подтверждение не нужно). Пока
- * связи грузятся, компонент ничего не рисует, чтобы модалка не мелькала.
+ * Снимок для отката снимаем ПРИ ОТКРЫТИИ, а не при подтверждении: он и есть
+ * перечень уезжающего, поэтому пользователь видит ровно то, что вернёт Ctrl+Z.
+ * Удаление идёт сразу за подтверждением в модальном окне — разъехаться нечему.
+ *
+ * Если терять нечего — узел без внешних связей, без детей и без документации —
+ * удаляем сразу, без модалки. Прежде документация в это «нечего» не входила, и
+ * задокументированная база без связей уезжала вообще без предупреждения. Пока
+ * данные грузятся, компонент ничего не рисует, чтобы модалка не мелькала.
  */
 
 interface Props {
@@ -22,37 +29,60 @@ interface Props {
   onDeleted: (id: string, snapshot: DeletionSnapshot) => void;
 }
 
+// Что из документации уедет вместе с поддеревом — перечисление для человека.
+// Пусто (null), если документации нет: тогда и говорить не о чем.
+function docsSummary(snap: DeletionSnapshot): string | null {
+  const parts: string[] = [];
+  const docs = snap.node_docs.length;
+  const tables = snap.db_tables.length;
+  const columns = snap.db_columns.length;
+  const channels = snap.broker_channels.length;
+  const fields = snap.channel_fields.length;
+  if (docs > 0) parts.push(`${docs} ${plural(docs, ["схема логики", "схемы логики", "схем логики"])}`);
+  if (tables > 0) {
+    const cols = columns > 0 ? `, в них ${columns} ${plural(columns, ["колонка", "колонки", "колонок"])}` : "";
+    parts.push(`${tables} ${plural(tables, ["таблица БД", "таблицы БД", "таблиц БД"])}${cols}`);
+  }
+  if (channels > 0) {
+    const flds = fields > 0 ? `, в них ${fields} ${plural(fields, ["поле", "поля", "полей"])}` : "";
+    parts.push(`${channels} ${plural(channels, ["канал брокера", "канала брокера", "каналов брокера"])}${flds}`);
+  }
+  return parts.length > 0 ? `Вместе с ним удалится документация: ${parts.join("; ")}.` : null;
+}
+
 export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) {
   const [edges, setEdges] = useState<NodeEdgeInfo[] | null>(null); // null — ещё грузим
+  const [snapshot, setSnapshot] = useState<DeletionSnapshot | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const confirmDelete = useCallback(async () => {
-    setDeleting(true);
-    setError(null);
-    try {
-      // Снимок снимаем ДО удаления — после каскада восстанавливать будет нечего из чего.
-      const snapshot = await nodesApi.deletionSnapshot(node.id);
-      await nodesApi.delete(node.id);
-      onDeleted(node.id, snapshot);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Ошибка удаления");
-      setDeleting(false);
-    }
-  }, [node.id, onDeleted]);
+  const confirmDelete = useCallback(
+    async (snap: DeletionSnapshot) => {
+      setDeleting(true);
+      setError(null);
+      try {
+        await nodesApi.delete(node.id);
+        onDeleted(node.id, snap);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Ошибка удаления");
+        setDeleting(false);
+      }
+    },
+    [node.id, onDeleted],
+  );
 
-  // Тянем внешние связи поддерева. Если их нет и у узла нет детей — удаляем сразу,
-  // без подтверждения; иначе показываем модалку со списком связей.
+  // Тянем внешние связи поддерева и снимок удаления. Если терять нечего — удаляем
+  // сразу, без подтверждения; иначе показываем модалку с перечнем.
   useEffect(() => {
     let alive = true;
-    nodesApi
-      .getEdges(node.id)
-      .then((es) => {
+    Promise.all([nodesApi.getEdges(node.id), nodesApi.deletionSnapshot(node.id)])
+      .then(([es, snap]) => {
         if (!alive) return;
-        if (es.length === 0 && !node.has_children) {
-          void confirmDelete();
+        if (es.length === 0 && !node.has_children && docsSummary(snap) === null) {
+          void confirmDelete(snap);
         } else {
           setEdges(es);
+          setSnapshot(snap);
         }
       })
       .catch((e: unknown) => {
@@ -63,8 +93,8 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
     return () => { alive = false; };
   }, [node.id, node.has_children, confirmDelete]);
 
-  // Пока грузим связи или сразу удаляем узел без связей — ничего не показываем
-  // (модалка не должна мелькать на узлах, которые удаляются без подтверждения).
+  // Пока грузим или сразу удаляем узел, которому нечего терять — ничего не
+  // показываем (модалка не должна мелькать на таких узлах).
   if (edges === null && !error) return null;
 
   const hasEdges = edges !== null && edges.length > 0;
@@ -73,6 +103,7 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
         ? "Объект и его дочерние объекты будут удалены. Вместе с ними удалятся связи:"
         : "Его связи будут удалены вместе с ним:")
     : (node.has_children ? "Объект и все его дочерние объекты будут удалены." : undefined);
+  const docsLine = snapshot ? docsSummary(snapshot) : null;
 
   return (
     <ConfirmDialog
@@ -83,7 +114,7 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
       busyLabel="Удаление..."
       cancelLabel="Нет"
       busy={deleting}
-      onConfirm={confirmDelete}
+      onConfirm={() => { if (snapshot) void confirmDelete(snapshot); }}
       onCancel={onCancel}
       scroll
     >
@@ -102,6 +133,7 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
           </ul>
         </div>
       )}
+      {docsLine && <p style={{ color: "#475569", margin: "8px 0 0", fontSize: 14, lineHeight: 1.5 }}>{docsLine}</p>}
     </ConfirmDialog>
   );
 }

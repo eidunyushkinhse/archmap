@@ -6,25 +6,41 @@ view_layout С ТЕМИ ЖЕ id/ключами. Внешние сущности 
 их не дублирует.
 """
 
+import importlib
+import pkgutil
 import uuid
 
 import pytest
 from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
+from sqlalchemy import inspect as sa_inspect
 
+import app.models
+from app.copy_plan import COPY_PLAN
+from app.database import Base
+from app.models.broker_channel import BrokerChannel
+from app.models.channel_field import ChannelField
+from app.models.db_column import DbColumn
+from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.view_layout import ViewLayoutItem
-from app.restore import build_deletion_snapshot, restore_from_snapshot
+from app.restore import (
+    NOT_IN_SNAPSHOT,
+    SNAPSHOT_PLAN,
+    build_deletion_snapshot,
+    restore_from_snapshot,
+)
 from app.routers.nodes import delete_node, restore_nodes
 
 
-def _node(db, name, parent=None):
+def _node(db, name, parent=None, **kw):
     n = Node(
         id=uuid.uuid4(),
         name=name,
         parent_id=parent.id if parent else None,
         project_id=ensure_project(db).id,
+        **kw,
     )
     db.add(n)
     return n
@@ -200,6 +216,186 @@ def test_edge_snapshot_missing_edge_404(db):
     with pytest.raises(HTTPException) as ei:
         edge_deletion_snapshot(uuid.uuid4(), db=db, project=ensure_project(db))
     assert ei.value.status_code == 404
+
+
+# --- Документация узла: она умирает каскадом и обязана вернуться вместе с ним ---
+
+
+def test_restore_returns_db_tables_with_columns_and_reference(db):
+    """Откат удаления узла-базы возвращает структуру БД целиком, включая ER-ссылку
+    между колонками. Ссылающуюся колонку заводим РАНЬШЕ её цели: в снимке она окажется
+    выше, и вставка «как есть» одним проходом упёрлась бы в FK."""
+    base = _node(db, "База", shape="database")
+    db.flush()
+    orders = DbTable(id=uuid.uuid4(), node_id=base.id, name="orders", schema_name="billing")
+    users = DbTable(id=uuid.uuid4(), node_id=base.id, name="users")
+    db.add_all([orders, users])
+    db.flush()
+    ref = DbColumn(id=uuid.uuid4(), table_id=orders.id, name="user_id", type="uuid", order=1)
+    target = DbColumn(
+        id=uuid.uuid4(),
+        table_id=users.id,
+        name="id",
+        type="uuid",
+        is_primary_key=True,
+        nullable=False,
+        description="первичный ключ",
+    )
+    db.add_all([ref, target])
+    db.flush()
+    ref.references_column_id = target.id
+    db.commit()
+    base_id, orders_id, users_id, ref_id, target_id = (
+        base.id, orders.id, users.id, ref.id, target.id
+    )
+
+    snap = build_deletion_snapshot(db, base_id)
+    assert {t.id for t in snap.db_tables} == {orders_id, users_id}
+    assert {c.id for c in snap.db_columns} == {ref_id, target_id}
+
+    delete_node(base_id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert db.query(DbTable).count() == 0 and db.query(DbColumn).count() == 0
+
+    restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
+
+    tables = {t.id: t for t in db.query(DbTable).all()}
+    assert set(tables) == {orders_id, users_id}
+    assert (tables[orders_id].name, tables[orders_id].schema_name) == ("orders", "billing")
+    columns = {c.id: c for c in db.query(DbColumn).all()}
+    assert set(columns) == {ref_id, target_id}
+    assert columns[target_id].is_primary_key is True
+    assert columns[target_id].description == "первичный ключ"
+    # ER-связь колонка→колонка вернулась и указывает на восстановленную цель.
+    assert columns[ref_id].references_column_id == target_id
+
+
+def test_restore_returns_broker_channels_with_fields(db):
+    """Откат удаления узла-брокера возвращает каналы вместе с полями сообщений."""
+    broker = _node(db, "Kafka", shape="broker")
+    db.flush()
+    channel = BrokerChannel(
+        id=uuid.uuid4(),
+        node_id=broker.id,
+        name="orders.created",
+        kind="topic",
+        partition_key="order_id",
+        delivery="at-least-once",
+        retention="7d",
+    )
+    db.add(channel)
+    db.flush()
+    db.add_all([
+        ChannelField(id=uuid.uuid4(), channel_id=channel.id, name="order_id", type="uuid", required=True),
+        ChannelField(id=uuid.uuid4(), channel_id=channel.id, name="status", type="string", order=1,
+                     description="new|paid"),
+    ])
+    db.commit()
+    broker_id, channel_id = broker.id, channel.id
+
+    snap = build_deletion_snapshot(db, broker_id)
+    assert {c.id for c in snap.broker_channels} == {channel_id}
+    assert len(snap.channel_fields) == 2
+
+    delete_node(broker_id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert db.query(BrokerChannel).count() == 0 and db.query(ChannelField).count() == 0
+
+    restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
+
+    ch = db.query(BrokerChannel).one()
+    assert ch.id == channel_id
+    assert (ch.name, ch.kind, ch.partition_key, ch.delivery, ch.retention) == (
+        "orders.created", "topic", "order_id", "at-least-once", "7d"
+    )
+    fields = sorted(db.query(ChannelField).all(), key=lambda f: f.order)
+    assert [(f.name, f.type, f.required, f.description) for f in fields] == [
+        ("order_id", "uuid", True, None),
+        ("status", "string", False, "new|paid"),
+    ]
+
+
+def test_restore_returns_source_ref(db):
+    """Якорь источника переживает откат: без него следующий прогон агента не узнал бы
+    вернувшийся узел и завёл дубль."""
+    n = _node(db, "Платежи", source_ref="git:github.com/org/payments")
+    db.commit()
+    node_id = n.id
+
+    snap = build_deletion_snapshot(db, node_id)
+    delete_node(node_id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
+
+    assert db.get(Node, node_id).source_ref == "git:github.com/org/payments"
+
+
+# --- Сторожа снимка: перечень полей не должен снова стать ручным ---------------
+
+
+def _all_mappers():
+    """Все модели проекта. Пакет обходим ФАЙЛАМИ (как в test_copy_plan): новая модель
+    приезжает отдельным модулем, и сторож обязан увидеть её сам."""
+    for module in pkgutil.iter_modules(app.models.__path__):
+        importlib.import_module(f"app.models.{module.name}")
+    return list(Base.registry.mappers)
+
+
+def _cascade_children_of_node() -> set[type]:
+    """Модели, чьи строки снесёт БД-каскадом удаление узла (транзитивно: колонки
+    уходят за таблицами, поля — за каналами). Вглубь моделей из NOT_IN_SNAPSHOT не
+    идём: их содержимое уезжает вместе с ними, и причина уже записана."""
+    mappers = _all_mappers()
+    reached: set[type] = set()
+    frontier = {Node.__tablename__}
+    while frontier:
+        parents, frontier = frontier, set()
+        for mapper in mappers:
+            model = mapper.class_
+            if model in reached:
+                continue
+            if any(
+                (fk.ondelete or "").upper() == "CASCADE" and fk.referred_table.name in parents
+                for fk in mapper.local_table.foreign_key_constraints
+            ):
+                reached.add(model)
+                if model not in NOT_IN_SNAPSHOT:
+                    frontier.add(mapper.local_table.name)
+    return reached
+
+
+def test_every_cascade_child_of_node_is_in_snapshot_or_declared():
+    """Новая таблица, которую сносит удаление узла, обязана попасть в снимок.
+
+    Именно этот пропуск стоил пользователю документации: db_tables и broker_channels
+    завели, а про откат удаления не вспомнили — Ctrl+Z возвращал узел без неё, молча.
+    """
+    undeclared = _cascade_children_of_node() - set(SNAPSHOT_PLAN) - set(NOT_IN_SNAPSHOT)
+    assert not undeclared, (
+        "Модели умирают каскадом вместе с узлом, но в снимке удаления их нет: "
+        f"{sorted(m.__name__ for m in undeclared)}. Решите: несёт их снимок "
+        "(SNAPSHOT_PLAN + схема) или намеренно нет (NOT_IN_SNAPSHOT, с причиной)."
+    )
+
+
+def test_snapshot_carries_every_data_column_of_its_model():
+    """Каждая колонка-ДАННЫЕ (по декларации copy_plan) обязана быть полем снимка.
+
+    Так снимок и потерял source_ref: колонку у модели завели, а перечень полей
+    снимка остался ручным.
+    """
+    for model, schema in SNAPSHOT_PLAN.items():
+        missing = set(COPY_PLAN[model].data) - set(schema.model_fields)
+        assert not missing, (
+            f"{schema.__name__}: не несёт колонки {sorted(missing)} модели "
+            f"{model.__name__}. Откат удаления вернёт строку без них — молча."
+        )
+
+
+def test_snapshot_fields_are_columns_of_their_model():
+    """Обратная сторона: поле снимка обязано быть колонкой модели — строка
+    восстанавливается из полей снимка целиком, и лишнее уронило бы её сборку."""
+    for model, schema in SNAPSHOT_PLAN.items():
+        columns = {attr.key for attr in sa_inspect(model).column_attrs}
+        extra = set(schema.model_fields) - columns
+        assert not extra, f"{schema.__name__}: полей {sorted(extra)} нет у {model.__name__}"
 
 
 def test_restore_conflict_when_edge_exists(db):

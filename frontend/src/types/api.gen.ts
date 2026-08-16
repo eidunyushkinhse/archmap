@@ -1841,6 +1841,53 @@ export interface components {
              */
             fields: components["schemas"]["ChannelFieldResponse"][];
         };
+        /**
+         * BrokerChannelSnapshot
+         * @description Канал узла-брокера (broker_channels) — умирает каскадом node_id.
+         *     Имя канала несёт мягкую ссылку от связи (Edge.channel): вернуть узел без каналов
+         *     значит порвать шов «стрелка → канал» ещё и в исходной схеме.
+         */
+        BrokerChannelSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Group Name
+             * @default
+             */
+            group_name: string;
+            /**
+             * Kind
+             * @default
+             */
+            kind: string;
+            /**
+             * Partition Key
+             * @default
+             */
+            partition_key: string;
+            /**
+             * Delivery
+             * @default
+             */
+            delivery: string;
+            /**
+             * Retention
+             * @default
+             */
+            retention: string;
+            /** Description */
+            description?: string | null;
+        };
         /** BrokerChannelUpdate */
         BrokerChannelUpdate: {
             /** Name */
@@ -1933,6 +1980,41 @@ export interface components {
             /** Description */
             description: string | null;
             /** Order */
+            order: number;
+        };
+        /**
+         * ChannelFieldSnapshot
+         * @description Поле сообщения канала (channel_fields) — умирает каскадом channel_id.
+         */
+        ChannelFieldSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Channel Id
+             * Format: uuid
+             */
+            channel_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default
+             */
+            type: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /** Description */
+            description?: string | null;
+            /**
+             * Order
+             * @default 0
+             */
             order: number;
         };
         /** ChannelFieldUpdate */
@@ -2289,6 +2371,52 @@ export interface components {
             /** Order */
             order: number;
         };
+        /**
+         * DbColumnSnapshot
+         * @description Колонка таблицы (db_columns) — умирает каскадом table_id.
+         *
+         *     references_column_id (внешний ключ КАРТЫ) переносится как есть: id при
+         *     восстановлении сохраняются, поэтому ссылка снова находит свою цель. Порядок
+         *     вставки при этом всё равно важен — см. restore_from_snapshot.
+         */
+        DbColumnSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Table Id
+             * Format: uuid
+             */
+            table_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default
+             */
+            type: string;
+            /**
+             * Nullable
+             * @default true
+             */
+            nullable: boolean;
+            /**
+             * Is Primary Key
+             * @default false
+             */
+            is_primary_key: boolean;
+            /** References Column Id */
+            references_column_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+        };
         /** DbColumnUpdate */
         DbColumnUpdate: {
             /** Name */
@@ -2344,6 +2472,33 @@ export interface components {
              */
             columns: components["schemas"]["DbColumnResponse"][];
         };
+        /**
+         * DbTableSnapshot
+         * @description Таблица узла-БД (db_tables) — умирает БД-каскадом node_id вместе с узлом.
+         *     Структура базы это её «контракт», ровно как openapi_spec у сервиса: терять его
+         *     при откате удаления — та же молчаливая потеря, что и потеря самого узла.
+         */
+        DbTableSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Schema Name
+             * @default
+             */
+            schema_name: string;
+            /** Description */
+            description?: string | null;
+        };
         /** DbTableUpdate */
         DbTableUpdate: {
             /** Name */
@@ -2357,9 +2512,9 @@ export interface components {
         };
         /**
          * DeletionSnapshot
-         * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов,
-         *     их доки логики, инцидентные рёбра и строки раскладки. Достаточно для
-         *     точного восстановления.
+         * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов, ВСЯ их
+         *     документация (схемы логики, таблицы БД с колонками, каналы брокера с полями),
+         *     инцидентные рёбра и строки раскладки. Достаточно для точного восстановления.
          */
         DeletionSnapshot: {
             /** Nodes */
@@ -2376,6 +2531,26 @@ export interface components {
              * @default []
              */
             node_docs: components["schemas"]["NodeDocSnapshot"][];
+            /**
+             * Db Tables
+             * @default []
+             */
+            db_tables: components["schemas"]["DbTableSnapshot"][];
+            /**
+             * Db Columns
+             * @default []
+             */
+            db_columns: components["schemas"]["DbColumnSnapshot"][];
+            /**
+             * Broker Channels
+             * @default []
+             */
+            broker_channels: components["schemas"]["BrokerChannelSnapshot"][];
+            /**
+             * Channel Fields
+             * @default []
+             */
+            channel_fields: components["schemas"]["ChannelFieldSnapshot"][];
         };
         /**
          * DescendantEdgeAlert
@@ -3501,6 +3676,8 @@ export interface components {
              * @enum {string}
              */
             status: "existing" | "planned" | "deprecated";
+            /** Source Ref */
+            source_ref?: string | null;
         };
         /** NodeUpdate */
         NodeUpdate: {
