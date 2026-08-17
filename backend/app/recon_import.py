@@ -506,7 +506,10 @@ def build_recon_plan(
                 operation=stub.operation,
                 # Пустое тело — та же заглушка (её мог поставить прошлый заход);
                 # непустое — работа человека или агента, и её мы не трогаем.
-                action="described" if cur.content.strip() else "unchanged",
+                # Спрашиваем ПРИЗНАК, а не текст: тело отложено (NodeDoc.content),
+                # а вопрос тут булев — тянуть ради него две сотни mermaid незачем.
+                # described считает то же самое выражением в БД (length(trim)>0).
+                action="described" if cur.described else "unchanged",
                 # Строка перечня и имя схемы совпадают не всегда: «POST /messages»
                 # бывает описан схемой «Отправка сообщения» — человек должен видеть,
                 # ЧТО именно закрыло операцию.

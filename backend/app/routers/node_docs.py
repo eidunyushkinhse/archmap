@@ -10,7 +10,7 @@ base_version → 409, None = компенсация undo без проверки
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
@@ -26,9 +26,18 @@ from app.view_state import bump_meta_rev
 router = APIRouter(prefix="/nodes/{node_id}/docs", tags=["node-docs"])
 
 
-def _scoped_doc(db: Session, node: Node, doc_id: uuid.UUID) -> NodeDoc:
-    """Док по id в пределах узла (узел уже проверен на принадлежность проекту)."""
-    doc = db.get(NodeDoc, doc_id)
+def _scoped_doc(db: Session, node: Node, doc_id: uuid.UUID, *, body: bool = False) -> NodeDoc:
+    """Док по id в пределах узла (узел уже проверен на принадлежность проекту).
+
+    body=True — ответу нужен текст схемы (NodeDocResponse.content): тело —
+    отложенная колонка, и без явного undefer оно приехало бы вторым запросом.
+    db.get здесь не годится: узел уже загружен, его доки лежат в identity map
+    (Node.docs selectin), и db.get вернул бы их из карты, не применив опции.
+    """
+    q = db.query(NodeDoc).filter(NodeDoc.id == doc_id)
+    if body:
+        q = q.options(undefer(NodeDoc.content))
+    doc = q.first()
     if doc is None or doc.node_id != node.id:
         raise HTTPException(status_code=404, detail="Схема не найдена")
     return doc
@@ -57,8 +66,17 @@ def list_docs(
     _: User = Depends(get_current_user),
 ) -> list[NodeDoc]:
     node = _get_node(db, node_id, project)
-    # Порядок стабильный (relationship order_by name) — фронт группирует по kind сам
-    return node.docs
+    # Ровно то место, ради которого тело схемы отложено: здесь оно НУЖНО (ответ —
+    # NodeDocResponse с content), и его надо запросить явно. Через node.docs тела
+    # приехали бы по одному запросу на схему; порядок повторяет relationship
+    # (order_by name) — фронт группирует по kind сам.
+    return (
+        db.query(NodeDoc)
+        .options(undefer(NodeDoc.content))
+        .filter(NodeDoc.node_id == node.id)
+        .order_by(NodeDoc.name)
+        .all()
+    )
 
 
 @router.post("", response_model=NodeDocResponse, status_code=status.HTTP_201_CREATED)
@@ -97,7 +115,7 @@ def update_doc(
     user: User = Depends(require_architect),
 ) -> NodeDoc:
     node = _get_node(db, node_id, project)
-    doc = _scoped_doc(db, node, doc_id)
+    doc = _scoped_doc(db, node, doc_id, body=True)
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужой текст (base_version — не поле)
     base_version = data.pop("base_version", None)

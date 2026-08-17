@@ -19,7 +19,7 @@
 import uuid
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from app import tree
 from app.database import Base
@@ -107,7 +107,15 @@ def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot
     # Документация узлов поддерева — умрёт БД-каскадом вместе с ними. Схемы логики
     # висят на узле, а колонки и поля — на таблице/канале: их берём вторым шагом,
     # иначе фильтровать было бы нечем.
-    docs = db.query(NodeDoc).filter(NodeDoc.node_id.in_(subtree)).all()
+    # undefer: снимок обязан унести ТЕКСТ схемы — иначе Undo вернул бы пустые тела.
+    # Тело отложено (см. NodeDoc.content), и без явного запроса оно приехало бы
+    # по одному запросу на схему.
+    docs = (
+        db.query(NodeDoc)
+        .options(undefer(NodeDoc.content))
+        .filter(NodeDoc.node_id.in_(subtree))
+        .all()
+    )
     tables = db.query(DbTable).filter(DbTable.node_id.in_(subtree)).all()
     table_ids = [t.id for t in tables]
     columns = (

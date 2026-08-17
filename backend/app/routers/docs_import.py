@@ -12,7 +12,7 @@ import uuid
 from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app import tree
 from app.auth import require_architect
@@ -201,7 +201,15 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
         plan = DocsPlan()
         plan.errors = errors
         return plan
-    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    # Тела ЖИВЫХ схем здесь нужны: план сравнивает текст пакета с текущим
+    # («unchanged» / заполнение заглушки), а тело — отложенная колонка. Без undefer
+    # мердж вытянул бы их по одной на схему — у монолита это две сотни запросов.
+    nodes = (
+        db.query(Node)
+        .options(selectinload(Node.docs).undefer(NodeDoc.content))
+        .filter(Node.project_id == project.id)
+        .all()
+    )
     scope_ids = None
     if payload.node_id is not None:
         by_id = {n.id: n for n in nodes}

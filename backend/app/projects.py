@@ -12,7 +12,7 @@
 
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from app.copy_plan import copy_row
 from app.models.broker_channel import BrokerChannel
@@ -91,7 +91,15 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
 
 def _copy_node_docs(db: Session, nmap: dict[uuid.UUID, uuid.UUID]) -> None:
     """Схемы логики узлов (node_docs) — с новыми id, перевешены на новые узлы."""
-    docs = db.query(NodeDoc).filter(NodeDoc.node_id.in_(nmap.keys())).all()
+    # undefer: copy_row переносит ВСЕ колонки-данные, тело схемы в их числе, а оно
+    # отложено (см. NodeDoc.content). Без явного запроса копия читала бы тела по
+    # одному запросу на схему.
+    docs = (
+        db.query(NodeDoc)
+        .options(undefer(NodeDoc.content))
+        .filter(NodeDoc.node_id.in_(nmap.keys()))
+        .all()
+    )
     for d in docs:
         db.add(copy_row(d, id=uuid.uuid4(), node_id=nmap[d.node_id]))
 
