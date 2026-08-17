@@ -16,6 +16,7 @@ from app.database import Base
 from app.models.broker_channel import BrokerChannel  # noqa: F401
 from app.models.business_process import BusinessProcess  # noqa: F401
 from app.models.channel_field import ChannelField  # noqa: F401
+from app.models.config_param import ConfigParam  # noqa: F401
 from app.models.db_column import DbColumn  # noqa: F401
 from app.models.db_table import DbTable  # noqa: F401
 from app.models.edge import Edge  # noqa: F401

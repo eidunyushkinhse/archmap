@@ -1064,6 +1064,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Params */
+        get: operations["list_params_api_v1_nodes__node_id__config_get"];
+        put?: never;
+        /** Create Param */
+        post: operations["create_param_api_v1_nodes__node_id__config_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/config/{param_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Param */
+        delete: operations["delete_param_api_v1_nodes__node_id__config__param_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Param */
+        patch: operations["update_param_api_v1_nodes__node_id__config__param_id__patch"];
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -2244,6 +2280,106 @@ export interface components {
             /** Prompt */
             prompt: string;
         };
+        /** ConfigParamCreate */
+        ConfigParamCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Value Type
+             * @default
+             */
+            value_type: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Default Value
+             * @default
+             */
+            default_value: string;
+        };
+        /** ConfigParamResponse */
+        ConfigParamResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Value Type */
+            value_type: string;
+            /** Required */
+            required: boolean;
+            /** Default Value */
+            default_value: string;
+            /** Version */
+            version: number;
+        };
+        /**
+         * ConfigParamSnapshot
+         * @description Параметр конфигурации сервиса (config_params) — умирает каскадом node_id.
+         *     Перечень ручек сервиса — такой же его «контракт», как таблицы у базы: вернуть
+         *     узел без конфигурации значит вернуть его без части документации, а пометки
+         *     «зависит от:» в схемах логики после этого повисли бы замечаниями.
+         */
+        ConfigParamSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Value Type
+             * @default
+             */
+            value_type: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Default Value
+             * @default
+             */
+            default_value: string;
+        };
+        /** ConfigParamUpdate */
+        ConfigParamUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Value Type */
+            value_type?: string | null;
+            /** Required */
+            required?: boolean | null;
+            /** Default Value */
+            default_value?: string | null;
+            /** Base Version */
+            base_version?: number | null;
+        };
         /**
          * ContainerOwnDocsAlert
          * @description Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): узел стал
@@ -2590,8 +2726,9 @@ export interface components {
         /**
          * DeletionSnapshot
          * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов, ВСЯ их
-         *     документация (схемы логики, таблицы БД с колонками, каналы брокера с полями),
-         *     инцидентные рёбра и строки раскладки. Достаточно для точного восстановления.
+         *     документация (схемы логики, таблицы БД с колонками, каналы брокера с полями,
+         *     параметры конфигурации), инцидентные рёбра и строки раскладки. Достаточно для
+         *     точного восстановления.
          */
         DeletionSnapshot: {
             /** Nodes */
@@ -2628,6 +2765,11 @@ export interface components {
              * @default []
              */
             channel_fields: components["schemas"]["ChannelFieldSnapshot"][];
+            /**
+             * Config Params
+             * @default []
+             */
+            config_params: components["schemas"]["ConfigParamSnapshot"][];
         };
         /**
          * DescendantEdgeAlert
@@ -6975,6 +7117,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChannelsImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_params_api_v1_nodes__node_id__config_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigParamResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_param_api_v1_nodes__node_id__config_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigParamCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigParamResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_param_api_v1_nodes__node_id__config__param_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                param_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_param_api_v1_nodes__node_id__config__param_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                param_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigParamUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigParamResponse"];
                 };
             };
             /** @description Validation Error */

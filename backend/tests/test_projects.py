@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
+from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.edge import Edge
@@ -334,6 +335,48 @@ def test_deep_copy_keeps_broker_channels(db):
     # Шов «стрелка → канал» цел: имя канала копии совпадает с channel связи копии.
     edge = db.query(Edge).filter(Edge.project_id == copy.id).one()
     assert edge.channel == ch.name
+
+
+def test_deep_copy_keeps_config_params(db):
+    """Конфигурация сервисов едет в копию, и ИМЕНА параметров в ней те же: пометка
+    «зависит от:» в тексте схемы логики ссылается по имени (мягкая ссылка, не FK), и
+    переименование порвало бы шов «развилка → параметр» в копии."""
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-конфиг"), db=db, user=user)
+    svc = Node(id=uuid.uuid4(), name="Платежи", project_id=src.id)
+    db.add(svc)
+    db.flush()
+    db.add_all(
+        [
+            ConfigParam(
+                id=uuid.uuid4(), node_id=svc.id, name="RETRY_TIMEOUT",
+                value_type="duration", default_value="30s",
+                description="сколько ждать перед повтором",
+            ),
+            ConfigParam(
+                id=uuid.uuid4(), node_id=svc.id, name="DATABASE_URL", required=True,
+            ),
+        ]
+    )
+    db.commit()
+    исходные_id = {p.id for p in db.query(ConfigParam).all()}
+
+    copy = create_project(
+        ProjectCreate(name="Копия-конфиг", start=f"copy:{src.id}"), db=db, user=user
+    )
+    копия_сервиса = db.query(Node).filter(Node.project_id == copy.id).one()
+    параметры = копия_сервиса.config_params
+    assert [
+        (p.name, p.value_type, p.required, p.default_value, p.description)
+        for p in параметры
+    ] == [
+        ("DATABASE_URL", "", True, "", None),
+        ("RETRY_TIMEOUT", "duration", False, "30s", "сколько ждать перед повтором"),
+    ]
+    # У копии свои id и своя история правок — исходник не тронут.
+    assert not {p.id for p in параметры} & исходные_id
+    assert all(p.version == 1 for p in параметры)
+    assert db.query(ConfigParam).filter(ConfigParam.node_id == svc.id).count() == 2
 
 
 def test_deep_copy_keeps_alt_branches(db):

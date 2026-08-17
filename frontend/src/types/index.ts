@@ -250,6 +250,14 @@ export type ChannelFieldCreate = Schemas["ChannelFieldCreate"];
 export type ChannelFieldUpdate = Schemas["ChannelFieldUpdate"];
 // Обратный индекс брокера («кто публикует / кто потребляет») — разворот пометок.
 export type ChannelUsage = Schemas["ChannelUsage"];
+
+// Конфигурация сервиса (docs/plan-config-docs.md): переменные окружения и параметры,
+// от которых зависят развилки схем логики. Владелец — САМ сервис, а не отдельный узел,
+// поэтому семья плоская: второго уровня, как колонки у таблиц, здесь нет. ЗНАЧЕНИЙ НЕТ:
+// default_value — текст дефолта из кода, не значение среды.
+export type ConfigParam = Schemas["ConfigParamResponse"];
+export type ConfigParamCreate = Schemas["ConfigParamCreate"];
+export type ConfigParamUpdate = Schemas["ConfigParamUpdate"];
 // Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
 // (POST /data-refs/preview) — статус резолва и готовая подпись цели.
 export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
