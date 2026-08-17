@@ -24,7 +24,6 @@ from sqlalchemy.orm import Session, undefer
 from app import tree
 from app.database import Base
 from app.models.broker_channel import BrokerChannel
-from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
@@ -68,13 +67,6 @@ NOT_IN_SNAPSHOT: dict[type[Base], str] = {
         "первым же bump_view_version. Возвращать старое число не только не нужно, но и "
         "вредно: сессия с устаревшим base_version обязана получить 409 и перечитать "
         "уровень (та же причина, по которой ViewState не копирует копия проекта)"
-    ),
-    BusinessProcess: (
-        "процесс, у которого удаляемый узел задан ОБЛАСТЬЮ, сносится каскадом "
-        "scope_node_id вместе со всеми участниками, шагами и фрагментами, и откат его "
-        "не вернёт. Это известный дефект (docs/plan-process-docs-challenge.md, П8): он "
-        "латентен — задать область процесса сегодня нечем, — и чинится не снимком, а "
-        "самим FK. Дети процесса сюда не перечисляются: они уезжают вместе с ним"
     ),
 }
 

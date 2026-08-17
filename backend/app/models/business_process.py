@@ -31,9 +31,14 @@ class BusinessProcess(Base):
         Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
-    # null = корень всей схемы (участников можно брать откуда угодно)
+    # null = корень всей схемы (участников можно брать откуда угодно).
+    # FK гасит ссылку (SET NULL), а не сносит процесс: удаление узла-области не имеет
+    # права уничтожить процесс с участниками, шагами и фрагментами — тем более что
+    # снимок удаления (app/restore.py) процесс не несёт и откат его не вернул бы.
+    # Процесс переживает удаление и становится процессом по всей схеме: расхождение
+    # видно, работа цела — симметрично непривязанному участнику и повисшему шагу.
     scope_node_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True
+        Uuid, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

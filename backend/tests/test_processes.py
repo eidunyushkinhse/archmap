@@ -1235,3 +1235,45 @@ def test_отцепление_чужого_сообщения_отклоняет
         )
 
     assert exc.value.status_code == 422
+
+
+# ── Удаление узла-области не сносит процесс (2026-08-17) ──────────────────────
+def test_удаление_узла_области_не_сносит_процесс(db):
+    """FK scope_node_id стоял с CASCADE: удаление узла, назначенного областью,
+    уносило ВЕСЬ процесс — с участниками, шагами и фрагментами, — а Ctrl+Z его не
+    возвращал (снимок удаления процессы не несёт). Стало SET NULL: процесс жив и
+    становится процессом по всей схеме — расхождение видно, работа цела."""
+    домен = _node(db, "Домен")
+    a, b = _node(db, "A", parent=домен), _node(db, "B", parent=домен)
+    edge = _edge(db, a, b, technology="REST", is_sync=False)  # async: только forward
+    # Узлы должны попасть в БД до процесса: ORM-связи «процесс → область» нет,
+    # и порядок вставок сам по FK не сортируется.
+    db.flush()
+    proc = _process(db, scope=домен)
+    db.commit()
+    proc_id = proc.id
+    parts = _participants(db, proc, [a, b])
+    create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id],
+                      order=0, caption="шаг"),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    db.commit()
+
+    db.delete(домен)  # каскадом уносит и детей-узлов A/B
+    db.commit()
+
+    выживший = db.get(BusinessProcess, proc_id)
+    assert выживший is not None  # процесс не снесён каскадом области
+    assert выживший.scope_node_id is None  # область погасла: процесс по всей схеме
+    # Участники и шаги на месте: участники стали непривязанными (SET NULL у node_id),
+    # шаг — повисшим (SET NULL у edge_id), но ничего не исчезло.
+    участники = db.query(ProcessParticipant).filter(
+        ProcessParticipant.process_id == proc_id
+    ).all()
+    assert sorted(p.name for p in участники) == ["A", "B"]
+    assert all(p.node_id is None for p in участники)
+    шаги = db.query(ProcessMessage).filter(ProcessMessage.process_id == proc_id).all()
+    assert [m.caption for m in шаги] == ["шаг"]
