@@ -14,11 +14,16 @@
 // достаточно имени схемы (у таблиц и каналов там ещё и узел — там зовущий чужой).
 import { useCallback, useEffect, useState } from "react";
 import { configParamsApi } from "../api/nodes";
+import AddDocsMenu from "./AddDocsMenu";
+import ConfigAgentModal from "./docsImport/ConfigAgentModal";
 import type { ConfigParam, ConfigParamUsage } from "../types";
 import "./configParams.css";
 
 interface Props {
   nodeId: string;
+  // Имя объекта: окно дозаливки называет его в подзаголовке — к нему уезжают
+  // параметры из файла без адреса «# archmap-node:».
+  nodeName: string;
   isArchitect: boolean;
   // Положена ли конфигурация этой форме (shapeDocs.config). Не положена, а записи
   // есть — показываем их с предупреждением: спрятать применённое хуже, чем показать
@@ -44,10 +49,12 @@ const DEFAULT_TITLE =
   "хранятся — ArchMap не хранилище секретов";
 const REQUIRED_TITLE = "Обязательный: без него сервис не стартует";
 
-export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Props) {
+export default function ConfigParamsSection({ nodeId, nodeName, isArchitect, allowed }: Props) {
   const [params, setParams] = useState<ConfigParam[] | null>(null);
   const [usage, setUsage] = useState<ConfigParamUsage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
+  const [agentOpen, setAgentOpen] = useState(false);
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
   // в теле эффекта даёт каскад рендеров (тот же приём, что в соседних секциях).
@@ -149,8 +156,25 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
       )}
       {isArchitect && allowed && (
         <div className="cfg-actions">
-          <button type="button" className="np-addbtn" onClick={addParam}>+ Параметр</button>
+          {/* Тот же вход, что у «Логики», OpenAPI, структуры базы и каналов: одна
+              кнопка с шевроном, а «вручную / через агента» — пункты меню. Два способа
+              завести одну сущность не должны выглядеть как две разные кнопки. */}
+          <AddDocsMenu
+            label="+ Параметр"
+            groups={[
+              [{ label: "Вручную", onSelect: addParam }],
+              [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
+            ]}
+          />
         </div>
+      )}
+      {agentOpen && (
+        <ConfigAgentModal
+          nodeId={nodeId}
+          nodeName={nodeName}
+          onClose={() => setAgentOpen(false)}
+          onApplied={() => setSeq((n) => n + 1)}
+        />
       )}
     </div>
   );

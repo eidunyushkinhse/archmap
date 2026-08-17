@@ -1,6 +1,7 @@
 import { api } from "./client";
 import type {
   ChannelsImportReport,
+  ConfigImportReport,
   DataImportReport,
   DocsImportReport,
   NodeDocKind,
@@ -115,6 +116,18 @@ export const channelsImportApi = {
     api.post<ChannelsImportReport>("/channels-import/preview", dataBody(p)),
   apply: (p: DataImportParams): Promise<ChannelsImportReport> =>
     api.post<ChannelsImportReport>("/channels-import/apply", dataBody(p)),
+};
+
+// Дозаливка КОНФИГУРАЦИИ сервиса. Свой контракт по той же причине, что у каналов:
+// формат пакета другой (плоские параметры без второго уровня). Параметры общие с
+// соседями — пакет, политика занятых полей, объект окна.
+export const configImportApi = {
+  prompt: (variant?: PromptVariant): Promise<{ prompt: string }> =>
+    api.get<{ prompt: string }>(`/config-import/prompt${variant ? `?variant=${variant}` : ""}`),
+  preview: (p: DataImportParams): Promise<ConfigImportReport> =>
+    api.post<ConfigImportReport>("/config-import/preview", dataBody(p)),
+  apply: (p: DataImportParams): Promise<ConfigImportReport> =>
+    api.post<ConfigImportReport>("/config-import/apply", dataBody(p)),
 };
 
 // РАЗВЕДКА точек входа (docs/plan-recon.md): нулевой шаг документирования монолита.

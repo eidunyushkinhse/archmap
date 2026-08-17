@@ -49,7 +49,7 @@ function renderSection(
   vi.mocked(configParamsApi.list).mockResolvedValue(params);
   vi.mocked(configParamsApi.usage).mockResolvedValue(use);
   return render(
-    <ConfigParamsSection nodeId="n1" isArchitect={isArchitect} allowed={allowed} />,
+    <ConfigParamsSection nodeId="n1" nodeName="Платежи" isArchitect={isArchitect} allowed={allowed} />,
   );
 }
 
@@ -115,7 +115,10 @@ describe("ConfigParamsSection", () => {
     vi.mocked(configParamsApi.create).mockResolvedValue(param({ id: "p2" }));
     renderSection({ params: [param({ name: "ПАРАМЕТР" })] });
 
+    // Вход тот же, что у соседних секций: кнопка с шевроном, а способы — пунктами
+    // меню. Два способа завести одну сущность не должны выглядеть как две кнопки.
     await userEvent.click(await screen.findByText("+ Параметр"));
+    await userEvent.click(screen.getByText("Вручную"));
 
     await waitFor(() =>
       expect(configParamsApi.create).toHaveBeenCalledWith("n1", {
@@ -149,5 +152,18 @@ describe("ConfigParamsSection", () => {
 
     await waitFor(() => expect(screen.getByText("Параметры не описаны")).toBeInTheDocument());
     expect(screen.getByText("+ Параметр")).toBeInTheDocument();
+  });
+
+  it("«Через ИИ-агента» — второй пункт того же меню", async () => {
+    renderSection();
+
+    await userEvent.click(await screen.findByText("+ Параметр"));
+    await userEvent.click(screen.getByText("Через ИИ-агента"));
+
+    // Окно называет объект в подзаголовке: к нему уедут параметры без адреса в файле.
+    expect(await screen.findByText("Описать конфигурацию с помощью ИИ-агента")).toBeInTheDocument();
+    // И честно предупреждает, что значения в ArchMap не едут, — ДО запуска агента на
+    // репозиторий с .env, а не после.
+    expect(screen.getByText(/значения сред и секреты не хранятся/)).toBeInTheDocument();
   });
 });

@@ -6,6 +6,7 @@ from app.routers import (
     auth,
     broker_channels,
     channels_import,
+    config_import,
     config_params,
     data_import,
     data_refs,
@@ -44,6 +45,7 @@ app.include_router(db_docs.tables_router, prefix="/api/v1")
 app.include_router(broker_channels.router, prefix="/api/v1")
 app.include_router(channels_import.router, prefix="/api/v1")
 app.include_router(config_params.router, prefix="/api/v1")
+app.include_router(config_import.router, prefix="/api/v1")
 app.include_router(docs_import.router, prefix="/api/v1")
 app.include_router(recon.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")

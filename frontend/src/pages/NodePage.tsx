@@ -658,7 +658,12 @@ function NodePageInner({
             узла, и узнать про легаси-записи у неподходящей формы можно только
             запросом. Секция сама промолчит, если их нет (спрятать применённое было
             бы хуже, чем показать с предупреждением). */}
-        <ConfigParamsSection nodeId={node.id} isArchitect={isArchitect} allowed={allow.config} />
+        <ConfigParamsSection
+          nodeId={node.id}
+          nodeName={node.name}
+          isArchitect={isArchitect}
+          allowed={allow.config}
+        />
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}
         {(allow.logic || legacyLogic || container.docGroups.length > 0)

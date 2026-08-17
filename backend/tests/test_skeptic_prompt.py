@@ -33,10 +33,10 @@ from app.skeptic_prompt import (
     prompt_for_variant,
 )
 
-ПОТОКИ = ("import", "docs", "data", "channels", "recon")
+ПОТОКИ = ("import", "docs", "data", "channels", "config", "recon")
 # ⚠ У разведки петля СВОЯ («два прогона → объединение → скептик»), и общая обёртка её
 # не собирает: механику петли она проверяет отдельным разделом внизу файла.
-ПОТОКИ_ОБЩЕЙ_ОБЁРТКИ = ("import", "docs", "data", "channels")
+ПОТОКИ_ОБЩЕЙ_ОБЁРТКИ = ("import", "docs", "data", "channels", "config")
 
 # ⚠ Литерал порога V1 — копия текста из docs/qa-skeptic-threshold.md. Расхождение с
 # app/skeptic_prompt.py означает, что порог кто-то переписал редактурой, а не
@@ -476,7 +476,7 @@ def test_путь_результата_импорта_согласован_во_
         assert _есть(обёртка, шаг), шаг
 
 
-@pytest.mark.parametrize("flow", ["docs", "data", "channels"])
+@pytest.mark.parametrize("flow", ["docs", "data", "channels", "config"])
 def test_обёртка_дозаливки_не_сносит_общий_каталог_пакета(flow):
     """⚠ Урок заражения остаётся верным (файлы archmap-docs/ прошлого прогона попадут в
     загрузку вместе с новыми и соврут пользователю — превью их не отличит), а вот

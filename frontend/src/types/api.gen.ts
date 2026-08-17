@@ -1126,6 +1126,69 @@ export interface paths {
         patch: operations["update_param_api_v1_nodes__node_id__config__param_id__patch"];
         trace?: never;
     };
+    "/api/v1/config-import/prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Config Prompt
+         * @description Промпт агенту с узлами-сервисами ЭТОГО проекта: адрес владельца слабая модель
+         *     без списка выдумывает, и пакет блокируется целиком (урок Н8).
+         *     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
+         *     (docs/plan-skeptic-audit.md).
+         */
+        get: operations["config_prompt_api_v1_config_import_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Config Import Preview
+         * @description Dry-run: план без записи.
+         */
+        post: operations["config_import_preview_api_v1_config_import_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config-import/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Config Import Apply
+         * @description Применение: план пересчитывается на живом состоянии; при errors не пишем ничего.
+         */
+        post: operations["config_import_apply_api_v1_config_import_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/docs-import/prompt": {
         parameters: {
             query?: never;
@@ -2311,6 +2374,46 @@ export interface components {
             /** Prompt */
             prompt: string;
         };
+        /** ConfigImportIn */
+        ConfigImportIn: {
+            /** Files */
+            files: components["schemas"]["DocsFileIn"][];
+            /** Node Id */
+            node_id?: string | null;
+            /**
+             * Overwrite
+             * @default false
+             */
+            overwrite: boolean;
+        };
+        /** ConfigImportReport */
+        ConfigImportReport: {
+            /**
+             * Params
+             * @default []
+             */
+            params: components["schemas"]["ConfigParamItem"][];
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Params Written
+             * @default 0
+             */
+            params_written: number;
+        };
         /** ConfigParamCreate */
         ConfigParamCreate: {
             /** Name */
@@ -2332,6 +2435,27 @@ export interface components {
              * @default
              */
             default_value: string;
+        };
+        /**
+         * ConfigParamItem
+         * @description Строка превью по параметру: что приедет и что с ним станет.
+         */
+        ConfigParamItem: {
+            /** Node Path */
+            node_path: string;
+            /** Source */
+            source: string;
+            /** Name */
+            name: string;
+            /** Value Type */
+            value_type: string;
+            /** Required */
+            required: boolean;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "fill" | "overwrite" | "skip" | "unchanged";
         };
         /** ConfigParamResponse */
         ConfigParamResponse: {
@@ -2438,6 +2562,11 @@ export interface components {
             doc_id: string;
             /** Doc Name */
             doc_name: string;
+        };
+        /** ConfigPromptOut */
+        ConfigPromptOut: {
+            /** Prompt */
+            prompt: string;
         };
         /**
          * ContainerOwnDocsAlert
@@ -7390,6 +7519,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigParamResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    config_prompt_api_v1_config_import_prompt_get: {
+        parameters: {
+            query?: {
+                variant?: "builder" | "orchestrated" | "skeptic";
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigPromptOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    config_import_preview_api_v1_config_import_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    config_import_apply_api_v1_config_import_apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigImportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigImportReport"];
                 };
             };
             /** @description Validation Error */
