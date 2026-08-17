@@ -34,6 +34,10 @@ const field = () => screen.getByRole("textbox") as HTMLTextAreaElement;
 const fileInput = (c: HTMLElement) => c.querySelector('input[type="file"]') as HTMLInputElement;
 const loadBtn = () => screen.queryByRole("button", { name: "Загрузить файл" });
 
+// Чтение файла асинхронное, а дефолтные 1000 мс у waitFor под нагрузкой
+// кончаются раньше — та же болезнь, что вылечена в NodePage.test.tsx (bdb7186).
+const ЖДАТЬ = { timeout: 5000 };
+
 describe("OpenAPI: загрузка спеки из файла", () => {
   it("архитектору предлагается загрузить файл", () => {
     renderDoc();
@@ -196,14 +200,14 @@ describe("Логика: загрузка mermaid-схемы из файла", ()
 
     await userEvent.upload(fileInput(container), mkFile(CHART, "logic.mmd"));
 
-    await waitFor(() => expect(field().value).toBe(CHART));
+    await waitFor(() => expect(field().value).toBe(CHART), ЖДАТЬ);
   });
 
   it("загруженная схема сохраняется обычным «Сохранить»", async () => {
     const { container, onCommit } = renderChart();
 
     await userEvent.upload(fileInput(container), mkFile(CHART, "logic.mmd"));
-    await waitFor(() => expect(field().value).toBe(CHART));
+    await waitFor(() => expect(field().value).toBe(CHART), ЖДАТЬ);
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     expect(onCommit).toHaveBeenCalledWith(CHART);
@@ -214,7 +218,7 @@ describe("Логика: загрузка mermaid-схемы из файла", ()
 
     fireEvent.drop(field(), { dataTransfer: { files: [mkFile(CHART, "logic.mmd")] } });
 
-    await waitFor(() => expect(field().value).toBe(CHART));
+    await waitFor(() => expect(field().value).toBe(CHART), ЖДАТЬ);
   });
 
   it("обёртка ```mermaid снимается — схема грузится готовой к разбору", async () => {
@@ -227,7 +231,7 @@ describe("Логика: загрузка mermaid-схемы из файла", ()
       mkFile("```mermaid\n" + CHART + "\n```\n", "doc.md"),
     );
 
-    await waitFor(() => expect(field().value).toBe(CHART));
+    await waitFor(() => expect(field().value).toBe(CHART), ЖДАТЬ);
   });
 
   it("набранную руками обёртку НЕ снимаем", async () => {
