@@ -269,3 +269,85 @@ def test_мутации_двигают_meta_rev_а_не_graph_rev(db):
         сервис.id, параметр.id, db=db, project=проект, user=ensure_architect(db)
     )
     assert (проект.graph_rev, проект.meta_rev) == (g0, m0 + 3)
+
+
+# ── Обратный индекс ───────────────────────────────────────────────────────────
+
+
+def _док(db, узел, name="POST /orders", content=""):
+    from app.models.node_doc import NodeDoc
+
+    d = NodeDoc(
+        id=uuid.uuid4(), node_id=узел.id, name=name, kind="operation", content=content
+    )
+    db.add(d)
+    db.flush()
+    return d
+
+
+def _usage(db, узел, project=None):
+    from app.routers.config_params import list_usage
+
+    return list_usage(
+        узел.id, db=db, project=project or ensure_project(db), _=ensure_architect(db)
+    )
+
+
+def test_индекс_показывает_зависящие_схемы(db):
+    """Ради этого ответа конфигурация и заводилась: перечень ручек говорит, ЧТО
+    переключается, а индекс — что сломается, если ручку убрать."""
+    сервис = _node(db, "Заказы")
+    флаг = _param(db, сервис, "FEATURE_NEW_CHECKOUT")
+    _param(db, сервис, "LOG_LEVEL")  # ни одна схема не ссылается — в индекс не попадёт
+    _док(db, сервис, "POST /orders", 'A["Новая корзина?<br>зависит от: FEATURE_NEW_CHECKOUT"]')
+    _док(db, сервис, "GET /cart", 'B["зависит от: FEATURE_NEW_CHECKOUT"]')
+    db.commit()
+
+    строки = _usage(db, сервис)
+    assert [(u.param_name, u.doc_name) for u in строки] == [
+        ("FEATURE_NEW_CHECKOUT", "GET /cart"),
+        ("FEATURE_NEW_CHECKOUT", "POST /orders"),
+    ]
+    assert {u.param_id for u in строки} == {флаг.id}
+
+
+def test_индекс_отвечает_за_факты_битая_пометка_в_него_не_попадает(db):
+    """Непонятая пометка живёт в алертах (AL33), а не в индексе: иначе перечень
+    «кто зависит» смешал бы факты с обещаниями."""
+    сервис = _node(db, "Заказы")
+    _param(db, сервис, "FEATURE_X")
+    _док(db, сервис, content='A["зависит от: FEATURE_Y"]')
+    db.commit()
+
+    assert _usage(db, сервис) == []
+
+
+def test_индекс_не_видит_чужие_схемы(db):
+    """Сослаться на параметр может только схема ТОГО ЖЕ объекта — поэтому в строке
+    индекса и нет колонки «кто»: она несла бы одно имя во всех строках."""
+    заказы = _node(db, "Заказы")
+    платежи = _node(db, "Платежи")
+    _param(db, заказы, "FEATURE_X")
+    _param(db, платежи, "FEATURE_X")
+    _док(db, платежи, "POST /pay", 'A["зависит от: FEATURE_X"]')
+    db.commit()
+
+    assert _usage(db, заказы) == []
+    assert [u.doc_name for u in _usage(db, платежи)] == ["POST /pay"]
+
+
+def test_индекс_дедупит_повторы_в_одной_схеме(db):
+    сервис = _node(db, "Заказы")
+    _param(db, сервис, "FEATURE_X")
+    _док(db, сервис, content='A["зависит от: FEATURE_X"] --> B["зависит от: FEATURE_X"]')
+    db.commit()
+
+    assert len(_usage(db, сервис)) == 1
+
+
+def test_индекс_пуст_без_описанных_параметров(db):
+    сервис = _node(db, "Заказы")
+    _док(db, сервис, content='A["зависит от: FEATURE_X"]')
+    db.commit()
+
+    assert _usage(db, сервис) == []

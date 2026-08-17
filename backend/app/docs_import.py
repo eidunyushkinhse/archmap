@@ -277,6 +277,9 @@ _DATA_REF_PROBLEM: dict[str, str] = {
     # топик в структуре базы значит гарантированно получить неверную правку.
     "unknown_channel": "канал не найден у брокеров проекта",
     "unknown_field": "поля нет в канале",
+    # Конфигурационная семья («зависит от:»). Искать негде, кроме самого объекта, —
+    # это и говорим, чтобы агент не пошёл сверять имя по чужим узлам.
+    "unknown_param": "параметра нет в конфигурации этого объекта",
 }
 # «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму.
 _AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите «Брокер / канал»"
@@ -393,8 +396,14 @@ class _DataRefCheck:
         self.over = 0  # сколько ссылок не поместилось в кап
         self.saw_table_refs = False
         self.saw_channel_refs = False
+        self.saw_config_refs = False
         self.data_total = 0  # пометок «читает:/пишет:» в пакете
         self.channel_total = 0  # пометок «публикует:/потребляет:» в пакете
+        # Конфигурационные пометки («зависит от:») в СЧЁТЧИКИ ОТЧЁТА не идут: те
+        # объявлены как число пометок данных и каналов, и подмешать в них третью
+        # семью значило бы испортить сравнение попыток агента, ради которого числа и
+        # заведены. Проверяются они при этом полноценно — промах даёт замечание.
+        self.params_by_node: dict[uuid.UUID, dict[str, uuid.UUID]] = {}
         if db is not None and project_id is not None:
             # Импорт локальный: app.data_refs берёт из этого модуля _node_paths, и
             # верхнеуровневый импорт замкнул бы цикл. Каталог собирается ОДИН раз
@@ -402,11 +411,14 @@ class _DataRefCheck:
             # проекта, а не одного узла).
             from app.data_refs import catalog_for_project
 
-            self.tables, self.channels, self.node_paths = catalog_for_project(
-                db, project_id
-            )
+            (
+                self.tables,
+                self.channels,
+                self.params_by_node,
+                self.node_paths,
+            ) = catalog_for_project(db, project_id)
 
-    def _hint(self, r: "ResolvedRef") -> str | None:
+    def _hint(self, r: "ResolvedRef", owner_params: dict[str, uuid.UUID]) -> str | None:
         """Подсказка «похоже на …» к битой ссылке: имя из каталога, если оно есть.
 
         Замечание без ответа даёт слабой модели колебательный контур (находка №1
@@ -443,25 +455,42 @@ class _DataRefCheck:
         elif r.status == "unknown_field":
             names = [f for c in self.channels if c.id == r.channel_id for f in c.fields]
             tails = [parts[-1]]
+        elif r.status == "unknown_param":
+            # Кандидаты — ручки ЭТОГО объекта, других мест у ссылки нет. Хвост берём
+            # целиком: точка в имени параметра («feature.new_checkout») его не делит.
+            names = list(owner_params)
+            tails = [bare]
         for tail in dict.fromkeys(t for t in tails if t):
             hit = _closest_name(tail, names)
             if hit is not None:
                 return hit
         return None
 
-    def check(self, fname: str, content: str) -> None:
+    def check(self, fname: str, content: str, owner_id: uuid.UUID) -> None:
         """Пометки одного файла пакета. Дедуп по (файл, ссылка, статус): одна и та
-        же ссылка в режимах «читает» и «пишет» — один промах, а не два."""
+        же ссылка в режимах «читает» и «пишет» — один промах, а не два.
+
+        owner_id — узел, которому принадлежит схема: конфигурация ищется только у
+        него, и без владельца третья семья не проверяема в принципе.
+        """
         if not content:
             return
         # Локальный импорт — цикл, см. __init__.
-        from app.data_refs import CHANNEL_MODES, parse_data_refs, resolve_data_refs
+        from app.data_refs import (
+            CHANNEL_MODES,
+            CONFIG_MODES,
+            parse_data_refs,
+            resolve_data_refs,
+        )
 
         refs = parse_data_refs(content)
         if not refs:
             return
+        owner_params = self.params_by_node.get(owner_id, {})
         for parsed in refs:
-            if parsed.mode in CHANNEL_MODES:
+            if parsed.mode in CONFIG_MODES:
+                self.saw_config_refs = True
+            elif parsed.mode in CHANNEL_MODES:
                 self.saw_channel_refs = True
                 self.channel_total += 1
             else:
@@ -470,16 +499,28 @@ class _DataRefCheck:
         # Считать — считаем всегда, а резолвить нечем: без db каталогов нет.
         if not self.enabled:
             return
+
+        def каталог(mode: str) -> object:
+            """Каталог семьи пометки — тот, по которому её будут резолвить."""
+            if mode in CONFIG_MODES:
+                return owner_params
+            return self.channels if mode in CHANNEL_MODES else self.tables
+
         # Резолвим только те пометки, чей каталог непуст: «структуры ещё нет» — это
-        # не промах агента, и гонять по нему нечего (заметку добавит flush).
-        usable = [
-            r
-            for r in refs
-            if (self.channels if r.mode in CHANNEL_MODES else self.tables)
-        ]
+        # не промах агента, и гонять по нему нечего (заметку добавит flush). У
+        # конфигурации каталог СВОЙ У КАЖДОГО УЗЛА, поэтому пустота проверяется не
+        # по проекту, а по владельцу схемы: сервис без описанных ручек молчит, а его
+        # сосед с описанными — проверяется.
+        usable = [r for r in refs if каталог(r.mode)]
         if not usable:
             return
-        for r in resolve_data_refs(usable, self.tables, self.channels, self.node_paths):
+        for r in resolve_data_refs(
+            usable,
+            self.tables,
+            self.channels,
+            self.node_paths,
+            owner_params=owner_params,
+        ):
             if r.status == "ok":
                 continue
             key = (fname, r.ref, r.status)
@@ -496,7 +537,7 @@ class _DataRefCheck:
             )
             # «ambiguous» подсказки не получает: имя там как раз НАШЛОСЬ, и лечится
             # оно квалификатором — предлагать «похожее» значило бы звать не туда.
-            hint = self._hint(r)
+            hint = self._hint(r, owner_params)
             tail = f" — похоже на «{hint}»" if hint else ""
             self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}{tail}")
 
@@ -521,6 +562,12 @@ class _DataRefCheck:
             plan.warnings.append(
                 "В пакете есть пометки каналов (публикует:/потребляет:), а каналы "
                 "брокеров в проекте ещё не описаны — резолв пометок проверится, когда "
+                "они появятся"
+            )
+        if self.saw_config_refs and not self.params_by_node:
+            plan.warnings.append(
+                "В пакете есть пометки конфигурации (зависит от:), а параметры "
+                "объектов в проекте ещё не описаны — резолв пометок проверится, когда "
                 "они появятся"
             )
 
@@ -634,7 +681,7 @@ def build_docs_plan(
                 logic_owner[slot] = fname
                 # Пометки проверяем у схем, которые ДОЙДУТ до плана: у пропущенных
                 # дублей их текст всё равно не применится.
-                data_refs.check(fname, logic.mermaid)
+                data_refs.check(fname, logic.mermaid, node.id)
                 if logic.kind == "operation" and not logic.operation:
                     plan.warnings.append(
                         f'{fname}: схема "{logic.name}" узла «{path}» — kind=operation '

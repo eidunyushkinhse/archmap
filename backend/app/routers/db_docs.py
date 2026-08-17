@@ -120,7 +120,7 @@ def list_usage(
     (пивот §9 плана): разбор и резолв на чтении, хранения обращений нет.
     """
     node = _get_node(db, node_id, project)
-    tables, channels, node_paths = catalog_for_project(db, project.id)
+    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
     # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые таблицы в чужих базах
     # перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
     mine = {t.id: t for t in tables if t.node_id == node.id}
@@ -143,7 +143,15 @@ def list_usage(
         if not content:
             continue
         for ref in resolve_data_refs(
-            parse_data_refs(content), tables, channels, node_paths
+            parse_data_refs(content),
+            tables,
+            channels,
+            node_paths,
+            # Конфигурация ВЛАДЕЛЬЦА дока: этому индексу она не нужна, но каталог
+            # передаём настоящий — подсунуть пустой значило бы сказать резолверу
+            # неправду и получить ложные статусы, если фильтр ниже когда-нибудь
+            # ослабнет.
+            owner_params=params_by_node.get(caller_id, {}),
         ):
             # unknown_table/ambiguous сюда НЕ попадают: индекс базы отвечает за факты,
             # а нерезолвнутой пометке место в алертах и в плашке редактора дока.

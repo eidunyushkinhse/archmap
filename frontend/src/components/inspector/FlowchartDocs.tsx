@@ -185,6 +185,9 @@ export default function FlowchartDocs({ nodeId, isArchitect, showCode, onDocEven
           <FlowchartDoc
             key={`${active.id}:${epoch}`}
             initial={active.content}
+            // Владелец схемы — он же владелец параметров конфигурации: пометка
+            // «зависит от:» ищется только у него, и без узла плашка о ней промолчит.
+            nodeId={nodeId}
             isArchitect={isArchitect}
             showCode={showCode}
             onCommit={(v) => { if (v !== active.content) void patch(active, { content: v }); }}

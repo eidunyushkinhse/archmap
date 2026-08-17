@@ -54,9 +54,9 @@ def _column(db, node, table, name="status"):
     )
 
 
-def _preview(db, content):
+def _preview(db, content, node=None):
     return preview_data_refs(
-        DataRefPreviewIn(content=content),
+        DataRefPreviewIn(content=content, node_id=node.id if node else None),
         db=db,
         project=ensure_project(db),
         _=ensure_architect(db),
@@ -251,3 +251,65 @@ def test_одноимённые_таблица_и_канал_не_мешают_�
 
     assert (записал.status, записал.target) == ("ok", "Хранилище · заказы")
     assert (опубликовал.status, опубликовал.target) == ("ok", "Kafka · заказы")
+
+
+# ── Конфигурация ──────────────────────────────────────────────────────────────
+
+
+def _param(db, node, name="FEATURE_X"):
+    from app.routers.config_params import create_param
+    from app.schemas.config_param import ConfigParamCreate
+
+    return create_param(
+        node.id,
+        ConfigParamCreate(name=name),
+        db=db,
+        project=ensure_project(db),
+        user=ensure_architect(db),
+    )
+
+
+def test_пометка_конфигурации_ведёт_в_раздел_объекта(db):
+    сервис = _node(db, "Заказы", shape="service")
+    _param(db, сервис, "FEATURE_NEW_CHECKOUT")
+
+    [item] = _preview(db, 'A["зависит от: FEATURE_NEW_CHECKOUT"]', node=сервис)
+
+    assert (item.ref, item.mode, item.status) == ("FEATURE_NEW_CHECKOUT", "config", "ok")
+    # Владелец — сам узел, чей док открыт: повторять его имя незачем, а раздел, куда
+    # идти сверяться, назвать полезно.
+    assert item.target == "Конфигурация · FEATURE_NEW_CHECKOUT"
+
+
+def test_неизвестный_параметр_цели_не_имеет(db):
+    сервис = _node(db, "Заказы", shape="service")
+    _param(db, сервис, "FEATURE_X")
+
+    [item] = _preview(db, 'A["зависит от: FEATURE_Y"]', node=сервис)
+
+    assert (item.status, item.target) == ("unknown_param", None)
+
+
+def test_параметр_соседнего_узла_в_превью_не_находится(db):
+    """Плашка обязана показывать ровно то, что скажет резолв: ручка соседа своей не
+    становится, иначе редактор обещал бы связь, которой карта не подтвердит."""
+    заказы = _node(db, "Заказы", shape="service")
+    платежи = _node(db, "Платежи", shape="service")
+    _param(db, платежи, "FEATURE_X")
+
+    [item] = _preview(db, 'A["зависит от: FEATURE_X"]', node=заказы)
+
+    assert item.status == "unknown_param"
+
+
+def test_без_владельца_конфигурационные_пометки_выпадают_а_прочие_остаются(db):
+    """Старый клиент не шлёт node_id. Сказать «параметра нет» было бы враньём — мы
+    его не искали, поэтому такие пометки просто не показываются; пометки других
+    семей при этом отвечают как обычно."""
+    бд = _node(db, "Хранилище")
+    t = _table(db, бд)
+    _column(db, бд, t, "status")
+
+    ответ = _preview(db, 'A["пишет: orders.status<br>зависит от: FEATURE_X"]')
+
+    assert [(i.mode, i.status) for i in ответ] == [("write", "ok")]

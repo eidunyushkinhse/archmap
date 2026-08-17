@@ -1082,6 +1082,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/config/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Usage
+         * @description Какие схемы логики этого объекта зависят от его параметров.
+         *
+         *     Разворот пометок «зависит от:» из текстов СВОИХ схем — чужие сюда попасть не
+         *     могут по построению резолва. Источник — сам текст доков: разбор и резолв на
+         *     чтении, хранения обращений нет.
+         *
+         *     ОБЪЯВЛЕН ДО путей с {param_id}: иначе «usage» поехало бы в разбор uuid.
+         */
+        get: operations["list_usage_api_v1_nodes__node_id__config_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/config/{param_id}": {
         parameters: {
             query?: never;
@@ -1821,6 +1847,11 @@ export interface components {
              * @default []
              */
             descendant_edges: components["schemas"]["DescendantEdgeAlert"][];
+            /**
+             * Unresolved Config Refs
+             * @default []
+             */
+            unresolved_config_refs: components["schemas"]["UnresolvedConfigRefAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -2381,6 +2412,34 @@ export interface components {
             base_version?: number | null;
         };
         /**
+         * ConfigParamUsage
+         * @description Обратный индекс: какая схема логики зависит от этого параметра.
+         *
+         *     Разворот пометок «зависит от:» — ради него конфигурация и заводилась: перечень
+         *     ручек говорит, ЧТО у сервиса переключается, а индекс — что именно сломается,
+         *     если ручку убрать.
+         *
+         *     Узла в строке НЕТ, и это не упущение: сослаться на параметр может только схема
+         *     ТОГО ЖЕ объекта (§3 плана), так что колонка «кто» несла бы одно и то же имя во
+         *     всех строках. У таблиц и каналов она есть именно потому, что там зовущий — чужой.
+         */
+        ConfigParamUsage: {
+            /**
+             * Param Id
+             * Format: uuid
+             */
+            param_id: string;
+            /** Param Name */
+            param_name: string;
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+        };
+        /**
          * ContainerOwnDocsAlert
          * @description Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): узел стал
          *     контейнером (появились дети), но логика/спека остались на нём самом.
@@ -2482,10 +2541,18 @@ export interface components {
         /**
          * DataRefPreviewIn
          * @description Текст дока как он сейчас в редакторе (может быть несохранённым).
+         *
+         *     node_id — узел, которому док принадлежит. Нужен ТОЛЬКО конфигурации: «зависит
+         *     от:» ищется среди параметров владельца, и без него искать негде. Поле
+         *     необязательное, чтобы не ломать клиентов, ничего не знающих о третьей семье;
+         *     без него конфигурационные пометки из ответа просто ВЫПАДАЮТ — сказать про них
+         *     «цель не нашлась» значило бы соврать, ведь мы даже не смотрели.
          */
         DataRefPreviewIn: {
             /** Content */
             content: string;
+            /** Node Id */
+            node_id?: string | null;
         };
         /**
          * DataRefPreviewItem
@@ -2498,12 +2565,12 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "read" | "write" | "publish" | "consume";
+            mode: "read" | "write" | "publish" | "consume" | "config";
             /**
              * Status
              * @enum {string}
              */
-            status: "ok" | "unknown_table" | "unknown_column" | "unknown_channel" | "unknown_field" | "ambiguous";
+            status: "ok" | "unknown_table" | "unknown_column" | "unknown_channel" | "unknown_field" | "unknown_param" | "ambiguous";
             /** Target */
             target: string | null;
         };
@@ -4798,6 +4865,39 @@ export interface components {
              * @enum {string}
              */
             reason: "unknown_channel" | "ambiguous" | "unknown_field";
+        };
+        /**
+         * UnresolvedConfigRefAlert
+         * @description Пометка «зависит от:» в схеме логики, не нашедшая параметра конфигурации.
+         *
+         *     Третий отдельный класс по той же причине, что и второй: своя починка — «опишите
+         *     ручку в разделе „Конфигурация“ этого объекта или поправьте имя». Ни поля reason,
+         *     ни поля mode здесь НЕТ, и это не экономия: у семьи ровно одна причина промаха
+         *     (параметра с таким именем у объекта нет) и ровно один режим — неоднозначность и
+         *     «нет члена» невозможны по построению (docs/plan-config-docs.md §3).
+         *
+         *     ⚠️ Класс заведомо ловит и ПРОЗУ: «зависит от: нагрузки» — обычная русская фраза,
+         *     а не ссылка. Так и задумано (маркер с двоеточием — обещание факта), поэтому текст
+         *     замечания в интерфейсе обязан подсказывать оба выхода: описать параметр либо
+         *     переписать фразу без двоеточия.
+         */
+        UnresolvedConfigRefAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Doc Name */
+            doc_name: string;
+            /** Ref */
+            ref: string;
         };
         /**
          * UnresolvedDataRefAlert
@@ -7187,6 +7287,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigParamResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_usage_api_v1_nodes__node_id__config_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigParamUsage"][];
                 };
             };
             /** @description Validation Error */

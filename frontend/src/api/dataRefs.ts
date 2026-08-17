@@ -7,6 +7,9 @@ import type { DataRefPreviewItem } from "../types";
 // ПРИСЛАННОГО текста, в том числе ещё не сохранённого: она кормит живую плашку
 // редактора, показывающую, поймалась пометка или написана мимо структуры.
 export const dataRefsApi = {
-  preview: (content: string): Promise<DataRefPreviewItem[]> =>
-    api.post<DataRefPreviewItem[]>("/data-refs/preview", { content }),
+  // nodeId — владелец разбираемого текста. Нужен третьей семье пометок
+  // («зависит от:» → параметр конфигурации): её резолв смотрит только на владельца,
+  // и без узла такие пометки в ответ не попадают вовсе.
+  preview: (content: string, nodeId: string): Promise<DataRefPreviewItem[]> =>
+    api.post<DataRefPreviewItem[]>("/data-refs/preview", { content, node_id: nodeId }),
 };

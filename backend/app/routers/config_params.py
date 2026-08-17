@@ -26,16 +26,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
+from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
 from app.models.config_param import ConfigParam
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.config_param import (
     ConfigParamCreate,
     ConfigParamResponse,
     ConfigParamUpdate,
+    ConfigParamUsage,
 )
 from app.view_state import bump_meta_rev
 
@@ -77,6 +80,71 @@ def list_params(
 ) -> list[ConfigParam]:
     node = _get_node(db, node_id, project)
     return list(node.config_params)
+
+
+@router.get("/usage", response_model=list[ConfigParamUsage])
+def list_usage(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[ConfigParamUsage]:
+    """Какие схемы логики этого объекта зависят от его параметров.
+
+    Разворот пометок «зависит от:» из текстов СВОИХ схем — чужие сюда попасть не
+    могут по построению резолва. Источник — сам текст доков: разбор и резолв на
+    чтении, хранения обращений нет.
+
+    ОБЪЯВЛЕН ДО путей с {param_id}: иначе «usage» поехало бы в разбор uuid.
+    """
+    node = _get_node(db, node_id, project)
+    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
+    owner_params = params_by_node.get(node.id, {})
+    if not owner_params:
+        return []
+    by_id = {pid: name for name, pid in owner_params.items()}
+
+    docs = (
+        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content)
+        .filter(NodeDoc.node_id == node.id)
+        .all()
+    )
+
+    rows: list[ConfigParamUsage] = []
+    seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
+    for doc_id, doc_name, content in docs:
+        if not content:
+            continue
+        # Каталоги чужих семей передаём НАСТОЯЩИЕ, хотя индексу они не нужны:
+        # подсунуть пустые значило бы получить выдуманные статусы у табличных и
+        # канальных пометок того же дока — сейчас их отсеивает фильтр ниже, но
+        # держать в коде заведомо неверный ответ нельзя.
+        for ref in resolve_data_refs(
+            parse_data_refs(content),
+            tables,
+            channels,
+            node_paths,
+            owner_params=owner_params,
+        ):
+            # Индекс отвечает за ФАКТЫ: непонятая пометка живёт в алертах (AL33) и в
+            # плашке редактора, а сюда не попадает. Пометки чужих семей отсеиваются
+            # сами — param_id у них пуст.
+            if ref.status != "ok" or ref.param_id is None:
+                continue
+            key = (doc_id, ref.param_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                ConfigParamUsage(
+                    param_id=ref.param_id,
+                    param_name=by_id[ref.param_id],
+                    doc_id=doc_id,
+                    doc_name=doc_name,
+                )
+            )
+    rows.sort(key=lambda u: (u.param_name, u.doc_name))
+    return rows
 
 
 @router.post("", response_model=ConfigParamResponse, status_code=status.HTTP_201_CREATED)

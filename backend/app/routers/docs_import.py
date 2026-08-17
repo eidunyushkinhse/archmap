@@ -65,7 +65,7 @@ def _name_catalogs(
     пометка адресует любую базу и любой брокер проекта, и урезанный перечень отправил
     бы агента чинить верные имена (находка №1 docs/qa-zulip-brokers.md).
     """
-    tables, channels, node_paths = catalog_for_project(db, project_id)
+    tables, channels, _params, node_paths = catalog_for_project(db, project_id)
     table_catalog: dict[str, list[str]] = {}
     for t in tables:
         path = node_paths.get(t.node_id)

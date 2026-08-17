@@ -38,6 +38,7 @@ from app.schemas.node import (
     PersonInsideAlert,
     UnboundParticipantAlert,
     UnresolvedChannelRefAlert,
+    UnresolvedConfigRefAlert,
     UnresolvedDataRefAlert,
 )
 
@@ -376,9 +377,10 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     #    обращение к таблице целиком — алерт остаётся единственным местом, где битая
     #    колонка заметна. Резолв — на ЧТЕНИИ, по каталогу всего проекта: хранимых
     #    обращений нет, а значит нет и точек инвалидации.
-    tables, channels, node_paths = catalog_for_project(db, project_id)
+    tables, channels, params_by_node, node_paths = catalog_for_project(db, project_id)
     unresolved_data_refs: list[UnresolvedDataRefAlert] = []
     unresolved_channel_refs: list[UnresolvedChannelRefAlert] = []
+    unresolved_config_refs: list[UnresolvedConfigRefAlert] = []
     for doc_id, doc_name, content, owner_id, owner_name in (
         db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
         .select_from(NodeDoc)
@@ -389,9 +391,29 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         if not content:
             continue
         for ref in resolve_data_refs(
-            parse_data_refs(content), tables, channels, node_paths
+            parse_data_refs(content),
+            tables,
+            channels,
+            node_paths,
+            # Конфигурация ВЛАДЕЛЬЦА дока: «зависит от:» ищется только у него.
+            owner_params=params_by_node.get(owner_id, {}),
         ):
             if ref.status == "ok":
+                continue
+            # 12) Пометка «зависит от:» не нашла параметра (AL33). Класс отдельный по
+            #     той же причине, что и канальный: своя починка — «опишите ручку в
+            #     разделе „Конфигурация“ этого объекта». Причину не передаём: она
+            #     здесь ровно одна (см. UnresolvedConfigRefAlert).
+            if ref.mode == "config":
+                unresolved_config_refs.append(
+                    UnresolvedConfigRefAlert(
+                        node_id=owner_id,
+                        node_name=owner_name,
+                        doc_id=doc_id,
+                        doc_name=doc_name,
+                        ref=ref.ref,
+                    )
+                )
                 continue
             # 10) То же самое для каналов (AL30): пометка «публикует:/потребляет:»
             #     не нашла канал в структуре брокеров. Класс ОТДЕЛЬНЫЙ — причины и
@@ -431,6 +453,7 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     # появляется только после разбора текста — сортируем готовые записи.
     unresolved_data_refs.sort(key=lambda a: (a.node_name, a.doc_name, a.ref))
     unresolved_channel_refs.sort(key=lambda a: (a.node_name, a.doc_name, a.ref))
+    unresolved_config_refs.sort(key=lambda a: (a.node_name, a.doc_name, a.ref))
 
     # 11) Связи с брокером, не называющие канал (AL31). Решение пользователя №4
     #     (§4 plan-broker-docs.md): стрелка «сервис → брокер» ОБЯЗАНА назвать топик —
@@ -487,6 +510,7 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         orphan_legs=orphan_legs,
         unresolved_data_refs=unresolved_data_refs,
         unresolved_channel_refs=unresolved_channel_refs,
+        unresolved_config_refs=unresolved_config_refs,
         broker_edge_channels=broker_edge_channels,
         descendant_edges=descendant_edges,
     )

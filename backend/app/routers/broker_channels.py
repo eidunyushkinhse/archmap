@@ -138,7 +138,7 @@ def list_usage(
     ОБЪЯВЛЕН ДО путей с {channel_id}: иначе «usage» поехало бы в разбор uuid.
     """
     node = _get_node(db, node_id, project)
-    tables, channels, node_paths = catalog_for_project(db, project.id)
+    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
     # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые каналы у соседних
     # брокеров перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
     mine = {c.id: c for c in channels if c.node_id == node.id}
@@ -161,7 +161,13 @@ def list_usage(
         if not content:
             continue
         for ref in resolve_data_refs(
-            parse_data_refs(content), tables, channels, node_paths
+            parse_data_refs(content),
+            tables,
+            channels,
+            node_paths,
+            # Конфигурация владельца дока — этому индексу не нужна, но каталог обязан
+            # быть настоящим (см. тот же довод в db_docs.list_usage).
+            owner_params=params_by_node.get(caller_id, {}),
         ):
             # Табличные пометки («читает:/пишет:») этому индексу не принадлежат —
             # их разворот живёт у базы: каталоги и семьи режимов разведены.

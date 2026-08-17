@@ -175,6 +175,9 @@ export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 // То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
 export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
+// И то же для конфигурации: «зависит от:» без параметра у САМОГО объекта (AL33).
+// Полей reason и mode у класса нет — причина и режим у него единственные.
+export type UnresolvedConfigRefAlert = Schemas["UnresolvedConfigRefAlert"];
 // Связь с брокером, не назвавшая канал (missing) либо назвавшая неизвестный (unknown) —
 // шов «стрелка ↔ структура брокера», который держат алерты, а не FK (AL31).
 export type BrokerEdgeChannelAlert = Schemas["BrokerEdgeChannelAlert"];
@@ -258,6 +261,9 @@ export type ChannelUsage = Schemas["ChannelUsage"];
 export type ConfigParam = Schemas["ConfigParamResponse"];
 export type ConfigParamCreate = Schemas["ConfigParamCreate"];
 export type ConfigParamUpdate = Schemas["ConfigParamUpdate"];
+// Обратный индекс конфигурации («какие схемы зависят от ручки») — разворот пометок.
+// Узла в строке нет: сослаться может только схема того же объекта.
+export type ConfigParamUsage = Schemas["ConfigParamUsage"];
 // Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
 // (POST /data-refs/preview) — статус резолва и готовая подпись цели.
 export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
