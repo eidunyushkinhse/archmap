@@ -257,3 +257,8 @@ export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
 export type DataImportReport = Schemas["DataImportReport"];
 // Дозаливка каналов брокера от агента: свой отчёт — у канала своя мета и свои поля.
 export type ChannelsImportReport = Schemas["ChannelsImportReport"];
+// Разведка точек входа: отчёт превью/применения перечня и его строка. Действия свои
+// (create/unchanged/described/vanished) — у разведки нет ни перезаписи, ни удалений.
+export type ReconImportReport = Schemas["ReconImportReport"];
+export type ReconItem = Schemas["ReconItem"];
+export type ReconAction = ReconItem["action"];

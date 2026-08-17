@@ -110,7 +110,7 @@ describe("useNodePatch", () => {
 
   it("applyDocEvent: create/edit/delete обновляют мету доков в стейте", () => {
     const d1 = makeDoc({ id: "d1", name: "Обзор", version: 1 });
-    const { result } = renderHook(() => useNodePatch(makeNode({ docs: [{ id: "d1", name: "Обзор", kind: "overview", operation: null, version: 1 }] })));
+    const { result } = renderHook(() => useNodePatch(makeNode({ docs: [{ id: "d1", name: "Обзор", kind: "overview", operation: null, version: 1, described: true }] })));
 
     // create
     const d2 = makeDoc({ id: "d2", name: "Операция", kind: "operation", version: 1 });
@@ -127,6 +127,25 @@ describe("useNodePatch", () => {
     act(() => result.current.applyDocEvent({ type: "delete", nodeId: "n1", doc: d2 }));
     expect(result.current.node.docs).toHaveLength(1);
     expect(result.current.node.docs[0].id).toBe("d1");
+  });
+
+  it("applyDocEvent пересчитывает признак «описана» по телу схемы", () => {
+    // Мета собирается РУКАМИ (docToMeta), а сервер считает признак выражением в БД:
+    // забыть его здесь значит уронить счётчик «описано N из M» после правки в оверлее.
+    const заглушка = makeDoc({ id: "d1", name: "POST /orders", kind: "operation", content: "" });
+    const { result } = renderHook(() => useNodePatch(makeNode({ docs: [] })));
+
+    act(() => result.current.applyDocEvent({ type: "create", nodeId: "n1", doc: заглушка }));
+    expect(result.current.node.docs[0].described).toBe(false);
+
+    const описана = makeDoc({ ...заглушка, content: "flowchart TD\n A --> B", version: 2 });
+    act(() => result.current.applyDocEvent({ type: "edit", nodeId: "n1", before: заглушка, after: описана }));
+    expect(result.current.node.docs[0].described).toBe(true);
+
+    // Тело из одних пробелов — та же заглушка, что и пустое (зеркало SQL-признака).
+    const пробелы = makeDoc({ ...описана, content: "   \n ", version: 3 });
+    act(() => result.current.applyDocEvent({ type: "edit", nodeId: "n1", before: описана, after: пробелы }));
+    expect(result.current.node.docs[0].described).toBe(false);
   });
 
   it("refresh: применяет свежий узел целиком (стейты + CAS-база)", () => {

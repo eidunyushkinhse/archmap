@@ -17,7 +17,12 @@ from app.schemas.node_doc import NodeDocKind
 MAX_PACKAGE_FILES = 100
 MAX_PACKAGE_CHARS = 16_000_000
 
-DocsAction = Literal["create", "overwrite", "skip", "unchanged"]
+# Действия превью/применения. «fill» — заполнение ЗАГЛУШКИ разведки (схема с пустым
+# телом, docs/plan-recon.md): работы в ней нет, поэтому политика «не перезаписывать»
+# её не защищает, и пользователь обязан видеть разницу с настоящей перезаписью.
+# Literal общий на семью (данные, каналы): у их потоков «fill» не возникает, но
+# смысл прежних значений от нового не меняется — тесная форма никого не заставляет.
+DocsAction = Literal["create", "fill", "overwrite", "skip", "unchanged"]
 SpecOrigin = Literal["found", "generated", "synthesized"]
 DocsInclude = Literal["logic", "api", "both"]
 # Фильтр типа дозаливки у preview/apply: окна логики и спеки раздельные — каждое
@@ -105,6 +110,9 @@ class DocsImportReport(BaseModel):
     conflicts: list[str] = []
     applied: bool = False
     created_docs: int = 0
+    # Заполненных заглушек — отдельным числом от перезаписанных: «перезаписано 200»
+    # там, где не тронута ни одна написанная схема, пугает ровно тем, чего не было.
+    filled_docs: int = 0
     updated_docs: int = 0
     specs_written: int = 0
     # Сколько пометок каждой семьи распознано в схемах пакета (до резолва). Окно

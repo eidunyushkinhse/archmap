@@ -2,7 +2,7 @@
 // навигация. Тяжёлый канвас (EmbeddedSchemaBlock → LevelGraph) замокан —
 // тестируем страницу-документ и её данные. Имя/роль/технология — инлайн-инпуты
 // (CAS-правка по blur), поэтому ищутся по displayValue.
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -52,6 +52,23 @@ vi.mock("../../components/EmbeddedSchemaBlock", () => ({
 // (паттерн DocOverlay.test) — тестируем форму распределения, не фокус-менеджмент.
 vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
+}));
+
+// Окно «Список операций от агента»: маркер вместо настоящего окна — здесь проверяется вход в
+// него из меню «+ Добавить», а само окно покрыто своим тестом (ReconAgentModal.test).
+vi.mock("../../components/docsImport/ReconAgentModal", () => ({
+  default: ({ nodeName }: { nodeName: string }) => (
+    <div data-testid="recon-modal" data-node-name={nodeName} />
+  ),
+}));
+
+// Окно «Доки от агента»: маркер с режимом и адресом — здесь проверяется, что кнопка
+// «Описать» у строки открывает его «по одной» и с заполненным «Что описать»; само
+// окно покрыто своим тестом (DocsAgentModal.test).
+vi.mock("../../components/docsImport/DocsAgentModal", () => ({
+  default: ({ initialMode, initialTarget }: { initialMode?: string; initialTarget?: string }) => (
+    <div data-testid="docs-modal" data-mode={initialMode ?? ""} data-target={initialTarget ?? ""} />
+  ),
 }));
 
 // Оверлей документации: маркер с контекстом (nodeId/initialDocId/mode) — проверить,
@@ -179,7 +196,7 @@ describe("NodePage: правила контейнеров", () => {
   beforeEach(() => vi.clearAllMocks());
 
   function docMeta(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
-    return { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, ...over };
+    return { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, described: true, ...over };
   }
 
   function setupContainer(over: { own?: Partial<Node>; children?: Node[] } = {}) {
@@ -547,12 +564,217 @@ describe("NodePage: документация по форме узла", () => {
   });
 
   it("легаси-содержимое у базы не прячется, а объясняется", async () => {
-    const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1 };
+    const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, described: true };
     setupShape({ shape: "database", name: "Хранилище", docs: [док], openapi_spec: "openapi: 3.0.0" });
     await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
     expect(screen.getByText(/у этого объекта его нет — перенесите/)).toBeInTheDocument();
     expect(screen.getByText(/OpenAPI описывает HTTP-API/)).toBeInTheDocument();
     // Заводить новое всё равно нельзя — только унести существующее.
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+  });
+});
+
+// ── Витрина разведки: остаток работы виден числом ───────────────────────────
+// Разведка кладёт в «Логику» ЗАГЛУШКИ — схемы с пустым телом. Витрина обязана их
+// отличать (иначе заглушку не спутать с документацией нельзя), показывать остаток
+// работы числом (без знаменателя «опиши монолит» снова становится безразмерным) и
+// пережить две сотни строк: до разведки полевым максимумом были тринадцать.
+describe("NodePage: заглушки разведки, счётчик «описано N из M» и группы по видам", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function док(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
+    return { id: "d1", name: "Схема", kind: "operation", operation: null, version: 1, described: true, ...over };
+  }
+
+  function setupDocs(docs: NodeDocMeta[]) {
+    const n = node("n1", { docs, shape: "service", has_children: false, child_count: 0 });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+  }
+
+  it("счётчик считает точки входа: обзор в знаменатель не входит", async () => {
+    // Обзор — не точка входа, от разведки он не зависит и завышал бы знаменатель.
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview", described: true }),
+      док({ id: "d1", name: "POST /orders", kind: "operation", described: true }),
+      док({ id: "d2", name: "GET /orders", kind: "operation", described: false }),
+      док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("описано 1 из 3")).toBeInTheDocument());
+  });
+
+  it("точек входа нет — счётчика нет вовсе", async () => {
+    // «описано 0 из 0» это шум на каждом узле проекта, а не полезное знание.
+    setupDocs([док({ id: "d0", name: "Обзор сервиса", kind: "overview" })]);
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    expect(screen.queryByText(/описано \d+ из/)).toBeNull();
+  });
+
+  it("строка-заглушка помечена «не описана», описанная — нет", async () => {
+    setupDocs([
+      док({ id: "d1", name: "POST /orders", described: false }),
+      док({ id: "d2", name: "GET /orders", described: true }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    const метки = screen.getAllByText("не описана");
+    expect(метки).toHaveLength(1);
+    // Метка стоит в строке заглушки, а не где-то рядом.
+    expect(метки[0].closest("button")).toHaveTextContent("POST /orders");
+  });
+
+  // ── Масштаб списка: группы по видам ───────────────────────────────────────
+  it("маленький объект: группы развёрнуты, схемы видны без единого клика", async () => {
+    // Порог сворачивания не должен менять привычный вид там, где схем немного.
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      док({ id: "d1", name: "POST /orders" }),
+      док({ id: "d2", name: "email_senders", kind: "worker" }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.getByText("Обзор сервиса")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
+  });
+
+  it("двести схем: свёрнута только группа-стена, обзоры и воркеры видны сразу", async () => {
+    const много = Array.from({ length: 200 }, (_, i) =>
+      док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      ...много,
+      док({ id: "w1", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("описано 0 из 201")).toBeInTheDocument());
+    // Стены из двухсот кнопок нет, а соседние группы — не стена, и прятать их незачем.
+    expect(screen.queryByText("GET /r0")).toBeNull();
+    expect(screen.getByText("Обзор сервиса")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
+    expect(screen.getByText("GET /r0")).toBeInTheDocument();
+    expect(screen.getByText("GET /r199")).toBeInTheDocument();
+  });
+
+  it("тринадцать схем: порог считается по группе, а не по объекту", async () => {
+    // Полевой Zulip до разведки — тринадцать схем: схем больше порога, но стены нет
+    // ни в одной группе. Свернуть их значило бы забрать читаемый список без выигрыша.
+    const операции = Array.from({ length: 10 }, (_, i) => док({ id: `o${i}`, name: `GET /r${i}` }));
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      ...операции,
+      док({ id: "w1", name: "email_senders", kind: "worker" }),
+      док({ id: "w2", name: "embed_links", kind: "worker" }),
+    ]);
+    await waitFor(() => expect(screen.getByText("Обзор сервиса")).toBeInTheDocument());
+    expect(screen.getByText("GET /r0")).toBeInTheDocument();
+    expect(screen.getByText("GET /r9")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
+  });
+
+  it("в заголовке группы — число строк и остаток; у обзоров остатка нет", async () => {
+    setupDocs([
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
+      док({ id: "d1", name: "POST /orders", described: true }),
+      док({ id: "d2", name: "GET /orders", described: false }),
+      док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    const операции = screen.getByRole("button", { name: /^Операции/ });
+    expect(операции).toHaveTextContent("(2)");
+    expect(операции).toHaveTextContent("описано 1");
+    expect(screen.getByRole("button", { name: /^Воркеры/ })).toHaveTextContent("описано 0");
+    // Обзор — не точка входа: его нет в счётчике секции, и «описано» у группы не
+    // пишем, иначе два разных числа на одном экране читались бы как ошибка.
+    expect(screen.getByRole("button", { name: /^Обзоры/ })).not.toHaveTextContent("описано");
+  });
+
+  it("пустая группа не рисуется вовсе", async () => {
+    setupDocs([док({ id: "d1", name: "POST /orders" })]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /^Обзоры/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
+  });
+
+  // ── Прямой путь «описать вот эту строку» ──────────────────────────────────
+  it("«Описать» открывает окно доков «по одной» с адресом строки, а схему не открывает", async () => {
+    // У схемы, написанной до разведки, имя человеческое, а точка входа — в поле
+    // operation: адресом агенту идёт именно она.
+    setupDocs([
+      док({ id: "d1", name: "Оформление заказа", operation: "POST /orders", described: false }),
+      док({ id: "d2", name: "email_senders", kind: "worker", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("Оформление заказа")).toBeInTheDocument());
+    const кнопки = screen.getAllByRole("button", { name: "Описать" });
+    expect(кнопки).toHaveLength(2);
+
+    await userEvent.click(кнопки[0]);
+    const окно = screen.getByTestId("docs-modal");
+    expect(окно).toHaveAttribute("data-mode", "single");
+    expect(окно).toHaveAttribute("data-target", "POST /orders");
+    // Кнопка не проваливается в строку: оверлей схемы заодно не открылся.
+    expect(screen.queryByTestId("doc-overlay")).toBeNull();
+  });
+
+  it("адрес воркера — имя очереди: поля operation у него нет", async () => {
+    // Имена классов-обработчиков недоверенные (замер 4/14), адрес воркера — очередь,
+    // а она и есть имя схемы-заглушки.
+    setupDocs([док({ id: "d2", name: "email_senders", kind: "worker", described: false })]);
+    await waitFor(() => expect(screen.getByText("email_senders")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Описать" }));
+    expect(screen.getByTestId("docs-modal")).toHaveAttribute("data-target", "email_senders");
+  });
+
+  it("клик по строке по-прежнему открывает схему, а не окно агента", async () => {
+    setupDocs([док({ id: "d1", name: "POST /orders", described: false })]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("POST /orders"));
+    expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "d1");
+    expect(screen.queryByTestId("docs-modal")).toBeNull();
+  });
+
+  it("у описанной строки и у обзора кнопки «Описать» нет", async () => {
+    // Описанную открывают («открыть →»), а обзор не адресуется как точка входа.
+    setupDocs([
+      док({ id: "d1", name: "POST /orders", described: true }),
+      док({ id: "d0", name: "Обзор сервиса", kind: "overview", described: false }),
+    ]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
+  });
+
+  it("меню «+ Добавить» ведёт в составление списка операций", async () => {
+    setupDocs([]);
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    expect(screen.queryByTestId("recon-modal")).toBeNull();
+
+    // «+ Добавить» на странице два (Логика и OpenAPI) — берём меню секции «Логика».
+    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
+    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Составить список операций" }));
+    expect(screen.getByTestId("recon-modal")).toHaveAttribute("data-node-name", "Сервис оплаты");
+  });
+
+  it("читателю видно состояние схем, но разведка ему не предлагается", async () => {
+    // Окно только архитектору (меню целиком под isArchitect) — а вот остаток работы
+    // читатель видеть вправе: это состояние документации, а не действие над ней.
+    const n = node("n1", {
+      docs: [док({ id: "d1", name: "POST /orders", described: false })],
+      shape: "service",
+    });
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    render(<NodePage nodeId="n1" isArchitect={false} {...nav} />);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.getByText("не описана")).toBeInTheDocument();
+    expect(screen.getByText("описано 0 из 1")).toBeInTheDocument();
+    expect(screen.queryByText("+ Добавить")).toBeNull();
+    // «Описать» — тоже действие над документацией, читателю его не предлагаем.
+    expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
   });
 });

@@ -16,6 +16,7 @@ from app.routers import (
     nodes,
     processes,
     projects,
+    recon,
     views,
 )
 
@@ -42,6 +43,7 @@ app.include_router(db_docs.tables_router, prefix="/api/v1")
 app.include_router(broker_channels.router, prefix="/api/v1")
 app.include_router(channels_import.router, prefix="/api/v1")
 app.include_router(docs_import.router, prefix="/api/v1")
+app.include_router(recon.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")
 app.include_router(views.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")

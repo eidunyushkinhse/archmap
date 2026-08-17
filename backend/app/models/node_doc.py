@@ -10,8 +10,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.database import Base
 
@@ -45,6 +46,14 @@ class NodeDoc(Base):
     # задел под провал «шаг процесса → схема сценария / спека операции».
     operation: Mapped[str | None] = mapped_column(String(256), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    # «Схема описана» — производный признак, а не колонка: разведка точек входа
+    # (docs/plan-recon.md) создаёт ЗАГЛУШКИ — схемы с пустым телом, — и витрина
+    # обязана отличать их от готовой документации. Считается ВЫРАЖЕНИЕМ В БД, а не
+    # в Python по self.content: мета доков отдаётся без тела, у монолита схем две
+    # сотни, и признак не должен зависеть от того, загружено тело или нет (иначе
+    # будущая разгрузка тел молча его сломает). length(trim(...)) есть и у
+    # PostgreSQL, и у SQLite — тестам на SQLite экзотика не нужна.
+    described: Mapped[bool] = column_property(func.length(func.trim(content)) > 0)
     # Версия для optimistic CAS — тот же паттерн, что у Node.version: PATCH с
     # base_version ≠ текущей → 409, правка от устаревшего текста не затирает чужую.
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")

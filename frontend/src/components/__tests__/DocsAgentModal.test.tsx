@@ -33,7 +33,7 @@ const doc = () => ({
 const report = (over: Partial<DocsImportReport> = {}): DocsImportReport =>
   ({
     logic: [doc()], specs: [], errors: [], warnings: [], conflicts: [], applied: false,
-    created_docs: 0, updated_docs: 0, specs_written: 0,
+    created_docs: 0, filled_docs: 0, updated_docs: 0, specs_written: 0,
     data_refs_total: 0, channel_refs_total: 0, ...over,
   }) as DocsImportReport;
 
@@ -201,5 +201,99 @@ describe("DocsAgentModal · дифф пометок между попыткам�
     expect(текст).toContain("вставка-1: mermaid не парсится — Parse error on line 7:");
     // Замечание бэка при этом не потерялось — списки складываются.
     expect(текст).toContain("замечание бэка");
+  });
+});
+
+// ── Окно, открытое с адресом точки входа ────────────────────────────────────
+// Кнопка «Описать» у неописанной строки списка схем открывает это же окно, но уже
+// заполненным: режим «по одной» и адрес в поле «Что описать» (docs/plan-recon.md,
+// Ф2). Механику переизобретать было не нужно — нужен был только адрес.
+describe("DocsAgentModal · адрес точки входа из списка схем", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    validateMermaidMock.mockResolvedValue(null);
+  });
+
+  it("режим «по одной» и «Что описать» заполнены с порога, адрес уезжает в промпт", async () => {
+    vi.mocked(docsImportApi.prompt).mockResolvedValue({ prompt: "промпт" });
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(
+      <DocsAgentModal
+        nodeId="n1"
+        nodeName="orders"
+        initialMode="single"
+        initialTarget="POST /orders"
+        onClose={vi.fn()}
+        onApplied={vi.fn()}
+      />,
+    );
+
+    // Поле «Что описать» есть только в режиме «по одной» — значит и режим доехал.
+    expect(screen.getByDisplayValue("POST /orders")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Скопировать промпт"));
+    await waitFor(() => expect(docsImportApi.prompt).toHaveBeenCalled());
+    expect(vi.mocked(docsImportApi.prompt).mock.calls[0][0].target).toBe("POST /orders");
+  });
+
+  it("без адреса окно прежнее: пакетом и с пустым полем", async () => {
+    render(<DocsAgentModal nodeId="n1" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()} />);
+    expect(screen.queryByText("Что описать")).toBeNull();
+  });
+});
+
+// ── Заполнение заглушек разведки ────────────────────────────────────────────
+// Заглушка занимает слот, но работы в ней нет: пакет из одних заполнений обязан
+// применяться БЕЗ галки «Обновлять готовые диаграммы» — иначе единственный путь
+// наружу требовал бы снять предохранитель, разрешив заодно затирать настоящие схемы.
+describe("DocsAgentModal · заглушки разведки", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    validateMermaidMock.mockResolvedValue(null);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("пакет из одних заполнений применим без галки перезаписи", async () => {
+    vi.mocked(docsImportApi.apply).mockResolvedValue(report({ applied: true, filled_docs: 1 }));
+    open();
+    await вставить("graph TD");
+    await попытка(
+      report({
+        warnings: ["превью"],
+        logic: [{ ...doc(), action: "fill" as const }],
+      }),
+      " A",
+    );
+
+    // Подпись действия отличает безопасное заполнение от настоящей перезаписи.
+    expect(screen.getByText("заполнит заглушку")).toBeInTheDocument();
+    const применить = screen.getByText("Применить");
+    expect(применить).not.toBeDisabled();
+    expect(screen.getByText(/заглушек 1/)).toBeInTheDocument();
+
+    await userEvent.click(применить);
+    await waitFor(() => expect(docsImportApi.apply).toHaveBeenCalled());
+    // Галку никто не трогал — предохранитель настоящих схем остался на месте.
+    expect(vi.mocked(docsImportApi.apply).mock.calls[0][0].overwrite).toBe(false);
+  });
+
+  it("применение отчитывается заполнением отдельно от перезаписи", async () => {
+    vi.mocked(docsImportApi.apply).mockResolvedValue(
+      report({ applied: true, created_docs: 0, filled_docs: 7, updated_docs: 0 }),
+    );
+    open();
+    await вставить("graph TD");
+    await попытка(
+      report({ warnings: ["превью"], logic: [{ ...doc(), action: "fill" as const }] }),
+      " A",
+    );
+
+    await userEvent.click(screen.getByText("Применить"));
+    await waitFor(() =>
+      expect(screen.getByText(/заполнено заглушек\s*7/)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/перезаписано 0/)).toBeInTheDocument();
   });
 });

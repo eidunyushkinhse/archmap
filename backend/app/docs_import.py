@@ -5,7 +5,7 @@
 разбирает mmd_header), спека — самим файлом OpenAPI. Оба вида превращаются в
 PkgEntry — единую внутреннюю запись «этому узлу такие-то документы», — и дальше
 работает общий конвейер: build_docs_plan мержит записи против ЖИВОГО дерева
-проекта в действия (create | overwrite | skip | unchanged) + отчёт,
+проекта в действия (create | fill | overwrite | skip | unchanged) + отчёт,
 apply_docs_plan пишет их в БД. Разделение — ради общего dry-run превью.
 
 Mermaid здесь НЕ валидируется (валидатора на бэке нет — проверяет фронт по
@@ -81,6 +81,16 @@ class MmdOverride:
     name: str | None = None
     kind: str | None = None
     node: str | None = None
+
+
+def _is_stub(doc: NodeDoc) -> bool:
+    """Схема — ЗАГЛУШКА разведки: тело пусто (docs/plan-recon.md, §5).
+
+    «Пусто» — по strip(), ровно как считают признак «описана» (NodeDoc.described,
+    выражение в БД) и резолвер пометок: схема из одних пробелов документацией не
+    становится, и три места обязаны понимать пустоту одинаково.
+    """
+    return not doc.content.strip()
 
 
 def _name_from_file(fname: str) -> str:
@@ -574,6 +584,21 @@ def build_docs_plan(
     logic_owner: dict[tuple[uuid.UUID, str], str] = {}  # слот → имя файла-первоисточника
     spec_owner: dict[uuid.UUID, str] = {}
     used_assets: set[str] = set()
+    # Заглушки узла по адресу операции + уже занятые заглушки пакета (Р27). Индекс
+    # общий на все файлы: узел приезжает несколькими записями, и вторая не должна
+    # снова целиться в ту же заглушку.
+    stub_ops: dict[uuid.UUID, dict[str, list[NodeDoc]]] = {}
+    claimed: set[uuid.UUID] = set()
+
+    def stubs_by_operation(node: Node) -> dict[str, list[NodeDoc]]:
+        index = stub_ops.get(node.id)
+        if index is None:
+            index = {}
+            for doc in node.docs:
+                if doc.operation and _is_stub(doc):
+                    index.setdefault(doc.operation, []).append(doc)
+            stub_ops[node.id] = index
+        return index
 
     for fname, pkg in entries:
         for entry in pkg.entries:
@@ -616,6 +641,40 @@ def build_docs_plan(
                         f"без поля operation"
                     )
                 cur = existing.get(logic.name)
+                if cur is None and logic.operation and logic.mermaid.strip():
+                    # Р27: конвенция «имя схемы = METHOD /путь» — правило, а правило
+                    # слабее примера: агент вправе назвать схему «Создание заказа» и
+                    # положить адрес в operation. По имени она не сойдётся, и рядом с
+                    # заглушкой выросла бы ВТОРАЯ схема на ту же операцию, а заглушка
+                    # осталась бы пустой навсегда — счётчик «описано N из M» начал бы
+                    # врать в обе стороны. Ищем ТОЛЬКО среди заглушек: описанную схему
+                    # с той же операцией не трогаем никогда, это чужая работа.
+                    свободные = [
+                        d
+                        for d in stubs_by_operation(node).get(logic.operation, [])
+                        if d.id not in claimed
+                    ]
+                    if len(свободные) == 1:
+                        cur = свободные[0]
+                    elif len(свободные) > 1:
+                        имена = sorted(d.name for d in свободные)
+                        хвост = (
+                            f" …и ещё {len(имена) - 3}" if len(имена) > 3 else ""
+                        )
+                        plan.warnings.append(
+                            f'{fname}: схема "{logic.name}" узла «{path}» — заглушек с '
+                            f"операцией «{logic.operation}» несколько "
+                            f'({", ".join(имена[:3])}{хвост}), какую заполнить — не '
+                            f"угадываем: создана новая схема"
+                        )
+                if cur is not None and cur.id in claimed:
+                    # Заглушку уже забрал файл выше (нашёл по операции) — второй раз
+                    # писать в ту же строку нельзя: одна из двух схем пропала бы молча.
+                    plan.conflicts.append(
+                        f'заглушку "{cur.name}" узла «{path}» уже заполняет другой файл — '
+                        f'схема "{logic.name}" из {fname} пропущена'
+                    )
+                    continue
                 if cur is None:
                     action, doc_id = "create", None
                 elif (
@@ -624,6 +683,14 @@ def build_docs_plan(
                     and (cur.operation or None) == (logic.operation or None)
                 ):
                     action, doc_id = "unchanged", cur.id
+                elif _is_stub(cur) and logic.mermaid.strip():
+                    # Р25: политика «не перезаписывать» защищает РАБОТУ, а в заглушке
+                    # разведки её нет — иначе разведка сама себя и заблокировала бы:
+                    # двести пустых слотов пропустили бы всю дозаливку с отчётом
+                    # «занято». Обратное направление (пустое поверх описанного) сюда
+                    # НЕ попадает и остаётся на прежней политике: это стирание.
+                    action, doc_id = "fill", cur.id
+                    claimed.add(cur.id)
                 else:
                     action, doc_id = ("overwrite" if overwrite else "skip"), cur.id
                 plan.logic.append(
@@ -699,11 +766,14 @@ def build_docs_plan(
     return plan
 
 
-def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int]:
-    """Записать действия плана: (создано доков, перезаписано доков, спек записано).
+def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int, int]:
+    """Записать действия плана: (создано доков, перезаписано доков, спек записано,
+    заполнено заглушек). Заполнение идёт тем же путём, что перезапись (та же строка
+    БД, тот же бамп CAS-версии), но считается ОТДЕЛЬНО: перезапись трогает работу,
+    заполнение — пустой слот.
     Вызывать только при пустых errors; skip/unchanged не трогаются. Бампы
     graph_rev/touch_project и commit — на вызывающей стороне (как seed_import)."""
-    created = updated = specs = 0
+    created = updated = specs = filled = 0
     for act in plan.logic:
         if act.action == "create":
             db.add(
@@ -716,16 +786,21 @@ def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int]:
                 )
             )
             created += 1
-        elif act.action == "overwrite":
+        elif act.action in ("overwrite", "fill"):
             doc = db.get(NodeDoc, act.doc_id)
             if doc is None:
                 continue  # удалён между превью и применением — план пересчитывается, но страхуемся
+            # Имя пишется и при заполнении: заглушку могли найти по операции, а не по
+            # имени (Р27), и осмысленное имя от агента ценнее адреса-заголовка.
             doc.name = act.name
             doc.kind = act.kind
             doc.operation = act.operation
             doc.content = act.mermaid
             doc.version += 1
-            updated += 1
+            if act.action == "fill":
+                filled += 1
+            else:
+                updated += 1
     for spec in plan.specs:
         if spec.action not in ("create", "overwrite"):
             continue
@@ -735,4 +810,4 @@ def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int]:
         node.openapi_spec = spec.content
         node.version += 1
         specs += 1
-    return created, updated, specs
+    return created, updated, specs, filled

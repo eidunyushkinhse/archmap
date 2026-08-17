@@ -41,6 +41,9 @@ interface Props {
   nodeName: string;
   // Режим открытия модалки (пункты меню «+ Добавить» в секции «Логика»).
   initialMode?: Mode;
+  // Начальное «Что описать» — адрес точки входа из списка схем объекта (кнопка
+  // «Описать» у неописанной строки открывает окно уже заполненным).
+  initialTarget?: string;
   onClose: () => void;
   // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
@@ -71,12 +74,12 @@ const KIND_LABEL: Record<NodeDocKind, string> = {
 };
 const KIND_ORDER: NodeDocKind[] = ["overview", "operation", "worker"];
 
-export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", onClose, onApplied }: Props) {
+export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", initialTarget = "", onClose, onApplied }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
   // ── параметры промпта (include зафиксирован на схемах логики) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
+  const [target, setTarget] = useState(initialTarget); // «По одной»: воркер/эндпоинт
   // ── файлы пакета и превью (общие для обоих режимов) ──
   const pkg = useDocsFiles();
   const [overwrite, setOverwrite] = useState(false);
@@ -293,10 +296,17 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   // Правка в превью делает схему «перезаписью» даже при unchanged в отчёте
   // (бэк сверяет имя и вид) — учитываем её в доступности кнопок применения.
   const kindEdited = overrides.length > 0 && report !== null && report.logic.length > 0;
+  // «fill» — заполнение заглушки разведки: тоже запись, и без него кнопка «Применить»
+  // осталась бы серой на пакете, который весь состоит из заполнения заглушек (то есть
+  // на главном сценарии разведки).
   const willWrite =
     report !== null &&
     report.errors.length === 0 &&
-    (kindEdited || countAction(report.logic, "create") + countAction(report.logic, "overwrite") > 0);
+    (kindEdited ||
+      countAction(report.logic, "create") +
+        countAction(report.logic, "fill") +
+        countAction(report.logic, "overwrite") >
+        0);
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
@@ -453,12 +463,14 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             )}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-                Применено: схем создано {report.created_docs}, перезаписано {report.updated_docs}.
+                Применено: схем создано {report.created_docs}, заполнено заглушек{" "}
+                {report.filled_docs}, перезаписано {report.updated_docs}.
               </div>
             )}
             {!checking && report !== null && !report.applied && report.errors.length === 0 && (
               <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
                 Схем: {report.logic.length} (новых {countAction(report.logic, "create")},
+                заглушек {countAction(report.logic, "fill")},
                 перезапись {countAction(report.logic, "overwrite")}, пропуск {countAction(report.logic, "skip")},
                 без изменений {countAction(report.logic, "unchanged")})
               </div>

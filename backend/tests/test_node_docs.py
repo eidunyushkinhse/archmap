@@ -124,6 +124,35 @@ def test_meta_in_node_response(db):
     assert [(d.name, d.kind) for d in out.docs] == [("Воркер очереди", "worker"), ("Логика", "overview")]
 
 
+def test_described_flag_tells_stub_from_written_doc(db):
+    """Признак «схема описана» в мете: заглушка разведки против готовой схемы.
+
+    Считается ВЫРАЖЕНИЕМ В БД (column_property), а не в Python по загруженному телу:
+    мета отдаётся без content, и признак обязан пережить будущую разгрузку тел.
+    Тело из одних пробелов — заглушка: пустая схема ничего не описывает.
+    """
+    n = _node(db, "Сервис")
+    db.commit()
+    _create(db, n, name="POST /orders", kind="operation", operation="POST /orders")
+    _create(db, n, name="Пробелы", kind="operation", content="   ")
+    _create(db, n, name="Рассылка", kind="worker", content="flowchart TD\n A --> B")
+    db.refresh(n)
+
+    out = NodeResponse.model_validate(n, from_attributes=True)
+    assert {d.name: d.described for d in out.docs} == {
+        "POST /orders": False,
+        "Пробелы": False,
+        "Рассылка": True,
+    }
+
+    # Заглушку описали — признак переворачивается (счётчик «описано N из M» растёт).
+    doc = next(d for d in n.docs if d.name == "POST /orders")
+    _patch(db, n, doc.id, content="flowchart TD\n A --> B")
+    db.refresh(n)
+    out2 = NodeResponse.model_validate(n, from_attributes=True)
+    assert {d.name: d.described for d in out2.docs}["POST /orders"] is True
+
+
 def test_cascade_on_node_delete(db):
     root = _node(db, "Корень")
     child = _node(db, "Ребёнок", parent=root)
