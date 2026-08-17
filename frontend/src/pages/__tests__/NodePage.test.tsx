@@ -447,9 +447,15 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     await act(async () => { window.dispatchEvent(new Event("focus")); });
   }
 
+  // Дефолтный таймаут waitFor — 1000 мс, и ожидания этого блока в него упирались:
+  // падения ловились на 1.03–1.06 с, то есть тик поллинга и перерисовка «Свойств»
+  // не успевали под нагрузкой (CI, параллельные файлы). Логика тут ни при чём —
+  // даём запас, чтобы медленная машина не выглядела красным тестом.
+  const ждать = { timeout: 5000 };
+
   it("чужая смена ТИПА (graph_rev) освежает «Свойства», а не только схему", async () => {
     setupPoll({ shape: "service" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument(), ждать);
 
     // Другая сессия сменила тип: структурная правка двигает graph_rev, meta_rev
     // стоит на месте. Форма — единственное отличие, поэтому тест ловит и «слушаем
@@ -458,37 +464,37 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
     await тик();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
     expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument();
   });
 
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {
     setupPoll({ name: "Сервис оплаты" });
-    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Платёжный шлюз", version: 5 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
     await тик();
 
-    await waitFor(() => expect(screen.getByDisplayValue("Платёжный шлюз")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue("Платёжный шлюз")).toBeInTheDocument(), ждать);
   });
 
   it("чужая смена статуса (meta_rev) освежает «Свойства» — прежний канал цел", async () => {
     setupPoll({ status: "existing" });
-    await waitFor(() => expect(screen.getByRole("button", { name: /Существует/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Существует/ })).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { status: "deprecated", version: 5 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 2 });
     await тик();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /Выводится/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Выводится/ })).toBeInTheDocument(), ждать);
   });
 
   it("своя правка тем же тиком страницу не дёргает (эхо-подавление)", async () => {
     // Тик застал СВОЮ правку: сервер отдаёт ровно то, что уже показано, —
     // ни подмены полей, ни тоста «Данные обновлены» быть не должно.
     setupPoll({ name: "Сервис оплаты", shape: "service" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Сервис оплаты", shape: "service", version: 5 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
@@ -504,9 +510,10 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     // решает version строки (тот же критерий, что у withOwnEdits, X20).
     vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "database", version: 5 }));
     setupPoll({ shape: "service" });
-    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }));
+    // findBy* ждёт тем же дефолтом в 1000 мс — болезнь та же, лечим заодно.
+    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }, ждать));
     await userEvent.click(screen.getByText("База данных"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
