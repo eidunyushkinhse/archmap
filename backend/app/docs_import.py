@@ -241,6 +241,23 @@ def spec_check(content: str) -> tuple[bool, bool, str | None]:
     return True, looks, str(ver) if looks else None
 
 
+# Сколько адресов перечислять в замечании. Кап нужен: на монолите узлов бывают
+# сотни, и полный перечень утопил бы остальные замечания (тот же довод, что у капов
+# пометок). Хвост назван числом — «показали не всё» обязано быть видно.
+MAX_NODES_HINT = 12
+
+
+def _nodes_hint(flat: list[Node]) -> str:
+    """Перечень адресов объектов проекта для замечания об отсутствующем адресе.
+
+    Имена, а не полные пути: приёмник резолвит и голое имя (см. resolve), а путь у
+    вложенного компонента длинный и в замечании только шумит.
+    """
+    names = [n.name for n in flat[:MAX_NODES_HINT]]
+    tail = f" и ещё {len(flat) - MAX_NODES_HINT}" if len(flat) > MAX_NODES_HINT else ""
+    return (", ".join(f"«{n}»" for n in names) + tail) if names else "в проекте их нет"
+
+
 def _resolve_entry(
     entry: PkgEntry,
     fname: str,
@@ -255,7 +272,17 @@ def _resolve_entry(
     .mmd — он же, но не дальше своего поддерева."""
     if entry.node_ref is None:
         if window_node_id is None or window_node_id not in by_node_id:
-            plan.errors.append(f"{fname}: не указан объект, а окно не сказало, к какому применять")
+            # ⚠️ Замечание обязано содержать ОТВЕТ, а не только диагноз — правило Н8,
+            # применённое у данных, каналов и конфигурации, но забытое здесь. Цена
+            # забывчивости измерена полевым прогоном (docs/qa-zobnin-field.md): на
+            # «не указан объект» слабая модель выдумала заголовок «archmap-object» из
+            # слова «объект» в самом замечании и приписала схемы трём узлам, которых в
+            # проекте нет. Поэтому здесь и синтаксис строки, и перечень адресов.
+            plan.errors.append(
+                f"{fname}: не указан объект. Впишите ведущей строкой файла "
+                f'"%% archmap-node: <адрес>" — именно с этим именем заголовка. '
+                f"Адреса объектов проекта: {_nodes_hint(flat)}"
+            )
             return None
         return by_node_id[window_node_id]
     idx = resolve(entry.node_ref, fname)
