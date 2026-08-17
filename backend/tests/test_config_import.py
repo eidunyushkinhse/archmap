@@ -299,13 +299,35 @@ def test_пустой_дефолт_у_секрета_подозрений_не_�
 def test_кап_подозрительных_дефолтов(db):
     _node(db, "Платежи")
     строки = "".join(
-        f"  - name: SECRET_{i}\n    default: v{i}\n" for i in range(MAX_SECRET_WARNINGS + 2)
+        f"  - name: SVC_{i}_PASSWORD\n    default: v{i}\n"
+        for i in range(MAX_SECRET_WARNINGS + 2)
     )
     отчёт = _preview(db, _in(("cfg.yaml", f"# archmap-node: Платежи\nconfig:\n{строки}")))
 
     подозрения = [w for w in отчёт.warnings if "ArchMap значений не хранит" in w]
     assert len(подозрения) == MAX_SECRET_WARNINGS
     assert any("…ещё у 2" in w for w in отчёт.warnings)
+
+
+def test_секрет_опознаётся_по_концу_имени_а_не_по_вхождению(db):
+    """⚠ Находка полевого прогона (docs/qa-config-field.md): вхождение где угодно
+    ловило «ACCESS_TOKEN_EXPIRE_MINUTES» — а это срок жизни, а не секрет. Класс стал
+    бы шумом на всех «*_TOKEN_TTL», а шумное замечание хоронит настоящие."""
+    _node(db, "Платежи")
+    пакет = (
+        "# archmap-node: Платежи\nconfig:\n"
+        "  - name: ACCESS_TOKEN_EXPIRE_MINUTES\n    default: \"10080\"\n"
+        "  - name: PARTITION_KEY\n    default: order_id\n"
+        "  - name: SECRET_KEY\n    default: подставлено\n"
+        "  - name: AWS_SECRET_ACCESS_KEY\n    default: подставлено\n"
+        "  - name: SENTRY_DSN\n    default: подставлено\n"
+    )
+
+    отчёт = _preview(db, _in(("cfg.yaml", пакет)))
+
+    подозрения = [w for w in отчёт.warnings if "ArchMap значений не хранит" in w]
+    названные = {w.split("«")[1].split("»")[0] for w in подозрения}
+    assert названные == {"SECRET_KEY", "AWS_SECRET_ACCESS_KEY", "SENTRY_DSN"}
 
 
 # ── Промпт ────────────────────────────────────────────────────────────────────

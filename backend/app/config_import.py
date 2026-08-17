@@ -55,9 +55,16 @@ MAX_SECRET_WARNINGS = 8
 # Имя ручки, у которой значение по определению секретно. Проверяем ИМЯ, а не значение:
 # отличить пароль от безобидной строки нельзя, а вот «в поле default у PASSWORD
 # что-то есть» — факт, о котором обязан узнать человек.
+#
+# ⚠️ ЯКОРЬ НА КОНЕЦ ИМЕНИ — находка полевого прогона (docs/qa-config-field.md):
+# вхождение где угодно ловило «ACCESS_TOKEN_EXPIRE_MINUTES», а это срок жизни, а не
+# секрет. Класс превратился бы в шум на всех «*_TOKEN_TTL» и «*_SECRET_ROTATION_DAYS»,
+# а шумное замечание хоронит настоящие. Секрет — то, чем имя КОНЧАЕТСЯ: «*_PASSWORD»,
+# «*_TOKEN», «*_SECRET», «SECRET_KEY», «AWS_SECRET_ACCESS_KEY», «SENTRY_DSN».
+# Голого «key» в перечне нет намеренно: PARTITION_KEY и SORT_KEY — не секреты.
 SECRET_NAME = re.compile(
-    r"(?i)(password|passwd|secret|token|api[_-]?key|apikey|private[_-]?key|credential|"
-    r"dsn|access[_-]?key)"
+    r"(?i)(password|passwd|secret|secret[_-]?key|token|api[_-]?key|apikey|"
+    r"private[_-]?key|access[_-]?key|credentials?|dsn)$"
 )
 
 
