@@ -1,0 +1,136 @@
+/* Секция «Конфигурация» страницы объекта: параметры и переменные окружения.
+   Базовые примитивы (np-card, np-field, np-addbtn, np-empty, np-warn) берутся из
+   NodePage.css — здесь только сетка строки параметра.
+
+   Сетка ПЛОСКАЯ и без раскрывашек, в отличие от соседних секций: у параметра нет ни
+   второго уровня, ни групп, и строка исчерпывает его целиком. Классы свои (cfg-*):
+   у каналов и таблиц сетки другие, и общий класс пришлось бы переопределять. */
+
+.cfg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cfg-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Строка — ГРИД, а не флекс: у .np-field стоит width:100%, и в потоке флекса поля
+   раздували строку, а имя схлопывалось в ноль (урок сетки .bch-head). */
+.cfg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) 52px minmax(0, 0.8fr) minmax(0, 1.8fr) 26px;
+  align-items: center;
+  gap: 6px;
+}
+/* Наблюдательский вариант: полей ввода нет, кнопки удаления тоже — трек под неё
+   убираем, иначе справа висит пустая колонка. */
+.cfg-row--ro {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) 52px minmax(0, 0.8fr) minmax(0, 1.8fr);
+}
+
+.cfg-name, .cfg-type, .cfg-default, .cfg-desc { min-width: 0; }
+
+.cfg-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  padding: 0 2px 2px;
+}
+
+/* Имя параметра — моноширинным: это идентификатор из кода, и «I» с «l» в нём
+   различать приходится глазами. */
+.cfg-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+.cfg-head .cfg-name {
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.cfg-ro {
+  color: #334155;
+  font-size: 13px;
+}
+.cfg-row--ro .cfg-type,
+.cfg-row--ro .cfg-default,
+.cfg-row--ro .cfg-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfg-flag {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.cfg-check {
+  justify-self: center;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.cfg-del {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  color: #cbd5e1;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.cfg-del:hover {
+  color: #ef4444;
+  background: #fef2f2;
+}
+
+/* Где используется — подстрокой под параметром, а не колонкой: схем бывает
+   несколько, и колонка либо обрезала бы их, либо развалила сетку. */
+.cfg-usage {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding-left: 2px;
+  font-size: 12px;
+}
+.cfg-usagelabel {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #0369a1;
+  background: #e0f2fe;
+  border-radius: 999px;
+  padding: 1px 7px;
+  flex: none;
+}
+.cfg-usagedocs {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #475569;
+}
+
+.cfg-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.cfg-actions {
+  display: flex;
+}

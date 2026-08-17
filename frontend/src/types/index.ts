@@ -26,17 +26,22 @@ export const canHaveChildren = (shape: NodeShape): boolean => shape === "service
 // агента это правило проговаривает давно («у узла без собственного HTTP API спеки нет
 // вовсе»), а страница объекта до 2026-08-12 всё равно предлагала слоты под них.
 // У брокера «контракт» свой — КАНАЛЫ с полями сообщений (docs/plan-broker-docs.md).
+// Конфигурация (переменные окружения, флаги) — тоже артефакт СЕРВИСА, как логика и
+// спека: у базы и брокера свои настройки бывают, но ArchMap описывает свои сервисы, а
+// инфраструктуру — чёрным ящиком с контрактом (docs/plan-config-docs.md §4).
 export interface ShapeDocs {
   logic: boolean;
   spec: boolean;
   structure: boolean;
   channels: boolean;
+  config: boolean;
 }
 export const shapeDocs = (shape: NodeShape): ShapeDocs => ({
   logic: shape === "service",
   spec: shape === "service",
   structure: shape === "database",
   channels: shape === "broker",
+  config: shape === "service",
 });
 
 // Проект — изолированная схема. Мета (счётчики/редактор/даты) считается бэком.

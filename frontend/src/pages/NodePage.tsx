@@ -15,6 +15,7 @@ import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
 import DbStructureSection from "../components/DbStructureSection";
 import BrokerChannelsSection from "../components/BrokerChannelsSection";
+import ConfigParamsSection from "../components/ConfigParamsSection";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
@@ -651,6 +652,13 @@ function NodePageInner({
         {allow.channels && (
           <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
         )}
+
+        {/* ── Конфигурация (параметры сервиса) ──────────────────── */}
+        {/* Монтируется ВСЕГДА, в отличие от двух секций выше: параметров нет в теле
+            узла, и узнать про легаси-записи у неподходящей формы можно только
+            запросом. Секция сама промолчит, если их нет (спрятать применённое было
+            бы хуже, чем показать с предупреждением). */}
+        <ConfigParamsSection nodeId={node.id} isArchitect={isArchitect} allowed={allow.config} />
 
         {/* ── Логика (node_docs) ────────────────────────────────── */}
         {(allow.logic || legacyLogic || container.docGroups.length > 0)
