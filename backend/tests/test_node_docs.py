@@ -121,7 +121,7 @@ def test_meta_in_node_response(db):
     _create(db, n, name="Воркер очереди", kind="worker")
     db.refresh(n)
     out = NodeResponse.model_validate(n, from_attributes=True)
-    assert [(d.name, d.kind) for d in out.docs] == [("Воркер очереди", "worker"), ("Логика", "overview")]
+    assert [(d.name, d.kind) for d in out.docs] == [("Воркер очереди", "worker"), ("Логика", "operation")]
 
 
 def test_described_flag_tells_stub_from_written_doc(db):

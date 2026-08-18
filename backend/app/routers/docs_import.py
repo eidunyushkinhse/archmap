@@ -102,12 +102,7 @@ def _entry_point_catalogs(
     pending: dict[str, list[str]] = {}
     rows = (
         db.query(NodeDoc.node_id, NodeDoc.name, NodeDoc.operation, NodeDoc.described)
-        .filter(
-            NodeDoc.node_id.in_(path_by_id),
-            # Обзорная схема точкой входа не является — в перечень разведки она не
-            # входит по природе, и объявлять её «неописанной работой» неверно.
-            NodeDoc.kind.in_(("operation", "worker")),
-        )
+        .filter(NodeDoc.node_id.in_(path_by_id))
         .all()
     )
     for node_id, name, operation, is_described in rows:

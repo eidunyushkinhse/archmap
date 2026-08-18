@@ -39,9 +39,11 @@ class NodeDoc(Base):
         Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
-    # Вид схемы: overview (обзор) | operation (обработчик API-операции) | worker
-    # (фоновый воркер/скрипт). Кодируется Literal-ом в Pydantic-схеме.
-    kind: Mapped[str] = mapped_column(String(16), default="overview", server_default="overview")
+    # Вид схемы: operation (сценарий, запускаемый извне: обработчик API-операции
+    # или действие пользователя в интерфейсе) | worker (фоновая работа).
+    # Кодируется Literal-ом в Pydantic-схеме. Вид «overview» удалён миграцией
+    # 4c1e0a9f6b2d вместе со всеми схемами, которые его несли.
+    kind: Mapped[str] = mapped_column(String(16), default="operation", server_default="operation")
     # Привязка к операции OpenAPI-спеки узла («METHOD /path», свободная строка) —
     # задел под провал «шаг процесса → схема сценария / спека операции».
     operation: Mapped[str | None] = mapped_column(String(256), nullable=True)

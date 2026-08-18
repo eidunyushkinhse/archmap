@@ -126,7 +126,7 @@ def test_plan_resolve_slash_without_spaces(db):
 
 def test_plan_overwrite_policy(db):
     _root, orders, *_ = _tree(db)
-    db.add(NodeDoc(node_id=orders.id, name="Приём", kind="overview", content="graph TD; OLD"))
+    db.add(NodeDoc(node_id=orders.id, name="Приём", kind="operation", content="graph TD; OLD"))
     db.commit()
     files = [("a.mmd", _mmd("Приём"))]
 
@@ -143,7 +143,7 @@ def test_plan_unchanged(db):
     # того же файла и даёт «без изменений».
     _root, orders, *_ = _tree(db)
     text = _mmd("Приём")
-    db.add(NodeDoc(node_id=orders.id, name="Приём", kind="overview", content=text))
+    db.add(NodeDoc(node_id=orders.id, name="Приём", kind="operation", content=text))
     db.commit()
 
     plan = _plan(db, [("a.mmd", text)], window=orders)
@@ -179,7 +179,7 @@ def test_заглушка_из_одних_пробелов_это_та_же_за
     # «Пусто» считаем strip-ом — ровно как признак «описана» в БД (NodeDoc.described)
     # и резолвер пометок: схема из переводов строки документацией не становится.
     _root, orders, *_ = _tree(db)
-    _stub(db, orders, "Приём", kind="overview", content=" \n\t ")
+    _stub(db, orders, "Приём", kind="operation", content=" \n\t ")
 
     plan = _plan(db, [("a.mmd", _mmd("Приём"))], window=orders, overwrite=False)
     assert [a.action for a in plan.logic] == ["fill"]
@@ -188,7 +188,7 @@ def test_заглушка_из_одних_пробелов_это_та_же_за
 def test_описанная_схема_по_прежнему_под_защитой_политики(db):
     # Обратное направление: тело есть — значит есть работа, и без галки её не трогаем.
     _root, orders, *_ = _tree(db)
-    _stub(db, orders, "Приём", kind="overview", content="graph TD; OLD")
+    _stub(db, orders, "Приём", kind="operation", content="graph TD; OLD")
 
     plan = _plan(db, [("a.mmd", _mmd("Приём"))], window=orders, overwrite=False)
     assert [a.action for a in plan.logic] == ["skip"]
@@ -198,7 +198,7 @@ def test_пустой_вход_поверх_описанной_схемы_не_�
     """Заполнение — только В заглушку. Пустая схема ОТ агента поверх описанной это не
     заполнение, а стирание работы: остаётся на прежней политике."""
     _root, orders, *_ = _tree(db)
-    doc = _stub(db, orders, "Приём", kind="overview", content="graph TD; OLD")
+    doc = _stub(db, orders, "Приём", kind="operation", content="graph TD; OLD")
     doc_id, orders_id = doc.id, orders.id
     files = [("a.mmd", "%% archmap-name: Приём\n\n   \n")]
 
@@ -213,7 +213,7 @@ def test_пустой_вход_поверх_описанной_схемы_не_�
 def test_применение_считает_заполненные_отдельно_от_перезаписанных(db):
     _root, orders, *_ = _tree(db)
     _stub(db, orders, "POST /orders", operation="POST /orders")
-    _stub(db, orders, "Отчёт", kind="overview", content="graph TD; OLD")
+    _stub(db, orders, "Отчёт", kind="operation", content="graph TD; OLD")
     orders_id = orders.id
     files = [
         ("a.mmd", _mmd("POST /orders", kind="operation", operation="POST /orders")),
@@ -414,7 +414,7 @@ def test_plan_адрес_вне_поддерева_окна(db):
 
 def test_apply_and_idempotent(db):
     _root, orders, *_ = _tree(db)
-    db.add(NodeDoc(node_id=orders.id, name="Приём", kind="overview", content="graph TD; OLD"))
+    db.add(NodeDoc(node_id=orders.id, name="Приём", kind="operation", content="graph TD; OLD"))
     db.commit()
     orders_id = orders.id
     files = [("a.mmd", _mmd("Приём"))]
@@ -638,7 +638,7 @@ def test_mmd_едет_на_объект_окна_без_всякого_адре�
     assert item.mermaid == MMD
 
 
-def test_без_шапки_имя_берётся_из_имени_файла_и_вид_обзорный(db):
+def test_без_шапки_имя_берётся_из_имени_файла_и_вид_операционный(db):
     _, orders, *_ = _tree(db)
 
     report = docs_import_preview(
@@ -648,7 +648,7 @@ def test_без_шапки_имя_берётся_из_имени_файла_и_�
 
     assert report.errors == []
     assert report.logic[0].name == "Схема хранения"
-    assert report.logic[0].kind == "overview"
+    assert report.logic[0].kind == "operation"
 
 
 def test_вставка_текстом_опознаётся_по_содержимому(db):
@@ -1319,8 +1319,10 @@ def test_endpoint_prompt_делит_точки_входа_на_описанны�
     _stub(db, orders, "Создание заказа", operation="POST /orders", content="graph TD; B")
     _stub(db, orders, "DELETE /orders/{id}", operation="DELETE /orders/{id}")
     _stub(db, orders, "email_senders", kind="worker")
-    # Обзор точкой входа не является: в перечень разведки он не входит по природе.
-    _stub(db, orders, "Обзор сервиса", kind="overview", content="graph TD; C")
+    # Клиентский сценарий: вид «операция», поле operation пустое — своего API у него
+    # нет. После отказа от вида «обзор» он такая же точка входа, как остальные, и в
+    # перечне стоит наравне: исключать из него по виду больше нечего.
+    _stub(db, orders, "Просмотр витрины", kind="operation", content="graph TD; C")
 
     out = docs_prompt(
         lang="ru", hints=None, target=None,
@@ -1331,16 +1333,17 @@ def test_endpoint_prompt_делит_точки_входа_на_описанны�
     осталось = out.prompt.index("Разведаны, но НЕ ОПИСАНЫ")
     # Схема с человеческим именем названа вместе с адресом: без него перечень не
     # отвечает на вопрос «какая операция уже закрыта».
-    assert "- Ярмарка / orders: GET /orders, Создание заказа (POST /orders)" in out.prompt
+    assert (
+        "- Ярмарка / orders: GET /orders, Просмотр витрины, Создание заказа (POST /orders)"
+    ) in out.prompt
     assert "- Ярмарка / orders: DELETE /orders/{id}, email_senders" in out.prompt
-    assert "Обзор сервиса" not in out.prompt
     # Главное: заглушки нет в половине «описанного» — иначе агент её пропустит.
     assert "DELETE /orders/{id}" not in out.prompt[описано:осталось]
 
 
-def test_endpoint_prompt_на_проекте_без_разведки_перечня_точек_входа_не_несёт(db):
-    _root, orders, *_ = _tree(db)
-    _stub(db, orders, "Обзор", kind="overview", content="graph TD; A")
+def test_endpoint_prompt_на_проекте_без_схем_перечня_точек_входа_не_несёт(db):
+    # Пустой раздел агенту не нужен: перечня нет, пока у объекта нет ни одной схемы.
+    _root, _orders, *_ = _tree(db)
 
     out = docs_prompt(
         lang="ru", hints=None, target=None,

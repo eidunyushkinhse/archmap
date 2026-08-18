@@ -150,7 +150,7 @@ function DistributeForm({ data, onClose, onApplied }: {
                 <span style={docName} title={d.name}>
                   {d.name}
                   <span className={`insp-doc-chip insp-doc-chip--${d.kind}`} style={{ marginLeft: 8 }}>
-                    {d.kind === "overview" ? "обзор" : d.kind === "operation" ? "операция" : "воркер"}
+                    {d.kind === "operation" ? "операция" : "воркер"}
                   </span>
                 </span>
                 <select

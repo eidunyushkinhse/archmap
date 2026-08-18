@@ -315,13 +315,13 @@ function NodePageInner({
   ) : null;
 
   // Счётчик «описано N из M» — ПРОИЗВОДНОЕ в рендере (эффект с setState тут запрещён
-  // линтом и рассинхронился бы с метой). Знаменатель — только точки входа: схема-обзор
-  // от разведки не зависит и завышала бы его на постоянную величину.
-  const entryDocs = useMemo(
-    () => node.docs.filter((d) => d.kind === "operation" || d.kind === "worker"),
+  // линтом и рассинхронился бы с метой). Знаменатель — ВСЕ схемы объекта: после
+  // отказа от вида «обзор» оба оставшихся вида (операция, воркер) — точки входа,
+  // и отсеивать из знаменателя больше нечего.
+  const describedCount = useMemo(
+    () => node.docs.filter((d) => d.described).length,
     [node.docs],
   );
-  const describedCount = useMemo(() => entryDocs.filter((d) => d.described).length, [entryDocs]);
 
   // Открытие своей схемы из списка «Логики» (стабильная ссылка — список схем
   // монолита длинный, лишних ре-рендеров ему не нужно).
@@ -671,10 +671,10 @@ function NodePageInner({
           <div className="np-card">
             <h3 className="np-card-title">
               Логика
-              {/* Точек входа нет вовсе — счётчика нет: «описано 0 из 0» это шум на
-                  каждом узле проекта, а не полезное знание. */}
-              {entryDocs.length > 0 && (
-                <span style={docsCounter}>описано {describedCount} из {entryDocs.length}</span>
+              {/* Схем нет вовсе — счётчика нет: «описано 0 из 0» это шум на каждом
+                  узле проекта, а не полезное знание. */}
+              {node.docs.length > 0 && (
+                <span style={docsCounter}>описано {describedCount} из {node.docs.length}</span>
               )}
             </h3>
             {isContainer ? (

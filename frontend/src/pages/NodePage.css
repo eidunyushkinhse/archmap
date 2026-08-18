@@ -678,10 +678,6 @@
   border-radius: 999px;
   white-space: nowrap;
 }
-.np-doc-chip--overview {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
 .np-doc-chip--operation {
   background: #f0fdf4;
   color: #166534;

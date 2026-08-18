@@ -32,7 +32,7 @@ def test_docs_mutation_bumps_meta_not_graph(db):
 
     doc = create_doc(
         node.id,
-        NodeDocCreate(name="Схема", kind="overview", operation=None, content="graph TD"),
+        NodeDocCreate(name="Схема", kind="operation", operation=None, content="graph TD"),
         db=db, project=project, user=arch,
     )
     db.refresh(project)

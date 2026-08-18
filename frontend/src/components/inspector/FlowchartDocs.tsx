@@ -30,13 +30,12 @@ interface Props {
 }
 
 const KIND_LABEL: Record<NodeDocKind, string> = {
-  overview: "Обзор",
   operation: "Операция",
   worker: "Воркер",
 };
-const KIND_ORDER: NodeDocKind[] = ["overview", "operation", "worker"];
+const KIND_ORDER: NodeDocKind[] = ["operation", "worker"];
 
-// Стабильный порядок списка: обзорные → операции → воркеры, внутри — по имени.
+// Стабильный порядок списка: операции → воркеры, внутри — по имени.
 function sortDocs(docs: NodeDoc[]): NodeDoc[] {
   return [...docs].sort(
     (a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name),
@@ -115,7 +114,7 @@ export default function FlowchartDocs({ nodeId, isArchitect, showCode, onDocEven
 
   async function createDoc() {
     try {
-      const doc = await nodeDocsApi.create(nodeId, { name: freshName(sorted), kind: "overview", operation: null, content: "" });
+      const doc = await nodeDocsApi.create(nodeId, { name: freshName(sorted), kind: "operation", operation: null, content: "" });
       setDocs((prev) => [...(prev ?? []), doc]);
       setActiveId(doc.id);
       setNotice(null);
@@ -245,7 +244,7 @@ function DocMetaFields({
         value={doc.kind}
         onChange={(e) => onPatch({ kind: e.target.value as NodeDocKind })}
         aria-label="Вид схемы"
-        title="Обзор / обработчик API-операции / фоновый воркер"
+        title="Обработчик операции или сценарий клиента / фоновый воркер"
       >
         {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
       </select>

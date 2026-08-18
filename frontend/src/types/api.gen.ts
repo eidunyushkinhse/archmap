@@ -3178,7 +3178,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "overview" | "operation" | "worker";
+            kind: "operation" | "worker";
             /** Operation */
             operation: string | null;
             /**
@@ -3202,7 +3202,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Kind */
-            kind?: ("overview" | "operation" | "worker") | null;
+            kind?: ("operation" | "worker") | null;
             /** Node */
             node?: string | null;
         };
@@ -3846,10 +3846,10 @@ export interface components {
             name: string;
             /**
              * Kind
-             * @default overview
+             * @default operation
              * @enum {string}
              */
-            kind: "overview" | "operation" | "worker";
+            kind: "operation" | "worker";
             /** Operation */
             operation?: string | null;
             /**
@@ -3876,7 +3876,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "overview" | "operation" | "worker";
+            kind: "operation" | "worker";
             /** Operation */
             operation: string | null;
             /**
@@ -3905,7 +3905,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "overview" | "operation" | "worker";
+            kind: "operation" | "worker";
             /** Operation */
             operation: string | null;
             /** Content */
@@ -3946,10 +3946,10 @@ export interface components {
             name: string;
             /**
              * Kind
-             * @default overview
+             * @default operation
              * @enum {string}
              */
-            kind: "overview" | "operation" | "worker";
+            kind: "operation" | "worker";
             /** Operation */
             operation?: string | null;
             /**
@@ -3963,7 +3963,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Kind */
-            kind?: ("overview" | "operation" | "worker") | null;
+            kind?: ("operation" | "worker") | null;
             /** Operation */
             operation?: string | null;
             /** Content */
@@ -4522,7 +4522,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "overview" | "operation" | "worker";
+            kind: "operation" | "worker";
             /** Operation */
             operation?: string | null;
             /**

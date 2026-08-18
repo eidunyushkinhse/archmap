@@ -34,7 +34,7 @@ def _node(db, name, parent=None, shape="service", openapi_spec=None):
     return n
 
 
-def _doc(db, node, name="Схема", kind="overview"):
+def _doc(db, node, name="Схема", kind="operation"):
     d = NodeDoc(id=uuid.uuid4(), node_id=node.id, name=name, kind=kind, content="graph TD\nA-->B")
     db.add(d)
     return d

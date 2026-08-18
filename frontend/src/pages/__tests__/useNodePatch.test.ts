@@ -40,8 +40,8 @@ function makeDoc(over: Partial<NodeDoc> = {}): NodeDoc {
   return {
     id: "d1",
     node_id: "n1",
-    name: "Обзор",
-    kind: "overview",
+    name: "Логика",
+    kind: "operation",
     operation: null,
     content: "graph TD",
     version: 1,
@@ -110,7 +110,7 @@ describe("useNodePatch", () => {
 
   it("applyDocEvent: create/edit/delete обновляют мету доков в стейте", () => {
     const d1 = makeDoc({ id: "d1", name: "Обзор", version: 1 });
-    const { result } = renderHook(() => useNodePatch(makeNode({ docs: [{ id: "d1", name: "Обзор", kind: "overview", operation: null, version: 1, described: true }] })));
+    const { result } = renderHook(() => useNodePatch(makeNode({ docs: [{ id: "d1", name: "Обзор", kind: "operation", operation: null, version: 1, described: true }] })));
 
     // create
     const d2 = makeDoc({ id: "d2", name: "Операция", kind: "operation", version: 1 });

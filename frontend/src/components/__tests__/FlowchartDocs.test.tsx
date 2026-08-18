@@ -27,7 +27,7 @@ function doc(id: string, over: Partial<NodeDoc> = {}): NodeDoc {
     id,
     node_id: "n1",
     name: `Схема ${id}`,
-    kind: "overview",
+    kind: "operation",
     operation: null,
     content: `content-${id}`,
     version: 1,
