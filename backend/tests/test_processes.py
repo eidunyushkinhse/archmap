@@ -32,6 +32,7 @@ from app.routers.processes import (
     get_process,
     list_channels,
     list_directions,
+    message_doc_catalog,
     reattach_process,
     reorder_messages,
     reorder_participants,
@@ -357,6 +358,119 @@ def test_удаление_схемы_оставляет_шаг_живым(db):
 
     живой = db.get(ProcessMessage, msg.id)
     assert живой is not None and живой.doc_id is None
+
+
+# ── Каталог схем и правило владельца (Ф2) ────────────────────────────────────
+
+
+def _каталог(db, proc, msg):
+    return message_doc_catalog(
+        proc.id, msg.id, db=db, project=ensure_project(db), _=ensure_architect(db)
+    )
+
+
+def test_владелец_шага_цель_канала(db):
+    proc, msg, _web, orders = _шаг_с_каналом(db)
+    _схема(db, orders)
+    кат = _каталог(db, proc, msg)
+    assert кат.default_node_id == orders.id
+
+
+def test_владелец_у_плеча_ответа_ТОТ_ЖЕ(db):
+    """⚠️ Дефект Д1 челленджа и главный тест правила: у плеча return концы шага
+    перевёрнуты (from = цель ребра), и правило «владелец = цель канала» назвало бы
+    владельцем ВЫЗЫВАЮЩЕГО. Таких шагов на живых данных треть — 52 из 156.
+    Правило считается от РЕБРА, поэтому запрос и ответ дают одного исполнителя."""
+    web, orders = _node(db, "web"), _node(db, "orders")
+    edge = _edge(db, web, orders, is_sync=True, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [web, orders])
+    общий = dict(db=db, project=ensure_project(db), user=ensure_architect(db))
+    вызов = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", from_participant_id=parts[web.id],
+                      to_participant_id=parts[orders.id], order=0),
+        **общий,
+    )
+    ответ = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="return", from_participant_id=parts[orders.id],
+                      to_participant_id=parts[web.id], order=1),
+        **общий,
+    )
+    assert ответ.from_participant_id != вызов.from_participant_id  # концы и правда разные
+    assert _каталог(db, proc, вызов).default_node_id == orders.id
+    assert _каталог(db, proc, ответ).default_node_id == orders.id
+
+
+def test_обращение_к_базе_отдаёт_владельца_источнику(db):
+    """У базы схем логики не бывает по форме — владельцем становится тот, кто
+    обращается. Замер: переключение результативно в 43 случаях из 43."""
+    svc = _node(db, "orders")
+    db_node = _node(db, "Каталог-БД", shape="database")
+    edge = _edge(db, svc, db_node, label="читает")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [svc, db_node])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", from_participant_id=parts[svc.id],
+                      to_participant_id=parts[db_node.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert _каталог(db, proc, msg).default_node_id == svc.id
+
+
+def test_каталог_шире_владельца_и_ставит_его_первым(db):
+    """Клиентский сценарий живёт у ВЫЗЫВАЮЩЕГО («Оформление заказа» на веб-витрине),
+    и запирать каталог владельцем нельзя — законный ответ стал бы недостижим.
+    Порядок вместо запрета: схемы владельца идут первыми."""
+    proc, msg, web, orders = _шаг_с_каналом(db)
+    _схема(db, web, name="Оформление заказа")
+    _схема(db, orders, name="POST /orders")
+    кат = _каталог(db, proc, msg)
+    assert [d.name for d in кат.docs] == ["POST /orders", "Оформление заказа"]
+    assert [d.node_path for d in кат.docs] == ["orders", "web"]
+
+
+def test_каталог_берёт_поддерево_участника_а_не_сам_узел(db):
+    """На системной диаграмме участник обычно контейнер, а своих схем у контейнера
+    быть не должно (AL24) — каталог был бы вечно пуст (решение Р3)."""
+    web = _node(db, "web")
+    контейнер = _node(db, "Бэкенд")
+    ребёнок = _node(db, "orders", parent=контейнер)
+    edge = _edge(db, web, ребёнок)  # сквозная связь: конец вглубь поддерева
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [web, контейнер])
+    _схема(db, ребёнок, name="POST /orders")
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", from_participant_id=parts[web.id],
+                      to_participant_id=parts[контейнер.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    кат = _каталог(db, proc, msg)
+    assert [d.node_path for d in кат.docs] == ["Бэкенд / orders"]
+    # Владелец — сырой конец ребра (ребёнок), а не спроецированный участник.
+    assert кат.default_node_id == ребёнок.id
+
+
+def test_у_повисшего_шага_дефолта_нет_а_каталог_есть(db):
+    """Ребра нет — выводить владельца не из чего. Но привязать шаг всё равно можно:
+    запрет дал бы вечные алерты, которые нечем погасить (следствие решения Р4)."""
+    proc, msg, web, orders = _шаг_с_каналом(db)
+    _схема(db, orders)
+    строка = db.get(ProcessMessage, msg.id)
+    assert строка is not None
+    строка.edge_id = None  # связь удалили из схемы — шаг повис
+    db.commit()
+
+    кат = _каталог(db, proc, msg)
+    assert кат.default_node_id is None
+    assert [d.name for d in кат.docs] == ["POST /orders"]
+    assert {d.node_id for d in кат.docs} <= {web.id, orders.id}
 
 
 def test_белый_список_полей_правки_шага_полон():

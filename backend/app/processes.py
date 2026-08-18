@@ -411,6 +411,96 @@ def fragment_out(frag: ProcessFragment) -> FragmentOut:
     )
 
 
+# Логику несёт только сервис: у базы, брокера и человека схем логики не бывает
+# (фронтовый shapeDocs — logic: shape === "service"; тот же отбор у конфигурации,
+# config_import.py:162).
+LOGIC_SHAPE = "service"
+
+
+@dataclass(frozen=True)
+class DocChoice:
+    """Строка каталога «чем задокументирован шаг»: схема, её узел и путь узла."""
+
+    doc: NodeDoc
+    node: Node
+    path: str
+    # Схема лежит в поддереве ВЛАДЕЛЬЦА шага — такие идут первыми.
+    own: bool
+
+
+def owner_node_id(edge: Edge | None, all_nodes: dict[uuid.UUID, Node]) -> uuid.UUID | None:
+    """Чью схему логики описывает шаг — конец РЕБРА, несущий логику.
+
+    Правило считается ОТ РЕБРА, а не от плеча: и запрос, и ответ описывает один и тот
+    же исполнитель — тот, кто делает работу. Формулировка «владелец = цель канала»
+    переворачивала бы концы у каждого третьего шага: у плеча return from/to меняются
+    местами, а таких шагов на живых данных 52 из 156 (дефект Д1 челленджа, замер —
+    docs/plan-process-docs-step3.md).
+
+    Цель логики не несёт (база, брокер, человек) — владельцем становится источник:
+    обращение к базе описывает тот, кто обращается. Замер: переключение результативно
+    в 43 случаях из 43, шагов вовсе без владельца нет.
+
+    None — ребра нет (повисший шаг или самосообщение): выводить не из чего, и человек
+    выбирает схему сам.
+    """
+    if edge is None:
+        return None
+    target = all_nodes.get(edge.target_id)
+    if target is not None and target.shape == LOGIC_SHAPE:
+        return target.id
+    source = all_nodes.get(edge.source_id)
+    return source.id if source is not None and source.shape == LOGIC_SHAPE else None
+
+
+def doc_catalog(
+    db: Session,
+    msg: ProcessMessage,
+    part_by_id: dict[uuid.UUID, ProcessParticipant],
+    edge: Edge | None,
+    all_nodes: dict[uuid.UUID, Node],
+) -> tuple[uuid.UUID | None, list[DocChoice]]:
+    """(владелец, каталог схем) для шага. Владелец — только дефолт, не ограничение.
+
+    СКОУП — поддеревья ОБОИХ участников шага, а не одного лишь владельца. Причина в
+    данных: клиентский сценарий живёт у ВЫЗЫВАЮЩЕГО («Оформление заказа (checkout)» на
+    веб-витрине), и шаг «витрина → orders» человек вправе задокументировать как со
+    стороны исполнителя, так и со стороны клиента. Каталог, суженный до владельца,
+    запирал бы этот законный ответ; порядок вместо запрета — схемы владельца первыми.
+
+    Поддерево, а не сам узел-участник: на системной диаграмме участник обычно
+    контейнер, а своих схем у контейнера быть не должно (алерт AL24) — каталог был бы
+    вечно пуст (решение Р3, docs/plan-process-docs-step2.md).
+    """
+    scope: set[uuid.UUID] = set()
+    for pid in {msg.from_participant_id, msg.to_participant_id}:
+        part = part_by_id.get(pid)
+        if part is not None and part.node_id is not None:
+            scope |= subtree_ids(all_nodes, part.node_id)
+    if not scope:
+        return None, []
+
+    owner = owner_node_id(edge, all_nodes)
+    own_scope = subtree_ids(all_nodes, owner) if owner else set()
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id.in_(scope)).all()
+
+    def path_of(node: Node) -> str:
+        return " / ".join([*(a.name for a in ancestors(all_nodes, node.id)), node.name])
+
+    out: list[DocChoice] = []
+    for d in docs:
+        node = all_nodes.get(d.node_id)
+        if node is None:  # схема узла вне проекта в скоуп не попадала бы
+            continue
+        out.append(
+            DocChoice(doc=d, node=node, path=path_of(node), own=d.node_id in own_scope)
+        )
+    # Свои первыми, дальше по пути узла и имени схемы: порядок читает человек, и он
+    # обязан быть устойчивым между запросами.
+    out.sort(key=lambda c: (not c.own, c.path, c.doc.name))
+    return owner, out
+
+
 def docs_for_messages(
     db: Session, msgs: Iterable[ProcessMessage]
 ) -> dict[uuid.UUID, NodeDoc]:

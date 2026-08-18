@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.schemas.node import NodeStatus
+from app.schemas.node_doc import NodeDocKind
 
 Leg = Literal["forward", "return"]
 # "self" — самосообщение (внутренняя операция участника): не плечо канала C4, концы
@@ -93,6 +94,34 @@ class MessageOut(BaseModel):
     # на фронте из kind можно, но окольно: связь «kind=return + leg_gone → канал
     # асинхронный» держалась бы на честном слове.
     edge_synchronous: bool | None = None
+
+
+class DocChoiceOut(BaseModel):
+    """Строка каталога «чем задокументирован шаг»."""
+
+    id: uuid.UUID
+    node_id: uuid.UUID
+    # Путь узла человеку («Ярмарка / orders»): в каталоге бывают схемы РАЗНЫХ узлов
+    # (оба участника плюс их потомки), и одного имени схемы для выбора мало.
+    node_path: str
+    name: str
+    kind: NodeDocKind
+    operation: str | None
+    # Заглушка разведки (тело пустое) — её видно и здесь: привязать шаг к неописанной
+    # операции законно, но человек должен понимать, что документации там пока нет.
+    described: bool
+
+
+class MessageDocCatalog(BaseModel):
+    """Каталог для окна выбора схемы у шага.
+
+    default_node_id — ВЛАДЕЛЕЦ шага (конец ребра, несущий логику). Это подсказка для
+    подстановки, а не ограничение: каталог шире владельца намеренно (см. doc_catalog).
+    null — ребра нет (повисший шаг, самосообщение), дефолта не существует.
+    """
+
+    default_node_id: uuid.UUID | None
+    docs: list[DocChoiceOut]
 
 
 class BranchOut(BaseModel):

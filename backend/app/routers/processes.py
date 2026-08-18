@@ -29,6 +29,7 @@ from app.processes import (
     build_process_detail,
     default_caption,
     detach_messages,
+    doc_catalog,
     docs_for_messages,
     edge_is_synchronous,
     fragment_out,
@@ -48,11 +49,13 @@ from app.schemas.process import (
     BranchIn,
     ChannelOut,
     DirectionOut,
+    DocChoiceOut,
     FragmentCreate,
     FragmentOut,
     FragmentUpdate,
     LegOut,
     MessageCreate,
+    MessageDocCatalog,
     MessageOut,
     MessageUpdate,
     ParticipantBind,
@@ -571,6 +574,51 @@ def _check_doc(db: Session, doc_id: uuid.UUID | None, project: Project) -> None:
     )
     if ok is None:
         raise HTTPException(status_code=404, detail="Схема логики не найдена")
+
+
+@router.get(
+    "/{process_id}/messages/{message_id}/docs",
+    response_model=MessageDocCatalog,
+)
+def message_doc_catalog(
+    process_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> MessageDocCatalog:
+    """Схемы, которыми можно задокументировать шаг, плюс владелец для подстановки.
+
+    Считается НА БЭКЕ целиком: правило владельца (конец ребра, несущий логику) и скоуп
+    (поддеревья участников) — доменные знания, и вторая их реализация на фронте
+    неизбежно разошлась бы с этой, как это уже случалось с проекцией концов связи
+    (см. list_directions).
+
+    Читателю ручка открыта: состояние документации — знание, а не действие над ней.
+    """
+    proc = _get_process(db, process_id, project)
+    msg = db.get(ProcessMessage, message_id)
+    if msg is None or msg.process_id != proc.id:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    all_nodes = load_nodes(db, project.id)
+    part_by_id = {p.id: p for p in proc.participants}
+    edge = db.get(Edge, msg.edge_id) if msg.edge_id else None
+    owner, choices = doc_catalog(db, msg, part_by_id, edge, all_nodes)
+    return MessageDocCatalog(
+        default_node_id=owner,
+        docs=[
+            DocChoiceOut(
+                id=c.doc.id,
+                node_id=c.node.id,
+                node_path=c.path,
+                name=c.doc.name,
+                kind=c.doc.kind,  # type: ignore[arg-type]
+                operation=c.doc.operation,
+                described=c.doc.described,
+            )
+            for c in choices
+        ],
+    )
 
 
 @router.patch("/{process_id}/messages/{message_id}", response_model=MessageOut)

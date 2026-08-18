@@ -1733,6 +1733,33 @@ export interface paths {
         patch: operations["reorder_messages_api_v1_processes__process_id__messages_reorder_patch"];
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/messages/{message_id}/docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Message Doc Catalog
+         * @description Схемы, которыми можно задокументировать шаг, плюс владелец для подстановки.
+         *
+         *     Считается НА БЭКЕ целиком: правило владельца (конец ребра, несущий логику) и скоуп
+         *     (поддеревья участников) — доменные знания, и вторая их реализация на фронте
+         *     неизбежно разошлась бы с этой, как это уже случалось с проекцией концов связи
+         *     (см. list_directions).
+         *
+         *     Читателю ручка открыта: состояние документации — знание, а не действие над ней.
+         */
+        get: operations["message_doc_catalog_api_v1_processes__process_id__messages__message_id__docs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/messages/{message_id}": {
         parameters: {
             query?: never;
@@ -3074,6 +3101,35 @@ export interface components {
             spec_moved: boolean;
         };
         /**
+         * DocChoiceOut
+         * @description Строка каталога «чем задокументирован шаг».
+         */
+        DocChoiceOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Path */
+            node_path: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+            /** Described */
+            described: boolean;
+        };
+        /**
          * DocsFileIn
          * @description Один загруженный файл пакета: имя нужно для file-референсов манифеста
          *     и префиксов ошибок.
@@ -3756,6 +3812,20 @@ export interface components {
             order: number;
             /** Doc Id */
             doc_id?: string | null;
+        };
+        /**
+         * MessageDocCatalog
+         * @description Каталог для окна выбора схемы у шага.
+         *
+         *     default_node_id — ВЛАДЕЛЕЦ шага (конец ребра, несущий логику). Это подсказка для
+         *     подстановки, а не ограничение: каталог шире владельца намеренно (см. doc_catalog).
+         *     null — ребра нет (повисший шаг, самосообщение), дефолта не существует.
+         */
+        MessageDocCatalog: {
+            /** Default Node Id */
+            default_node_id: string | null;
+            /** Docs */
+            docs: components["schemas"]["DocChoiceOut"][];
         };
         /** MessageOut */
         MessageOut: {
@@ -8734,6 +8804,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    message_doc_catalog_api_v1_processes__process_id__messages__message_id__docs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageDocCatalog"];
                 };
             };
             /** @description Validation Error */
