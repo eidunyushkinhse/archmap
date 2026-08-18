@@ -1580,6 +1580,30 @@ export interface paths {
         patch: operations["update_process_api_v1_processes__process_id__patch"];
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Process
+         * @description Экспорт процесса в Mermaid sequenceDiagram (Ф2 архива, решение Р2).
+         *
+         *     Конвертер переехал с фронта ЕДИНСТВЕННОЙ реализацией (process_export):
+         *     кнопка экспорта, архив и MCP зовут одну и ту же ручку. Читателю открыт —
+         *     экспорт знания, а не действие над ним.
+         */
+        get: operations["export_process_api_v1_processes__process_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/duplicate": {
         parameters: {
             query?: never;
@@ -3421,15 +3445,16 @@ export interface components {
         /**
          * ExportResponse
          * @description Экспорт схемы как текст. format держим явным полем, чтобы позже добавить
-         *     другие сериализации (mermaid/json) без слома контракта; content — сам документ.
+         *     другие сериализации без слома контракта; content — сам документ. mermaid —
+         *     экспорт процесса (Ф2 архива: конвертер переехал с фронта единственной
+         *     реализацией).
          */
         ExportResponse: {
             /**
              * Format
-             * @constant
              * @enum {string}
              */
-            format: "yaml";
+            format: "yaml" | "mermaid";
             /** Content */
             content: string;
         };
@@ -8635,6 +8660,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_process_api_v1_processes__process_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportResponse"];
                 };
             };
             /** @description Validation Error */

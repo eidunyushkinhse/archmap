@@ -3,6 +3,7 @@ import type {
   BindResult,
   ReattachResult,
   Channel,
+  ExportResponse,
   MessageDocCatalog,
   FragmentCreate,
   FragmentUpdate,
@@ -93,6 +94,12 @@ export const processesApi = {
   // его реализация здесь разошлась бы с первой (та же причина, что у directions).
   messageDocs: (id: string, messageId: string): Promise<MessageDocCatalog> =>
     api.get<MessageDocCatalog>(`/processes/${id}/messages/${messageId}/docs`),
+
+  // Экспорт процесса в Mermaid. Конвертер живёт НА БЭКЕ единственной реализацией
+  // (Ф2 архива, решение Р2): прежний фронтовый toMermaid.ts удалён — кнопка,
+  // архив и MCP зовут одну и ту же ручку.
+  exportMermaid: (id: string): Promise<ExportResponse> =>
+    api.get<ExportResponse>(`/processes/${id}/export`),
 
   // Дублирование процесса — СЕРВЕРНАЯ ручка (одна транзакция, строки пишутся
   // напрямую). Прежняя фронтовая оркестрация поверх публичных ручек теряла всё, что

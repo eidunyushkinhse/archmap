@@ -11,7 +11,6 @@ import NodePage from "./NodePage";
 import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import { processesApi } from "../api/processes";
-import { detailToMermaid } from "../components/processes/sequence/toMermaid";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
@@ -116,7 +115,7 @@ export default function ProjectShell({
         ? {
             key: `proc:${procSelection.id}`,
             title: `Экспорт процесса «${procSelection.name}» (Mermaid)`,
-            load: () => processesApi.get(procSelection.id).then((d) => ({ content: detailToMermaid(d) })),
+            load: () => processesApi.exportMermaid(procSelection.id),
           }
         : null
       : nodeId
