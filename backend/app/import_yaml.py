@@ -3,7 +3,8 @@
 Принимает ровно тот документ, что строит build_export: {nodes: <дерево через
 children>, edges: <список по именам>}. Гарантия roundtrip: любой вывод
 build_export импортируется без ошибок с той же семантикой (имя, форма, статус,
-роль, технология, external, описание, вложенность, связи). Раскладки в формате
+роль, технология, external, описание, якорь source, вложенность, связи с
+каналом и типом sync). Раскладки в формате
 нет — координаты не пишем, холст разложит авто-ELK; вложенные документы (доки
 логики node_docs, openapi_spec) в формат не входят → останутся пустыми
 (наполнение доков — BYOA-дозаливка, этап 2 plan-agent-docs.md).
@@ -62,6 +63,10 @@ class _ImpEdge:
     # обязателен по конвенции, но парсер его НЕ требует — отсутствие ловит
     # предупреждение слияния (_warn_broker_edges) и алерт AL31, а не отказ импорта.
     channel: str | None = None
+    # Тип канала (sync: true/false). None — поле не прислано, канал живёт на
+    # дефолте «синхронный» (edge_is_synchronous); явное значение переносится
+    # как есть — иначе асинхронный канал приезжал бы «синхронным» молча (Д2).
+    is_synchronous: bool | None = None
 
 
 @dataclass
@@ -440,6 +445,10 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         dst_idx = resolve(dst_ref, path)
         if src_idx is None or dst_idx is None:
             continue
+        sync = raw_e.get("sync")
+        if sync is not None and not isinstance(sync, bool):
+            errors.append(f"{path}.sync: ожидается true/false")
+            sync = None
         edges.append(
             _ImpEdge(
                 source_idx=src_idx,
@@ -447,6 +456,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
                 label=opt_str(raw_e, "label", path, 256),
                 technology=opt_str(raw_e, "technology", path, 128),
                 channel=opt_str(raw_e, "channel", path, 256),
+                is_synchronous=sync,
             )
         )
 
@@ -493,5 +503,6 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> Non
                 label=e.label,
                 technology=e.technology,
                 channel=e.channel,
+                is_synchronous=e.is_synchronous,
             )
         )

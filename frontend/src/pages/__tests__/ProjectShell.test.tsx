@@ -16,10 +16,8 @@ vi.mock("../../api/auth", () => ({ getUserRole: vi.fn(() => "architect") }));
 vi.mock("../../api/nodes", () => ({
   exportApi: { all: vi.fn(), subtree: vi.fn() },
 }));
-vi.mock("../../api/processes", () => ({ processesApi: { get: vi.fn() } }));
-vi.mock("../../components/processes/sequence/toMermaid", () => ({
-  detailToMermaid: vi.fn(() => "graph TD"),
-}));
+// Экспорт процесса — ручка бэка (Ф2 архива): конвертер с фронта переехал целиком.
+vi.mock("../../api/processes", () => ({ processesApi: { exportMermaid: vi.fn() } }));
 
 // Алерты шапки: хук отдаёт пустой набор, ключ sessionStorage — настоящая константа.
 vi.mock("../useSchemaAlerts", () => ({
@@ -188,7 +186,8 @@ describe("ProjectShell", () => {
   });
 
   it("в «Процессы» с выбранным процессом экспорт грузит Mermaid процесса", async () => {
-    vi.mocked(processesApi.get).mockResolvedValue({ id: "p9" } as never);
+    vi.mocked(processesApi.exportMermaid).mockResolvedValue(
+      { format: "mermaid", content: "sequenceDiagram" } as never);
     setup(null);
     await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
     await userEvent.click(screen.getByRole("button", { name: "select-proc" }));
@@ -197,7 +196,7 @@ describe("ProjectShell", () => {
     await userEvent.click(exportBtn);
     expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт процесса «Процесс X»");
     await userEvent.click(screen.getByRole("button", { name: "run-load" }));
-    expect(processesApi.get).toHaveBeenCalledWith("p9");
+    expect(processesApi.exportMermaid).toHaveBeenCalledWith("p9");
   });
 
   it("переход в процессы со страницы узла: режим «Процессы» со стартовым процессом", async () => {

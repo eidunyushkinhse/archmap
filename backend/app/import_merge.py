@@ -737,7 +737,7 @@ class _Merger:
             self._merge_channel(seen, e.channel, fi)
             return
         self.edge_seen[key] = (len(self.edges), fi)
-        self.edges.append(_ImpEdge(src, dst, e.label, e.technology, e.channel))
+        self.edges.append(_ImpEdge(src, dst, e.label, e.technology, e.channel, e.is_synchronous))
         self.edge_files.append({fi})
         self.pair_labels.setdefault((src, dst), []).append((e.label or "", fi))
 

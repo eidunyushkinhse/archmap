@@ -6,10 +6,11 @@ Read-only поверх существующего хранения. Доступ
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app import tree
+from app.archive_export import build_archive
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import get_current_project
@@ -33,6 +34,32 @@ def export_all(
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return ExportResponse(format="yaml", content=build_export(nodes, edges))
+
+
+@router.get("/archive")
+def export_archive(
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """Полный архив знания проекта — zip с манифестом (эпик архива, Ф3).
+
+    Отличие от GET /export: тот — СЕМАНТИЧЕСКИЙ срез для LLM (без доков и
+    структур, «не раздувать контекст»), архив — полный контент для бэкапа и
+    переноса; они дополняют друг друга (груминг 2026-08-03). Объявлен ДО
+    /{node_id}, иначе «archive» читался бы как id узла."""
+    payload = build_archive(db, project)
+    # Заголовок HTTP — latin-1: кириллица в имени проекта роняла ответ 500-й
+    # (находка полевого прогона Ф6). В filename — только ASCII; полное имя, если
+    # оно чистится в ничто, заменяет archmap. Браузерное имя файла — косметика,
+    # истинное имя проекта едет в манифесте.
+    safe = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in project.name)
+    safe = safe.strip("_")[:60]
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe or "archmap"}.zip"'},
+    )
 
 
 @router.get("/{node_id}", response_model=ExportResponse)

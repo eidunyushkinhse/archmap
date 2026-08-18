@@ -52,6 +52,8 @@ export type ProjectPreview = Schemas["ProjectPreview"];
 
 // Стартовые шаблоны проекта (витрина создания) + сводка dry-run импорта YAML.
 export type TemplateOut = Schemas["TemplateOut"];
+// Отчёт импорта архива знания (zip): счётчики категорий + родные отчёты семей.
+export type ArchiveImportResult = Schemas["ArchiveImportResult"];
 export type TemplateNode = Schemas["TemplateNodeOut"];
 export type TemplateEdge = Schemas["TemplateEdgeOut"];
 export type ImportPreviewOut = Schemas["ImportPreviewOut"];

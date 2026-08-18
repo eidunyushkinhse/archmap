@@ -122,6 +122,8 @@ export const exportApi = {
   all: (): Promise<ExportResponse> => api.get<ExportResponse>("/export"),
   subtree: (nodeId: string): Promise<ExportResponse> =>
     api.get<ExportResponse>(`/export/${nodeId}`),
+  // Полный архив знания проекта (zip): бэкап/перенос, дополняет LLM-экспорт.
+  archive: (): Promise<Blob> => api.download("/export/archive"),
 };
 
 export const edgesApi = {

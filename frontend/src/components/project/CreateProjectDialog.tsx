@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ImportPreviewOut, Project, PromptVariant, TemplateOut } from "../../types";
+import type { ArchiveImportResult, ImportPreviewOut, Project, PromptVariant, TemplateOut } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
@@ -28,7 +28,8 @@ interface Props {
 
 // "repo" — «Из репозитория»: генератор промпта для ИИ-агента пользователя +
 // та же панель импорта (создание идёт как start="import" с import_yamls).
-type StartMode = "blank" | "template" | "copy" | "import" | "repo";
+// "archive" — из полного архива знания (zip, кнопка «Скачать архив» экспорта).
+type StartMode = "blank" | "template" | "copy" | "import" | "repo" | "archive";
 
 // Линейные SVG-глифы шаблонов (currentColor, без эмодзи), по id из каталога.
 function TemplateGlyph({ id, size = 18 }: { id: string; size?: number }) {
@@ -76,6 +77,11 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // значение перестаёт зависеть от имени навсегда (защёлка null → boolean), а
   // производное считается в рендере, а не эффектом.
   const [multiProduct, setMultiProduct] = useState<boolean | null>(null);
+  // «Из архива»: выбранный zip и отчёт применения. Отчёт показываем В ДИАЛОГЕ до
+  // перехода в проект: замечания импорта (неразрешённые адреса, тёзки путей) —
+  // видимая деградация, молча провалиться в проект значило бы их спрятать.
+  const [archiveFile, setArchiveFile] = useState<File | null>(null);
+  const [archiveResult, setArchiveResult] = useState<ArchiveImportResult | null>(null);
 
   // Загрузка каталога шаблонов (легитимный эффект). По умолчанию выбран webapp,
   // иначе первый из ответа.
@@ -130,11 +136,15 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const multiProductOn = multiProduct ?? name.includes("+");
 
   const canSubmit =
-    name.trim().length > 0 &&
-    !busy &&
-    !(mode === "template" && !templateId) &&
-    !(mode === "copy" && !sourceId) &&
-    !(importish && !summary?.ok);
+    mode === "archive"
+      // Архив: имя опционально (иначе — из манифеста), нужен только файл;
+      // после применения кнопка становится «Открыть проект».
+      ? !busy && (archiveResult !== null || archiveFile !== null)
+      : name.trim().length > 0 &&
+        !busy &&
+        !(mode === "template" && !templateId) &&
+        !(mode === "copy" && !sourceId) &&
+        !(importish && !summary?.ok);
 
   // Промпт собирает бэкенд (истина формата — рядом с валидатором импорта);
   // копирование после fetch — в пределах жеста, Chrome это допускает. Имя системы
@@ -165,6 +175,23 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
   async function submit() {
     if (!canSubmit) return;
+    if (mode === "archive") {
+      // Второй клик — уже «Открыть проект»: отчёт показан, переходим.
+      if (archiveResult) {
+        onCreated(archiveResult.project_id);
+        return;
+      }
+      if (!archiveFile) return;
+      setBusy(true);
+      setError(null);
+      try {
+        setArchiveResult(await projectsApi.importArchive(archiveFile, name.trim() || undefined));
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Не удалось импортировать архив");
+      }
+      setBusy(false);
+      return;
+    }
     setBusy(true);
     setError(null);
     const start =
@@ -226,6 +253,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
               />
               <SegBtn label="Импорт" on={mode === "import"} onClick={() => setMode("import")} />
               <SegBtn label="ИИ-агент" on={mode === "repo"} onClick={() => setMode("repo")} />
+              <SegBtn label="Из архива" on={mode === "archive"} onClick={() => setMode("archive")} />
             </div>
 
             <div style={listArea}>
@@ -277,6 +305,36 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   состоит система) — они сольются автоматически, сводка справа
                   покажет склейку, конфликты и подозрения.
                 </p>
+              )}
+
+              {mode === "archive" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
+                    Полный архив знания из «Экспорт схемы → Скачать архив»: C4,
+                    схемы логики, спеки, структуры БД и брокеров, конфигурация,
+                    процессы с привязками шагов. Раскладка пересчитается заново.
+                    Имя можно не задавать — возьмётся из архива.
+                  </p>
+                  <label className="cp-row" style={{ cursor: "pointer" }}>
+                    <input
+                      type="file"
+                      accept=".zip,application/zip"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        setArchiveFile(e.target.files?.[0] ?? null);
+                        setArchiveResult(null);
+                      }}
+                    />
+                    <span style={{ fontWeight: 600 }}>
+                      {archiveFile ? archiveFile.name : "Выбрать файл (.zip)…"}
+                    </span>
+                    {archiveFile && (
+                      <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>
+                        {(archiveFile.size / 1024).toFixed(0)} КБ
+                      </span>
+                    )}
+                  </label>
+                </div>
               )}
 
               {mode === "repo" && (
@@ -343,8 +401,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             {/* Имя и описание живут слева ТОЛЬКО там, где слева есть место.
                 В режимах со вставкой файлов левая колонка занята параметрами
                 промпта, и поля выдавливали кнопку «Скопировать промпт» за край —
-                там они переезжают вправо, над зоной вставки. */}
-            {!importish && nameFields}
+                там они переезжают вправо, над зоной вставки. У архива поля тоже
+                справа (слева — выбор файла), иначе имя рендерилось бы дважды. */}
+            {!importish && mode !== "archive" && nameFields}
           </div>
 
           {/* ── Правая колонка: живое превью выбранного варианта ── */}
@@ -400,6 +459,62 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                 <ImportPane docs={docs} onDocs={setDocs} summary={summary} />
               </>
             )}
+
+            {mode === "archive" && (
+              archiveResult === null ? (
+                <>
+                  <div style={{ marginBottom: 12 }}>{nameFields}</div>
+                  <div style={emptyFrame}>
+                    <div style={{ textAlign: "center", padding: "0 24px" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: "#475569" }}>
+                        {archiveFile ? archiveFile.name : "Архив не выбран"}
+                      </div>
+                      <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>
+                        проект создастся со всем знанием архива
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Отчёт применения ДО перехода в проект: замечания — видимая
+                   деградация, прятать их за навигацией нельзя. */
+                <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
+                    «{archiveResult.project_name}» создан
+                  </div>
+                  <div>Объектов: {archiveResult.nodes} · связей: {archiveResult.edges}</div>
+                  <div>Схем логики: {archiveResult.docs_created} · спек: {archiveResult.specs_applied}</div>
+                  {archiveResult.db && (
+                    <div>Таблиц БД: {archiveResult.db.tables_written}</div>
+                  )}
+                  {archiveResult.channels && (
+                    <div>Каналов брокеров: {archiveResult.channels.channels_written}</div>
+                  )}
+                  {archiveResult.config && (
+                    <div>Параметров конфигурации: {archiveResult.config.params_written}</div>
+                  )}
+                  {archiveResult.processes.length > 0 && (
+                    <div>
+                      Процессов: {archiveResult.processes.length} · привязок шагов:{" "}
+                      {archiveResult.processes.reduce((s, p) => s + p.doc_linked, 0)}
+                      {archiveResult.processes.some((p) => p.doc_unresolved > 0) && (
+                        <span style={{ color: "#b45309" }}>
+                          {" "}· не разрешилось: {archiveResult.processes.reduce((s, p) => s + p.doc_unresolved, 0)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {archiveResult.warnings.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontWeight: 600, color: "#b45309" }}>Замечания</div>
+                      <ul style={{ margin: "4px 0 0", paddingLeft: 18, color: "#64748b", fontSize: 12.5 }}>
+                        {archiveResult.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )
+            )}
           </div>
         </div>
 
@@ -411,7 +526,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             disabled={!canSubmit}
             onClick={submit}
           >
-            {busy ? "Создание…" : "Создать проект"}
+            {busy ? "Создание…"
+              : mode === "archive" && archiveResult ? "Открыть проект"
+              : "Создать проект"}
           </button>
         </div>
       </div>

@@ -11,7 +11,6 @@ import NodePage from "./NodePage";
 import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import { processesApi } from "../api/processes";
-import { detailToMermaid } from "../components/processes/sequence/toMermaid";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import ProfileMenu from "../ui/ProfileMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
@@ -116,12 +115,19 @@ export default function ProjectShell({
         ? {
             key: `proc:${procSelection.id}`,
             title: `Экспорт процесса «${procSelection.name}» (Mermaid)`,
-            load: () => processesApi.get(procSelection.id).then((d) => ({ content: detailToMermaid(d) })),
+            load: () => processesApi.exportMermaid(procSelection.id),
           }
         : null
       : nodeId
         ? { key: nodeId, title: "Экспорт поддерева", load: () => exportApi.subtree(nodeId) }
-        : { key: "all", title: "Экспорт схемы", load: () => exportApi.all() };
+        : {
+            key: "all",
+            title: "Экспорт схемы",
+            load: () => exportApi.all(),
+            // Полный архив знания — только у скоупа «вся схема»: у поддерева и
+            // процесса архива нет (архив — операция над проектом целиком).
+            archive: { filename: "archmap.zip", load: () => exportApi.archive() },
+          };
 
   return (
     <div style={page}>

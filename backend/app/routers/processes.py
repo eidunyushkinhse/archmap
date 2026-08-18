@@ -23,6 +23,7 @@ from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
 from app.process_copy import duplicate_process
+from app.process_export import detail_to_mermaid
 from app.process_import import apply_import, build_preview
 from app.processes import (
     bound_node_ids,
@@ -44,6 +45,7 @@ from app.processes import (
     resolve_to_participant,
     scope_node_ids,
 )
+from app.schemas.export import ExportResponse
 from app.schemas.process import (
     BindResult,
     BranchIn,
@@ -169,6 +171,23 @@ def get_process(
 ) -> ProcessDetail:
     proc = _get_process(db, process_id, project)
     return build_process_detail(db, proc, load_nodes(db, project.id))
+
+
+@router.get("/{process_id}/export", response_model=ExportResponse)
+def export_process(
+    process_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> ExportResponse:
+    """Экспорт процесса в Mermaid sequenceDiagram (Ф2 архива, решение Р2).
+
+    Конвертер переехал с фронта ЕДИНСТВЕННОЙ реализацией (process_export):
+    кнопка экспорта, архив и MCP зовут одну и ту же ручку. Читателю открыт —
+    экспорт знания, а не действие над ним."""
+    proc = _get_process(db, process_id, project)
+    detail = build_process_detail(db, proc, load_nodes(db, project.id))
+    return ExportResponse(format="mermaid", content=detail_to_mermaid(detail))
 
 
 @router.patch("/{process_id}", response_model=ProcessDetail)

@@ -212,6 +212,30 @@ export interface paths {
         patch: operations["update_project_api_v1_projects__project_id__patch"];
         trace?: never;
     };
+    "/api/v1/projects/import-archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Project Archive
+         * @description Создать НОВЫЙ проект из архива знания (Ф4, docs/plan-archive-export.md).
+         *
+         *     Кривой zip/манифест/C4 — 400, проект не создаётся; частичные промахи
+         *     (неразрешённые адреса, тёзки путей) применяют остальное и едут замечаниями
+         *     в отчёте. Слияние с существующим проектом — отдельная задача.
+         */
+        post: operations["import_project_archive_api_v1_projects_import_archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/archive": {
         parameters: {
             query?: never;
@@ -1481,6 +1505,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/export/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Archive
+         * @description Полный архив знания проекта — zip с манифестом (эпик архива, Ф3).
+         *
+         *     Отличие от GET /export: тот — СЕМАНТИЧЕСКИЙ срез для LLM (без доков и
+         *     структур, «не раздувать контекст»), архив — полный контент для бэкапа и
+         *     переноса; они дополняют друг друга (груминг 2026-08-03). Объявлен ДО
+         *     /{node_id}, иначе «archive» читался бы как id узла.
+         */
+        get: operations["export_archive_api_v1_export_archive_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/export/{node_id}": {
         parameters: {
             query?: never;
@@ -1578,6 +1627,30 @@ export interface paths {
         head?: never;
         /** Update Process */
         patch: operations["update_process_api_v1_processes__process_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/processes/{process_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Process
+         * @description Экспорт процесса в Mermaid sequenceDiagram (Ф2 архива, решение Р2).
+         *
+         *     Конвертер переехал с фронта ЕДИНСТВЕННОЙ реализацией (process_export):
+         *     кнопка экспорта, архив и MCP зовут одну и ту же ручку. Читателю открыт —
+         *     экспорт знания, а не действие над ним.
+         */
+        get: operations["export_process_api_v1_processes__process_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/processes/{process_id}/duplicate": {
@@ -1989,6 +2062,37 @@ export interface components {
              */
             is_external: boolean;
         };
+        /** ArchiveImportResult */
+        ArchiveImportResult: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Project Name */
+            project_name: string;
+            /** Nodes */
+            nodes: number;
+            /** Edges */
+            edges: number;
+            /** Docs Created */
+            docs_created: number;
+            /** Specs Applied */
+            specs_applied: number;
+            db?: components["schemas"]["DataImportReport"] | null;
+            channels?: components["schemas"]["ChannelsImportReport"] | null;
+            config?: components["schemas"]["ConfigImportReport"] | null;
+            /**
+             * Processes
+             * @default []
+             */
+            processes: components["schemas"]["ProcessImportResult"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+        };
         /**
          * BindResult
          * @description Итог привязки: сам участник + сколько его повисших шагов подхватило каналы.
@@ -2001,6 +2105,16 @@ export interface components {
             attached: number;
             /** Dangling */
             dangling: number;
+        };
+        /** Body_import_project_archive_api_v1_projects_import_archive_post */
+        Body_import_project_archive_api_v1_projects_import_archive_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
+            /** Name */
+            name?: string | null;
         };
         /** Body_login_api_v1_auth_login_post */
         Body_login_api_v1_auth_login_post: {
@@ -3421,15 +3535,16 @@ export interface components {
         /**
          * ExportResponse
          * @description Экспорт схемы как текст. format держим явным полем, чтобы позже добавить
-         *     другие сериализации (mermaid/json) без слома контракта; content — сам документ.
+         *     другие сериализации без слома контракта; content — сам документ. mermaid —
+         *     экспорт процесса (Ф2 архива: конвертер переехал с фронта единственной
+         *     реализацией).
          */
         ExportResponse: {
             /**
              * Format
-             * @constant
              * @enum {string}
              */
-            format: "yaml";
+            format: "yaml" | "mermaid";
             /** Content */
             content: string;
         };
@@ -5748,6 +5863,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_project_archive_api_v1_projects_import_archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_project_archive_api_v1_projects_import_archive_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveImportResult"];
                 };
             };
             /** @description Validation Error */
@@ -8378,6 +8526,37 @@ export interface operations {
             };
         };
     };
+    export_archive_api_v1_export_archive_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_subtree_api_v1_export__node_id__get: {
         parameters: {
             query?: never;
@@ -8635,6 +8814,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_process_api_v1_processes__process_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportResponse"];
                 };
             };
             /** @description Validation Error */

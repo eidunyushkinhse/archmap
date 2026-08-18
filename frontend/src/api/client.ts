@@ -29,17 +29,23 @@ function needsProjectScope(path: string): boolean {
   return !path.startsWith("/projects") && !path.startsWith("/auth");
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+function buildHeaders(path: string, options: RequestInit): HeadersInit {
   const token = getToken();
   const projectId = needsProjectScope(path) ? getCurrentProjectId() : null;
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
+  return {
+    // FormData ставит Content-Type сам (с boundary) — руками его задавать нельзя.
+    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(projectId ? { "X-Project-Id": projectId } : {}),
     ...options.headers,
   };
+}
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: buildHeaders(path, options),
+  });
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
@@ -48,6 +54,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+// Бинарная выгрузка (zip-архив проекта): тот же auth/scope, но ответ — Blob.
+async function requestBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE_URL}${path}`, { headers: buildHeaders(path, {}) });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(res.status, error.detail ?? "Неизвестная ошибка");
+  }
+  return res.blob();
 }
 
 export const api = {
@@ -61,4 +77,7 @@ export const api = {
   // undefined (не void): void как type-parameter нарушает no-invalid-void-type;
   // request возвращает undefined при 204 — тип совпадает с фактическим значением
   delete: (path: string) => request<undefined>(path, { method: "DELETE" }),
+  // Мультипарт-загрузка файла (импорт архива проекта).
+  upload: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
+  download: (path: string) => requestBlob(path),
 };

@@ -1,6 +1,6 @@
 import type {
-  ImportPreviewOut, ImportPromptOut, Project, ProjectCreate, ProjectUpdate,
-  PromptVariant, SyncApplyOut, SyncPreviewOut, TemplateOut,
+  ArchiveImportResult, ImportPreviewOut, ImportPromptOut, Project, ProjectCreate,
+  ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut, TemplateOut,
 } from "../types";
 import { api } from "./client";
 
@@ -20,6 +20,14 @@ export const projectsApi = {
     api.get<Project[]>(`/projects?archived=${archived}`),
   // Каталог стартовых шаблонов для витрины создания проекта.
   templates: (): Promise<TemplateOut[]> => api.get<TemplateOut[]>(`/projects/templates`),
+  // Новый проект из полного архива знания (zip). Имя опционально — иначе из
+  // манифеста; отчёт несёт счётчики категорий и замечания (деградация видимая).
+  importArchive: (file: File, name?: string): Promise<ArchiveImportResult> => {
+    const form = new FormData();
+    form.append("file", file);
+    if (name) form.append("name", name);
+    return api.upload<ArchiveImportResult>("/projects/import-archive", form);
+  },
   // Dry-run импорта YAML (N документов → слияние): сводка/ошибки/отчёт слияния
   // для живой валидации в модалке, БД не трогает.
   importPreview: (contents: string[]): Promise<ImportPreviewOut> =>

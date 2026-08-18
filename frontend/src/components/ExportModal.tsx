@@ -11,6 +11,10 @@ interface Props {
   // Загрузчик документа (YAML-схема или Mermaid-процесс). Вызывается на маунт.
   // Структурный минимум — { content }: ExportResponse подходит, как и Mermaid-обёртка.
   load: () => Promise<{ content: string }>;
+  // Полный архив знания (zip) — кнопка «Скачать архив» в футере. Передаётся только
+  // для скоупа «вся схема»: у поддерева и процесса архива нет. filename — имя
+  // сохраняемого файла (браузеру), loadArchive — фетч blob с авторизацией.
+  archive?: { filename: string; load: () => Promise<Blob> };
   onClose: () => void;
 }
 
@@ -20,7 +24,7 @@ interface Props {
  * Сама грузит документ (эффект только фетчит, loading/error/content — производные
  * от привязанного к loadKey стейта), показывает его в <pre> и даёт кнопку «Скопировать».
  */
-export default function ExportModal({ title, loadKey, load, onClose }: Props) {
+export default function ExportModal({ title, loadKey, load, archive, onClose }: Props) {
   const [state, setState] = useState<{ forKey: string; content?: string; error?: string } | null>(
     null,
   );
@@ -64,6 +68,26 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
     }
   };
 
+  // Скачивание архива: фетч с авторизацией → blob → временная ссылка. Прямой
+  // <a href> не годится — заголовок Authorization в него не вписать.
+  const [archiveState, setArchiveState] = useState<"idle" | "busy" | "error">("idle");
+  const downloadArchive = async () => {
+    if (!archive || archiveState === "busy") return;
+    setArchiveState("busy");
+    try {
+      const blob = await archive.load();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = archive.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setArchiveState("idle");
+    } catch {
+      setArchiveState("error");
+    }
+  };
+
   return (
     <Modal onClose={onClose} boxStyle={boxStyle}>
       <h2 style={heading}>{title}</h2>
@@ -73,6 +97,18 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
       {content !== null && <pre style={pre}>{content}</pre>}
 
       <div style={footer}>
+        {archive && (
+          <button
+            onClick={() => void downloadArchive()}
+            style={{ ...secondaryBtn, marginRight: "auto" }}
+            disabled={archiveState === "busy"}
+            title="Полный архив знания проекта: C4, схемы логики, спеки, структуры, конфигурация, процессы"
+          >
+            {archiveState === "busy" ? "Собираем архив…"
+              : archiveState === "error" ? "Не удалось — повторить"
+              : "Скачать архив (.zip)"}
+          </button>
+        )}
         <button onClick={onClose} style={secondaryBtn}>Закрыть</button>
         <button onClick={copy} style={primaryBtn} disabled={!content}>
           {copied ? "Скопировано ✓" : "Скопировать"}

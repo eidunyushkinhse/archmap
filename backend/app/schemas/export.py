@@ -5,7 +5,9 @@ from pydantic import BaseModel
 
 class ExportResponse(BaseModel):
     """Экспорт схемы как текст. format держим явным полем, чтобы позже добавить
-    другие сериализации (mermaid/json) без слома контракта; content — сам документ."""
+    другие сериализации без слома контракта; content — сам документ. mermaid —
+    экспорт процесса (Ф2 архива: конвертер переехал с фронта единственной
+    реализацией)."""
 
-    format: Literal["yaml"]
+    format: Literal["yaml", "mermaid"]
     content: str
