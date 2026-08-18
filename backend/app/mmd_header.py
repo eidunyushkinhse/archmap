@@ -21,6 +21,7 @@
 вызывающий, здесь только разбор.
 """
 
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 
@@ -140,6 +141,45 @@ def parse_mmd_header(text: str) -> MmdHeader:
 def render_header(fields: Mapping[str, str]) -> str:
     """Собрать шапку из полей (порядок KEYS). Используется примером для промпта."""
     return "".join(f"%% {_PREFIX}{k}: {fields[k]}\n" for k in KEYS if fields.get(k))
+
+
+_HEADER_LINE = re.compile(r"^%%\s*archmap-", re.IGNORECASE)
+
+
+def strip_header(text: str) -> str:
+    """Текст схемы без ведущих строк «%% archmap-*» — для обратной выгрузки (архив).
+
+    Тела при заливке сохраняются ВМЕСТЕ с шапкой (идемпотентность повторной
+    заливки), а истина метаданных — БД: схему могли переименовать после импорта,
+    и старая шапка в теле врёт. Экспорт снимает её и пишет свежую из записи.
+    Чужие комментарии, директивы «%%{init: …}%%» и frontmatter не трогаем;
+    «archmap-» посреди диаграммы — часть схемы, а не паспорт (как в _preamble)."""
+    bom = "﻿" if text.startswith("﻿") else ""
+    lines = text.lstrip("﻿").splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    # Frontmatter («--- … ---») пропускаем нетронутым, как _preamble.
+    if i < len(lines) and lines[i].strip() == "---":
+        out.append(lines[i])
+        i += 1
+        while i < len(lines) and lines[i].strip() != "---":
+            out.append(lines[i])
+            i += 1
+        if i < len(lines):
+            out.append(lines[i])
+            i += 1
+    body_started = False
+    for ln in lines[i:]:
+        if not body_started:
+            s = ln.strip()
+            if s == "" or s.startswith("%%"):
+                if _HEADER_LINE.match(s):
+                    continue
+                out.append(ln)
+                continue
+            body_started = True
+        out.append(ln)
+    return bom + "".join(out)
 
 
 # ── Встроенный пример (данные, не текст) ─────────────────────────────────────
