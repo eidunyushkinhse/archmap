@@ -80,6 +80,11 @@ archmap/
 - Линтер фронта:         cd frontend && npx eslint .
 - Линтер бэкенда:        cd backend && ./venv/bin/ruff check .
 - Гейт MCP-сервера:      cd mcp && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
+- Снапшоты промптов:     ПОСЛЕ ОСОЗНАННОЙ правки любого промпта (app/*_prompt.py):
+    cd backend && UPDATE_PROMPT_SNAPSHOTS=1 ./venv/bin/python -m pytest tests/test_prompt_snapshots.py -q
+    Затем ОБЯЗАТЕЛЬНО посмотреть `git diff backend/tests/snapshots/` — это ревью правки —
+    и закоммитить снимки вместе с правкой промпта. Тексты промптов под абсолютным
+    сторожем: относительные сентинелы «байт-в-байт» правку безусловной строки не видят.
 - Генерация типов из OpenAPI: cd frontend && npm run gen:api
     (дамп app.openapi() бэкендовым venv-python | openapi-typescript → src/types/api.gen.ts).
     Файл коммитится, идемпотентен.
