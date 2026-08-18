@@ -10,6 +10,8 @@ import { processesApi } from "../../api/processes";
 import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
 import { RedoIcon, UndoIcon } from "../../ui/icons";
 import MessageComposer from "../MessageComposer";
+import DocOverlay from "../inspector/DocOverlay";
+import MessageCard from "./MessageCard";
 import ParticipantDeleteConfirm from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
 import { C4Glyph, IcoBrokenLink, IcoClose, IcoEdit, IcoPlus } from "./icons";
@@ -33,6 +35,9 @@ interface Props {
   // Переход на страницу объекта с линии жизни участника (id — УЗЛА). Зеркало
   // обратного перехода со страницы объекта в процесс.
   onOpenNode?: (nodeId: string) => void;
+  // Счётчик чужих правок (Д9): поллинг воркспейса заметил рост process_rev —
+  // канвас перечитывает процесс. Растёт только на ЧУЖИЕ изменения.
+  syncRev?: number;
 }
 
 const FRAGMENTS: FragmentKind[] = ["alt", "opt", "loop", "par"];
@@ -45,6 +50,9 @@ interface MessageSnapshot {
   to_id: string;
   caption: string | null;
   order: number;
+  // Привязка к схеме логики (Д7): без неё undo восстанавливал бы шаг «раздетым»,
+  // и привязка терялась бы молча — при живой-то схеме.
+  doc_id: string | null;
 }
 
 // Глиф «галочка» для тумблера «Готово» (в icons.tsx чека нет).
@@ -56,7 +64,7 @@ function IcoCheck({ s = 15 }: { s?: number }) {
   );
 }
 
-export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode }: Props) {
+export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev }: Props) {
   const [detail, setDetail] = useState<ProcessDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
@@ -95,6 +103,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // раньше он открывал ТОЛЬКО «Удалить сообщение?», и задать подпись было нечем.
   const [msgEdit, setMsgEdit] = useState<string | null>(null);
   const [msgCaption, setMsgCaption] = useState("");
+  // Провал из карточки шага в привязанную схему логики (У7): состояние здесь, а не в
+  // карточке — оверлей должен стоять В СТЕКЕ Escape выше карточки, иначе Escape в
+  // нативном <dialog> закрыл бы заодно и её. editing=false: открываем НА ЧТЕНИЕ.
+  const [docView, setDocView] = useState<
+    { docId: string; nodeId: string; nodeName: string; editing: boolean } | null
+  >(null);
+  // Ревизия каталога схем карточки: правка в оверлее меняет имена/состав схем.
+  const [docCatalogRev, setDocCatalogRev] = useState(0);
   const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
   const [delPartBusy, setDelPartBusy] = useState(false);
   const [delPartErr, setDelPartErr] = useState<string | null>(null);
@@ -108,6 +124,17 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       .then((d) => { setDetail(d); onChanged(); })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
   }, [id, onChanged]);
+
+  // Чужая правка (Д9): поллинг воркспейса заметил рост process_rev — перечитываем
+  // процесс. Без onChanged: список рейла воркспейс уже перечитал сам, а сигналить
+  // «мы изменили» о чужой правке незачем. 0 — стартовое значение счётчика (маунт).
+  useEffect(() => {
+    if (!syncRev) return;
+    processesApi
+      .get(id)
+      .then(setDetail)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
+  }, [syncRev, id]);
 
   // Первичная загрузка. Смену процесса воркспейс делает через key-remount (свежее
   // состояние оверлеев/истории), поэтому id за время жизни компонента не меняется —
@@ -286,8 +313,24 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       const from = nodeOfPart(m.from_participant_id);
       const to = nodeOfPart(m.to_participant_id);
       if (!from || !to) return [];
-      return [{ edge_id: m.edge_id, leg: m.leg, from_id: from, to_id: to, caption: m.caption, order: m.order }];
+      return [{ edge_id: m.edge_id, leg: m.leg, from_id: from, to_id: to, caption: m.caption, order: m.order, doc_id: m.doc_id ?? null }];
     });
+  }
+  // Пересоздание шага из снимка. Привязка едет вместе с шагом (Д7), но шаг ДОРОЖЕ
+  // привязки: если схема умерла между снимком и откатом (_check_doc ответит 404),
+  // пересоздаём непривязанным — шаг честно попадёт в алерт полноты, а не утащит за
+  // собой весь откат. Тот же принцип, что у переноса: не разрешилось — едет голым.
+  async function addFromSnap(snap: MessageSnapshot, fromP: string, toP: string): Promise<ProcessMessage> {
+    const payload: MessageCreate = {
+      edge_id: snap.edge_id, leg: snap.leg, from_participant_id: fromP, to_participant_id: toP,
+      caption: snap.caption, order: snap.order, doc_id: snap.doc_id,
+    };
+    try {
+      return await processesApi.addMessage(id, payload);
+    } catch (e: unknown) {
+      if (!snap.doc_id) throw e;
+      return await processesApi.addMessage(id, { ...payload, doc_id: null });
+    }
   }
   async function restoreMessages(snaps: MessageSnapshot[]) {
     if (snaps.length === 0) return;
@@ -298,9 +341,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       const fromP = partByNode[m.from_id];
       const toP = partByNode[m.to_id];
       if (!fromP || !toP) continue;
-      await processesApi.addMessage(id, {
-        edge_id: m.edge_id, leg: m.leg, from_participant_id: fromP, to_participant_id: toP, caption: m.caption, order: m.order,
-      });
+      await addFromSnap(m, fromP, toP);
     }
   }
   function messagesThrough(nodeId: string) {
@@ -449,6 +490,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // оверлея, — второй логики закрытия не заводим.
   const closeTopOverlay = useCallback((): boolean => {
     const stack: [boolean, () => void][] = [
+      // Оверлей схемы — над карточкой шага: Escape закрывает его, карточка остаётся.
+      [!!docView, () => setDocView(null)],
       [!!bindConfirm, () => setBindConfirm(null)],
       [!!bindPart, () => setBindPart(null)],
       // Идущее удаление не бросаем — как и клик по подложке.
@@ -465,8 +508,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     if (!top) return false;
     top[1]();
     return true;
-  }, [bindConfirm, bindPart, delPart, delPartBusy, msgEdit, branchEdit, pendingFrag,
-      delFrag, selfMsg, composer, partPanel, reloadDirections]);
+  }, [docView, bindConfirm, bindPart, delPart, delPartBusy, msgEdit, branchEdit,
+      pendingFrag, delFrag, selfMsg, composer, partPanel, reloadDirections]);
 
   // Escape закрывает верхний оверлей — как все окна проекта (ui/Modal.tsx получает это
   // даром от нативного <dialog>). Здесь оверлеи — обычные div: вложенные <dialog> в
@@ -549,7 +592,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       messages: detail.messages.map((x) => (x.id === mid ? { ...x, caption: next } : x)),
     });
     try {
-      await processesApi.updateMessage(id, mid, { caption: next });
+      // CAS (Д9): правка от устаревшего шага не затирает чужую — бэк ответит 409,
+      // catch перечитает процесс и покажет detail. Undo/redo идут БЕЗ base_version:
+      // компенсация переигрывается поверх любого текущего состояния (паттерн узлов).
+      await processesApi.updateMessage(id, mid, { caption: next, base_version: m.version });
       hist.push({
         label: "Подпись шага",
         undo: async () => { await processesApi.updateMessage(id, mid, { caption: prev }); },
@@ -559,6 +605,28 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     } catch (e: unknown) {
       reload();
       setError(e instanceof Error ? e.message : "Не удалось изменить подпись шага");
+    }
+  }
+  // Привязка шага к схеме логики. Карточку НЕ закрываем — как и тумблер канала, это
+  // контроль внутри карточки: человек привязал схему и тут же видит результат строкой.
+  // Набранная, но не сохранённая подпись при этом уцелеет (её пишет только «Сохранить»).
+  async function linkDoc(mid: string, docId: string | null) {
+    if (!detail) return;
+    const m = detail.messages.find((x) => x.id === mid);
+    if (!m || m.doc_id === docId) return;
+    const prev = m.doc_id ?? null;
+    try {
+      // CAS (Д9) — как у подписи: конфликт → 409 → reload + detail в баннере.
+      await processesApi.updateMessage(id, mid, { doc_id: docId, base_version: m.version });
+      hist.push({
+        label: docId ? "Привязка схемы к шагу" : "Схема отвязана от шага",
+        undo: async () => { await processesApi.updateMessage(id, mid, { doc_id: prev }); },
+        redo: async () => { await processesApi.updateMessage(id, mid, { doc_id: docId }); },
+      });
+      reload();
+    } catch (e: unknown) {
+      reload();
+      setError(e instanceof Error ? e.message : "Не удалось привязать схему");
     }
   }
   // Синхронность КАНАЛА под шагом. Живёт в карточке шага, а не в C4-модалке (решение
@@ -601,7 +669,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         && (!!m.edge_id || m.from_participant_id === m.to_participant_id);
       if (m && restorable && fromNode && toNode) {
         const snap: MessageSnapshot = {
-          edge_id: m.edge_id, leg: m.leg, from_id: fromNode, to_id: toNode, caption: m.caption, order: m.order,
+          edge_id: m.edge_id, leg: m.leg, from_id: fromNode, to_id: toNode, caption: m.caption, order: m.order, doc_id: m.doc_id ?? null,
         };
         let restoredId: string | null = null;
         hist.push({
@@ -611,9 +679,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             const fromP = partByNode[snap.from_id];
             const toP = partByNode[snap.to_id];
             if (!fromP || !toP) return;
-            const created = await processesApi.addMessage(id, {
-              edge_id: snap.edge_id, leg: snap.leg, from_participant_id: fromP, to_participant_id: toP, caption: snap.caption, order: snap.order,
-            });
+            const created = await addFromSnap(snap, fromP, toP);
             restoredId = created.id;
           },
           redo: async () => {
@@ -996,77 +1062,57 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           </>
         )}
 
-        {/* Карточка шага: подпись + удаление (устройство то же, что у ветви «иначе») */}
-        {msgEdit && detail && (
-          <>
-            <div style={overlayDim} onClick={() => setMsgEdit(null)} />
-            <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                  Шаг сценария
-                </div>
-                <input
-                  className="bp-input"
-                  value={msgCaption}
-                  onChange={(e) => setMsgCaption(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void saveCaption(msgEdit); }}
-                  placeholder="что происходит на этом шаге"
-                  data-card="caption"
-                  maxLength={256}
-                  autoFocus
-                />
-                {/* Тип КАНАЛА под шагом. Правит связь целиком, поэтому говорим об этом
-                    прямо и предупреждаем, если уход в асинхронный сломает ответы:
-                    у асинхронного канала плеча «ответ» нет (AL28). */}
-                {(() => {
-                  const m = detail.messages.find((x) => x.id === msgEdit);
-                  const edgeId = m?.edge_id;
-                  if (!edgeId || m.edge_synchronous == null) return null;
-                  const sync = m.edge_synchronous;
-                  const ответов = detail.messages.filter(
+        {/* Карточка шага — свой модуль: у неё появилось состояние (каталог схем,
+            поиск), а холст и без того велик. */}
+        {msgEdit && detail && (() => {
+          const m = detail.messages.find((x) => x.id === msgEdit);
+          if (!m) return null;
+          return (
+            <>
+              <div style={overlayDim} onClick={() => setMsgEdit(null)} />
+              <div style={overlayCenter}>
+                <MessageCard
+                  processId={id}
+                  msg={m}
+                  participants={detail.participants}
+                  returnLegs={detail.messages.filter(
                     (x) => x.edge_id === m.edge_id && x.leg === "return",
-                  ).length;
-                  return (
-                    <div style={{ marginTop: 12 }}>
-                      <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 6 }}>
-                        Канал в схеме — правка задевает все шаги на нём
-                      </div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        {([true, false] as const).map((v) => (
-                          <button
-                            key={String(v)}
-                            className={sync === v ? "bp-btn-primary" : "bp-btn-ghost"}
-                            onClick={() => { if (sync !== v) void setChannelSync(edgeId, v); }}
-                          >
-                            {v ? "Синхронный" : "Асинхронный"}
-                          </button>
-                        ))}
-                      </div>
-                      {sync && ответов > 0 && (
-                        <div style={{ fontSize: 11.5, color: BROKEN.ink, marginTop: 6 }}>
-                          У асинхронного канала нет плеча «ответ» —
-                          {ответов === 1 ? " один шаг-ответ" : ` шагов-ответов: ${ответов}`} сломается.
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  <button
-                    className="bp-btn-ghost"
-                    style={{ marginRight: "auto", color: "#dc2626" }}
-                    onClick={() => void removeMessage(msgEdit)}
-                  >
-                    Удалить
-                  </button>
-                  <button className="bp-btn-ghost" onClick={() => setMsgEdit(null)}>Отмена</button>
-                  <button className="bp-btn-primary" onClick={() => void saveCaption(msgEdit)}>
-                    Сохранить
-                  </button>
-                </div>
+                  ).length}
+                  caption={msgCaption}
+                  onCaptionChange={setMsgCaption}
+                  onSaveCaption={() => void saveCaption(msgEdit)}
+                  onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
+                  onLinkDoc={(docId) => void linkDoc(msgEdit, docId)}
+                  onOpenDoc={(d) => setDocView({ ...d, editing: false })}
+                  catalogRev={docCatalogRev}
+                  onRemove={() => void removeMessage(msgEdit)}
+                  onClose={() => setMsgEdit(null)}
+                />
               </div>
-            </div>
-          </>
+            </>
+          );
+        })()}
+
+        {/* Провал из карточки шага в схему логики (У7/У8): НА ЧТЕНИЕ, редактор — явной
+            кнопкой «Править». Колбэки настоящие, не заглушки (ловушка У8):
+            onDocEvent перечитывает процесс (имя схемы в шаге, SET NULL при удалении)
+            и каталог карточки; onCommitOpenapi недостижим — режим flowchart
+            OpenApiDoc не рендерит, спекой этот оверлей не занимается. */}
+        {docView && (
+          <DocOverlay
+            mode="flowchart"
+            nodeId={docView.nodeId}
+            nodeName={docView.nodeName}
+            openapi=""
+            isArchitect={isArchitect && docView.editing}
+            initialDocId={docView.docId}
+            onRequestEdit={isArchitect && !docView.editing
+              ? () => setDocView((v) => v && { ...v, editing: true })
+              : undefined}
+            onCommitOpenapi={() => undefined}
+            onDocEvent={() => { setDocCatalogRev((r) => r + 1); reload(); }}
+            onClose={() => setDocView(null)}
+          />
         )}
 
         {/* Подтверждение удаления участника (со списком связей на схеме) */}

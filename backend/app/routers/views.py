@@ -62,6 +62,7 @@ def get_view_state(
         version=current_version(db, project.id, vid),
         graph_rev=project.graph_rev,
         meta_rev=project.meta_rev,
+        process_rev=project.process_rev,
     )
 
 

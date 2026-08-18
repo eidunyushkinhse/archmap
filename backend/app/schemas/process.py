@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.schemas.node import NodeStatus
+from app.schemas.node_doc import NodeDocKind
 
 Leg = Literal["forward", "return"]
 # "self" — самосообщение (внутренняя операция участника): не плечо канала C4, концы
@@ -82,12 +83,51 @@ class MessageOut(BaseModel):
     #   leg_gone     — связь на месте, но плеча больше нет: канал сменил синхронность
     #                  на асинхронную, а у такого «ответа» не бывает.
     invalid_reason: MessageInvalidReason | None = None
+    # Схема логики, к которой привязан шаг (null — не привязан). Витрине нужен ещё и
+    # узел схемы, чтобы открыть оверлей и подписать строку, — он отдаётся рядом.
+    doc_id: uuid.UUID | None = None
+    doc_node_id: uuid.UUID | None = None
+    doc_name: str | None = None
+    # Полный путь узла схемы («Ярмарка / Заказы»): карточка подписывает им строку
+    # привязки, а экспорт mermaid строит адрес кругового прогона
+    # «%% archmap-doc: путь / имя» (Ф7, docs/plan-process-docs-step4.md).
+    doc_node_path: str | None = None
     # Синхронность канала под шагом (null — канала нет: самосообщение или повисший).
     # Нужна карточке шага: тумблер синхронности живёт там, потому что состав плеч —
     # вопрос процесса, а не C4-схемы (решение пользователя 2026-08-11). Выводить её
     # на фронте из kind можно, но окольно: связь «kind=return + leg_gone → канал
     # асинхронный» держалась бы на честном слове.
     edge_synchronous: bool | None = None
+    # Версия для optimistic CAS (Д9): клиент шлёт её обратно как base_version в PATCH.
+    version: int = 1
+
+
+class DocChoiceOut(BaseModel):
+    """Строка каталога «чем задокументирован шаг»."""
+
+    id: uuid.UUID
+    node_id: uuid.UUID
+    # Путь узла человеку («Ярмарка / orders»): в каталоге бывают схемы РАЗНЫХ узлов
+    # (оба участника плюс их потомки), и одного имени схемы для выбора мало.
+    node_path: str
+    name: str
+    kind: NodeDocKind
+    operation: str | None
+    # Заглушка разведки (тело пустое) — её видно и здесь: привязать шаг к неописанной
+    # операции законно, но человек должен понимать, что документации там пока нет.
+    described: bool
+
+
+class MessageDocCatalog(BaseModel):
+    """Каталог для окна выбора схемы у шага.
+
+    default_node_id — ВЛАДЕЛЕЦ шага (конец ребра, несущий логику). Это подсказка для
+    подстановки, а не ограничение: каталог шире владельца намеренно (см. doc_catalog).
+    null — ребра нет (повисший шаг, самосообщение), дефолта не существует.
+    """
+
+    default_node_id: uuid.UUID | None
+    docs: list[DocChoiceOut]
 
 
 class BranchOut(BaseModel):
@@ -170,11 +210,22 @@ class MessageCreate(BaseModel):
     to_participant_id: uuid.UUID
     caption: str | None = None
     order: int
+    # Привязка к схеме логики — «чем шаг задокументирован». Опциональна: большинство
+    # шагов приезжает непривязанными, и это законное состояние (его показывает алерт
+    # полноты, а не отказ ручки).
+    doc_id: uuid.UUID | None = None
 
 
 class MessageUpdate(BaseModel):
     caption: str | None = None
     order: int | None = None
+    # Привязка к схеме логики. null — валидное значение «отвязать», поэтому ручка
+    # различает «не передано» и «передан null» через exclude_unset, как у operation
+    # схемы логики. Ссылочное поле: ручка проверяет, что схема из ЭТОГО проекта.
+    doc_id: uuid.UUID | None = None
+    # CAS (Д9): устаревшая версия → 409, правка от старого шага не затирает чужую.
+    # None — компенсация undo без проверки (паттерн update_node / update_doc).
+    base_version: int | None = None
 
 
 # ── Фрагменты ─────────────────────────────────────────────────────────────────

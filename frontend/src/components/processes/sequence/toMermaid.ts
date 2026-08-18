@@ -75,11 +75,18 @@ export function detailToMermaid(detail: ProcessDetail): string {
       depth++;
     }
 
-    // 3) Само сообщение.
+    // 3) Само сообщение. Привязка к схеме логики едет ОТДЕЛЬНОЙ строкой-комментарием
+    //    перед шагом (Ф7, круговой прогон): в строку шага её не вписать — всё после
+    //    первого двоеточия mermaid читает как подпись (Д11). Адрес — «путь узла /
+    //    имя схемы», импорт сверяет его целиком (без разбиения: « / » законен и в
+    //    именах) и резолвит только однозначное.
     const m = msgs[i];
     const from = alias.get(m.from_participant_id);
     const to = alias.get(m.to_participant_id);
     if (from && to) {
+      if (m.doc_id && m.doc_node_path && m.doc_name) {
+        lines.push(`${indent(depth)}%% archmap-doc: ${clean(`${m.doc_node_path} / ${m.doc_name}`)}`);
+      }
       lines.push(`${indent(depth)}${from}${arrow(m.kind)}${to}: ${clean(m.caption) || "—"}`);
     }
 

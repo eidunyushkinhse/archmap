@@ -44,6 +44,20 @@ class ProcessMessage(Base):
     )
     # Override подписи; null = дефолт из edge.label + плеча
     caption: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # Привязка шага к схеме логики — «чем этот шаг задокументирован».
+    # Адресуем ИМЕННО схему (id), а не строку операции: строка неоднозначна на живых
+    # данных (у Zabbix восемь схем висят на одном POST /api/jsonrpc) и не покрывает ни
+    # воркеров, ни клиентские сценарии, у которых операции нет по природе. Разбор и
+    # замер — docs/plan-process-docs-step2.md.
+    # ON DELETE SET NULL — как у edge_id и по той же причине: удаление схемы НЕ сносит
+    # шаг, а делает его непривязанным, и это видно алертом полноты, а не пропадает тихо.
+    doc_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("node_docs.id", ondelete="SET NULL"), nullable=True
+    )
+    # Версия для optimistic CAS — тот же паттерн, что у Node/NodeDoc.version: PATCH с
+    # base_version ≠ текущей → 409, правка от устаревшего шага не затирает чужую
+    # (Д9: раньше вторая сессия молча теряла правку первой).
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     process: Mapped["BusinessProcess"] = relationship(
         "BusinessProcess", back_populates="messages"

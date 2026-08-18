@@ -83,3 +83,13 @@ def bump_meta_rev(db: Session, project: Project) -> None:
         {Project.meta_rev: Project.meta_rev + 1}, synchronize_session=False
     )
     db.expire(project, ["meta_rev"])
+
+
+def bump_process_rev(db: Session, project: Project) -> None:
+    """Инкремент курсора изменений ПРОЦЕССОВ (Д9) — тем же атомарным UPDATE.
+    Свой курсор: meta_rev дал бы ложный тост странице объекта, graph_rev — ложный
+    рефетч уровня канвасу. Поллит страница процесса."""
+    db.query(Project).filter(Project.id == project.id).update(
+        {Project.process_rev: Project.process_rev + 1}, synchronize_session=False
+    )
+    db.expire(project, ["process_rev"])

@@ -36,6 +36,8 @@ vi.mock("../../api/processes", () => ({
   processesApi: {
     get: vi.fn(), directions: vi.fn(), addMessage: vi.fn(), updateMessage: vi.fn(),
     removeMessage: vi.fn(), removeParticipant: vi.fn(), reattach: vi.fn(), detachMessages: vi.fn(),
+    // Карточка шага лениво тянет каталог схем — без заглушки эффект падает.
+    messageDocs: vi.fn(),
   },
 }));
 vi.mock("../../api/nodes", () => ({
@@ -47,6 +49,8 @@ const MSG = {
   edge_id: "e1", leg: "forward", kind: "forward", technology: null, valid: true,
   edge_synchronous: true,
   from_participant_id: "pa", to_participant_id: "pb",
+  // CAS (Д9): карточка шлёт версию шага обратно как base_version.
+  version: 3,
 };
 const DETAIL = {
   id: "p1", name: "Оплата", scope_node_id: null, scope_name: null,
@@ -79,6 +83,7 @@ beforeEach(() => {
   vi.mocked(processesApi.directions).mockResolvedValue([] as never);
   vi.mocked(processesApi.updateMessage).mockResolvedValue({ id: "m1" } as never);
   vi.mocked(processesApi.removeMessage).mockResolvedValue(undefined as never);
+  vi.mocked(processesApi.messageDocs).mockResolvedValue({ default_node_id: null, docs: [] } as never);
 });
 
 describe("карточка шага: подпись", () => {
@@ -118,7 +123,7 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() =>
-      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита" }),
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита", base_version: 3 }),
     );
   });
 
@@ -131,7 +136,7 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() =>
-      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: null }),
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: null, base_version: 3 }),
     );
   });
 
@@ -251,7 +256,7 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() =>
-      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита" }),
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита", base_version: 3 }),
     );
   });
 

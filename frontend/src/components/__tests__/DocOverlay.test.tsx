@@ -118,6 +118,25 @@ describe("DocOverlay", () => {
     expect(screen.queryByRole("button", { name: "Показать код" })).not.toBeInTheDocument();
   });
 
+  it("провал на чтение: кнопка «Править» зовёт onRequestEdit, футер объясняет режим", async () => {
+    // Барьер У7 (процессы → доки шага): архитектор пришёл ЧИТАТЬ чужую схему —
+    // редактор включается явной кнопкой, а не самим фактом провала.
+    const onRequestEdit = vi.fn();
+    render(
+      <DocOverlay {...base} mode="flowchart" isArchitect={false} onRequestEdit={onRequestEdit} />,
+    );
+    expect(
+      screen.getByText("Открыто на чтение — редактирование включается кнопкой «Править»"),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Править" }));
+    expect(onRequestEdit).toHaveBeenCalledOnce();
+  });
+
+  it("в режиме редактора кнопки «Править» нет, даже если onRequestEdit передан", () => {
+    render(<DocOverlay {...base} mode="flowchart" isArchitect onRequestEdit={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Править" })).not.toBeInTheDocument();
+  });
+
   it("крестик закрывает оверлей (onClose)", async () => {
     render(<DocOverlay {...base} mode="flowchart" isArchitect />);
     await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));

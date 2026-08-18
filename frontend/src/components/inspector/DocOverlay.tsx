@@ -29,6 +29,10 @@ interface Props {
   // режим OpenAPI): сохранение не применилось — показываем прямо в шапке, панель
   // за модалкой пользователь не видит. У схем логики свой баннер в FlowchartDocs.
   notice?: string | null;
+  // Провал «на чтение» (процессы → доки шага, барьер У7): архитектор пришёл ЧИТАТЬ
+  // чужую схему — редактор включается этой явной кнопкой, а не самим фактом провала.
+  // Передан вместе с isArchitect=false → в шапке кнопка «Править», футер об этом.
+  onRequestEdit?: () => void;
 }
 
 // «3.0.3» → «3.0» для тега «OAS 3.0 · YAML»
@@ -36,7 +40,7 @@ function shortVersion(v: string): string {
   return v.split(".").slice(0, 2).join(".");
 }
 
-export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose, autoCreate, initialDocId, notice }: Props) {
+export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose, autoCreate, initialDocId, notice, onRequestEdit }: Props) {
   const [showCode, setShowCode] = useState(false);
   // Версия OAS из последнего валидного парса спеки (шлёт OpenApiDoc)
   const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
@@ -45,7 +49,9 @@ export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitec
 
   const isFlow = mode === "flowchart";
   const foot = !isArchitect
-    ? "Наблюдателю редактирование недоступно"
+    ? onRequestEdit
+      ? "Открыто на чтение — редактирование включается кнопкой «Править»"
+      : "Наблюдателю редактирование недоступно"
     : isFlow
       ? "Сохраняет кнопка «Сохранить» или потеря фокуса — превью обновляется на лету"
       : "Невалидная спека сохраняется как черновик — рендер не обновляется до исправления";
@@ -69,6 +75,14 @@ export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitec
             <span className="doc-tag" style={{ background: "#fef3c7", color: "#92400e", borderColor: "#fcd34d" }}>
               {notice}
             </span>
+          )}
+          {!isArchitect && onRequestEdit && (
+            <button type="button" className="doc-codebtn" onClick={onRequestEdit}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m11.3 2.7 2 2L6.6 11.4l-2.9.9.9-2.9Z" />
+              </svg>
+              Править
+            </button>
           )}
           {!isArchitect && (
             <button type="button" className="doc-codebtn" onClick={() => setShowCode((s) => !s)}>

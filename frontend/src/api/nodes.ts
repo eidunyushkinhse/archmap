@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeDocUsage, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -83,6 +83,9 @@ export const nodeDocsApi = {
   // контейнера на его непосредственных детей.
   distribute: (nodeId: string, data: DistributeDocsIn): Promise<DistributeDocsOut> =>
     api.post<DistributeDocsOut>(`/nodes/${nodeId}/docs/distribute`, data),
+  // Обратный индекс «используется в процессах»: разворот привязок шагов на чтении.
+  usage: (nodeId: string): Promise<NodeDocUsage[]> =>
+    api.get<NodeDocUsage[]>(`/nodes/${nodeId}/docs/usage`),
 };
 
 export const viewsApi = {

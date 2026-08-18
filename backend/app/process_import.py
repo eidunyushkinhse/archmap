@@ -20,10 +20,11 @@ from sqlalchemy.orm import Session
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
-from app.processes import legs_for_edge, resolve_to_participant
+from app.processes import legs_for_edge, node_path, resolve_to_participant
 from app.schemas.process_import import (
     ImportNodeCandidate,
     ImportParticipantPreview,
@@ -48,6 +49,9 @@ _IGNORED_RE = re.compile(
     r"^(sequencediagram|autonumber|activate|deactivate|note|box|link|links|title)\b",
     re.IGNORECASE,
 )
+# Привязка шага к схеме логики в круговом прогоне (Ф7): строка-комментарий ПЕРЕД
+# шагом. Ключ — archmap-doc, в семье префикса archmap- из mmd_header.
+_DOC_RE = re.compile(r"^%%\s*archmap-doc:\s*(.+)$", re.IGNORECASE)
 
 
 @dataclass
@@ -56,6 +60,9 @@ class ParsedMessage:
     to: str
     leg: str  # forward | return
     caption: str | None
+    # Адрес схемы логики из «%% archmap-doc: путь узла / имя схемы» перед шагом (Ф7).
+    # Резолв в doc_id — на применении; не разрешился — шаг едет непривязанным.
+    doc_address: str | None = None
 
 
 @dataclass
@@ -99,10 +106,28 @@ def parse_sequence(text: str) -> ParsedDiagram:
     out = ParsedDiagram()
     seen: dict[str, str] = {}  # алиас → имя
     stack: list[ParsedFragment] = []
+    # Отложенный адрес схемы: «%% archmap-doc: …» привязывается к СЛЕДУЮЩЕМУ шагу.
+    pending_doc: str | None = None
 
     for raw in text.splitlines():
         line = raw.strip()
-        if not line or line.startswith("%%"):
+        if not line:
+            continue
+        if line.startswith("%%"):
+            # Круговой прогон (Ф7): archmap-doc — привязка следующего шага к схеме
+            # логики. Непонятая директива семьи archmap- (опечатка в ключе) — в
+            # отчёт: раньше она выпадала молча вместе со всеми комментариями, и
+            # привязка терялась тихо. ОБЫЧНЫЙ комментарий — по-прежнему законная
+            # тишина (тест «комментарии и пустые строки не шумят»): комментарий —
+            # это понятая строка без содержимого для импорта, а не непонятая.
+            m = _DOC_RE.match(line)
+            if m:
+                if pending_doc is not None:
+                    # Две привязки подряд: первая осталась бы без шага — в отчёт.
+                    out.unsupported.append(f"%% archmap-doc: {pending_doc}")
+                pending_doc = m.group(1).strip() or None
+            elif re.match(r"^%%\s*archmap-", line, re.IGNORECASE):
+                out.unsupported.append(line)
             continue
 
         m = _PARTICIPANT_RE.match(line)
@@ -167,7 +192,14 @@ def parse_sequence(text: str) -> ParsedDiagram:
                 seen[alias] = alias
                 out.participants.append((alias, alias))
         text_caption = caption.strip() or None
-        out.messages.append(ParsedMessage(frm=frm, to=to, leg=leg, caption=text_caption))
+        out.messages.append(
+            ParsedMessage(frm=frm, to=to, leg=leg, caption=text_caption, doc_address=pending_doc)
+        )
+        pending_doc = None
+
+    # Привязка, за которой не пришло ни одного шага, — в отчёт, а не в тишину.
+    if pending_doc is not None:
+        out.unsupported.append(f"%% archmap-doc: {pending_doc}")
 
     # Незакрытые фрагменты: закрываем последним сообщением — терять блок хуже, чем
     # додумать его конец (пользователь увидит охват в превью).
@@ -230,6 +262,39 @@ def find_channel(
     return found[0] if len(found) == 1 else None
 
 
+def _norm_address(raw: str) -> str:
+    """Норма адреса схемы: та же чистка, что у экспортёра (схлопнуть пробелы,
+    «;» → «,»), плюс casefold — адрес пишет машина, но человек правит руками."""
+    return _clean(raw).casefold()
+
+
+def _doc_address_map(
+    db: Session, project_id: uuid.UUID, all_nodes: dict[uuid.UUID, Node]
+) -> dict[str, list[NodeDoc]]:
+    """Полный адрес «путь узла / имя схемы» → схемы проекта (Ф7, круговой прогон).
+
+    Сверка ЦЕЛОЙ строкой, без разбиения на путь и имя: и в имени узла, и в имени
+    схемы законен « / », и любое разбиение гадало бы. Значение — СПИСОК: имена
+    узлов не уникальны, один адрес может накрыть две схемы; резолвим только
+    однозначное — выбирать за пользователя нельзя (тот же принцип, что у
+    find_channel). Не разрешилось — шаг едет непривязанным и попадает в алерт
+    полноты AL34, что и правильно.
+    """
+    docs = (
+        db.query(NodeDoc)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(Node.project_id == project_id)
+        .all()
+    )
+    out: dict[str, list[NodeDoc]] = {}
+    for d in docs:
+        if d.node_id not in all_nodes:
+            continue
+        addr = _norm_address(f"{node_path(all_nodes, d.node_id)} / {d.name}")
+        out.setdefault(addr, []).append(d)
+    return out
+
+
 def match_nodes_by_name(db: Session, project_id: uuid.UUID, names: list[str]) -> dict[str, list[Node]]:
     """Кандидаты-узлы для каждого имени из диаграммы. Сравнение регистронезависимое и
     без краевых пробелов; имена узлов НЕ уникальны (ограничения в БД нет), поэтому
@@ -279,6 +344,7 @@ def build_preview(
         message_count=len(parsed.messages),
         fragment_count=len(parsed.fragments),
         unsupported=parsed.unsupported,
+        doc_refs=sum(1 for m in parsed.messages if m.doc_address),
     )
 
 
@@ -329,9 +395,17 @@ def apply_import(
 
     edges = db.query(Edge).filter(Edge.project_id == project_id).all()
     participant_ids = {p.node_id for p in part_by_alias.values() if p.node_id is not None}
+    # Адреса привязок (Ф7) — картой один раз на импорт, не запросом на шаг.
+    doc_map = (
+        _doc_address_map(db, project_id, all_nodes)
+        if any(m.doc_address for m in parsed.messages)
+        else {}
+    )
     attached = 0
     dangling = 0
     self_messages = 0
+    doc_linked = 0
+    doc_unresolved = 0
     for order, msg in enumerate(parsed.messages):
         frm = part_by_alias[msg.frm]
         to = part_by_alias[msg.to]
@@ -353,6 +427,16 @@ def apply_import(
             attached += 1
         else:
             dangling += 1
+        # Привязка к схеме (Ф7): только однозначный адрес; промах и коллизия — шаг
+        # едет непривязанным и честно попадает в алерт полноты AL34.
+        doc: NodeDoc | None = None
+        if msg.doc_address:
+            candidates = doc_map.get(_norm_address(msg.doc_address), [])
+            if len(candidates) == 1:
+                doc = candidates[0]
+                doc_linked += 1
+            else:
+                doc_unresolved += 1
         db.add(
             ProcessMessage(
                 id=uuid.uuid4(),
@@ -363,6 +447,7 @@ def apply_import(
                 from_participant_id=frm.id,
                 to_participant_id=to.id,
                 caption=caption_for_import(msg.caption),
+                doc_id=doc.id if doc else None,
             )
         )
 
@@ -397,5 +482,7 @@ def apply_import(
         self_messages=self_messages,
         fragments=len(parsed.fragments),
         unsupported=parsed.unsupported,
+        doc_linked=doc_linked,
+        doc_unresolved=doc_unresolved,
     )
     return proc, result

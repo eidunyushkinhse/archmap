@@ -4,7 +4,9 @@
 // Вынесен из TreePage, чтобы не раздувать и без того большой компонент страницы.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { viewsApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
+import { POLL_MS } from "../../pages/useRemoteSync";
 import type { ProcessListItem } from "../../types";
 import ProcessCanvas from "./ProcessCanvas";
 import ProcessImportModal from "./ProcessImportModal";
@@ -78,6 +80,52 @@ export default function ProcessWorkspace({
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- первичная загрузка при маунте
   useEffect(() => { void reload(); }, []);
+
+  // Поллинг курсора процессов (Д9): чужая сессия правит процесс — перечитываем
+  // список и холст (syncRev дёргает reload канваса). Ритм тот же, что у
+  // useRemoteSync (10 с + возврат фокуса), но курсор СВОЙ — process_rev: meta_rev
+  // и graph_rev заняты страницей объекта и уровнем. Echo-suppression не заводим
+  // сознательно: ответы мутаций процессов курсор не возят, а цена эха — один
+  // лишний идемпотентный GET после своей правки, не рефетч тяжёлого уровня.
+  const knownProcessRev = useRef<number | undefined>(undefined);
+  const [syncRev, setSyncRev] = useState(0);
+  useEffect(() => {
+    let disposed = false;
+    let inflight = false;
+    async function tick() {
+      // Не врываемся в открытую модалку (все модалки проекта — нативные <dialog>);
+      // оверлеи холста — div-ы, но их рефетч не рушит: детали заменяются по id.
+      if (disposed || inflight || document.hidden) return;
+      if (document.querySelector("dialog[open]") != null) return;
+      inflight = true;
+      try {
+        const s = await viewsApi.state(null);
+        if (disposed) return;
+        if (knownProcessRev.current === undefined) {
+          knownProcessRev.current = s.process_rev; // первый тик только запоминает
+          return;
+        }
+        if (s.process_rev !== knownProcessRev.current) {
+          knownProcessRev.current = s.process_rev;
+          void reload();
+          setSyncRev((r) => r + 1);
+        }
+      } catch {
+        // сеть/архив — молча, следующий тик попробует снова
+      } finally {
+        inflight = false;
+      }
+    }
+    const timer = window.setInterval(() => { void tick(); }, POLL_MS);
+    const onFocus = () => { void tick(); };
+    window.addEventListener("focus", onFocus);
+    void tick(); // немедленная инициализация известного курсора
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [reload]);
 
   // Выбранный = явный (если ещё в списке) либо первый. Производное — без эффекта-зеркала.
   const selectedId = (picked && items?.some((p) => p.id === picked) ? picked : items?.[0]?.id) ?? null;
@@ -181,6 +229,7 @@ export default function ProcessWorkspace({
           id={selectedId}
           isArchitect={isArchitect}
           editing={editing}
+          syncRev={syncRev}
           onToggleEditing={(v) => setEditingPref(v)}
           onChanged={() => { void reload(); onChanged?.(); }}
           onOpenNode={onOpenNode}

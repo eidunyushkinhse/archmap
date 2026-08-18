@@ -55,6 +55,25 @@ describe("detailToMermaid — экспорт процесса в Mermaid sequenc
     expect(out).toContain("P1->>P1: проверка");
   });
 
+  it("привязка к схеме едет строкой «%% archmap-doc» перед шагом", () => {
+    // Круговой прогон (Ф7): в строку шага адрес не вписать — всё после первого
+    // двоеточия mermaid читает как подпись (Д11). Адрес — «путь узла / имя схемы».
+    const привязан = {
+      ...msg(0, "a", "b", "forward", "создать заказ"),
+      doc_id: "d1", doc_node_path: "Ярмарка / Заказы", doc_name: "POST /orders",
+    } as unknown as ProcessMessage;
+    const out = detailToMermaid(
+      detail([part("a", "A", 0), part("b", "B", 1)],
+             [привязан, msg(1, "b", "a", "return", "ответ")]),
+    );
+
+    const lines = out.split("\n").map((l) => l.trim());
+    const шаг = lines.indexOf("P1->>P2: создать заказ");
+    expect(lines[шаг - 1]).toBe("%% archmap-doc: Ярмарка / Заказы / POST /orders");
+    // Непривязанный шаг директивы не получает.
+    expect(lines.filter((l) => l.startsWith("%% archmap-doc"))).toHaveLength(1);
+  });
+
   it("пустая реплика → плейсхолдер «—»", () => {
     const out = detailToMermaid(
       detail([part("a", "A", 0), part("b", "B", 1)], [msg(0, "a", "b", "forward", null)]),

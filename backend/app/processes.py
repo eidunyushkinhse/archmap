@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -258,8 +259,19 @@ def bound_node_ids(participants: Iterable[ProcessParticipant]) -> set[uuid.UUID]
     return {p.node_id for p in participants if p.node_id is not None}
 
 
+def node_path(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> str:
+    """Полный путь узла от корня («Ярмарка / Заказы») — подпись каталога и карточки,
+    он же адресная часть кругового прогона «%% archmap-doc: путь / имя» (Ф7)."""
+    node = all_nodes[node_id]
+    return " / ".join([*(a.name for a in ancestors(all_nodes, node.id)), node.name])
+
+
 def message_out(
-    msg: ProcessMessage, edge: Edge | None, part_by_id: dict[uuid.UUID, ProcessParticipant]
+    msg: ProcessMessage,
+    edge: Edge | None,
+    part_by_id: dict[uuid.UUID, ProcessParticipant],
+    doc_by_id: dict[uuid.UUID, NodeDoc],
+    all_nodes: dict[uuid.UUID, Node],
 ) -> MessageOut:
     """Сериализация сообщения процесса.
 
@@ -273,6 +285,13 @@ def message_out(
 
     Самосообщение (внутренняя операция участника): концы совпадают, связи C4 нет.
     kind="self", valid всегда true (это не повисшая связь — её тут и не было).
+
+    doc_by_id — схемы логики, на которые ссылаются шаги, загруженные ОДНИМ запросом.
+    Параметр обязателен намеренно: с дефолтом «пусто» забытый вызов молча отдавал бы
+    шаги без привязки, а витрина показала бы их непривязанными — тихая потеря данных.
+    Пустой словарь законен (в наборе нет ни одной привязки), отсутствующий id — тоже:
+    ON DELETE SET NULL уже обнулил бы ссылку, поэтому промах карты означает лишь, что
+    вызывающий не грузил схемы, и шаг честно едет непривязанным.
     """
     is_self = msg.from_participant_id == msg.to_participant_id
     caption = msg.caption
@@ -293,6 +312,9 @@ def message_out(
             # edge_id IS NULL), лечится возвратом синхронности или удалением шага.
             invalid_reason = "leg_gone"
         valid = invalid_reason is None
+    # Привязка: промах карты значит «вызывающий не грузил схемы» — шаг честно едет
+    # непривязанным, а не падает (см. docstring).
+    doc = doc_by_id.get(msg.doc_id) if msg.doc_id else None
     return MessageOut(
         id=msg.id,
         order=msg.order,
@@ -309,7 +331,16 @@ def message_out(
         to_participant_id=msg.to_participant_id,
         valid=valid,
         invalid_reason=invalid_reason,
+        doc_id=doc.id if doc else None,
+        doc_node_id=doc.node_id if doc else None,
+        doc_name=doc.name if doc else None,
+        # Промах карты узлов невозможен, пока схема из этого проекта (_check_doc),
+        # но .get бережёт от гонки с параллельным удалением узла.
+        doc_node_path=(
+            node_path(all_nodes, doc.node_id) if doc and doc.node_id in all_nodes else None
+        ),
         edge_synchronous=None if edge is None else edge_is_synchronous(edge),
+        version=msg.version,
     )
 
 
@@ -394,6 +425,107 @@ def fragment_out(frag: ProcessFragment) -> FragmentOut:
     )
 
 
+# Логику несёт только сервис: у базы, брокера и человека схем логики не бывает
+# (фронтовый shapeDocs — logic: shape === "service"; тот же отбор у конфигурации,
+# config_import.py:162).
+LOGIC_SHAPE = "service"
+
+
+@dataclass(frozen=True)
+class DocChoice:
+    """Строка каталога «чем задокументирован шаг»: схема, её узел и путь узла."""
+
+    doc: NodeDoc
+    node: Node
+    path: str
+    # Схема лежит в поддереве ВЛАДЕЛЬЦА шага — такие идут первыми.
+    own: bool
+
+
+def owner_node_id(edge: Edge | None, all_nodes: dict[uuid.UUID, Node]) -> uuid.UUID | None:
+    """Чью схему логики описывает шаг — конец РЕБРА, несущий логику.
+
+    Правило считается ОТ РЕБРА, а не от плеча: и запрос, и ответ описывает один и тот
+    же исполнитель — тот, кто делает работу. Формулировка «владелец = цель канала»
+    переворачивала бы концы у каждого третьего шага: у плеча return from/to меняются
+    местами, а таких шагов на живых данных 52 из 156 (дефект Д1 челленджа, замер —
+    docs/plan-process-docs-step3.md).
+
+    Цель логики не несёт (база, брокер, человек) — владельцем становится источник:
+    обращение к базе описывает тот, кто обращается. Замер: переключение результативно
+    в 43 случаях из 43, шагов вовсе без владельца нет.
+
+    None — ребра нет (повисший шаг или самосообщение): выводить не из чего, и человек
+    выбирает схему сам.
+    """
+    if edge is None:
+        return None
+    target = all_nodes.get(edge.target_id)
+    if target is not None and target.shape == LOGIC_SHAPE:
+        return target.id
+    source = all_nodes.get(edge.source_id)
+    return source.id if source is not None and source.shape == LOGIC_SHAPE else None
+
+
+def doc_catalog(
+    db: Session,
+    msg: ProcessMessage,
+    part_by_id: dict[uuid.UUID, ProcessParticipant],
+    edge: Edge | None,
+    all_nodes: dict[uuid.UUID, Node],
+) -> tuple[uuid.UUID | None, list[DocChoice]]:
+    """(владелец, каталог схем) для шага. Владелец — только дефолт, не ограничение.
+
+    СКОУП — поддеревья ОБОИХ участников шага, а не одного лишь владельца. Причина в
+    данных: клиентский сценарий живёт у ВЫЗЫВАЮЩЕГО («Оформление заказа (checkout)» на
+    веб-витрине), и шаг «витрина → orders» человек вправе задокументировать как со
+    стороны исполнителя, так и со стороны клиента. Каталог, суженный до владельца,
+    запирал бы этот законный ответ; порядок вместо запрета — схемы владельца первыми.
+
+    Поддерево, а не сам узел-участник: на системной диаграмме участник обычно
+    контейнер, а своих схем у контейнера быть не должно (алерт AL24) — каталог был бы
+    вечно пуст (решение Р3, docs/plan-process-docs-step2.md).
+    """
+    scope: set[uuid.UUID] = set()
+    for pid in {msg.from_participant_id, msg.to_participant_id}:
+        part = part_by_id.get(pid)
+        if part is not None and part.node_id is not None:
+            scope |= subtree_ids(all_nodes, part.node_id)
+    if not scope:
+        return None, []
+
+    owner = owner_node_id(edge, all_nodes)
+    own_scope = subtree_ids(all_nodes, owner) if owner else set()
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id.in_(scope)).all()
+
+    out: list[DocChoice] = []
+    for d in docs:
+        node = all_nodes.get(d.node_id)
+        if node is None:  # схема узла вне проекта в скоуп не попадала бы
+            continue
+        out.append(
+            DocChoice(doc=d, node=node, path=node_path(all_nodes, node.id), own=d.node_id in own_scope)
+        )
+    # Свои первыми, дальше по пути узла и имени схемы: порядок читает человек, и он
+    # обязан быть устойчивым между запросами.
+    out.sort(key=lambda c: (not c.own, c.path, c.doc.name))
+    return owner, out
+
+
+def docs_for_messages(
+    db: Session, msgs: Iterable[ProcessMessage]
+) -> dict[uuid.UUID, NodeDoc]:
+    """Схемы, на которые ссылаются шаги, — ОДНИМ запросом (см. message_out).
+
+    Лениво по одной это был бы N+1: у монолита в процессе десяток шагов. Тело схемы не
+    тянем — оно отложено (NodeDoc.content), а витрине нужны только имя и узел.
+    """
+    ids = {m.doc_id for m in msgs if m.doc_id}
+    if not ids:
+        return {}
+    return {d.id: d for d in db.query(NodeDoc).filter(NodeDoc.id.in_(ids)).all()}
+
+
 def build_process_detail(
     db: Session, proc: BusinessProcess, all_nodes: dict[uuid.UUID, Node]
 ) -> ProcessDetail:
@@ -411,8 +543,9 @@ def build_process_detail(
             edge_cache[eid] = db.get(Edge, eid)
         return edge_cache[eid]
 
+    doc_by_id = docs_for_messages(db, proc.messages)
     messages = [
-        message_out(m, edge_of(m.edge_id), part_by_id)
+        message_out(m, edge_of(m.edge_id), part_by_id, doc_by_id, all_nodes)
         for m in sorted(proc.messages, key=lambda m: m.order)
     ]
     fragments = [fragment_out(f) for f in sorted(proc.fragments, key=lambda f: f.from_order)]

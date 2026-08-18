@@ -15,9 +15,11 @@ from fastapi import HTTPException
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
+from app.models.project import Project
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
@@ -30,6 +32,7 @@ from app.routers.processes import (
     get_process,
     list_channels,
     list_directions,
+    message_doc_catalog,
     reattach_process,
     reorder_messages,
     reorder_participants,
@@ -248,6 +251,284 @@ def test_подпись_правится_и_снимается(db):
     assert правка(MessageUpdate(order=0)).caption == "проверка лимита"
     # Прислали null — подпись снята и НЕ выведена заново из канала.
     assert правка(MessageUpdate(caption=None)).caption is None
+
+
+# ── Привязка шага к схеме логики (эпик «процессы → доки шага», Ф1) ────────────
+
+
+def _шаг_с_каналом(db):
+    """Готовый шаг forward между двумя сервисами + сами узлы."""
+    a, b = _node(db, "web"), _node(db, "orders")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    return proc, msg, a, b
+
+
+def _схема(db, node, name="POST /orders"):
+    d = NodeDoc(id=uuid.uuid4(), node_id=node.id, name=name, kind="operation",
+                operation=name, content="graph TD\n A")
+    db.add(d)
+    db.commit()
+    return d
+
+
+def test_привязка_шага_ставится_и_снимается(db):
+    proc, msg, _a, b = _шаг_с_каналом(db)
+    doc = _схема(db, b)
+
+    после = update_message(
+        proc.id, msg.id, MessageUpdate(doc_id=doc.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    # Витрине нужны и узел, и имя: по ним открывается оверлей и подписывается строка.
+    assert (после.doc_id, после.doc_node_id, после.doc_name) == (doc.id, b.id, "POST /orders")
+
+    # null — законное «отвязать», не «поле не пришло».
+    снято = update_message(
+        proc.id, msg.id, MessageUpdate(doc_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert снято.doc_id is None
+
+
+def test_подпись_шага_переживает_правку_привязки(db):
+    # exclude_unset: правка одного поля не должна стирать соседнее — тот же инвариант,
+    # что проверялся у подписи и порядка, но теперь полей три.
+    proc, msg, _a, b = _шаг_с_каналом(db)
+    update_message(proc.id, msg.id, MessageUpdate(caption="проверка"),
+                   db=db, project=ensure_project(db), user=ensure_architect(db))
+    после = update_message(
+        proc.id, msg.id, MessageUpdate(doc_id=_схема(db, b).id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert после.caption == "проверка"
+
+
+def test_схему_чужого_проекта_привязать_нельзя(db):
+    """⚠️ Дефект Д6 челленджа: правка шага была слепым setattr по payload, и ссылочное
+    поле проехало бы насквозь. id приходит от клиента, а FK на уровне БД межпроектную
+    границу не знает — project_id у схемы не свой, он берётся через узел."""
+    proc, msg, _a, _b = _шаг_с_каналом(db)
+    чужой = Project(id=uuid.uuid4(), name="Чужой")
+    db.add(чужой)
+    чужой_узел = Node(id=uuid.uuid4(), name="alien", shape="service", project_id=чужой.id)
+    db.add(чужой_узел)
+    db.commit()
+    чужая = _схема(db, чужой_узел, name="GET /alien")
+
+    with pytest.raises(HTTPException) as e:
+        update_message(proc.id, msg.id, MessageUpdate(doc_id=чужая.id),
+                       db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert e.value.status_code == 404
+
+    # И на создании — тот же гвард: путь в обход правки закрыт.
+    a2, b2 = _node(db, "web2"), _node(db, "orders2")
+    edge2 = _edge(db, a2, b2)
+    proc2 = _process(db, name="P2")
+    db.commit()
+    parts2 = _participants(db, proc2, [a2, b2])
+    with pytest.raises(HTTPException) as e2:
+        create_message(
+            proc2.id,
+            MessageCreate(edge_id=edge2.id, leg="forward", from_participant_id=parts2[a2.id],
+                          to_participant_id=parts2[b2.id], order=0, doc_id=чужая.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+    assert e2.value.status_code == 404
+
+
+def test_удаление_схемы_оставляет_шаг_живым(db):
+    """ON DELETE SET NULL — тот же приём, что у edge_id: удаление схемы делает шаг
+    непривязанным, а не сносит его. Расхождение показывает алерт полноты."""
+    proc, msg, _a, b = _шаг_с_каналом(db)
+    doc = _схема(db, b)
+    update_message(proc.id, msg.id, MessageUpdate(doc_id=doc.id),
+                   db=db, project=ensure_project(db), user=ensure_architect(db))
+
+    db.delete(doc)
+    db.commit()
+
+    живой = db.get(ProcessMessage, msg.id)
+    assert живой is not None and живой.doc_id is None
+
+
+# ── Каталог схем и правило владельца (Ф2) ────────────────────────────────────
+
+
+def _каталог(db, proc, msg):
+    return message_doc_catalog(
+        proc.id, msg.id, db=db, project=ensure_project(db), _=ensure_architect(db)
+    )
+
+
+def test_владелец_шага_цель_канала(db):
+    proc, msg, _web, orders = _шаг_с_каналом(db)
+    _схема(db, orders)
+    кат = _каталог(db, proc, msg)
+    assert кат.default_node_id == orders.id
+
+
+def test_владелец_у_плеча_ответа_ТОТ_ЖЕ(db):
+    """⚠️ Дефект Д1 челленджа и главный тест правила: у плеча return концы шага
+    перевёрнуты (from = цель ребра), и правило «владелец = цель канала» назвало бы
+    владельцем ВЫЗЫВАЮЩЕГО. Таких шагов на живых данных треть — 52 из 156.
+    Правило считается от РЕБРА, поэтому запрос и ответ дают одного исполнителя."""
+    web, orders = _node(db, "web"), _node(db, "orders")
+    edge = _edge(db, web, orders, is_sync=True, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [web, orders])
+    общий = dict(db=db, project=ensure_project(db), user=ensure_architect(db))
+    вызов = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", from_participant_id=parts[web.id],
+                      to_participant_id=parts[orders.id], order=0),
+        **общий,
+    )
+    ответ = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="return", from_participant_id=parts[orders.id],
+                      to_participant_id=parts[web.id], order=1),
+        **общий,
+    )
+    assert ответ.from_participant_id != вызов.from_participant_id  # концы и правда разные
+    assert _каталог(db, proc, вызов).default_node_id == orders.id
+    assert _каталог(db, proc, ответ).default_node_id == orders.id
+
+
+def test_обращение_к_базе_отдаёт_владельца_источнику(db):
+    """У базы схем логики не бывает по форме — владельцем становится тот, кто
+    обращается. Замер: переключение результативно в 43 случаях из 43."""
+    svc = _node(db, "orders")
+    db_node = _node(db, "Каталог-БД", shape="database")
+    edge = _edge(db, svc, db_node, label="читает")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [svc, db_node])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", from_participant_id=parts[svc.id],
+                      to_participant_id=parts[db_node.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert _каталог(db, proc, msg).default_node_id == svc.id
+
+
+def test_каталог_шире_владельца_и_ставит_его_первым(db):
+    """Клиентский сценарий живёт у ВЫЗЫВАЮЩЕГО («Оформление заказа» на веб-витрине),
+    и запирать каталог владельцем нельзя — законный ответ стал бы недостижим.
+    Порядок вместо запрета: схемы владельца идут первыми."""
+    proc, msg, web, orders = _шаг_с_каналом(db)
+    _схема(db, web, name="Оформление заказа")
+    _схема(db, orders, name="POST /orders")
+    кат = _каталог(db, proc, msg)
+    assert [d.name for d in кат.docs] == ["POST /orders", "Оформление заказа"]
+    assert [d.node_path for d in кат.docs] == ["orders", "web"]
+
+
+def test_каталог_берёт_поддерево_участника_а_не_сам_узел(db):
+    """На системной диаграмме участник обычно контейнер, а своих схем у контейнера
+    быть не должно (AL24) — каталог был бы вечно пуст (решение Р3)."""
+    web = _node(db, "web")
+    контейнер = _node(db, "Бэкенд")
+    ребёнок = _node(db, "orders", parent=контейнер)
+    edge = _edge(db, web, ребёнок)  # сквозная связь: конец вглубь поддерева
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [web, контейнер])
+    _схема(db, ребёнок, name="POST /orders")
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward", from_participant_id=parts[web.id],
+                      to_participant_id=parts[контейнер.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    кат = _каталог(db, proc, msg)
+    assert [d.node_path for d in кат.docs] == ["Бэкенд / orders"]
+    # Владелец — сырой конец ребра (ребёнок), а не спроецированный участник.
+    assert кат.default_node_id == ребёнок.id
+
+
+def test_у_повисшего_шага_дефолта_нет_а_каталог_есть(db):
+    """Ребра нет — выводить владельца не из чего. Но привязать шаг всё равно можно:
+    запрет дал бы вечные алерты, которые нечем погасить (следствие решения Р4)."""
+    proc, msg, web, orders = _шаг_с_каналом(db)
+    _схема(db, orders)
+    строка = db.get(ProcessMessage, msg.id)
+    assert строка is not None
+    строка.edge_id = None  # связь удалили из схемы — шаг повис
+    db.commit()
+
+    кат = _каталог(db, proc, msg)
+    assert кат.default_node_id is None
+    assert [d.name for d in кат.docs] == ["POST /orders"]
+    assert {d.node_id for d in кат.docs} <= {web.id, orders.id}
+
+
+def test_белый_список_полей_правки_шага_полон():
+    """Сторож дефекта Д6: ручка правки шага применяет поля по белому списку, и поле,
+    добавленное в контракт мимо него, молча перестало бы работать.
+
+    Почему список, а не прежний цикл `setattr` по payload: в шаг приезжает ССЫЛОЧНОЕ
+    поле (привязка к схеме логики), и слепое присваивание приняло бы ссылку на строку
+    чужого проекта — межпроектная изоляция держалась бы на честном слове клиента.
+    Ссылочные поля живут в отдельном перечне: у каждого своя проверка принадлежности.
+    """
+    from app.routers.processes import _MESSAGE_META, _MESSAGE_REFS, _MESSAGE_SCALARS
+
+    перечни = (set(_MESSAGE_SCALARS), set(_MESSAGE_REFS), set(_MESSAGE_META))
+    assert set(MessageUpdate.model_fields) == перечни[0] | перечни[1] | перечни[2]
+    # Перечни попарно не пересекаются: поле не может быть и тем, и другим.
+    assert sum(len(s) for s in перечни) == len(перечни[0] | перечни[1] | перечни[2])
+
+
+def test_правка_шага_от_устаревшей_версии_отклоняется(db):
+    """Д9: раньше вторая сессия молча затирала правку первой. CAS — паттерн
+    update_node/update_doc: version растёт с каждой правкой, base_version ≠
+    текущей → 409, None — компенсация undo без проверки."""
+    proc, msg, _a, _b = _шаг_с_каналом(db)
+
+    def правка(body):
+        return update_message(proc.id, msg.id, body,
+                              db=db, project=ensure_project(db), user=ensure_architect(db))
+
+    первая = правка(MessageUpdate(caption="от первой сессии", base_version=1))
+    assert первая.version == 2
+
+    with pytest.raises(HTTPException) as e:
+        правка(MessageUpdate(caption="от второй сессии", base_version=1))
+    assert e.value.status_code == 409
+    # Проигравшая правка ничего не затёрла (msg — MessageOut, истину читаем из БД).
+    строка = db.get(ProcessMessage, msg.id)
+    assert строка is not None and строка.caption == "от первой сессии"
+
+    # None — undo-компенсация: проходит без проверки и двигает версию дальше.
+    assert правка(MessageUpdate(caption="компенсация")).version == 3
+
+
+def test_мутации_процессов_двигают_свой_курсор(db):
+    """Д9: чужая сессия узнаёт о правке поллингом process_rev. Курсор СВОЙ:
+    meta_rev дал бы ложный тост странице объекта, graph_rev — ложный рефетч
+    уровня канвасу."""
+    proc, msg, _a, _b = _шаг_с_каналом(db)
+    project = ensure_project(db)
+    db.refresh(project)
+    было = (project.process_rev, project.graph_rev, project.meta_rev)
+
+    update_message(proc.id, msg.id, MessageUpdate(caption="тронули шаг"),
+                   db=db, project=project, user=ensure_architect(db))
+
+    db.refresh(project)
+    assert project.process_rev == было[0] + 1
+    assert (project.graph_rev, project.meta_rev) == (было[1], было[2])
 
 
 def test_ответ_на_ставшем_асинхронным_канале_перестаёт_быть_корректным(db):

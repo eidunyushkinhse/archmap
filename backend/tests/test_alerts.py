@@ -906,3 +906,55 @@ def test_классы_трёх_семей_не_смешиваются(db):
         "создание",
         "FEATURE_Y",
     )
+
+
+def test_шаг_без_схемы_логики_даёт_алерт_полноты(db):
+    """AL34, решение Р4: замечание на ЛЮБОЙ шаг с doc_id = NULL — включая
+    самосообщение (внутренняя операция тоже документируется схемой). Привязанный
+    шаг в класс не попадает — алерт гаснет работой, а не живёт вечно."""
+    from app.models.business_process import BusinessProcess
+    from app.models.node_doc import NodeDoc
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    витрина = _node(db, "Веб-витрина")
+    заказы = _node(db, "Сервис заказов")
+    связь = _edge(db, витрина, заказы)
+    схема = NodeDoc(id=uuid.uuid4(), node_id=заказы.id, name="POST /orders",
+                    kind="operation", operation="POST /orders", content="graph TD\n A")
+    db.add(схема)
+    процесс = BusinessProcess(id=uuid.uuid4(), name="Оформление заказа",
+                              project_id=ensure_project(db).id)
+    db.add(процесс)
+    db.flush()
+    клиент = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id,
+                                node_id=витрина.id, name=витрина.name, order=0)
+    сервис = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id,
+                                node_id=заказы.id, name=заказы.name, order=1)
+    db.add_all([клиент, сервис])
+    db.flush()
+    db.add_all([
+        # Привязанный шаг — в алерт не попадает.
+        ProcessMessage(id=uuid.uuid4(), process_id=процесс.id, order=0,
+                       edge_id=связь.id, leg="forward", doc_id=схема.id,
+                       from_participant_id=клиент.id, to_participant_id=сервис.id,
+                       caption="создать заказ"),
+        # Непривязанный шаг на живой связи — попадает.
+        ProcessMessage(id=uuid.uuid4(), process_id=процесс.id, order=1,
+                       edge_id=связь.id, leg="return",
+                       from_participant_id=сервис.id, to_participant_id=клиент.id,
+                       caption="номер заказа"),
+        # Самосообщение без привязки — тоже попадает (наравне со всеми).
+        ProcessMessage(id=uuid.uuid4(), process_id=процесс.id, order=2,
+                       edge_id=None, leg="forward",
+                       from_participant_id=сервис.id, to_participant_id=сервис.id,
+                       caption="посчитать скидку"),
+    ])
+    db.commit()
+
+    out = get_alerts(db=db, project=ensure_project(db), _=None).unlinked_messages
+    assert [(m.caption, m.from_name, m.to_name) for m in out] == [
+        ("номер заказа", "Сервис заказов", "Веб-витрина"),
+        ("посчитать скидку", "Сервис заказов", "Сервис заказов"),
+    ]
+    assert all(m.process_name == "Оформление заказа" for m in out)

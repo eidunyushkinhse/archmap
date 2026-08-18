@@ -212,6 +212,10 @@ export type ProcessParticipant = Schemas["ParticipantOut"];
 export type ProcessMessage = Schemas["MessageOut"];
 export type ProcessFragment = Schemas["FragmentOut"];
 export type Channel = Schemas["ChannelOut"];
+// Каталог схем для привязки шага: строки + владелец для подстановки. Считает бэк —
+// правило владельца и скоуп поддеревьев там же, где проекция концов связи.
+export type MessageDocCatalog = Schemas["MessageDocCatalog"];
+export type DocChoice = Schemas["DocChoiceOut"];
 export type ChannelLeg = Schemas["LegOut"];
 export type ParticipantCreate = Schemas["ParticipantCreate"];
 export type MessageCreate = Schemas["MessageCreate"];
@@ -245,6 +249,9 @@ export type DbColumnCreate = Schemas["DbColumnCreate"];
 export type DbColumnUpdate = Schemas["DbColumnUpdate"];
 // Обратный индекс базы («кто ко мне ходит») — разворот тех же пометок на чтении.
 export type TableUsage = Schemas["TableUsage"];
+// Обратный индекс схемы логики («используется в процессах») — разворот привязок
+// шагов (doc_id) на чтении, третья реализация приёма после таблиц и каналов.
+export type NodeDocUsage = Schemas["NodeDocUsage"];
 
 // Структура брокера (docs/plan-broker-docs.md): каналы и поля сообщений — тот же
 // «контракт» узла, что таблицы у базы, но своей сущностью (у канала своя мета:

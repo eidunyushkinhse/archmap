@@ -153,6 +153,9 @@ class ViewStateResponse(BaseModel):
     # Курсор меты (атрибуты узлов/доки) — поллинг страницы объекта: «данные
     # изменились в другой сессии» vs «схема изменилась» (graph_rev).
     meta_rev: int = 0
+    # Курсор процессов (Д9) — поллинг страницы процесса; дефолт 0 бережёт старых
+    # клиентов, как meta_rev.
+    process_rev: int = 0
 
 
 class GraphEdgeResponse(BaseModel):
@@ -332,6 +335,23 @@ class OrphanLegAlert(BaseModel):
     to_name: str
 
 
+class UnlinkedMessageAlert(BaseModel):
+    """Шаг процесса без привязки к схеме логики (doc_id = NULL) — алерт ПОЛНОТЫ.
+
+    Решение Р4 (2026-08-18): замечание на ЛЮБОЙ непривязанный шаг, не различая
+    «не привязывали» и «схему удалили» (ON DELETE SET NULL гасит ссылку молча) —
+    «шумно, зато консистентно». Это не «сломалось», а «шаг не документирован» —
+    та же семья, что «не описана» у разведки: класс стартует со всех шагов
+    проекта и гаснет работой по привязке. Самосообщения участвуют наравне:
+    внутренняя операция участника тоже документируется схемой логики."""
+    process_id: uuid.UUID
+    process_name: str
+    message_id: uuid.UUID
+    caption: str | None
+    from_name: str
+    to_name: str
+
+
 class UnresolvedDataRefAlert(BaseModel):
     """Пометка «читает:/пишет:» в схеме логики, не нашедшая свою таблицу.
 
@@ -438,6 +458,8 @@ class AlertsResponse(BaseModel):
     descendant_edges: list[DescendantEdgeAlert] = []
     # Пометки «зависит от:», не нашедшие параметра (AL33) — дефолт [] по той же причине.
     unresolved_config_refs: list[UnresolvedConfigRefAlert] = []
+    # Шаги процессов без привязки к схеме логики (AL34) — дефолт [] по той же причине.
+    unlinked_messages: list[UnlinkedMessageAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

@@ -98,6 +98,8 @@ const IcoBrokenLifeline = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 
 const IcoBrokenArrow = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M1.8 8h3.4" /><path d="M10.8 8h3.4" /><path d="M11.4 5.6 13.8 8l-2.4 2.4" /><path d="M7.4 5.4 8.6 10.6" /></svg>;
 // Ответное плечо, которого больше нет: дуга возврата, перечёркнутая косой.
 const IcoNoReturn = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M13.2 3.8H6.2a3 3 0 0 0 0 6h3.4" /><path d="M7.6 7.6 5.6 9.8l2 2.2" /><path d="M2.6 2.6l10.8 10.8" /></svg>;
+// Шаг без схемы логики: лист документа, перечёркнутый косой — документации нет.
+const IcoNoDoc = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M4 1.8h5.2L12 4.6v9.6H4Z" /><path d="M9.2 1.8v2.8H12" /><path d="M2.6 2.6l10.8 10.8" /></svg>;
 // Обращение к неописанным данным: цилиндр базы со знаком вопроса — цель пометки
 // не нашлась.
 const IcoUnknownData = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><ellipse cx="6.6" cy="3.6" rx="4.2" ry="1.7" /><path d="M2.4 3.6v6c0 .9 1.9 1.7 4.2 1.7" /><path d="M10.8 3.6v2.4" /><path d="M10.2 9.6a1.6 1.6 0 1 1 2.2 1.5v.9" /><path d="M12.4 13.7h.01" /></svg>;
@@ -168,6 +170,9 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // Связи с брокером, не назвавшие канал (или назвавшие неизвестный): шов «стрелка ↔
   // структура брокера» держат алерты, а не FK, — это единственное место, где он виден.
   const brokerEdges = alerts.broker_edge_channels;
+  // Шаги процессов без привязки к схеме логики — алерт ПОЛНОТЫ (Р4 «шумно, зато
+  // консистентно»): не «сломалось», а «не документировано», гаснет привязкой шагов.
+  const unlinkedMessages = alerts.unlinked_messages;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
@@ -177,7 +182,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
     disconnected.length + intermediate.length + descendant.length + isolatedProblems +
     containerOwn.length + personsInside.length + dangling.length + unbound.length +
     orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length +
-    unresolvedConfigRefs.length + brokerEdges.length;
+    unresolvedConfigRefs.length + brokerEdges.length + unlinkedMessages.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -429,6 +434,23 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                   <span style={{ color: "#6b7280", fontWeight: 600 }}>{p.process_name}:</span>
                   <span style={badEnd}>{p.name}</span>
+                </span>
+              </Item>
+            ))}
+          </Section>
+
+          <Section icon={IcoNoDoc(13)} title="Шаги без схемы логики" count={unlinkedMessages.length}>
+            {unlinkedMessages.map((m) => (
+              <Item
+                key={m.message_id}
+                onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
+              >
+                <span style={{ display: "block", lineHeight: 1.35 }}>
+                  <span style={{ color: "#6b7280", fontWeight: 600 }}>{m.process_name}:</span>{" "}
+                  {m.caption ? `«${m.caption}»` : "без подписи"}
+                </span>
+                <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", lineHeight: 1.35 }}>
+                  {m.from_name} → {m.to_name}
                 </span>
               </Item>
             ))}

@@ -19,7 +19,7 @@ describe("useRemoteSync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 0, meta_rev: 0 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 0, meta_rev: 0, process_rev: 0 });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -57,7 +57,7 @@ describe("useRemoteSync", () => {
   }
 
   it("поллит по интервалу: курсор вырос → onRemoteChange", async () => {
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 5, meta_rev: 0 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 5, meta_rev: 0, process_rev: 0 });
     const { onRemoteChange } = setup({ viewMeta: makeViewMeta(0) });
     await tick();
     expect(viewsApi.state).toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe("useRemoteSync", () => {
   });
 
   it("курсор не вырос → запрос уходит, но onRemoteChange молчит", async () => {
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 3, meta_rev: 0 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 3, meta_rev: 0, process_rev: 0 });
     const { onRemoteChange } = setup({ viewMeta: makeViewMeta(3) });
     await tick();
     expect(viewsApi.state).toHaveBeenCalled();
@@ -73,7 +73,7 @@ describe("useRemoteSync", () => {
   });
 
   it("фокус окна сверяет немедленно (без ожидания интервала)", async () => {
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 9, meta_rev: 0 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 9, meta_rev: 0, process_rev: 0 });
     const { onRemoteChange } = setup();
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
@@ -115,7 +115,7 @@ describe("useRemoteSync", () => {
   });
 
   it("рост meta_rev дёргает onMetaChange (схема-колбэк молчит)", async () => {
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 0, meta_rev: 7 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 0, meta_rev: 7, process_rev: 0 });
     const onMetaChange = vi.fn();
     const { onRemoteChange } = setup({ viewMeta: makeViewMeta(0, 2), onMetaChange });
     await tick();
@@ -124,7 +124,7 @@ describe("useRemoteSync", () => {
   });
 
   it("латест-колбэк: после rerender тик зовёт свежий onRemoteChange", async () => {
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 5, meta_rev: 0 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 5, meta_rev: 0, process_rev: 0 });
     const first = vi.fn();
     const second = vi.fn();
     const viewMeta = makeViewMeta(0);

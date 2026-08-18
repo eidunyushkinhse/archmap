@@ -201,3 +201,46 @@ def test_copy_project_copies_docs(db):
     copied = db.query(NodeDoc).filter(NodeDoc.node_id == copied_node.id).one()
     assert copied.id != src_doc.id
     assert (copied.name, copied.content) == ("Логика", "graph TD; A-->B")
+
+
+def test_обратный_индекс_используется_в_процессах(db):
+    """Ф8 (У10): разворот привязок шагов на чтении — какие процессы висят на ЭТОЙ
+    схеме. Узловой вопрос закрывает секция «Участвует в процессах», а при полусотне
+    операций она не отвечает про конкретную. Хранения нет — тот же приём, что у
+    таблиц и каналов."""
+    from app.models.business_process import BusinessProcess
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+    from app.routers.node_docs import docs_usage
+
+    заказы = _node(db, "Заказы")
+    db.flush()
+    схема = _create(db, заказы, name="POST /orders", kind="operation", content="graph TD\n A")
+    пустая = _create(db, заказы, name="email_senders", kind="worker", content="graph TD\n B")
+
+    def _процесс(имя, шагов_на_схеме):
+        proc = BusinessProcess(id=uuid.uuid4(), name=имя, project_id=ensure_project(db).id)
+        db.add(proc)
+        db.flush()
+        участник = ProcessParticipant(id=uuid.uuid4(), process_id=proc.id,
+                                      node_id=заказы.id, name="Заказы", order=0)
+        db.add(участник)
+        db.flush()
+        for i in range(шагов_на_схеме):
+            db.add(ProcessMessage(id=uuid.uuid4(), process_id=proc.id, order=i,
+                                  edge_id=None, leg="forward", doc_id=схема.id,
+                                  from_participant_id=участник.id,
+                                  to_participant_id=участник.id))
+
+    _процесс("Оплата", 2)
+    _процесс("Возврат", 1)
+    db.commit()
+
+    rows = docs_usage(заказы.id, db=db, project=ensure_project(db), _=ensure_architect(db))
+
+    assert [(r.doc_id, r.process_name, r.steps) for r in rows] == [
+        (схема.id, "Возврат", 1),
+        (схема.id, "Оплата", 2),
+    ]
+    # Неиспользуемая схема в индексе не появляется вовсе.
+    assert all(r.doc_id != пустая.id for r in rows)

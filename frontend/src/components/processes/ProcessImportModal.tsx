@@ -102,6 +102,16 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
             )}
           </div>
           <div>Фрагментов: {result.fragments}</div>
+          {/* Привязки к схемам логики (Ф7): неразрешённый адрес — не поломка импорта,
+              шаг приехал непривязанным и виден алертом полноты, но сказать об этом
+              обязаны здесь — молчание читалось бы как «все привязки доехали». */}
+          {(result.doc_linked > 0 || result.doc_unresolved > 0) && (
+            <div>Привязок к схемам логики: {result.doc_linked}
+              {result.doc_unresolved > 0 && (
+                <span style={{ color: BROKEN.ink }}> · адрес не разрешился: {result.doc_unresolved}</span>
+              )}
+            </div>
+          )}
           {result.unsupported.length > 0 && (
             <div style={{ marginTop: 10 }}>
               <div style={label}>Строки, которые не удалось разобрать</div>

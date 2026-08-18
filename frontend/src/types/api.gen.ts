@@ -660,6 +660,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/docs/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Docs Usage
+         * @description Обратный индекс «используется в процессах» для схем ЭТОГО узла (Ф8, У10).
+         *
+         *     Разворот привязок шагов (ProcessMessage.doc_id) на чтении, хранения нет — тот же
+         *     приём, что у таблиц (tables/usage) и каналов (channels/usage). Отвечает про
+         *     КОНКРЕТНУЮ схему, а не про узел: узловой вопрос закрывает секция «Участвует в
+         *     процессах», и при полусотне операций она не говорит, какие процессы висят на
+         *     этой. Читателю открыт: состояние документации — знание, а не действие.
+         */
+        get: operations["docs_usage_api_v1_nodes__node_id__docs_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/docs": {
         parameters: {
             query?: never;
@@ -1733,6 +1759,33 @@ export interface paths {
         patch: operations["reorder_messages_api_v1_processes__process_id__messages_reorder_patch"];
         trace?: never;
     };
+    "/api/v1/processes/{process_id}/messages/{message_id}/docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Message Doc Catalog
+         * @description Схемы, которыми можно задокументировать шаг, плюс владелец для подстановки.
+         *
+         *     Считается НА БЭКЕ целиком: правило владельца (конец ребра, несущий логику) и скоуп
+         *     (поддеревья участников) — доменные знания, и вторая их реализация на фронте
+         *     неизбежно разошлась бы с этой, как это уже случалось с проекцией концов связи
+         *     (см. list_directions).
+         *
+         *     Читателю ручка открыта: состояние документации — знание, а не действие над ней.
+         */
+        get: operations["message_doc_catalog_api_v1_processes__process_id__messages__message_id__docs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/processes/{process_id}/messages/{message_id}": {
         parameters: {
             query?: never;
@@ -1915,6 +1968,11 @@ export interface components {
              * @default []
              */
             unresolved_config_refs: components["schemas"]["UnresolvedConfigRefAlert"][];
+            /**
+             * Unlinked Messages
+             * @default []
+             */
+            unlinked_messages: components["schemas"]["UnlinkedMessageAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -3074,6 +3132,35 @@ export interface components {
             spec_moved: boolean;
         };
         /**
+         * DocChoiceOut
+         * @description Строка каталога «чем задокументирован шаг».
+         */
+        DocChoiceOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Path */
+            node_path: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+            /** Described */
+            described: boolean;
+        };
+        /**
          * DocsFileIn
          * @description Один загруженный файл пакета: имя нужно для file-референсов манифеста
          *     и префиксов ошибок.
@@ -3754,6 +3841,22 @@ export interface components {
             caption?: string | null;
             /** Order */
             order: number;
+            /** Doc Id */
+            doc_id?: string | null;
+        };
+        /**
+         * MessageDocCatalog
+         * @description Каталог для окна выбора схемы у шага.
+         *
+         *     default_node_id — ВЛАДЕЛЕЦ шага (конец ребра, несущий логику). Это подсказка для
+         *     подстановки, а не ограничение: каталог шире владельца намеренно (см. doc_catalog).
+         *     null — ребра нет (повисший шаг, самосообщение), дефолта не существует.
+         */
+        MessageDocCatalog: {
+            /** Default Node Id */
+            default_node_id: string | null;
+            /** Docs */
+            docs: components["schemas"]["DocChoiceOut"][];
         };
         /** MessageOut */
         MessageOut: {
@@ -3794,8 +3897,21 @@ export interface components {
             valid: boolean;
             /** Invalid Reason */
             invalid_reason?: ("edge_deleted" | "leg_gone") | null;
+            /** Doc Id */
+            doc_id?: string | null;
+            /** Doc Node Id */
+            doc_node_id?: string | null;
+            /** Doc Name */
+            doc_name?: string | null;
+            /** Doc Node Path */
+            doc_node_path?: string | null;
             /** Edge Synchronous */
             edge_synchronous?: boolean | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
         };
         /** MessageUpdate */
         MessageUpdate: {
@@ -3803,6 +3919,10 @@ export interface components {
             caption?: string | null;
             /** Order */
             order?: number | null;
+            /** Doc Id */
+            doc_id?: string | null;
+            /** Base Version */
+            base_version?: number | null;
         };
         /** NodeCreate */
         NodeCreate: {
@@ -3970,6 +4090,32 @@ export interface components {
             content?: string | null;
             /** Base Version */
             base_version?: number | null;
+        };
+        /**
+         * NodeDocUsage
+         * @description Строка обратного индекса «используется в процессах» (Ф8 эпика «процессы →
+         *     доки шага», барьер У10): шаги какого процесса задокументированы этой схемой.
+         *
+         *     Третья реализация приёма после таблиц (TableUsage) и каналов (ChannelUsage):
+         *     хранения нет, индекс — разворот привязок шагов (doc_id) на чтении. Отличие от
+         *     узловой секции «Участвует в процессах»: та отвечает про УЗЕЛ, эта — про
+         *     конкретную схему, что при полусотне операций и есть смысл фичи.
+         */
+        NodeDocUsage: {
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /** Steps */
+            steps: number;
         };
         /**
          * NodeEdgeInfo
@@ -4295,6 +4441,11 @@ export interface components {
             fragment_count: number;
             /** Unsupported */
             unsupported: string[];
+            /**
+             * Doc Refs
+             * @default 0
+             */
+            doc_refs: number;
         };
         /** ProcessImportResult */
         ProcessImportResult: {
@@ -4322,6 +4473,16 @@ export interface components {
             fragments: number;
             /** Unsupported */
             unsupported: string[];
+            /**
+             * Doc Linked
+             * @default 0
+             */
+            doc_linked: number;
+            /**
+             * Doc Unresolved
+             * @default 0
+             */
+            doc_unresolved: number;
         };
         /** ProcessListItem */
         ProcessListItem: {
@@ -4959,6 +5120,37 @@ export interface components {
             name: string;
         };
         /**
+         * UnlinkedMessageAlert
+         * @description Шаг процесса без привязки к схеме логики (doc_id = NULL) — алерт ПОЛНОТЫ.
+         *
+         *     Решение Р4 (2026-08-18): замечание на ЛЮБОЙ непривязанный шаг, не различая
+         *     «не привязывали» и «схему удалили» (ON DELETE SET NULL гасит ссылку молча) —
+         *     «шумно, зато консистентно». Это не «сломалось», а «шаг не документирован» —
+         *     та же семья, что «не описана» у разведки: класс стартует со всех шагов
+         *     проекта и гаснет работой по привязке. Самосообщения участвуют наравне:
+         *     внутренняя операция участника тоже документируется схемой логики.
+         */
+        UnlinkedMessageAlert: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /** Caption */
+            caption: string | null;
+            /** From Name */
+            from_name: string;
+            /** To Name */
+            to_name: string;
+        };
+        /**
          * UnresolvedChannelRefAlert
          * @description Пометка «публикует:/потребляет:» в схеме логики, не нашедшая свой канал.
          *
@@ -5168,6 +5360,11 @@ export interface components {
              * @default 0
              */
             meta_rev: number;
+            /**
+             * Process Rev
+             * @default 0
+             */
+            process_rev: number;
         };
     };
     responses: never;
@@ -6363,6 +6560,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    docs_usage_api_v1_nodes__node_id__docs_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeDocUsage"][];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -8724,6 +8954,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    message_doc_catalog_api_v1_processes__process_id__messages__message_id__docs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                process_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageDocCatalog"];
                 };
             };
             /** @description Validation Error */
