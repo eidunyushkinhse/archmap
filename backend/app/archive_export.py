@@ -17,15 +17,26 @@ docs/plan-archive-export.md).
 одного проекта дают одинаковые байты — иначе diff архивов был бы нечитаем.
 """
 
+import io
+import re
 import uuid
+import zipfile
 
 import yaml
+from sqlalchemy.orm import Session, undefer
 
+from app.export import build_export
 from app.mmd_header import render_header, strip_header
 from app.models.broker_channel import BrokerChannel
+from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
 from app.models.db_table import DbTable
+from app.models.edge import Edge
+from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.project import Project
+from app.process_export import detail_to_mermaid
+from app.processes import build_process_detail, node_path
 
 # Адрес узла-владельца — ведущий комментарий, как у всех семей (NODE_HEADER
 # в data_import). Решётка обязательна: YAML-ключ адресом не считается.
@@ -164,3 +175,134 @@ def render_config_yaml(params: list[ConfigParam], node_path: str) -> str:
     return _NODE_COMMENT.format(path=node_path) + _yaml(
         {"config": [param_dict(p) for p in ordered]}
     )
+
+
+# ── Сборка архива (Ф3): manifest.yaml + файлы категорий в zip ────────────────
+
+# Версия формата архива. Поднимать при несовместимой правке структуры манифеста
+# или раскладки файлов; ввозные форматы самих файлов версионируются своей
+# толерантностью (неизвестные ключи игнорируются).
+ARCHIVE_FORMAT = 1
+
+_UNSAFE = re.compile(r"[^\w\-. ]")
+
+
+def _fname(index: int, name: str, ext: str) -> str:
+    """Имя файла в архиве: индекс + очищенное имя. СМЫСЛА имя не несёт (адрес —
+    внутри файла или в манифесте), индекс решает коллизии; читаемый хвост — для
+    человека, распаковавшего архив."""
+    safe = _UNSAFE.sub("_", name).strip()[:60] or "item"
+    return f"{index:03d}-{safe}{ext}"
+
+
+def build_archive(db: Session, project: Project) -> bytes:
+    """Полный архив знания проекта (zip). Состав и порядок применения —
+    docs/plan-archive-export.md; раскладка (view_layout) НЕ едет — принципиальное
+    решение Р1: ручная раскладка — бонус, а не знание, при импорте её строит ELK.
+
+    Детерминизм: перечни отсортированы, штампы времени в zip фиксированы —
+    два архива одного состояния совпадают байт-в-байт (diff архивов читаем)."""
+    nodes = db.query(Node).filter(Node.project_id == project.id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project.id).all()
+    all_nodes = {n.id: n for n in nodes}
+
+    def path_of(node_id: uuid.UUID) -> str:
+        return node_path(all_nodes, node_id)
+
+    files: list[tuple[str, str]] = []  # (имя в архиве, содержимое)
+    manifest: dict = {
+        "archmap-archive": ARCHIVE_FORMAT,
+        "project": {"name": project.name},
+    }
+    if project.description:
+        manifest["project"]["description"] = project.description
+    contents: dict = {"c4": "c4.yaml"}
+    files.append(("c4.yaml", build_export(nodes, edges)))
+
+    # Схемы логики — включая заглушки разведки (пустое тело — план работ, Д4).
+    docs = (
+        db.query(NodeDoc)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(Node.project_id == project.id)
+        .options(undefer(NodeDoc.content))
+        .all()
+    )
+    doc_files = []
+    for i, d in enumerate(sorted(docs, key=lambda d: (path_of(d.node_id), d.name)), 1):
+        fname = f"docs/{_fname(i, d.name, '.mmd')}"
+        doc_files.append(fname)
+        files.append((fname, render_doc_mmd(d, path_of(d.node_id))))
+    if doc_files:
+        contents["docs"] = doc_files
+
+    # Структура БД / каналы брокеров / конфигурация — файл на узел-владельца.
+    def family(rows_by_node: dict[uuid.UUID, list], subdir: str, render) -> list[str]:
+        out = []
+        ordered = sorted(rows_by_node.items(), key=lambda kv: path_of(kv[0]))
+        for i, (nid, rows) in enumerate(ordered, 1):
+            fname = f"{subdir}/{_fname(i, all_nodes[nid].name, '.yaml')}"
+            out.append(fname)
+            files.append((fname, render(rows, path_of(nid))))
+        return out
+
+    tables: dict[uuid.UUID, list] = {}
+    for t in db.query(DbTable).join(Node, Node.id == DbTable.node_id).filter(
+        Node.project_id == project.id
+    ):
+        tables.setdefault(t.node_id, []).append(t)
+    if tables:
+        contents["db"] = family(tables, "db", render_tables_yaml)
+
+    channels: dict[uuid.UUID, list] = {}
+    for c in db.query(BrokerChannel).join(Node, Node.id == BrokerChannel.node_id).filter(
+        Node.project_id == project.id
+    ):
+        channels.setdefault(c.node_id, []).append(c)
+    if channels:
+        contents["channels"] = family(channels, "channels", render_channels_yaml)
+
+    params: dict[uuid.UUID, list] = {}
+    for p in db.query(ConfigParam).join(Node, Node.id == ConfigParam.node_id).filter(
+        Node.project_id == project.id
+    ):
+        params.setdefault(p.node_id, []).append(p)
+    if params:
+        contents["config"] = family(params, "config", render_config_yaml)
+
+    # Спеки OpenAPI: адрес узла — внутри файла (render_spec_yaml).
+    spec_files = []
+    with_spec = sorted(
+        (n for n in nodes if n.openapi_spec and n.openapi_spec.strip()),
+        key=lambda n: path_of(n.id),
+    )
+    for i, n in enumerate(with_spec, 1):
+        fname = f"specs/{_fname(i, n.name, '.yaml')}"
+        spec_files.append(fname)
+        files.append((fname, render_spec_yaml(n.openapi_spec or "", path_of(n.id))))
+    if spec_files:
+        contents["specs"] = spec_files
+
+    # Процессы: mermaid не несёт имени процесса — имя едет в манифесте.
+    procs = sorted(
+        db.query(BusinessProcess).filter(BusinessProcess.project_id == project.id).all(),
+        key=lambda p: p.name,
+    )
+    proc_entries = []
+    for i, proc in enumerate(procs, 1):
+        fname = f"processes/{_fname(i, proc.name, '.mmd')}"
+        detail = build_process_detail(db, proc, all_nodes)
+        proc_entries.append({"file": fname, "name": proc.name})
+        files.append((fname, detail_to_mermaid(detail)))
+    if proc_entries:
+        contents["processes"] = proc_entries
+
+    manifest["contents"] = contents
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname, content in [("manifest.yaml", _yaml(manifest)), *files]:
+            # Фиксированный штамп времени — детерминизм байтов архива.
+            info = zipfile.ZipInfo(fname, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, content)
+    return buf.getvalue()

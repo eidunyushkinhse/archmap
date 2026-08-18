@@ -175,3 +175,92 @@ def test_конфигурация_круговой_прогон(db):
     assert по_имени["TIMEOUT_MS"].default_value == "5000"
     assert по_имени["TIMEOUT_MS"].value_type == "int"
     assert по_имени["FEATURE_X"].required
+
+
+def test_сборка_архива_полна_и_детерминирована(db):
+    """Ф3: манифест перечисляет все категории, каждый файл существует, два архива
+    одного состояния совпадают байт-в-байт (иначе diff архивов нечитаем)."""
+    import io
+    import zipfile
+
+    import yaml as _yaml
+
+    from app.archive_export import build_archive
+    from app.import_yaml import parse_import
+    from app.models.business_process import BusinessProcess
+    from app.models.edge import Edge
+    from app.models.process_message import ProcessMessage
+    from app.models.process_participant import ProcessParticipant
+
+    проект = ensure_project(db)
+    проект.description = "полигон архива"
+    ярмарка = _node(db, "Ярмарка")
+    orders = Node(id=uuid.uuid4(), name="orders", project_id=проект.id,
+                  parent_id=ярмарка.id, openapi_spec="openapi: 3.0.3\npaths: {}\n",
+                  source_ref="git:github.com/shop/orders")
+    kafka = Node(id=uuid.uuid4(), name="Kafka", project_id=проект.id,
+                 parent_id=ярмарка.id, shape="broker")
+    база = Node(id=uuid.uuid4(), name="Каталог-БД", project_id=проект.id,
+                parent_id=ярмарка.id, shape="database")
+    db.add_all([orders, kafka, база])
+    db.flush()
+    связь = Edge(id=uuid.uuid4(), project_id=проект.id, source_id=orders.id,
+                 target_id=kafka.id, channel="orders.created", is_synchronous=False)
+    db.add(связь)
+    схема = NodeDoc(id=uuid.uuid4(), node_id=orders.id, name="POST /orders",
+                    kind="operation", operation="POST /orders", content="graph TD\n A")
+    заглушка = NodeDoc(id=uuid.uuid4(), node_id=orders.id, name="GET /health",
+                       kind="operation", operation="GET /health", content="")
+    db.add_all([схема, заглушка])
+    t = DbTable(id=uuid.uuid4(), node_id=база.id, name="orders", schema_name="")
+    db.add(t)
+    db.flush()
+    db.add(DbColumn(id=uuid.uuid4(), table_id=t.id, name="id", type="uuid",
+                    nullable=False, is_primary_key=True, order=0))
+    db.add(BrokerChannel(id=uuid.uuid4(), node_id=kafka.id, name="orders.created",
+                         group_name="", kind="topic", partition_key="", delivery="",
+                         retention=""))
+    db.add(ConfigParam(id=uuid.uuid4(), node_id=orders.id, name="TIMEOUT_MS",
+                       value_type="int", required=False, default_value="5000"))
+    процесс = BusinessProcess(id=uuid.uuid4(), name="Оформление", project_id=проект.id)
+    db.add(процесс)
+    db.flush()
+    участник = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id,
+                                  node_id=orders.id, name="orders", order=0)
+    db.add(участник)
+    db.flush()
+    db.add(ProcessMessage(id=uuid.uuid4(), process_id=процесс.id, order=0,
+                          edge_id=None, leg="forward", doc_id=схема.id,
+                          from_participant_id=участник.id, to_participant_id=участник.id,
+                          caption="оформить"))
+    db.commit()
+
+    архив = build_archive(db, проект)
+
+    zf = zipfile.ZipFile(io.BytesIO(архив))
+    манифест = _yaml.safe_load(zf.read("manifest.yaml"))
+    assert манифест["archmap-archive"] == 1
+    assert манифест["project"]["description"] == "полигон архива"
+    состав = манифест["contents"]
+    # Все категории на месте, каждый заявленный файл существует в архиве.
+    assert set(состав) == {"c4", "docs", "db", "channels", "config", "specs", "processes"}
+    имена = set(zf.namelist())
+    заявлено = [состав["c4"], *состав["docs"], *состав["db"], *состав["channels"],
+                *состав["config"], *состав["specs"],
+                *[p["file"] for p in состав["processes"]]]
+    assert set(заявлено) <= имена
+    # Имя процесса едет манифестом: mermaid его не несёт.
+    assert состав["processes"][0]["name"] == "Оформление"
+    # C4 из архива разбирается без ошибок и несёт якорь с типом канала.
+    c4 = zf.read("c4.yaml").decode()
+    parsed, errors = parse_import(c4)
+    assert errors == [] and parsed is not None
+    assert "repo: github.com/shop/orders" in c4 and "sync: false" in c4
+    # Привязка шага доехала в файл процесса.
+    текст_процесса = zf.read(состав["processes"][0]["file"]).decode()
+    assert "%% archmap-doc: Ярмарка / orders / POST /orders" in текст_процесса
+    # Заглушка — файл из одной шапки.
+    assert any("GET _health" in f for f in состав["docs"])
+
+    # Детерминизм: повторная сборка байт-в-байт.
+    assert build_archive(db, проект) == архив
