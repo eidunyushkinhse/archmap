@@ -36,6 +36,8 @@ vi.mock("../../api/processes", () => ({
   processesApi: {
     get: vi.fn(), directions: vi.fn(), addMessage: vi.fn(), updateMessage: vi.fn(),
     removeMessage: vi.fn(), removeParticipant: vi.fn(), reattach: vi.fn(), detachMessages: vi.fn(),
+    // Карточка шага лениво тянет каталог схем — без заглушки эффект падает.
+    messageDocs: vi.fn(),
   },
 }));
 vi.mock("../../api/nodes", () => ({
@@ -79,6 +81,7 @@ beforeEach(() => {
   vi.mocked(processesApi.directions).mockResolvedValue([] as never);
   vi.mocked(processesApi.updateMessage).mockResolvedValue({ id: "m1" } as never);
   vi.mocked(processesApi.removeMessage).mockResolvedValue(undefined as never);
+  vi.mocked(processesApi.messageDocs).mockResolvedValue({ default_node_id: null, docs: [] } as never);
 });
 
 describe("карточка шага: подпись", () => {

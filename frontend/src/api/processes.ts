@@ -3,6 +3,7 @@ import type {
   BindResult,
   ReattachResult,
   Channel,
+  MessageDocCatalog,
   FragmentCreate,
   FragmentUpdate,
   MessageCreate,
@@ -86,6 +87,12 @@ export const processesApi = {
   // неизбежно разошлась бы с валидатором.
   directions: (id: string): Promise<MessageDirection[]> =>
     api.get<MessageDirection[]>(`/processes/${id}/directions`),
+
+  // Чем можно задокументировать шаг: схемы поддеревьев обоих участников плюс
+  // владелец для подстановки. Считает бэк — правило владельца доменное, и вторая
+  // его реализация здесь разошлась бы с первой (та же причина, что у directions).
+  messageDocs: (id: string, messageId: string): Promise<MessageDocCatalog> =>
+    api.get<MessageDocCatalog>(`/processes/${id}/messages/${messageId}/docs`),
 
   // Дублирование процесса — СЕРВЕРНАЯ ручка (одна транзакция, строки пишутся
   // напрямую). Прежняя фронтовая оркестрация поверх публичных ручек теряла всё, что

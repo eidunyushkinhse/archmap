@@ -43,6 +43,9 @@ vi.mock("../../api/processes", () => ({
     get: vi.fn(), directions: vi.fn(), addMessage: vi.fn(), updateMessage: vi.fn(),
     removeMessage: vi.fn(), removeParticipant: vi.fn(), reattach: vi.fn(), detachMessages: vi.fn(),
     removeFragment: vi.fn(), updateFragment: vi.fn(),
+    // Карточка шага лениво тянет каталог схем для привязки — без заглушки её эффект
+    // падает, и Escape тестировать не на чем.
+    messageDocs: vi.fn().mockResolvedValue({ default_node_id: null, docs: [] }),
   },
 }));
 vi.mock("../../api/nodes", () => ({

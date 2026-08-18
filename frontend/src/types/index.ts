@@ -212,6 +212,10 @@ export type ProcessParticipant = Schemas["ParticipantOut"];
 export type ProcessMessage = Schemas["MessageOut"];
 export type ProcessFragment = Schemas["FragmentOut"];
 export type Channel = Schemas["ChannelOut"];
+// Каталог схем для привязки шага: строки + владелец для подстановки. Считает бэк —
+// правило владельца и скоуп поддеревьев там же, где проекция концов связи.
+export type MessageDocCatalog = Schemas["MessageDocCatalog"];
+export type DocChoice = Schemas["DocChoiceOut"];
 export type ChannelLeg = Schemas["LegOut"];
 export type ParticipantCreate = Schemas["ParticipantCreate"];
 export type MessageCreate = Schemas["MessageCreate"];
