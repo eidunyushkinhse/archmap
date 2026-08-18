@@ -199,7 +199,7 @@ describe("NodePage: правила контейнеров", () => {
   beforeEach(() => vi.clearAllMocks());
 
   function docMeta(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
-    return { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, described: true, ...over };
+    return { id: "d1", name: "Схема оплаты", kind: "operation", operation: null, version: 1, described: true, ...over };
   }
 
   function setupContainer(over: { own?: Partial<Node>; children?: Node[] } = {}) {
@@ -574,7 +574,7 @@ describe("NodePage: документация по форме узла", () => {
   });
 
   it("легаси-содержимое у базы не прячется, а объясняется", async () => {
-    const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "overview", operation: null, version: 1, described: true };
+    const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "operation", operation: null, version: 1, described: true };
     setupShape({ shape: "database", name: "Хранилище", docs: [док], openapi_spec: "openapi: 3.0.0" });
     await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
     expect(screen.getByText(/у этого объекта его нет — перенесите/)).toBeInTheDocument();
@@ -606,10 +606,10 @@ describe("NodePage: заглушки разведки, счётчик «опис
     return render(<NodePage nodeId="n1" isArchitect {...nav} />);
   }
 
-  it("счётчик считает точки входа: обзор в знаменатель не входит", async () => {
-    // Обзор — не точка входа, от разведки он не зависит и завышал бы знаменатель.
+  it("счётчик считает ВСЕ схемы: оба вида — точки входа", async () => {
+    // После отказа от вида «обзор» отсеивать из знаменателя нечего: и операция, и
+    // воркер — точки входа, и обе зависят от разведки.
     setupDocs([
-      док({ id: "d0", name: "Обзор сервиса", kind: "overview", described: true }),
       док({ id: "d1", name: "POST /orders", kind: "operation", described: true }),
       док({ id: "d2", name: "GET /orders", kind: "operation", described: false }),
       док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
@@ -617,9 +617,9 @@ describe("NodePage: заглушки разведки, счётчик «опис
     await waitFor(() => expect(screen.getByText("описано 1 из 3")).toBeInTheDocument());
   });
 
-  it("точек входа нет — счётчика нет вовсе", async () => {
+  it("схем нет — счётчика нет вовсе", async () => {
     // «описано 0 из 0» это шум на каждом узле проекта, а не полезное знание.
-    setupDocs([док({ id: "d0", name: "Обзор сервиса", kind: "overview" })]);
+    setupDocs([]);
     await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
     expect(screen.queryByText(/описано \d+ из/)).toBeNull();
   });
@@ -640,27 +640,23 @@ describe("NodePage: заглушки разведки, счётчик «опис
   it("маленький объект: группы развёрнуты, схемы видны без единого клика", async () => {
     // Порог сворачивания не должен менять привычный вид там, где схем немного.
     setupDocs([
-      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
       док({ id: "d1", name: "POST /orders" }),
       док({ id: "d2", name: "email_senders", kind: "worker" }),
     ]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    expect(screen.getByText("Обзор сервиса")).toBeInTheDocument();
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("двести схем: свёрнута только группа-стена, обзоры и воркеры видны сразу", async () => {
+  it("двести схем: свёрнута только группа-стена, воркеры видны сразу", async () => {
     const много = Array.from({ length: 200 }, (_, i) =>
       док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
     setupDocs([
-      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
       ...много,
       док({ id: "w1", name: "email_senders", kind: "worker", described: false }),
     ]);
     await waitFor(() => expect(screen.getByText("описано 0 из 201")).toBeInTheDocument());
-    // Стены из двухсот кнопок нет, а соседние группы — не стена, и прятать их незачем.
+    // Стены из двухсот кнопок нет, а соседняя группа — не стена, и прятать её незачем.
     expect(screen.queryByText("GET /r0")).toBeNull();
-    expect(screen.getByText("Обзор сервиса")).toBeInTheDocument();
     expect(screen.getByText("email_senders")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
@@ -673,20 +669,18 @@ describe("NodePage: заглушки разведки, счётчик «опис
     // ни в одной группе. Свернуть их значило бы забрать читаемый список без выигрыша.
     const операции = Array.from({ length: 10 }, (_, i) => док({ id: `o${i}`, name: `GET /r${i}` }));
     setupDocs([
-      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
       ...операции,
       док({ id: "w1", name: "email_senders", kind: "worker" }),
       док({ id: "w2", name: "embed_links", kind: "worker" }),
+      док({ id: "w3", name: "digest_senders", kind: "worker" }),
     ]);
-    await waitFor(() => expect(screen.getByText("Обзор сервиса")).toBeInTheDocument());
-    expect(screen.getByText("GET /r0")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("GET /r0")).toBeInTheDocument());
     expect(screen.getByText("GET /r9")).toBeInTheDocument();
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("в заголовке группы — число строк и остаток; у обзоров остатка нет", async () => {
+  it("в заголовке группы — число строк и остаток работы", async () => {
     setupDocs([
-      док({ id: "d0", name: "Обзор сервиса", kind: "overview" }),
       док({ id: "d1", name: "POST /orders", described: true }),
       док({ id: "d2", name: "GET /orders", described: false }),
       док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
@@ -696,15 +690,11 @@ describe("NodePage: заглушки разведки, счётчик «опис
     expect(операции).toHaveTextContent("(2)");
     expect(операции).toHaveTextContent("описано 1");
     expect(screen.getByRole("button", { name: /^Воркеры/ })).toHaveTextContent("описано 0");
-    // Обзор — не точка входа: его нет в счётчике секции, и «описано» у группы не
-    // пишем, иначе два разных числа на одном экране читались бы как ошибка.
-    expect(screen.getByRole("button", { name: /^Обзоры/ })).not.toHaveTextContent("описано");
   });
 
   it("пустая группа не рисуется вовсе", async () => {
     setupDocs([док({ id: "d1", name: "POST /orders" })]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: /^Обзоры/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
   });
 
@@ -745,11 +735,10 @@ describe("NodePage: заглушки разведки, счётчик «опис
     expect(screen.queryByTestId("docs-modal")).toBeNull();
   });
 
-  it("у описанной строки и у обзора кнопки «Описать» нет", async () => {
-    // Описанную открывают («открыть →»), а обзор не адресуется как точка входа.
+  it("у описанной строки кнопки «Описать» нет", async () => {
+    // Описанную открывают («открыть →»), описывать заново нечего.
     setupDocs([
       док({ id: "d1", name: "POST /orders", described: true }),
-      док({ id: "d0", name: "Обзор сервиса", kind: "overview", described: false }),
     ]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();

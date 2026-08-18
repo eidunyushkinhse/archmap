@@ -198,7 +198,7 @@ def main() -> None:
         node("Старый обменник", shape="broker", role="брокер", technology="RabbitMQ")
 
         db.add(NodeDoc(node_id=billing.id, name="Списание", kind="operation", content=DOC))
-        db.add(NodeDoc(node_id=catalog.id, name="Обзор", kind="overview", content=DOC))
+        db.add(NodeDoc(node_id=catalog.id, name="Просмотр каталога", kind="operation", content=DOC))
 
         # --- Структура БД и пометки обращений (AL29) -------------------------
         def table(owner: Node, name: str, columns: list[str]) -> DbTable:

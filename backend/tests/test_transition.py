@@ -95,7 +95,7 @@ def test_считаются_связи_доки_и_спеки(db):
     root = _node(db, "Система")
     legacy = _node(db, "legacy", parent=root, status="deprecated", spec="openapi: 3.0.0\\n")
     keep = _node(db, "orders", parent=root)
-    db.add(NodeDoc(node_id=legacy.id, name="Схема", kind="overview", content="graph TD; A"))
+    db.add(NodeDoc(node_id=legacy.id, name="Схема", kind="operation", content="graph TD; A"))
     db.add(Edge(
         id=uuid.uuid4(), project_id=root.project_id, source_id=keep.id, target_id=legacy.id
     ))

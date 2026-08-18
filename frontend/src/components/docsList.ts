@@ -21,7 +21,6 @@ export const OPEN_LIMIT = 12;
 // Подпись вида схемы в строке списка (плашка). Строчные — это метка у имени, а не
 // заголовок; в окне дозаливки, где вид выбирается из списка, подписи свои.
 export const KIND_LABEL: Record<NodeDocKind, string> = {
-  overview: "обзор",
   operation: "операция",
   worker: "воркер",
 };

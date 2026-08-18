@@ -48,7 +48,7 @@ class NodeDocSnapshot(BaseModel):
     id: uuid.UUID
     node_id: uuid.UUID
     name: str
-    kind: NodeDocKind = "overview"
+    kind: NodeDocKind = "operation"
     operation: str | None = None
     content: str = ""
 

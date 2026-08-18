@@ -26,7 +26,7 @@ vi.mock("../mermaidLoader", () => ({ validateMermaid: validateMermaidMock }));
 
 const doc = () => ({
   node_path: "Ярмарка / orders", source: "вставка-1", name: "Списание",
-  kind: "overview" as const, operation: null, action: "create" as const,
+  kind: "operation" as const, operation: null, action: "create" as const,
   mermaid: 'graph TD\n  A["Списать<br>пишет: orders"]',
 });
 

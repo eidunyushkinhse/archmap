@@ -6,12 +6,21 @@ from pydantic import BaseModel, Field
 
 # Вид схемы логики узла. Источник правды контракта — этот Literal; фронтовый
 # NodeDocKind генерируется из него (openapi-typescript).
-NodeDocKind = Literal["overview", "operation", "worker"]
+#
+# Видов ДВА, и оба — точки входа: «операция» — сценарий, запускаемый извне
+# (обработчик собственной API-операции ИЛИ действие пользователя в интерфейсе),
+# «воркер» — фоновая работа. Третий вид «обзор» УДАЛЁН (решение пользователя
+# 2026-08-18): он был дефолтом модели и потому доставался всему, что создавалось
+# без явного выбора, а смысла «схема ни о чём конкретном» продукту не нужно.
+# Поле operation заполняется только у операций СОБСТВЕННОГО API узла — у
+# клиентских сценариев его нет и это законно (см. recon_import: безадресная
+# схема не может «исчезнуть» из кода).
+NodeDocKind = Literal["operation", "worker"]
 
 
 class NodeDocCreate(BaseModel):
     name: str = Field(min_length=1, max_length=256)
-    kind: NodeDocKind = "overview"
+    kind: NodeDocKind = "operation"
     # Привязка к операции OpenAPI-спеки узла («METHOD /path»)
     operation: str | None = Field(default=None, max_length=256)
     content: str = ""

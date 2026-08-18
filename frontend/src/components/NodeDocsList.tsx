@@ -18,11 +18,10 @@ import type { NodeDocKind, NodeDocMeta } from "../types";
 import { ChevronDownIcon } from "../ui/icons";
 import { KIND_LABEL, OPEN_LIMIT } from "./docsList";
 
-// Порядок групп — тот же, что у вида схемы во всём проекте: обзор → операция →
-// воркер. Внутри группы порядок приходит с бэка (по имени) и фильтром сохраняется —
+// Порядок групп — тот же, что у вида схемы во всём проекте: операция → воркер.
+// Внутри группы порядок приходит с бэка (по имени) и фильтром сохраняется —
 // сортировать заново незачем.
 const GROUPS: { kind: NodeDocKind; title: string }[] = [
-  { kind: "overview", title: "Обзоры" },
   { kind: "operation", title: "Операции" },
   { kind: "worker", title: "Воркеры" },
 ];
@@ -43,8 +42,8 @@ export default function NodeDocsList({ docs, onOpen, onDescribe }: Props) {
   // Стартовая поза считается ПО СВОЕЙ ГРУППЕ, а не по объекту целиком: свернуть
   // надо то, что реально стена. У объекта на тринадцать схем (полевой Zulip до
   // разведки) стены нет ни в одной группе — список остаётся читаемым, как был; у
-  // монолита свёрнуты «Операции (198)», а обзоры и воркеры видны сразу, и на экране
-  // видно, где работа. Порог общий с превью окна разведки.
+  // монолита свёрнуты «Операции (198)», а воркеры видны сразу, и на экране видно,
+  // где работа. Порог общий с превью окна разведки.
   //
   // Ключом идёт и сама поза: пока группа не перешла порог, поза пользователя живёт,
   // а перешла (приехал перечень на две сотни) — встаёт в новую, иначе развёрнутая
@@ -64,7 +63,6 @@ export default function NodeDocsList({ docs, onOpen, onDescribe }: Props) {
       {groups.map((g) => (
         <DocKindGroup
           key={`${g.kind}:${g.startOpen}`}
-          kind={g.kind}
           title={g.title}
           items={g.items}
           startOpen={g.startOpen}
@@ -79,8 +77,7 @@ export default function NodeDocsList({ docs, onOpen, onDescribe }: Props) {
 // Группа одного вида: заголовок с числом строк и остатком работы, тело — строки.
 // Состояние «свёрнуто/развёрнуто» живёт здесь и никуда не сохраняется: это поза
 // списка на время просмотра, а не настройка.
-function DocKindGroup({ kind, title, items, startOpen, onOpen, onDescribe }: {
-  kind: NodeDocKind;
+function DocKindGroup({ title, items, startOpen, onOpen, onDescribe }: {
   title: string;
   items: NodeDocMeta[];
   startOpen: boolean;
@@ -98,10 +95,7 @@ function DocKindGroup({ kind, title, items, startOpen, onOpen, onDescribe }: {
         </span>
         {title}
         <span style={groupCount}>({items.length})</span>
-        {/* У обзоров остатка работы нет: обзор не точка входа, в счётчик секции он
-            тоже не входит — и расхождение двух чисел на одном экране читалось бы
-            как ошибка. */}
-        {kind !== "overview" && <span style={groupDescribed}>описано {described}</span>}
+        <span style={groupDescribed}>описано {described}</span>
       </button>
       {open && (
         <div className="np-doc-group-body">
@@ -122,9 +116,8 @@ function DocRow({ doc, onOpen, onDescribe }: {
   onOpen: (docId: string) => void;
   onDescribe?: (doc: NodeDocMeta) => void;
 }) {
-  // Кнопка положена только неописанной точке входа: у обзора её нет (он не
-  // адресуется как точка входа), у описанной строки путь прежний — «открыть →».
-  const describe = onDescribe && !doc.described && doc.kind !== "overview" ? onDescribe : null;
+  // Кнопка положена только неописанной строке: у описанной путь прежний — «открыть →».
+  const describe = onDescribe && !doc.described ? onDescribe : null;
   return (
     <div className="np-doc-split">
       <button

@@ -134,7 +134,7 @@ def pkg_from_mmd(
     Так весь дальнейший конвейер (резолв узла, конфликты слотов, действия
     create/overwrite/skip) переиспользуется без изменений.
 
-    Чем закрываем пропуски в шапке: имя — именем файла, вид — «обзор», адрес —
+    Чем закрываем пропуски в шапке: имя — именем файла, вид — «операция», адрес —
     объектом окна. Ничего не блокирует импорт: слабая модель шапку забудет, а
     поправить имя и вид пользователь сможет прямо в превью (override).
 
@@ -145,7 +145,7 @@ def pkg_from_mmd(
     header = parse_mmd_header(content)
     notes = [f"{fname}: {p}" for p in header.problems]
     name = (override.name if override and override.name else None) or header.name or _name_from_file(fname)
-    kind = (override.kind if override and override.kind else None) or header.kind or "overview"
+    kind = (override.kind if override and override.kind else None) or header.kind or "operation"
     node_ref = (override.node if override and override.node else None) or header.node
     entry = PkgEntry(
         node_ref=node_ref,

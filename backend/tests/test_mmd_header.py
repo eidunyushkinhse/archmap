@@ -103,7 +103,7 @@ def test_виндовые_переводы_строк_и_bom() -> None:
 
 
 def test_вид_приводится_к_нижнему_регистру() -> None:
-    assert parse_mmd_header("%% archmap-kind: Overview\ngraph TD\n A-->B\n").kind == "overview"
+    assert parse_mmd_header("%% archmap-kind: Worker\ngraph TD\n A-->B\n").kind == "worker"
 
 
 def test_шапка_с_замечанием_не_считается_пустой() -> None:

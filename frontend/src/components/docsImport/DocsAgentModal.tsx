@@ -68,11 +68,10 @@ const NO_REFS: RefCounts = { data: 0, channel: 0 };
 const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: NO_REFS };
 
 const KIND_LABEL: Record<NodeDocKind, string> = {
-  overview: "Обзор",
   operation: "Операция",
   worker: "Воркер",
 };
-const KIND_ORDER: NodeDocKind[] = ["overview", "operation", "worker"];
+const KIND_ORDER: NodeDocKind[] = ["operation", "worker"];
 
 export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", initialTarget = "", onClose, onApplied }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
