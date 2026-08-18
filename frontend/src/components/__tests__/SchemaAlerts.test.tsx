@@ -23,6 +23,7 @@ const EMPTY: Alerts = {
   unresolved_config_refs: [],
   broker_edge_channels: [],
   descendant_edges: [],
+  unlinked_messages: [],
 };
 
 const DANGLING = {
@@ -37,6 +38,35 @@ const DANGLING = {
 async function openPanel() {
   await userEvent.click(screen.getByRole("button", { name: /Незавершённость схемы/i }));
 }
+
+describe("SchemaAlerts: шаги без схемы логики (AL34)", () => {
+  // Алерт ПОЛНОТЫ (решение Р4): любой шаг с doc_id = NULL, включая самосообщения.
+  // Не «сломалось», а «не документировано» — гаснет привязкой шагов к схемам.
+  const UNLINKED = {
+    process_id: "proc-1",
+    process_name: "Оформление заказа",
+    message_id: "msg-2",
+    caption: "номер заказа",
+    from_name: "Сервис заказов",
+    to_name: "Покупатель",
+  };
+
+  it("считается в общем счётчике и ведёт в процесс", async () => {
+    const onOpenProcess = vi.fn();
+    render(
+      <SchemaAlerts alerts={{ ...EMPTY, unlinked_messages: [UNLINKED] }} onOpenProcess={onOpenProcess} />,
+    );
+
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    await openPanel();
+    expect(screen.getByText("Шаги без схемы логики")).toBeTruthy();
+    expect(screen.getByText("Сервис заказов → Покупатель")).toBeTruthy();
+
+    await userEvent.click(screen.getByText(/Оформление заказа/));
+
+    expect(onOpenProcess).toHaveBeenCalledWith("proc-1");
+  });
+});
 
 describe("SchemaAlerts: сообщения без связи", () => {
   it("зажигает знак и считается в общем счётчике", async () => {

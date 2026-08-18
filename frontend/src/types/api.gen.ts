@@ -1942,6 +1942,11 @@ export interface components {
              * @default []
              */
             unresolved_config_refs: components["schemas"]["UnresolvedConfigRefAlert"][];
+            /**
+             * Unlinked Messages
+             * @default []
+             */
+            unlinked_messages: components["schemas"]["UnlinkedMessageAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -5037,6 +5042,37 @@ export interface components {
             participant_id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * UnlinkedMessageAlert
+         * @description Шаг процесса без привязки к схеме логики (doc_id = NULL) — алерт ПОЛНОТЫ.
+         *
+         *     Решение Р4 (2026-08-18): замечание на ЛЮБОЙ непривязанный шаг, не различая
+         *     «не привязывали» и «схему удалили» (ON DELETE SET NULL гасит ссылку молча) —
+         *     «шумно, зато консистентно». Это не «сломалось», а «шаг не документирован» —
+         *     та же семья, что «не описана» у разведки: класс стартует со всех шагов
+         *     проекта и гаснет работой по привязке. Самосообщения участвуют наравне:
+         *     внутренняя операция участника тоже документируется схемой логики.
+         */
+        UnlinkedMessageAlert: {
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /** Caption */
+            caption: string | null;
+            /** From Name */
+            from_name: string;
+            /** To Name */
+            to_name: string;
         };
         /**
          * UnresolvedChannelRefAlert

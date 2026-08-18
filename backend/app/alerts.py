@@ -37,6 +37,7 @@ from app.schemas.node import (
     OrphanLegAlert,
     PersonInsideAlert,
     UnboundParticipantAlert,
+    UnlinkedMessageAlert,
     UnresolvedChannelRefAlert,
     UnresolvedConfigRefAlert,
     UnresolvedDataRefAlert,
@@ -96,7 +97,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     10) то же для событий: пометки «публикует:/потребляет:», не нашедшие свой
        канал в структуре брокеров (канала нет / имя неоднозначно / поля нет);
     11) связи, у которых конец — брокер, а канал не назван (missing) либо назван,
-       но структура брокера его не знает (unknown).
+       но структура брокера его не знает (unknown);
+    13) шаги процессов без привязки к схеме логики (doc_id = NULL) — алерт
+       полноты, той же семьи, что «не описана» у разведки: гаснет привязкой.
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -370,6 +373,44 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         )
     ]
 
+    # 13) Шаги процессов без привязки к схеме логики (AL34). Алерт ПОЛНОТЫ, а не
+    #     поломки (Р4 «шумно, зато консистентно»): любой шаг с doc_id = NULL, не
+    #     различая «не привязывали» и «схему удалили» (SET NULL гасит ссылку молча).
+    #     Самосообщения участвуют наравне — внутренняя операция участника тоже
+    #     документируется схемой; повисшие шаги тоже: у них ДВА разных изъяна
+    #     (нет опоры в схеме — AL26, нет документации — этот), чинятся порознь.
+    unlinked_messages = [
+        UnlinkedMessageAlert(
+            process_id=proc_id,
+            process_name=proc_name,
+            message_id=msg_id,
+            caption=caption,
+            from_name=name_by_id.get(from_node) or from_own,
+            to_name=name_by_id.get(to_node) or to_own,
+        )
+        for proc_id, proc_name, msg_id, caption, from_node, to_node, from_own, to_own in (
+            db.query(
+                BusinessProcess.id,
+                BusinessProcess.name,
+                ProcessMessage.id,
+                ProcessMessage.caption,
+                from_p.node_id,
+                to_p.node_id,
+                from_p.name,
+                to_p.name,
+            )
+            .join(ProcessMessage, ProcessMessage.process_id == BusinessProcess.id)
+            .join(from_p, from_p.id == ProcessMessage.from_participant_id)
+            .join(to_p, to_p.id == ProcessMessage.to_participant_id)
+            .filter(
+                BusinessProcess.project_id == project_id,
+                ProcessMessage.doc_id.is_(None),
+            )
+            .order_by(BusinessProcess.name, ProcessMessage.order)
+            .all()
+        )
+    ]
+
     # 9) Пометки обращений, не нашедшие цели (AL29, пивот §9 plan-db-docs.md).
     #    «читает: orders.status» в тексте схемы логики — обещание факта, и невыполненное
     #    обещание обязано быть видно: обратный индекс базы такую пометку не показывает
@@ -508,6 +549,7 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         dangling_messages=dangling_messages,
         unbound_participants=unbound_participants,
         orphan_legs=orphan_legs,
+        unlinked_messages=unlinked_messages,
         unresolved_data_refs=unresolved_data_refs,
         unresolved_channel_refs=unresolved_channel_refs,
         unresolved_config_refs=unresolved_config_refs,
