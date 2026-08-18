@@ -535,6 +535,13 @@ def reorder_messages(
     ]
 
 
+# Скалярные поля правки шага — применяются как есть. Ссылочные поля в перечень НЕ
+# входят: у каждого своя проверка принадлежности проекту (см. update_message).
+_MESSAGE_SCALARS = ("caption", "order")
+# Ссылочные поля правки шага. Пока пуст; сюда встаёт привязка к схеме логики.
+_MESSAGE_REFS: tuple[str, ...] = ()
+
+
 @router.patch("/{process_id}/messages/{message_id}", response_model=MessageOut)
 def update_message(
     process_id: uuid.UUID,
@@ -549,8 +556,17 @@ def update_message(
     if msg is None or msg.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     data = payload.model_dump(exclude_unset=True)
-    for field, value in data.items():
-        setattr(msg, field, value)
+    # Поля применяются ПО БЕЛОМУ СПИСКУ, а не циклом setattr по payload. Причина не в
+    # аккуратности: сюда приезжает ССЫЛОЧНОЕ поле (привязка шага к схеме логики),
+    # а слепое присваивание приняло бы ссылку на строку ЧУЖОГО проекта — межпроектная
+    # изоляция держалась бы на честном слове клиента (дефект Д6,
+    # docs/plan-process-docs-challenge.md).
+    # ⚠️ Добавил поле в MessageUpdate — добавь его И СЮДА: в _MESSAGE_SCALARS, если оно
+    # скалярное, либо отдельной веткой с проверкой принадлежности проекту, если
+    # ссылочное. Забывчивость ловит тест test_белый_список_полей_правки_шага_полон.
+    for field in _MESSAGE_SCALARS:
+        if field in data:
+            setattr(msg, field, data[field])
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(msg)
