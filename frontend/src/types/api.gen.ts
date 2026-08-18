@@ -3877,6 +3877,8 @@ export interface components {
             doc_node_id?: string | null;
             /** Doc Name */
             doc_name?: string | null;
+            /** Doc Node Path */
+            doc_node_path?: string | null;
             /** Edge Synchronous */
             edge_synchronous?: boolean | null;
             /**
@@ -4387,6 +4389,11 @@ export interface components {
             fragment_count: number;
             /** Unsupported */
             unsupported: string[];
+            /**
+             * Doc Refs
+             * @default 0
+             */
+            doc_refs: number;
         };
         /** ProcessImportResult */
         ProcessImportResult: {
@@ -4414,6 +4421,16 @@ export interface components {
             fragments: number;
             /** Unsupported */
             unsupported: string[];
+            /**
+             * Doc Linked
+             * @default 0
+             */
+            doc_linked: number;
+            /**
+             * Doc Unresolved
+             * @default 0
+             */
+            doc_unresolved: number;
         };
         /** ProcessListItem */
         ProcessListItem: {

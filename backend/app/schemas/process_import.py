@@ -38,6 +38,9 @@ class ProcessImportPreview(BaseModel):
     # Строки, которые разбор не понял. Молча выпасть они не могут: пользователь
     # считал бы импорт полным.
     unsupported: list[str]
+    # Шагов с заявленной привязкой «%% archmap-doc: …» (Ф7). Резолв — на применении;
+    # дефолт 0 бережёт старых клиентов.
+    doc_refs: int = 0
 
 
 class ProcessImportApply(ProcessImportIn):
@@ -59,3 +62,8 @@ class ProcessImportResult(BaseModel):
     self_messages: int = 0
     fragments: int
     unsupported: list[str]
+    # Привязки к схемам логики (Ф7): сколько адресов разрешилось в doc_id и сколько
+    # нет (схемы нет / адрес неоднозначен) — такие шаги едут непривязанными и попадают
+    # в алерт полноты AL34. Дефолты 0 берегут старых клиентов.
+    doc_linked: int = 0
+    doc_unresolved: int = 0

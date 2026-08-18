@@ -26,11 +26,13 @@ const PREVIEW: ProcessImportPreview = {
   message_count: 2,
   fragment_count: 1,
   unsupported: ["autonumber"],
+  doc_refs: 0,
 };
 
 const RESULT: ProcessImportResult = {
   process_id: "p9", participants: 2, unbound: 1, messages: 2,
   attached: 1, dangling: 1, self_messages: 0, fragments: 1, unsupported: ["autonumber"],
+  doc_linked: 0, doc_unresolved: 0,
 };
 
 function renderModal(onImported = vi.fn()) {

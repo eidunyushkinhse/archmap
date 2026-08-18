@@ -259,11 +259,19 @@ def bound_node_ids(participants: Iterable[ProcessParticipant]) -> set[uuid.UUID]
     return {p.node_id for p in participants if p.node_id is not None}
 
 
+def node_path(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> str:
+    """Полный путь узла от корня («Ярмарка / Заказы») — подпись каталога и карточки,
+    он же адресная часть кругового прогона «%% archmap-doc: путь / имя» (Ф7)."""
+    node = all_nodes[node_id]
+    return " / ".join([*(a.name for a in ancestors(all_nodes, node.id)), node.name])
+
+
 def message_out(
     msg: ProcessMessage,
     edge: Edge | None,
     part_by_id: dict[uuid.UUID, ProcessParticipant],
     doc_by_id: dict[uuid.UUID, NodeDoc],
+    all_nodes: dict[uuid.UUID, Node],
 ) -> MessageOut:
     """Сериализация сообщения процесса.
 
@@ -326,6 +334,11 @@ def message_out(
         doc_id=doc.id if doc else None,
         doc_node_id=doc.node_id if doc else None,
         doc_name=doc.name if doc else None,
+        # Промах карты узлов невозможен, пока схема из этого проекта (_check_doc),
+        # но .get бережёт от гонки с параллельным удалением узла.
+        doc_node_path=(
+            node_path(all_nodes, doc.node_id) if doc and doc.node_id in all_nodes else None
+        ),
         edge_synchronous=None if edge is None else edge_is_synchronous(edge),
         version=msg.version,
     )
@@ -485,16 +498,13 @@ def doc_catalog(
     own_scope = subtree_ids(all_nodes, owner) if owner else set()
     docs = db.query(NodeDoc).filter(NodeDoc.node_id.in_(scope)).all()
 
-    def path_of(node: Node) -> str:
-        return " / ".join([*(a.name for a in ancestors(all_nodes, node.id)), node.name])
-
     out: list[DocChoice] = []
     for d in docs:
         node = all_nodes.get(d.node_id)
         if node is None:  # схема узла вне проекта в скоуп не попадала бы
             continue
         out.append(
-            DocChoice(doc=d, node=node, path=path_of(node), own=d.node_id in own_scope)
+            DocChoice(doc=d, node=node, path=node_path(all_nodes, node.id), own=d.node_id in own_scope)
         )
     # Свои первыми, дальше по пути узла и имени схемы: порядок читает человек, и он
     # обязан быть устойчивым между запросами.
@@ -535,7 +545,7 @@ def build_process_detail(
 
     doc_by_id = docs_for_messages(db, proc.messages)
     messages = [
-        message_out(m, edge_of(m.edge_id), part_by_id, doc_by_id)
+        message_out(m, edge_of(m.edge_id), part_by_id, doc_by_id, all_nodes)
         for m in sorted(proc.messages, key=lambda m: m.order)
     ]
     fragments = [fragment_out(f) for f in sorted(proc.fragments, key=lambda f: f.from_order)]

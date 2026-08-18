@@ -64,23 +64,16 @@ export default function MessageCard({
     [participants],
   );
 
-  // Привязанная схема с путём узла — путь берём из каталога, пока он не приехал,
-  // показываем одно имя: карточка не должна ждать сети, чтобы что-то показать.
-  const linked = useMemo(
-    () => (msg.doc_id ? docs?.find((d) => d.id === msg.doc_id) ?? null : null),
-    [docs, msg.doc_id],
-  );
-
-  // Провал в привязанную схему — на ЧТЕНИЕ (У7). Имя узла для шапки оверлея берём
-  // из каталога (последний сегмент пути: схема может жить у потомка участника);
-  // пока каталог не приехал — имя участника с тем же узлом, лучшего всё равно нет.
+  // Провал в привязанную схему — на ЧТЕНИЕ (У7). Имя узла для шапки оверлея —
+  // последний сегмент пути из самого шага (схема может жить у потомка участника);
+  // фолбэк на имя участника с тем же узлом, лучшего всё равно нет.
   const openLinked = useCallback(() => {
     if (!msg.doc_id || !msg.doc_node_id) return;
-    const nodeName = linked?.node_path.split(" / ").pop()
+    const nodeName = msg.doc_node_path?.split(" / ").pop()
       ?? participants.find((p) => p.node_id === msg.doc_node_id)?.name
       ?? "";
     onOpenDoc({ docId: msg.doc_id, nodeId: msg.doc_node_id, nodeName });
-  }, [msg.doc_id, msg.doc_node_id, linked, participants, onOpenDoc]);
+  }, [msg.doc_id, msg.doc_node_id, msg.doc_node_path, participants, onOpenDoc]);
 
   // Поиск по имени схемы, адресу операции и пути узла: у монолита в каталоге две
   // сотни строк, и листать их глазами человек не станет.
@@ -156,13 +149,14 @@ export default function MessageCard({
             <span style={{ flex: 1, minWidth: 0 }}>
               {msg.doc_id ? (
                 /* Имя схемы — сам провал: читать логику шага и есть цель привязки.
-                   Открывается НА ЧТЕНИЕ, редактор — явной кнопкой в оверлее (У7). */
+                   Открывается НА ЧТЕНИЕ, редактор — явной кнопкой в оверлее (У7).
+                   Путь узла — из самого шага (doc_node_path): карточка не ждёт сети. */
                 <button
                   style={linkBtn}
                   title="Открыть схему на чтение"
                   onClick={openLinked}
                 >
-                  {linked ? `${linked.node_path} · ${linked.name}` : msg.doc_name}
+                  {msg.doc_node_path ? `${msg.doc_node_path} · ${msg.doc_name}` : msg.doc_name}
                 </button>
               ) : (
                 <span style={{ color: BPT.mut }}>не привязана</span>

@@ -86,7 +86,8 @@ const DETAIL = {
 const ПРИВЯЗАН = {
   ...DETAIL,
   messages: [{ ...MSG, id: "m1", order: 0, caption: "создать заказ",
-               doc_id: "d1", doc_node_id: "nb", doc_name: "POST /orders" }],
+               doc_id: "d1", doc_node_id: "nb", doc_name: "POST /orders",
+               doc_node_path: "Ярмарка / Заказы" }],
 } as unknown as ProcessDetail;
 
 const КАТАЛОГ = {

@@ -446,7 +446,10 @@ def create_message(
         db.commit()
         db.refresh(msg)
         part_by_id = {p.id: p for p in proc.participants}
-        return message_out(msg, None, part_by_id, docs_for_messages(db, [msg]))
+        # Узлы нужны message_out для пути узла схемы (doc_node_path).
+        return message_out(
+            msg, None, part_by_id, docs_for_messages(db, [msg]), load_nodes(db, project.id)
+        )
     if payload.edge_id is None:
         raise HTTPException(status_code=422, detail="Не указана связь")
     # Непривязанный участник узла не имеет, значит и канала к нему в C4 нет — плечу
@@ -506,7 +509,7 @@ def create_message(
     db.commit()
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
-    return message_out(msg, edge, part_by_id, docs_for_messages(db, [msg]))
+    return message_out(msg, edge, part_by_id, docs_for_messages(db, [msg]), all_nodes)
 
 
 # Объявлен ДО /{message_id}, иначе FastAPI примет "reorder" за message_id.
@@ -551,8 +554,9 @@ def reorder_messages(
         return edge_cache[eid]
 
     doc_by_id = docs_for_messages(db, proc.messages)
+    all_nodes = load_nodes(db, project.id)  # путь узла схемы в doc_node_path
     return [
-        message_out(m, edge_of(m.edge_id), part_by_id, doc_by_id)
+        message_out(m, edge_of(m.edge_id), part_by_id, doc_by_id, all_nodes)
         for m in sorted(proc.messages, key=lambda m: m.order)
     ]
 
@@ -680,6 +684,7 @@ def update_message(
         db.get(Edge, msg.edge_id) if msg.edge_id else None,
         part_by_id,
         docs_for_messages(db, [msg]),
+        load_nodes(db, project.id),
     )
 
 

@@ -438,3 +438,125 @@ def test_круговой_прогон_не_меняет_подписи(db):
 
     подписи = [m.caption for m in db.query(ProcessMessage).order_by(ProcessMessage.order)]
     assert подписи == ["создать заказ", "ответ"]
+
+
+# ── Круговой прогон привязок «%% archmap-doc» (Ф7, docs/plan-process-docs-step4.md) ──
+
+
+def test_archmap_doc_привязывается_к_следующему_шагу():
+    out = parse_sequence(
+        "sequenceDiagram\n"
+        " %% archmap-doc: Ярмарка / Заказы / POST /orders\n"
+        " A->>B: создать заказ\n"
+        " B-->>A: номер заказа\n"
+    )
+
+    assert [m.doc_address for m in out.messages] == ["Ярмарка / Заказы / POST /orders", None]
+    assert out.unsupported == []
+
+
+def test_потерянные_привязки_уходят_в_отчёт():
+    """Две директивы подряд (первая без шага) и директива-хвост без шага не могут
+    выпасть молча — иначе пользователь считал бы все привязки доехавшими."""
+    out = parse_sequence(
+        "sequenceDiagram\n"
+        " %% archmap-doc: Ярмарка / A / раз\n"
+        " %% archmap-doc: Ярмарка / A / два\n"
+        " A->>B: шаг\n"
+        " %% archmap-doc: Ярмарка / A / три\n"
+    )
+
+    assert [m.doc_address for m in out.messages] == ["Ярмарка / A / два"]
+    assert out.unsupported == [
+        "%% archmap-doc: Ярмарка / A / раз",
+        "%% archmap-doc: Ярмарка / A / три",
+    ]
+
+
+def test_опечатка_в_директиве_archmap_не_выпадает_молча():
+    """Непонятая директива семьи archmap- — в отчёт (раньше терялась вместе с
+    комментариями). Обычный комментарий — по-прежнему тишина: это понятая строка
+    без содержимого для импорта (тест «комментарии и пустые строки не шумят»)."""
+    out = parse_sequence(
+        "sequenceDiagram\n"
+        " %% archmap-док: опечатка\n"
+        " %% просто комментарий\n"
+        " A->>B: шаг\n"
+    )
+
+    assert out.unsupported == ["%% archmap-док: опечатка"]
+    assert out.messages[0].doc_address is None
+
+
+def test_импорт_резолвит_адрес_в_привязку(db):
+    from app.models.node_doc import NodeDoc
+
+    ярмарка = _узел(db, "Ярмарка")
+    заказы = _узел(db, "Заказы", parent=ярмарка)
+    витрина = _узел(db, "Витрина", parent=ярмарка)
+    _связь(db, витрина, заказы, sync=True)
+    схема = NodeDoc(id=uuid.uuid4(), node_id=заказы.id, name="POST /orders",
+                    kind="operation", operation="POST /orders", content="graph TD\n A")
+    db.add(схема)
+    db.commit()
+    текст = ("sequenceDiagram\n participant P1 as Витрина\n participant P2 as Заказы\n"
+             " %% archmap-doc: Ярмарка / Заказы / POST /orders\n"
+             " P1->>P2: создать заказ\n"
+             " %% archmap-doc: Ярмарка / Нет такого / схема\n"
+             " P2-->>P1: номер заказа\n")
+    preview = build_preview(db, ensure_project(db).id, текст, None)
+    assert preview.doc_refs == 2
+
+    _, result = apply_import(db, ensure_project(db).id, текст, None,
+                             {"P1": витрина.id, "P2": заказы.id})
+    db.commit()
+
+    assert (result.doc_linked, result.doc_unresolved) == (1, 1)
+    шаги = db.query(ProcessMessage).order_by(ProcessMessage.order).all()
+    # Разрешённый адрес стал привязкой; неразрешённый — шаг едет непривязанным
+    # и попадает в алерт полноты AL34, что и правильно.
+    assert [m.doc_id for m in шаги] == [схема.id, None]
+
+
+def test_неоднозначный_адрес_не_резолвится(db):
+    """Имена узлов не уникальны: два «Заказы» со схемой одного имени дают один адрес
+    на две схемы. Выбирать за пользователя нельзя — тот же принцип, что у
+    find_channel: только однозначное."""
+    from app.models.node_doc import NodeDoc
+
+    ярмарка = _узел(db, "Ярмарка")
+    первый = _узел(db, "Заказы", parent=ярмарка)
+    второй = _узел(db, "Заказы", parent=ярмарка)
+    for узел in (первый, второй):
+        db.add(NodeDoc(id=uuid.uuid4(), node_id=узел.id, name="POST /orders",
+                       kind="operation", operation=None, content="graph TD\n A"))
+    db.commit()
+    текст = ("sequenceDiagram\n"
+             " %% archmap-doc: Ярмарка / Заказы / POST /orders\n"
+             " A->>B: создать заказ\n")
+
+    _, result = apply_import(db, ensure_project(db).id, текст, None, {})
+    db.commit()
+
+    assert (result.doc_linked, result.doc_unresolved) == (0, 1)
+    assert db.query(ProcessMessage).one().doc_id is None
+
+
+def test_адрес_нечувствителен_к_регистру_и_пробелам(db):
+    """Норма адреса — та же чистка, что у экспортёра (_clean) + casefold: адрес
+    пишет машина, но человек правит руками."""
+    from app.models.node_doc import NodeDoc
+
+    ярмарка = _узел(db, "Ярмарка")
+    заказы = _узел(db, "Заказы", parent=ярмарка)
+    db.add(NodeDoc(id=uuid.uuid4(), node_id=заказы.id, name="POST /orders",
+                   kind="operation", operation=None, content="graph TD\n A"))
+    db.commit()
+    текст = ("sequenceDiagram\n"
+             " %% archmap-doc:  ярмарка /  заказы / post /orders \n"
+             " A->>B: создать заказ\n")
+
+    _, result = apply_import(db, ensure_project(db).id, текст, None, {})
+    db.commit()
+
+    assert result.doc_linked == 1
