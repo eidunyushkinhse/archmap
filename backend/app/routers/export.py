@@ -49,7 +49,12 @@ def export_archive(
     переноса; они дополняют друг друга (груминг 2026-08-03). Объявлен ДО
     /{node_id}, иначе «archive» читался бы как id узла."""
     payload = build_archive(db, project)
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in project.name)[:60]
+    # Заголовок HTTP — latin-1: кириллица в имени проекта роняла ответ 500-й
+    # (находка полевого прогона Ф6). В filename — только ASCII; полное имя, если
+    # оно чистится в ничто, заменяет archmap. Браузерное имя файла — косметика,
+    # истинное имя проекта едет в манифесте.
+    safe = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in project.name)
+    safe = safe.strip("_")[:60]
     return Response(
         content=payload,
         media_type="application/zip",
