@@ -19,6 +19,7 @@ from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -173,6 +174,54 @@ def test_deep_copy_keeps_node_status(db):
         n.name: n.status for n in db.query(Node).filter(Node.project_id == copy.id).all()
     }
     assert statuses == {"Планируемый": "planned", "Уходящий": "deprecated"}
+
+
+def test_deep_copy_remaps_message_doc_link(db):
+    """Привязка шага к схеме логики обязана указывать на схему КОПИИ.
+
+    Без карты схем копия ссылалась бы на строку ИСХОДНОГО проекта — межпроектная
+    утечка, выглядящая как корректная документация: витрина открыла бы чужую схему и
+    ничем не выдала бы подмену. Карту завели ровно поэтому (docs/plan-process-docs-step4.md,
+    Ф1); тот же приём, что у tmap/colmap структуры БД.
+    """
+    user = ensure_architect(db)
+    src = create_project(ProjectCreate(name="Источник-привязка"), db=db, user=user)
+    web = Node(id=uuid.uuid4(), name="web", project_id=src.id)
+    orders = Node(id=uuid.uuid4(), name="orders", project_id=src.id)
+    db.add_all([web, orders])
+    db.flush()
+    edge = Edge(id=uuid.uuid4(), source_id=web.id, target_id=orders.id, project_id=src.id)
+    doc = NodeDoc(id=uuid.uuid4(), node_id=orders.id, name="POST /orders", kind="operation",
+                  operation="POST /orders", content="graph TD\n A")
+    proc = BusinessProcess(id=uuid.uuid4(), name="Оформление", project_id=src.id)
+    db.add_all([edge, doc, proc])
+    db.flush()
+    # Имя участника ЗАМОРОЖЕНО на записи (не берётся из узла) — колонка обязательна.
+    pa = ProcessParticipant(id=uuid.uuid4(), process_id=proc.id, node_id=web.id,
+                            name="web", order=0)
+    pb = ProcessParticipant(id=uuid.uuid4(), process_id=proc.id, node_id=orders.id,
+                            name="orders", order=1)
+    db.add_all([pa, pb])
+    db.flush()
+    db.add(ProcessMessage(id=uuid.uuid4(), process_id=proc.id, order=0, edge_id=edge.id,
+                          leg="forward", from_participant_id=pa.id, to_participant_id=pb.id,
+                          doc_id=doc.id))
+    db.commit()
+
+    copy = create_project(
+        ProjectCreate(name="Копия-привязка", start=f"copy:{src.id}"), db=db, user=user
+    )
+    copied_procs = db.query(BusinessProcess).filter(BusinessProcess.project_id == copy.id).all()
+    msgs = db.query(ProcessMessage).filter(
+        ProcessMessage.process_id.in_([p.id for p in copied_procs])
+    ).all()
+    assert len(msgs) == 1
+    # Привязка есть, но это ДРУГАЯ строка — схема копии, а не исходника.
+    assert msgs[0].doc_id is not None and msgs[0].doc_id != doc.id
+    копия_схемы = db.get(NodeDoc, msgs[0].doc_id)
+    assert копия_схемы is not None and копия_схемы.name == "POST /orders"
+    узел = db.get(Node, копия_схемы.node_id)
+    assert узел is not None and узел.project_id == copy.id
 
 
 def test_deep_copy_keeps_edge_channel(db):

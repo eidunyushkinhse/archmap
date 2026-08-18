@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -259,7 +260,10 @@ def bound_node_ids(participants: Iterable[ProcessParticipant]) -> set[uuid.UUID]
 
 
 def message_out(
-    msg: ProcessMessage, edge: Edge | None, part_by_id: dict[uuid.UUID, ProcessParticipant]
+    msg: ProcessMessage,
+    edge: Edge | None,
+    part_by_id: dict[uuid.UUID, ProcessParticipant],
+    doc_by_id: dict[uuid.UUID, NodeDoc],
 ) -> MessageOut:
     """Сериализация сообщения процесса.
 
@@ -273,6 +277,13 @@ def message_out(
 
     Самосообщение (внутренняя операция участника): концы совпадают, связи C4 нет.
     kind="self", valid всегда true (это не повисшая связь — её тут и не было).
+
+    doc_by_id — схемы логики, на которые ссылаются шаги, загруженные ОДНИМ запросом.
+    Параметр обязателен намеренно: с дефолтом «пусто» забытый вызов молча отдавал бы
+    шаги без привязки, а витрина показала бы их непривязанными — тихая потеря данных.
+    Пустой словарь законен (в наборе нет ни одной привязки), отсутствующий id — тоже:
+    ON DELETE SET NULL уже обнулил бы ссылку, поэтому промах карты означает лишь, что
+    вызывающий не грузил схемы, и шаг честно едет непривязанным.
     """
     is_self = msg.from_participant_id == msg.to_participant_id
     caption = msg.caption
@@ -293,6 +304,9 @@ def message_out(
             # edge_id IS NULL), лечится возвратом синхронности или удалением шага.
             invalid_reason = "leg_gone"
         valid = invalid_reason is None
+    # Привязка: промах карты значит «вызывающий не грузил схемы» — шаг честно едет
+    # непривязанным, а не падает (см. docstring).
+    doc = doc_by_id.get(msg.doc_id) if msg.doc_id else None
     return MessageOut(
         id=msg.id,
         order=msg.order,
@@ -309,6 +323,9 @@ def message_out(
         to_participant_id=msg.to_participant_id,
         valid=valid,
         invalid_reason=invalid_reason,
+        doc_id=doc.id if doc else None,
+        doc_node_id=doc.node_id if doc else None,
+        doc_name=doc.name if doc else None,
         edge_synchronous=None if edge is None else edge_is_synchronous(edge),
     )
 
@@ -394,6 +411,20 @@ def fragment_out(frag: ProcessFragment) -> FragmentOut:
     )
 
 
+def docs_for_messages(
+    db: Session, msgs: Iterable[ProcessMessage]
+) -> dict[uuid.UUID, NodeDoc]:
+    """Схемы, на которые ссылаются шаги, — ОДНИМ запросом (см. message_out).
+
+    Лениво по одной это был бы N+1: у монолита в процессе десяток шагов. Тело схемы не
+    тянем — оно отложено (NodeDoc.content), а витрине нужны только имя и узел.
+    """
+    ids = {m.doc_id for m in msgs if m.doc_id}
+    if not ids:
+        return {}
+    return {d.id: d for d in db.query(NodeDoc).filter(NodeDoc.id.in_(ids)).all()}
+
+
 def build_process_detail(
     db: Session, proc: BusinessProcess, all_nodes: dict[uuid.UUID, Node]
 ) -> ProcessDetail:
@@ -411,8 +442,9 @@ def build_process_detail(
             edge_cache[eid] = db.get(Edge, eid)
         return edge_cache[eid]
 
+    doc_by_id = docs_for_messages(db, proc.messages)
     messages = [
-        message_out(m, edge_of(m.edge_id), part_by_id)
+        message_out(m, edge_of(m.edge_id), part_by_id, doc_by_id)
         for m in sorted(proc.messages, key=lambda m: m.order)
     ]
     fragments = [fragment_out(f) for f in sorted(proc.fragments, key=lambda f: f.from_order)]

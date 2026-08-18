@@ -36,6 +36,7 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
     на вызывающей стороне. Узлы вставляются родителями раньше детей (FK parent_id)."""
     nmap: dict[uuid.UUID, uuid.UUID] = {}  # старый node id → новый
     emap: dict[uuid.UUID, uuid.UUID] = {}  # старый edge id → новый
+    dmap: dict[uuid.UUID, uuid.UUID] = {}  # старый node_doc id → новый (привязки шагов)
     pmap: dict[uuid.UUID, uuid.UUID] = {}  # старый process id → новый
     partmap: dict[uuid.UUID, uuid.UUID] = {}  # старый participant id → новый
     fragmap: dict[uuid.UUID, uuid.UUID] = {}  # старый fragment id → новый
@@ -69,7 +70,7 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
     db.flush()
 
     if nmap:
-        _copy_node_docs(db, nmap)
+        _copy_node_docs(db, nmap, dmap)
         _copy_db_structure(db, nmap, tmap, colmap)
         _copy_broker_structure(db, nmap, chmap)
         _copy_config_params(db, nmap)
@@ -88,12 +89,20 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
         )
     db.flush()
 
-    _copy_processes(db, src_id, dst_id, nmap, emap, pmap, partmap, fragmap)
+    _copy_processes(db, src_id, dst_id, nmap, emap, dmap, pmap, partmap, fragmap)
     _copy_layout(db, src_id, dst_id, nmap)
 
 
-def _copy_node_docs(db: Session, nmap: dict[uuid.UUID, uuid.UUID]) -> None:
-    """Схемы логики узлов (node_docs) — с новыми id, перевешены на новые узлы."""
+def _copy_node_docs(
+    db: Session, nmap: dict[uuid.UUID, uuid.UUID], dmap: dict[uuid.UUID, uuid.UUID]
+) -> None:
+    """Схемы логики узлов (node_docs) — с новыми id, перевешены на новые узлы.
+
+    dmap заполняется здесь: на схемы ссылаются ШАГИ ПРОЦЕССОВ (process_messages.doc_id),
+    и без карты копия ссылалась бы на схему исходного проекта — межпроектная утечка,
+    выглядящая как корректная документация. Тот же приём, что у tmap/colmap структуры
+    БД, заведённых ради references_column_id.
+    """
     # undefer: copy_row переносит ВСЕ колонки-данные, тело схемы в их числе, а оно
     # отложено (см. NodeDoc.content). Без явного запроса копия читала бы тела по
     # одному запросу на схему.
@@ -104,7 +113,8 @@ def _copy_node_docs(db: Session, nmap: dict[uuid.UUID, uuid.UUID]) -> None:
         .all()
     )
     for d in docs:
-        db.add(copy_row(d, id=uuid.uuid4(), node_id=nmap[d.node_id]))
+        dmap[d.id] = uuid.uuid4()
+        db.add(copy_row(d, id=dmap[d.id], node_id=nmap[d.node_id]))
 
 
 def _copy_db_structure(
@@ -183,6 +193,7 @@ def _copy_processes(
     dst_id: uuid.UUID,
     nmap: dict[uuid.UUID, uuid.UUID],
     emap: dict[uuid.UUID, uuid.UUID],
+    dmap: dict[uuid.UUID, uuid.UUID],
     pmap: dict[uuid.UUID, uuid.UUID],
     partmap: dict[uuid.UUID, uuid.UUID],
     fragmap: dict[uuid.UUID, uuid.UUID],
@@ -233,6 +244,9 @@ def _copy_processes(
                 edge_id=emap.get(msg.edge_id) if msg.edge_id else None,
                 from_participant_id=partmap[msg.from_participant_id],
                 to_participant_id=partmap[msg.to_participant_id],
+                # Схема могла исчезнуть между запросами — тогда шаг едет непривязанным,
+                # как повисший едет повисшим: расхождение видно, а не выдумывается.
+                doc_id=dmap.get(msg.doc_id) if msg.doc_id else None,
             )
         )
 

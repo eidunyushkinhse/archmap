@@ -15,6 +15,8 @@ from app.database import get_db
 from app.deps import get_current_project, scoped_edge, touch_project
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
+from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -27,6 +29,7 @@ from app.processes import (
     build_process_detail,
     default_caption,
     detach_messages,
+    docs_for_messages,
     edge_is_synchronous,
     fragment_out,
     legal_directions,
@@ -413,6 +416,7 @@ def create_message(
         frm = db.get(ProcessParticipant, payload.from_participant_id)
         if frm is None or frm.process_id != proc.id:
             raise HTTPException(status_code=422, detail="Участник не из этого процесса")
+        _check_doc(db, payload.doc_id, project)
         msg = ProcessMessage(
             process_id=proc.id,
             order=payload.order,
@@ -421,13 +425,14 @@ def create_message(
             from_participant_id=frm.id,
             to_participant_id=frm.id,
             caption=payload.caption,
+            doc_id=payload.doc_id,
         )
         db.add(msg)
         touch_project(db, project, user.id)
         db.commit()
         db.refresh(msg)
         part_by_id = {p.id: p for p in proc.participants}
-        return message_out(msg, None, part_by_id)
+        return message_out(msg, None, part_by_id, docs_for_messages(db, [msg]))
     if payload.edge_id is None:
         raise HTTPException(status_code=422, detail="Не указана связь")
     # Непривязанный участник узла не имеет, значит и канала к нему в C4 нет — плечу
@@ -468,6 +473,7 @@ def create_message(
             status_code=422,
             detail="Концы связи не проецируются на выбранных участников",
         )
+    _check_doc(db, payload.doc_id, project)
     msg = ProcessMessage(
         process_id=proc.id,
         order=payload.order,
@@ -479,13 +485,14 @@ def create_message(
         # ответа) замораживается здесь, один раз, и дальше живёт обычным текстом.
         # Пустую подпись присылает композитор — он и означает «возьми дефолт».
         caption=payload.caption if payload.caption is not None else default_caption(payload.leg, edge),
+        doc_id=payload.doc_id,
     )
     db.add(msg)
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
-    return message_out(msg, edge, part_by_id)
+    return message_out(msg, edge, part_by_id, docs_for_messages(db, [msg]))
 
 
 # Объявлен ДО /{message_id}, иначе FastAPI примет "reorder" за message_id.
@@ -529,8 +536,9 @@ def reorder_messages(
             edge_cache[eid] = db.get(Edge, eid)
         return edge_cache[eid]
 
+    doc_by_id = docs_for_messages(db, proc.messages)
     return [
-        message_out(m, edge_of(m.edge_id), part_by_id)
+        message_out(m, edge_of(m.edge_id), part_by_id, doc_by_id)
         for m in sorted(proc.messages, key=lambda m: m.order)
     ]
 
@@ -538,8 +546,31 @@ def reorder_messages(
 # Скалярные поля правки шага — применяются как есть. Ссылочные поля в перечень НЕ
 # входят: у каждого своя проверка принадлежности проекту (см. update_message).
 _MESSAGE_SCALARS = ("caption", "order")
-# Ссылочные поля правки шага. Пока пуст; сюда встаёт привязка к схеме логики.
-_MESSAGE_REFS: tuple[str, ...] = ()
+# Ссылочные поля правки шага: каждое проверяется _check_doc и ему подобными.
+_MESSAGE_REFS: tuple[str, ...] = ("doc_id",)
+
+
+def _check_doc(db: Session, doc_id: uuid.UUID | None, project: Project) -> None:
+    """Схема привязки обязана принадлежать ЭТОМУ проекту.
+
+    Без проверки шаг ссылался бы на строку чужого проекта: id приходит от клиента, а
+    FK на уровне БД межпроектную границу не знает — project_id у схемы не свой, он
+    берётся через узел. Это и есть дефект Д6 челленджа, ради которого правка шага
+    переведена на белый список полей.
+
+    404, а не 403: чужая схема для этого проекта попросту не существует — тот же ответ,
+    что и на выдуманный id, и он не подтверждает существование чужой строки.
+    """
+    if doc_id is None:  # «отвязать» — законное значение
+        return
+    ok = (
+        db.query(NodeDoc.id)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(NodeDoc.id == doc_id, Node.project_id == project.id)
+        .first()
+    )
+    if ok is None:
+        raise HTTPException(status_code=404, detail="Схема логики не найдена")
 
 
 @router.patch("/{process_id}/messages/{message_id}", response_model=MessageOut)
@@ -567,11 +598,19 @@ def update_message(
     for field in _MESSAGE_SCALARS:
         if field in data:
             setattr(msg, field, data[field])
+    if "doc_id" in data:
+        _check_doc(db, data["doc_id"], project)
+        msg.doc_id = data["doc_id"]
     touch_project(db, project, user.id)
     db.commit()
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
-    return message_out(msg, db.get(Edge, msg.edge_id) if msg.edge_id else None, part_by_id)
+    return message_out(
+        msg,
+        db.get(Edge, msg.edge_id) if msg.edge_id else None,
+        part_by_id,
+        docs_for_messages(db, [msg]),
+    )
 
 
 @router.delete(

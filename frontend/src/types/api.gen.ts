@@ -3754,6 +3754,8 @@ export interface components {
             caption?: string | null;
             /** Order */
             order: number;
+            /** Doc Id */
+            doc_id?: string | null;
         };
         /** MessageOut */
         MessageOut: {
@@ -3794,6 +3796,12 @@ export interface components {
             valid: boolean;
             /** Invalid Reason */
             invalid_reason?: ("edge_deleted" | "leg_gone") | null;
+            /** Doc Id */
+            doc_id?: string | null;
+            /** Doc Node Id */
+            doc_node_id?: string | null;
+            /** Doc Name */
+            doc_name?: string | null;
             /** Edge Synchronous */
             edge_synchronous?: boolean | null;
         };
@@ -3803,6 +3811,8 @@ export interface components {
             caption?: string | null;
             /** Order */
             order?: number | null;
+            /** Doc Id */
+            doc_id?: string | null;
         };
         /** NodeCreate */
         NodeCreate: {

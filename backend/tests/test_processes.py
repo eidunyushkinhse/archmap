@@ -15,9 +15,11 @@ from fastapi import HTTPException
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
+from app.models.project import Project
 from app.processes import edge_is_synchronous, resolve_to_participant
 from app.routers.processes import (
     add_participant,
@@ -248,6 +250,113 @@ def test_подпись_правится_и_снимается(db):
     assert правка(MessageUpdate(order=0)).caption == "проверка лимита"
     # Прислали null — подпись снята и НЕ выведена заново из канала.
     assert правка(MessageUpdate(caption=None)).caption is None
+
+
+# ── Привязка шага к схеме логики (эпик «процессы → доки шага», Ф1) ────────────
+
+
+def _шаг_с_каналом(db):
+    """Готовый шаг forward между двумя сервисами + сами узлы."""
+    a, b = _node(db, "web"), _node(db, "orders")
+    edge = _edge(db, a, b, label="создать заказ")
+    proc = _process(db)
+    db.commit()
+    parts = _participants(db, proc, [a, b])
+    msg = create_message(
+        proc.id,
+        MessageCreate(edge_id=edge.id, leg="forward",
+                      from_participant_id=parts[a.id], to_participant_id=parts[b.id], order=0),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    return proc, msg, a, b
+
+
+def _схема(db, node, name="POST /orders"):
+    d = NodeDoc(id=uuid.uuid4(), node_id=node.id, name=name, kind="operation",
+                operation=name, content="graph TD\n A")
+    db.add(d)
+    db.commit()
+    return d
+
+
+def test_привязка_шага_ставится_и_снимается(db):
+    proc, msg, _a, b = _шаг_с_каналом(db)
+    doc = _схема(db, b)
+
+    после = update_message(
+        proc.id, msg.id, MessageUpdate(doc_id=doc.id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    # Витрине нужны и узел, и имя: по ним открывается оверлей и подписывается строка.
+    assert (после.doc_id, после.doc_node_id, после.doc_name) == (doc.id, b.id, "POST /orders")
+
+    # null — законное «отвязать», не «поле не пришло».
+    снято = update_message(
+        proc.id, msg.id, MessageUpdate(doc_id=None),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert снято.doc_id is None
+
+
+def test_подпись_шага_переживает_правку_привязки(db):
+    # exclude_unset: правка одного поля не должна стирать соседнее — тот же инвариант,
+    # что проверялся у подписи и порядка, но теперь полей три.
+    proc, msg, _a, b = _шаг_с_каналом(db)
+    update_message(proc.id, msg.id, MessageUpdate(caption="проверка"),
+                   db=db, project=ensure_project(db), user=ensure_architect(db))
+    после = update_message(
+        proc.id, msg.id, MessageUpdate(doc_id=_схема(db, b).id),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+    assert после.caption == "проверка"
+
+
+def test_схему_чужого_проекта_привязать_нельзя(db):
+    """⚠️ Дефект Д6 челленджа: правка шага была слепым setattr по payload, и ссылочное
+    поле проехало бы насквозь. id приходит от клиента, а FK на уровне БД межпроектную
+    границу не знает — project_id у схемы не свой, он берётся через узел."""
+    proc, msg, _a, _b = _шаг_с_каналом(db)
+    чужой = Project(id=uuid.uuid4(), name="Чужой")
+    db.add(чужой)
+    чужой_узел = Node(id=uuid.uuid4(), name="alien", shape="service", project_id=чужой.id)
+    db.add(чужой_узел)
+    db.commit()
+    чужая = _схема(db, чужой_узел, name="GET /alien")
+
+    with pytest.raises(HTTPException) as e:
+        update_message(proc.id, msg.id, MessageUpdate(doc_id=чужая.id),
+                       db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert e.value.status_code == 404
+
+    # И на создании — тот же гвард: путь в обход правки закрыт.
+    a2, b2 = _node(db, "web2"), _node(db, "orders2")
+    edge2 = _edge(db, a2, b2)
+    proc2 = _process(db, name="P2")
+    db.commit()
+    parts2 = _participants(db, proc2, [a2, b2])
+    with pytest.raises(HTTPException) as e2:
+        create_message(
+            proc2.id,
+            MessageCreate(edge_id=edge2.id, leg="forward", from_participant_id=parts2[a2.id],
+                          to_participant_id=parts2[b2.id], order=0, doc_id=чужая.id),
+            db=db, project=ensure_project(db), user=ensure_architect(db),
+        )
+    assert e2.value.status_code == 404
+
+
+def test_удаление_схемы_оставляет_шаг_живым(db):
+    """ON DELETE SET NULL — тот же приём, что у edge_id: удаление схемы делает шаг
+    непривязанным, а не сносит его. Расхождение показывает алерт полноты."""
+    proc, msg, _a, b = _шаг_с_каналом(db)
+    doc = _схема(db, b)
+    update_message(proc.id, msg.id, MessageUpdate(doc_id=doc.id),
+                   db=db, project=ensure_project(db), user=ensure_architect(db))
+
+    db.delete(doc)
+    db.commit()
+
+    живой = db.get(ProcessMessage, msg.id)
+    assert живой is not None and живой.doc_id is None
 
 
 def test_белый_список_полей_правки_шага_полон():
