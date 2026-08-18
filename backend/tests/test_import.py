@@ -58,7 +58,8 @@ def _semantic_signature(db, project_id) -> tuple[set, set]:
         return " / ".join(reversed(parts))
 
     node_sig = {
-        (path_of(n), n.shape, n.status, n.role, n.technology, n.is_external, n.description)
+        (path_of(n), n.shape, n.status, n.role, n.technology, n.is_external, n.description,
+         n.source_ref)
         for n in nodes
     }
     edges = db.query(Edge).filter(Edge.project_id == project_id).all()
@@ -69,6 +70,7 @@ def _semantic_signature(db, project_id) -> tuple[set, set]:
             e.label,
             e.technology,
             e.channel,
+            e.is_synchronous,
         )
         for e in edges
     }
@@ -786,3 +788,64 @@ def test_канал_не_строка_это_ошибка_разбора(db):
 
     assert parsed is None
     assert errors == ["edges[0].channel: ожидается строка"]
+
+
+def test_roundtrip_якоря_источника_и_типа_канала(db):
+    """Ф0 архива (Д1, Д2). Якорь source_ref обязан пережить экспорт→импорт: без
+    него перенесённый проект теряет идентичность узлов для синка, и переименованный
+    сервис задвоится. Тип канала — только ЯВНЫЙ: NULL значит «дефолт синхронный»,
+    его не пишем, иначе дефолт затвердел бы в true."""
+    src = _project(db, "Источник")
+    ярмарка = _node(db, src.id, "Ярмарка")
+    orders = _node(db, src.id, "orders", ярмарка)
+    orders.source_ref = "git:github.com/shop/orders#services/orders"
+    витрина = _node(db, src.id, "web", ярмарка)
+    витрина.source_ref = "img:shop/web"
+    kafka = _node(db, src.id, "Kafka", ярмарка, shape="broker")
+    kafka.source_ref = "host:kafka"
+    db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=orders.id, target_id=kafka.id,
+                channel="orders.created", is_synchronous=False))
+    db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=витрина.id, target_id=orders.id,
+                label="создать заказ", is_synchronous=True))
+    db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=ярмарка.id, target_id=kafka.id))
+    db.commit()
+
+    nodes = db.query(Node).filter(Node.project_id == src.id).all()
+    edges = db.query(Edge).filter(Edge.project_id == src.id).all()
+    content = build_export(nodes, edges)
+    parsed, errors = parse_import(content)
+
+    assert errors == [] and parsed is not None
+    dst = _project(db, "Приёмник")
+    seed_import(db, dst.id, parsed)
+    db.commit()
+
+    # Сигнатура сверяет и source_ref, и is_synchronous (расширена этой же фазой).
+    assert _semantic_signature(db, src.id) == _semantic_signature(db, dst.id)
+    # Явная сверка формы: канонический ключ собрался в ТОТ ЖЕ вид, что хранился.
+    новые = {n.name: n.source_ref for n in db.query(Node).filter(Node.project_id == dst.id)}
+    assert новые["orders"] == "git:github.com/shop/orders#services/orders"
+    assert новые["web"] == "img:shop/web"
+    assert новые["Kafka"] == "host:kafka"
+    # NULL остался NULL — дефолт не затвердел.
+    syncs = {(e.label, e.is_synchronous)
+             for e in db.query(Edge).filter(Edge.project_id == dst.id)}
+    assert syncs == {(None, False), ("создать заказ", True), (None, None)}
+
+
+def test_sync_не_булево_это_ошибка_разбора(db):
+    """Толерантность — не молчание: «sync: да» — ошибка с адресом, поле не
+    теряется тихо (та же норма, что у channel)."""
+    content = yaml.dump(
+        {
+            "nodes": [{"name": "a"}, {"name": "b"}],
+            "edges": [{"from": "a", "to": "b", "sync": "да"}],
+        },
+        allow_unicode=True,
+    )
+
+    parsed, errors = parse_import(content)
+
+    # Ошибка типа не роняет разбор целиком: поле обнуляется, ошибка в списке.
+    assert errors == ["edges[0].sync: ожидается true/false"]
+    assert parsed is None

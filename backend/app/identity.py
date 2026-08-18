@@ -185,6 +185,30 @@ def key_type(key: str) -> str:
     return key.split(":", 1)[0]
 
 
+def source_ref_dict(key: str) -> dict[str, str]:
+    """Канонический ключ хранения → словарь блока source формата импорта.
+
+    Обратная сторона source_keys — нужна ЭКСПОРТУ (Ф0 архива, Д1): чтобы якорь
+    пережил круговой прогон, экспорт пишет тот же словарь repo/path/image/
+    deployment/host, из которого импорт соберёт РОВНО ТОТ ЖЕ ключ (нормализация
+    идемпотентна, хранится уже нормализованное). Неизвестный префикс — пусто:
+    не написать якорь лучше, чем написать кривой, деградация та же, что при
+    прогоне без якорей (тождество решит имя)."""
+    if key.startswith("git:"):
+        repo, sep, path = key[4:].partition("#")
+        out = {"repo": repo}
+        if sep:
+            out["path"] = path
+        return out
+    if key.startswith("img:"):
+        return {"image": key[4:]}
+    if key.startswith("k8s:"):
+        return {"deployment": key[4:]}
+    if key.startswith("host:"):
+        return {"host": key[5:]}
+    return {}
+
+
 def _by_type(keys: list[str]) -> dict[str, set[str]]:
     acc: dict[str, set[str]] = {}
     for k in keys:

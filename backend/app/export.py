@@ -19,6 +19,7 @@ from collections import Counter, defaultdict
 
 import yaml
 
+from app.identity import source_ref_dict
 from app.models.edge import Edge
 from app.models.node import Node
 
@@ -86,6 +87,13 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
             d["external"] = True
         if node.description:
             d["description"] = node.description
+        # Якорь источника (Д1 архива): без него перенос проекта терял бы
+        # идентичность узлов для синка. Пишем словарём формата импорта — тот
+        # соберёт из него ровно тот же канонический ключ.
+        if node.source_ref:
+            src = source_ref_dict(node.source_ref)
+            if src:
+                d["source"] = src
         kids = sorted(children_by_parent.get(node.id, []), key=lambda n: n.name)
         if kids:
             d["children"] = [node_dict(k) for k in kids]
@@ -101,6 +109,12 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
         # задан (у связей без брокера его и не бывает).
         if e.channel:
             d["channel"] = e.channel
+        # Тип канала (Д2 архива): только ЯВНОЕ значение — NULL значит «дефолт
+        # синхронный», и писать его как true значило бы затвердить дефолт.
+        # Без этого поля асинхронный канал приезжал бы «синхронным» молча, и у
+        # него появлялось бы плечо «ответ», которого в исходном проекте не было.
+        if e.is_synchronous is not None:
+            d["sync"] = e.is_synchronous
         return d
 
     edge_dicts = [
