@@ -47,6 +47,9 @@ interface MessageSnapshot {
   to_id: string;
   caption: string | null;
   order: number;
+  // Привязка к схеме логики (Д7): без неё undo восстанавливал бы шаг «раздетым»,
+  // и привязка терялась бы молча — при живой-то схеме.
+  doc_id: string | null;
 }
 
 // Глиф «галочка» для тумблера «Готово» (в icons.tsx чека нет).
@@ -296,8 +299,24 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       const from = nodeOfPart(m.from_participant_id);
       const to = nodeOfPart(m.to_participant_id);
       if (!from || !to) return [];
-      return [{ edge_id: m.edge_id, leg: m.leg, from_id: from, to_id: to, caption: m.caption, order: m.order }];
+      return [{ edge_id: m.edge_id, leg: m.leg, from_id: from, to_id: to, caption: m.caption, order: m.order, doc_id: m.doc_id ?? null }];
     });
+  }
+  // Пересоздание шага из снимка. Привязка едет вместе с шагом (Д7), но шаг ДОРОЖЕ
+  // привязки: если схема умерла между снимком и откатом (_check_doc ответит 404),
+  // пересоздаём непривязанным — шаг честно попадёт в алерт полноты, а не утащит за
+  // собой весь откат. Тот же принцип, что у переноса: не разрешилось — едет голым.
+  async function addFromSnap(snap: MessageSnapshot, fromP: string, toP: string): Promise<ProcessMessage> {
+    const payload: MessageCreate = {
+      edge_id: snap.edge_id, leg: snap.leg, from_participant_id: fromP, to_participant_id: toP,
+      caption: snap.caption, order: snap.order, doc_id: snap.doc_id,
+    };
+    try {
+      return await processesApi.addMessage(id, payload);
+    } catch (e: unknown) {
+      if (!snap.doc_id) throw e;
+      return await processesApi.addMessage(id, { ...payload, doc_id: null });
+    }
   }
   async function restoreMessages(snaps: MessageSnapshot[]) {
     if (snaps.length === 0) return;
@@ -308,9 +327,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       const fromP = partByNode[m.from_id];
       const toP = partByNode[m.to_id];
       if (!fromP || !toP) continue;
-      await processesApi.addMessage(id, {
-        edge_id: m.edge_id, leg: m.leg, from_participant_id: fromP, to_participant_id: toP, caption: m.caption, order: m.order,
-      });
+      await addFromSnap(m, fromP, toP);
     }
   }
   function messagesThrough(nodeId: string) {
@@ -634,7 +651,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         && (!!m.edge_id || m.from_participant_id === m.to_participant_id);
       if (m && restorable && fromNode && toNode) {
         const snap: MessageSnapshot = {
-          edge_id: m.edge_id, leg: m.leg, from_id: fromNode, to_id: toNode, caption: m.caption, order: m.order,
+          edge_id: m.edge_id, leg: m.leg, from_id: fromNode, to_id: toNode, caption: m.caption, order: m.order, doc_id: m.doc_id ?? null,
         };
         let restoredId: string | null = null;
         hist.push({
@@ -644,9 +661,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             const fromP = partByNode[snap.from_id];
             const toP = partByNode[snap.to_id];
             if (!fromP || !toP) return;
-            const created = await processesApi.addMessage(id, {
-              edge_id: snap.edge_id, leg: snap.leg, from_participant_id: fromP, to_participant_id: toP, caption: snap.caption, order: snap.order,
-            });
+            const created = await addFromSnap(snap, fromP, toP);
             restoredId = created.id;
           },
           redo: async () => {

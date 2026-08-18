@@ -24,7 +24,13 @@ vi.mock("../processes/SequenceDiagram", () => ({
 }));
 vi.mock("../MessageComposer", () => ({ default: () => null }));
 vi.mock("../processes/ParticipantPicker", () => ({ default: () => null }));
-const histPush = vi.fn();
+// Типизирован, чтобы тесты undo могли ВЫЗВАТЬ записанный колбэк, а не только
+// проверить факт записи.
+const histPush = vi.fn<(entry: {
+  label: string;
+  undo: () => Promise<void> | void;
+  redo: () => Promise<void> | void;
+}) => void>();
 vi.mock("../processes/useProcessHistory", () => ({
   useProcessHistory: () => ({
     push: histPush, undo: vi.fn(), redo: vi.fn(),
@@ -223,6 +229,41 @@ describe("карточка шага: привязка к схеме логики
 
     expect(screen.queryByTestId("doc-overlay")).toBeNull();
     expect(screen.getByText("Шаг сценария")).toBeTruthy();
+  });
+
+  it("undo удаления шага возвращает и привязку", async () => {
+    // Дефект Д7: снимок шага без doc_id восстанавливал бы шаг «раздетым», и
+    // привязка терялась бы молча — при живой-то схеме.
+    vi.mocked(processesApi.addMessage).mockResolvedValue({ id: "m1b" } as never);
+    await открыть(ПРИВЯЗАН);
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    await waitFor(() =>
+      expect(histPush).toHaveBeenCalledWith(expect.objectContaining({ label: "Удаление сообщения" })));
+
+    await histPush.mock.lastCall?.[0].undo();
+
+    expect(processesApi.addMessage).toHaveBeenCalledWith(
+      "p1", expect.objectContaining({ doc_id: "d1", caption: "создать заказ" }));
+  });
+
+  it("умершая схема не валит undo: шаг пересоздаётся непривязанным", async () => {
+    // Шаг дороже привязки: _check_doc на мёртвый doc_id отвечает 404, и без
+    // отступления откат терял бы ШАГ целиком. Непривязанный шаг честно попадёт
+    // в алерт полноты — тот же принцип, что у переноса «не разрешилось — едет голым».
+    vi.mocked(processesApi.addMessage)
+      .mockRejectedValueOnce(new Error("Схема не найдена"))
+      .mockResolvedValue({ id: "m1b" } as never);
+    await открыть(ПРИВЯЗАН);
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    await waitFor(() =>
+      expect(histPush).toHaveBeenCalledWith(expect.objectContaining({ label: "Удаление сообщения" })));
+
+    await histPush.mock.lastCall?.[0].undo();
+
+    const calls = vi.mocked(processesApi.addMessage).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][1]).toMatchObject({ doc_id: "d1" });
+    expect(calls[1][1]).toMatchObject({ doc_id: null });
   });
 
   it("пустой каталог объясняет себя, а не молчит", async () => {
