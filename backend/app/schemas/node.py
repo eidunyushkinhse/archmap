@@ -153,6 +153,9 @@ class ViewStateResponse(BaseModel):
     # Курсор меты (атрибуты узлов/доки) — поллинг страницы объекта: «данные
     # изменились в другой сессии» vs «схема изменилась» (graph_rev).
     meta_rev: int = 0
+    # Курсор процессов (Д9) — поллинг страницы процесса; дефолт 0 бережёт старых
+    # клиентов, как meta_rev.
+    process_rev: int = 0
 
 
 class GraphEdgeResponse(BaseModel):

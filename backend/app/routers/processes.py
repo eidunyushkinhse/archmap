@@ -74,11 +74,22 @@ from app.schemas.process_import import (
     ProcessImportPreview,
     ProcessImportResult,
 )
+from app.view_state import bump_process_rev
 
 router = APIRouter(prefix="/processes", tags=["processes"])
 
 
 # ── Вспомогательные ───────────────────────────────────────────────────────────
+def _touch(db: Session, project: Project, user_id: uuid.UUID | None) -> None:
+    """touch_project + курсор процессов: каждая мутация процессов двигает
+    process_rev (Д9), чтобы её увидел поллинг чужой сессии на странице процесса.
+    Курсор СВОЙ: meta_rev дал бы ложный тост странице объекта, graph_rev — ложный
+    рефетч уровня канвасу."""
+    bump_process_rev(db, project)
+    touch_project(db, project, user_id)
+
+
+
 def _get_process(db: Session, process_id: uuid.UUID, project: Project) -> BusinessProcess:
     """Процесс текущего проекта, иначе 404 (чужой процесс недоступен — изоляция).
     HTTP-перевод «не найдено»; доменные запросы/сериализация — в app/processes.py."""
@@ -113,7 +124,7 @@ def create_process(
         name=payload.name, scope_node_id=payload.scope_node_id, project_id=project.id
     )
     db.add(proc)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
@@ -144,7 +155,7 @@ def import_process(
 ) -> ProcessImportResult:
     """Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача)."""
     _, result = apply_import(db, project.id, payload.text, payload.name, payload.mapping)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     return result
 
@@ -176,7 +187,7 @@ def update_process(
             raise HTTPException(status_code=404, detail="Узел области не найден")
     for field, value in data.items():
         setattr(proc, field, value)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
@@ -204,7 +215,7 @@ def duplicate_process_endpoint(
     """
     proc = _get_process(db, process_id, project)
     copy = duplicate_process(db, proc)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(copy)
     return build_process_detail(db, copy, load_nodes(db, project.id))
@@ -219,7 +230,7 @@ def delete_process(
 ) -> None:
     proc = _get_process(db, process_id, project)
     db.delete(proc)  # каскад сносит участников/сообщения/фрагменты
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
 
 
@@ -250,7 +261,7 @@ def add_participant(
         process_id=proc.id, node_id=payload.node_id, name=node.name, order=payload.order
     )
     db.add(part)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(part)
     return participant_out(part, node)
@@ -271,7 +282,7 @@ def reorder_participants(
         if part is None:
             raise HTTPException(status_code=422, detail="Участник не из этого процесса")
         part.order = index
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     all_nodes = load_nodes(db, project.id)
     parts = sorted(proc.participants, key=lambda p: p.order)
@@ -302,7 +313,7 @@ def bind_participant(
     if payload.node_id is None:
         part.node_id = None  # имя остаётся: без него линия жизни стала бы безымянной
         detached = detach_messages(proc, part)
-        touch_project(db, project, user.id)
+        _touch(db, project, user.id)
         db.commit()
         db.refresh(part)
         return BindResult(participant=participant_out(part, None), attached=0, dangling=detached)
@@ -324,7 +335,7 @@ def bind_participant(
     part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
     db.flush()  # подхват смотрит на уже привязанного участника
     attached, dangling, _ids = reattach_dangling(db, proc, all_nodes, part)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(part)
     return BindResult(
@@ -348,7 +359,7 @@ def reattach_process(
     """
     proc = _get_process(db, process_id, project)
     attached, dangling, ids = reattach_dangling(db, proc, load_nodes(db, project.id))
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     return ReattachResult(attached=attached, dangling=dangling, attached_ids=ids)
 
@@ -372,7 +383,7 @@ def detach_messages_endpoint(
         if msg is None:
             raise HTTPException(status_code=422, detail="Сообщение не из этого процесса")
         msg.edge_id = None
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
 
 
@@ -392,7 +403,7 @@ def delete_participant(
     if part is None or part.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Участник не найден")
     db.delete(part)  # каскад сносит сообщения с этим концом (FK ON DELETE CASCADE)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
 
 
@@ -431,7 +442,7 @@ def create_message(
             doc_id=payload.doc_id,
         )
         db.add(msg)
-        touch_project(db, project, user.id)
+        _touch(db, project, user.id)
         db.commit()
         db.refresh(msg)
         part_by_id = {p.id: p for p in proc.participants}
@@ -491,7 +502,7 @@ def create_message(
         doc_id=payload.doc_id,
     )
     db.add(msg)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
@@ -526,7 +537,7 @@ def reorder_messages(
         )
     for index, mid in enumerate(payload.ids):
         by_id[mid].order = index
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
 
     part_by_id = {p.id: p for p in proc.participants}
@@ -551,6 +562,9 @@ def reorder_messages(
 _MESSAGE_SCALARS = ("caption", "order")
 # Ссылочные поля правки шага: каждое проверяется _check_doc и ему подобными.
 _MESSAGE_REFS: tuple[str, ...] = ("doc_id",)
+# Служебные поля контракта — НЕ поля шага: CAS-токен читается и выбрасывается,
+# в setattr не попадает никогда (паттерн update_node / update_doc).
+_MESSAGE_META: tuple[str, ...] = ("base_version",)
 
 
 def _check_doc(db: Session, doc_id: uuid.UUID | None, project: Project) -> None:
@@ -635,21 +649,29 @@ def update_message(
     if msg is None or msg.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     data = payload.model_dump(exclude_unset=True)
+    # CAS (Д9): правка от устаревшей версии не затирает чужую. None — компенсация
+    # undo без проверки (паттерн update_node / update_doc).
+    base_version = data.pop("base_version", None)
+    if base_version is not None and base_version != msg.version:
+        raise HTTPException(status_code=409, detail="Шаг изменён в другой сессии")
     # Поля применяются ПО БЕЛОМУ СПИСКУ, а не циклом setattr по payload. Причина не в
     # аккуратности: сюда приезжает ССЫЛОЧНОЕ поле (привязка шага к схеме логики),
     # а слепое присваивание приняло бы ссылку на строку ЧУЖОГО проекта — межпроектная
     # изоляция держалась бы на честном слове клиента (дефект Д6,
     # docs/plan-process-docs-challenge.md).
     # ⚠️ Добавил поле в MessageUpdate — добавь его И СЮДА: в _MESSAGE_SCALARS, если оно
-    # скалярное, либо отдельной веткой с проверкой принадлежности проекту, если
-    # ссылочное. Забывчивость ловит тест test_белый_список_полей_правки_шага_полон.
+    # скалярное, в _MESSAGE_META, если оно служебное и полем шага не является, либо
+    # отдельной веткой с проверкой принадлежности проекту, если ссылочное.
+    # Забывчивость ловит тест test_белый_список_полей_правки_шага_полон.
     for field in _MESSAGE_SCALARS:
         if field in data:
             setattr(msg, field, data[field])
     if "doc_id" in data:
         _check_doc(db, data["doc_id"], project)
         msg.doc_id = data["doc_id"]
-    touch_project(db, project, user.id)
+    if data:
+        msg.version += 1
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
@@ -677,7 +699,7 @@ def delete_message(
     if msg is None or msg.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     db.delete(msg)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
 
 
@@ -771,7 +793,7 @@ def create_fragment(
         ],
     )
     db.add(frag)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(frag)
     return fragment_out(frag)
@@ -824,7 +846,7 @@ def update_fragment(
         frag.branches = [
             ProcessFragmentBranch(start_order=b.start_order, guard=b.guard) for b in new_branches
         ]
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
     db.refresh(frag)
     return fragment_out(frag)
@@ -846,7 +868,7 @@ def delete_fragment(
     if frag is None or frag.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Фрагмент не найден")
     db.delete(frag)
-    touch_project(db, project, user.id)
+    _touch(db, project, user.id)
     db.commit()
 
 

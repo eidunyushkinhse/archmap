@@ -49,6 +49,8 @@ const MSG = {
   edge_id: "e1", leg: "forward", kind: "forward", technology: null, valid: true,
   edge_synchronous: true,
   from_participant_id: "pa", to_participant_id: "pb",
+  // CAS (Д9): карточка шлёт версию шага обратно как base_version.
+  version: 3,
 };
 const DETAIL = {
   id: "p1", name: "Оплата", scope_node_id: null, scope_name: null,
@@ -121,7 +123,7 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() =>
-      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита" }),
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита", base_version: 3 }),
     );
   });
 
@@ -134,7 +136,7 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() =>
-      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: null }),
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: null, base_version: 3 }),
     );
   });
 
@@ -254,7 +256,7 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() =>
-      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита" }),
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { caption: "проверка лимита", base_version: 3 }),
     );
   });
 

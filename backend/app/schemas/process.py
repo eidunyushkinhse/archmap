@@ -94,6 +94,8 @@ class MessageOut(BaseModel):
     # на фронте из kind можно, но окольно: связь «kind=return + leg_gone → канал
     # асинхронный» держалась бы на честном слове.
     edge_synchronous: bool | None = None
+    # Версия для optimistic CAS (Д9): клиент шлёт её обратно как base_version в PATCH.
+    version: int = 1
 
 
 class DocChoiceOut(BaseModel):
@@ -217,6 +219,9 @@ class MessageUpdate(BaseModel):
     # различает «не передано» и «передан null» через exclude_unset, как у operation
     # схемы логики. Ссылочное поле: ручка проверяет, что схема из ЭТОГО проекта.
     doc_id: uuid.UUID | None = None
+    # CAS (Д9): устаревшая версия → 409, правка от старого шага не затирает чужую.
+    # None — компенсация undo без проверки (паттерн update_node / update_doc).
+    base_version: int | None = None
 
 
 # ── Фрагменты ─────────────────────────────────────────────────────────────────

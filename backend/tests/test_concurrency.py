@@ -324,6 +324,9 @@ def test_restore_bumps_fence(db):
 def test_state_endpoint_and_graph_rev_monotonic(db):
     state = get_view_state("root", db=db, project=ensure_project(db), _=ensure_architect(db))
     assert state.version == 0 and state.graph_rev == 0
+    # Курсор процессов (Д9) отдаётся тем же лёгким опросом — его поллит страница
+    # процесса; правки узлов/раскладки ниже его не двигают.
+    assert state.process_rev == 0
 
     revs = [0]
 

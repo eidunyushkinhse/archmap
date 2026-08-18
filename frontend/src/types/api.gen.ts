@@ -3879,6 +3879,11 @@ export interface components {
             doc_name?: string | null;
             /** Edge Synchronous */
             edge_synchronous?: boolean | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
         };
         /** MessageUpdate */
         MessageUpdate: {
@@ -3888,6 +3893,8 @@ export interface components {
             order?: number | null;
             /** Doc Id */
             doc_id?: string | null;
+            /** Base Version */
+            base_version?: number | null;
         };
         /** NodeCreate */
         NodeCreate: {
@@ -5284,6 +5291,11 @@ export interface components {
              * @default 0
              */
             meta_rev: number;
+            /**
+             * Process Rev
+             * @default 0
+             */
+            process_rev: number;
         };
     };
     responses: never;

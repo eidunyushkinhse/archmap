@@ -54,6 +54,13 @@ class Project(Base):
     meta_rev: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # Курсор изменений ПРОЦЕССОВ (Ф6 эпика «процессы → доки шага», Д9): любая мутация
+    # процессов/участников/шагов/фрагментов. Свой курсор, а не meta_rev/graph_rev:
+    # чужие курсоры дали бы ложные рефетчи странице объекта и канвасу. Поллит
+    # страница процесса. Инкремент — только через bump_process_rev.
+    process_rev: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

@@ -178,7 +178,7 @@ COPY_PLAN: dict[type[Base], TablePlan] = {
         data=("name", "order"),
     ),
     ProcessMessage: TablePlan(
-        own={"id": _ID},
+        own={"id": _ID, "version": _VERSION},
         mapped={
             "process_id": "ссылка на процесс — через карту процессов",
             # Повисший шаг (edge_id = NULL) переносится повисшим: расхождение со схемой

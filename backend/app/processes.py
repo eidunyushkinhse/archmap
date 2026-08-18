@@ -327,6 +327,7 @@ def message_out(
         doc_node_id=doc.node_id if doc else None,
         doc_name=doc.name if doc else None,
         edge_synchronous=None if edge is None else edge_is_synchronous(edge),
+        version=msg.version,
     )
 
 

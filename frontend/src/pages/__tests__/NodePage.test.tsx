@@ -441,7 +441,7 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
     // Курсоры при загрузке — как в контекст-графе (graph_rev 1 / meta_rev 1).
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1, process_rev: 0 });
     return render(<NodePage nodeId="n1" isArchitect {...nav} />);
   }
 
@@ -464,7 +464,7 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     // стоит на месте. Форма — единственное отличие, поэтому тест ловит и «слушаем
     // только meta_rev», и «сигнатура не различает форму».
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { shape: "database", version: 5 }));
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
@@ -476,7 +476,7 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Платёжный шлюз", version: 5 }));
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
     await waitFor(() => expect(screen.getByDisplayValue("Платёжный шлюз")).toBeInTheDocument(), ждать);
@@ -487,7 +487,7 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     await waitFor(() => expect(screen.getByRole("button", { name: /Существует/ })).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { status: "deprecated", version: 5 }));
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 2 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 2, process_rev: 0 });
     await тик();
 
     await waitFor(() => expect(screen.getByRole("button", { name: /Выводится/ })).toBeInTheDocument(), ждать);
@@ -500,7 +500,7 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Сервис оплаты", shape: "service", version: 5 }));
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
     expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument();
@@ -519,7 +519,7 @@ describe("NodePage: чужая правка узла и «Свойства»", (
     await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
-    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1 });
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
     expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument();

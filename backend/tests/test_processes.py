@@ -482,10 +482,53 @@ def test_белый_список_полей_правки_шага_полон():
     чужого проекта — межпроектная изоляция держалась бы на честном слове клиента.
     Ссылочные поля живут в отдельном перечне: у каждого своя проверка принадлежности.
     """
-    from app.routers.processes import _MESSAGE_REFS, _MESSAGE_SCALARS
+    from app.routers.processes import _MESSAGE_META, _MESSAGE_REFS, _MESSAGE_SCALARS
 
-    assert set(MessageUpdate.model_fields) == set(_MESSAGE_SCALARS) | set(_MESSAGE_REFS)
-    assert not (set(_MESSAGE_SCALARS) & set(_MESSAGE_REFS)), "поле не может быть и тем, и другим"
+    перечни = (set(_MESSAGE_SCALARS), set(_MESSAGE_REFS), set(_MESSAGE_META))
+    assert set(MessageUpdate.model_fields) == перечни[0] | перечни[1] | перечни[2]
+    # Перечни попарно не пересекаются: поле не может быть и тем, и другим.
+    assert sum(len(s) for s in перечни) == len(перечни[0] | перечни[1] | перечни[2])
+
+
+def test_правка_шага_от_устаревшей_версии_отклоняется(db):
+    """Д9: раньше вторая сессия молча затирала правку первой. CAS — паттерн
+    update_node/update_doc: version растёт с каждой правкой, base_version ≠
+    текущей → 409, None — компенсация undo без проверки."""
+    proc, msg, _a, _b = _шаг_с_каналом(db)
+
+    def правка(body):
+        return update_message(proc.id, msg.id, body,
+                              db=db, project=ensure_project(db), user=ensure_architect(db))
+
+    первая = правка(MessageUpdate(caption="от первой сессии", base_version=1))
+    assert первая.version == 2
+
+    with pytest.raises(HTTPException) as e:
+        правка(MessageUpdate(caption="от второй сессии", base_version=1))
+    assert e.value.status_code == 409
+    # Проигравшая правка ничего не затёрла (msg — MessageOut, истину читаем из БД).
+    строка = db.get(ProcessMessage, msg.id)
+    assert строка is not None and строка.caption == "от первой сессии"
+
+    # None — undo-компенсация: проходит без проверки и двигает версию дальше.
+    assert правка(MessageUpdate(caption="компенсация")).version == 3
+
+
+def test_мутации_процессов_двигают_свой_курсор(db):
+    """Д9: чужая сессия узнаёт о правке поллингом process_rev. Курсор СВОЙ:
+    meta_rev дал бы ложный тост странице объекта, graph_rev — ложный рефетч
+    уровня канвасу."""
+    proc, msg, _a, _b = _шаг_с_каналом(db)
+    project = ensure_project(db)
+    db.refresh(project)
+    было = (project.process_rev, project.graph_rev, project.meta_rev)
+
+    update_message(proc.id, msg.id, MessageUpdate(caption="тронули шаг"),
+                   db=db, project=project, user=ensure_architect(db))
+
+    db.refresh(project)
+    assert project.process_rev == было[0] + 1
+    assert (project.graph_rev, project.meta_rev) == (было[1], было[2])
 
 
 def test_ответ_на_ставшем_асинхронным_канале_перестаёт_быть_корректным(db):

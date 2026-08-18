@@ -35,6 +35,9 @@ interface Props {
   // Переход на страницу объекта с линии жизни участника (id — УЗЛА). Зеркало
   // обратного перехода со страницы объекта в процесс.
   onOpenNode?: (nodeId: string) => void;
+  // Счётчик чужих правок (Д9): поллинг воркспейса заметил рост process_rev —
+  // канвас перечитывает процесс. Растёт только на ЧУЖИЕ изменения.
+  syncRev?: number;
 }
 
 const FRAGMENTS: FragmentKind[] = ["alt", "opt", "loop", "par"];
@@ -61,7 +64,7 @@ function IcoCheck({ s = 15 }: { s?: number }) {
   );
 }
 
-export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode }: Props) {
+export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev }: Props) {
   const [detail, setDetail] = useState<ProcessDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
@@ -121,6 +124,17 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       .then((d) => { setDetail(d); onChanged(); })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
   }, [id, onChanged]);
+
+  // Чужая правка (Д9): поллинг воркспейса заметил рост process_rev — перечитываем
+  // процесс. Без onChanged: список рейла воркспейс уже перечитал сам, а сигналить
+  // «мы изменили» о чужой правке незачем. 0 — стартовое значение счётчика (маунт).
+  useEffect(() => {
+    if (!syncRev) return;
+    processesApi
+      .get(id)
+      .then(setDetail)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
+  }, [syncRev, id]);
 
   // Первичная загрузка. Смену процесса воркспейс делает через key-remount (свежее
   // состояние оверлеев/истории), поэтому id за время жизни компонента не меняется —
@@ -578,7 +592,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       messages: detail.messages.map((x) => (x.id === mid ? { ...x, caption: next } : x)),
     });
     try {
-      await processesApi.updateMessage(id, mid, { caption: next });
+      // CAS (Д9): правка от устаревшего шага не затирает чужую — бэк ответит 409,
+      // catch перечитает процесс и покажет detail. Undo/redo идут БЕЗ base_version:
+      // компенсация переигрывается поверх любого текущего состояния (паттерн узлов).
+      await processesApi.updateMessage(id, mid, { caption: next, base_version: m.version });
       hist.push({
         label: "Подпись шага",
         undo: async () => { await processesApi.updateMessage(id, mid, { caption: prev }); },
@@ -599,7 +616,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     if (!m || m.doc_id === docId) return;
     const prev = m.doc_id ?? null;
     try {
-      await processesApi.updateMessage(id, mid, { doc_id: docId });
+      // CAS (Д9) — как у подписи: конфликт → 409 → reload + detail в баннере.
+      await processesApi.updateMessage(id, mid, { doc_id: docId, base_version: m.version });
       hist.push({
         label: docId ? "Привязка схемы к шагу" : "Схема отвязана от шага",
         undo: async () => { await processesApi.updateMessage(id, mid, { doc_id: prev }); },

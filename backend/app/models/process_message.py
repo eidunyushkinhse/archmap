@@ -54,6 +54,10 @@ class ProcessMessage(Base):
     doc_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("node_docs.id", ondelete="SET NULL"), nullable=True
     )
+    # Версия для optimistic CAS — тот же паттерн, что у Node/NodeDoc.version: PATCH с
+    # base_version ≠ текущей → 409, правка от устаревшего шага не затирает чужую
+    # (Д9: раньше вторая сессия молча теряла правку первой).
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     process: Mapped["BusinessProcess"] = relationship(
         "BusinessProcess", back_populates="messages"
