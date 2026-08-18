@@ -20,6 +20,8 @@ export interface ExportScope {
   key: string;
   title: string;
   load: () => Promise<{ content: string }>;
+  /** Полный архив знания (zip) — только у скоупа «вся схема». */
+  archive?: { filename: string; load: () => Promise<Blob> };
 }
 
 interface Props {
@@ -94,6 +96,7 @@ export default function SchemaActions({
           title={exportScope.title}
           loadKey={exportScope.key}
           load={exportScope.load}
+          archive={exportScope.archive}
           onClose={() => setExportOpen(false)}
         />
       )}

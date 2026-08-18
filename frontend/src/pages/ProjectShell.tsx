@@ -120,7 +120,14 @@ export default function ProjectShell({
         : null
       : nodeId
         ? { key: nodeId, title: "Экспорт поддерева", load: () => exportApi.subtree(nodeId) }
-        : { key: "all", title: "Экспорт схемы", load: () => exportApi.all() };
+        : {
+            key: "all",
+            title: "Экспорт схемы",
+            load: () => exportApi.all(),
+            // Полный архив знания — только у скоупа «вся схема»: у поддерева и
+            // процесса архива нет (архив — операция над проектом целиком).
+            archive: { filename: "archmap.zip", load: () => exportApi.archive() },
+          };
 
   return (
     <div style={page}>
