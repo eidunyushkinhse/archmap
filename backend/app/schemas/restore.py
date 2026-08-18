@@ -108,6 +108,23 @@ class BrokerChannelSnapshot(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ConfigParamSnapshot(BaseModel):
+    """Параметр конфигурации сервиса (config_params) — умирает каскадом node_id.
+    Перечень ручек сервиса — такой же его «контракт», как таблицы у базы: вернуть
+    узел без конфигурации значит вернуть его без части документации, а пометки
+    «зависит от:» в схемах логики после этого повисли бы замечаниями."""
+
+    id: uuid.UUID
+    node_id: uuid.UUID
+    name: str
+    description: str | None = None
+    value_type: str = ""
+    required: bool = False
+    default_value: str = ""
+
+    model_config = {"from_attributes": True}
+
+
 class ChannelFieldSnapshot(BaseModel):
     """Поле сообщения канала (channel_fields) — умирает каскадом channel_id."""
 
@@ -148,8 +165,9 @@ class ViewLayoutItemSnapshot(BaseModel):
 
 class DeletionSnapshot(BaseModel):
     """Полный снимок того, что исчезнет при удалении узла: поддерево узлов, ВСЯ их
-    документация (схемы логики, таблицы БД с колонками, каналы брокера с полями),
-    инцидентные рёбра и строки раскладки. Достаточно для точного восстановления."""
+    документация (схемы логики, таблицы БД с колонками, каналы брокера с полями,
+    параметры конфигурации), инцидентные рёбра и строки раскладки. Достаточно для
+    точного восстановления."""
 
     nodes: list[NodeSnapshot]
     edges: list[EdgeSnapshot]
@@ -162,3 +180,4 @@ class DeletionSnapshot(BaseModel):
     db_columns: list[DbColumnSnapshot] = []
     broker_channels: list[BrokerChannelSnapshot] = []
     channel_fields: list[ChannelFieldSnapshot] = []
+    config_params: list[ConfigParamSnapshot] = []

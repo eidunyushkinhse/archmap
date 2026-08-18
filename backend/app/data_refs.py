@@ -12,6 +12,12 @@
 класс двусмысленностей — одноимённые таблица `orders` и канал `orders` не конфликтуют
 по построению, и «пишет: orders» с «публикует: orders» ведут в разные места.
 
+Третья семья — конфигурация (docs/plan-config-docs.md §5): «зависит от:» адресует
+ПАРАМЕТР самого сервиса, потому что развилка зависит не только от данных («если
+статус paid»), но и от ручек («если FEATURE_X включён»). Каталог тоже свой, но
+область поиска у него уже: не проект, а один узел — владелец схемы. Отсюда и
+отсутствие квалификатора, и невозможность неоднозначности.
+
 Обе функции ЧИСТЫЕ. Резолв зовётся на чтении (usage, превью, алерты), а не на
 записи: он — функция от (пометки, каталоги, пути узлов), и это убирает все точки
 инвалидации (переименование таблицы/канала/раздела/узла, удаление колонки/поля).
@@ -26,10 +32,11 @@ from sqlalchemy.orm import Session
 
 from app.docs_import import _node_paths
 from app.models.broker_channel import BrokerChannel
+from app.models.config_param import ConfigParam
 from app.models.db_table import DbTable
 from app.models.node import Node
 
-Mode = Literal["read", "write", "publish", "consume"]
+Mode = Literal["read", "write", "publish", "consume", "config"]
 RefStatus = Literal[
     "ok",
     # Табличная семья (read/write).
@@ -38,7 +45,12 @@ RefStatus = Literal[
     # Канальная семья (publish/consume).
     "unknown_channel",
     "unknown_field",
-    # Общий для обеих: имя подошло нескольким целям, выбрать за пользователя нельзя.
+    # Конфигурационная семья (config). Пары «нет параметра / нет члена» у неё нет:
+    # параметр плоский, второго уровня не бывает.
+    "unknown_param",
+    # Общий для табличной и канальной: имя подошло нескольким целям, выбрать за
+    # пользователя нельзя. Конфигурации он НЕДОСТУПЕН по построению — искать её
+    # можно только у владельца схемы, а там имя уникально (см. _resolve_config).
     "ambiguous",
 ]
 
@@ -46,9 +58,15 @@ RefStatus = Literal[
 # таблиц, publish/consume — только среди каналов. Смешать их значило бы вернуть
 # двусмысленность, которой раздельные маркеры как раз и избегают.
 CHANNEL_MODES: frozenset[Mode] = frozenset({"publish", "consume"})
+# Режим КОНФИГУРАЦИИ — третий каталог, у которого своя область поиска: не проект, а
+# один узел (docs/plan-config-docs.md §5).
+CONFIG_MODES: frozenset[Mode] = frozenset({"config"})
 
 # Маркер пометки: слово + двоеточие. Русский и английский — проекты бывают и с
 # латинскими подписями. \b отсекает «перечитает:» и подобные вхождения внутри слова.
+# Маркер бывает и ИЗ ДВУХ СЛОВ («зависит от»): пробел внутри разворачивается в \s+,
+# поэтому «зависит  от:» с двойным пробелом и перенос строки между словами читаются
+# так же, как канонический вид.
 _MARKER_MODE: dict[str, Mode] = {
     "читает": "read",
     "reads": "read",
@@ -58,8 +76,10 @@ _MARKER_MODE: dict[str, Mode] = {
     "publishes": "publish",
     "потребляет": "consume",
     "consumes": "consume",
+    "зависит от": "config",
+    "depends on": "config",
 }
-_MARKER_WORDS = "|".join(_MARKER_MODE)
+_MARKER_WORDS = "|".join(w.replace(" ", r"\s+") for w in _MARKER_MODE)
 # Хвост — до терминатора: конец строки, кавычка подписи, закрывающая скобка
 # mermaid-вершины или начало тега (<br>). mermaid НЕ парсим: пометка в подписи ребра
 # или заголовке subgraph тоже считается — это дешевле и предсказуемее разбора
@@ -88,7 +108,9 @@ def _modes_of(marker: str) -> list[Mode]:
     """Режимы маркера в порядке написания: у слитного их два, у обычного один."""
     out: list[Mode] = []
     for word in marker.split("/"):
-        mode = _MARKER_MODE.get(word.strip().lower())
+        # Схлопываем внутренние пробелы: маркер бывает из двух слов, и «зависит  от»
+        # с двойным пробелом (или с переносом строки) — тот же самый маркер.
+        mode = _MARKER_MODE.get(" ".join(word.split()).lower())
         if mode is not None and mode not in out:
             out.append(mode)
     return out
@@ -157,6 +179,8 @@ class ResolvedRef:
     channel_id: uuid.UUID | None = None
     field_id: uuid.UUID | None = None
     field_name: str | None = None
+    # Конфигурационная семья. Второго поля («член») нет и не будет: параметр плоский.
+    param_id: uuid.UUID | None = None
 
 
 # Голая часть ссылки — токен без пробелов: буквы/цифры/_/-/точки. Проза после
@@ -267,10 +291,19 @@ def resolve_data_refs(
     tables: list[CatalogTable],
     channels: list[CatalogChannel],
     node_paths: dict[uuid.UUID, str],
+    *,
+    owner_params: dict[str, uuid.UUID],
 ) -> list[ResolvedRef]:
     """Резолв пометок по СВОЕМУ каталогу: read/write — только по таблицам,
-    publish/consume — только по каналам. Одноимённые таблица и канал друг друга не
-    видят: разные маркеры адресуют разные миры (решение §7.1 plan-broker-docs.md)."""
+    publish/consume — только по каналам, «зависит от:» — только по конфигурации
+    ВЛАДЕЛЬЦА схемы. Одноимённые таблица, канал и параметр друг друга не видят:
+    разные маркеры адресуют разные миры (решение §7.1 plan-broker-docs.md).
+
+    owner_params — параметры узла, которому принадлежит РАЗБИРАЕМЫЙ текст
+    («имя → id»), обязательный аргумент. Именно обязательный, а не с дефолтом:
+    забытый каталог давал бы не пустой ответ, а поток ложных «параметра нет», и
+    решение «конфигурации здесь нет» обязано быть осознанным на каждом вызове.
+    """
     table_entries = [
         _Entry(id=t.id, node_id=t.node_id, group=t.schema_name, name=t.name, members=t.columns)
         for t in tables
@@ -281,11 +314,32 @@ def resolve_data_refs(
     ]
     out: list[ResolvedRef] = []
     for r in refs:
-        if r.mode in CHANNEL_MODES:
+        if r.mode in CONFIG_MODES:
+            out.append(_resolve_config(r, owner_params))
+        elif r.mode in CHANNEL_MODES:
             out.append(_resolve_channel(r, channel_entries, node_paths))
         else:
             out.append(_resolve_table(r, table_entries, node_paths))
     return out
+
+
+def _resolve_config(r: DataRefIn, owner_params: dict[str, uuid.UUID]) -> ResolvedRef:
+    """Резолв «зависит от:» — точным совпадением имени среди параметров ВЛАДЕЛЬЦА.
+
+    Ни _pick, ни его гипотез здесь нет, и это не упрощение задним числом, а свойство
+    семьи (docs/plan-config-docs.md §3): у пометки ровно одно место, где цель может
+    найтись, — конфигурация этого же объекта. Отсюда всё сразу:
+      • квалификатор «Узел / имя» не нужен — искать за пределами узла незачем;
+      • точка НЕ делит ссылку («feature.new_checkout» — целое имя параметра, а не
+        «группа feature, параметр new_checkout»): групп у конфигурации нет;
+      • «ambiguous» невозможен — имя параметра уникально в пределах узла (БД сторожит
+        это ограничением), а второго кандидата взять просто неоткуда.
+    Регистр значим: LOG_LEVEL и log_level в окружении — разные переменные.
+    """
+    param_id = owner_params.get(r.ref)
+    if param_id is None:
+        return ResolvedRef(ref=r.ref, mode=r.mode, status="unknown_param")
+    return ResolvedRef(ref=r.ref, mode=r.mode, status="ok", param_id=param_id)
 
 
 def _resolve_table(
@@ -348,13 +402,24 @@ def _resolve_channel(
 
 def catalog_for_project(
     db: Session, project_id: uuid.UUID
-) -> tuple[list[CatalogTable], list[CatalogChannel], dict[uuid.UUID, str]]:
-    """Таблицы и каналы проекта в виде каталогов + полные пути его узлов.
+) -> tuple[
+    list[CatalogTable],
+    list[CatalogChannel],
+    dict[uuid.UUID, dict[str, uuid.UUID]],
+    dict[uuid.UUID, str],
+]:
+    """Таблицы, каналы и конфигурация проекта в виде каталогов + полные пути узлов.
 
-    Каталог — по ВСЕМУ проекту, а не по одному узлу: неоднозначность имени есть
-    свойство проекта, и «orders» обязано считаться неоднозначным независимо от
-    того, чью страницу сейчас читают. Пути — те же, что у импорта (`_node_paths`):
-    квалификатор пометки пишется так же, как адрес узла в пакете агента.
+    Первые два каталога — по ВСЕМУ проекту, а не по одному узлу: неоднозначность
+    имени есть свойство проекта, и «orders» обязано считаться неоднозначным
+    независимо от того, чью страницу сейчас читают. Пути — те же, что у импорта
+    (`_node_paths`): квалификатор пометки пишется так же, как адрес узла в пакете
+    агента.
+
+    Конфигурация же приходит РАЗЛОЖЕННОЙ ПО УЗЛАМ («узел → имя параметра → id»), и
+    иначе быть не может: её резолв смотрит только на владельца схемы, так что общий
+    плоский список был бы для него не просто лишним, а вредным — он позволил бы
+    сослаться на чужую ручку.
     """
     nodes: list[Node] = db.query(Node).filter(Node.project_id == project_id).all()
     flat, fulls, _by_bare, _by_path = _node_paths(nodes)
@@ -393,4 +458,15 @@ def catalog_for_project(
         )
         for c in channels
     ]
-    return table_catalog, channel_catalog, node_paths
+
+    params: list[ConfigParam] = (
+        db.query(ConfigParam)
+        .join(Node, Node.id == ConfigParam.node_id)
+        .filter(Node.project_id == project_id)
+        .all()
+    )
+    params_by_node: dict[uuid.UUID, dict[str, uuid.UUID]] = {}
+    for p in params:
+        params_by_node.setdefault(p.node_id, {})[p.name] = p.id
+
+    return table_catalog, channel_catalog, params_by_node, node_paths

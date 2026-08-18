@@ -20,6 +20,7 @@ const EMPTY: Alerts = {
   unbound_participants: [], orphan_legs: [],
   unresolved_data_refs: [],
   unresolved_channel_refs: [],
+  unresolved_config_refs: [],
   broker_edge_channels: [],
   descendant_edges: [],
 };
@@ -435,5 +436,61 @@ describe("SchemaAlerts: связи в собственный компонент"
     await openPanel();
 
     expect(screen.queryByText("Связи в собственный компонент")).toBeNull();
+  });
+});
+
+const BROKEN_PARAM = {
+  node_id: "n1",
+  node_name: "Заказы",
+  doc_id: "d1",
+  doc_name: "POST /orders",
+  ref: "FEATURE_Y",
+};
+
+describe("SchemaAlerts: обращения к неописанным параметрам", () => {
+  it("строка называет объект, док, пометку и оба выхода починки", async () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_config_refs: [BROKEN_PARAM] }} />);
+
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    await openPanel();
+
+    expect(screen.getByText("Обращения к неописанным параметрам")).toBeTruthy();
+    expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
+    expect(screen.getByText("„FEATURE_Y“")).toBeTruthy();
+    // Класс ловит и прозу («зависит от: нагрузки») — подсказка обязана называть
+    // второй выход, иначе такая строка читается как шум продукта.
+    expect(screen.getByText(/параметра нет в конфигурации объекта/)).toBeTruthy();
+    expect(screen.getByText(/уберите двоеточие/)).toBeTruthy();
+  });
+
+  it("три семьи пометок живут отдельными секциями", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{
+          ...EMPTY,
+          unresolved_data_refs: [BROKEN_REF],
+          unresolved_channel_refs: [BROKEN_CHANNEL],
+          unresolved_config_refs: [BROKEN_PARAM],
+        }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 3" })).toBeTruthy();
+    await openPanel();
+
+    expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
+    expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
+    expect(screen.getByText("Обращения к неописанным параметрам")).toBeTruthy();
+  });
+
+  it("ведёт к узлу-владельцу: он же владелец параметра", async () => {
+    const onLocate = vi.fn();
+    render(
+      <SchemaAlerts alerts={{ ...EMPTY, unresolved_config_refs: [BROKEN_PARAM] }} onLocate={onLocate} />,
+    );
+    await openPanel();
+
+    await userEvent.click(screen.getByText("„FEATURE_Y“"));
+
+    expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n1" });
   });
 });

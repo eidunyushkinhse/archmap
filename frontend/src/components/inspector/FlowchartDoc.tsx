@@ -13,6 +13,7 @@ import { nowHHMM, unfenceMermaid } from "./docValidate";
 
 interface Props {
   initial: string; // сохранённый flowchart
+  nodeId: string; // владелец схемы: по нему ищется конфигурация («зависит от:»)
   isArchitect: boolean;
   showCode: boolean; // наблюдатель нажал «Показать код»
   onCommit: (value: string) => void;
@@ -24,14 +25,17 @@ interface Props {
 // время письма: иначе конвенцию не выучить, а промах именем обнаружится когда-то
 // потом в панели алертов. Наблюдателю плашка не нужна — пометки он читает в самой
 // диаграмме, а исправить всё равно не может.
-// События («публикует:/потребляет:» → канал брокера) плашка понимает тем же
-// механизмом: резолвер на бэке един, здесь дописаны только слова.
+// События («публикует:/потребляет:» → канал брокера) и конфигурация («зависит от:»
+// → параметр самого узла) плашка понимает тем же механизмом: резолвер на бэке един,
+// здесь дописаны только слова.
 
 // Дешёвый локальный гейт: грамматику маркера держит бэк (app/data_refs.py), тут
 // достаточно понять, есть ли в тексте хоть один — на доках без данных (их
 // большинство) сеть не дёргается вовсе. \b не ставим: в JS он ASCII-ный и перед
-// кириллическим «ч» не сработал бы.
-const REF_MARKER = /(читает|пишет|reads|writes|публикует|потребляет|publishes|consumes)\s*:/i;
+// кириллическим «ч» не сработал бы. Пробел внутри двусловного маркера — \s+, как и
+// на бэке: «зависит  от:» с двойным пробелом это тот же маркер.
+const REF_MARKER =
+  /(читает|пишет|reads|writes|публикует|потребляет|publishes|consumes|зависит\s+от|depends\s+on)\s*:/i;
 
 // Почему пометка не срослась — ТЕ ЖЕ слова, что в панели алертов (SchemaAlerts):
 // один факт, увиденный из двух мест, не должен читаться как две разные проблемы.
@@ -43,6 +47,9 @@ const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = 
   unknown_column: "колонки нет в таблице",
   unknown_channel: "канал не найден у брокеров проекта",
   unknown_field: "поля нет в канале",
+  // Искать негде, кроме самого объекта, — так и говорим: у конфигурации нет ни
+  // квалификатора, ни неоднозначности.
+  unknown_param: "параметра нет в конфигурации этого объекта",
 };
 const AMBIGUOUS_CHANNEL = "имя неоднозначно — укажите „Брокер / канал“";
 
@@ -63,6 +70,7 @@ const MODE_LABEL: Record<DataRefPreviewItem["mode"], string> = {
   write: "пишет",
   publish: "публикует",
   consume: "потребляет",
+  config: "зависит от",
 };
 
 function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
@@ -93,7 +101,7 @@ function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
   );
 }
 
-export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit }: Props) {
+export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, onCommit }: Props) {
   const [code, setCode] = useState(initial);
   const [status, setStatus] = useState<MmdStatus>({ kind: "loading" });
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -111,7 +119,7 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
     const seq = ++refSeq.current;
     const t = window.setTimeout(() => {
       dataRefsApi
-        .preview(code)
+        .preview(code, nodeId)
         .then((items) => {
           if (refSeq.current !== seq) return;
           setRefs(items);
@@ -122,7 +130,7 @@ export default function FlowchartDoc({ initial, isArchitect, showCode, onCommit 
         .catch(() => undefined);
     }, 600);
     return () => window.clearTimeout(t);
-  }, [code, isArchitect, hasRefMarker]);
+  }, [code, nodeId, isArchitect, hasRefMarker]);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const pzRef = useRef<HTMLDivElement>(null);

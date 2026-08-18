@@ -1,7 +1,8 @@
 """Глубокая копия схемы проекта (POST /projects со start="copy:<projectId>").
 
-Копирует узлы со всей их документацией (схемы логики, структура БД, каналы брокеров),
-связи, бизнес-процессы и раскладочный слой в новый проект с НОВЫМИ id, перемэппивая
+Копирует узлы со всей их документацией (схемы логики, структура БД, каналы брокеров,
+конфигурация), связи, бизнес-процессы и раскладочный слой в новый проект с НОВЫМИ id,
+перемэппивая
 все внутренние ссылки. Исходный проект не меняется.
 
 ЧТО именно переносится — объявлено в app/copy_plan.py (по умолчанию копируется всё,
@@ -18,6 +19,7 @@ from app.copy_plan import copy_row
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
+from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.edge import Edge
@@ -70,6 +72,7 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
         _copy_node_docs(db, nmap)
         _copy_db_structure(db, nmap, tmap, colmap)
         _copy_broker_structure(db, nmap, chmap)
+        _copy_config_params(db, nmap)
         db.flush()
 
     for e in db.query(Edge).filter(Edge.project_id == src_id).all():
@@ -140,6 +143,18 @@ def _copy_db_structure(
     for c in columns:
         if c.references_column_id:
             new_columns[c.id].references_column_id = colmap.get(c.references_column_id)
+
+
+def _copy_config_params(db: Session, nmap: dict[uuid.UUID, uuid.UUID]) -> None:
+    """Конфигурация сервисов: параметры и переменные окружения.
+
+    Карта id не нужна — параметр плоский, на него не ссылается ничто, кроме пометки
+    «зависит от:» в тексте схемы логики, а та ссылается ПО ИМЕНИ. Имя поэтому и
+    переносится без изменений: резолв на чтении в копии обязан сойтись так же.
+    """
+    params = db.query(ConfigParam).filter(ConfigParam.node_id.in_(nmap.keys())).all()
+    for p in params:
+        db.add(copy_row(p, id=uuid.uuid4(), node_id=nmap[p.node_id]))
 
 
 def _copy_broker_structure(

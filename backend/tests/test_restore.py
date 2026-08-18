@@ -20,6 +20,7 @@ from app.copy_plan import COPY_PLAN
 from app.database import Base
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
+from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.edge import Edge
@@ -311,6 +312,48 @@ def test_restore_returns_broker_channels_with_fields(db):
         ("order_id", "uuid", True, None),
         ("status", "string", False, "new|paid"),
     ]
+
+
+def test_restore_returns_config_params(db):
+    """Откат удаления сервиса возвращает его конфигурацию.
+
+    Перечень ручек — такой же «контракт» узла, как таблицы у базы, и без него
+    вернувшийся сервис остался бы без части документации, а пометки «зависит от:»
+    в схемах логики повисли бы замечаниями.
+    """
+    svc = _node(db, "Платежи")
+    db.flush()
+    db.add_all([
+        ConfigParam(
+            id=uuid.uuid4(), node_id=svc.id, name="RETRY_TIMEOUT", value_type="duration",
+            default_value="30s", description="сколько ждать перед повтором",
+        ),
+        ConfigParam(
+            id=uuid.uuid4(), node_id=svc.id, name="DATABASE_URL", required=True,
+        ),
+    ])
+    db.commit()
+    svc_id = svc.id
+    param_ids = {p.id for p in db.query(ConfigParam).all()}
+
+    snap = build_deletion_snapshot(db, svc_id)
+    assert {p.id for p in snap.config_params} == param_ids
+
+    delete_node(svc_id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert db.query(ConfigParam).count() == 0
+
+    restore_from_snapshot(db, snap, project_id=ensure_project(db).id)
+
+    вернулись = sorted(db.query(ConfigParam).all(), key=lambda p: p.name)
+    assert [
+        (p.name, p.value_type, p.required, p.default_value, p.description)
+        for p in вернулись
+    ] == [
+        ("DATABASE_URL", "", True, "", None),
+        ("RETRY_TIMEOUT", "duration", False, "30s", "сколько ждать перед повтором"),
+    ]
+    # id сохранены: вернувшийся параметр — тот же самый, а не его двойник.
+    assert {p.id for p in вернулись} == param_ids
 
 
 def test_restore_returns_source_ref(db):

@@ -2,7 +2,8 @@
 
 Снимок (build_deletion_snapshot) собирается ДО удаления и повторяет ровно то, что
 исчезнет: поддерево узлов, ВСЯ их документация (схемы логики, таблицы БД с колонками,
-каналы брокера с полями — всё это умирает БД-каскадом), инцидентные рёбра
+каналы брокера с полями, параметры конфигурации — всё это умирает БД-каскадом),
+инцидентные рёбра
 (источник/цель в поддереве) и строки раскладки view_layout — свои виды поддерева
 (умрут каскадом view_id) плюс строки других видов, чьи ключи ссылаются на поддерево
 (их чистит delete_node). Восстановление (restore_from_snapshot) воссоздаёт всё это
@@ -25,6 +26,7 @@ from app import tree
 from app.database import Base
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
+from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.edge import Edge
@@ -35,6 +37,7 @@ from app.models.view_state import ViewState
 from app.schemas.restore import (
     BrokerChannelSnapshot,
     ChannelFieldSnapshot,
+    ConfigParamSnapshot,
     DbColumnSnapshot,
     DbTableSnapshot,
     DeletionSnapshot,
@@ -56,6 +59,7 @@ SNAPSHOT_PLAN: dict[type[Base], type] = {
     DbColumn: DbColumnSnapshot,
     BrokerChannel: BrokerChannelSnapshot,
     ChannelField: ChannelFieldSnapshot,
+    ConfigParam: ConfigParamSnapshot,
     ViewLayoutItem: ViewLayoutItemSnapshot,
 }
 
@@ -113,6 +117,7 @@ def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot
     columns = (
         db.query(DbColumn).filter(DbColumn.table_id.in_(table_ids)).all() if table_ids else []
     )
+    params = db.query(ConfigParam).filter(ConfigParam.node_id.in_(subtree)).all()
     channels = db.query(BrokerChannel).filter(BrokerChannel.node_id.in_(subtree)).all()
     channel_ids = [c.id for c in channels]
     fields = (
@@ -130,6 +135,7 @@ def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot
         db_columns=[DbColumnSnapshot.model_validate(c) for c in columns],
         broker_channels=[BrokerChannelSnapshot.model_validate(c) for c in channels],
         channel_fields=[ChannelFieldSnapshot.model_validate(f) for f in fields],
+        config_params=[ConfigParamSnapshot.model_validate(p) for p in params],
     )
 
 
@@ -193,6 +199,10 @@ def restore_from_snapshot(
     db.flush()
     for fs in snapshot.channel_fields:
         db.add(ChannelField(**fs.model_dump()))
+
+    # Конфигурация сервиса: висит прямо на узле, второго уровня у неё нет.
+    for ps in snapshot.config_params:
+        db.add(ConfigParam(**ps.model_dump()))
 
     for es in snapshot.edges:
         db.add(Edge(**es.model_dump(), project_id=project_id))

@@ -155,6 +155,16 @@ Edge (связь)
 - version — CAS
 - created_at
 
+ConfigParam (параметр конфигурации сервиса — третья семья фактов после структуры БД
+и каналов брокера; docs/plan-config-docs.md)
+- id, node_id → Node (CASCADE), name (уникально в пределах узла)
+- description — «что переключает», value_type — свободная строка, required — булево
+- default_value — ТЕКСТ ДЕФОЛТА ИЗ КОДА. ЗНАЧЕНИЙ СРЕД НЕ ХРАНИМ НИКОГДА
+- version — CAS
+- Владелец ВСЕГДА сам сервис: одинаковый параметр у двух сервисов — две записи.
+  Пометка «зависит от: ИМЯ» в тексте схемы логики резолвится ТОЛЬКО среди параметров
+  владельца схемы, поэтому «неоднозначно» невозможно по построению (класс алертов AL33)
+
 ViewLayout / ViewState
 - view_layout: project_id, view_id, item_id, payload JSONB {x, y, expanded}
 - view_state: version (fence для CAS батчей layout)

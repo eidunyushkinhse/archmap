@@ -12,7 +12,11 @@ import uuid
 
 from conftest import ensure_architect, ensure_project
 
-from app.data_import import MAX_DUPLICATE_WARNINGS, parse_data_file
+from app.data_import import (
+    MAX_COLUMN_CONFLICTS,
+    MAX_DUPLICATE_WARNINGS,
+    parse_data_file,
+)
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -518,3 +522,103 @@ def test_кап_замечаний_о_дублях_и_хвост(db):
 
     assert len(_дубли(r)) == MAX_DUPLICATE_WARNINGS
     assert "…ещё 2 таблиц описаны в нескольких файлах пакета" in r.warnings
+
+
+# ── Две картины одной базы ────────────────────────────────────────────────────
+# Решение пользователя 2026-08-18: базу, чей репозиторий недостижим, можно описывать
+# ПО ЗАПРОСАМ потребителя — и ничем такие таблицы не помечать. Смысл разрешения держится
+# на двух обещаниях приёмника: картины СКЛАДЫВАЮТСЯ, а расхождения НАЗЫВАЮТСЯ поимённо
+# (второе и есть критерий качества промпта, ради которого разрешение давалось).
+
+ПО_ЗАПРОСАМ = """# archmap-node: Хранилище
+tables:
+  - name: history
+    columns:
+      - name: itemid
+      - name: clock
+      - name: value
+"""
+
+ПО_РЕПОЗИТОРИЮ = """# archmap-node: Хранилище
+tables:
+  - name: history
+    description: история значений метрик
+    columns:
+      - name: itemid
+        type: bigint
+        pk: true
+        required: true
+      - name: clock
+        type: integer
+        pk: true
+        required: true
+      - name: value
+        type: numeric
+      - name: ns
+        type: integer
+        description: наносекунды замера
+"""
+
+
+def test_картина_по_репозиторию_дополняет_картину_по_запросам(db):
+    """Обещание мерджа: потребитель описал три колонки без типов, владелец приносит
+    типы и четвёртую колонку — всё сходится без правок руками."""
+    _сцена(db)
+    _применить(db, ПО_ЗАПРОСАМ)
+
+    отчёт = _применить(db, ПО_РЕПОЗИТОРИЮ)
+
+    таблица = db.query(DbTable).one()
+    колонки = {c.name: c for c in таблица.columns}
+    assert set(колонки) == {"itemid", "clock", "value", "ns"}
+    # Недостающая колонка дописалась со всей метой — она новая, спорить не с чем.
+    assert (колонки["ns"].type, колонки["ns"].description) == ("integer", "наносекунды замера")
+    assert отчёт.columns_written == 1
+    # Пустое у потребителя не спорит с заполненным у владельца: типов он не знал, но и
+    # не выдумывал — таких споров в отчёте быть не должно.
+    assert not any("тип" in w for w in отчёт.warnings)
+
+
+def test_расхождение_двух_картин_названо_поимённо(db):
+    """Обещание критерия: разошлись — человек это ВИДИТ. Молча выигравшее «описанное
+    раньше» сделало бы критерий качества промпта ненаблюдаемым."""
+    _сцена(db)
+    _применить(db, ПО_ЗАПРОСАМ.replace("- name: itemid", "- name: itemid\n        type: int"))
+
+    отчёт = _применить(db, ПО_РЕПОЗИТОРИЮ)
+
+    споры = [w for w in отчёт.warnings if "оставлено значение из ArchMap" in w]
+    assert any("«history.itemid»" in w and "«bigint»" in w for w in споры)
+    # Первичный ключ и обязательность — тоже расхождение: потребитель их не знал.
+    assert any("первичный ключ" in w for w in споры)
+    # Значение при этом осталось прежним: политика «побеждает описанное раньше».
+    колонка = db.query(DbColumn).filter(DbColumn.name == "itemid").one()
+    assert колонка.type == "int"
+
+
+def test_пустое_у_пакета_спором_не_считается(db):
+    """«Тип не следует из запроса» — законный ответ промпта, и «не знаю» не должно
+    спорить со «знаю»: иначе каждая колонка потребителя дала бы ложное замечание."""
+    _сцена(db)
+    _применить(db, ПО_РЕПОЗИТОРИЮ)
+
+    отчёт = _применить(db, ПО_ЗАПРОСАМ)
+
+    assert not any("оставлено значение из ArchMap" in w for w in отчёт.warnings)
+    assert db.query(DbColumn).filter(DbColumn.name == "itemid").one().type == "bigint"
+
+
+def test_кап_споров_не_даёт_классу_вытеснить_остальные(db):
+    """Свой кап: на широкой таблице споров бывают десятки, а замечание об адресе или
+    битом YAML важнее — без него пакет не приедет вовсе."""
+    _сцена(db)
+    колонки = "".join(f"      - name: c{i}\n        type: int\n" for i in range(MAX_COLUMN_CONFLICTS + 4))
+    _применить(db, f"# archmap-node: Хранилище\ntables:\n  - name: wide\n    columns:\n{колонки}")
+
+    отчёт = _применить(
+        db, f"# archmap-node: Хранилище\ntables:\n  - name: wide\n    columns:\n{колонки.replace('type: int', 'type: bigint')}"
+    )
+
+    споры = [w for w in отчёт.warnings if "оставлено значение из ArchMap" in w]
+    assert len(споры) == MAX_COLUMN_CONFLICTS
+    assert any("…ещё 4 расхождений колонок" in w for w in отчёт.warnings)

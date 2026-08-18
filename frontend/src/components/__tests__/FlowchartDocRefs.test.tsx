@@ -26,7 +26,13 @@ const CHART_PLAIN = "graph TD\n  A[Проверить заказ] --> B[Гото
 
 function renderDoc(initial: string, isArchitect = true) {
   render(
-    <FlowchartDoc initial={initial} isArchitect={isArchitect} showCode onCommit={vi.fn()} />,
+    <FlowchartDoc
+      initial={initial}
+      nodeId="node-1"
+      isArchitect={isArchitect}
+      showCode
+      onCommit={vi.fn()}
+    />,
   );
 }
 
@@ -151,5 +157,51 @@ describe("FlowchartDoc: плашка каналов", () => {
 
     expect(vi.mocked(dataRefsApi.preview).mock.calls[0][0]).toContain("потребляет: созданные");
     await waitFor(() => expect(screen.getByText("Обращения")).toBeInTheDocument());
+  });
+});
+
+// ── Конфигурация: «зависит от:» ───────────────────────────────────────────────
+// Третья семья пометок. Отличий от двух соседних два: маркер ДВУСЛОВНЫЙ (локальный
+// гейт обязан его узнать, иначе плашка молчит и сеть не дёргается вовсе) и цель
+// ищется у самого узла — поэтому запрос обязан нести его id.
+
+describe("FlowchartDoc: пометки конфигурации", () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers({ shouldAdvanceTime: true }); });
+  afterEach(() => vi.useRealTimers());
+
+  it("двусловный маркер узнаётся и запрос несёт узел-владелец", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      item({ ref: "FEATURE_X", mode: "config", target: "Конфигурация · FEATURE_X" }),
+    ]);
+    renderDoc('graph TD\n  A["Новая корзина?<br>зависит от: FEATURE_X"]');
+    await пережить_дебаунс();
+
+    await waitFor(() => expect(screen.getByText("Обращения")).toBeInTheDocument());
+    expect(screen.getByText("зависит от")).toBeInTheDocument();
+    expect(screen.getByText(/→ Конфигурация · FEATURE_X ✓/)).toBeInTheDocument();
+    // Без узла бэк такие пометки не покажет вовсе: искать конфигурацию негде.
+    expect(vi.mocked(dataRefsApi.preview).mock.calls[0][1]).toBe("node-1");
+  });
+
+  it("двойной пробел внутри маркера гейт не обманывает", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      item({ ref: "FEATURE_X", mode: "config", target: "Конфигурация · FEATURE_X" }),
+    ]);
+    renderDoc('graph TD\n  A["зависит  от: FEATURE_X"]');
+    await пережить_дебаунс();
+
+    expect(dataRefsApi.preview).toHaveBeenCalled();
+  });
+
+  it("промах назван словами своей семьи — искать негде, кроме объекта", async () => {
+    vi.mocked(dataRefsApi.preview).mockResolvedValue([
+      item({ ref: "FEATURE_Y", mode: "config", status: "unknown_param", target: null }),
+    ]);
+    renderDoc('graph TD\n  A["зависит от: FEATURE_Y"]');
+    await пережить_дебаунс();
+
+    await waitFor(() =>
+      expect(screen.getByText(/параметра нет в конфигурации этого объекта/)).toBeInTheDocument(),
+    );
   });
 });

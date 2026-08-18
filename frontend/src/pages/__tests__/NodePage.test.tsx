@@ -28,6 +28,9 @@ vi.mock("../../api/nodes", () => ({
   // Секция «Каналы» — то же самое на странице брокера. Мок модуля ЦЕЛИКОМ: забыть
   // здесь новый экспорт значит уронить страницу на «не функция» в первом же тесте.
   brokerChannelsApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
+  // Секция «Конфигурация» монтируется на КАЖДОЙ странице (легаси-записи у неподходящей
+  // формы видны только запросом), поэтому её мок нужен всем тестам, а не только сервису.
+  configParamsApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
   viewsApi: { state: vi.fn() },
   edgesApi: { update: vi.fn() },
   exportApi: { subtree: vi.fn() },

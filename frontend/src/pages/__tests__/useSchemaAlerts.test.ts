@@ -16,7 +16,7 @@ function node(id: string, parent_id: string | null): Node {
 }
 const ALL: Node[] = [node("A", null), node("A1", "A"), node("B", null)];
 
-const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], broker_edge_channels: [], descendant_edges: [] };
+const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [], broker_edge_channels: [], descendant_edges: [] };
 
 describe("resolveAlertLocate", () => {
   it("узел: уровень = родитель, запрос node", () => {
@@ -84,6 +84,7 @@ describe("useSchemaAlerts", () => {
       isolated_groups: [],
       unbound_participants: [], orphan_legs: [], unresolved_data_refs: [],
       unresolved_channel_refs: [],
+      unresolved_config_refs: [],
       broker_edge_channels: [],
       descendant_edges: [],
       container_own_docs: [], persons_inside: [], dangling_messages: [],

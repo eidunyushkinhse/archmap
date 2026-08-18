@@ -26,6 +26,7 @@ from app.database import Base
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
+from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.edge import Edge
@@ -145,6 +146,14 @@ COPY_PLAN: dict[type[Base], TablePlan] = {
         own={"id": _ID},
         mapped={"channel_id": "ссылка на канал — через карту каналов"},
         data=("name", "type", "required", "description", "order"),
+    ),
+    ConfigParam: TablePlan(
+        own={"id": _ID, "version": _VERSION, "created_at": _CREATED, "updated_at": _UPDATED},
+        mapped={"node_id": _BY_NMAP},
+        # ИМЯ параметра копируется как есть: на него ссылается пометка «зависит от:»
+        # в текстах схем логики (мягкая ссылка, не FK), и правка имени порвала бы шов
+        # «развилка → параметр» в копии — та же причина, что у имени канала.
+        data=("name", "description", "value_type", "required", "default_value"),
     ),
     Edge: TablePlan(
         own={"id": _ID, "project_id": _PROJECT, "version": _VERSION, "created_at": _CREATED},

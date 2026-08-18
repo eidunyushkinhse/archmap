@@ -161,6 +161,7 @@ function renderChart(over: { initial?: string; isArchitect?: boolean } = {}) {
   const view = render(
     <FlowchartDoc
       initial={over.initial ?? ""}
+      nodeId="node-1"
       isArchitect={over.isArchitect ?? true}
       showCode
       onCommit={onCommit}

@@ -187,9 +187,14 @@ def _resolve(
     tables: list[CatalogTable],
     mode: str = "read",
     channels: list[CatalogChannel] | None = None,
+    params: dict[str, uuid.UUID] | None = None,
 ):
     [out] = resolve_data_refs(
-        [DataRefIn(ref=ref, mode=mode)], tables, channels or [], PATHS  # type: ignore[arg-type]
+        [DataRefIn(ref=ref, mode=mode)],  # type: ignore[arg-type]
+        tables,
+        channels or [],
+        PATHS,
+        owner_params=params or {},
     )
     return out
 
@@ -252,7 +257,7 @@ def test_резолв_квалификатор_не_цепляется_к_час
         id=uuid.uuid4(), node_id=n_my, schema_name="", name="orders", columns={}
     )
     [got] = resolve_data_refs(
-        [DataRefIn(ref="Заказы / orders", mode="read")], [t], [], paths
+        [DataRefIn(ref="Заказы / orders", mode="read")], [t], [], paths, owner_params={}
     )
     assert got.status == "unknown_table"
 
@@ -437,13 +442,138 @@ def test_резолв_битые_сегменты_у_каналов_не_гад�
 
 
 def test_резолв_смешанного_дока_каждая_пометка_идёт_в_свой_каталог():
-    # Обычный док сервиса: и данные, и события рядом. Порядок ответа = порядок
-    # пометок, и каждая резолвится своим каталогом.
+    # Обычный док сервиса: данные, события и конфигурация рядом. Порядок ответа =
+    # порядок пометок, и каждая резолвится СВОИМ каталогом — три семьи не мешают
+    # друг другу даже при одинаковых именах.
     orders_t = _t(N_STORE, "orders", cols=("status",))
     created_c = _c(N_KAFKA, "созданные", fields=("order_id",))
-    doc = 'A["Оформить<br>пишет: orders.status<br>публикует: созданные.order_id"]'
+    feature = uuid.uuid4()
+    doc = (
+        'A["Оформить<br>пишет: orders.status<br>публикует: созданные.order_id'
+        '<br>зависит от: FEATURE_X"]'
+    )
 
-    got = resolve_data_refs(parse_data_refs(doc), [orders_t], [created_c], PATHS)
+    got = resolve_data_refs(
+        parse_data_refs(doc),
+        [orders_t],
+        [created_c],
+        PATHS,
+        owner_params={"FEATURE_X": feature},
+    )
 
-    assert [(r.mode, r.status) for r in got] == [("write", "ok"), ("publish", "ok")]
-    assert (got[0].table_id, got[1].channel_id) == (orders_t.id, created_c.id)
+    assert [(r.mode, r.status) for r in got] == [
+        ("write", "ok"),
+        ("publish", "ok"),
+        ("config", "ok"),
+    ]
+    assert (got[0].table_id, got[1].channel_id, got[2].param_id) == (
+        orders_t.id,
+        created_c.id,
+        feature,
+    )
+
+
+# ── Конфигурация: «зависит от:» ───────────────────────────────────────────────
+
+
+def test_разбор_маркер_конфигурации_ru_и_en():
+    # Двусловный маркер — первый в проекте: до него все были из одного слова.
+    doc = (
+        'A["Показать корзину<br>зависит от: FEATURE_NEW_CHECKOUT"]\n'
+        'B["Retry<br>depends on: RETRY_TIMEOUT"]'
+    )
+    assert parse_data_refs(doc) == [
+        DataRefIn(ref="FEATURE_NEW_CHECKOUT", mode="config"),
+        DataRefIn(ref="RETRY_TIMEOUT", mode="config"),
+    ]
+
+
+def test_разбор_маркер_конфигурации_терпит_разнобой_пробелов():
+    """Пробел ВНУТРИ маркера — то, чего у односложных предшественников не было:
+    регулярка собирается из слов, и «зависит  от» с двойным пробелом или переносом
+    строки обязано читаться как тот же маркер. Пробел перед двоеточием тоже."""
+    doc = (
+        'A["зависит  от: A_FLAG"]\n'
+        'B["зависит от : B_FLAG"]\n'
+        'C["Зависит\n   от: C_FLAG"]'
+    )
+    assert parse_data_refs(doc) == [
+        DataRefIn(ref="A_FLAG", mode="config"),
+        DataRefIn(ref="B_FLAG", mode="config"),
+        DataRefIn(ref="C_FLAG", mode="config"),
+    ]
+
+
+def test_разбор_конфигурация_списком_через_запятую():
+    doc = 'A["Собрать отчёт<br>зависит от: REPORT_FORMAT, TIMEZONE"]'
+    assert parse_data_refs(doc) == [
+        DataRefIn(ref="REPORT_FORMAT", mode="config"),
+        DataRefIn(ref="TIMEZONE", mode="config"),
+    ]
+
+
+def test_резолв_конфигурации_ищет_только_у_владельца():
+    """Главное свойство семьи: у пометки ровно одно место, где цель может найтись."""
+    flag = uuid.uuid4()
+    got = _resolve("FEATURE_X", [], mode="config", params={"FEATURE_X": flag})
+    assert (got.status, got.param_id) == ("ok", flag)
+
+    # Тот же текст у объекта, где такой ручки нет, — промах, а не находка у соседа.
+    чужой = _resolve("FEATURE_X", [], mode="config", params={"OTHER_FLAG": uuid.uuid4()})
+    assert (чужой.status, чужой.param_id) == ("unknown_param", None)
+
+
+def test_резолв_конфигурации_регистр_значим():
+    # LOG_LEVEL и log_level в окружении — разные переменные, склеивать их нельзя.
+    got = _resolve("log_level", [], mode="config", params={"LOG_LEVEL": uuid.uuid4()})
+    assert got.status == "unknown_param"
+
+
+def test_резолв_конфигурации_точка_не_делит_имя():
+    """Групп у конфигурации нет, поэтому «feature.new_checkout» — ЦЕЛОЕ имя, а не
+    «группа feature, параметр new_checkout»: гипотез _pick здесь не применяется."""
+    param = uuid.uuid4()
+    got = _resolve(
+        "feature.new_checkout", [], mode="config", params={"feature.new_checkout": param}
+    )
+    assert (got.status, got.param_id) == ("ok", param)
+
+    # И обратно: параметр «new_checkout» пометкой «feature.new_checkout» не находится.
+    мимо = _resolve(
+        "feature.new_checkout", [], mode="config", params={"new_checkout": uuid.uuid4()}
+    )
+    assert мимо.status == "unknown_param"
+
+
+def test_резолв_конфигурации_проза_после_маркера_видима_как_обещание():
+    """«зависит от: нагрузки» — обычная русская фраза, и она даст промах. Так и
+    задумано: маркер с двоеточием — обещание факта, а невыполненное обещание обязано
+    быть видно (замечание AL33), иначе прозой можно спрятать что угодно."""
+    got = _resolve("нагрузки сети", [], mode="config", params={"LOG_LEVEL": uuid.uuid4()})
+    assert got.status == "unknown_param"
+
+
+def test_резолв_конфигурации_каталоги_разведены():
+    """Одноимённые таблица, канал и параметр не конфликтуют: маркер выбирает мир."""
+    orders_t = _t(N_STORE, "orders", cols=())
+    orders_c = _c(N_KAFKA, "orders", fields=())
+    orders_p = uuid.uuid4()
+    params = {"orders": orders_p}
+
+    как_данные = _resolve("orders", [orders_t], mode="read", channels=[orders_c], params=params)
+    как_канал = _resolve("orders", [orders_t], mode="publish", channels=[orders_c], params=params)
+    как_ручка = _resolve("orders", [orders_t], mode="config", channels=[orders_c], params=params)
+
+    assert (как_данные.status, как_данные.table_id) == ("ok", orders_t.id)
+    assert (как_канал.status, как_канал.channel_id) == ("ok", orders_c.id)
+    assert (как_ручка.status, как_ручка.param_id) == ("ok", orders_p)
+
+
+def test_разбор_слитный_маркер_с_конфигурацией():
+    """Грамматика слитных маркеров общая, и смешанная форма ей не запрещена: каждая
+    половина просто резолвится своим каталогом."""
+    doc = 'A["читает/зависит от: LIMIT"]'
+    assert parse_data_refs(doc) == [
+        DataRefIn(ref="LIMIT", mode="read"),
+        DataRefIn(ref="LIMIT", mode="config"),
+    ]

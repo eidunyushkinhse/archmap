@@ -104,6 +104,9 @@ const IcoUnknownData = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16"
 // Обращение к неописанному каналу: конверт события со знаком вопроса — цель
 // пометки не нашлась в структуре брокеров.
 const IcoUnknownChannel = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><rect x="1.8" y="3.4" width="9.4" height="7.2" rx="1.2" /><path d="M1.8 4.4 6.5 7.6l4.7-3.2" /><path d="M11.6 11.4a1.5 1.5 0 1 1 2 1.4v.7" /><path d="M13.6 15.1h.01" /></svg>;
+// Обращение к неописанной ручке: ползунок-настройка со знаком вопроса — пометка
+// «зависит от:» не нашла параметра у самого объекта.
+const IcoUnknownParam = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M1.8 4.6h7.4M1.8 9.4h4" /><circle cx="6.4" cy="4.6" r="1.5" /><circle cx="3.4" cy="9.4" r="1.5" /><path d="M10.4 10.2a1.6 1.6 0 1 1 2.2 1.5v.8" /><path d="M12.6 14.4h.01" /></svg>;
 // Связь с брокером без канала: стрелка с безымянным конвертом-меткой на конце.
 const IcoEdgeChannel = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M1.6 8h5.2" /><path d="M4.6 5.8 6.8 8l-2.2 2.2" /><rect x="8.4" y="4.6" width="6.4" height="5" rx="1" /><path d="M8.4 5.2 11.6 7.4l3.2-2.2" /><path d="M11.6 12.4h.01" /></svg>;
 const IcoLocate = (s = 14) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><circle cx="8" cy="8" r="3" /><path d="M8 1v2.2M8 12.8V15M1 8h2.2M12.8 8H15" /></svg>;
@@ -158,6 +161,10 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // То же для событий: пометка обещала канал, а структура брокеров его не знает.
   // Отдельный класс — чинится другими словами (см. CHANNEL_REASON).
   const unresolvedChannelRefs = alerts.unresolved_channel_refs;
+  // И то же для конфигурации: пометка обещала ручку, а её у ОБЪЕКТА нет (искать
+  // больше негде — параметры принадлежат самому сервису). Причины у класса нет:
+  // она единственная, поэтому и в записи её не передают.
+  const unresolvedConfigRefs = alerts.unresolved_config_refs;
   // Связи с брокером, не назвавшие канал (или назвавшие неизвестный): шов «стрелка ↔
   // структура брокера» держат алерты, а не FK, — это единственное место, где он виден.
   const brokerEdges = alerts.broker_edge_channels;
@@ -170,7 +177,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
     disconnected.length + intermediate.length + descendant.length + isolatedProblems +
     containerOwn.length + personsInside.length + dangling.length + unbound.length +
     orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length +
-    brokerEdges.length;
+    unresolvedConfigRefs.length + brokerEdges.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -333,6 +340,26 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
                 <span style={{ display: "block", lineHeight: 1.35 }}>
                   <span style={{ color: "#6b7280", fontWeight: 600 }}>{r.node_name} · {r.doc_name}:</span>{" "}
                   <span style={badEnd}>„{r.ref}“</span> — {CHANNEL_REASON[r.reason]}
+                </span>
+              </Item>
+            ))}
+          </Section>
+
+          {/* Третья семья пометок. Отличие от двух соседних — в тексте починки: цель
+              искать негде, кроме самого объекта, поэтому и предлагается ровно одно
+              место. Класс заведомо ловит и ПРОЗУ («зависит от: нагрузки») — так
+              задумано (маркер с двоеточием обещает факт), и подсказка называет оба
+              выхода, иначе строка читалась бы как шум. */}
+          <Section icon={IcoUnknownParam(13)} title="Обращения к неописанным параметрам" count={unresolvedConfigRefs.length}>
+            {unresolvedConfigRefs.map((r) => (
+              <Item
+                key={`${r.doc_id}:${r.ref}`}
+                onClick={onLocate && (() => locate({ kind: "node", id: r.node_id }))}
+              >
+                <span style={{ display: "block", lineHeight: 1.35 }}>
+                  <span style={{ color: "#6b7280", fontWeight: 600 }}>{r.node_name} · {r.doc_name}:</span>{" "}
+                  <span style={badEnd}>„{r.ref}“</span> — параметра нет в конфигурации
+                  объекта: опишите его или, если это обычная фраза, уберите двоеточие
                 </span>
               </Item>
             ))}

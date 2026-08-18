@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { TableUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -191,4 +191,21 @@ export const brokerChannelsApi = {
   // «публикует:/потребляет:» из схем логики проекта (записей обращений нет).
   usage: (nodeId: string): Promise<ChannelUsage[]> =>
     api.get<ChannelUsage[]>(`/nodes/${nodeId}/channels/usage`),
+};
+
+// Конфигурация сервиса: переменные окружения и параметры (docs/plan-config-docs.md).
+// Плоская семья — второго уровня, как колонки у таблиц и поля у каналов, здесь нет.
+// Обращений своих записей тоже нет: «какая развилка от ручки зависит» — разворот
+// пометок «зависит от:» из схем логики ЭТОГО ЖЕ объекта (чужие сослаться не могут).
+export const configParamsApi = {
+  list: (nodeId: string): Promise<ConfigParam[]> =>
+    api.get<ConfigParam[]>(`/nodes/${nodeId}/config`),
+  create: (nodeId: string, data: ConfigParamCreate): Promise<ConfigParam> =>
+    api.post<ConfigParam>(`/nodes/${nodeId}/config`, data),
+  update: (nodeId: string, paramId: string, data: ConfigParamUpdate): Promise<ConfigParam> =>
+    api.patch<ConfigParam>(`/nodes/${nodeId}/config/${paramId}`, data),
+  delete: (nodeId: string, paramId: string): Promise<void> =>
+    api.delete(`/nodes/${nodeId}/config/${paramId}`),
+  usage: (nodeId: string): Promise<ConfigParamUsage[]> =>
+    api.get<ConfigParamUsage[]>(`/nodes/${nodeId}/config/usage`),
 };

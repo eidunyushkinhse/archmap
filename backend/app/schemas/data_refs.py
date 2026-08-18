@@ -5,13 +5,15 @@
 сохранения. Резолв — по каталогу ВСЕГО проекта, как у обратного индекса базы.
 """
 
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel
 
-# Режим пометки — ОБЕ семьи сразу: плашка одна на док, а в одном доке рядом стоят и
-# «пишет: orders», и «публикует: orders.created». Зеркалит app.data_refs.Mode.
-DataRefMode = Literal["read", "write", "publish", "consume"]
+# Режим пометки — ВСЕ ТРИ семьи сразу: плашка одна на док, а в одном доке рядом стоят
+# и «пишет: orders», и «публикует: orders.created», и «зависит от: FEATURE_X».
+# Зеркалит app.data_refs.Mode.
+DataRefMode = Literal["read", "write", "publish", "consume", "config"]
 
 # Итог резолва одной пометки. Зеркалит доменный app.data_refs.RefStatus (там —
 # внутренний тип, здесь — контракт наружу); расхождение поймает mypy на
@@ -23,14 +25,23 @@ DataRefStatus = Literal[
     "unknown_column",
     "unknown_channel",
     "unknown_field",
+    "unknown_param",
     "ambiguous",
 ]
 
 
 class DataRefPreviewIn(BaseModel):
-    """Текст дока как он сейчас в редакторе (может быть несохранённым)."""
+    """Текст дока как он сейчас в редакторе (может быть несохранённым).
+
+    node_id — узел, которому док принадлежит. Нужен ТОЛЬКО конфигурации: «зависит
+    от:» ищется среди параметров владельца, и без него искать негде. Поле
+    необязательное, чтобы не ломать клиентов, ничего не знающих о третьей семье;
+    без него конфигурационные пометки из ответа просто ВЫПАДАЮТ — сказать про них
+    «цель не нашлась» значило бы соврать, ведь мы даже не смотрели.
+    """
 
     content: str
+    node_id: uuid.UUID | None = None
 
 
 class DataRefPreviewItem(BaseModel):
@@ -40,7 +51,9 @@ class DataRefPreviewItem(BaseModel):
     mode: DataRefMode
     status: DataRefStatus
     # Готовая подпись цели для плашки: «<база> · <таблица>[.<колонка>]», у каналов —
-    # «<брокер> · <канал>[.<поле>]». None у unknown_table/unknown_channel/ambiguous —
-    # цели нет вовсе, показывать нечего (у ambiguous выбрать одну из подходящих
-    # запрещено: см. app/data_refs.py).
+    # «<брокер> · <канал>[.<поле>]», у конфигурации — «Конфигурация · <параметр>»
+    # (владелец там всегда сам узел, и повторять его имя в подписи значило бы шуметь).
+    # None у unknown_table/unknown_channel/unknown_param/ambiguous — цели нет вовсе,
+    # показывать нечего (у ambiguous выбрать одну из подходящих запрещено: см.
+    # app/data_refs.py).
     target: str | None

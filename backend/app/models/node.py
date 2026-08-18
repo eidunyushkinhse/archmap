@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     # Только для типов/линтера: связь Node ↔ Edge SQLAlchemy резолвит по строке
     # через свой реестр в рантайме, поэтому здесь импорт не нужен (и создал бы цикл).
     from app.models.broker_channel import BrokerChannel
+    from app.models.config_param import ConfigParam
     from app.models.db_table import DbTable
     from app.models.edge import Edge
     from app.models.node_doc import NodeDoc
@@ -124,6 +125,16 @@ class Node(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="BrokerChannel.group_name, BrokerChannel.name",
+    )
+    # Конфигурация сервиса (переменные окружения, флаги). Владелец — сам сервис, а не
+    # отдельный узел-хранилище (docs/plan-config-docs.md §2.1). Ленивость обычная, как
+    # у двух семей выше: параметры читает страница объекта, графу уровня они не нужны.
+    config_params: Mapped[list["ConfigParam"]] = relationship(
+        "ConfigParam",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ConfigParam.name",
     )
 
     # Вычисляемые атрибуты отдачи (в БД НЕ хранятся — не колонки). Проставляются

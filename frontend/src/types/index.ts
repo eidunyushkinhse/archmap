@@ -26,17 +26,22 @@ export const canHaveChildren = (shape: NodeShape): boolean => shape === "service
 // агента это правило проговаривает давно («у узла без собственного HTTP API спеки нет
 // вовсе»), а страница объекта до 2026-08-12 всё равно предлагала слоты под них.
 // У брокера «контракт» свой — КАНАЛЫ с полями сообщений (docs/plan-broker-docs.md).
+// Конфигурация (переменные окружения, флаги) — тоже артефакт СЕРВИСА, как логика и
+// спека: у базы и брокера свои настройки бывают, но ArchMap описывает свои сервисы, а
+// инфраструктуру — чёрным ящиком с контрактом (docs/plan-config-docs.md §4).
 export interface ShapeDocs {
   logic: boolean;
   spec: boolean;
   structure: boolean;
   channels: boolean;
+  config: boolean;
 }
 export const shapeDocs = (shape: NodeShape): ShapeDocs => ({
   logic: shape === "service",
   spec: shape === "service",
   structure: shape === "database",
   channels: shape === "broker",
+  config: shape === "service",
 });
 
 // Проект — изолированная схема. Мета (счётчики/редактор/даты) считается бэком.
@@ -175,6 +180,9 @@ export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 // То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
 export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
+// И то же для конфигурации: «зависит от:» без параметра у САМОГО объекта (AL33).
+// Полей reason и mode у класса нет — причина и режим у него единственные.
+export type UnresolvedConfigRefAlert = Schemas["UnresolvedConfigRefAlert"];
 // Связь с брокером, не назвавшая канал (missing) либо назвавшая неизвестный (unknown) —
 // шов «стрелка ↔ структура брокера», который держат алерты, а не FK (AL31).
 export type BrokerEdgeChannelAlert = Schemas["BrokerEdgeChannelAlert"];
@@ -250,6 +258,17 @@ export type ChannelFieldCreate = Schemas["ChannelFieldCreate"];
 export type ChannelFieldUpdate = Schemas["ChannelFieldUpdate"];
 // Обратный индекс брокера («кто публикует / кто потребляет») — разворот пометок.
 export type ChannelUsage = Schemas["ChannelUsage"];
+
+// Конфигурация сервиса (docs/plan-config-docs.md): переменные окружения и параметры,
+// от которых зависят развилки схем логики. Владелец — САМ сервис, а не отдельный узел,
+// поэтому семья плоская: второго уровня, как колонки у таблиц, здесь нет. ЗНАЧЕНИЙ НЕТ:
+// default_value — текст дефолта из кода, не значение среды.
+export type ConfigParam = Schemas["ConfigParamResponse"];
+export type ConfigParamCreate = Schemas["ConfigParamCreate"];
+export type ConfigParamUpdate = Schemas["ConfigParamUpdate"];
+// Обратный индекс конфигурации («какие схемы зависят от ручки») — разворот пометок.
+// Узла в строке нет: сослаться может только схема того же объекта.
+export type ConfigParamUsage = Schemas["ConfigParamUsage"];
 // Живая плашка редактора дока: что означает каждая пометка присланного ТЕКСТА
 // (POST /data-refs/preview) — статус резолва и готовая подпись цели.
 export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
@@ -257,6 +276,8 @@ export type DataRefPreviewItem = Schemas["DataRefPreviewItem"];
 export type DataImportReport = Schemas["DataImportReport"];
 // Дозаливка каналов брокера от агента: свой отчёт — у канала своя мета и свои поля.
 export type ChannelsImportReport = Schemas["ChannelsImportReport"];
+// Дозаливка конфигурации сервиса: свой отчёт — параметры плоские, полей у них нет.
+export type ConfigImportReport = Schemas["ConfigImportReport"];
 // Разведка точек входа: отчёт превью/применения перечня и его строка. Действия свои
 // (create/unchanged/described/vanished) — у разведки нет ни перезаписи, ни удалений.
 export type ReconImportReport = Schemas["ReconImportReport"];
