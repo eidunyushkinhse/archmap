@@ -22,7 +22,9 @@ vi.mock("../../api/nodes", () => ({
     getNodeProcesses: vi.fn(),
     update: vi.fn(),
   },
-  nodeDocsApi: { distribute: vi.fn() },
+  // usage — обратный индекс «используется в процессах» (Ф8): страница тянет его
+  // эффектом при маунте, без мока эффект падает на «не функция».
+  nodeDocsApi: { distribute: vi.fn(), usage: vi.fn(() => Promise.resolve([])) },
   // Секция «Структура» рендерится на странице базы данных и сама ходит за таблицами.
   dbTablesApi: { list: vi.fn(() => Promise.resolve([])), usage: vi.fn(() => Promise.resolve([])) },
   // Секция «Каналы» — то же самое на странице брокера. Мок модуля ЦЕЛИКОМ: забыть

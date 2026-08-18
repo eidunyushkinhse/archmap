@@ -660,6 +660,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/docs/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Docs Usage
+         * @description Обратный индекс «используется в процессах» для схем ЭТОГО узла (Ф8, У10).
+         *
+         *     Разворот привязок шагов (ProcessMessage.doc_id) на чтении, хранения нет — тот же
+         *     приём, что у таблиц (tables/usage) и каналов (channels/usage). Отвечает про
+         *     КОНКРЕТНУЮ схему, а не про узел: узловой вопрос закрывает секция «Участвует в
+         *     процессах», и при полусотне операций она не говорит, какие процессы висят на
+         *     этой. Читателю открыт: состояние документации — знание, а не действие.
+         */
+        get: operations["docs_usage_api_v1_nodes__node_id__docs_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/docs": {
         parameters: {
             query?: never;
@@ -4066,6 +4092,32 @@ export interface components {
             base_version?: number | null;
         };
         /**
+         * NodeDocUsage
+         * @description Строка обратного индекса «используется в процессах» (Ф8 эпика «процессы →
+         *     доки шага», барьер У10): шаги какого процесса задокументированы этой схемой.
+         *
+         *     Третья реализация приёма после таблиц (TableUsage) и каналов (ChannelUsage):
+         *     хранения нет, индекс — разворот привязок шагов (doc_id) на чтении. Отличие от
+         *     узловой секции «Участвует в процессах»: та отвечает про УЗЕЛ, эта — про
+         *     конкретную схему, что при полусотне операций и есть смысл фичи.
+         */
+        NodeDocUsage: {
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /**
+             * Process Id
+             * Format: uuid
+             */
+            process_id: string;
+            /** Process Name */
+            process_name: string;
+            /** Steps */
+            steps: number;
+        };
+        /**
          * NodeEdgeInfo
          * @description Связь узла для предупреждения при удалении: направление + имя связанного узла.
          */
@@ -6508,6 +6560,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    docs_usage_api_v1_nodes__node_id__docs_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeDocUsage"][];
+                };
             };
             /** @description Validation Error */
             422: {

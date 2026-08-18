@@ -14,8 +14,9 @@
 // ремаунтится каждый рендер (ловушка проекта — так ломался drag палитры).
 import { useCallback, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { NodeDocKind, NodeDocMeta } from "../types";
+import type { NodeDocKind, NodeDocMeta, NodeDocUsage } from "../types";
 import { ChevronDownIcon } from "../ui/icons";
+import { plural } from "../ui/plural";
 import { KIND_LABEL, OPEN_LIMIT } from "./docsList";
 
 // Порядок групп — тот же, что у вида схемы во всём проекте: операция → воркер.
@@ -33,9 +34,16 @@ interface Props {
   // Кнопка «Описать» у НЕописанной точки входа: адрес уезжает в окно доков режимом
   // «по одной». Не передан (читатель, чужая форма объекта) — кнопки нет вовсе.
   onDescribe?: (doc: NodeDocMeta) => void;
+  // Обратный индекс «используется в процессах» (Ф8, У10): строки для ВСЕХ схем узла
+  // разом, фильтруются по doc_id здесь. Отвечает про КОНКРЕТНУЮ схему — узловой
+  // вопрос закрывает секция «Участвует в процессах», и дублировать её нельзя,
+  // поэтому подсписок процессов раскрывается ПО ЗАПРОСУ, а не висит на экране.
+  usage?: NodeDocUsage[];
+  // Переход в процесс из подсписка. Не передан — счётчик остаётся некликабельным.
+  onOpenProcess?: (processId: string) => void;
 }
 
-export default function NodeDocsList({ docs, onOpen, onDescribe }: Props) {
+export default function NodeDocsList({ docs, onOpen, onDescribe, usage, onOpenProcess }: Props) {
   // Группы — ПРОИЗВОДНОЕ в рендере (эффект с setState тут запрещён линтом и
   // рассинхронился бы с метой). Пустая группа не рисуется вовсе.
   //
@@ -58,6 +66,18 @@ export default function NodeDocsList({ docs, onOpen, onDescribe }: Props) {
     [docs],
   );
 
+  // Индекс по схеме — картой один раз, а не фильтром в каждой строке: у монолита
+  // двести строк, и O(строки × привязки) на каждый рендер незачем.
+  const usageByDoc = useMemo(() => {
+    const map = new Map<string, NodeDocUsage[]>();
+    for (const u of usage ?? []) {
+      const list = map.get(u.doc_id) ?? [];
+      list.push(u);
+      map.set(u.doc_id, list);
+    }
+    return map;
+  }, [usage]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {groups.map((g) => (
@@ -68,6 +88,8 @@ export default function NodeDocsList({ docs, onOpen, onDescribe }: Props) {
           startOpen={g.startOpen}
           onOpen={onOpen}
           onDescribe={onDescribe}
+          usageByDoc={usageByDoc}
+          onOpenProcess={onOpenProcess}
         />
       ))}
     </div>
@@ -77,12 +99,14 @@ export default function NodeDocsList({ docs, onOpen, onDescribe }: Props) {
 // Группа одного вида: заголовок с числом строк и остатком работы, тело — строки.
 // Состояние «свёрнуто/развёрнуто» живёт здесь и никуда не сохраняется: это поза
 // списка на время просмотра, а не настройка.
-function DocKindGroup({ title, items, startOpen, onOpen, onDescribe }: {
+function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc, onOpenProcess }: {
   title: string;
   items: NodeDocMeta[];
   startOpen: boolean;
   onOpen: (docId: string) => void;
   onDescribe?: (doc: NodeDocMeta) => void;
+  usageByDoc: Map<string, NodeDocUsage[]>;
+  onOpenProcess?: (processId: string) => void;
 }) {
   const [open, setOpen] = useState(startOpen);
   const toggle = useCallback(() => setOpen((o) => !o), []);
@@ -100,7 +124,14 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe }: {
       {open && (
         <div className="np-doc-group-body">
           {items.map((d) => (
-            <DocRow key={d.id} doc={d} onOpen={onOpen} onDescribe={onDescribe} />
+            <DocRow
+              key={d.id}
+              doc={d}
+              onOpen={onOpen}
+              onDescribe={onDescribe}
+              usage={usageByDoc.get(d.id)}
+              onOpenProcess={onOpenProcess}
+            />
           ))}
         </div>
       )}
@@ -111,39 +142,78 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe }: {
 // Строка схемы. Кнопка «Описать» — СОСЕД строки, а не вложенная кнопка: <button>
 // внутри <button> невалиден, и клик по вложенной открывал бы заодно схему. Форма та
 // же, что у split-строк объединения контейнера.
-function DocRow({ doc, onOpen, onDescribe }: {
+function DocRow({ doc, onOpen, onDescribe, usage, onOpenProcess }: {
   doc: NodeDocMeta;
   onOpen: (docId: string) => void;
   onDescribe?: (doc: NodeDocMeta) => void;
+  usage?: NodeDocUsage[];
+  onOpenProcess?: (processId: string) => void;
 }) {
   // Кнопка положена только неописанной строке: у описанной путь прежний — «открыть →».
   const describe = onDescribe && !doc.described ? onDescribe : null;
+  // Подсписок «используется в процессах» раскрыт/свёрнут — поза на время просмотра,
+  // как у групп видов: на экране по умолчанию нет второго списка процессов рядом с
+  // узловой секцией «Участвует в процессах» (барьер У10).
+  const [usageOpen, setUsageOpen] = useState(false);
+  const used = usage ?? [];
   return (
-    <div className="np-doc-split">
-      <button
-        type="button"
-        className="np-doc-split-main"
-        onClick={() => onOpen(doc.id)}
-        title={`Открыть схему «${doc.name}»`}
-      >
-        <span style={rowName}>{doc.name}</span>
-        <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
-        {!doc.described && <StubMark />}
-        {doc.operation && <span style={rowOperation}>{doc.operation}</span>}
-        <span style={rowOpen}>открыть →</span>
-      </button>
-      {describe && (
+    <>
+      <div className="np-doc-split">
         <button
           type="button"
-          className="np-doc-split-child"
-          style={describeBtn}
-          onClick={() => describe(doc)}
-          title={`Описать «${doc.name}» с помощью ИИ-агента`}
+          className="np-doc-split-main"
+          onClick={() => onOpen(doc.id)}
+          title={`Открыть схему «${doc.name}»`}
         >
-          Описать
+          <span style={rowName}>{doc.name}</span>
+          <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
+          {!doc.described && <StubMark />}
+          {doc.operation && <span style={rowOperation}>{doc.operation}</span>}
+          <span style={rowOpen}>открыть →</span>
         </button>
+        {used.length > 0 && (
+          <button
+            type="button"
+            className="np-doc-split-child"
+            style={usageBtn}
+            onClick={() => setUsageOpen((o) => !o)}
+            aria-expanded={usageOpen}
+            title="Шаги каких процессов задокументированы этой схемой"
+          >
+            в {used.length} {plural(used.length, ["процессе", "процессах", "процессах"])}
+          </button>
+        )}
+        {describe && (
+          <button
+            type="button"
+            className="np-doc-split-child"
+            style={describeBtn}
+            onClick={() => describe(doc)}
+            title={`Описать «${doc.name}» с помощью ИИ-агента`}
+          >
+            Описать
+          </button>
+        )}
+      </div>
+      {usageOpen && used.length > 0 && (
+        <div style={usageList}>
+          {used.map((u) => (
+            <button
+              key={u.process_id}
+              type="button"
+              style={usageRow}
+              onClick={onOpenProcess ? () => onOpenProcess(u.process_id) : undefined}
+              disabled={!onOpenProcess}
+            >
+              {u.process_name}
+              <span style={usageSteps}>
+                {u.steps} {plural(u.steps, ["шаг", "шага", "шагов"])}
+              </span>
+            </button>
+          ))}
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -171,3 +241,16 @@ const stubMark: CSSProperties = {
   background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 5, padding: "1px 6px",
   whiteSpace: "nowrap",
 };
+// Счётчик «в N процессах» — знание, а не действие: спокойный серый, не синий
+// «Описать»; раскрытие подсписка — его единственная работа.
+const usageBtn: CSSProperties = { color: "#64748b", fontWeight: 600, whiteSpace: "nowrap" };
+const usageList: CSSProperties = {
+  display: "flex", flexDirection: "column", gap: 2,
+  margin: "2px 0 4px", paddingLeft: 14,
+};
+const usageRow: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 8, width: "100%",
+  padding: "4px 8px", border: "none", borderRadius: 6, background: "none",
+  cursor: "pointer", textAlign: "left", fontSize: 12.5, color: "#2563eb", fontWeight: 600,
+};
+const usageSteps: CSSProperties = { fontSize: 11.5, color: "#94a3b8", fontWeight: 400 };

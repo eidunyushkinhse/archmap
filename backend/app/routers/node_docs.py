@@ -10,17 +10,25 @@ base_version → 409, None = компенсация undo без проверки
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, undefer
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.deps import get_current_project, scoped_node, touch_project
+from app.models.business_process import BusinessProcess
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.process_message import ProcessMessage
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.node import DistributeDocsIn, DistributeDocsOut
-from app.schemas.node_doc import NodeDocCreate, NodeDocResponse, NodeDocUpdate
+from app.schemas.node_doc import (
+    NodeDocCreate,
+    NodeDocResponse,
+    NodeDocUpdate,
+    NodeDocUsage,
+)
 from app.view_state import bump_meta_rev
 
 router = APIRouter(prefix="/nodes/{node_id}/docs", tags=["node-docs"])
@@ -56,6 +64,41 @@ def _name_taken(db: Session, node_id: uuid.UUID, name: str, except_id: uuid.UUID
     if except_id is not None:
         q = q.filter(NodeDoc.id != except_id)
     return db.query(q.exists()).scalar() or False
+
+
+@router.get("/usage", response_model=list[NodeDocUsage])
+def docs_usage(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> list[NodeDocUsage]:
+    """Обратный индекс «используется в процессах» для схем ЭТОГО узла (Ф8, У10).
+
+    Разворот привязок шагов (ProcessMessage.doc_id) на чтении, хранения нет — тот же
+    приём, что у таблиц (tables/usage) и каналов (channels/usage). Отвечает про
+    КОНКРЕТНУЮ схему, а не про узел: узловой вопрос закрывает секция «Участвует в
+    процессах», и при полусотне операций она не говорит, какие процессы висят на
+    этой. Читателю открыт: состояние документации — знание, а не действие."""
+    node = _get_node(db, node_id, project)
+    rows = (
+        db.query(
+            ProcessMessage.doc_id,
+            BusinessProcess.id,
+            BusinessProcess.name,
+            func.count(ProcessMessage.id),
+        )
+        .join(BusinessProcess, BusinessProcess.id == ProcessMessage.process_id)
+        .join(NodeDoc, NodeDoc.id == ProcessMessage.doc_id)
+        .filter(NodeDoc.node_id == node.id, BusinessProcess.project_id == project.id)
+        .group_by(ProcessMessage.doc_id, BusinessProcess.id, BusinessProcess.name)
+        .order_by(BusinessProcess.name)
+        .all()
+    )
+    return [
+        NodeDocUsage(doc_id=doc_id, process_id=pid, process_name=pname, steps=steps)
+        for doc_id, pid, pname, steps in rows
+    ]
 
 
 @router.get("", response_model=list[NodeDocResponse])

@@ -249,6 +249,9 @@ export type DbColumnCreate = Schemas["DbColumnCreate"];
 export type DbColumnUpdate = Schemas["DbColumnUpdate"];
 // Обратный индекс базы («кто ко мне ходит») — разворот тех же пометок на чтении.
 export type TableUsage = Schemas["TableUsage"];
+// Обратный индекс схемы логики («используется в процессах») — разворот привязок
+// шагов (doc_id) на чтении, третья реализация приёма после таблиц и каналов.
+export type NodeDocUsage = Schemas["NodeDocUsage"];
 
 // Структура брокера (docs/plan-broker-docs.md): каналы и поля сообщений — тот же
 // «контракт» узла, что таблицы у базы, но своей сущностью (у канала своя мета:

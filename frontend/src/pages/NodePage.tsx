@@ -3,9 +3,9 @@
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
+import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeDocUsage, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren, shapeDocs } from "../types";
-import { nodesApi, exportApi, viewsApi } from "../api/nodes";
+import { nodesApi, nodeDocsApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { ChevronDownIcon } from "../ui/icons";
@@ -326,6 +326,19 @@ function NodePageInner({
   // Открытие своей схемы из списка «Логики» (стабильная ссылка — список схем
   // монолита длинный, лишних ре-рендеров ему не нужно).
   const openDoc = useCallback((docId: string) => setDoc({ mode: "flowchart", docId }), []);
+
+  // Обратный индекс «используется в процессах» у СХЕМЫ (Ф8, У10): разворот привязок
+  // шагов на чтении. Узловой вопрос закрывает секция «Участвует в процессах», а при
+  // полусотне операций она не говорит, какие процессы висят на этой. Ошибка — молча
+  // пусто: индекс — украшение списка, а не его опора.
+  const [docUsage, setDocUsage] = useState<NodeDocUsage[]>([]);
+  useEffect(() => {
+    let alive = true;
+    nodeDocsApi.usage(node.id)
+      .then((u) => { if (alive) setDocUsage(u); })
+      .catch(() => { if (alive) setDocUsage([]); });
+    return () => { alive = false; };
+  }, [node.id]);
 
   // «Описать» у неописанной строки: то же окно доков режимом «по одной», но с уже
   // заполненным «Что описать». Адресом идёт operation («POST /orders») — он и есть
@@ -782,6 +795,8 @@ function NodePageInner({
                   docs={node.docs}
                   onOpen={openDoc}
                   onDescribe={isArchitect && allow.logic ? describeDoc : undefined}
+                  usage={docUsage}
+                  onOpenProcess={onNavigateProcesses}
                 />
                 {addLogicMenu}
               </>
