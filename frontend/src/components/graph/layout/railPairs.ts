@@ -59,8 +59,18 @@ function facingSides(
  * участвующие в раскладке (после смерти ручного слоя — все routable),
  * `positions` — позиции узлов (левый-верх). Возвращает Map: groupId → RailAssignment ТОЛЬКО
  * для рёбер встречных пар; остальные отсутствуют (вызывающий оставляет им обычное поведение).
- * Слот назначается детерминированно: ребро с меньшим id → RAIL_LO, встречное → RAIL_HI (на
+ * Канонический слот детерминирован: ребро с меньшим id → RAIL_LO, встречное → RAIL_HI (на
  * ОБОИХ концах — рельса прямая). Сторона у обоих рёбер — обращённая (одна ось), idx развязывает.
+ *
+ * КООРДИНАЦИЯ ПАР (E12, фикс 2026-08-19): две пары, стыкующиеся на ОДНОЙ грани одного
+ * узла, канонической раздачей «по id» могли посадить ВХОД одной пары и ВЫХОД другой на
+ * один слот — вход в чужой выход, который E12 запрещает всему остальному роутингу
+ * (репро: две пары «сервис ↔ брокер» на левой грани Kafka). Лечение: на каждой грани
+ * все рельсовые ВЫХОДЫ должны делить один слот, все ВХОДЫ — другой (веер одной роли
+ * легален, E11/E12). Пара — двоичная переменная «перевёрнута ли раздача по id»;
+ * общая грань двух пар даёт xor-уравнение между их переменными; система решается
+ * union-find с чётностью. Противоречие (нечётный цикл граней) — конфликтное уравнение
+ * пропускается: одна грань с конфликтом лучше, чем отказ от рельс вовсе.
  */
 export function railAssignments(
   groups: ReadonlyArray<GroupRef>,
@@ -79,22 +89,79 @@ export function railAssignments(
     else byPair.set(key, [g]);
   }
 
-  const out = new Map<string, RailAssignment>();
-  for (const arr of byPair.values()) {
+  // отбор точных встречных пар в детерминированном порядке (ключ пары)
+  interface Pair {
+    lo: GroupRef;  // меньший id — канонически RAIL_LO
+    hi: GroupRef;
+    sSide: EdgeSide; // сторона у source(lo)
+    tSide: EdgeSide; // сторона у target(lo); у встречного ребра стороны зеркальны
+  }
+  const pairs: Pair[] = [];
+  for (const [, arr] of [...byPair.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (arr.length !== 2) continue; // только точная пара
     const [a, b] = arr;
     // строго встречные: source/target зеркальны (мастеринг уже слил однонаправленные в одну группу)
     if (!(a.source === b.target && a.target === b.source)) continue;
-    // детерминированный слот: меньший id → верхняя/левая рельса
     const lo = a.id < b.id ? a : b;
     const hi = a.id < b.id ? b : a;
-    for (const [grp, idx] of [[lo, RAIL_LO] as const, [hi, RAIL_HI] as const]) {
+    const sp = positions.get(lo.source);
+    const tp = positions.get(lo.target);
+    if (!sp || !tp) continue; // пара прошла фильтр позиций выше — недостижимо
+    // facingSides симметрична: у встречного ребра те же грани, поменянные ролями —
+    // считаем один раз от lo, у hi стороны зеркальны по построению.
+    const { sSide, tSide } = facingSides(sp, tp);
+    pairs.push({ lo, hi, sSide, tSide });
+  }
+
+  // union-find с чётностью: parity[k] — перевёрнута ли пара k относительно корня
+  const parent = pairs.map((_, k) => k);
+  const parity = pairs.map(() => 0);
+  const find = (k: number): { root: number; par: number } => {
+    if (parent[k] === k) return { root: k, par: parity[k] };
+    const r = find(parent[k]);
+    parent[k] = r.root;
+    parity[k] = parity[k] ^ r.par;
+    return { root: r.root, par: parity[k] };
+  };
+  const union = (a: number, b: number, rel: number): void => {
+    const ra = find(a), rb = find(b);
+    if (ra.root === rb.root) return; // совпало или нечётный цикл — уравнение пропускаем
+    parent[ra.root] = rb.root;
+    parity[ra.root] = ra.par ^ rb.par ^ rel;
+  };
+
+  // Ориентация пары на грани: 0 — ВЫХОД из узла грани лежит на RAIL_LO при канонической
+  // раздаче. У source(lo)-узла исходящее — lo (слот LO → 0); у target(lo)-узла исходящее —
+  // hi (слот HI → 1).
+  const facesOf = (p: Pair): Array<{ key: string; base: number }> => [
+    { key: `${p.lo.source}|${p.sSide}`, base: 0 },
+    { key: `${p.lo.target}|${p.tSide}`, base: 1 },
+  ];
+  const seen = new Map<string, { idx: number; base: number }>();
+  pairs.forEach((p, k) => {
+    for (const f of facesOf(p)) {
+      const prev = seen.get(f.key);
+      if (prev) {
+        // на общей грани ориентации обязаны совпасть: flip(k) ^ flip(prev) = base(k) ^ base(prev)
+        union(k, prev.idx, f.base ^ prev.base);
+      } else {
+        seen.set(f.key, { idx: k, base: f.base });
+      }
+    }
+  });
+
+  const out = new Map<string, RailAssignment>();
+  pairs.forEach((p, k) => {
+    const flipped = find(k).par === 1;
+    const loIdx = flipped ? RAIL_HI : RAIL_LO;
+    const hiIdx = flipped ? RAIL_LO : RAIL_HI;
+    for (const [grp, idx] of [[p.lo, loIdx] as const, [p.hi, hiIdx] as const]) {
       const sp = positions.get(grp.source);
       const tp = positions.get(grp.target);
       if (!sp || !tp) continue; // пара прошла фильтр позиций выше — недостижимо
       const { sSide, tSide } = facingSides(sp, tp);
       out.set(grp.id, { sSide, sIdx: idx, tSide, tIdx: idx });
     }
-  }
+  });
   return out;
 }

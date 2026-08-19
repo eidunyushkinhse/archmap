@@ -321,12 +321,61 @@ export function nudgeChannels(params: {
     // зазором) держат оси весом ∞; конечные стенки коридора — псевдопеременные весом ∞
     // с нулевым зазором к своей группе; соседние группы ≥ sepGap. Невыполнимость
     // (какой-то ∞ съехал с desired при merge-склейке) → null.
+    //
+    // ПИН-ОСОЗНАННОСТЬ (фикс 2026-08-19, репро «Статус оплаты × Создание отправления»):
+    // два дополнения против ЛОЖНОЙ невыполнимости, из-за которой канал бросался целиком.
+    // 1) МУЛЬТИ-ПИНОВЫЙ КЛАСТЕР (два+ пина теснее 2·sepGap — например длинный прогон
+    //    ребра и его стыковочный стаб в паре пикселей): подвижной группе, чья ось легла
+    //    в ПРОЛЁТ кластера, места между пинами нет ПО ПОСТРОЕНИЮ, а жёсткий порядок
+    //    VPSC не умеет переставить её через пин — прежняя сортировка (тай-брейк по
+    //    подходам) запирала её внутри, и канал бросался целиком. Такая группа
+    //    ВЫПРЫГИВАЕТ к ближайшему краю кластера ДО решения; прыжок ограничен
+    //    MAX_EVICT·sepGap и коридором группы (философия выталкивания из клиренса).
+    //    ОДИНОЧНЫЙ пин не трогаем: там цепочка решает сама и точнее (меньше сдвиг).
+    // 2) Сепарация между ДВУМЯ пинами не требуется: двигать нечего, а уравнение только
+    //    травит выполнимость всей системы.
     const solveAt = (sepGap: number): number[] | null => {
-      const desired: number[] = ordered.map((g) => g.desired);
-      const weights: number[] = ordered.map((g) => (g.corridor.lo === g.corridor.hi ? Infinity : 1));
+      const isPin = ordered.map((g) => g.corridor.lo === g.corridor.hi);
+      // пин-кластеры: соседние пины ближе 2·sepGap сливаются — между ними не встать
+      const pinAxes = ordered.filter((_, j) => isPin[j]).map((g) => g.desired).sort((a, b) => a - b);
+      const clusters: Array<{ lo: number; hi: number }> = [];
+      for (const ax of pinAxes) {
+        const lastC = clusters[clusters.length - 1];
+        if (lastC && ax - lastC.hi < 2 * sepGap) lastC.hi = ax;
+        else clusters.push({ lo: ax, hi: ax });
+      }
+      // скорректированные оси подвижных групп: выпрыгивание из пролёта мульти-пиновых
+      // кластеров. Прыжок теоретически может привести ось в другой кластер — тогда
+      // система честно не решится и канал останется нетронутым (хуже не делаем).
+      const adj = ordered.map((g, j) => {
+        if (isPin[j]) return g.desired;
+        let d = g.desired;
+        for (const c of clusters) {
+          if (c.hi <= c.lo) continue;                      // одиночный пин — цепочке
+          if (d <= c.lo - EPS || d >= c.hi + EPS) continue; // не в пролёте кластера
+          const down = c.lo - sepGap;
+          const up = c.hi + sepGap;
+          const cand = [down, up]
+            .filter((v) => v >= g.corridor.lo && v <= g.corridor.hi)
+            .filter((v) => Math.abs(v - g.desired) <= MAX_EVICT * sepGap)
+            .sort((x, y) => Math.abs(x - d) - Math.abs(y - d) || y - x)[0];
+          if (cand !== undefined) d = cand;
+        }
+        return d;
+      });
+      // порядок решения — по скорректированным осям (тай-брейки прежние: подходы, ключ)
+      const order = ordered.map((_, j) => j).sort((x, y) =>
+        (Math.abs(adj[x] - adj[y]) > EPS ? adj[x] - adj[y] : 0) ||
+        ordered[x].ref - ordered[y].ref || ordered[x].key.localeCompare(ordered[y].key));
+      const desired: number[] = order.map((j) => adj[j]);
+      const weights: number[] = order.map((j) => (isPin[j] ? Infinity : 1));
       const cons: SepConstraint[] = [];
-      for (let j = 1; j < n; j++) cons.push({ left: j - 1, right: j, gap: sepGap });
-      ordered.forEach((g, j) => {
+      for (let j = 1; j < n; j++) {
+        if (weights[j - 1] === Infinity && weights[j] === Infinity) continue; // пин-пара
+        cons.push({ left: j - 1, right: j, gap: sepGap });
+      }
+      order.forEach((gj, j) => {
+        const g = ordered[gj];
         if (weights[j] === Infinity) return;
         if (g.corridor.lo > -Infinity) {
           cons.push({ left: desired.length, right: j, gap: 0 });
@@ -344,7 +393,10 @@ export function nudgeChannels(params: {
       for (let k = 0; k < desired.length; k++) {
         if (weights[k] === Infinity && Math.abs(targets[k] - desired[k]) > 0.25) return null;
       }
-      return targets.slice(0, n);
+      // назад в индексацию ordered (применение идёт по ней)
+      const out = new Array<number>(n);
+      order.forEach((gj, j) => { out[gj] = targets[j]; });
+      return out;
     };
 
     // Деградация зазора в тесном коридоре: gap → 12 → 10 → 8 (ниже нельзя — дуги

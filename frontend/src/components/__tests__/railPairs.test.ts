@@ -94,6 +94,46 @@ describe("railAssignments (рельсы встречных пар, A11)", () => 
     expect(out.size).toBe(0);
   });
 
+  it("КООРДИНАЦИЯ ПАР (E12): две пары на одной грани узла не сажают вход в чужой выход", () => {
+    // Репро «Ярмарки» (2026-08-19): пары A↔K и B↔K обе стыкуются на левой грани K.
+    // Раздача «по id» внутри каждой пары сажала ВХОД одной пары и ВЫХОД другой на один
+    // слот. Теперь на каждой грани роли согласованы: все выходы — один слот, входы — другой.
+    const groups: G[] = [
+      { id: "0-in", source: "A", target: "K" },  // вход в K
+      { id: "1-out", source: "K", target: "A" }, // выход из K
+      { id: "2-out", source: "K", target: "B" }, // выход из K
+      { id: "3-in", source: "B", target: "K" },  // вход в K
+    ];
+    // A выше-левее K, B ниже-левее: обе пары горизонтальные, обе стыкуются в K.left
+    const positions = pos([["A", 0, 100], ["K", 600, 300], ["B", 0, 500]]);
+    const out = railAssignments(groups, new Set(groups.map((g) => g.id)), positions);
+    expect(out.size).toBe(4);
+    // слот конца на грани K: у входа — tIdx, у выхода — sIdx
+    const slotAtK = (id: string): number =>
+      id.endsWith("in") ? out.get(id)!.tIdx : out.get(id)!.sIdx;
+    // роли согласованы: оба выхода на одном слоте, оба входа на другом
+    expect(slotAtK("1-out")).toBe(slotAtK("2-out"));
+    expect(slotAtK("0-in")).toBe(slotAtK("3-in"));
+    expect(slotAtK("0-in")).not.toBe(slotAtK("1-out"));
+    // внутри каждой пары рельсы по-прежнему развязаны
+    expect(out.get("0-in")!.sIdx).not.toBe(out.get("1-out")!.sIdx);
+    expect(out.get("2-out")!.sIdx).not.toBe(out.get("3-in")!.sIdx);
+  });
+
+  it("координация детерминирована и не зависит от порядка групп во входе", () => {
+    const groups: G[] = [
+      { id: "0-in", source: "A", target: "K" },
+      { id: "1-out", source: "K", target: "A" },
+      { id: "2-out", source: "K", target: "B" },
+      { id: "3-in", source: "B", target: "K" },
+    ];
+    const positions = pos([["A", 0, 100], ["K", 600, 300], ["B", 0, 500]]);
+    const ids = new Set(groups.map((g) => g.id));
+    const a = railAssignments(groups, ids, positions);
+    const b = railAssignments([...groups].reverse(), ids, positions);
+    for (const g of groups) expect(a.get(g.id)).toEqual(b.get(g.id));
+  });
+
   it("слот назначается детерминированно по id (меньший → верхняя), независимо от порядка входа", () => {
     const positions = pos([["A", 0, 0], ["B", 400, 0]]);
     const a = railAssignments(
