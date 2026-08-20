@@ -22,7 +22,7 @@ import "./LevelGraph.css";
 import { UndoIcon, RedoIcon, RelayoutIcon } from "../ui/icons";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
-import { NODE_W, NODE_H } from "./graph/constants";
+import { NODE_W, NODE_H, OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
@@ -276,6 +276,23 @@ function LevelGraphInner({
     },
   }), []);
 
+  // ПЕРЕГРУЖЕННАЯ СЦЕНА (перф-эпик Ф2, P1/P8): классификация по применяемой
+  // раскладке (отображаемые узлы = локалы + гости; мастер-рёбра = groupArr).
+  // Реф читает оркестратор анимации (честное отключение), стейт — разовый тост.
+  const overloadedRef = useRef(false);
+  const [overloadToastOpen, setOverloadToastOpen] = useState(false);
+  const overloadToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  // Занятость конвейера (P4): счётчик прогонов в полёте; бейдж «Считаю
+  // раскладку…» проявляется CSS-задержкой INDICATE_AFTER_MS=300мс (LevelGraph.css).
+  const [computing, setComputing] = useState(0);
+  // Защита от прокликивания (P5): id контейнеров с интентом раскрытия/сворачивания,
+  // ждущим применения. Повторный клик по тому же id (в т.ч. «отменяющий») до
+  // применения игнорируется — иначе каждый клик перезапускал бы конвейер
+  // («последний выигрывает» убивает прогон в полёте), а клик, попавший в момент
+  // смены кнопки, «отменял» ещё не показанное раскрытие. Чистится применением
+  // раскладки; TTL — страховка на случай умершего прогона.
+  const pendingToggleRef = useRef(new Map<string, number>());
+
   // Анимация раскрытия/сворачивания контейнеров: единственная точка применения
   // раскладки к RF-стейту (applyLayout вместо прямых setRfNodes/setRfEdges в
   // сборщике). Интенты ставят обработчики лупы/сворачивания; окно анимации
@@ -283,7 +300,7 @@ function LevelGraphInner({
   const {
     apply: applyLayout, noteExpand, noteCollapse, noteRelayout, noteGesture, noteMutation,
     cancel: cancelAnim, reset: resetAnim, active: animActive, jumpsPaused,
-  } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges, gate });
+  } = useLayoutAnimation({ getNodes, getEdges, setRfNodes, setRfEdges, gate, overloadedRef });
   // Авто-центрирование (fitOnLoad/fitOnExpand): didLoadFitRef — одноразовый фит
   // загрузки (на маунт; холст ремаунтится по key=node.id, поэтому «один раз» ==
   // «один раз на страницу»). autoFitRef — запрос на АНИМИРОВАННОЕ центрирование
@@ -337,7 +354,8 @@ function LevelGraphInner({
   // конвейеру раскладки и сборщику RF; autoFitRef хук взводит при раскрытии и
   // сворачивании (владелец запроса — эффект авто-центрирования ниже).
   const {
-    drillWithPath, expandContainer, expandLocalContainer, collapseContainer,
+    drillWithPath, expandContainer: rawExpandContainer,
+    expandLocalContainer: rawExpandLocalContainer, collapseContainer: rawCollapseContainer,
     expanded, relevantCounts, localChildren,
   } = useLevelDrill({
     containerId, nodes, edges, endpoints, ancestorIds, ancestorNames,
@@ -345,6 +363,22 @@ function LevelGraphInner({
     fitOnExpand, autoFitRef, childrenRev, commitLayout, noteExpand, noteCollapse,
     layoutLatestRef,
   });
+
+  // Защита от прокликивания (P5): любой повторный toggle по id с висящим интентом
+  // игнорируется до применения раскладки (или до TTL — страховка).
+  const TOGGLE_GUARD_TTL_MS = 15_000;
+  const guardedToggle = useCallback((id: string, fn: (id: string) => void) => {
+    const ts = pendingToggleRef.current.get(id);
+    if (ts !== undefined && performance.now() - ts < TOGGLE_GUARD_TTL_MS) return;
+    pendingToggleRef.current.set(id, performance.now());
+    fn(id);
+  }, []);
+  const expandContainer = useCallback(
+    (id: string) => guardedToggle(id, rawExpandContainer), [guardedToggle, rawExpandContainer]);
+  const expandLocalContainer = useCallback(
+    (id: string) => guardedToggle(id, rawExpandLocalContainer), [guardedToggle, rawExpandLocalContainer]);
+  const collapseContainer = useCallback(
+    (id: string) => guardedToggle(id, rawCollapseContainer), [guardedToggle, rawCollapseContainer]);
 
   // Состояние центральных направляющих магнитного выравнивания (общее для snap-драга
   // и drop-шаблона).
@@ -679,6 +713,21 @@ function LevelGraphInner({
     // сохранённым выделением/замерами).
     const recNodes = reconcileNodes(getNodes(), nextNodes);
     const recEdges = reconcileEdges(getEdges(), nextEdges);
+    // Классификация сцены (P1) ДО применения: оркестратор внутри applyLayout
+    // уже должен видеть свежий вердикт (честное отключение анимаций P8).
+    const displayedCount = layout.nodes.length + layout.entities.length;
+    const overloaded = displayedCount > OVERLOAD_NODES || layout.groupArr.length > OVERLOAD_EDGES;
+    overloadedRef.current = overloaded;
+    if (overloaded) {
+      const viewKey = containerId ?? "__root__";
+      if (!overloadToastShownRef.current.has(viewKey)) {
+        overloadToastShownRef.current.add(viewKey); // разовый тост на вид (P8)
+        setOverloadToastOpen(true);
+      }
+    }
+    // Применение состоялось — интенты раскрытий отражены на холсте, гвард
+    // прокликивания (P5) отпускает накопленные id.
+    pendingToggleRef.current.clear();
     // Применение — через оркестратор анимации: без интента раскрытия/сворачивания
     // это те же setRfNodes/setRfEdges, с интентом — режиссированный переход.
     applyLayout(recNodes, recEdges);
@@ -686,7 +735,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges]);
+  }, [layout, isArchitect, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
 
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).
@@ -700,6 +749,7 @@ function LevelGraphInner({
     const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
     w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
     w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
+    setComputing((c) => c + 1); // индикация занятости (P4)
     try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
@@ -750,6 +800,7 @@ function LevelGraphInner({
       return "applied";
     } finally {
       w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 1) - 1;
+      setComputing((c) => c - 1);
     }
     // Геометрия рёбер внутри viewLayout не вся влияет на позиции, НО зависимость — весь
     // объект намеренно: изломы/хэндлы пучков читает эффект-сборщик выше, и он должен
@@ -937,7 +988,9 @@ function LevelGraphInner({
         (isArchitect && !isReadOnly ? " lg-canvas--editable" : "") +
         (connecting ? " lg-canvas--connecting" : "") +
         // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
-        (animActive ? " lg-canvas--anim" : "")
+        (animActive ? " lg-canvas--anim" : "") +
+        // конвейер в полёте: курсор занятости на контролах узлов (P4)
+        (computing > 0 ? " lg-canvas--computing" : "")
       }
       ref={canvasRef}
       // --lg-frame-bw: стартовое значение под defaultViewport (zoom 0.85 → ~1.18px);
@@ -1049,6 +1102,27 @@ function LevelGraphInner({
             </span>
             Объект вне уровня
           </span>
+        </div>
+      )}
+      {/* Индикация занятости конвейера (перф-эпик Ф2, P4): бейдж проявляется
+          CSS-задержкой 300мс (INDICATE_AFTER_MS) — короткие пересчёты не мигают.
+          Работает и на пустом холсте первого показа (layout ещё null). */}
+      {computing > 0 && (
+        <div className="lg-busy" role="status">
+          <span className="lg-busy-spin" aria-hidden />
+          Считаю раскладку…
+        </div>
+      )}
+      {/* Разовый тост перегруженной сцены (P8): честное предупреждение об
+          отключении анимаций — один на вход в перегруженный вид. */}
+      {overloadToastOpen && (
+        <div className="lg-overload-toast" role="status">
+          <span>Схема перегружена: плавность не гарантируется, анимации могут отключаться.</span>
+          <button
+            className="lg-overload-close"
+            onClick={() => setOverloadToastOpen(false)}
+            aria-label="Закрыть предупреждение"
+          >✕</button>
         </div>
       )}
       {/* Реестр «мостиков»: рёбра внутри ReactFlow публикуют сюда геометрию и читают

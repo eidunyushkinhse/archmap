@@ -77,6 +77,8 @@ interface UseLayoutAnimationArgs {
   setRfNodes: (updater: RFNode[] | ((prev: RFNode[]) => RFNode[])) => void;
   setRfEdges: (updater: RFEdge[] | ((prev: RFEdge[]) => RFEdge[])) => void;
   gate: LayoutGate;
+  /** сцена перегружена (P1) — анимации отключаются честно (P8); владелец — LevelGraph */
+  overloadedRef?: { current: boolean };
 }
 
 export interface LayoutAnimation {
@@ -133,8 +135,16 @@ const unhideEdge = (e: RFEdge): RFEdge => {
 };
 
 export function useLayoutAnimation({
-  getNodes, getEdges, setRfNodes, setRfEdges, gate,
+  getNodes, getEdges, setRfNodes, setRfEdges, gate, overloadedRef,
 }: UseLayoutAnimationArgs): LayoutAnimation {
+  // ЧЕСТНОЕ ОТКЛЮЧЕНИЕ НА ПЕРЕГРУЖЕННОЙ СЦЕНЕ (перф-эпик Ф2, P8): выше порога
+  // P1 анимации не режиссируются — путь тот же, что у prefers-reduced-motion
+  // (интент сброшен, применение мгновенное). Пользователю об этом говорит
+  // разовый тост LevelGraph — деградация явная, а не «провисание».
+  const skipAnim = useCallback(
+    (): boolean => reducedMotion() || overloadedRef?.current === true,
+    [overloadedRef],
+  );
   const [active, setActive] = useState(false);
   // Пауза реестра мостиков на фазу move: его пересчёт даёт второй проход рендера
   // ВСЕХ рёбер (смена версии контекста), а в окне анимации геометрия массово
@@ -273,7 +283,7 @@ export function useLayoutAnimation({
     const fresh = intent && Date.now() - intent.ts < INTENT_TTL_MS;
     if (intent && !fresh) intentRef.current = null;
 
-    if (fresh && !reducedMotion()) {
+    if (fresh && !skipAnim()) {
       if (intent.kind === "expand") {
         const plan = planExpand(getNodes(), getEdges(), nextNodes, nextEdges, intent.id);
         if (plan) {
@@ -409,7 +419,7 @@ export function useLayoutAnimation({
         // ничего не сдвинулось — интент снимется применением без режиссуры ниже
         // только при потреблении; здесь оставляем ждать подходящего прогона
       }
-    } else if (fresh && reducedMotion()) {
+    } else if (fresh && skipAnim()) {
       intentRef.current = null;
     }
 
@@ -420,7 +430,7 @@ export function useLayoutAnimation({
     if (gestureRef.current) {
       if (Date.now() - gestureRef.current >= GESTURE_TTL_MS) {
         gestureRef.current = 0;
-      } else if (!reducedMotion()) {
+      } else if (!skipAnim()) {
         const changed = changedEdgeIds(getNodes(), getEdges(), nextNodes, nextEdges);
         if (changed.size > 0) {
           gestureRef.current = 0;
@@ -444,7 +454,7 @@ export function useLayoutAnimation({
         mutationRef.current = 0;
         if (settleTimerRef.current) { window.clearTimeout(settleTimerRef.current); settleTimerRef.current = 0; }
         if (maskRef.current && maskRef.current.edges.size > 0) unmask(true);
-      } else if (!reducedMotion()) {
+      } else if (!skipAnim()) {
         const changed = changedEdgeIds(getNodes(), getEdges(), nextNodes, nextEdges);
         const prevEdgeIds = new Set(getEdges().map((e) => e.id));
         for (const e of nextEdges) if (!prevEdgeIds.has(e.id)) changed.add(e.id);
@@ -493,7 +503,7 @@ export function useLayoutAnimation({
     }
     if (draw && draw.size > 0) edgesOut = markDrawIn(edgesOut, draw);
     setRfEdges(edgesOut);
-  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, laterFromFrame, unmask, endDraw, gate]);
+  }, [getNodes, getEdges, setRfNodes, setRfEdges, clearTimers, later, laterFromFrame, unmask, endDraw, gate, skipAnim]);
 
   const noteExpand = useCallback((id: string) => {
     intentRef.current = { kind: "expand", id, ts: Date.now() };

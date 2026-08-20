@@ -540,3 +540,72 @@
     animation: none;
   }
 }
+
+/* --- Индикация занятости конвейера (перф-эпик Ф2, спека perf.md P4) --- */
+/* Бейдж проявляется с задержкой INDICATE_AFTER_MS = 300мс (анимация-делей):
+   короткие пересчёты индикацию не мигают, длинные — честно показывают. */
+.lg-busy {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(30, 41, 59, 0.88);
+  color: #fff;
+  font-size: 12.5px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0;
+  animation: lg-busy-in 0.2s ease-out 0.3s forwards;
+}
+@keyframes lg-busy-in { to { opacity: 1; } }
+.lg-busy-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: lg-busy-rot 0.8s linear infinite;
+}
+@keyframes lg-busy-rot { to { transform: rotate(360deg); } }
+/* Контролы узлов при счёте: системный «занят» вместо немой кнопки (P4) */
+.lg-canvas--computing .react-flow__node button { cursor: progress; }
+@media (prefers-reduced-motion: reduce) {
+  .lg-busy-spin { animation: none; }
+}
+
+/* Разовый тост перегруженной сцены (P8): предупреждение об отключении анимаций */
+.lg-overload-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 48px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100% - 32px));
+  background: rgba(124, 45, 18, 0.92);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.35;
+  padding: 9px 12px 9px 14px;
+  border-radius: 10px;
+}
+.lg-overload-close {
+  flex: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.lg-overload-close:hover { background: rgba(255, 255, 255, 0.28); }
