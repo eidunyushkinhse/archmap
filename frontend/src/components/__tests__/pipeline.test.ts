@@ -559,3 +559,17 @@ describe("гашение осцилляций маршрутов (prevRouteSig)"
     expect(s1).not.toBe(s3);
   });
 });
+
+describe("edgeQuality: фолбэк-прогон без стадий качества стрелок (перф-эпик Ф3, P10)", () => {
+  it("skip: позиции и интенты как у полного прогона, маршрутов/плашек нет", async () => {
+    const full = await computeViewLayout(levelInput());
+    const skip = await computeViewLayout({ ...levelInput(), edgeQuality: "skip" });
+    expect(full.layout.autoRoutes).toBeDefined();
+    expect(skip.layout.autoRoutes).toBeUndefined();
+    expect(skip.layout.labelPlacements).toBeUndefined();
+    // раскладка узлов, рамки и засев владения НЕ зависят от пропуска
+    expect([...skip.layout.positions.entries()]).toEqual([...full.layout.positions.entries()]);
+    expect(skip.intents).toEqual(full.intents);
+    expect(skip.layout.guestFrames).toEqual(full.layout.guestFrames);
+  });
+});

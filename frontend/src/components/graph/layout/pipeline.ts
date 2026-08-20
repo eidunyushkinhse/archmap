@@ -143,6 +143,15 @@ export interface PipelineInput {
   // роутинг определяющего (см. buildRouteSig).
   prevRouteSig?: string;
   prevLabelPlacements?: Map<string, LabelPlacement>;
+  // Ф3 перф-эпика (2026-08-20): "skip" — фолбэк-прогон двухфазного замера
+  // (габариты узлов ещё не измерены). Стадии КАЧЕСТВА СТРЕЛОК (роутер, нуджинг,
+  // джоги, плашки, T4) пропускаются: их результат выбрасывается пере-прогоном по
+  // реальным замерам через ~секунду, а стоят они ~98% конвейера. РАСКЛАДКА УЗЛОВ,
+  // рамки и засев владения НЕ пропускаются (интенты персистятся с первого
+  // прогона). autoRoutes/labelPlacements в результате отсутствуют — сборка рисует
+  // рёбра простыми (smoothstep) до пере-прогона. Дефолт — полный прогон
+  // (реплей/полигоны/превью не задают поле).
+  edgeQuality?: "full" | "skip";
 }
 
 export interface PipelineOutput {
@@ -628,6 +637,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
     routableIds.add(g.id);
   }
+  // СТАДИИ КАЧЕСТВА СТРЕЛОК (роутер → нуджинг → джоги → плашки → T4) — локальный
+  // блок, чтобы фолбэк-прогон двухфазного замера (edgeQuality: "skip") мог
+  // пропустить их целиком (Ф3). Пишут во внешние autoRoutes/labelPlacements/
+  // edgeHandles; await внутри нет.
+  const runEdgeQualityStages = (): void => {
   const ar = buildAutoRoutes({
     groups: groupArr, routableIds, positions,
     displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
@@ -806,6 +820,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     }
   }
   mark("T4 мини-проход (плашки-препятствия)");
+  };
+  if (input.edgeQuality !== "skip") runEdgeQualityStages();
+  else mark("стадии качества стрелок: пропущены (фолбэк-прогон до замера)");
 
   // Сигнатура входов роутинга этого прогона + ГАШЕНИЕ ОСЦИЛЛЯЦИЙ: входы совпали
   // с прошлым прогоном ПО БИТАМ → результат ЦЕЛИКОМ из prev. Роутер не идемпотентен
