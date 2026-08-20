@@ -21,7 +21,7 @@
 // Живой драг сварку НЕ гоняет (E62) — доворот на отпускании прячет drawIn (E64).
 import type { EdgePoint } from "../../../types";
 import { cleanup, type EdgeSide, type NodeRect } from "../edgePath";
-import { routePorts } from "./orthoRoute";
+import { routePorts, __routeCounters } from "./orthoRoute";
 import { evalRouteParts, makeMoveCost, toPlacedSegs, type PlacedSeg, type RouteParts } from "./routeAll";
 import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 
@@ -288,6 +288,8 @@ export function weldTrunks(params: WeldParams): Set<string> {
                 starts: kind === "in" ? [dock] : [],
                 ends: kind === "out" ? [dock] : [],
               });
+              __routeCounters.weldTails++;
+              const expBefore = __routeCounters.expansions;
               const tail = routePorts(
                 [{ point: { x: q.p.x, y: q.p.y }, side: arrSide }],
                 [{ point: { x: dock.x, y: dock.y }, side: dockSide }],
@@ -299,6 +301,7 @@ export function weldTrunks(params: WeldParams): Set<string> {
                     : tailMove,
                 },
               );
+              __routeCounters.weldExpansions += __routeCounters.expansions - expBefore;
               if (!tail || tail.pts.length < 2) continue;
               // вершины ствола строго до точки расставания (дуга после cleanup растёт
               // строго); для проекции хвост стартует с q.p — сегмент-хозяин доклеится

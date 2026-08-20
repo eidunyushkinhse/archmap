@@ -234,13 +234,29 @@ function prepareGrid(
   };
 }
 
+// МЕМО moveCost по НАПРАВЛЕННОМУ грид-шагу (перф-эпик Ф3, 2026-08-20): один и
+// тот же ход (i,j)→сосед A* пробует из НЕСКОЛЬКИХ состояний направления прихода
+// (до 3, разворот запрещён) и при повторных улучшениях g — замер Zabbix-корня:
+// 49М вызовов moveCost на 16.8М экспансий, ~3 оплаты за геометрический шаг.
+// Стоимость шага зависит только от его геометрии и направления хода (правило
+// крестов «конец включаем, начало исключаем» асимметрично — поэтому ключ
+// НАПРАВЛЕННЫЙ: результат побитово тот же, что без мемо). Генерация вместо
+// очистки: буферы переживают вызовы, отметка валидна при совпадении gen.
+const mcScratch = { val: new Float64Array(0), gen: new Int32Array(0), cur: 0 };
+
 // Скретч-буферы состояния A* (gScore/cameFrom/closed): переиспользуются между вызовами,
 // растут до максимального встреченного грида. Легально: routePorts синхронна и не
 // реентерабельна (moveCost не зовёт роутер), поток один — гонок нет.
 const scratch = {
   g: new Float64Array(0),
   came: new Int32Array(0),
-  closed: new Uint8Array(0),
+  // Генерационные отметки вместо пер-вызовной заливки (перф-эпик Ф3): три
+  // fill'а по nStates на КАЖДЫЙ вызов routePorts (замер: 3862 вызова × ~85k
+  // состояний ≈ 1 млрд записей на сцене Zabbix-корня) заменены проверкой
+  // «отметка == текущее поколение»; семантика доступа побитово та же.
+  gen: new Int32Array(0),       // gScore/cameFrom валидны при gen[key] == cur
+  closedGen: new Int32Array(0), // состояние закрыто при closedGen[key] == cur
+  cur: 0,
 };
 
 /**
@@ -248,12 +264,23 @@ const scratch = {
  * Вход в поиск у всех портов бесплатный — побеждает пара с лучшим суммарным маршрутом
  * (длина + повороты + moveCost). null — пути нет (вызывающий решает, чем откатиться).
  */
+// Счётчики объёма поиска (перф-эпик Ф3): накопительные, читаются профильными
+// реплеями (scripts/perf-probe + vite-node), в проде — только инкременты int.
+// По ним снята атрибуция Zabbix-корня: 3862 вызова A*, 16.8М экспансий,
+// 49М→18М вызовов moveCost после мемо шага; сварка хвостов — 19% экспансий,
+// маргин-фейлы — 12%.
+export const __routeCounters = {
+  routePortsCalls: 0, expansions: 0, moveCostCalls: 0,
+  marginRetries: 0, weldTails: 0, failedExpansions: 0, weldExpansions: 0,
+};
 export function routePorts(
   starts: PortCandidate[],
   ends: PortCandidate[],
   obstacles: NodeRect[],
   opts?: RouteOptions,
 ): PortsRoute | null {
+  __routeCounters.routePortsCalls++;
+  const expAtStart = __routeCounters.expansions;
   const margin = opts?.margin ?? DEFAULT_MARGIN;
   const bendPenalty = opts?.bendPenalty ?? DEFAULT_BEND_PENALTY;
   const moveCost = opts?.moveCost;
@@ -269,6 +296,32 @@ export function routePorts(
   }
   const { xs, ys, grown, sOrigins, eOrigins, goals, hPass, vPass, hMemo } = grid;
   const NX = xs.length, NY = ys.length;
+
+  // Мемо направленного шага (см. mcScratch): [h-шаги (NX−1)·NY | v-шаги NX·(NY−1)] × 2.
+  const hSteps = (NX - 1) * NY;
+  const mc = moveCost;
+  let stepCost: ((i: number, j: number, ni: number, nj: number, md: number) => number) | null = null;
+  if (mc) {
+    const mcSize = (hSteps + NX * (NY - 1)) * 2;
+    if (mcSize > mcScratch.val.length) {
+      mcScratch.val = new Float64Array(mcSize);
+      mcScratch.gen = new Int32Array(mcSize);
+    }
+    const gen = ++mcScratch.cur;
+    const val = mcScratch.val, genArr = mcScratch.gen;
+    stepCost = (i, j, ni, nj, md) => {
+      const idx = md === XP ? (i * NY + j) * 2
+        : md === XM ? ((i - 1) * NY + j) * 2 + 1
+        : md === YP ? (hSteps + i * (NY - 1) + j) * 2
+        : (hSteps + i * (NY - 1) + (j - 1)) * 2 + 1;
+      if (genArr[idx] === gen) return val[idx];
+      __routeCounters.moveCostCalls++;
+      const v = mc(xs[i], ys[j], xs[ni], ys[nj]);
+      genArr[idx] = gen;
+      val[idx] = v;
+      return v;
+    };
+  }
 
   // Кодирование состояния A*: ((i*NY + j)*5 + dir). dir — знаковое направление ПРИХОДА.
   const encode = (i: number, j: number, dir: number): number => (i * NY + j) * 5 + dir;
@@ -316,12 +369,12 @@ export function routePorts(
   if (scratch.g.length < nStates) {
     scratch.g = new Float64Array(nStates);
     scratch.came = new Int32Array(nStates);
-    scratch.closed = new Uint8Array(nStates);
+    scratch.gen = new Int32Array(nStates);
+    scratch.closedGen = new Int32Array(nStates);
   }
-  const gScore = scratch.g, cameFrom = scratch.came, closed = scratch.closed;
-  gScore.fill(Infinity, 0, nStates);
-  cameFrom.fill(-1, 0, nStates);
-  closed.fill(0, 0, nStates);
+  const gScore = scratch.g, cameFrom = scratch.came;
+  const genArr = scratch.gen, closedGen = scratch.closedGen;
+  const sGen = ++scratch.cur;
   const seedOf = new Map<number, number>(); // стартовое состояние → индекс порта
   const open = new MinHeap();
 
@@ -334,8 +387,10 @@ export function routePorts(
     const side = starts[k].side;
     const key = encode(i, j, side ? OUT_DIR[side] : NONE);
     const pen = starts[k].penalty ?? 0;
-    if (gScore[key] > pen) {
+    if (genArr[key] !== sGen || gScore[key] > pen) {
       gScore[key] = pen;
+      genArr[key] = sGen;
+      cameFrom[key] = -1; // семя — корень цепочки реконструкции
       seedOf.set(key, k);
       open.push(key, pen + h(i, j));
     }
@@ -350,14 +405,15 @@ export function routePorts(
   let bestFin = Infinity;
   while (open.size > 0) {
     const key = open.pop();
-    if (closed[key] === 1) continue;
+    if (closedGen[key] === sGen) continue;
+    __routeCounters.expansions++;
 
     const dir = key % 5;
     const cell = (key - dir) / 5;
     const j = cell % NY;
     const i = (cell - j) / NY;
     if (bestFin <= gScore[key] + h(i, j)) break; // дешевле уже не будет
-    closed[key] = 1;
+    closedGen[key] = sGen;
 
     const atGoal = goals.get(cell);
     if (atGoal) {
@@ -378,11 +434,12 @@ export function routePorts(
       const segLen = Math.abs(xs[ni] - xs[i]) + Math.abs(ys[nj] - ys[j]);
       if (segLen <= EPS) return; // вырожденный (слипшиеся линии)
       const turn = dir !== NONE && isHor(dir) !== isHor(md) ? bendPenalty : 0;
-      const extra = moveCost ? moveCost(xs[i], ys[j], xs[ni], ys[nj]) : 0;
+      const extra = stepCost ? stepCost(i, j, ni, nj, md) : 0;
       const ng = g + segLen + turn + extra;
       const nkey = encode(ni, nj, md);
-      if (ng < gScore[nkey]) {
+      if (genArr[nkey] !== sGen || ng < gScore[nkey]) {
         gScore[nkey] = ng;
+        genArr[nkey] = sGen;
         cameFrom[nkey] = key;
         open.push(nkey, ng + h(ni, nj));
       }
@@ -394,6 +451,7 @@ export function routePorts(
   }
 
   if (goalKey < 0) {
+    __routeCounters.failedExpansions += __routeCounters.expansions - expAtStart;
     // Пути нет (узел заперт). Частая причина в плотной рамке: раздутые на клиренс границы
     // соседних узлов перекрылись и не оставили грид-канала. Клиренс сбрасываем СТУПЕНЧАТО
     // (деление пополам, пока margin >= 2, затем 0: 12 → 6 → 3 → 1.5 → 0; аналог сжатия
@@ -401,6 +459,7 @@ export function routePorts(
     // от граней, а не сразу липнет к ним.
     if (margin > EPS) {
       const next = margin >= 2 ? margin / 2 : 0;
+      __routeCounters.marginRetries++;
       return routePorts(starts, ends, obstacles, { ...opts, margin: next });
     }
     return null;
