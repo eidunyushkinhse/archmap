@@ -244,6 +244,10 @@ function prepareGrid(
 // очистки: буферы переживают вызовы, отметка валидна при совпадении gen.
 const mcScratch = { val: new Float64Array(0), gen: new Int32Array(0), cur: 0 };
 
+// Скретч flood-fill достижимости (перф-эпик Ф3): генерационные отметки клеток
+// и очередь BFS — переживают вызовы, без пер-вызовной очистки.
+const floodScratch = { gen: new Int32Array(0), queue: new Int32Array(0), cur: 0 };
+
 // Скретч-буферы состояния A* (gScore/cameFrom/closed): переиспользуются между вызовами,
 // растут до максимального встреченного грида. Легально: routePorts синхронна и не
 // реентерабельна (moveCost не зовёт роутер), поток один — гонок нет.
@@ -401,6 +405,48 @@ export function routePorts(
   // останавливаемся, когда приоритет очереди его превысил (эвристика допустимая, дальше
   // только дороже). При нулевых штрафах поведение эквивалентно прежнему «break на первом
   // достижении»: bestFin = g первого попадания, следующий pop имеет f >= g → стоп.
+  // БЫСТРАЯ ПРОВЕРКА ДОСТИЖИМОСТИ (перф-эпик Ф3): почти треть экспансий плотных
+  // сцен (Sentry: 8.6М из 27М) — A*, обречённо выжигающий весь достижимый грид
+  // ради ответа «пути нет» (запертые порты; маргин-цепочка 12→6→3→1.5→0 повторяет
+  // это на каждой ступени). Ненаправленный BFS по КЛЕТКАМ с той же проходимостью
+  // шагов (без стоимостей, кучи и moveCost) отвечает то же на порядок дешевле.
+  // Ненаправленная недостижимость ⇒ недостижимость в A* (необходимое условие) —
+  // результат побитово тот же; направленные тупики (редкость) решает сам A*.
+  {
+    const nCells = NX * NY;
+    if (floodScratch.gen.length < nCells) {
+      floodScratch.gen = new Int32Array(nCells);
+      floodScratch.queue = new Int32Array(nCells);
+    }
+    const fGen = ++floodScratch.cur;
+    const fSeen = floodScratch.gen, fQ = floodScratch.queue;
+    let qLen = 0;
+    for (const o of sOrigins) {
+      const cell = lineIndex(xs, o.x) * NY + lineIndex(ys, o.y);
+      if (fSeen[cell] !== fGen) { fSeen[cell] = fGen; fQ[qLen++] = cell; }
+    }
+    let reachable = false;
+    for (let qi = 0; qi < qLen && !reachable; qi++) {
+      const cell = fQ[qi];
+      if (goals.has(cell)) { reachable = true; break; }
+      const j = cell % NY;
+      const i = (cell - j) / NY;
+      if (i + 1 < NX && fSeen[cell + NY] !== fGen && stepPassH(i, j)) { fSeen[cell + NY] = fGen; fQ[qLen++] = cell + NY; }
+      if (i - 1 >= 0 && fSeen[cell - NY] !== fGen && stepPassH(i - 1, j)) { fSeen[cell - NY] = fGen; fQ[qLen++] = cell - NY; }
+      if (j + 1 < NY && fSeen[cell + 1] !== fGen && stepPassV(i, j)) { fSeen[cell + 1] = fGen; fQ[qLen++] = cell + 1; }
+      if (j - 1 >= 0 && fSeen[cell - 1] !== fGen && stepPassV(i, j - 1)) { fSeen[cell - 1] = fGen; fQ[qLen++] = cell - 1; }
+    }
+    if (!reachable) {
+      // тот же выход, что у исчерпанного A* (goalKey < 0), но без экспансий
+      if (margin > EPS) {
+        const next = margin >= 2 ? margin / 2 : 0;
+        __routeCounters.marginRetries++;
+        return routePorts(starts, ends, obstacles, { ...opts, margin: next });
+      }
+      return null;
+    }
+  }
+
   let goalKey = -1, goalEndIdx = -1;
   let bestFin = Infinity;
   while (open.size > 0) {
