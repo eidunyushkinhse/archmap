@@ -40,10 +40,24 @@ const VARIANTS: Array<{ key: string; title: string; override: Record<string, str
       "org.eclipse.elk.stress.desiredEdgeLength": "260",
     },
   },
+  {
+    key: "force-ar",
+    title: "force + aspectRatio 1.6",
+    override: {
+      "elk.algorithm": "org.eclipse.elk.force",
+      "elk.spacing.nodeNode": "80",
+      "org.eclipse.elk.aspectRatio": "1.6",
+    },
+  },
   // ELK radial на графах с циклами взрывает стек (Maximum call stack, elk.bundled) —
   // звезда реализована самописным сеятелем позиций (starPositions), см. ветку custom.
   { key: "star", title: "звезда (хаб в центре, кольца BFS)", override: null },
 ];
+
+// Фильтр вариантов: ARCHMAP_MOCKUP_VARIANTS="current,force" — только эти ключи
+// (по умолчанию все). «star» требует «current» в списке (берёт из него сцену).
+const onlyVariants = (process.env.ARCHMAP_MOCKUP_VARIANTS ?? "")
+  .split(",").map((s) => s.trim()).filter(Boolean);
 
 function revive(_k: string, v: unknown): unknown {
   if (v && typeof v === "object") {
@@ -72,6 +86,7 @@ describe.skipIf(!file)("мокапы форм автораскладки", () =>
     // отображаемый граф для звезды: берём из прогона «текущей» (проекция уже сделана)
     let displayedForStar: Layout | null = null;
     for (const v of VARIANTS) {
+      if (onlyVariants.length > 0 && !onlyVariants.includes(v.key)) continue;
       // вход БЕЗ сохранённых позиций и БЕЗ гистерезиса: дефолтная раскладка с нуля.
       // Для звезды позиции сеются через viewLayout (savedPos перетирает ELK) — роутер
       // и инварианты конвейера работают поверх них штатно.
