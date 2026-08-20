@@ -77,8 +77,15 @@ export async function layoutLevel(
   const idSet = new Set(allNodes.map((n) => n.id));
   const inner = edges.filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id));
 
+  // A/B-ПЕРЕОПРЕДЕЛЕНИЕ ОПЦИЙ ELK (перф-эпик 2026-08-20): глобал __archmapElkOverride
+  // подменяет/дополняет layoutOptions (алгоритм/зазоры). Выставляют только мокап-раннер
+  // (__tests__/layoutMockup.perf.test.ts) и полигоны — в проде глобала нет. Входит в
+  // сигнатуру кэша, чтобы варианты не отравляли друг друга.
+  const ovG = globalThis as unknown as { __archmapElkOverride?: Record<string, string> };
+  const override = ovG.__archmapElkOverride;
+
   // Проверяем кэш ELK (оптимизация 2026-07-21)
-  const sig = elkSignature(allNodes, inner);
+  const sig = (override ? JSON.stringify(override) + "|" : "") + elkSignature(allNodes, inner);
   let elkPositions = elkCache.get(sig);
 
   if (!elkPositions) {
@@ -99,6 +106,7 @@ export async function layoutLevel(
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
         "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
         "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
+        ...override,
       },
       children: allNodes.map((n) => ({ id: n.id, width: NODE_W, height: NODE_H })),
       edges: inner.map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),
