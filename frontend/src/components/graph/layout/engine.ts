@@ -14,6 +14,7 @@
 import type ELK from "elkjs/lib/elk.bundled.js";
 import { NODE_W, NODE_H } from "../constants";
 import { flowSpacing } from "./flowGaps";
+import { pickLevelForm } from "./levelForm";
 import { assignEdgeHandles } from "./level";
 import type { LayoutEdge } from "../../../types";
 
@@ -54,6 +55,12 @@ function elkSignature(
   return `nodes:${nodeIds.join(",")}|edges:${edgePairs.join(",")}`;
 }
 
+// Сброс кэша ELK — ТОЛЬКО для тестов (замок детерминизма гоняет два живых
+// прогона на одном входе; без сброса второй тривиально совпал бы из кэша).
+export function __clearElkCacheForTests(): void {
+  elkCache.clear();
+}
+
 export type LevelLayout = {
   positions: Map<string, { x: number; y: number }>;
   edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
@@ -77,8 +84,15 @@ export async function layoutLevel(
   const idSet = new Set(allNodes.map((n) => n.id));
   const inner = edges.filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id));
 
+  // A/B-ПЕРЕОПРЕДЕЛЕНИЕ ОПЦИЙ ELK (перф-эпик 2026-08-20): глобал __archmapElkOverride
+  // подменяет/дополняет layoutOptions (алгоритм/зазоры). Выставляют только мокап-раннер
+  // (__tests__/layoutMockup.perf.test.ts) и полигоны — в проде глобала нет. Входит в
+  // сигнатуру кэша, чтобы варианты не отравляли друг друга.
+  const ovG = globalThis as unknown as { __archmapElkOverride?: Record<string, string> };
+  const override = ovG.__archmapElkOverride;
+
   // Проверяем кэш ELK (оптимизация 2026-07-21)
-  const sig = elkSignature(allNodes, inner);
+  const sig = (override ? JSON.stringify(override) + "|" : "") + elkSignature(allNodes, inner);
   let elkPositions = elkCache.get(sig);
 
   if (!elkPositions) {
@@ -88,6 +102,17 @@ export async function layoutLevel(
     // подписью физически не хватало высоты, а узлы с пробегающими сквозь слой
     // рёбрами ELK смыкал до 32px независимо от nodeNode)
     const sp = flowSpacing(inner);
+    // ФОРМА ПО ТОПОЛОГИИ СЦЕНЫ (N30, перф-эпик Ф4): звёзды — force, потоки —
+    // layered. Форма — чистая функция тех же входов, что и сигнатура кэша
+    // (ids + пары рёбер), поэтому кэш корректен без формы в ключе.
+    // Набор опций force — БУКВАЛЬНО замеренный мокапами Ф1 микс: базовые
+    // layered-ключи + два поверх (лишние layered-ключи force игнорирует, но
+    // сравнимость «мокап = прод» держится байт-в-байт; менять — только с
+    // новым замером). Детерминизм — дефолтный randomSeed=1 ELK (тест-замок
+    // в engine.test.ts).
+    const formOpts: Record<string, string> = pickLevelForm(inner) === "force"
+      ? { "elk.algorithm": "org.eclipse.elk.force", "elk.spacing.nodeNode": "80" }
+      : {};
     const elk = await getElk();
     const res = await elk.layout({
       id: "root",
@@ -99,6 +124,8 @@ export async function layoutLevel(
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
         "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
         "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
+        ...formOpts,
+        ...override,
       },
       children: allNodes.map((n) => ({ id: n.id, width: NODE_W, height: NODE_H })),
       edges: inner.map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),

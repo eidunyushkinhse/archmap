@@ -143,6 +143,16 @@ export interface PipelineInput {
   // роутинг определяющего (см. buildRouteSig).
   prevRouteSig?: string;
   prevLabelPlacements?: Map<string, LabelPlacement>;
+  // Ф3 перф-эпика (2026-08-20): управление стадиями КАЧЕСТВА СТРЕЛОК (роутер,
+  // нуджинг, джоги, плашки, T4 — ~98% цены конвейера). "skip" — пропустить,
+  // "full" — считать всегда. НЕ ЗАДАНО — АВТО: пропуск, когда в сцене крупная
+  // пачка незамеренных узлов (первый показ, раскрытие с новыми детьми, импорт):
+  // такой прогон гарантированно повторится по приходу замеров, и его маршруты
+  // выбрасываются. РАСКЛАДКА УЗЛОВ, рамки и засев владения не пропускаются
+  // никогда (интенты персистятся с первого прогона). При пропуске
+  // autoRoutes/labelPlacements в результате отсутствуют — сборка рисует рёбра
+  // простыми (smoothstep) до пере-прогона.
+  edgeQuality?: "full" | "skip";
 }
 
 export interface PipelineOutput {
@@ -212,6 +222,19 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     prevRouteSig, prevLabelPlacements,
   } = input;
   const intents: PersistIntent[] = [];
+
+  // ТРАССИРОВКА СТАДИЙ (перф-эпик 2026-08-20): необязательный хук __ARCHMAP_TRACE на
+  // globalThis получает пары «стадия → мс» (оффлайн-реплей профилирования, см.
+  // __tests__/pipelineReplay.perf.test.ts). Без хука mark — мёртвый no-op.
+  const traceG = globalThis as unknown as { __ARCHMAP_TRACE?: (stage: string, ms: number) => void };
+  const trace = traceG.__ARCHMAP_TRACE;
+  let traceT = trace ? performance.now() : 0;
+  const mark = (stage: string): void => {
+    if (!trace) return;
+    const now = performance.now();
+    trace(stage, now - traceT);
+    traceT = now;
+  };
 
   // Владеемые позиции вида (внутренний формат модулей раскладки: кольца/разведение/
   // keep-out/засев). Локалы, гости и контейнеры — единообразно из viewLayout.
@@ -352,7 +375,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
 
   // Раскладка позиций/хэндлов — всегда ELK level-конвейер. Контекстный движок
   // (звезда) удалён 2026-07-30: все схемы рендерит один level-конвейер.
+  mark("проекция+группировка");
   const baseLayout = await layoutLevel(allNodeInfos, layoutEdges);
+  mark("ELK уровня");
   const positions = baseLayout.positions;
   let edgeHandles = baseLayout.edgeHandles;
   // ПУСТОЙ УРОВЕНЬ: рамка контейнера рисуется всегда, но членов у неё нет — их роль
@@ -383,6 +408,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // (повторное раскрытие) уже сели savedPos-ом. Засев ниже зафиксирует позиции
   // навсегда.
   await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions, localChildren });
+  mark("спавн детей");
 
   const og = placeGhostsOnRings({
     nodes: framedNodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
@@ -412,6 +438,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   if (enf) edgeHandles = enf.edgeHandles;
   else if (sg) edgeHandles = sg.edgeHandles;
   else if (og) edgeHandles = og.edgeHandles;
+  mark("кольца+разведение+keep-out");
 
   // ИНВАРИАНТ РАСКРЫТЫХ РАМОК (R5-фикс): узел, НЕ относящийся к раскрытой рамке
   // (локальной или гостевой), не лежит внутри неё — симметрия старого запрета
@@ -480,6 +507,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     }
   };
   runExpandedInvariants();
+  mark("инварианты раскрытий");
 
   // Раздвижка узлов под плашку короткого ребра (эпик стрелок A10, R2 — вынесена
   // в widenForLabels). МЕСТО В КОНВЕЙЕРЕ: ПОСЛЕ цикла инвариантов и ДО засева
@@ -495,6 +523,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     labelMeta: edgeLabelMeta,
   });
   if (a10moved) runExpandedInvariants();
+  mark("раздвижка под плашки (A10)");
 
   // ЗАСЕВ ВЛАДЕНИЯ (own-on-first-render): каждая отображаемая сущность без
   // сохранённой позиции получает её навсегда — на финальных позициях (после
@@ -572,6 +601,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     ancestorIds,
     ancestorNames: ancestorIds,
   });
+  mark("рамки+засев");
   // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
   // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один
   // переход — «ворота» выбирает A*), плашка подписи — жёсткое препятствие. Позиции
@@ -608,6 +638,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
     routableIds.add(g.id);
   }
+  // СТАДИИ КАЧЕСТВА СТРЕЛОК (роутер → нуджинг → джоги → плашки → T4) — локальный
+  // блок, чтобы фолбэк-прогон двухфазного замера (edgeQuality: "skip") мог
+  // пропустить их целиком (Ф3). Пишут во внешние autoRoutes/labelPlacements/
+  // edgeHandles; await внутри нет.
+  const runEdgeQualityStages = (): void => {
   const ar = buildAutoRoutes({
     groups: groupArr, routableIds, positions,
     displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
@@ -615,6 +650,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
   });
   autoRoutes = ar.routes;
+  mark("роутер: A*+rip-up+слоты+сварка (проход 1)");
   // СКОУП: buildAutoRoutes вернул маршруты только заскоупленных рёбер; незаскоупленные
   // (инцидентные прочим узлам) берём из prevRoutes — они зафиксированы как preplaced и
   // сохраняют прежнюю геометрию (иначе потеряли бы маршрут и отвалились на smoothstep).
@@ -667,6 +703,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const nu = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
   if (nu.nudged.size > 0) autoRoutes = nu.routes;
   restoreFrozen(); // нуджинг мог сдвинуть незаскоупленные плечи — вернуть
+  mark("нуджинг каналов");
 
   // ПОЛИРОВКА ДЖОГОВ ПОСЛЕ НУДЖИНГА (T2 «читаемые пучки»): и роутер (перескок из-за
   // штрафа езды), и канальная разводка умеют оставить короткую «ступеньку» посреди
@@ -701,6 +738,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     }
     restoreFrozen(); // полировка могла изменить незаскоупленные маршруты — вернуть
   }
+  mark("спрямление джогов");
 
   // Плашки подписей (эпик стрелок A7.2, R2+R4) — один проход по ФИНАЛЬНЫМ маршрутам:
   // без взаимных наложений и не под узлами (R2), не на совпавших плечах (R4); где на
@@ -716,6 +754,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     preferredT: () => undefined,
     nodeRects,
   });
+  mark("плашки подписей (проход 1)");
 
   // ПЛАШКИ → ПРЕПЯТСТВИЯ МАРШРУТОВ (T4 «читаемые пучки», один мини-проход): линия
   // сквозь чужой текст нечитаема. «Грязные» рёбра (маршрут режет прямоугольник ЧУЖОЙ
@@ -781,6 +820,22 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       }
     }
   }
+  mark("T4 мини-проход (плашки-препятствия)");
+  };
+  // АВТО-порог пропуска (edgeQuality не задан): И минимум штук, И доля сцены —
+  // единичные новые узлы (создание из палитры) не роняют все стрелки в
+  // smoothstep (мигание сцены хуже секундного лага), а bulk-спавн (раскрытие,
+  // первый показ) пропускает заведомо выбрасываемый прогон.
+  const UNMEASURED_SKIP_MIN = 3;
+  const UNMEASURED_SKIP_SHARE = 0.05;
+  const unmeasured = displayIds.reduce((k, id) => k + (sizeMap.has(id) ? 0 : 1), 0);
+  const skipQuality = input.edgeQuality === "skip" || (
+    input.edgeQuality === undefined &&
+    unmeasured >= UNMEASURED_SKIP_MIN &&
+    unmeasured >= UNMEASURED_SKIP_SHARE * Math.max(1, displayIds.length)
+  );
+  if (!skipQuality) runEdgeQualityStages();
+  else mark("стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)");
 
   // Сигнатура входов роутинга этого прогона + ГАШЕНИЕ ОСЦИЛЛЯЦИЙ: входы совпали
   // с прошлым прогоном ПО БИТАМ → результат ЦЕЛИКОМ из prev. Роутер не идемпотентен

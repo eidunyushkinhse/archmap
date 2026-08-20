@@ -47,6 +47,9 @@ function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
     ancestorIds: ["P"],
     expanded: new Set(),
     localChildren: {},
+    // Тесты композиции гоняют ПОЛНЫЙ конвейер: без замеров авто-режим P10
+    // пропускал бы стадии качества (см. отдельный describe авто-режима).
+    edgeQuality: "full",
     ...overrides,
   };
 }
@@ -334,6 +337,7 @@ describe("computeViewLayout — композиция конвейера уров
         ],
         C: [{ ...appNode("D"), parent_id: "C" } as AppNode],
       },
+      edgeQuality: "full", // авто-режим P10 без замеров скипнул бы роутер
     });
     // C отображается ТОЛЬКО рамкой: сущности-узла с его id нет
     expect(out.layout.entities.map((e) => e.id)).not.toContain("C");
@@ -557,5 +561,36 @@ describe("гашение осцилляций маршрутов (prevRouteSig)"
     const s3 = buildRouteSig(ids, pos, sizes, mk("событие") as never, new Set(["e1"]), []);
     expect(s1).toBe(s2);
     expect(s1).not.toBe(s3);
+  });
+});
+
+describe("edgeQuality: фолбэк-прогон без стадий качества стрелок (перф-эпик Ф3, P10)", () => {
+  it("авто: незамеренная сцена → skip; все замерены → full; единичный незамеренный не роняет качество", async () => {
+    // 4 отображаемых (A, B, гость G, контейнер D), замеров нет → пропуск
+    const bare = await computeViewLayout({ ...levelInput(), edgeQuality: undefined });
+    expect(bare.layout.autoRoutes).toBeUndefined();
+    // все замерены → полный прогон
+    const sz = { w: NODE_W, h: NODE_H };
+    const all = await computeViewLayout({
+      ...levelInput(), edgeQuality: undefined, sizes: { A: sz, B: sz, G: sz, D: sz },
+    });
+    expect(all.layout.autoRoutes).toBeDefined();
+    // один незамеренный (создание узла из палитры) — качество не роняем
+    const one = await computeViewLayout({
+      ...levelInput(), edgeQuality: undefined, sizes: { A: sz, B: sz, G: sz },
+    });
+    expect(one.layout.autoRoutes).toBeDefined();
+  });
+
+  it("skip: позиции и интенты как у полного прогона, маршрутов/плашек нет", async () => {
+    const full = await computeViewLayout(levelInput());
+    const skip = await computeViewLayout({ ...levelInput(), edgeQuality: "skip" });
+    expect(full.layout.autoRoutes).toBeDefined();
+    expect(skip.layout.autoRoutes).toBeUndefined();
+    expect(skip.layout.labelPlacements).toBeUndefined();
+    // раскладка узлов, рамки и засев владения НЕ зависят от пропуска
+    expect([...skip.layout.positions.entries()]).toEqual([...full.layout.positions.entries()]);
+    expect(skip.intents).toEqual(full.intents);
+    expect(skip.layout.guestFrames).toEqual(full.layout.guestFrames);
   });
 });

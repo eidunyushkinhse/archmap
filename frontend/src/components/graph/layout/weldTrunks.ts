@@ -21,8 +21,8 @@
 // Живой драг сварку НЕ гоняет (E62) — доворот на отпускании прячет drawIn (E64).
 import type { EdgePoint } from "../../../types";
 import { cleanup, type EdgeSide, type NodeRect } from "../edgePath";
-import { routePorts } from "./orthoRoute";
-import { evalRouteParts, makeMoveCost, toPlacedSegs, type PlacedSeg, type RouteParts } from "./routeAll";
+import { routePorts, __routeCounters } from "./orthoRoute";
+import { buildPlacedIndex, evalRouteParts, makeMoveCost, toPlacedSegs, type PlacedIndex, type PlacedSeg, type RouteParts } from "./routeAll";
 import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 
 // Бонус слияния, px-эквивалент за px легально слитой длины. ТОЛЬКО здесь, в принятии
@@ -105,7 +105,7 @@ export function weldTrunks(params: WeldParams): Set<string> {
   const welded = new Set<string>();
 
   // контекст оценки follower-а: сегменты и ломаные ВСЕХ остальных (включая preplaced)
-  const contextOf = (skipId: string): { segs: PlacedSeg[]; routes: EdgePoint[][] } => {
+  const contextOf = (skipId: string): { segs: PlacedSeg[]; routes: EdgePoint[][]; idx: PlacedIndex } => {
     const segs: PlacedSeg[] = [];
     const rts: EdgePoint[][] = [];
     for (const [id, r] of routes) {
@@ -118,7 +118,7 @@ export function weldTrunks(params: WeldParams): Set<string> {
       segs.push(...toPlacedSegs(r));
       rts.push(r);
     }
-    return { segs, routes: rts };
+    return { segs, routes: rts, idx: buildPlacedIndex(segs) };
   };
   const ink = (parts: RouteParts, shared: number): number =>
     parts.len + parts.bends * bp - MERGE_GAIN * shared;
@@ -163,7 +163,7 @@ export function weldTrunks(params: WeldParams): Set<string> {
           const fStartKey = portKey(curReal[0]);
           const fEndKey = portKey(curReal[curReal.length - 1]);
           const extra = extraOf?.(follower);
-          const curParts = evalRouteParts(curReal, ctx.segs, { extra, fellowRoutes: ctx.routes });
+          const curParts = evalRouteParts(curReal, ctx.idx, { extra, fellowRoutes: ctx.routes });
           const curInk = ink(curParts, sharedLegal(curReal, ctx.routes));
           // свободный конец ориентированной ломаной: out → целевой док, in → исходный
           const dock = cur[cur.length - 1];
@@ -280,14 +280,23 @@ export function weldTrunks(params: WeldParams): Set<string> {
             for (const q of picked) {
               const arrSide = q.side ?? sideAlong(q.prev, q.p);
               if (!arrSide) continue; // диагональный подход — не ствол
+              // ОТСЕЧКА БЕЗ ПОИСКА (перф-эпик Ф3): нижняя граница длины кандидата —
+              // перенятый кусок (q.arc) + манхэттен хвоста (короче манхэттена маршрут
+              // невозможен). Уже она нарушает кап удлинения ступени 1 → кандидат
+              // обречён, хвостовой A* не нужен. Результат побитово тот же: такие
+              // кандидаты отвергались ПОСЛЕ поиска тем же сравнением.
+              const tailLb = Math.abs(dock.x - q.p.x) + Math.abs(dock.y - q.p.y);
+              if (q.arc + tailLb > curParts.len * WELD_STRETCH + WELD_STRETCH_SLACK) continue;
               // хвост: от излома собрата до свободного дока. Стаб дефолтный (E9):
               // у дока — полноценный выход из хэндла, у Q — поворот не раньше стаба
               // за изломом собрата (лесенки вплотную к шву не строим); в тесноте
               // clampStub укоротит сам.
-              const tailMove = makeMoveCost(ctx.segs, crossCost, {
+              const tailMove = makeMoveCost(ctx.idx, crossCost, {
                 starts: kind === "in" ? [dock] : [],
                 ends: kind === "out" ? [dock] : [],
               });
+              __routeCounters.weldTails++;
+              const expBefore = __routeCounters.expansions;
               const tail = routePorts(
                 [{ point: { x: q.p.x, y: q.p.y }, side: arrSide }],
                 [{ point: { x: dock.x, y: dock.y }, side: dockSide }],
@@ -299,6 +308,7 @@ export function weldTrunks(params: WeldParams): Set<string> {
                     : tailMove,
                 },
               );
+              __routeCounters.weldExpansions += __routeCounters.expansions - expBefore;
               if (!tail || tail.pts.length < 2) continue;
               // вершины ствола строго до точки расставания (дуга после cleanup растёт
               // строго); для проекции хвост стартует с q.p — сегмент-хозяин доклеится
@@ -315,10 +325,10 @@ export function weldTrunks(params: WeldParams): Set<string> {
               const piecePts = orient(cleanup([...adopted, { x: q.p.x, y: q.p.y }]));
               if (
                 piecePts.length >= 2 &&
-                evalRouteParts(piecePts, ctx.segs, { fellowRoutes: ctx.routes }).overlap > EPS
+                evalRouteParts(piecePts, ctx.idx, { fellowRoutes: ctx.routes }).overlap > EPS
               ) continue;
               const full = orient(fullOriented); // orient — инволюция
-              const candParts = evalRouteParts(full, ctx.segs, { extra, fellowRoutes: ctx.routes });
+              const candParts = evalRouteParts(full, ctx.idx, { extra, fellowRoutes: ctx.routes });
               // ступень 1: грязь не хуже покомпонентно (допуски — числовой шум);
               // + кап удлинения: слияние не покупает крюки (см. WELD_STRETCH)
               if (

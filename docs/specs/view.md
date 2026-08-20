@@ -127,7 +127,7 @@ expanded), `graph/layout/{pipeline,engine}.ts`, `api/{client,projectScope,nodes}
 
 - **V21.** «Владеемая» позиция = строка вида с ОБОИМИ x и y; локалы, гости,
   контейнеры — единообразно. Сохранённая позиция перетирает ELK
-  (elk.layered RIGHT, спейсинги по N20, padding 30). [тест: pipeline.test.ts,
+  (форма по node.md N30: layered RIGHT для потоков / force для звёзд; спейсинги по N20, padding 30). [тест: pipeline.test.ts,
   levelGraph.test.ts, engine.test.ts]
 - **V22.** (v2, 2026-08-05) Засев: каждая отображаемая сущность БЕЗ строки —
   ЛОКАЛЫ, гости (включая вышедших из раскрытий детей) и рамки раскрытий —

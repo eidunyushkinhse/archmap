@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getElk, layoutLevel } from "../graph/layout/engine";
+import { getElk, layoutLevel, __clearElkCacheForTests } from "../graph/layout/engine";
 import type { LayoutEdge } from "../../types";
 
 // Спайк Фазы 4 (шаг 4.0): убеждаемся, что ELK поднимается в main-thread под jsdom
@@ -51,5 +51,27 @@ describe("ELK spike (шаг 4.0)", () => {
       sourceHandle: "a--right--1",
       targetHandle: "b--left--1",
     });
+  });
+});
+
+describe("форма уровня N30 (перф-эпик Ф4)", () => {
+  const starNodes = [{ id: "hub" }, { id: "l1" }, { id: "l2" }, { id: "l3" }, { id: "l4" }, { id: "l5" }];
+  const starEdges = ["l1", "l2", "l3", "l4", "l5"].map((l, i) => edge(`e${i}`, "hub", l));
+
+  it("звезда раскладывается force: листья по обе стороны хаба (layered посадил бы всех правее)", async () => {
+    __clearElkCacheForTests();
+    const res = await layoutLevel(starNodes, starEdges);
+    const hub = res.positions.get("hub")!;
+    const xs = ["l1", "l2", "l3", "l4", "l5"].map((l) => res.positions.get(l)!.x);
+    expect(Math.min(...xs)).toBeLessThan(hub.x);
+    expect(Math.max(...xs)).toBeGreaterThan(hub.x);
+  });
+
+  it("ЗАМОК ДЕТЕРМИНИЗМА: два живых прогона force (кэш сброшен) — позиции идентичны", async () => {
+    __clearElkCacheForTests();
+    const a = await layoutLevel(starNodes, starEdges);
+    __clearElkCacheForTests();
+    const b = await layoutLevel(starNodes, starEdges);
+    expect([...a.positions.entries()]).toEqual([...b.positions.entries()]);
   });
 });
