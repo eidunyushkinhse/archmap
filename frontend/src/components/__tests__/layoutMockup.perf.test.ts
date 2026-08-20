@@ -62,7 +62,13 @@ describe.skipIf(!file)("мокапы форм автораскладки", () =>
     const raw = JSON.parse(readFileSync(file!, "utf8"), revive) as PipelineInput;
     mkdirSync(outDir, { recursive: true });
     const base = basename(file!).replace(/\.json$/, "");
-    const g = globalThis as unknown as { __archmapElkOverride?: Record<string, string> };
+    const g = globalThis as unknown as {
+      __archmapElkOverride?: Record<string, string>;
+      __ARCHMAP_TRACE?: (stage: string, ms: number) => void;
+    };
+    // тайминги по вариантам: форма меняет геометрию рёбер → цену роутера; пишем
+    // разбивку (ELK / роутер / всего) в <база>.timings.json рядом с SVG
+    const timings: Record<string, { totalMs: number; elkMs: number; routerMs: number }> = {};
     // отображаемый граф для звезды: берём из прогона «текущей» (проекция уже сделана)
     let displayedForStar: Layout | null = null;
     for (const v of VARIANTS) {
@@ -81,13 +87,23 @@ describe.skipIf(!file)("мокапы форм автораскладки", () =>
       };
       if (v.override) g.__archmapElkOverride = v.override;
       else delete g.__archmapElkOverride;
+      const marks: Array<{ stage: string; ms: number }> = [];
+      g.__ARCHMAP_TRACE = (stage, ms) => marks.push({ stage, ms });
+      const t0 = performance.now();
       const out = await computeViewLayout(input);
+      delete g.__ARCHMAP_TRACE;
       delete g.__archmapElkOverride;
+      timings[v.key] = {
+        totalMs: Math.round(performance.now() - t0),
+        elkMs: Math.round(marks.filter((m) => m.stage === "ELK уровня").reduce((s, m) => s + m.ms, 0)),
+        routerMs: Math.round(marks.filter((m) => m.stage.startsWith("роутер") || m.stage.startsWith("T4") || m.stage.startsWith("нуджинг") || m.stage.startsWith("спрямление") || m.stage.startsWith("плашки")).reduce((s, m) => s + m.ms, 0)),
+      };
       if (v.key === "current") displayedForStar = out.layout;
       const svg = renderSvg(out.layout, v.title, raw.sizes ?? {});
       writeFileSync(join(outDir, `${base}.${v.key}.svg`), svg);
       expect(out.layout.positions.size).toBeGreaterThan(0);
     }
+    writeFileSync(join(outDir, `${base}.timings.json`), JSON.stringify(timings, null, 2));
   }, 600_000);
 });
 
