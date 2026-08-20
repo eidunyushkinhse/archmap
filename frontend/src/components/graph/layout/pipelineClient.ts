@@ -75,6 +75,13 @@ function getWorker(): Worker | null {
 
 /** Прогон конвейера вне главного потока (фолбэк — прямой вызов модуля). */
 export function computeViewLayoutOffThread(input: PipelineInput): Promise<PipelineOutput> {
+  // ЗАХВАТ ВХОДА (перф-эпик 2026-08-20): __archmapCaptureInput = true (консоль/зонд) →
+  // последний вход сохраняется для оффлайн-реплея профилирования
+  // (__tests__/pipelineReplay.perf.test.ts; сериализация — perf-probe --capture).
+  const cap = globalThis as unknown as {
+    __archmapCaptureInput?: boolean; __archmapLastPipelineInput?: PipelineInput;
+  };
+  if (cap.__archmapCaptureInput) cap.__archmapLastPipelineInput = input;
   const w = getWorker();
   if (!w) return computeViewLayout(input);
   const runId = ++seq;
