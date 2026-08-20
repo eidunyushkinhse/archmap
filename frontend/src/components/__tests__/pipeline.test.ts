@@ -47,6 +47,9 @@ function levelInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
     ancestorIds: ["P"],
     expanded: new Set(),
     localChildren: {},
+    // Тесты композиции гоняют ПОЛНЫЙ конвейер: без замеров авто-режим P10
+    // пропускал бы стадии качества (см. отдельный describe авто-режима).
+    edgeQuality: "full",
     ...overrides,
   };
 }
@@ -334,6 +337,7 @@ describe("computeViewLayout — композиция конвейера уров
         ],
         C: [{ ...appNode("D"), parent_id: "C" } as AppNode],
       },
+      edgeQuality: "full", // авто-режим P10 без замеров скипнул бы роутер
     });
     // C отображается ТОЛЬКО рамкой: сущности-узла с его id нет
     expect(out.layout.entities.map((e) => e.id)).not.toContain("C");
@@ -561,6 +565,23 @@ describe("гашение осцилляций маршрутов (prevRouteSig)"
 });
 
 describe("edgeQuality: фолбэк-прогон без стадий качества стрелок (перф-эпик Ф3, P10)", () => {
+  it("авто: незамеренная сцена → skip; все замерены → full; единичный незамеренный не роняет качество", async () => {
+    // 4 отображаемых (A, B, гость G, контейнер D), замеров нет → пропуск
+    const bare = await computeViewLayout({ ...levelInput(), edgeQuality: undefined });
+    expect(bare.layout.autoRoutes).toBeUndefined();
+    // все замерены → полный прогон
+    const sz = { w: NODE_W, h: NODE_H };
+    const all = await computeViewLayout({
+      ...levelInput(), edgeQuality: undefined, sizes: { A: sz, B: sz, G: sz, D: sz },
+    });
+    expect(all.layout.autoRoutes).toBeDefined();
+    // один незамеренный (создание узла из палитры) — качество не роняем
+    const one = await computeViewLayout({
+      ...levelInput(), edgeQuality: undefined, sizes: { A: sz, B: sz, G: sz },
+    });
+    expect(one.layout.autoRoutes).toBeDefined();
+  });
+
   it("skip: позиции и интенты как у полного прогона, маршрутов/плашек нет", async () => {
     const full = await computeViewLayout(levelInput());
     const skip = await computeViewLayout({ ...levelInput(), edgeQuality: "skip" });

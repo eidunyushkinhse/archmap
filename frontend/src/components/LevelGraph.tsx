@@ -763,10 +763,9 @@ function LevelGraphInner({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren,
         sizes: nodeSizesRef.current,
-        // Ф3 перф-эпика: до первого замера габаритов (sizesVersion 0) прогон —
-        // фолбэк двухфазного замера, его маршруты выбрасываются пере-прогоном →
-        // стадии качества стрелок пропускаются (98% цены; спека perf.md P10).
-        edgeQuality: sizesVersion > 0 ? "full" : "skip",
+        // edgeQuality НЕ задаём — авто-режим конвейера (P10): прогоны с крупной
+        // пачкой незамеренных узлов (первый показ, раскрытие с новыми детьми)
+        // идут без стадий качества стрелок — их пересчитает прогон по замерам.
         prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
         prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
         prevRouteSig: sameSizes ? prevRoutesRef.current?.sig : undefined,
