@@ -181,15 +181,21 @@ interface IndexedSeg {
   hi: number;
   ps: PlacedSeg;
 }
-interface PlacedIndex {
+export interface PlacedIndex {
   h: IndexedSeg[]; // горизонтальные, отсортированы по c
   v: IndexedSeg[]; // вертикальные, отсортированы по c
   count: number;
 }
 
+// Индекс или сырой список: горячие внешние потребители (сварка) строят индекс
+// ОДИН раз на контекст follower-а и передают готовым — построение на каждый
+// кандидатский вызов было заметной статьёй профиля (перф-эпик Ф3).
+type SegsOrIndex = PlacedSeg[] | PlacedIndex;
+const toIndex = (s: SegsOrIndex): PlacedIndex => (Array.isArray(s) ? buildPlacedIndex(s) : s);
+
 const byC = (a: IndexedSeg, b: IndexedSeg): number => a.c - b.c;
 
-function buildPlacedIndex(placed: PlacedSeg[]): PlacedIndex {
+export function buildPlacedIndex(placed: PlacedSeg[]): PlacedIndex {
   const h: IndexedSeg[] = [];
   const v: IndexedSeg[] = [];
   for (const ps of placed) {
@@ -331,7 +337,7 @@ export interface RouteParts {
 
 export function evalRouteParts(
   pts: EdgePoint[],
-  others: PlacedSeg[],
+  others: SegsOrIndex,
   opts?: {
     extra?: (x1: number, y1: number, x2: number, y2: number) => number;
     fellowRoutes?: EdgePoint[][];
@@ -339,7 +345,7 @@ export function evalRouteParts(
 ): RouteParts {
   const parts: RouteParts = { len: 0, bends: 0, crosses: 0, overlap: 0, extra: 0 };
   if (pts.length < 2) return parts;
-  const idx = buildPlacedIndex(others);
+  const idx = toIndex(others);
   const own: OwnPorts = { starts: [pts[0]], ends: [pts[pts.length - 1]] };
   const trunk = buildTrunkCtx(pts, opts?.fellowRoutes ?? []);
   const acc = { crosses: 0, overlap: 0 };
@@ -366,11 +372,11 @@ export function evalRouteParts(
 // Штраф хода против фиксированного набора чужих сегментов — для A*-хвостов внешних
 // пассов (сварка): те же кресты/езда, что видит основной роутер. own — как в A*.
 export function makeMoveCost(
-  others: PlacedSeg[],
+  others: SegsOrIndex,
   crossCost: number,
   own?: { starts: EdgePoint[]; ends: EdgePoint[] },
 ): (x1: number, y1: number, x2: number, y2: number) => number {
-  const idx = buildPlacedIndex(others);
+  const idx = toIndex(others);
   return (x1, y1, x2, y2) => movePenalty(x1, y1, x2, y2, idx, crossCost, own);
 }
 
