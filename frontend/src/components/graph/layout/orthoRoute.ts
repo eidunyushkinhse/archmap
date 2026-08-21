@@ -55,6 +55,12 @@ interface PreparedGrid {
   hPass: Int8Array;    // проходимость шага (i,j)→(i+1,j); -1 не считана, 0 нет, 1 да
   vPass: Int8Array;    // проходимость шага (i,j)→(i,j+1)
   hMemo: Float64Array; // эвристика вершины (i*NY+j); -1 не считана
+  // КЭШ ДОСТИЖИМОСТИ (А3а, 2026-08-21): ответ BFS «цель достижима из стартов» —
+  // функция ТОЛЬКО содержимого этой сетки (sOrigins, goals, проходимость шагов —
+  // всё детерминировано и зафиксировано ею), поэтому живёт в ней же. undefined —
+  // флуд ещё не гонялся. Кэш-хит просто пропускает BFS: hPass/vPass флуд наполняет
+  // лениво, и то же самое доспросит сам A* — результат побитово тот же.
+  reachable?: boolean;
 }
 export type RouteGridCache = Map<string, PreparedGrid>;
 
@@ -231,6 +237,7 @@ function prepareGrid(
     hPass: new Int8Array(Math.max(0, (NX - 1) * NY)).fill(-1),
     vPass: new Int8Array(Math.max(0, NX * (NY - 1))).fill(-1),
     hMemo: new Float64Array(NX * NY).fill(-1),
+    reachable: undefined,
   };
 }
 
@@ -283,6 +290,9 @@ export const __routeCounters = {
   // Цена ПОДГОТОВКИ поиска: сборка сетки терминала (считаются только ФАКТИЧЕСКИЕ
   // вызовы prepareGrid — попадание в gridCache бесплатно) и BFS-достижимости.
   prepMs: 0, floodMs: 0,
+  // Хиты кэша достижимости (А3а): вызовы routePorts, взявшие ответ флуда из
+  // PreparedGrid и не гонявшие BFS. floodMs после А3а меряет ФАКТИЧЕСКИЕ прогоны.
+  floodCacheHits: 0,
   // РАЗМЕТКА ФАЗ по вызовам/экспансиям: rip-up (routeAll оборачивает свой фикспойнт
   // дельтами счётчиков) и сварка хвостов (weldTrunks — так же). Первичная прокладка
   // прохода-1 = дельта стадии минус rip-up минус сварка.
@@ -475,31 +485,41 @@ export function routePorts(
   // Ненаправленная недостижимость ⇒ недостижимость в A* (необходимое условие) —
   // результат побитово тот же; направленные тупики (редкость) решает сам A*.
   {
-    const tFlood = performance.now(); // замер floodMs (Ф0) — весь блок достижимости
-    const nCells = NX * NY;
-    if (floodScratch.gen.length < nCells) {
-      floodScratch.gen = new Int32Array(nCells);
-      floodScratch.queue = new Int32Array(nCells);
+    // КЭШ ДОСТИЖИМОСТИ (А3а): ответ мог быть посчитан прошлым вызовом на ЭТОЙ же
+    // сетке — rip-up и гистерезис-сравнения зовут тот же терминал на том же margin,
+    // cacheKey совпадает, а флуд зависит только от содержимого сетки. Тогда BFS не
+    // гоняем: и «достижимо», и «нет» отвечаем сохранённым значением.
+    let reachable = grid.reachable;
+    if (reachable === undefined) {
+      const tFlood = performance.now(); // замер floodMs (Ф0) — весь блок достижимости
+      const nCells = NX * NY;
+      if (floodScratch.gen.length < nCells) {
+        floodScratch.gen = new Int32Array(nCells);
+        floodScratch.queue = new Int32Array(nCells);
+      }
+      const fGen = ++floodScratch.cur;
+      const fSeen = floodScratch.gen, fQ = floodScratch.queue;
+      let qLen = 0;
+      for (const o of sOrigins) {
+        const cell = lineIndex(xs, o.x) * NY + lineIndex(ys, o.y);
+        if (fSeen[cell] !== fGen) { fSeen[cell] = fGen; fQ[qLen++] = cell; }
+      }
+      reachable = false;
+      for (let qi = 0; qi < qLen && !reachable; qi++) {
+        const cell = fQ[qi];
+        if (goals.has(cell)) { reachable = true; break; }
+        const j = cell % NY;
+        const i = (cell - j) / NY;
+        if (i + 1 < NX && fSeen[cell + NY] !== fGen && stepPassH(i, j)) { fSeen[cell + NY] = fGen; fQ[qLen++] = cell + NY; }
+        if (i - 1 >= 0 && fSeen[cell - NY] !== fGen && stepPassH(i - 1, j)) { fSeen[cell - NY] = fGen; fQ[qLen++] = cell - NY; }
+        if (j + 1 < NY && fSeen[cell + 1] !== fGen && stepPassV(i, j)) { fSeen[cell + 1] = fGen; fQ[qLen++] = cell + 1; }
+        if (j - 1 >= 0 && fSeen[cell - 1] !== fGen && stepPassV(i, j - 1)) { fSeen[cell - 1] = fGen; fQ[qLen++] = cell - 1; }
+      }
+      __routeCounters.floodMs += performance.now() - tFlood;
+      grid.reachable = reachable;
+    } else {
+      __routeCounters.floodCacheHits++;
     }
-    const fGen = ++floodScratch.cur;
-    const fSeen = floodScratch.gen, fQ = floodScratch.queue;
-    let qLen = 0;
-    for (const o of sOrigins) {
-      const cell = lineIndex(xs, o.x) * NY + lineIndex(ys, o.y);
-      if (fSeen[cell] !== fGen) { fSeen[cell] = fGen; fQ[qLen++] = cell; }
-    }
-    let reachable = false;
-    for (let qi = 0; qi < qLen && !reachable; qi++) {
-      const cell = fQ[qi];
-      if (goals.has(cell)) { reachable = true; break; }
-      const j = cell % NY;
-      const i = (cell - j) / NY;
-      if (i + 1 < NX && fSeen[cell + NY] !== fGen && stepPassH(i, j)) { fSeen[cell + NY] = fGen; fQ[qLen++] = cell + NY; }
-      if (i - 1 >= 0 && fSeen[cell - NY] !== fGen && stepPassH(i - 1, j)) { fSeen[cell - NY] = fGen; fQ[qLen++] = cell - NY; }
-      if (j + 1 < NY && fSeen[cell + 1] !== fGen && stepPassV(i, j)) { fSeen[cell + 1] = fGen; fQ[qLen++] = cell + 1; }
-      if (j - 1 >= 0 && fSeen[cell - 1] !== fGen && stepPassV(i, j - 1)) { fSeen[cell - 1] = fGen; fQ[qLen++] = cell - 1; }
-    }
-    __routeCounters.floodMs += performance.now() - tFlood;
     if (!reachable) {
       // собственные экспансии вызова (здесь всегда 0 — поиск не стартовал)
       noteExpansions(__routeCounters.expansions - expAtStart);
