@@ -594,3 +594,200 @@ describe("edgeQuality: фолбэк-прогон без стадий качес�
     expect(skip.layout.guestFrames).toEqual(full.layout.guestFrames);
   });
 });
+
+// КЭШ МАРШРУТОВ ВИДА (Ф2 эпика router-opt, спека perf.md P11). Сверка routeSig
+// переехала ПЕРЕД стадии качества: совпадение сигнатуры доказывает, что полный прогон
+// вернул бы ровно prev, — значит стадии можно не звать вовсе (до Ф2 сверка стояла
+// ПОСЛЕ них и результат менялся, а счёт был полный). Здесь проверяются оба свойства:
+// пропуск счёта (по трассе стадий) и авторитетность прогона (гейт записи кэша).
+describe("кэш маршрутов вида: сверка routeSig ДО стадий качества (Ф2 router-opt)", () => {
+  // габариты ЗАМЕТНО отличаются от фолбэка NODE_W×NODE_H — иначе незамеренный прогон
+  // дал бы ту же сигнатуру (см. тест «незамеренный не хитует»)
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  const measured = { A: SZ, B: SZ, G: SZ, D: SZ };
+
+  // Перехват марок стадий (тот же хук, что у реплея профилирования).
+  async function withTrace<T>(fn: () => Promise<T>): Promise<{ out: T; marks: string[] }> {
+    const g = globalThis as unknown as { __ARCHMAP_TRACE?: (stage: string, ms: number) => void };
+    const marks: string[] = [];
+    const prev = g.__ARCHMAP_TRACE;
+    g.__ARCHMAP_TRACE = (stage) => { marks.push(stage); };
+    try {
+      return { out: await fn(), marks };
+    } finally {
+      if (prev) g.__ARCHMAP_TRACE = prev; else delete g.__ARCHMAP_TRACE;
+    }
+  }
+
+  const CACHE_MARK = "стадии качества стрелок: кэш-хит по routeSig";
+  const ROUTER_MARK = "роутер: A*+rip-up+слоты+сварка (проход 1)";
+
+  it("кэш-хит по sig: стадии качества НЕ исполняются, результат идентичен полному прогону", async () => {
+    const A = await computeViewLayout({ ...levelInput(), sizes: measured });
+    const { out: B, marks } = await withTrace(() => computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    }));
+    // счёт пропущен: марка кэш-хита есть, марок роутера/T4 нет
+    expect(marks).toContain(CACHE_MARK);
+    expect(marks).not.toContain(ROUTER_MARK);
+    expect(marks).not.toContain("T4 мини-проход (плашки-препятствия)");
+    // результат — байт-в-байт прежний
+    expect(B.routeSig).toBe(A.routeSig);
+    expect(sig(B.layout)).toBe(sig(A.layout));
+  });
+
+  it("незамеренный прогон НЕ хитует кэш полнозамеренного (в sig — фолбэк-габариты)", async () => {
+    const A = await computeViewLayout({ ...levelInput(), sizes: measured });
+    // тот же вид без замеров: авто-режим P10 → пропуск стадий; sig другая → не хит
+    const { out: B, marks } = await withTrace(() => computeViewLayout({
+      ...levelInput(), edgeQuality: undefined, sizes: undefined,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    }));
+    expect(B.routeSig).not.toBe(A.routeSig);
+    expect(marks).not.toContain(CACHE_MARK);
+    expect(marks).toContain("стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)");
+    // маршруты прошлого прогона НЕ подменяют результат пропуска
+    expect(B.layout.autoRoutes).toBeUndefined();
+    expect(B.authoritative).toBe(false);
+  });
+
+  it("скоуп-прогон: сигнатура другая (routable-флаги), кэш-хита нет", async () => {
+    const A = await computeViewLayout({ ...levelInput(), sizes: measured });
+    const B = await computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+      scopeNodeIds: ["A"],
+    });
+    expect(B.routeSig).not.toBe(A.routeSig);
+    expect(B.authoritative).toBe(false);
+  });
+
+  it("authoritative — гейт записи кэша: полный замер без скоупа true, прочие false", async () => {
+    // (1) полный прогон, все замерены, скоупа нет → авторитетен
+    const full = await computeViewLayout({ ...levelInput(), sizes: measured });
+    expect(full.authoritative).toBe(true);
+    // (2) кэш-хит по sig — тоже авторитетен (геометрия финальная)
+    const hit = await computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: full.layout.autoRoutes,
+      prevEdgeHandles: full.layout.edgeHandles,
+      prevRouteSig: full.routeSig,
+      prevLabelPlacements: full.layout.labelPlacements,
+    });
+    expect(hit.authoritative).toBe(true);
+    // (3) явный пропуск стадий → нет
+    const skip = await computeViewLayout({ ...levelInput(), sizes: measured, edgeQuality: "skip" });
+    expect(skip.authoritative).toBe(false);
+    // (4) ЧАСТИЧНЫЕ замеры (стадии идут, но один узел на фолбэке) → нет
+    const partial = await computeViewLayout({
+      ...levelInput(), sizes: { A: SZ, B: SZ, G: SZ },
+    });
+    expect(partial.layout.autoRoutes).toBeDefined();
+    expect(partial.authoritative).toBe(false);
+    // (5) скоуп после драга → нет
+    const scoped = await computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: full.layout.autoRoutes,
+      prevEdgeHandles: full.layout.edgeHandles,
+      scopeNodeIds: ["A"],
+    });
+    expect(scoped.authoritative).toBe(false);
+  });
+});
+
+// НЕПОЛНЫЙ СОСТАВ СЦЕНЫ (доработка Д1/Д2 приёмки Ф2, расширение P10). Уровень
+// догружается порциями: раскрытые локалы получают своих детей отдельными запросами.
+// Промежуточный прогон замерен полностью (unmeasured = 0) — прежний порог P10 его не
+// ловил: он гонял полный роутер, чьи маршруты выбрасывались приходом детей, и — хуже —
+// проходил как авторитетный, затирая кэш ПОЛНОЙ сцены частичным.
+describe("состав сцены: раскрытия, ждущие детей (Д1/Д2 приёмки Ф2)", () => {
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  const PENDING_MARK = "стадии качества стрелок: пропущены (недогруженные дети раскрытий)";
+
+  async function traced(input: PipelineInput) {
+    const g = globalThis as unknown as { __ARCHMAP_TRACE?: (stage: string, ms: number) => void };
+    const marks: string[] = [];
+    g.__ARCHMAP_TRACE = (stage) => { marks.push(stage); };
+    try {
+      return { out: await computeViewLayout(input), marks };
+    } finally {
+      delete g.__ARCHMAP_TRACE;
+    }
+  }
+
+  it("раскрытие БЕЗ детей в кэше: стадии качества пропущены, прогон не авторитетен", async () => {
+    const { out, marks } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A: SZ, B: SZ, G: SZ, D: SZ },   // все свои узлы ЗАМЕРЕНЫ — P10 молчит
+      expanded: new Set(["A"]),
+      localChildren: {},                       // детей ещё нет — состав неполон
+      childrenLazyLoad: true,
+    });
+    expect(marks).toContain(PENDING_MARK);
+    expect(out.layout.autoRoutes).toBeUndefined();
+    expect(out.authoritative).toBe(false);
+  });
+
+  it("те же дети ДОЕХАЛИ: стадии идут, прогон авторитетен", async () => {
+    const { out, marks } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A1: SZ, A2: SZ, B: SZ, G: SZ, D: SZ },
+      expanded: new Set(["A"]),
+      localChildren: { A: [appNode("A1"), appNode("A2")] },
+      childrenLazyLoad: true,
+    });
+    expect(marks).not.toContain(PENDING_MARK);
+    expect(marks).toContain("роутер: A*+rip-up+слоты+сварка (проход 1)");
+    expect(out.layout.autoRoutes).toBeDefined();
+    expect(out.authoritative).toBe(true);
+  });
+
+  it("БЕЗ ленивой догрузки (страничные схемы, read-only) отсутствие детей неполнотой НЕ считается", async () => {
+    // там useLevelDrill не фетчит вовсе: раскрытый контейнер рисуется свёрнутым
+    // ПОСТОЯННО, и «ждать состав» означало бы не посчитать стрелки никогда
+    const { out, marks } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A: SZ, B: SZ, G: SZ, D: SZ },
+      expanded: new Set(["A"]),
+      localChildren: {},
+      // childrenLazyLoad не задан — прежнее поведение
+    });
+    expect(marks).not.toContain(PENDING_MARK);
+    expect(out.layout.autoRoutes).toBeDefined();
+    expect(out.authoritative).toBe(true);
+  });
+
+  it("ПУСТОЙ состав (данные ещё не пришли) не авторитетен — кэш не затирается нулём", async () => {
+    const out = await computeViewLayout({
+      ...levelInput(), nodes: [], endpoints: [], edges: [], viewLayout: {},
+    });
+    expect(out.layout.nodes.length + out.layout.entities.length).toBe(0);
+    expect(out.authoritative).toBe(false);
+  });
+
+  it("загруженный ПУСТОЙ список детей (localChildren[id] = []) неполнотой не считается", async () => {
+    const { out } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A: SZ, B: SZ, G: SZ, D: SZ },
+      expanded: new Set(["A"]),
+      localChildren: { A: [] },   // ответ пришёл: детей нет
+      childrenLazyLoad: true,
+    });
+    expect(out.layout.autoRoutes).toBeDefined();
+    expect(out.authoritative).toBe(true);
+  });
+});

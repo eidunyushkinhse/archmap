@@ -30,6 +30,31 @@ export function frameLocalIds(localIds: string[], ancestorIds: string[]): string
   return localIds.length === 0 && ancestorIds.length > 0 ? [EMPTY_LEVEL_MEMBER] : localIds;
 }
 
+// ПЛАШКА ПОДПИСИ РАМКИ («🔍 имя ✕», слева-внизу рамки — nodes.tsx FrameNode). Для
+// роутера это ЖЁСТКОЕ ПРЕПЯТСТВИЕ (E21), поэтому её геометрия — часть контракта
+// маршрутов. Формула жила инлайном в pipeline.ts; вынесена сюда (Ф2 эпика
+// router-opt) ИМЕННО ради реестра ROUTER_VERSION (routerVersion.ts): константа,
+// правка которой меняет маршруты, обязана быть видимой сторожу протухания кэша.
+// Значения — прежние (перенос байт-в-байт), ширина — моноширинная оценка с паддингами.
+export const FRAME_PLAQUE_INSET_X = 10;   // отступ плашки от левой грани рамки
+export const FRAME_PLAQUE_BOTTOM = 30;    // подъём верхней грани плашки над низом рамки
+export const FRAME_PLAQUE_H = 22;         // высота плашки
+export const FRAME_PLAQUE_BASE_W = 56;    // «обвязка»: лупа + крестик + паддинги
+export const FRAME_PLAQUE_CHAR_W = 6.5;   // ширина символа имени при шрифте плашки
+
+/** Прямоугольник плашки подписи рамки по её rect и имени. */
+export function framePlaqueRect(
+  rect: { x: number; y: number; w: number; h: number },
+  name: string,
+): { x: number; y: number; w: number; h: number } {
+  return {
+    x: rect.x + FRAME_PLAQUE_INSET_X,
+    y: rect.y + rect.h - FRAME_PLAQUE_BOTTOM,
+    w: Math.min(rect.w - 2 * FRAME_PLAQUE_INSET_X, FRAME_PLAQUE_BASE_W + FRAME_PLAQUE_CHAR_W * name.length),
+    h: FRAME_PLAQUE_H,
+  };
+}
+
 export interface FrameRect {
   id: string;
   name: string;

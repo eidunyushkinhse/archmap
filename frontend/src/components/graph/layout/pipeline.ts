@@ -35,7 +35,7 @@ import { projectGhosts } from "./projectGhosts";
 import { layoutLevel } from "./engine";
 import { assignEdgeHandles } from "./level";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
-import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN, type FrameRect } from "./frames";
+import { computeFrames, frameLocalIds, framePlaqueRect, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN, type FrameRect } from "./frames";
 import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
@@ -112,6 +112,14 @@ export interface PipelineInput {
   // дети): id контейнера → его прямые дети. Пока детей нет в карте — контейнер
   // рисуется свёрнутым (ленивая догрузка, LevelGraph качает по требованию).
   localChildren: Record<string, AppNode[]>;
+  // ЛЕНИВАЯ ДОГРУЗКА ДЕТЕЙ раскрытых ЛОКАЛОВ активна у вызывающего (редактор:
+  // useLevelDrill фетчит состав по мере надобности). Тогда раскрытый локал БЕЗ записи
+  // в localChildren — «ещё не приехал»: состав сцены НЕПОЛОН, прогон гарантированно
+  // повторится (см. hasPendingChildren ниже). В read-only догрузки нет вообще
+  // (страничные схемы), и там отсутствие детей — состояние ПОСТОЯННОЕ: считать такой
+  // состав неполным нельзя, иначе стрелки не посчитались бы никогда. Не задан — false
+  // (прежнее поведение: реплей/полигоны/тесты гоняют полные составы).
+  childrenLazyLoad?: boolean;
   // РЕАЛЬНЫЕ габариты узлов из DOM (node.measured, V2.2b): узлы растут по контенту, и
   // стадии КАЧЕСТВА СТРЕЛОК (роутер/плашки/детуры) обязаны видеть настоящие тела —
   // иначе маршрут ложится «по грани»/поверх реального узла (канон libavoid: препятствия
@@ -165,6 +173,14 @@ export interface PipelineOutput {
   // маршрутами и возвращает в следующем прогоне — гашение осцилляций
   // (см. PipelineInput.prevRouteSig).
   routeSig: string;
+  // АВТОРИТЕТНЫЙ ПРОГОН (Ф2 эпика router-opt, спека perf.md P11) — гейт записи
+  // ПЕРСИСТНОГО кэша маршрутов вида. true ⇔ (стадии качества стрелок отработали
+  // полноценно ИЛИ результат взят целиком из prev по совпавшей routeSig) И в сцене
+  // НЕТ незамеренных узлов И прогон НЕ скоуплен (scopeNodeIds). Только такой
+  // результат равен байт-в-байт полному холодному прогону — прочие (пропуск P10,
+  // частичные замеры, скоуп после драга) в кэш не кладутся: они по построению
+  // временные и отравили бы кэш геометрией фолбэк-габаритов или замороженного prev.
+  authoritative: boolean;
 }
 
 // ДИАГНОСТИКА T4 (Ф0 эпика «глубокая оптимизация роутера», 2026-08-21): полезная
@@ -233,7 +249,7 @@ export function buildRouteSig(
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
-    expanded, localChildren, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
+    expanded, localChildren, childrenLazyLoad, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
     prevRouteSig, prevLabelPlacements,
   } = input;
   const intents: PersistIntent[] = [];
@@ -274,8 +290,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // предки уровня как AncestorRef-лайт: для расчёта lca в computeFrames важны
   // только id (имена рамок уровня рисует ancestorNames — не отсюда)
   const bcRefs: AncestorRef[] = ancestorIds.map((id) => ({ id, name: id, is_external: false }));
+  // НЕПОЛНЫЙ СОСТАВ СЦЕНЫ (Ф2 эпика router-opt, полевая находка приёмки): корень
+  // догружается ПОРЦИЯМИ (0 → 17 → 26 → 34 узла), и промежуточные прогоны имеют
+  // unmeasured = 0 (свои узлы замерены) — P10 их не ловит. Такой прогон гонял полный
+  // роутер, а его маршруты всё равно выбрасывались приходом детей; хуже того, он
+  // проходил как авторитетный и ПЕРЕЗАПИСЫВАЛ кэш полной сцены частичным.
+  let hasPendingChildren = false;
   const expandLocal = (n: AppNode, path: AncestorRef[]) => {
     const kids = expanded.has(n.id) ? localChildren[n.id] : undefined;
+    // раскрытый локал, чьи дети ещё не приехали (запись в localChildren отсутствует —
+    // пустой массив означает «загружено, детей нет» и неполнотой не является)
+    if (childrenLazyLoad && expanded.has(n.id) && localChildren[n.id] === undefined
+      && path.length < MAX_INLINE_DEPTH) hasPendingChildren = true;
     // R5 с пределом глубины (C8): инлайн раскрываем, пока узел НЕ глубже
     // MAX_INLINE_DEPTH слоёв от уровня (path.length = число раскрытых предков над
     // узлом). Узел на пределе остаётся свёрнутым, даже если expanded персистно —
@@ -581,6 +607,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // рёбер level/main-схемы.
   let autoRoutes: Map<string, EdgePoint[]> | undefined;
   let labelPlacements: Map<string, LabelPlacement> | undefined;
+  // Отработали ли стадии качества по-настоящему (не пропуск P10 и не кэш-хит) —
+  // слагаемое гейта авторитетности прогона (см. authoritative ниже).
+  let ranQualityStages = false;
   const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
   // реальные габариты для стадий качества стрелок (роутер/плашки)
   const sizeMap = new Map<string, { w: number; h: number }>(
@@ -627,13 +656,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       id: f.id,
       rect: f.rect,
       // плашка подписи: слева-внизу рамки (nodes.tsx FrameNode), ширина — моноширинная
-      // оценка «🔍 имя ✕» с паддингами
-      plaque: {
-        x: f.rect.x + 10,
-        y: f.rect.y + f.rect.h - 30,
-        w: Math.min(f.rect.w - 20, 56 + 6.5 * f.name.length),
-        h: 22,
-      },
+      // оценка «🔍 имя ✕» с паддингами. Формула — в frames.ts (framePlaqueRect):
+      // она константа контракта маршрутов и обязана быть видима реестру ROUTER_VERSION.
+      plaque: framePlaqueRect(f.rect, f.name),
       memberIds: f.memberIds,
     }));
 
@@ -653,6 +678,21 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
     routableIds.add(g.id);
   }
+  // СИГНАТУРА ВХОДОВ РОУТИНГА. Считается ЗДЕСЬ — ДО стадий качества (Ф2 эпика
+  // router-opt): все её входы (позиции, габариты, группы, скоуп, рамки) уже готовы,
+  // а совпадение с prev делает сами стадии лишними (см. дальше). До Ф2 сверка стояла
+  // ПОСЛЕ стадий и только гасила осцилляции — результат был тот же, а счёт полный.
+  const routeSig = buildRouteSig(displayIds, positions, sizeMap, groupArr, routableIds, routerFrames);
+  // КЭШ-ХИТ ПО СИГНАТУРЕ (он же — прежнее ГАШЕНИЕ ОСЦИЛЛЯЦИЙ, 2026-08-06). Входы
+  // роутинга совпали с прошлым прогоном ПО БИТАМ → результат берётся ЦЕЛИКОМ из prev.
+  // ЭКВИВАЛЕНТНОСТЬ: sig покрывает ВСЁ, что видят роутер и плашки (позиции/габариты
+  // отображаемых, мастер-рёбра с подписями и routable-флагом, рамки с плашками), а
+  // константы алгоритмов сторожит ROUTER_VERSION (routerVersion.ts) — значит полный
+  // прогон вернул бы ровно prev, и подстановка байт-в-байт равна счёту. Более того,
+  // удержание prev — ЕДИНСТВЕННЫЙ фикспойнт: роутер не идемпотентен относительно prev
+  // (гистерезис осциллирует — асимметрия раздачи слотов free/pinned + обратная связь
+  // маршрут↔плашка T4), и без этой ветки пара рёбер по очереди отжимала бы слоты.
+  const cacheHit = prevRouteSig === routeSig && !!prevRoutes && !!prevEdgeHandles && !!prevLabelPlacements;
   // СТАДИИ КАЧЕСТВА СТРЕЛОК (роутер → нуджинг → джоги → плашки → T4) — локальный
   // блок, чтобы фолбэк-прогон двухфазного замера (edgeQuality: "skip") мог
   // пропустить их целиком (Ф3). Пишут во внешние autoRoutes/labelPlacements/
@@ -872,27 +912,50 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const UNMEASURED_SKIP_MIN = 3;
   const UNMEASURED_SKIP_SHARE = 0.05;
   const unmeasured = displayIds.reduce((k, id) => k + (sizeMap.has(id) ? 0 : 1), 0);
-  const skipQuality = input.edgeQuality === "skip" || (
+  const skipByUnmeasured = input.edgeQuality === "skip" || (
     input.edgeQuality === undefined &&
     unmeasured >= UNMEASURED_SKIP_MIN &&
     unmeasured >= UNMEASURED_SKIP_SHARE * Math.max(1, displayIds.length)
   );
-  if (!skipQuality) runEdgeQualityStages();
-  else mark("стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)");
-
-  // Сигнатура входов роутинга этого прогона + ГАШЕНИЕ ОСЦИЛЛЯЦИЙ: входы совпали
-  // с прошлым прогоном ПО БИТАМ → результат ЦЕЛИКОМ из prev. Роутер не идемпотентен
-  // относительно prev (гистерезис осциллирует: асимметрия раздачи слотов free/pinned
-  // + обратная связь маршрут↔плашка T4 — пара рёбер по очереди отжимает слоты,
-  // плашки летают leader↔online, каждый прогон с prevRoutes переворачивает сцену).
-  // Удержание prev — единственный фикспойнт: стрелки/хэндлы/плашки не двигаются,
-  // пока не изменилось ничего, роутинг определяющего.
-  const routeSig = buildRouteSig(displayIds, positions, sizeMap, groupArr, routableIds, routerFrames);
-  if (prevRouteSig === routeSig && prevRoutes && prevEdgeHandles && prevLabelPlacements && autoRoutes) {
+  // ВТОРОЕ ОСНОВАНИЕ ПРОПУСКА (расширение P10): состав сцены неполон — раскрытия ждут
+  // своих детей. Прогон повторится по их приходу, и его маршруты будут выброшены ровно
+  // так же, как маршруты незамеренного прогона; жертва промежуточного кадра smoothstep
+  // санкционирована тем же решением. Явные "full"/"skip" не переопределяем.
+  const skipByPending = input.edgeQuality === undefined && hasPendingChildren;
+  const skipQuality = skipByUnmeasured || skipByPending;
+  // Порядок ветвей: КЭШ-ХИТ СИЛЬНЕЕ ПРОПУСКА P10. Совпадение sig доказывает, что
+  // геометрия, которую увидел бы роутер, тождественна прежней (незамеренный узел и
+  // узел, замеренный ровно в NODE_W×NODE_H, дают один токен sig — и один и тот же
+  // realRectOf), поэтому prev здесь не «протухшие маршруты фолбэк-прогона», а
+  // законный результат. Цель P10 (не жечь счёт, который выбросят) соблюдена: стадии
+  // не исполняются ни в одной из двух ветвей. Выигрыш — сцена открывается сразу со
+  // стрелками, а не с промежуточным кадром smoothstep.
+  if (cacheHit && prevRoutes && prevEdgeHandles && prevLabelPlacements) {
     autoRoutes = prevRoutes;
     edgeHandles = new Map(prevEdgeHandles);
     labelPlacements = prevLabelPlacements;
+    mark("стадии качества стрелок: кэш-хит по routeSig");
+  } else if (!skipQuality) {
+    runEdgeQualityStages();
+    ranQualityStages = true;
+  } else {
+    mark(skipByUnmeasured
+      ? "стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)"
+      : "стадии качества стрелок: пропущены (недогруженные дети раскрытий)");
   }
+
+  // АВТОРИТЕТНОСТЬ ПРОГОНА (гейт записи персистного кэша маршрутов вида, P11):
+  // результат годится в кэш, только если он равен тому, что дал бы ПОЛНЫЙ прогон на
+  // полных замерах и полном составе. Условия: стадии качества реально отработали ИЛИ
+  // пришёл кэш-хит по sig (обе ветви дают финальную геометрию); НЕТ незамеренных узлов
+  // (фолбэк NODE_W×NODE_H — не те тела, что увидит рендер); прогон НЕ скоуплен (при
+  // скоупе часть маршрутов — замороженный prev-контекст); СОСТАВ ПОЛОН — раскрытия не
+  // ждут детей (полевая находка приёмки Ф2: частичный 17-узловой прогон корня имел
+  // unmeasured = 0 и затирал кэш полной 34-узловой сцены); состав НЕ ПУСТ (нулевой
+  // прогон до прихода данных — не «сцена без стрелок», а «данных ещё нет»).
+  const authoritative = (ranQualityStages || cacheHit)
+    && unmeasured === 0 && scopeSet === null
+    && !hasPendingChildren && displayIds.length > 0;
 
   // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
   // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг
@@ -950,5 +1013,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     },
     intents,
     routeSig,
+    authoritative,
   };
 }

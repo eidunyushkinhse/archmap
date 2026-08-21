@@ -95,6 +95,7 @@ export const pipeline: { result: PipelineOutput } = {
     liveInputs: { layoutEdges: [], nodeIds: [], localIds: new Set<string>() },
     intents: [],
     routeSig: "",
+    authoritative: false,
   },
 };
 
@@ -126,6 +127,7 @@ export function resetHarness(): void {
     liveInputs: { layoutEdges: [], nodeIds: [], localIds: new Set<string>() },
     intents: [],
     routeSig: "",
+    authoritative: false,
   };
   rf.setCenter.mockReset();
   rf.fitBounds.mockReset();

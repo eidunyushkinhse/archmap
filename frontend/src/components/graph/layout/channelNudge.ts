@@ -34,8 +34,8 @@ import { cleanup, segments, type SegOrient } from "../edgePath";
 import { solveSeparation, type SepConstraint } from "./vpsc";
 import { trunkPieces } from "./trunks";
 
-const EPS = 0.75;      // допуск «одна линия»
-const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложением (касание концами игнорируем)
+export const EPS = 0.75;      // допуск «одна линия»
+export const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложением (касание концами игнорируем)
 // idealNudgingDistance — зазор между соседними плечами канала. 14 (было 12): воздух
 // под мостики — две дуги JUMP_RADIUS=6 на соседних плечах канала (2·6=12) при 12
 // смыкались впритык; 14 даёт видимый просвет («дуга всегда», 2026-07-09).
@@ -45,15 +45,20 @@ export const NUDGE_GAP = 14;
 // совместным пробегом — тоже канал (раньше — только точные наложения, и коридор из линий
 // на 8px друг от друга оставался «плетёнкой»). Порог пробега выше, чем у точных: короткое
 // соседство стабов у доков — не коридор.
-const NEAR_OVERLAP_MIN = 24;
+export const NEAR_OVERLAP_MIN = 24;
 // Клиренс плеч от тел узлов (= JOG_CLEAR спрямления джогов в routeAll — единый зазор
 // пост-обработки; роутер держит 12, но его линии по margin легальны и трогаются каналом).
 export const NUDGE_CLEAR = 8;
+// ЛЕСТНИЦА ДЕГРАДАЦИИ ЗАЗОРА в тесном коридоре (см. solveAt ниже): целевой gap →
+// 12 → 10 → 8. Ниже нельзя — дуги мостиков JUMP_RADIUS=6 соседних плеч сольются.
+// Вынесена в именованную константу (Ф2 эпика router-opt): геометрия каналов входит
+// в реестр ROUTER_VERSION — сторож протухания кэша маршрутов вида.
+export const NUDGE_GAP_LADDER: readonly number[] = [12, 10, 8];
 // Плечо, уже лежащее в клиренс-полосе узла (роутер прижал в вынужденной тесноте либо канал
 // исторически лёг на грань), выталкивается в ближайший свободный зазор, только если тот
 // не дальше MAX_EVICT×gap — дальний увод растягивал бы маршрут (это уже пере-роутинг,
 // не нуджинг); иначе пин на месте: не делаем хуже.
-const MAX_EVICT = 2;
+export const MAX_EVICT = 2;
 
 export interface ChannelNudgeResult {
   routes: Map<string, EdgePoint[]>;
@@ -404,7 +409,7 @@ export function nudgeChannels(params: {
     // влезла → канал не трогаем: лучше остаточное наложение, чем плечо на грани
     // или в теле узла.
     let targets: number[] | null = null;
-    for (const sepGap of [...new Set([gap, 12, 10, 8])].filter((v) => v <= gap)) {
+    for (const sepGap of [...new Set([gap, ...NUDGE_GAP_LADDER])].filter((v) => v <= gap)) {
       targets = solveAt(sepGap);
       if (targets) break;
     }

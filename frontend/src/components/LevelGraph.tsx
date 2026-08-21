@@ -33,6 +33,10 @@ import type {
 import type { LayoutResult } from "./graph/layout/pipeline";
 import type { LabelPlacement } from "./graph/layout/labelLayout";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
+import {
+  routeCache, viewCacheKey, toCacheEntry, fromCacheEntry, type RouteCacheView,
+} from "./graph/layout/routeCacheStore";
+import { getCurrentProjectId } from "../api/projectScope";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
 import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
@@ -689,7 +693,27 @@ function LevelGraphInner({
   // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
   // обнуляет — следующий прогон (не дроп) считает всё целиком.
   const dragScopeRef = useRef<string[] | null>(null);
-  useEffect(() => { prevRoutesRef.current = null; lastSigRef.current = null; }, [containerId]);
+  // ПЕРСИСТНЫЙ КЭШ МАРШРУТОВ ВИДА (Ф2 эпика router-opt, спека perf.md P11): маршруты
+  // последнего АВТОРИТЕТНОГО прогона этого вида, пережившие уход с вида и перезагрузку.
+  // Открытие уровня — единственный сценарий без prev (гистерезис и скоуп бессильны):
+  // кэш возвращает конвейеру prev, и при совпадении routeSig стадии качества стрелок
+  // не считаются вовсе. Ключ вида и сама запись — в рефах: чтение кэша не имеет права
+  // порождать рендер или лишний прогон конвейера.
+  const cachedEntryRef = useRef<RouteCacheView | null>(null);
+  const viewCacheKeyRef = useRef<string>("");
+  // Смена ВИДА: гистерезис прошлого вида невалиден (сброс), кэш нового — читается.
+  // layoutViewId в зависимостях, потому что вид — это пара (структурный containerId,
+  // ключ раскладки): на странице объекта соседние узлы делят parent_id и различаются
+  // только layoutViewId. Эффект объявлен ВЫШЕ эффекта раскладки — на смене вида он
+  // успевает подставить свежий кэш до первого прогона.
+  useEffect(() => {
+    prevRoutesRef.current = null;
+    lastSigRef.current = null;
+    const key = viewCacheKey(getCurrentProjectId(), containerId, layoutViewId);
+    viewCacheKeyRef.current = key;
+    const entry = routeCache.load(key);
+    cachedEntryRef.current = entry ? fromCacheEntry(entry) : null;
+  }, [containerId, layoutViewId]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -753,23 +777,40 @@ function LevelGraphInner({
     try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
+      const cached = sameSizes ? null : cachedEntryRef.current;
+      // Ключ вида ФИКСИРУЕМ до await: если вид сменится, пока прогон в полёте, его
+      // результат не имеет права лечь под ключ нового вида (sig всё равно не совпал бы,
+      // но занятый впустую слот — тоже потеря).
+      const cacheKey = viewCacheKeyRef.current;
       // скоуп после драга: роутим только рёбра перетащенных узлов (обрывает каскад rip-up
       // и дрейф). Обнуляем СРАЗУ: прогон берёт скоуп ровно один раз, следующий — полный.
       const scopeNodeIds = dragScopeRef.current ?? undefined;
       dragScopeRef.current = null;
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
-      const { layout: next, liveInputs, intents, routeSig } = await computeViewLayoutOffThread({
+      const { layout: next, liveInputs, intents, routeSig, authoritative } = await computeViewLayoutOffThread({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren,
+        // ленивая догрузка детей раскрытий живёт только в редактируемом режиме
+        // (useLevelDrill не фетчит в read-only): конвейеру это нужно, чтобы отличить
+        // «дети ещё едут» (состав неполон, прогон повторится) от «детей не будет»
+        // (страничные схемы — там раскрытый контейнер рисуется свёрнутым навсегда).
+        childrenLazyLoad: !isReadOnly,
         sizes: nodeSizesRef.current,
         // edgeQuality НЕ задаём — авто-режим конвейера (P10): прогоны с крупной
         // пачкой незамеренных узлов (первый показ, раскрытие с новыми детьми)
         // идут без стадий качества стрелок — их пересчитает прогон по замерам.
-        prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
-        prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
-        prevRouteSig: sameSizes ? prevRoutesRef.current?.sig : undefined,
-        prevLabelPlacements: sameSizes ? prevRoutesRef.current?.labels : undefined,
+        // prev — свой снимок (тот же комплект замеров) ИЛИ персистный кэш вида, когда
+        // своего снимка нет/он от других замеров. Кэш даёт одно из двух: совпал
+        // routeSig — мгновенный результат без стадий качества; не совпал — обычная
+        // гистерезис-валидация (buildAutoRoutes сам отбрасывает невалидный prev).
+        // На SKIP-прогонах (P10) кэш тоже передаём: стадии там не идут, но кэш-хит по
+        // sig сильнее пропуска — сцена открывается сразу со стрелками, а не кадром
+        // smoothstep. Когда sig не совпал, prev в пропущенных стадиях просто не читается.
+        prevRoutes: sameSizes ? prevRoutesRef.current?.routes : cached?.routes,
+        prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : cached?.handles,
+        prevRouteSig: sameSizes ? prevRoutesRef.current?.sig : cached?.sig,
+        prevLabelPlacements: sameSizes ? prevRoutesRef.current?.labels : cached?.labels,
         scopeNodeIds: sameSizes ? scopeNodeIds : undefined,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
@@ -778,6 +819,22 @@ function LevelGraphInner({
           routes: next.autoRoutes, handles: next.edgeHandles,
           labels: next.labelPlacements, sig: routeSig, version: sizesVersion,
         };
+        // ЗАПИСЬ ПЕРСИСТНОГО КЭША — только АВТОРИТЕТНЫЙ прогон (P11): стадии качества
+        // отработали или пришёл кэш-хит, все узлы замерены, скоупа нет. Прочие прогоны
+        // (пропуск P10, частичные замеры, пересчёт после драга) временны по построению
+        // и отравили бы кэш геометрией фолбэк-габаритов или замороженного prev-контекста.
+        if (authoritative && next.labelPlacements) {
+          const view: RouteCacheView = {
+            sig: routeSig, routes: next.autoRoutes,
+            handles: next.edgeHandles, labels: next.labelPlacements,
+          };
+          routeCache.save(
+            cacheKey,
+            toCacheEntry(view.sig, view.routes, view.handles, view.labels, Date.now()),
+          );
+          // горячая копия — только если вид с начала прогона не сменился
+          if (cacheKey === viewCacheKeyRef.current) cachedEntryRef.current = view;
+        }
       }
       liveHandleInputs.current = liveInputs;
       // Побочные записи раскладки (интенты) — через единый commitLayout: засев владения
@@ -811,7 +868,7 @@ function LevelGraphInner({
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nodeSizesRef — стабильный ref из useLevelMeasure (читается по .current), в deps не нужен
-  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
   // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).

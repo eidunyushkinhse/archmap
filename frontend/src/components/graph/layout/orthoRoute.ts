@@ -81,9 +81,11 @@ export interface PortsRoute {
   endIdx: number;     // индекс выбранного целевого порта
 }
 
-const DEFAULT_MARGIN = 12;
-const DEFAULT_BEND_PENALTY = 40;
-const EPS = 0.5;
+// ЭКСПОРТ (Ф2 эпика router-opt): константы геометрии маршрута входят в реестр
+// ROUTER_VERSION (routerVersion.ts) — сторож протухания кэша маршрутов вида.
+export const DEFAULT_MARGIN = 12;
+export const DEFAULT_BEND_PENALTY = 40;
+export const EPS = 0.5;
 
 // Знаковые направления хода (для запрета разворота и штрафа за поворот).
 const NONE = 0, XP = 1, XM = 2, YP = 3, YM = 4;

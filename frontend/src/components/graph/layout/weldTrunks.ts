@@ -33,13 +33,13 @@ export const MERGE_GAIN = 0.5;
 // мелкие рёбра): при MERGE_GAIN → 1 езда по стволу почти бесплатна, и без капа бонус
 // оплачивал крюки через весь уровень (мутант «вправо 885, чтобы вернуться влево 2200»,
 // журнал плана — донастройка жадности).
-const WELD_STRETCH = 1.25;
-const WELD_STRETCH_SLACK = 40;
+export const WELD_STRETCH = 1.25;
+export const WELD_STRETCH_SLACK = 40;
 // Изломов собрата перенимается за одну попытку; итерации до фикспойнта добирают глубже.
-const WELD_K = 3;
-const WELD_ITER_CAP = 3;
+export const WELD_K = 3;
+export const WELD_ITER_CAP = 3;
 // Порог строгого выигрыша чернил: ничьи не перекраивают маршрут (идемпотентность).
-const WELD_EPS = 0.5;
+export const WELD_EPS = 0.5;
 const EPS = 0.5;
 
 const portKey = (p: EdgePoint): string => `${Math.round(p.x * 2)}|${Math.round(p.y * 2)}`;
