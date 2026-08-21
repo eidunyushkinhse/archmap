@@ -46,6 +46,7 @@ import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { metaLabelBox } from "./labelBox";
 import { pathCrossesRects } from "../edgePath";
+import { computeIncrementalScope, type PrevScene } from "./incrementalScope";
 import { widenNodesForLabels } from "./widenForLabels";
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
@@ -142,6 +143,17 @@ export interface PipelineInput {
   // 18–26 из 32 маршрутов и не сходил к фикспойнту (дрейф гистерезисных прогонов). Полный
   // пересчёт всех рёбер остаётся на открытие уровня и «Переразложить» (scopeNodeIds не задан).
   scopeNodeIds?: string[];
+  // СНИМОК ФИНАЛЬНОЙ СЦЕНЫ ПРОШЛОГО ПРОГОНА (Ф3 эпика router-opt, спека edge.md E84):
+  // позиции и габариты, по которым посчитаны prevRoutes. Когда он задан, явного скоупа
+  // драга нет и prev-маршруты есть, конвейер вычисляет скоуп САМ — диффом своих
+  // ФИНАЛЬНЫХ позиций против этого снимка (computeIncrementalScope): роутятся только
+  // рёбра окрестности изменений, остальные замораживаются той же механикой, что у драга.
+  // Так раскрытие/сворачивание контейнера перестаёт платить полным пересчётом сцены.
+  // Вызывающий обязан давать снимок ТОЛЬКО вместе с СООТВЕТСТВУЮЩИМИ ему prevRoutes
+  // (тот же прогон, тот же комплект замеров) — иначе дифф врёт. Персистный кэш вида
+  // (P11) снимка сцены не несёт: с кэш-prev авто-скоуп не работает — там либо кэш-хит
+  // по routeSig, либо честный полный прогон.
+  prevScene?: PrevScene;
   // ГАШЕНИЕ ОСЦИЛЛЯЦИЙ МАРШРУТОВ (2026-08-06): сигнатура входов роутинга прошлого
   // прогона и его плашки. Если входы роутинга ТЕКУЩЕГО прогона совпадают с сигнатурой
   // ПО БИТАМ, результат берётся ЦЕЛИКОМ из prev (маршруты/хэндлы/плашки): роутер
@@ -176,10 +188,11 @@ export interface PipelineOutput {
   // АВТОРИТЕТНЫЙ ПРОГОН (Ф2 эпика router-opt, спека perf.md P11) — гейт записи
   // ПЕРСИСТНОГО кэша маршрутов вида. true ⇔ (стадии качества стрелок отработали
   // полноценно ИЛИ результат взят целиком из prev по совпавшей routeSig) И в сцене
-  // НЕТ незамеренных узлов И прогон НЕ скоуплен (scopeNodeIds). Только такой
-  // результат равен байт-в-байт полному холодному прогону — прочие (пропуск P10,
-  // частичные замеры, скоуп после драга) в кэш не кладутся: они по построению
-  // временные и отравили бы кэш геометрией фолбэк-габаритов или замороженного prev.
+  // НЕТ незамеренных узлов И прогон НЕ скоуплен — ни драг-скоупом (scopeNodeIds), ни
+  // инкрементальным авто-скоупом (prevScene, E84). Только такой результат равен
+  // байт-в-байт полному холодному прогону — прочие (пропуск P10, частичные замеры,
+  // любой скоуп) в кэш не кладутся: они по построению временные и отравили бы кэш
+  // геометрией фолбэк-габаритов или замороженного prev-контекста.
   authoritative: boolean;
 }
 
@@ -196,6 +209,23 @@ export interface T4Diag {
   // режет ни одной чужой плашки, сжатой на k со всех сторон; 12 — «режет и при 10»
   // (касание краем против глубокого реза — выбор варианта Б3)
   cutDepths: { id: string; depth: number }[];
+}
+
+// ДИАГНОСТИКА ИНКРЕМЕНТАЛЬНОГО СКОУПА (Ф3 того же эпика): полезная нагрузка
+// необязательного хука __ARCHMAP_SCOPE_DIAG на globalThis — им реплей и полевой зонд
+// видят, сколько рёбер реально ушло в пересчёт. Без хука — мёртвый no-op.
+export interface ScopeDiag {
+  // рёбра-кандидаты роутинга (оба конца с геометрией)
+  candidates: number;
+  // сколько отображаемых сущностей переехало/появилось/исчезло против прошлой сцены
+  changedNodes: number;
+  // размер скоупа ДО порога отказа: близко к candidates — сцена изменилась целиком
+  rawScope: number;
+  // размер авто-скоупа; null — «не применён» (скоуп драга, нет prevScene/prevRoutes,
+  // изменений нет вовсе либо их больше порога SCOPE_FULL_RECALC_SHARE)
+  autoScope: number | null;
+  // id рёбер авто-скоупа (отсортированы) — для разбора границы скоупа
+  autoScopeIds: string[];
 }
 
 // Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
@@ -250,7 +280,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
     expanded, localChildren, childrenLazyLoad, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
-    prevRouteSig, prevLabelPlacements,
+    prevRouteSig, prevLabelPlacements, prevScene,
   } = input;
   const intents: PersistIntent[] = [];
 
@@ -672,10 +702,53 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   }
   const hasGeometry = (id: string): boolean => !!positions.get(id) || frameEndpoints.has(id);
 
-  const routableIds = new Set<string>();
+  // КАНДИДАТЫ РОУТИНГА — рёбра с позиционированными концами, ДО применения скоупа:
+  // это знаменатель порога отказа авто-скоупа и область его замыкания по стволам.
+  const routeCandidates = new Set<string>();
   for (const g of groupArr) {
     if (!hasGeometry(g.source) || !hasGeometry(g.target)) continue;
+    routeCandidates.add(g.id);
+  }
+  // АВТО-СКОУП (Ф3 эпика router-opt, спека edge.md E84): явного скоупа драга нет, но
+  // есть снимок прошлой сцены и её маршруты → конвейер вычисляет скоуп САМ, диффом
+  // ФИНАЛЬНЫХ позиций (здесь они уже финальны: инварианты, A10 и рамки отработали).
+  // В отличие от скоупа драга это множество РЁБЕР, а не узлов. null — «инкрементальный
+  // путь не применим» (нечего пересчитывать либо изменений слишком много): дальше всё
+  // идёт прежним полным путём.
+  const scopeStats = { changedNodes: 0, rawScope: 0 };
+  const autoScopeEdges = scopeSet === null && prevScene && prevRoutes
+    ? computeIncrementalScope({
+      positions, sizes: sizeMap, prevScene, groups: groupArr,
+      candidates: routeCandidates, prevRoutes, stats: scopeStats,
+      // рамки-ОБЛАСТИ (раскрытые, они же routerFrames) + родные рамки, служащие ТЕЛОМ
+      // СТЫКОВКИ (frameEndpoints): у вторых region = false — их rect охватывает всю
+      // сцену, в грязную зону ему нельзя, но сдвиг их членов обязан перепроложить
+      // рёбра, состыкованные в саму рамку (E40).
+      frames: finalFrames
+        .filter((f) => !f.native || frameEndpoints.has(f.id))
+        .map((f) => ({ id: f.id, rect: f.rect, memberIds: f.memberIds, region: !f.native })),
+    })
+    : null;
+  // ЕСТЬ ЛИ СКОУП ВООБЩЕ: любая из двух механик включает заморозку незаскоупленных
+  // рёбер (preplaced-контекст + restoreFrozen после каждого прохода) и снимает
+  // авторитетность прогона. Ветви ниже смотрят СЮДА, а не на scopeSet — путь драга при
+  // этом байт-в-байт прежний (при заданном scopeNodeIds авто-скоуп не считается вовсе).
+  const scoped = scopeSet !== null || autoScopeEdges !== null;
+  {
+    const diagG = globalThis as unknown as { __ARCHMAP_SCOPE_DIAG?: (d: ScopeDiag) => void };
+    diagG.__ARCHMAP_SCOPE_DIAG?.({
+      candidates: routeCandidates.size,
+      changedNodes: scopeStats.changedNodes,
+      rawScope: scopeStats.rawScope,
+      autoScope: autoScopeEdges ? autoScopeEdges.size : null,
+      autoScopeIds: autoScopeEdges ? [...autoScopeEdges] : [],
+    });
+  }
+  const routableIds = new Set<string>();
+  for (const g of groupArr) {
+    if (!routeCandidates.has(g.id)) continue;
     if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
+    if (autoScopeEdges && !autoScopeEdges.has(g.id)) continue;
     routableIds.add(g.id);
   }
   // СИГНАТУРА ВХОДОВ РОУТИНГА. Считается ЗДЕСЬ — ДО стадий качества (Ф2 эпика
@@ -709,7 +782,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // СКОУП: buildAutoRoutes вернул маршруты только заскоупленных рёбер; незаскоупленные
   // (инцидентные прочим узлам) берём из prevRoutes — они зафиксированы как preplaced и
   // сохраняют прежнюю геометрию (иначе потеряли бы маршрут и отвалились на smoothstep).
-  if (scopeSet && prevRoutes) {
+  if (scoped && prevRoutes) {
     for (const g of groupArr) {
       if (routableIds.has(g.id) || autoRoutes.has(g.id)) continue;
       const pr = prevRoutes.get(g.id);
@@ -719,7 +792,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там).
   for (const [id, hh] of ar.handles) edgeHandles.set(id, hh);
   // хэндлы незаскоупленных рёбер — из прошлого прогона (их маршрут не менялся)
-  if (scopeSet && prevEdgeHandles) {
+  if (scoped && prevEdgeHandles) {
     for (const g of groupArr) {
       if (routableIds.has(g.id) || edgeHandles.has(g.id)) continue;
       const ph = prevEdgeHandles.get(g.id);
@@ -730,7 +803,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // джогов, T4) не должна её двигать, иначе дрейф возвращается (зонд: чурн ~6/поколение).
   // Восстанавливаем после каждого прохода, который переписывает autoRoutes.
   const frozenRoutes = new Map<string, EdgePoint[]>();
-  if (scopeSet) {
+  if (scoped) {
     for (const g of groupArr) {
       if (routableIds.has(g.id)) continue;
       const rt = autoRoutes.get(g.id);
@@ -832,7 +905,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     const dirty = new Set<string>();
     for (const g of groupArr) {
       // СКОУП: незаскоупленные рёбра заморожены — не перепрокладываем (иначе дрейф)
-      if (scopeSet && !routableIds.has(g.id)) continue;
+      if (scoped && !routableIds.has(g.id)) continue;
       const rt = autoRoutes.get(g.id);
       if (!rt) continue;
       for (const [gid, r] of labelRectOf) {
@@ -948,13 +1021,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // результат годится в кэш, только если он равен тому, что дал бы ПОЛНЫЙ прогон на
   // полных замерах и полном составе. Условия: стадии качества реально отработали ИЛИ
   // пришёл кэш-хит по sig (обе ветви дают финальную геометрию); НЕТ незамеренных узлов
-  // (фолбэк NODE_W×NODE_H — не те тела, что увидит рендер); прогон НЕ скоуплен (при
-  // скоупе часть маршрутов — замороженный prev-контекст); СОСТАВ ПОЛОН — раскрытия не
+  // (фолбэк NODE_W×NODE_H — не те тела, что увидит рендер); прогон НЕ скоуплен НИ ОДНОЙ
+  // из двух механик — ни драгом, ни авто-скоупом Ф3 (при скоупе часть маршрутов —
+  // замороженный prev-контекст); СОСТАВ ПОЛОН — раскрытия не
   // ждут детей (полевая находка приёмки Ф2: частичный 17-узловой прогон корня имел
   // unmeasured = 0 и затирал кэш полной 34-узловой сцены); состав НЕ ПУСТ (нулевой
   // прогон до прихода данных — не «сцена без стрелок», а «данных ещё нет»).
   const authoritative = (ranQualityStages || cacheHit)
-    && unmeasured === 0 && scopeSet === null
+    && unmeasured === 0 && !scoped
     && !hasPendingChildren && displayIds.length > 0;
 
   // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):

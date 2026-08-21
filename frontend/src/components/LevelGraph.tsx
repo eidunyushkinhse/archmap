@@ -31,6 +31,7 @@ import type {
   LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
 } from "./graph/types";
 import type { LayoutResult } from "./graph/layout/pipeline";
+import type { PrevScene } from "./graph/layout/incrementalScope";
 import type { LabelPlacement } from "./graph/layout/labelLayout";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
 import {
@@ -687,6 +688,12 @@ function LevelGraphInner({
     // (конвейер удерживает результат целиком из prev при неизменных входах)
     labels?: Map<string, LabelPlacement>;
     sig?: string;
+    // СНИМОК ФИНАЛЬНОЙ СЦЕНЫ прогона (Ф3, E84): позиции и габариты, по которым
+    // посчитаны routes. Конвейер диффует его со своими финальными позициями и сам
+    // считает скоуп пересчёта (раскрытие/сворачивание больше не платит всей сценой).
+    // Копии ГЛУБОКИЕ: positions конвейера и словарь замеров живут своей жизнью, а
+    // снимок обязан описывать именно тот прогон, чьи маршруты лежат рядом.
+    scene: PrevScene;
     version: number;
   } | null>(null);
   // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
@@ -786,6 +793,9 @@ function LevelGraphInner({
       // и дрейф). Обнуляем СРАЗУ: прогон берёт скоуп ровно один раз, следующий — полный.
       const scopeNodeIds = dragScopeRef.current ?? undefined;
       dragScopeRef.current = null;
+      // Словарь замеров ФИКСИРУЕМ до await: useLevelMeasure подменяет его целиком на
+      // новом замере, а снимок сцены обязан описывать ровно то, что видел этот прогон.
+      const sizesAtRun = nodeSizesRef.current;
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
       const { layout: next, liveInputs, intents, routeSig, authoritative } = await computeViewLayoutOffThread({
@@ -796,7 +806,7 @@ function LevelGraphInner({
         // «дети ещё едут» (состав неполон, прогон повторится) от «детей не будет»
         // (страничные схемы — там раскрытый контейнер рисуется свёрнутым навсегда).
         childrenLazyLoad: !isReadOnly,
-        sizes: nodeSizesRef.current,
+        sizes: sizesAtRun,
         // edgeQuality НЕ задаём — авто-режим конвейера (P10): прогоны с крупной
         // пачкой незамеренных узлов (первый показ, раскрытие с новыми детьми)
         // идут без стадий качества стрелок — их пересчитает прогон по замерам.
@@ -812,12 +822,22 @@ function LevelGraphInner({
         prevRouteSig: sameSizes ? prevRoutesRef.current?.sig : cached?.sig,
         prevLabelPlacements: sameSizes ? prevRoutesRef.current?.labels : cached?.labels,
         scopeNodeIds: sameSizes ? scopeNodeIds : undefined,
+        // СНИМОК ПРОШЛОЙ СЦЕНЫ — только вместе со СВОИМ prev (ветка sameSizes): конвейер
+        // диффует его с финальными позициями и роутит лишь окрестность изменений (E84).
+        // Персистный кэш вида снимка не несёт (в ветке !sameSizes prev приходит из него),
+        // поэтому там авто-скоуп не работает: либо кэш-хит по routeSig, либо честный
+        // полный прогон — оба варианта корректны, инкремента просто нет.
+        prevScene: sameSizes ? prevRoutesRef.current?.scene : undefined,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
       if (next.autoRoutes) {
         prevRoutesRef.current = {
           routes: next.autoRoutes, handles: next.edgeHandles,
           labels: next.labelPlacements, sig: routeSig, version: sizesVersion,
+          scene: {
+            positions: new Map([...next.positions].map(([id, p]) => [id, { x: p.x, y: p.y }])),
+            sizes: new Map(Object.entries(sizesAtRun).map(([id, s]) => [id, { w: s.w, h: s.h }])),
+          },
         };
         // ЗАПИСЬ ПЕРСИСТНОГО КЭША — только АВТОРИТЕТНЫЙ прогон (P11): стадии качества
         // отработали или пришёл кэш-хит, все узлы замерены, скоупа нет. Прочие прогоны

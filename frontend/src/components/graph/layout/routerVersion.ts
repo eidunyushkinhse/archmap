@@ -35,6 +35,7 @@ import {
   MERGE_GAIN, WELD_STRETCH, WELD_STRETCH_SLACK, WELD_K, WELD_ITER_CAP, WELD_EPS,
 } from "./weldTrunks";
 import { FRAME_CROSS_COST, LABEL_CROSS_COST } from "./autoRoutes";
+import { ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE } from "./incrementalScope";
 import {
   NUDGE_GAP, NUDGE_GAP_LADDER, NUDGE_CLEAR, EPS as NUDGE_EPS,
   OVERLAP_MIN as NUDGE_OVERLAP_MIN, NEAR_OVERLAP_MIN as NUDGE_NEAR_OVERLAP_MIN,
@@ -54,7 +55,7 @@ import { EDGE_STUB, NODE_W, NODE_H } from "../constants";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 1;
+export const ROUTER_VERSION = 2;
 
 // Зонды формул, у которых нет отдельной именованной константы: изменение ЛЮБОГО их
 // внутреннего параметра (высота строки, ширина переноса wrapLabel, модель мастера)
@@ -93,6 +94,11 @@ export function collectRouterConstants(): Record<string, unknown> {
     // --- мост домена (autoRoutes) ---
     "autoRoutes.FRAME_CROSS_COST": FRAME_CROSS_COST,
     "autoRoutes.LABEL_CROSS_COST": LABEL_CROSS_COST,
+    // --- инкрементальный скоуп (Ф3, E84): решает, КАКИЕ рёбра перепрокладываются, а
+    // какие остаются замороженным prev-контекстом. Геометрию сцены это меняет так же
+    // прямо, как штраф или зазор, — потому и здесь.
+    "incrementalScope.ROUTE_SCOPE_PAD": ROUTE_SCOPE_PAD,
+    "incrementalScope.SCOPE_FULL_RECALC_SHARE": SCOPE_FULL_RECALC_SHARE,
     // --- канальный нуджинг (channelNudge) ---
     "channelNudge.NUDGE_GAP": NUDGE_GAP,
     "channelNudge.NUDGE_GAP_LADDER": [...NUDGE_GAP_LADDER],
@@ -164,4 +170,9 @@ export const CONSTANTS_HASH_BY_VERSION: Record<number, string> = {
   // v1 — состояние на конец Ф1 эпика router-opt (правки А1/А3а/А4/А2.1 были
   // байт-в-байт и ни одной константы не тронули).
   1: "046fda3d91037385",
+  // v2 — Ф3 того же эпика: в реестр вошли константы инкрементального скоупа
+  // (ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE). Сами маршруты ПОЛНОГО прогона не
+  // изменились ни на пиксель (дампы 4 сцен и фазз-полигон байт-в-байт), но записи
+  // кэша v1 честно инвалидируются: реестр вырос, а значит контракт роутера — другой.
+  2: "fb30729cfe5da8c2",
 };

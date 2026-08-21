@@ -791,3 +791,130 @@ describe("состав сцены: раскрытия, ждущие детей (
     expect(out.authoritative).toBe(true);
   });
 });
+
+// ИНКРЕМЕНТАЛЬНЫЙ СКОУП ЛЮБОГО ПЕРЕСЧЁТА (Ф3 эпика router-opt, спека edge.md E84).
+// Конвейер получает снимок финальной сцены прошлого прогона (prevScene) и САМ считает,
+// какие рёбра обязаны перепроложиться: остальные — замороженный prev-контекст (та же
+// механика, что у скоупа драга E82). Здесь проверяется наблюдаемое поведение конвейера:
+// заморозка байт-в-байт, отказ в полный пересчёт по порогу и снятие авторитетности.
+describe("инкрементальный скоуп по prevScene (Ф3 router-opt, E84)", () => {
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  // Две строки по четыре узла: цепочка в каждой строке + две вертикальные перемычки.
+  // Сцена нарочно шире levelInput(): порог отказа (60% рёбер) на трёх рёбрах срабатывал
+  // бы от любого сдвига, и инкрементальный путь было бы не увидеть.
+  const IDS = ["A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"];
+  const CHAIN: [string, string, string][] = [
+    ["c01", "A0", "A1"], ["c12", "A1", "A2"], ["c23", "A2", "A3"],
+    ["c45", "A4", "A5"], ["c56", "A5", "A6"], ["c67", "A6", "A7"],
+    ["v04", "A0", "A4"], ["v37", "A3", "A7"],
+  ];
+  const BOTTOM = ["c45", "c56", "c67"];   // заведомо далеко от верхней строки
+  const TOUCHED = ["c01", "c12"];         // рёбра сдвигаемого A1
+
+  function wideInput(moved: Record<string, { x: number; y: number }> = {}): PipelineInput {
+    const viewLayout: PipelineInput["viewLayout"] = {};
+    IDS.forEach((id, i) => {
+      viewLayout[id] = moved[id] ?? { x: (i % 4) * 500, y: i < 4 ? 0 : 800 };
+    });
+    return {
+      nodes: IDS.map(appNode),
+      endpoints: [],
+      edges: CHAIN.map(([id, s, t]) => edge(id, s, t)),
+      containerId: "P",
+      viewLayout,
+      ancestorIds: ["P"],
+      expanded: new Set(),
+      localChildren: {},
+      sizes: Object.fromEntries(IDS.map((id) => [id, SZ])),
+      edgeQuality: "full",
+    };
+  }
+
+  // снимок финальной сцены прогона — ровно то, что кладёт рядом с маршрутами LevelGraph
+  const sceneOf = (out: Awaited<ReturnType<typeof computeViewLayout>>) => ({
+    positions: new Map([...out.layout.positions].map(([id, p]) => [id, { x: p.x, y: p.y }])),
+    sizes: new Map(IDS.map((id) => [id, SZ])),
+  });
+  const routeOf = (out: Awaited<ReturnType<typeof computeViewLayout>>, id: string): string =>
+    JSON.stringify(out.layout.autoRoutes?.get(id) ?? null);
+
+  it("сдвинут один узел: незаскоупленные маршруты БАЙТ-В-БАЙТ прежние, его рёбра пересчитаны", async () => {
+    const A = await computeViewLayout(wideInput());
+    const B = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevScene: sceneOf(A),
+    });
+    // нижняя строка изменения не видела — её маршруты обязаны совпасть побитово
+    for (const id of BOTTOM) expect(routeOf(B, id), `ребро ${id}`).toBe(routeOf(A, id));
+    // рёбра переехавшего узла — пересчитаны (конец физически в другом месте)
+    for (const id of TOUCHED) expect(routeOf(B, id), `ребро ${id}`).not.toBe(routeOf(A, id));
+    // скоупленный прогон не авторитетен: часть маршрутов — замороженный prev
+    expect(B.authoritative).toBe(false);
+    // и его сигнатура отличается от полной (в неё входят routable-флаги)
+    expect(B.routeSig).not.toBe(A.routeSig);
+  });
+
+  it("БЕЗ prevScene тот же сдвиг идёт полным путём (прогон авторитетен)", async () => {
+    const A = await computeViewLayout(wideInput());
+    const C = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+    });
+    expect(C.authoritative).toBe(true);
+  });
+
+  it("изменилась вся сцена (> порога) → авто-скоуп не применён, полный пересчёт", async () => {
+    const A = await computeViewLayout(wideInput());
+    const shifted = Object.fromEntries(
+      IDS.map((id, i) => [id, { x: (i % 4) * 500 + 130, y: (i < 4 ? 0 : 800) + 170 }]),
+    );
+    const B = await computeViewLayout({
+      ...wideInput(shifted),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevScene: sceneOf(A),
+    });
+    // скоупа нет → прогон авторитетен, как обычный полный
+    expect(B.authoritative).toBe(true);
+  });
+
+  it("сцена не изменилась: скоуп пуст → полный путь и кэш-хит по routeSig", async () => {
+    const A = await computeViewLayout(wideInput());
+    const B = await computeViewLayout({
+      ...wideInput(),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+      prevScene: sceneOf(A),
+    });
+    // пустой скоуп НЕ включает заморозку: иначе routable-флаги изменили бы sig и
+    // зеркальные прогоны перестали бы хитовать кэш и писаться в него (P11)
+    expect(B.routeSig).toBe(A.routeSig);
+    expect(B.authoritative).toBe(true);
+  });
+
+  it("скоуп ДРАГА сильнее авто-скоупа: при заданном scopeNodeIds дифф не считается", async () => {
+    const A = await computeViewLayout(wideInput());
+    const moved = wideInput({ A1: { x: 500, y: -600 } });
+    const drag = await computeViewLayout({
+      ...moved,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: ["A1"],
+    });
+    const dragWithScene = await computeViewLayout({
+      ...moved,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: ["A1"],
+      prevScene: sceneOf(A),
+    });
+    // снимок сцены на путь драга не влияет ВООБЩЕ (семантика E82 неприкосновенна)
+    expect(sig(dragWithScene.layout)).toBe(sig(drag.layout));
+    expect(dragWithScene.routeSig).toBe(drag.routeSig);
+  });
+});
