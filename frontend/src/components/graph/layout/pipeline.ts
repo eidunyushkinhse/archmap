@@ -167,6 +167,21 @@ export interface PipelineOutput {
   routeSig: string;
 }
 
+// ДИАГНОСТИКА T4 (Ф0 эпика «глубокая оптимизация роутера», 2026-08-21): полезная
+// нагрузка необязательного хука __ARCHMAP_T4_DIAG на globalThis — им реплей снимает
+// метрики, решающие судьбу кандидатов Б3 и цену дыры В8.1 (см. блок T4 ниже).
+export interface T4Diag {
+  // «грязные» рёбра мини-прохода: маршрут режет прямоугольник ЧУЖОЙ плашки
+  dirtyIds: string[];
+  // из них те, чей конец — РАМКА: T4-вызов не получает frameEndpoints, поэтому такие
+  // рёбра молча не перепрокладываются никогда (дыра В8.1 плана) — здесь их доля
+  frameEndDirtyIds: string[];
+  // ГЛУБИНА ВРЕЗА: минимальный inset k ∈ {2,4,6,8,10}, при котором маршрут уже НЕ
+  // режет ни одной чужой плашки, сжатой на k со всех сторон; 12 — «режет и при 10»
+  // (касание краем против глубокого реза — выбор варианта Б3)
+  cutDepths: { id: string; depth: number }[];
+}
+
 // Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
 // строк = число членов; одиночное ребро — «label · technology» в одну строку). Единый
 // источник для оценки габаритов (labelBox) в раздвижке A10 и в размещении плашек.
@@ -784,6 +799,34 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         if (gid === g.id) continue;
         if (pathCrossesRects(rt, [r])) { dirty.add(g.id); break; }
       }
+    }
+    // ДИАГНОСТИЧЕСКИЙ ХУК T4 (Ф0): по образцу __ARCHMAP_TRACE — без выставленного
+    // хука мёртвый no-op, ни одного лишнего вычисления в проде. Всё содержимое
+    // (в т.ч. лестница inset'ов глубины вреза) считается только здесь.
+    const diagG = globalThis as unknown as { __ARCHMAP_T4_DIAG?: (d: T4Diag) => void };
+    const t4diag = diagG.__ARCHMAP_T4_DIAG;
+    if (t4diag) {
+      const dirtyIds = [...dirty];
+      const frameEndDirtyIds: string[] = [];
+      for (const g of groupArr) {
+        if (!dirty.has(g.id)) continue;
+        if (frameIds.has(g.source) || frameIds.has(g.target)) frameEndDirtyIds.push(g.id);
+      }
+      const INSETS = [2, 4, 6, 8, 10];
+      const cutDepths = dirtyIds.map((id) => {
+        const rt = autoRoutes?.get(id) ?? [];
+        const foreign: { x: number; y: number; w: number; h: number }[] = [];
+        for (const [gid, r] of labelRectOf) if (gid !== id) foreign.push(r);
+        let depth = 12; // режет даже плашку, сжатую на 10 — «глубже 10»
+        for (const k of INSETS) {
+          const shrunk = foreign
+            .map((r) => ({ x: r.x + k, y: r.y + k, w: r.w - 2 * k, h: r.h - 2 * k }))
+            .filter((r) => r.w > 0 && r.h > 0);
+          if (!pathCrossesRects(rt, shrunk)) { depth = k; break; }
+        }
+        return { id, depth };
+      });
+      t4diag({ dirtyIds, frameEndDirtyIds, cutDepths });
     }
     if (dirty.size > 0) {
       const ar2 = buildAutoRoutes({

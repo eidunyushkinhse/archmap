@@ -11,7 +11,7 @@
 // плечи родственных стрелок (из общего хэндла) остаются слитыми (R4=4a). См. ANALYSIS §4, §6.
 import type { EdgePoint } from "../../../types";
 import { cleanup, pathCrossesRects, segments, type NodeRect, type Segment } from "../edgePath";
-import { routePorts, type PortCandidate, type RouteGridCache, type RouteOptions } from "./orthoRoute";
+import { routePorts, __routeCounters, type PortCandidate, type RouteGridCache, type RouteOptions } from "./orthoRoute";
 import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 
 const EPS = 0.5;
@@ -756,9 +756,16 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
   };
   // T6: rip-up итерируется до фикспойнта (перепрокладка одного ребра открывает ходы
   // другим), с жёсткой крышкой — на практике сходится за 1-2 итерации.
+  // РАЗМЕТКА ФАЗ (Ф0 эпика глубокой оптимизации): дельты счётчиков вокруг фикспойнта —
+  // по ним реплей отделяет rip-up от первичной прокладки прохода-1 (сварка хвостов
+  // размечена так же в weldTrunks). Цена — два int-вычитания на набор.
+  const ripCallsBefore = __routeCounters.routePortsCalls;
+  const ripExpBefore = __routeCounters.expansions;
   for (let iter = 0; iter < 3; iter++) {
     if (!ripUp()) break;
   }
+  __routeCounters.ripupCalls += __routeCounters.routePortsCalls - ripCallsBefore;
+  __routeCounters.ripupExpansions += __routeCounters.expansions - ripExpBefore;
   // T3: пост-спрямление джогов по ФИНАЛЬНОМУ контексту (длина та же, изломов меньше;
   // джог, уворачивавшийся от реальной езды/креста, остаётся — решает полная стоимость).
   for (const e of order) {

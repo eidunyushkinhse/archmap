@@ -297,6 +297,9 @@ export function weldTrunks(params: WeldParams): Set<string> {
               });
               __routeCounters.weldTails++;
               const expBefore = __routeCounters.expansions;
+              // Ф0: вызовы A* хвоста ВМЕСТЕ с его маргин-ретраями (weldTails считает
+              // попытки, а разбивка фаз по вызовам требует именно routePortsCalls).
+              const callsBefore = __routeCounters.routePortsCalls;
               const tail = routePorts(
                 [{ point: { x: q.p.x, y: q.p.y }, side: arrSide }],
                 [{ point: { x: dock.x, y: dock.y }, side: dockSide }],
@@ -309,6 +312,7 @@ export function weldTrunks(params: WeldParams): Set<string> {
                 },
               );
               __routeCounters.weldExpansions += __routeCounters.expansions - expBefore;
+              __routeCounters.weldCalls += __routeCounters.routePortsCalls - callsBefore;
               if (!tail || tail.pts.length < 2) continue;
               // вершины ствола строго до точки расставания (дуга после cleanup растёт
               // строго); для проекции хвост стартует с q.p — сегмент-хозяин доклеится

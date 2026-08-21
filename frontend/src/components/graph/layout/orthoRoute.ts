@@ -276,7 +276,65 @@ const scratch = {
 export const __routeCounters = {
   routePortsCalls: 0, expansions: 0, moveCostCalls: 0,
   marginRetries: 0, weldTails: 0, failedExpansions: 0, weldExpansions: 0,
+  // ИЗМЕРИТЕЛЬ v2 (Ф0 эпика «глубокая оптимизация роутера», 2026-08-21). Всё ниже —
+  // только накопители: ни одной аллокации в горячем цикле, цена в проде — инкремент
+  // int (и два performance.now() на вызов routePorts, вне цикла экспансий).
+  //
+  // Цена ПОДГОТОВКИ поиска: сборка сетки терминала (считаются только ФАКТИЧЕСКИЕ
+  // вызовы prepareGrid — попадание в gridCache бесплатно) и BFS-достижимости.
+  prepMs: 0, floodMs: 0,
+  // РАЗМЕТКА ФАЗ по вызовам/экспансиям: rip-up (routeAll оборачивает свой фикспойнт
+  // дельтами счётчиков) и сварка хвостов (weldTrunks — так же). Первичная прокладка
+  // прохода-1 = дельта стадии минус rip-up минус сварка.
+  ripupCalls: 0, ripupExpansions: 0, weldCalls: 0,
+  // ИТОГ ЦЕПОЧКИ МАРГИН-РЕТРАЕВ (лестница клиренса 12→6→3→1.5→0): фиксируется у
+  // КОРНЯ цепочки — сколько цепочек упёрлись в дно (null) против нашедших маршрут
+  // на пониженной ступени (окупаемость раннего null, кандидат А3б плана).
+  marginChainNull: 0, marginChainOk: 0,
+  // ГИСТОГРАММА ЭКСПАНСИЙ НА ВЫЗОВ (лог-бакеты EXP_BUCKET_EDGES) + максимум. У
+  // каждого вызова routePorts учитываются ТОЛЬКО ЕГО СОБСТВЕННЫЕ экспансии: замер
+  // снимается ДО рекурсивного маргин-ретрая, а ретрай пишет свою запись сам (иначе
+  // экспансии цепочки считались бы по разу на каждую ступень). Отсюда: сумма
+  // бакетов == routePortsCalls, взвешенная сумма == expansions.
+  expBuckets: new Int32Array(8), maxExpansionsPerCall: 0,
 };
+
+// Верхние границы бакетов гистограммы (последний — «всё, что больше»).
+const EXP_BUCKET_EDGES = [100, 300, 1e3, 3e3, 1e4, 3e4, 1e5];
+
+// Запись собственных экспансий вызова в гистограмму (см. __routeCounters.expBuckets).
+function noteExpansions(own: number): void {
+  let b = EXP_BUCKET_EDGES.length;
+  for (let i = 0; i < EXP_BUCKET_EDGES.length; i++) {
+    if (own <= EXP_BUCKET_EDGES[i]) { b = i; break; }
+  }
+  __routeCounters.expBuckets[b]++;
+  if (own > __routeCounters.maxExpansionsPerCall) __routeCounters.maxExpansionsPerCall = own;
+}
+
+// Глубина рекурсии лестницы клиренса: routePorts синхронна и не реентерабельна, поэтому
+// «цепочка ретраев» однозначно определяется возвратом на глубину 0 (см. marginChainOk).
+let retryDepth = 0;
+
+// Ступень лестницы клиренса — ТОЛЬКО обёртка учёта: тот же рекурсивный вызов, что был.
+function retryLowerMargin(
+  starts: PortCandidate[],
+  ends: PortCandidate[],
+  obstacles: NodeRect[],
+  opts: RouteOptions | undefined,
+  next: number,
+): PortsRoute | null {
+  __routeCounters.marginRetries++;
+  retryDepth++;
+  const r = routePorts(starts, ends, obstacles, { ...opts, margin: next });
+  retryDepth--;
+  if (retryDepth === 0) {
+    if (r) __routeCounters.marginChainOk++;
+    else __routeCounters.marginChainNull++;
+  }
+  return r;
+}
+
 export function routePorts(
   starts: PortCandidate[],
   ends: PortCandidate[],
@@ -295,7 +353,11 @@ export function routePorts(
   const cacheKey = opts?.cacheKey != null && gridCache ? `${opts.cacheKey}@${margin}` : null;
   let grid = cacheKey ? gridCache?.get(cacheKey) : undefined;
   if (!grid) {
+    // ЗАМЕР prepMs (Ф0): обёртка вокруг ФАКТИЧЕСКОГО prepareGrid, а не вокруг
+    // routePorts — иначе рекурсия маргин-ретраев дала бы двойной счёт.
+    const tPrep = performance.now();
     grid = prepareGrid(starts, ends, obstacles, margin, stub, opts?.extraXs, opts?.extraYs);
+    __routeCounters.prepMs += performance.now() - tPrep;
     if (cacheKey) gridCache?.set(cacheKey, grid);
   }
   const { xs, ys, grown, sOrigins, eOrigins, goals, hPass, vPass, hMemo } = grid;
@@ -413,6 +475,7 @@ export function routePorts(
   // Ненаправленная недостижимость ⇒ недостижимость в A* (необходимое условие) —
   // результат побитово тот же; направленные тупики (редкость) решает сам A*.
   {
+    const tFlood = performance.now(); // замер floodMs (Ф0) — весь блок достижимости
     const nCells = NX * NY;
     if (floodScratch.gen.length < nCells) {
       floodScratch.gen = new Int32Array(nCells);
@@ -436,12 +499,14 @@ export function routePorts(
       if (j + 1 < NY && fSeen[cell + 1] !== fGen && stepPassV(i, j)) { fSeen[cell + 1] = fGen; fQ[qLen++] = cell + 1; }
       if (j - 1 >= 0 && fSeen[cell - 1] !== fGen && stepPassV(i, j - 1)) { fSeen[cell - 1] = fGen; fQ[qLen++] = cell - 1; }
     }
+    __routeCounters.floodMs += performance.now() - tFlood;
     if (!reachable) {
+      // собственные экспансии вызова (здесь всегда 0 — поиск не стартовал)
+      noteExpansions(__routeCounters.expansions - expAtStart);
       // тот же выход, что у исчерпанного A* (goalKey < 0), но без экспансий
       if (margin > EPS) {
         const next = margin >= 2 ? margin / 2 : 0;
-        __routeCounters.marginRetries++;
-        return routePorts(starts, ends, obstacles, { ...opts, margin: next });
+        return retryLowerMargin(starts, ends, obstacles, opts, next);
       }
       return null;
     }
@@ -496,6 +561,9 @@ export function routePorts(
     if (j - 1 >= 0 && opp !== YM) expand(i, j - 1, YM, stepPassV(i, j - 1));
   }
 
+  // Собственные экспансии этого вызова — поиск завершён, рекурсия ретрая ещё не
+  // стартовала (см. __routeCounters.expBuckets).
+  noteExpansions(__routeCounters.expansions - expAtStart);
   if (goalKey < 0) {
     __routeCounters.failedExpansions += __routeCounters.expansions - expAtStart;
     // Пути нет (узел заперт). Частая причина в плотной рамке: раздутые на клиренс границы
@@ -505,8 +573,7 @@ export function routePorts(
     // от граней, а не сразу липнет к ним.
     if (margin > EPS) {
       const next = margin >= 2 ? margin / 2 : 0;
-      __routeCounters.marginRetries++;
-      return routePorts(starts, ends, obstacles, { ...opts, margin: next });
+      return retryLowerMargin(starts, ends, obstacles, opts, next);
     }
     return null;
   }
