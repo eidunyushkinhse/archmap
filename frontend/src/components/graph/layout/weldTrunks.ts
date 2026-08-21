@@ -21,7 +21,7 @@
 // Живой драг сварку НЕ гоняет (E62) — доворот на отпускании прячет drawIn (E64).
 import type { EdgePoint } from "../../../types";
 import { cleanup, type EdgeSide, type NodeRect } from "../edgePath";
-import { routePorts, __routeCounters } from "./orthoRoute";
+import { routePorts, __routeCounters, type RouteGridCache } from "./orthoRoute";
 import { buildPlacedIndex, evalRouteParts, makeMoveCost, toPlacedSegs, type PlacedIndex, type PlacedSeg, type RouteParts } from "./routeAll";
 import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 
@@ -103,6 +103,27 @@ export function weldTrunks(params: WeldParams): Set<string> {
   const crossCost = params.crossCost ?? 200;
   const bp = params.bendPenalty ?? 40;
   const welded = new Set<string>();
+  // КЭШ СЕТОК ХВОСТОВ (А2.1, 2026-08-21). Прежде хвост звал routePorts БЕЗ кэша, и
+  // каждая попытка строила Hanan-сетку и гнала flood-fill заново — при том что
+  // фикспойнт крутится WELD_ITER_CAP раз и повторные пары пересматривают ТЕ ЖЕ
+  // кандидатские точки. Сетка хвоста зависит ТОЛЬКО от: обеих точек, обеих сторон
+  // (они задают portOrigin/стабы, sOrigins и goals), obstacles, stub, extraXs/Ys и
+  // margin. Из них внутри одного вызова weldTrunks меняются лишь точки и стороны:
+  // obstacles — параметр вызова, stub дефолтный, extraXs/Ys хвостам не передаются,
+  // а margin дописывает в ключ сам routePorts («@margin» — ступени лестницы клиренса
+  // получают разные сетки). moveCost в ключ НЕ входит и не должен: от него сетка не
+  // зависит (ровно та же посылка, что у gridCache в routeAll), а вместе с сеткой
+  // повторный кандидат бесплатно получает и поле reachable из А3а.
+  // Кэш живёт РОВНО один вызов: снаружи obstacles уже другие.
+  const gridCache: RouteGridCache = new Map();
+  // Ключ инъективен по своим параметрам: координаты пишутся ТОЧНО, без квантования.
+  // Огрубление (portKey использует Math.round(v·2) для ГРУППИРОВКИ вееров) здесь
+  // недопустимо: две разные точки в пределах 0.25 склеились бы в один ключ, и второй
+  // кандидат поехал бы по чужой сетке — маршрут молча уехал бы. Повторы, ради которых
+  // кэш и заведён, дают побитово равные числа (те же вершины тех же ломаных).
+  const tailKey = (
+    p1: EdgePoint, s1: EdgeSide, p2: EdgePoint, s2: EdgeSide | undefined,
+  ): string => `${p1.x}|${p1.y}|${s1}>${p2.x}|${p2.y}|${s2 ?? "-"}`;
 
   // контекст оценки follower-а: сегменты и ломаные ВСЕХ остальных (включая preplaced)
   const contextOf = (skipId: string): { segs: PlacedSeg[]; routes: EdgePoint[][]; idx: PlacedIndex } => {
@@ -309,6 +330,8 @@ export function weldTrunks(params: WeldParams): Set<string> {
                   moveCost: extra
                     ? (x1, y1, x2, y2): number => tailMove(x1, y1, x2, y2) + extra(x1, y1, x2, y2)
                     : tailMove,
+                  gridCache,
+                  cacheKey: tailKey(q.p, arrSide, dock, dockSide),
                 },
               );
               __routeCounters.weldExpansions += __routeCounters.expansions - expBefore;
