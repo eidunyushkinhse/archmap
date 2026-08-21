@@ -94,6 +94,74 @@ function borderCrossings(x1: number, y1: number, x2: number, y2: number, r: { x:
   return n;
 }
 
+// ИНДЕКС ГРАНЕЙ ПЛАШЕК (А1 эпика «глубокая оптимизация роутера», 2026-08-21). В T4-мини-
+// проходе чужими плашками ребру служит вся сцена (85–128 прямоугольников), и линейный
+// скан по ним крутился на КАЖДОМ ходе A* — половина цены стадии. Здесь те же
+// прямоугольники разложены по ГРАНЯМ (каждая грань считается независимо — ровно как в
+// borderCrossings: ход насквозь = 2 перехода) и отсортированы по своей координате: ход
+// платит только за грани своего диапазона, диапазон достаётся двоичным поиском (та же
+// механика, что PlacedIndex в routeAll). Математика штрафа не меняется — сумма целых
+// переходов не зависит от порядка слагаемых, — поэтому маршруты байт-в-байт.
+interface LabelFace {
+  g: number;    // координата грани (x у вертикальной, y у горизонтальной)
+  lo: number;   // створ прямоугольника поперёк грани (y-створ у вертикальной)
+  hi: number;
+  gid: string;  // владелец плашки: своя плашка ребра не отталкивает
+}
+interface LabelFaceIndex {
+  v: LabelFace[]; // вертикальные грани (x = g) — их режет ГОРИЗОНТАЛЬНЫЙ ход
+  h: LabelFace[]; // горизонтальные грани (y = g) — их режет ВЕРТИКАЛЬНЫЙ ход
+}
+
+function buildLabelFaceIndex(
+  labels: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>,
+): LabelFaceIndex {
+  const v: LabelFace[] = [];
+  const h: LabelFace[] = [];
+  for (const [gid, r] of labels) {
+    v.push({ g: r.x, lo: r.y, hi: r.y + r.h, gid });
+    v.push({ g: r.x + r.w, lo: r.y, hi: r.y + r.h, gid });
+    h.push({ g: r.y, lo: r.x, hi: r.x + r.w, gid });
+    h.push({ g: r.y + r.h, lo: r.x, hi: r.x + r.w, gid });
+  }
+  const byG = (a: LabelFace, b: LabelFace): number => a.g - b.g;
+  v.sort(byG);
+  h.sort(byG);
+  return { v, h };
+}
+
+// Первая грань с g >= val (нижняя граница диапазона кандидатов).
+function lowerBoundFaces(arr: LabelFace[], val: number): number {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].g < val) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+// Сколько граней ЧУЖИХ плашек пересекает осевой ход — тождественно сумме borderCrossings
+// по всем плашкам, кроме своей (пороги EPS взяты оттуда слово в слово).
+function countLabelCrossings(
+  idx: LabelFaceIndex, ownGid: string,
+  x1: number, y1: number, x2: number, y2: number,
+): number {
+  const horiz = Math.abs(y1 - y2) <= EPS;
+  const c = horiz ? y1 : x1;                                 // постоянная координата хода
+  const lo = horiz ? Math.min(x1, x2) : Math.min(y1, y2);    // протяжённость хода
+  const hi = horiz ? Math.max(x1, x2) : Math.max(y1, y2);
+  const faces = horiz ? idx.v : idx.h;
+  let n = 0;
+  for (let k = lowerBoundFaces(faces, lo - EPS); k < faces.length && faces[k].g <= hi + EPS; k++) {
+    const f = faces[k];
+    if (!(c > f.lo + EPS && c < f.hi - EPS)) continue;  // ход обязан идти строго внутри створа
+    if (!(lo < f.g - EPS && hi > f.g + EPS)) continue;  // касание грани концом не считается
+    if (f.gid === ownGid) continue;                    // своя плашка лежит на своей же линии
+    n++;
+  }
+  return n;
+}
+
 export interface AutoRoutesResult {
   routes: Map<string, EdgePoint[]>;                                   // groupId → ломаная (со стабами)
   handles: Map<string, { sourceHandle: string; targetHandle: string }>; // выбранные роутером хэндлы (свободные рёбра)
@@ -170,6 +238,9 @@ export function buildAutoRoutes(params: {
   const obstacleBodies = [...rects.values(), ...(frames ?? []).map((f) => f.plaque)];
   // пер-рёберный штраф среды — сварка оценивает кандидатов той же средой, что роутер
   const extraById = new Map<string, (x1: number, y1: number, x2: number, y2: number) => number>();
+  // ИНДЕКС ГРАНЕЙ ПЛАШЕК — ОДИН на вызов, а не на ребро: своя плашка отсеивается по gid
+  // прямо в счёте хода (А1). Без плашек (проход 1) индекса нет и путь прежний.
+  const labelFaces = labelObstacles ? buildLabelFaceIndex(labelObstacles) : null;
   // валидированные прежние маршруты (гистерезис) + их распарсенные хэндлы
   const prevValid = new Map<string, {
     route: EdgePoint[];
@@ -238,19 +309,20 @@ export function buildAutoRoutes(params: {
       .filter((f) => !f.memberIds.has(g.source) && !f.memberIds.has(g.target)
         && f.id !== g.source && f.id !== g.target)
       .map((f) => f.rect);
-    // чужие плашки подписей (T4) — штраф за переход границы; своя не отталкивает
-    const foreignLabels: { x: number; y: number; w: number; h: number }[] = [];
-    if (labelObstacles) {
-      for (const [gid, r] of labelObstacles) {
-        if (gid !== g.id) foreignLabels.push(r);
-      }
-    }
+    // чужие плашки подписей (T4) — штраф за переход границы; своя не отталкивает.
+    // Рамок 0–5 — их перебираем линейно; плашек вся сцена — их считает общий индекс
+    // граней (А1). Индекс не нужен, когда чужих плашек нет (сцена из одной плашки).
+    const ownGid = g.id;
+    const foreignLabelCount = labelObstacles
+      ? labelObstacles.size - (labelObstacles.has(ownGid) ? 1 : 0)
+      : 0;
+    const labelIdx = foreignLabelCount > 0 ? labelFaces : null;
     const extraMoveCost =
-      foreignRects.length > 0 || foreignLabels.length > 0
+      foreignRects.length > 0 || foreignLabelCount > 0
         ? (x1: number, y1: number, x2: number, y2: number): number => {
             let n = 0;
             for (const r of foreignRects) n += borderCrossings(x1, y1, x2, y2, r) * FRAME_CROSS_COST;
-            for (const r of foreignLabels) n += borderCrossings(x1, y1, x2, y2, r) * LABEL_CROSS_COST;
+            if (labelIdx) n += countLabelCrossings(labelIdx, ownGid, x1, y1, x2, y2) * LABEL_CROSS_COST;
             return n;
           }
         : undefined;
