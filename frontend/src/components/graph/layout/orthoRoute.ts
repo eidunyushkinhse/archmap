@@ -148,13 +148,28 @@ function lineIndex(lines: number[], v: number): number {
 }
 
 // Минимальная двоичная куча (ключ состояния + приоритет f). Параллельные массивы.
-class MinHeap {
-  private keys: number[] = [];
-  private prio: number[] = [];
-  get size(): number { return this.keys.length; }
+// ХРАНИЛИЩЕ ТИПИЗИРОВАННОЕ (А4, 2026-08-21): вместо number[] — Int32Array ключей и
+// Float64Array приоритетов с ростом удвоением. Мотив — V8-профиль Ф0: pop держал
+// 5.4–7.1% self-time на аллокациях/GC растущих массивов (сам GC 1.6%). Ключ влезает в
+// int32 по построению (encode < NX·NY·5, тем же числом индексируется cameFrom:Int32Array),
+// приоритет — тот же double, что и в number[] (Float64Array, НЕ Float32Array).
+// ЛОГИКА sift-up/sift-down/pop СКОПИРОВАНА ОДИН-В-ОДИН: те же сравнения с теми же
+// строгостями (`prio[parent] <= prio[i] → break`; в pop `<` и порядок left→right), то же
+// «последний элемент наверх». Это критично для ТАЙ-БРЕЙКОВ: равные приоритеты обязаны
+// разрешаться в прежнем порядке, иначе маршруты поплывут при зелёных метриках.
+// ЭКСПОРТ — ДЛЯ ТЕСТА ИДЕНТИЧНОСТИ (__tests__/minHeap.test.ts сверяет полную
+// pop-последовательность с дословной копией прежней кучи); снаружи модуля не нужна.
+export class MinHeap {
+  private keys = new Int32Array(1024);
+  private prio = new Float64Array(1024);
+  private n = 0;
+  get size(): number { return this.n; }
+  // Переиспользование буфера следующим владельцем (см. heapPool): длина — это n.
+  clear(): void { this.n = 0; }
   push(key: number, p: number): void {
-    this.keys.push(key); this.prio.push(p);
-    let i = this.keys.length - 1;
+    if (this.n === this.keys.length) this.grow();
+    this.keys[this.n] = key; this.prio[this.n] = p;
+    let i = this.n++;
     while (i > 0) {
       const parent = (i - 1) >> 1;
       if (this.prio[parent] <= this.prio[i]) break;
@@ -163,11 +178,12 @@ class MinHeap {
   }
   pop(): number {
     const top = this.keys[0];
-    // Вызывающий гарантирует size > 0, поэтому pop() вернёт определённое значение
-    const k = this.keys.pop() ?? 0; const p = this.prio.pop() ?? 0;
-    if (this.keys.length > 0) {
+    // Вызывающий гарантирует size > 0 (единственный вызов — под `while (open.size > 0)`)
+    const last = --this.n;                       // снятый последний = новая длина
+    const k = this.keys[last], p = this.prio[last];
+    if (this.n > 0) {
       this.keys[0] = k; this.prio[0] = p;
-      const n = this.keys.length; let i = 0;
+      const n = this.n; let i = 0;
       for (;;) {
         const l = 2 * i + 1, r = 2 * i + 2; let m = i;
         if (l < n && this.prio[l] < this.prio[m]) m = l;
@@ -178,10 +194,31 @@ class MinHeap {
     }
     return top;
   }
+  private grow(): void {
+    const nk = new Int32Array(this.keys.length * 2); nk.set(this.keys); this.keys = nk;
+    const np = new Float64Array(this.prio.length * 2); np.set(this.prio); this.prio = np;
+  }
   private swap(a: number, b: number): void {
     const tk = this.keys[a]; this.keys[a] = this.keys[b]; this.keys[b] = tk;
     const tp = this.prio[a]; this.prio[a] = this.prio[b]; this.prio[b] = tp;
   }
+}
+
+// ПУЛ КУЧ ПО ГЛУБИНЕ ЛЕСТНИЦЫ КЛИРЕНСА (А4). Цель правки — не аллоцировать буферы на
+// вызов, поэтому куча переживает вызовы routePorts. Один модульный скретч был бы
+// формально небезопасен: routePorts рекурсивно зовёт себя через retryLowerMargin, и на
+// ветке «флуд сказал недостижимо» внешняя куча в этот момент НЕ пуста (семена уже
+// разложены) — она просто больше не читается. Опираться на «дальше не читаем» хрупко,
+// поэтому вызов на глубине d берёт СВОЙ буфер pool[d]: retryDepth увеличивается ДО
+// рекурсивного вызова, значит вложенный поиск всегда получает pool[d+1]. Освобождать
+// нечего — следующий владелец начинает с clear(); глубина ограничена лестницей
+// 12→6→3→1.5→0.
+const heapPool: MinHeap[] = [];
+function acquireHeap(depth: number): MinHeap {
+  let h = heapPool[depth];
+  if (!h) { h = new MinHeap(); heapPool[depth] = h; }
+  h.clear();
+  return h;
 }
 
 // Сборка PreparedGrid терминала: грид-линии, раздутые тела, цели. Кэши проходимости
@@ -452,7 +489,7 @@ export function routePorts(
   const genArr = scratch.gen, closedGen = scratch.closedGen;
   const sGen = ++scratch.cur;
   const seedOf = new Map<number, number>(); // стартовое состояние → индекс порта
-  const open = new MinHeap();
+  const open = acquireHeap(retryDepth); // свой буфер на глубину ретрая (см. heapPool)
 
   sOrigins.forEach((o, k) => {
     const i = lineIndex(xs, o.x), j = lineIndex(ys, o.y);
