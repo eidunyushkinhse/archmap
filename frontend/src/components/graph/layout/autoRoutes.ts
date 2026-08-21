@@ -235,7 +235,8 @@ export function buildAutoRoutes(params: {
   // стороной/слотом → хэндлом).
   const portsById = new Map<string, { s: PortSpec[]; t: PortSpec[] }>();
   // тела узлов + плашки раскрытых рамок — общий набор препятствий терминалов и сварки
-  const obstacleBodies = [...rects.values(), ...(frames ?? []).map((f) => f.plaque)];
+  const framePlaques = (frames ?? []).map((f) => f.plaque);
+  const obstacleBodies = [...rects.values(), ...framePlaques];
   // пер-рёберный штраф среды — сварка оценивает кандидатов той же средой, что роутер
   const extraById = new Map<string, (x1: number, y1: number, x2: number, y2: number) => number>();
   // ИНДЕКС ГРАНЕЙ ПЛАШЕК — ОДИН на вызов, а не на ребро: своя плашка отсеивается по gid
@@ -380,8 +381,10 @@ export function buildAutoRoutes(params: {
   }
 
   // V2.4c: раздача слотов портов — вход и выход не делят точку стыковки (Т4 уточнено:
-  // общий хэндл легитимен только В ОДНОМ направлении).
-  distributeSlots(docks, routes, rects, dockRects);
+  // общий хэндл легитимен только В ОДНОМ направлении). Плашки раскрытых рамок идут
+  // отдельным списком: они ЖЁСТКОЕ препятствие (E21), но телом стыковки не являются
+  // и в `rects`/`dockRects` не лежат.
+  distributeSlots(docks, routes, rects, dockRects, framePlaques);
 
   // выбранную сторону+слот отдаём как хэндл; idx важен для рельс (A11) и раздачи
   // слотов: RF стыкует на своём слоте.
@@ -436,11 +439,15 @@ interface Dock {
 // перенос переломил бы соседа, упёрся в чужое тело или маршрут прямой (2 точки).
 // `rects` — тела-ПРЕПЯТСТВИЯ (только узлы), `dockRects` — тела СТЫКОВКИ (узлы + рамки-концы):
 // у рамки слоты раздаются по её прямоугольнику, но сама она чужому плечу не мешает.
+// `framePlaques` — плашки подписей раскрытых рамок: жёсткое препятствие (E21), в тела
+// не входят ни как препятствие узла, ни как тело стыковки — но перенос сквозь них
+// запрещён ровно так же (баг Ф0-полигона: сид 12, ребро e12).
 function distributeSlots(
   docks: Dock[],
   routes: Map<string, EdgePoint[]>,
   rects: Map<string, NodeRect>,
   dockRects: Map<string, NodeRect>,
+  framePlaques: readonly NodeRect[],
 ): void {
   const byNodeSide = new Map<string, Dock[]>();
   for (const d of docks) {
@@ -473,7 +480,7 @@ function distributeSlots(
       if (slot == null) continue;
       for (const d of g.docks) {
         if (!d.free || d.idx === slot) continue;
-        if (moveDock(d, slot, routes, rects, dockRects)) d.idx = slot;
+        if (moveDock(d, slot, routes, rects, dockRects, framePlaques)) d.idx = slot;
       }
     }
   }
@@ -486,6 +493,7 @@ function moveDock(
   routes: Map<string, EdgePoint[]>,
   rects: Map<string, NodeRect>,
   dockRects: Map<string, NodeRect>,
+  framePlaques: readonly NodeRect[],
 ): boolean {
   const pts = routes.get(d.edgeId);
   const r = dockRects.get(d.nodeId);
@@ -504,17 +512,26 @@ function moveDock(
   const span = lat(pts[i2]) - lat(pts[i1]);
   const newSpan = lat(pts[i2]) - (lat(pts[i1]) + delta);
   if (Math.abs(span) > 0.5 && (Math.sign(newSpan) !== Math.sign(span) || Math.abs(newSpan) < 2)) return false;
-  // сдвинутый стаб не должен лечь на чужое тело
+  // сдвинутый стаб не должен лечь на чужое тело — и на плашку раскрытой рамки: она
+  // ЖЁСТКОЕ препятствие (E21), а не штраф, и сквозь текст плечо не ходит. Проверки
+  // плашек тут не было до Ф4 эпика «глубокая оптимизация роутера» — перенос молча
+  // протаскивал плечо сквозь подпись рамки (репро фазз-полигона: сид 12, ребро e12).
   const nl = Math.min(lat(pts[i0]) + delta, lat(pts[i1]) + delta);
   const nh = Math.max(lat(pts[i0]) + delta, lat(pts[i1]) + delta);
   const al = Math.min(vertical ? pts[i0].x : pts[i0].y, vertical ? pts[i1].x : pts[i1].y);
   const ah = Math.max(vertical ? pts[i0].x : pts[i0].y, vertical ? pts[i1].x : pts[i1].y);
-  for (const [id, b] of rects) {
-    if (id === d.nodeId) continue;
+  // допуск 2px — тот же, что у тел: легально-тесный маршрут margin-лестницы не отменяет
+  // перенос, а реальное наложение отменяет
+  const hits = (b: NodeRect): boolean => {
     const bl = vertical ? b.y : b.x, bh = vertical ? b.y + b.h : b.x + b.w;
     const cl = vertical ? b.x : b.y, ch = vertical ? b.x + b.w : b.y + b.h;
-    if (nl < bh - 2 && nh > bl + 2 && al < ch - 2 && ah > cl + 2) return false;
+    return nl < bh - 2 && nh > bl + 2 && al < ch - 2 && ah > cl + 2;
+  };
+  for (const [id, b] of rects) {
+    if (id === d.nodeId) continue;
+    if (hits(b)) return false;
   }
+  for (const b of framePlaques) if (hits(b)) return false;
   setLat(pts[i0], lat(pts[i0]) + delta);
   setLat(pts[i1], lat(pts[i1]) + delta);
   return true;

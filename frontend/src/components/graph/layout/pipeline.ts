@@ -202,8 +202,9 @@ export interface PipelineOutput {
 export interface T4Diag {
   // «грязные» рёбра мини-прохода: маршрут режет прямоугольник ЧУЖОЙ плашки
   dirtyIds: string[];
-  // из них те, чей конец — РАМКА: T4-вызов не получает frameEndpoints, поэтому такие
-  // рёбра молча не перепрокладываются никогда (дыра В8.1 плана) — здесь их доля
+  // из них те, чей конец — РАМКА. ИСТОРИЯ: до Ф4 эпика router-opt T4-вызов не получал
+  // frameEndpoints, и такие рёбра молча не перепрокладывались никогда (дыра В8.1
+  // плана); дыра закрыта, счётчик оставлен как метрика доли этого класса
   frameEndDirtyIds: string[];
   // ГЛУБИНА ВРЕЗА: минимальный inset k ∈ {2,4,6,8,10}, при котором маршрут уже НЕ
   // режет ни одной чужой плашки, сжатой на k со всех сторон; 12 — «режет и при 10»
@@ -944,7 +945,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     if (dirty.size > 0) {
       const ar2 = buildAutoRoutes({
         groups: groupArr, routableIds: dirty, positions,
-        displayIds, sizes: sizeMap, frames: routerFrames,
+        // КОНЦЫ-РАМКИ — ТЕМ ЖЕ ЗНАЧЕНИЕМ, ЧТО В ПРОХОДЕ 1 (закрытие дыры В8.1, Ф4
+        // эпика router-opt): без них у ребра, состыкованного в рамку, нет тела
+        // стыковки — buildAutoRoutes отбраковывает его терминал (`if (!sr || !tr)
+        // continue`) и молча возвращает мини-проход без этого ребра. Дыра означала,
+        // что E40 к рёбрам с концом-рамкой не применялся НИКОГДА: их линия сквозь
+        // чужую плашку оставалась навсегда.
+        displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
         prev: { routes: autoRoutes, handles: edgeHandles },
         labelObstacles: labelRectOf,
       });
