@@ -96,6 +96,7 @@ export const pipeline: { result: PipelineOutput } = {
     intents: [],
     routeSig: "",
     authoritative: false,
+    budgetDegraded: null,
   },
 };
 
@@ -128,6 +129,7 @@ export function resetHarness(): void {
     intents: [],
     routeSig: "",
     authoritative: false,
+    budgetDegraded: null,
   };
   rf.setCenter.mockReset();
   rf.fitBounds.mockReset();

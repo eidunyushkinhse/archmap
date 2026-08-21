@@ -24,6 +24,7 @@ import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 import { railAssignments } from "./railPairs";
 import { weldTrunks } from "./weldTrunks";
+import type { RouteBudget } from "./routeBudget";
 
 // Порт стыковки ребра на узле: сторона, слот хэндла (idx 1 — центр; рельсы встречной
 // пары — крайние idx 0/2) и готовая точка.
@@ -217,8 +218,13 @@ export function buildAutoRoutes(params: {
   // ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО: не байт-в-байт (другое пространство поиска), решение о
   // включении — за замером (см. журнал Ф4-II в docs/plan-router-deep-opt.md).
   gridHintGroups?: EdgeGroup[];
+  // БЮДЖЕТ РАБОТ (Ф5 эпика router-opt, спека perf.md P12/P13) — ПАРАМЕТРОМ, не
+  // синглтоном. Здесь он решает ступень «пропустить сварку» и едет дальше в routeAll
+  // (потолок вызова A* + ступень «пропустить rip-up»). Не задан — бюджета нет,
+  // поведение прежнее байт-в-байт (фазз-полигон, живой драг, юнит-тесты).
+  budget?: RouteBudget;
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld, gridHintGroups } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld, gridHintGroups, budget } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -374,8 +380,12 @@ export function buildAutoRoutes(params: {
     }
     if (xs.length > 0) gridHints = { xs, ys };
   }
-  const routeOpts = preplaced.length > 0 || gridHints
-    ? { ...(preplaced.length > 0 ? { preplaced } : {}), ...(gridHints ? { gridHints } : {}) }
+  const routeOpts = preplaced.length > 0 || gridHints || budget
+    ? {
+      ...(preplaced.length > 0 ? { preplaced } : {}),
+      ...(gridHints ? { gridHints } : {}),
+      ...(budget ? { budget } : {}),
+    }
     : undefined;
   const raw = routeAll(terminals, routeOpts);
   const routes = new Map<string, EdgePoint[]>();
@@ -433,7 +443,15 @@ export function buildAutoRoutes(params: {
   // префиксы/суффиксы собратьев через изломы, где это строго выигрывает по «чернилам
   // с бонусом слияния» без новой грязи. После раздачи слотов: доки финальны, их
   // стороны — направленный финиш хвостов.
-  if (weld !== false) {
+  // СТУПЕНЬ ДЕГРАДАЦИИ «ПРОПУСК СВАРКИ» (P13, ступень 3). Точка осуществимости — ровно
+  // здесь: сварка ещё не начиналась, а путь `weld === false` в дереве уже есть (живой
+  // драг, E62) и заведомо валиден. Цена ступени — followers вееров не перенимают
+  // префиксы/суффиксы собратьев (E78/E79): линий на экране больше, «чернил» больше,
+  // но ни один инвариант не нарушен.
+  // Спрашиваем бюджет, только когда сварка вообще собиралась гоняться: иначе живой
+  // драг (weld === false) записывал бы «ступень сработала» там, где стадии и не было.
+  const skipWeld = weld !== false && (budget?.takeWeld() ?? false);
+  if (weld !== false && !skipWeld) {
     weldTrunks({
       routes,
       routableIds,

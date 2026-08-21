@@ -609,3 +609,25 @@
   line-height: 1;
 }
 .lg-overload-close:hover { background: rgba(255, 255, 255, 0.28); }
+
+/* Разовый тост ступеней бюджета работ роутера (P13): та же механика и та же
+   геометрия, что у тоста перегрузки, — другой цвет (это не «плавность просела»,
+   а «геометрия упрощена»). Оба тоста одновременно не показываются на практике,
+   но стек предусмотрен: бюджетный садится выше. */
+.lg-budget-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100% - 32px));
+  background: rgba(30, 58, 95, 0.92);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.35;
+  padding: 9px 12px 9px 14px;
+  border-radius: 10px;
+}

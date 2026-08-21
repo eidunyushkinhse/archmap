@@ -41,6 +41,11 @@ export interface RouteOptions {
   // Ключ включает margin (ступенчатый сброс клиренса строит ДРУГУЮ сетку).
   cacheKey?: string;
   gridCache?: RouteGridCache;
+  // ПОТОЛОК ЭКСПАНСИЙ ОДНОГО ВЫЗОВА (Ф5 эпика «глубокая оптимизация роутера», спека
+  // perf.md P12/P13). Не задан — CALL_EXPANSION_CAP. По достижении потолка поиск НЕ
+  // обрывается (обрыв = потеря связи, E18): он переключается в ГРИДИ-режим и дотягивается
+  // до ближайшей цели за O(длина пути) экспансий — см. блок «ГРИДИ-ФОЛБЭК» ниже.
+  expansionCap?: number;
 }
 
 // Подготовленная сетка терминала (см. RouteOptions.gridCache). Содержимое приватно для
@@ -86,6 +91,15 @@ export interface PortsRoute {
 export const DEFAULT_MARGIN = 12;
 export const DEFAULT_BEND_PENALTY = 40;
 export const EPS = 0.5;
+
+// ПОТОЛОК ЭКСПАНСИЙ НА ОДИН ВЫЗОВ routePorts (Ф5, спека perf.md P12). Единица —
+// РАБОТА (экспансии A*), а не время: бюджет по часам сделал бы результат
+// недетерминированным, а E17 (тот же вход → тот же маршрут) неприкосновенен.
+// ЗНАЧЕНИЕ — СТРАХОВКА ХВОСТА, не рабочий режим: максимум гистограммы Ф0 по всем
+// эталонам — 100 254 экспансии на вызов (Sentry-корень), потолок взят ~3× от него.
+// Действует БЕЗУСЛОВНО (любой вызов, включая хвосты сварки и живой драг) — перекрыть
+// его может только явный opts.expansionCap (априорный контур бюджета и тесты).
+export const CALL_EXPANSION_CAP = 300_000;
 
 // Знаковые направления хода (для запрета разворота и штрафа за поворот).
 const NONE = 0, XP = 1, XM = 2, YP = 3, YM = 4;
@@ -346,6 +360,10 @@ export const __routeCounters = {
   // экспансии цепочки считались бы по разу на каждую ступень). Отсюда: сумма
   // бакетов == routePortsCalls, взвешенная сумма == expansions.
   expBuckets: new Int32Array(8), maxExpansionsPerCall: 0,
+  // ГРИДИ-ФОЛБЭК ПОТОЛКА (Ф5): сколько вызовов routePorts упёрлись в expansionCap и
+  // доигрывались h-доминантным приоритетом. На эталонах обязан оставаться 0 — по нему
+  // конвейер и отчитывается наружу (PipelineOutput.budgetDegraded.greedyCalls).
+  budgetGreedyCalls: 0,
 };
 
 // Верхние границы бакетов гистограммы (последний — «всё, что больше»).
@@ -396,6 +414,10 @@ export function routePorts(
   const bendPenalty = opts?.bendPenalty ?? DEFAULT_BEND_PENALTY;
   const moveCost = opts?.moveCost;
   const stub = opts?.stub ?? EDGE_STUB;
+  // Потолок работ ЭТОГО вызова (см. CALL_EXPANSION_CAP), сразу абсолютной отметкой —
+  // в горячем цикле остаётся одно сравнение. Лестница клиренса рекурсивна, и каждая её
+  // ступень — отдельный вызов со СВОИМ потолком: семантика «на один вызов».
+  const expLimit = expAtStart + (opts?.expansionCap ?? CALL_EXPANSION_CAP);
 
   // Подготовленная сетка терминала — из кэша вызывающего (если дан) или свежая.
   const gridCache = opts?.gridCache;
@@ -573,10 +595,27 @@ export function routePorts(
 
   let goalKey = -1, goalEndIdx = -1;
   let bestFin = Infinity;
+  // ГРИДИ-ФОЛБЭК ПОТОЛКА РАБОТ (Ф5 эпика router-opt, спека perf.md P13, ступень 1).
+  // Исчерпав expansionCap, поиск НЕ обрывается и не перезапускается (перезапуск сжёг бы
+  // бюджет дважды): с этого момента НОВЫЕ push'ы получают приоритет h(состояние) вместо
+  // f = g + h — очередь становится «лучший-первым к цели», и поиск дотягивается до
+  // ближайшей цели за O(длина пути) экспансий. Уже лежащее в куче не переприоритезируется
+  // (переключение мягкое — перестройка кучи стоила бы дороже выигрыша).
+  // ЧТО ГАРАНТИРОВАНО: маршрут ВАЛИДЕН — сетка и проходимость шагов те же, значит E19
+  // (тела — абсолютное препятствие), E14 (ортогональность) и E15 (нет разворотов —
+  // держит запрет хода против dir) выполняются по построению. ЧЕМ ПЛАТИМ: субоптимальность
+  // по ШТРАФАМ (кресты, езда, чужие плашки, изломы) — цена ступени, названная в P13.
+  // ДЕТЕРМИНИЗМ: переключение по детерминированному счётчику собственных экспансий вызова,
+  // тай-брейки кучи прежние ⇒ (вход, потолок) → тот же маршрут побитово (E17).
+  let greedy = false;
   while (open.size > 0) {
     const key = open.pop();
     if (closedGen[key] === sGen) continue;
     __routeCounters.expansions++;
+    if (!greedy && __routeCounters.expansions >= expLimit) {
+      greedy = true;
+      __routeCounters.budgetGreedyCalls++;
+    }
 
     const dir = key % 5;
     const cell = (key - dir) / 5;
@@ -592,6 +631,10 @@ export function routePorts(
         const fin = gScore[key] + (ends[gl.endIdx].penalty ?? 0);
         if (fin < bestFin) { bestFin = fin; goalKey = key; goalEndIdx = gl.endIdx; }
       }
+      // В гриди-режиме приоритет очереди — не f, и «дальше только дороже» не выполняется:
+      // копить лучший финиш нечем, берём ПЕРВУЮ достигнутую цель (при нескольких
+      // кандидатах в одной клетке — дешевейшую по тому же правилу, что и выше).
+      if (greedy && goalKey >= 0) break;
     }
 
     const g = gScore[key];
@@ -611,7 +654,7 @@ export function routePorts(
         gScore[nkey] = ng;
         genArr[nkey] = sGen;
         cameFrom[nkey] = key;
-        open.push(nkey, ng + h(ni, nj));
+        open.push(nkey, greedy ? h(ni, nj) : ng + h(ni, nj));
       }
     };
     if (i + 1 < NX && opp !== XP) expand(i + 1, j, XP, stepPassH(i, j));

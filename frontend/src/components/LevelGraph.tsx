@@ -287,6 +287,12 @@ function LevelGraphInner({
   const overloadedRef = useRef(false);
   const [overloadToastOpen, setOverloadToastOpen] = useState(false);
   const overloadToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  // ТОСТ СТУПЕНЕЙ БЮДЖЕТА РАБОТ (Ф5 эпика router-opt, спека perf.md P13) — по образцу
+  // разового тоста перегрузки P8. Ступень бюджета означает, что часть стадий качества
+  // стрелок принесена в жертву потолку работ; молчаливая деградация запрещена ровно так
+  // же, как молчаливое отключение анимаций.
+  const [budgetToastOpen, setBudgetToastOpen] = useState(false);
+  const budgetToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
   // Занятость конвейера (P4): счётчик прогонов в полёте; бейдж «Считаю
   // раскладку…» проявляется CSS-задержкой INDICATE_AFTER_MS=300мс (LevelGraph.css).
   const [computing, setComputing] = useState(0);
@@ -798,7 +804,9 @@ function LevelGraphInner({
       const sizesAtRun = nodeSizesRef.current;
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
-      const { layout: next, liveInputs, intents, routeSig, authoritative } = await computeViewLayoutOffThread({
+      const {
+        layout: next, liveInputs, intents, routeSig, authoritative, budgetDegraded,
+      } = await computeViewLayoutOffThread({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren,
         // ленивая догрузка детей раскрытий живёт только в редактируемом режиме
@@ -830,6 +838,17 @@ function LevelGraphInner({
         prevScene: sameSizes ? prevRoutesRef.current?.scene : undefined,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
+      // СТУПЕНИ БЮДЖЕТА (P13): объявляем пользователю разовым тостом на вид — один на
+      // вход в тяжёлый вид, а не на каждый пересчёт (механика P8). Гейт authoritative
+      // уже не даст такому прогону попасть в кэш вида (P11), так что «тихая» ступень,
+      // законсервированная в кэше, невозможна.
+      if (budgetDegraded) {
+        const viewKey = containerId ?? "__root__";
+        if (!budgetToastShownRef.current.has(viewKey)) {
+          budgetToastShownRef.current.add(viewKey);
+          setBudgetToastOpen(true);
+        }
+      }
       if (next.autoRoutes) {
         prevRoutesRef.current = {
           routes: next.autoRoutes, handles: next.edgeHandles,
@@ -1201,6 +1220,18 @@ function LevelGraphInner({
           <button
             className="lg-overload-close"
             onClick={() => setOverloadToastOpen(false)}
+            aria-label="Закрыть предупреждение"
+          >✕</button>
+        </div>
+      )}
+      {/* Разовый тост ступеней бюджета работ (P13): честное объявление о том, что
+          раскладка стрелок упрощена ради потолка счёта. */}
+      {budgetToastOpen && (
+        <div className="lg-budget-toast" role="status">
+          <span>Сцена очень плотная: раскладка упрощена.</span>
+          <button
+            className="lg-overload-close"
+            onClick={() => setBudgetToastOpen(false)}
             aria-label="Закрыть предупреждение"
           >✕</button>
         </div>

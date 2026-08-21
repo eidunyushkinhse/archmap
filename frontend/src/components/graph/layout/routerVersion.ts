@@ -70,13 +70,19 @@ import {
   LABEL_FONT_PX, LABEL_CHAR_PX, LABEL_CHROME_X, LABEL_CHROME_Y, metaLabelBox,
 } from "./labelBox";
 import { EDGE_STUB, NODE_W, NODE_H } from "../constants";
+import {
+  ROUTE_BUDGET_BY_CLASS, TYPICAL_NODES, TYPICAL_EDGES,
+  BUDGET_SKIP_RIPUP_SHARE, BUDGET_SKIP_WELD_SHARE, BUDGET_SKIP_T4_SHARE,
+  BUDGET_APRIORI_CAP_DIVISOR, EXP_PER_EDGE, EXP_PER_NODE,
+} from "./routeBudget";
+import { CALL_EXPANSION_CAP } from "./orthoRoute";
 
 /**
  * Версия геометрического контракта роутера. Растёт на 1 при ЛЮБОЙ правке констант из
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 4;
+export const ROUTER_VERSION = 5;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -157,6 +163,20 @@ export function collectRouterConstants(): Record<string, unknown> {
     "labelBox.probe(3)": labelBoxProbe(3),
     // --- РЕВИЗИЯ АЛГОРИТМА: ручной слой (правки геометрии без правки констант) ---
     "routerVersion.ROUTER_ALGO_REV": ROUTER_ALGO_REV,
+    // --- БЮДЖЕТ РАБОТ И СТУПЕНИ ДЕГРАДАЦИИ (Ф5, спека perf.md P12/P13) ---
+    // Пока бюджета хватает, эти числа геометрию не трогают. Но когда ступень
+    // срабатывает, геометрия меняется РАДИКАЛЬНЕЕ любого штрафа (целой стадии нет),
+    // а sig этого не видит — значит место константам ровно здесь, в реестре контракта.
+    "orthoRoute.CALL_EXPANSION_CAP": CALL_EXPANSION_CAP,
+    "routeBudget.ROUTE_BUDGET_BY_CLASS": { ...ROUTE_BUDGET_BY_CLASS },
+    "routeBudget.TYPICAL_NODES": TYPICAL_NODES,
+    "routeBudget.TYPICAL_EDGES": TYPICAL_EDGES,
+    "routeBudget.BUDGET_SKIP_RIPUP_SHARE": BUDGET_SKIP_RIPUP_SHARE,
+    "routeBudget.BUDGET_SKIP_WELD_SHARE": BUDGET_SKIP_WELD_SHARE,
+    "routeBudget.BUDGET_SKIP_T4_SHARE": BUDGET_SKIP_T4_SHARE,
+    "routeBudget.BUDGET_APRIORI_CAP_DIVISOR": BUDGET_APRIORI_CAP_DIVISOR,
+    "routeBudget.EXP_PER_EDGE": EXP_PER_EDGE,
+    "routeBudget.EXP_PER_NODE": EXP_PER_NODE,
     // --- геометрия узла и стаба (тела-препятствия и фолбэк габаритов) ---
     "constants.EDGE_STUB": EDGE_STUB,
     "constants.NODE_W": NODE_W,
@@ -229,4 +249,12 @@ export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
   // двигает ручной слой ROUTER_ALGO_REV (1 → 2). Записи кэша v3 несут дофиксовую
   // геометрию — их инвалидация и есть смысл бампа.
   4: "f458a408d3eafe4a",
+  // v5 — Ф5 того же эпика (бюджет работ и ступени деградации, кандидат В1). Реестр
+  // вырос на девять констант бюджета (лимиты по классам, границы классов, доли
+  // срабатывания ступеней, коэффициенты прогноза, потолок экспансий одного A*).
+  // МАРШРУТЫ ЭТАЛОНОВ НЕ ИЗМЕНИЛИСЬ НИ НА ПИКСЕЛЬ (дампы 4 сцен и фазз-golden
+  // байт-в-байт: калибровка страховочная, на эталонах ни одна ступень не срабатывает).
+  // Бамп всё равно обязателен и не формален: с этой версии сцена, вылезшая за бюджет,
+  // считается ПО-ДРУГОМУ, а записи кэша v4 сделаны контрактом без ступеней вовсе.
+  5: "0ac63804425dbf26",
 };

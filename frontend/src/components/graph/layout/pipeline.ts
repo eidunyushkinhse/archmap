@@ -41,6 +41,9 @@ import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { spawnFreshChildren } from "./spawnChildren";
 import { buildAutoRoutes } from "./autoRoutes";
+import {
+  createRouteBudget, type BudgetDegraded, type RouteBudget, type RouteBudgetConfig,
+} from "./routeBudget";
 import { nudgeChannels } from "./channelNudge";
 import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
@@ -173,6 +176,13 @@ export interface PipelineInput {
   // autoRoutes/labelPlacements в результате отсутствуют — сборка рисует рёбра
   // простыми (smoothstep) до пере-прогона.
   edgeQuality?: "full" | "skip";
+  // ПЕРЕОПРЕДЕЛЕНИЕ БЮДЖЕТА РАБОТ (Ф5 эпика router-opt, спека perf.md P12/P13).
+  // В ПРОДЕ НЕ ЗАДАЁТСЯ — там работают дефолт-константы routeBudget.ts (они же в реестре
+  // ROUTER_VERSION). Ручка существует ради ТЕСТОВ и полигонов: форс-бюджет с крошечными
+  // лимитами прогоняет ступени деградации на обычной сцене, не выдумывая патологическую.
+  // Место и семантика — те же, что у edgeQuality: пер-прогонная ручка ПОВЕДЕНИЯ стадий,
+  // а не глобальный мутабельный синглтон (тот сделал бы тесты порядкозависимыми).
+  routeBudget?: RouteBudgetConfig;
 }
 
 export interface PipelineOutput {
@@ -194,6 +204,12 @@ export interface PipelineOutput {
   // любой скоуп) в кэш не кладутся: они по построению временные и отравили бы кэш
   // геометрией фолбэк-габаритов или замороженного prev-контекста.
   authoritative: boolean;
+  // СТУПЕНИ БЮДЖЕТА РАБОТ, СРАБОТАВШИЕ В ЭТОМ ПРОГОНЕ (Ф5, спека perf.md P12/P13).
+  // null — обычный случай: бюджета хватило, ни одна ступень не включалась, результат
+  // полноценный. Не-null означает, что часть стадий качества принесена в жертву
+  // потолку работ: такой прогон НЕ авторитетен (деградированную геометрию в кэш P11 не
+  // пишем) и обязан быть объявлен пользователю разовым тостом (P13).
+  budgetDegraded: BudgetDegraded | null;
 }
 
 // ЭКСПЕРИМЕНТ г1 (Ф4-II того же эпика): отдавать ли T4-мини-проходу грид-подсказки от
@@ -661,6 +677,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // Отработали ли стадии качества по-настоящему (не пропуск P10 и не кэш-хит) —
   // слагаемое гейта авторитетности прогона (см. authoritative ниже).
   let ranQualityStages = false;
+  // Бюджет работ роутера (P12): создаётся В МОМЕНТ старта стадий качества — его отметка
+  // расхода снимается со счётчика экспансий, и всё, что натикает дальше, есть расход
+  // ЭТОГО прогона. null — стадии не запускались (пропуск P10 / кэш-хит): бюджету нечего
+  // мерить, ступеней нет. Значение ВОЗВРАЩАЕТ сам runEdgeQualityStages (а не пишет в
+  // замыкание): присваивание внутри замыкания tsc в поток управления не заводит, и
+  // чтение ниже сузилось бы до never.
+  let runBudget: RouteBudget | null = null;
   const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
   // реальные габариты для стадий качества стрелок (роутер/плашки)
   const sizeMap = new Map<string, { w: number; h: number }>(
@@ -791,12 +814,20 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // блок, чтобы фолбэк-прогон двухфазного замера (edgeQuality: "skip") мог
   // пропустить их целиком (Ф3). Пишут во внешние autoRoutes/labelPlacements/
   // edgeHandles; await внутри нет.
-  const runEdgeQualityStages = (): void => {
+  const runEdgeQualityStages = (): RouteBudget => {
+  // БЮДЖЕТ РАБОТ — ПЕРВЫМ ДЕЙСТВИЕМ СТАДИЙ (P12): отметка расхода снимается здесь, класс
+  // сцены — по P1 (отображаемые узлы против мастер-рёбер). Априорный контур решает всё
+  // тут же, до первой экспансии: прогноз работ по размеру сцены выше лимита класса →
+  // ступени включены с самого старта, а не после сжигания бюджета до первой границы.
+  const budget = createRouteBudget({
+    nodes: displayIds.length, edges: groupArr.length, config: input.routeBudget,
+  });
   const ar = buildAutoRoutes({
     groups: groupArr, routableIds, positions,
     displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
     // гистерезис: финальные маршруты/хэндлы прошлого прогона (если вызывающий дал)
     prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
+    budget,
   });
   autoRoutes = ar.routes;
   mark("роутер: A*+rip-up+слоты+сварка (проход 1)");
@@ -917,7 +948,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // Второй итерации МИНИ-ПРОХОДА (перепрокладка → плашки → перепрокладка) нет
   // осознанно: сдвинутая плашка теоретически может лечь на другую линию — редкий
   // остаток, не стоит цикла.
-  {
+  //
+  // СТУПЕНЬ ДЕГРАДАЦИИ «ПРОПУСК T4» (P13, ступень 4). Точка осуществимости — ровно
+  // здесь, ПЕРЕД блоком: мини-прохода ещё не было, а сцена без него полностью валидна
+  // (так она и жила до эпика «читаемые пучки»). Цена ступени названа честно: линии
+  // остаются сквозь чужие плашки — теряется читаемость подписей, и вместе с
+  // перепрокладкой уходит дешёвый слой Б3б «плашка уступает первой» (он живёт внутри
+  // этого же блока). Ступень последняя: её точка — та, где почти вся цена ещё впереди
+  // (T4 держит ~48% прогона).
+  const skipT4 = budget.takeT4();
+  if (!skipT4) {
     // ПРЯМОУГОЛЬНИКИ ПЛАШЕК по ТЕКУЩЕМУ размещению (пересчитывается после починки).
     const labelRectsNow = (): Map<string, { x: number; y: number; w: number; h: number }> => {
       const out = new Map<string, { x: number; y: number; w: number; h: number }>();
@@ -1058,6 +1098,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         prev: { routes: autoRoutes, handles: edgeHandles },
         labelObstacles: labelRectOf,
         gridHintGroups: T4_FULL_GRID_HINTS ? groupArr : undefined,
+        // Тот же бюджет: внутри мини-прохода живут СВОИ rip-up и сварка, и их ступени
+        // (P13 №2 и №3) обязаны действовать здесь так же, как в проходе 1.
+        budget,
       });
       let changed = false;
       for (const id of dirty) {
@@ -1103,7 +1146,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     }
     if (t4diag && diagPayload) t4diag(diagPayload);
   }
-  mark("T4 мини-проход (плашки-препятствия)");
+  // Марка одна в обеих ветвях: трасса реплея/теста обязана ЯВНО показывать, что
+  // мини-прохода не было и почему (иначе «у пользователя сработало, у нас нет»).
+  mark(skipT4
+    ? "T4 мини-проход: ПРОПУЩЕН (ступень бюджета работ, P13)"
+    : "T4 мини-проход (плашки-препятствия)");
+  return budget;
   };
   // АВТО-порог пропуска (edgeQuality не задан): И минимум штук, И доля сцены —
   // единичные новые узлы (создание из палитры) не роняют все стрелки в
@@ -1136,7 +1184,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     labelPlacements = prevLabelPlacements;
     mark("стадии качества стрелок: кэш-хит по routeSig");
   } else if (!skipQuality) {
-    runEdgeQualityStages();
+    runBudget = runEdgeQualityStages();
     ranQualityStages = true;
   } else {
     mark(skipByUnmeasured
@@ -1154,9 +1202,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // ждут детей (полевая находка приёмки Ф2: частичный 17-узловой прогон корня имел
   // unmeasured = 0 и затирал кэш полной 34-узловой сцены); состав НЕ ПУСТ (нулевой
   // прогон до прихода данных — не «сцена без стрелок», а «данных ещё нет»).
+  // СТУПЕНИ БЮДЖЕТА ЭТОГО ПРОГОНА (P13): null — ни одна не срабатывала.
+  const budgetDegraded = runBudget?.result() ?? null;
   const authoritative = (ranQualityStages || cacheHit)
     && unmeasured === 0 && !scoped
-    && !hasPendingChildren && displayIds.length > 0;
+    && !hasPendingChildren && displayIds.length > 0
+    // ДЕГРАДИРОВАННЫЙ ПРОГОН НЕ АВТОРИТЕТЕН (P13): его геометрия — не то, что дал бы
+    // полный прогон, и в кэше вида (P11) она жила бы, пока не изменится сама сцена.
+    // Прогон со ступенями показывается, но не консервируется.
+    && budgetDegraded === null;
 
   // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
   // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг
@@ -1215,5 +1269,6 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     intents,
     routeSig,
     authoritative,
+    budgetDegraded,
   };
 }

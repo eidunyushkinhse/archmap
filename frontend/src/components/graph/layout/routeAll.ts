@@ -13,6 +13,7 @@ import type { EdgePoint } from "../../../types";
 import { cleanup, pathCrossesRects, segments, type NodeRect, type Segment } from "../edgePath";
 import { routePorts, __routeCounters, type PortCandidate, type RouteGridCache, type RouteOptions } from "./orthoRoute";
 import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
+import type { RouteBudget } from "./routeBudget";
 
 const EPS = 0.5;
 export const DEFAULT_CROSS_COST = 200; // px-эквивалент штрафа за одно пересечение (R3 > R1)
@@ -88,6 +89,11 @@ export interface RouteAllOptions {
   // портов СВОИХ рёбер. Сюда вызывающий кладёт координаты портов ВСЕХ рёбер сцены.
   // Пусто/не задано — поведение прежнее байт-в-байт.
   gridHints?: { xs: number[]; ys: number[] };
+  // БЮДЖЕТ РАБОТ (Ф5 эпика router-opt, спека perf.md P12/P13). Ездит ПАРАМЕТРОМ, не
+  // синглтоном. Даёт две вещи: потолок экспансий одного A* (в опции routePorts) и
+  // РЕШЕНИЕ ступени «пропустить rip-up» на её естественной границе — перед фикспойнтом.
+  // Не задан — бюджета нет, поведение прежнее байт-в-байт (полигоны, драг, тесты).
+  budget?: RouteBudget;
 }
 
 // Сколько РАЗЛИЧНЫХ ТОЧЕК уже проложенных стрелок пересёк бы ход (x1,y1)→(x2,y2)
@@ -611,6 +617,9 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
   const gridCache: RouteGridCache = new Map();
   const baseOpts: RouteOptions = {
     margin: opts?.margin, bendPenalty: opts?.bendPenalty, extraXs, extraYs, gridCache,
+    // Потолок одного поиска: дефолт CALL_EXPANSION_CAP действует и без бюджета, а
+    // априорный контур передаёт сюда ужесточённый (см. RouteBudget.callCap).
+    expansionCap: opts?.budget?.callCap,
   };
   const bp = opts?.bendPenalty ?? 40;
   // порты ребра как точки (роль source/target раздельно) — для исключения стволов
@@ -777,7 +786,14 @@ export function routeAll(edges: EdgeTerminal[], opts?: RouteAllOptions): Map<str
   // размечена так же в weldTrunks). Цена — два int-вычитания на набор.
   const ripCallsBefore = __routeCounters.routePortsCalls;
   const ripExpBefore = __routeCounters.expansions;
-  for (let iter = 0; iter < 3; iter++) {
+  // СТУПЕНЬ ДЕГРАДАЦИИ «ПРОПУСК RIP-UP» (P13, ступень 2). Точка осуществимости — ровно
+  // здесь: rip-up ещё не начинался, его пропуск оставляет набор в состоянии прохода-1,
+  // которое ВАЛИДНО само по себе (все маршруты проложены, E18 не нарушен). Цена ступени —
+  // «жертвы порядка» не чинятся: часть крестов и наложений, которые перепрокладка сняла
+  // бы, остаётся. Это самая дорогая стадия набора (51–64% экспансий эталонов), поэтому
+  // она уступает первой из трёх.
+  const skipRipup = opts?.budget?.takeRipup() ?? false;
+  for (let iter = 0; !skipRipup && iter < 3; iter++) {
     if (!ripUp()) break;
   }
   __routeCounters.ripupCalls += __routeCounters.routePortsCalls - ripCallsBefore;
