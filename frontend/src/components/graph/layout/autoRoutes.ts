@@ -210,8 +210,15 @@ export function buildAutoRoutes(params: {
   // СВАРКА СТВОЛОВ (Ф2, E78): по умолчанию включена; живой драг передаёт false —
   // сварка не гоняется живьём (E62), доворот на отпускании прячет drawIn (E64).
   weld?: boolean;
+  // ЭКСПЕРИМЕНТ г1 (Ф4-II эпика «глубокая оптимизация роутера»): набор групп, чьи порты
+  // идут в решётку ДОПОЛНИТЕЛЬНО к портам роутируемых. Скоупенный вызов (T4-мини-проход)
+  // иначе ищет на БЕДНОЙ сетке — свернуть можно только на линии своих портов, отсюда
+  // лишние маргин-ретраи (Ф0: 12.3 ретрая на ребро против 10.9 у полного прохода).
+  // ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО: не байт-в-байт (другое пространство поиска), решение о
+  // включении — за замером (см. журнал Ф4-II в docs/plan-router-deep-opt.md).
+  gridHintGroups?: EdgeGroup[];
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld, gridHintGroups } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -248,6 +255,26 @@ export function buildAutoRoutes(params: {
     s: { side: EdgeSide; idx: number };
     t: { side: EdgeSide; idx: number };
   }>();
+  // Порты-кандидаты ребра: рельса встречной пары — единственный порт на своём крайнем
+  // слоте (A11), свободное ребро — все четыре стороны × все слоты (T1 эпика «читаемые
+  // пучки», V2.2 давал только центры): веер сам расползается по свободным слотам (езда по
+  // чужому штрафуется, ствол в общем слоте бесплатен), in/out разводятся прямо в поиске —
+  // пост-хок distributeSlots остаётся фолбэком. Центр (idx 1) первым — детерминированный
+  // тай-брейк и прежний фолбэк ports[0].
+  const SLOT_ORDER = [1, 0, 2];
+  const portsForGroup = (id: string, sr: NodeRect, tr: NodeRect): { s: PortSpec[]; t: PortSpec[] } => {
+    const rail = rails.get(id);
+    if (rail) {
+      return {
+        s: [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sr, rail.sSide, rail.sIdx) }],
+        t: [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tr, rail.tSide, rail.tIdx) }],
+      };
+    }
+    return {
+      s: ALL_SIDES.flatMap((side) => SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(sr, side, idx) }))),
+      t: ALL_SIDES.flatMap((side) => SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(tr, side, idx) }))),
+    };
+  };
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
@@ -281,25 +308,7 @@ export function buildAutoRoutes(params: {
         }
       }
     }
-    const rail = rails.get(g.id);
-    let sPorts: PortSpec[], tPorts: PortSpec[];
-    if (rail) {
-      // встречная пара — единственный порт: обращённая сторона на своём слоте-рельсе
-      // (idx разводит плечи направлений на параллельные рельсы)
-      sPorts = [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sr, rail.sSide, rail.sIdx) }];
-      tPorts = [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tr, rail.tSide, rail.tIdx) }];
-    } else {
-      // свободное ребро: порты на всех четырёх сторонах И ВСЕХ слотах (T1 эпика «читаемые
-      // пучки», V2.2 давал только центры): веер сам расползается по свободным слотам
-      // (езда по чужому штрафуется, ствол в общем слоте бесплатен), in/out разводятся
-      // прямо в поиске — пост-хок distributeSlots остаётся фолбэком. Центр (idx 1)
-      // первым — детерминированный тай-брейк и прежний фолбэк ports[0].
-      const SLOT_ORDER = [1, 0, 2];
-      sPorts = ALL_SIDES.flatMap((side) =>
-        SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(sr, side, idx) })));
-      tPorts = ALL_SIDES.flatMap((side) =>
-        SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(tr, side, idx) })));
-    }
+    const { s: sPorts, t: tPorts } = portsForGroup(g.id, sr, tr);
     portsById.set(g.id, { s: sPorts, t: tPorts });
     // Границы ЧУЖИХ рамок (ни один конец не член) — штраф за переход: чужое ребро
     // обходит рамку, а не режет насквозь. Свои рамки бесплатны (переход неизбежен),
@@ -351,7 +360,24 @@ export function buildAutoRoutes(params: {
       if (pr && pr.length >= 2) preplaced.push(pr.map((p) => ({ x: p.x, y: p.y })));
     }
   }
-  const raw = routeAll(terminals, preplaced.length > 0 ? { preplaced } : undefined);
+  // г1: грид-подсказки от портов ВСЕХ рёбер сцены (не только роутируемых). Считаются
+  // ровно теми же портами, что у терминалов, — сетка совпадает с сеткой полного прохода.
+  let gridHints: { xs: number[]; ys: number[] } | undefined;
+  if (gridHintGroups && gridHintGroups.length > 0) {
+    const xs: number[] = [], ys: number[] = [];
+    for (const g of gridHintGroups) {
+      if (routableIds.has(g.id)) continue; // свои порты уже в решётке набора
+      const sr = dockRects.get(g.source), tr = dockRects.get(g.target);
+      if (!sr || !tr) continue;
+      const pp = portsForGroup(g.id, sr, tr);
+      for (const p of [...pp.s, ...pp.t]) { xs.push(p.point.x); ys.push(p.point.y); }
+    }
+    if (xs.length > 0) gridHints = { xs, ys };
+  }
+  const routeOpts = preplaced.length > 0 || gridHints
+    ? { ...(preplaced.length > 0 ? { preplaced } : {}), ...(gridHints ? { gridHints } : {}) }
+    : undefined;
+  const raw = routeAll(terminals, routeOpts);
   const routes = new Map<string, EdgePoint[]>();
   const handles = new Map<string, { sourceHandle: string; targetHandle: string }>();
   const docks: Dock[] = [];

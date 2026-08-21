@@ -196,11 +196,20 @@ export interface PipelineOutput {
   authoritative: boolean;
 }
 
+// ЭКСПЕРИМЕНТ г1 (Ф4-II того же эпика): отдавать ли T4-мини-проходу грид-подсказки от
+// портов ВСЕХ рёбер сцены, а не только перепрокладываемых. Мотив (Ф0): T4 роутит на
+// БЕДНОЙ сетке и тратит 12.3 маргин-ретрая на ребро против 10.9 у полного прохода.
+// ВЫКЛЮЧЕН ПО ЗАМЕРУ: сетка плотнее → шаг дороже, время T4 растёт, а качество не
+// выигрывает (числа — в журнале Ф4-II, docs/plan-router-deep-opt.md). Флаг оставлен в
+// дереве, чтобы эксперимент воспроизводился одной правкой, а не археологией.
+const T4_FULL_GRID_HINTS: boolean = false;
+
 // ДИАГНОСТИКА T4 (Ф0 эпика «глубокая оптимизация роутера», 2026-08-21): полезная
 // нагрузка необязательного хука __ARCHMAP_T4_DIAG на globalThis — им реплей снимает
 // метрики, решающие судьбу кандидатов Б3 и цену дыры В8.1 (см. блок T4 ниже).
 export interface T4Diag {
-  // «грязные» рёбра мини-прохода: маршрут режет прямоугольник ЧУЖОЙ плашки
+  // «грязные» рёбра мини-прохода: маршрут режет прямоугольник ЧУЖОЙ плашки. С Ф4-II
+  // (Б3б) это ОСТАТОК ПОСЛЕ ПОЧИНКИ ПЛАШЕК — те, кого действительно перепрокладывают
   dirtyIds: string[];
   // из них те, чей конец — РАМКА. ИСТОРИЯ: до Ф4 эпика router-opt T4-вызов не получал
   // frameEndpoints, и такие рёбра молча не перепрокладывались никогда (дыра В8.1
@@ -210,6 +219,17 @@ export interface T4Diag {
   // режет ни одной чужой плашки, сжатой на k со всех сторон; 12 — «режет и при 10»
   // (касание краем против глубокого реза — выбор варианта Б3)
   cutDepths: { id: string; depth: number }[];
+  // Б3б («сначала подвинь плашку», Ф4-II): что сняла с роутера починка плашек.
+  labelFirst: {
+    conflicts: number;    // пар «маршрут A режет плашку B» ДО починки
+    dirtyBefore: number;  // рёбер, которых пришлось бы перепрокладывать без Б3б
+    victims: number;      // плашек-жертв (их пытались переставить)
+    moved: number;        // из них уехали в БЕЗУПРЕЧНОЕ место
+    solvedEdges: number;  // рёбер снято с перепрокладки починкой плашек
+  };
+  // Б3б, финальный проход: та же починка ПОСЛЕ пере-размещения плашек по новой
+  // геометрии (финальный гриди не имеет права откатить решения Б3б на линии)
+  finalRepair?: { conflicts: number; victims: number; moved: number };
 }
 
 // ДИАГНОСТИКА ИНКРЕМЕНТАЛЬНОГО СКОУПА (Ф3 того же эпика): полезная нагрузка
@@ -886,39 +906,113 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   mark("плашки подписей (проход 1)");
 
   // ПЛАШКИ → ПРЕПЯТСТВИЯ МАРШРУТОВ (T4 «читаемые пучки», один мини-проход): линия
-  // сквозь чужой текст нечитаема. «Грязные» рёбра (маршрут режет прямоугольник ЧУЖОЙ
-  // плашки) перепрокладываются со штрафом LABEL_CROSS_COST за переход границы плашки
-  // (своя не отталкивает); прочие маршруты — фиксированный контекст prev. После —
-  // одно пере-размещение плашек по изменённой геометрии. Второй итерации нет
+  // сквозь чужой текст нечитаема. ПОРЯДОК УСТУПКИ (E40 v2, Ф4-II эпика «глубокая
+  // оптимизация роутера»): конфликт сначала пробуют снять ПЛАШКОЙ — переставить её
+  // стоит миллисекунды перебора, а перепроложить ребро — полноценный A* по штрафному
+  // ландшафту (половина цены конвейера). Остаток — прежним путём: «грязные» рёбра
+  // перепрокладываются со штрафом LABEL_CROSS_COST за переход границы чужой плашки
+  // (своя не отталкивает), прочие маршруты — фиксированный контекст prev; после —
+  // доводка нуджинга, пере-размещение плашек по изменённой геометрии и ТА ЖЕ починка
+  // поверх него (финальный гриди мягок и имеет право снова сесть на линию).
+  // Второй итерации МИНИ-ПРОХОДА (перепрокладка → плашки → перепрокладка) нет
   // осознанно: сдвинутая плашка теоретически может лечь на другую линию — редкий
   // остаток, не стоит цикла.
   {
-    const labelRectOf = new Map<string, { x: number; y: number; w: number; h: number }>();
-    for (const g of groupArr) {
-      const lp = labelPlacements.get(g.id);
-      const meta = edgeLabelMeta(g);
-      if (!lp || !meta) continue;
-      const box = metaLabelBox(meta);
-      labelRectOf.set(g.id, {
-        x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h,
-      });
-    }
-    const dirty = new Set<string>();
-    for (const g of groupArr) {
-      // СКОУП: незаскоупленные рёбра заморожены — не перепрокладываем (иначе дрейф)
-      if (scoped && !routableIds.has(g.id)) continue;
-      const rt = autoRoutes.get(g.id);
-      if (!rt) continue;
-      for (const [gid, r] of labelRectOf) {
-        if (gid === g.id) continue;
-        if (pathCrossesRects(rt, [r])) { dirty.add(g.id); break; }
+    // ПРЯМОУГОЛЬНИКИ ПЛАШЕК по ТЕКУЩЕМУ размещению (пересчитывается после починки).
+    const labelRectsNow = (): Map<string, { x: number; y: number; w: number; h: number }> => {
+      const out = new Map<string, { x: number; y: number; w: number; h: number }>();
+      for (const g of groupArr) {
+        const lp = labelPlacements?.get(g.id);
+        const meta = edgeLabelMeta(g);
+        if (!lp || !meta) continue;
+        const box = metaLabelBox(meta);
+        out.set(g.id, {
+          x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h,
+        });
       }
-    }
+      return out;
+    };
+    // КОНФЛИКТЫ «маршрут ребра A режет плашку группы B» — пары (A, B) в детерминированном
+    // порядке (id ребра, затем id плашки). СКОУП: перепрокладывать можно только
+    // заскоупленные (незаскоупленные заморожены, иначе дрейф — E82/E84), но ПОЧИНИТЬ
+    // ПЛАШКУ можно и от замороженной линии: плашки и так размещаются по всей сцене
+    // каждый прогон (компромисс 4 в E84) — поэтому источником конфликта служит ЛЮБОЙ
+    // маршрут, а в перепрокладку идут только заскоупленные виновники.
+    const collectConflicts = (
+      rects: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>,
+    ): { pairs: [string, string][]; dirty: Set<string>; victims: Set<string> } => {
+      const pairs: [string, string][] = [];
+      const dirty = new Set<string>();
+      const victims = new Set<string>();
+      const ids = groupArr.map((g) => g.id).sort();
+      const labelIds = [...rects.keys()].sort();
+      for (const id of ids) {
+        const rt = autoRoutes?.get(id);
+        if (!rt) continue;
+        for (const gid of labelIds) {
+          if (gid === id) continue;
+          const r = rects.get(gid);
+          if (!r || !pathCrossesRects(rt, [r])) continue;
+          pairs.push([id, gid]);
+          victims.add(gid);
+          if (!scoped || routableIds.has(id)) dirty.add(id);
+        }
+      }
+      return { pairs, dirty, victims };
+    };
+    // Б3б («СНАЧАЛА ПОДВИНЬ ПЛАШКУ», E40 v2). Плашка-жертва пробует УСТУПИТЬ режущим её
+    // стрелкам: переезд принимается, только если режущих стало строго меньше, а жёстких
+    // наложений (узлы/чужие плашки) не прибавилось (placeLabels repair). Ушла из-под всех
+    // — рёбра, грязные только из-за неё, снимаются с перепрокладки; не вышло — остаётся
+    // где была, и виновники идут прежним путём (дорогой A* по штрафному ландшафту).
+    // Порядок пере-размещения — канонический E53 (стеснённые первыми, тай-брейк id):
+    // переехавшая плашка немедленно становится препятствием следующим.
+    // МУТАЦИЯ, А НЕ ПРОБА: финальный гриди переразмещает плашки по СВОИМ мягким
+    // правилам (E52 — чужое плечо лишь второй компонент ключа), поэтому «B умеет
+    // встать чисто» само по себе плашку не двигает; см. финальную починку ниже.
+    const repairLabels = (
+      rects: Map<string, { x: number; y: number; w: number; h: number }>,
+      victims: ReadonlySet<string>,
+    ): number => {
+      if (victims.size === 0 || !autoRoutes) return 0;
+      const others: { x: number; y: number; w: number; h: number }[] = [];
+      for (const [gid, r] of rects) if (!victims.has(gid)) others.push(r);
+      const moved = buildLabelPlacements({
+        routes: autoRoutes,
+        groups: groupArr,
+        labelMeta: edgeLabelMeta,
+        preferredT: () => undefined,
+        nodeRects,
+        obstacleRects: others,
+        repair: { only: victims, keepRectOf: rects },
+      });
+      if (moved.size === 0) return 0;
+      const merged = new Map(labelPlacements);
+      for (const [id, lp] of moved) merged.set(id, lp);
+      labelPlacements = merged;
+      return moved.size;
+    };
+    // ВТОРОЙ ИТЕРАЦИИ ПОЧИНКИ НЕТ: она сошлась бы (переезд обязан строго уменьшать число
+    // режущих стрелок, маршруты внутри починки не двигаются — счёт монотонно убывает), но
+    // ЗАМЕР показал фикспойнт уже на первом проходе (4 эталонные сцены: 5/14/3/0 переездов
+    // на первой итерации, 0 на второй) — отказавшей плашке освободившееся место соседки не
+    // помогает. Лишний проход по 60–128 плашкам ради нуля не берём.
+    let labelRectOf = labelRectsNow();
+    const before = collectConflicts(labelRectOf);
+    const movedCount = repairLabels(labelRectOf, before.victims);
+    if (movedCount > 0) labelRectOf = labelRectsNow();
+    // Пересчёт грязных ПО ПОЧИНЕННЫМ плашкам — полным сканом: переезд обязан лишь
+    // УМЕНЬШИТЬ число режущих стрелок, а не обнулить его, поэтому уехавшая плашка
+    // теоретически может подставиться под другую линию. Скан по прямоугольникам дёшев
+    // (доли миллисекунды против секунд A*), гадать тут незачем.
+    const dirty = movedCount > 0 ? collectConflicts(labelRectOf).dirty : before.dirty;
     // ДИАГНОСТИЧЕСКИЙ ХУК T4 (Ф0): по образцу __ARCHMAP_TRACE — без выставленного
     // хука мёртвый no-op, ни одного лишнего вычисления в проде. Всё содержимое
     // (в т.ч. лестница inset'ов глубины вреза) считается только здесь.
     const diagG = globalThis as unknown as { __ARCHMAP_T4_DIAG?: (d: T4Diag) => void };
     const t4diag = diagG.__ARCHMAP_T4_DIAG;
+    // Хук зовётся ОДИН раз в конце блока — числа финальной починки известны только там.
+    let diagPayload: T4Diag | null = null;
     if (t4diag) {
       const dirtyIds = [...dirty];
       const frameEndDirtyIds: string[] = [];
@@ -940,7 +1034,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         }
         return { id, depth };
       });
-      t4diag({ dirtyIds, frameEndDirtyIds, cutDepths });
+      diagPayload = {
+        dirtyIds, frameEndDirtyIds, cutDepths,
+        labelFirst: {
+          conflicts: before.pairs.length,
+          dirtyBefore: before.dirty.size,
+          victims: before.victims.size,
+          moved: movedCount,
+          solvedEdges: before.dirty.size - dirty.size,
+        },
+      };
     }
     if (dirty.size > 0) {
       const ar2 = buildAutoRoutes({
@@ -954,6 +1057,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
         prev: { routes: autoRoutes, handles: edgeHandles },
         labelObstacles: labelRectOf,
+        gridHintGroups: T4_FULL_GRID_HINTS ? groupArr : undefined,
       });
       let changed = false;
       for (const id of dirty) {
@@ -980,8 +1084,24 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           preferredT: () => undefined,
           nodeRects,
         });
+        // ФИНАЛЬНАЯ ПОЧИНКА (Б3б). Гриди выше — ИСТОЧНИК ПРАВДЫ размещения, и он честно
+        // переразмещает ВСЁ по мягким правилам E52: плашка, которую Б3б увёл с линии,
+        // могла вернуться на линию (уже другую — маршруты грязных изменились). Тот же
+        // проход починки поверх финала держит инвариант E40 v2 «плашка уступает первой»
+        // и на финальной геометрии. Перепрокладки за ним НЕТ — второй итерации T4
+        // по-прежнему нет осознанно (E40); чинится только слой плашек, и он
+        // идемпотентен (переехавшая плашка чиста, повторный проход — no-op).
+        const finalRects = labelRectsNow();
+        const fin = collectConflicts(finalRects);
+        const finMoved = repairLabels(finalRects, fin.victims);
+        if (diagPayload) {
+          diagPayload.finalRepair = {
+            conflicts: fin.pairs.length, victims: fin.victims.size, moved: finMoved,
+          };
+        }
       }
     }
+    if (t4diag && diagPayload) t4diag(diagPayload);
   }
   mark("T4 мини-проход (плашки-препятствия)");
   };

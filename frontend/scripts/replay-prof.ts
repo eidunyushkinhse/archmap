@@ -110,6 +110,22 @@ for (const d of t4) {
     ` (${d.dirtyIds.length ? Math.round((100 * d.frameEndDirtyIds.length) / d.dirtyIds.length) : 0}%)` +
     `; глубина вреза: ${cells}`,
   );
+  // labelFirst появился в Ф4-II; на дампах/сборках без него скрипт обязан не падать —
+  // им же гоняются контрольные зонды со старым конвейером.
+  const lf: T4Diag["labelFirst"] | undefined = d.labelFirst;
+  if (lf) {
+    console.error(
+      `  Б3б: конфликтов ${lf.conflicts} на ${lf.victims} плашках-жертвах;` +
+      ` переехало ${lf.moved}; рёбер было бы грязных ${lf.dirtyBefore} →` +
+      ` снято плашкой ${lf.solvedEdges}, осталось на перепрокладку ${d.dirtyIds.length}`,
+    );
+  }
+  if (d.finalRepair) {
+    console.error(
+      `  Б3б-финал: конфликтов после пере-размещения ${d.finalRepair.conflicts}` +
+      ` на ${d.finalRepair.victims} плашках; переехало ${d.finalRepair.moved}`,
+    );
+  }
 }
 if (t4.length === 0) console.error("T4-diag: мини-проход не запускался (грязных рёбер нет либо стадии качества пропущены)");
 
