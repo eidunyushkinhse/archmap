@@ -40,7 +40,9 @@ import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { spawnFreshChildren } from "./spawnChildren";
-import { buildAutoRoutes } from "./autoRoutes";
+// T4_FULL_GRID_HINTS — экспериментальный флаг г1 (Ф4-II): читается здесь, объявлен в
+// autoRoutes.ts, чтобы входить в реестр сторожа контракта роутера (Н2 внешнего аудита).
+import { buildAutoRoutes, T4_FULL_GRID_HINTS } from "./autoRoutes";
 import {
   createRouteBudget, type BudgetDegraded, type RouteBudget, type RouteBudgetConfig,
 } from "./routeBudget";
@@ -211,14 +213,6 @@ export interface PipelineOutput {
   // пишем) и обязан быть объявлен пользователю разовым тостом (P13).
   budgetDegraded: BudgetDegraded | null;
 }
-
-// ЭКСПЕРИМЕНТ г1 (Ф4-II того же эпика): отдавать ли T4-мини-проходу грид-подсказки от
-// портов ВСЕХ рёбер сцены, а не только перепрокладываемых. Мотив (Ф0): T4 роутит на
-// БЕДНОЙ сетке и тратит 12.3 маргин-ретрая на ребро против 10.9 у полного прохода.
-// ВЫКЛЮЧЕН ПО ЗАМЕРУ: сетка плотнее → шаг дороже, время T4 растёт, а качество не
-// выигрывает (числа — в журнале Ф4-II, docs/plan-router-deep-opt.md). Флаг оставлен в
-// дереве, чтобы эксперимент воспроизводился одной правкой, а не археологией.
-const T4_FULL_GRID_HINTS: boolean = false;
 
 // ДИАГНОСТИКА T4 (Ф0 эпика «глубокая оптимизация роутера», 2026-08-21): полезная
 // нагрузка необязательного хука __ARCHMAP_T4_DIAG на globalThis — им реплей снимает
