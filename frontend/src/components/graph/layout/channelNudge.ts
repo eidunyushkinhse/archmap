@@ -30,6 +30,13 @@
 //   случаи этого решения и удалены;
 // - сдвиг не должен «переломить» соседние перпендикулярные сегменты (знак их направления
 //   сохраняется) — иначе сдвиг этого ребра отменяется;
+// - ЗАМОРОЖЕННЫЕ УЧАСТНИКИ (fixedIds; скоуп пересчёта E82/E84, компромисс 3): плечо
+//   незаскоупленного ребра для канала — НЕПОДВИЖНОЕ ПРЕПЯТСТВИЕ. Оно полноправно входит
+//   в кластер и в разводку (его ось — пин весом ∞ в VPSC), но само не двигается ни на
+//   пиксель: живые соседи встают ОТ его фактической линии с зазором. Двигать его вместе
+//   со всеми и «вернуть потом» нельзя — разводка живых оказалась бы посчитана вокруг
+//   линии, которой на сцене не будет, и встречное живое плечо ложилось бы ровно на
+//   возвращённое замороженное. Набор пуст (полный прогон) — путь прежний байт-в-байт;
 // - детерминизм: кластеры и группы обходятся в отсортированном порядке.
 import type { EdgePoint } from "../../../types";
 import { cleanup, segments, type SegOrient } from "../edgePath";
@@ -192,13 +199,21 @@ const corridorOf = (
   return { lo: merged[insideIdx - 1]?.[1] ?? -Infinity, hi: a };
 };
 
+// Пустой набор замороженных — один на модуль: полный прогон не платит за него ни
+// аллокацией, ни ветвлением на каждом канале.
+const NO_FIXED: ReadonlySet<string> = new Set<string>();
+
 export function nudgeChannels(params: {
   routes: Map<string, EdgePoint[]>;
   obstacles: Rect[];
   gap?: number;
+  // Рёбра, чьи плечи неподвижны (замороженный prev-контекст скоупного прогона, E84):
+  // участвуют в каналах как жёсткие пины, но не сдвигаются и не попадают в nudged.
+  fixedIds?: ReadonlySet<string>;
 }): ChannelNudgeResult {
   const { routes, obstacles } = params;
   const gap = params.gap ?? NUDGE_GAP;
+  const fixedIds = params.fixedIds ?? NO_FIXED;
 
   // рабочие копии ломаных — сдвиги мутируют их на месте
   const work = new Map<string, EdgePoint[]>();
@@ -287,11 +302,17 @@ export function nudgeChannels(params: {
     // меньше крестов на входах.
     const ordered = [...groups.entries()]
       .map(([k, ss]) => {
-        const axis = ss.reduce((sum, s) => sum + s.axis, 0) / ss.length;
-        const fixed = ss.some((s) => !s.movable);
+        // ЗАМОРОЖЕННЫЕ КУСКИ ГРУППЫ (E84): группа с ними неподвижна целиком, а её ось
+        // считается ПО НИМ — живые соседи обязаны разводиться от линии, которая реально
+        // останется на сцене (в группу мог войти сваренный ствол с осями в пределах EPS,
+        // и среднее по всем кускам чуть врало бы про эту линию).
+        const pinned = fixedIds.size > 0 ? ss.filter((s) => fixedIds.has(s.edgeId)) : [];
+        const axisOf = pinned.length > 0 ? pinned : ss;
+        const axis = axisOf.reduce((sum, s) => sum + s.axis, 0) / axisOf.length;
+        const fixed = pinned.length > 0 || ss.some((s) => !s.movable);
         const corridor = fixed ? { lo: axis, hi: axis } : corridorOf(ss, axis, obstacles, gap);
         return {
-          key: k, segs: ss, axis, fixed, corridor,
+          key: k, segs: ss, axis, fixed, corridor, frozen: pinned.length > 0,
           ref: ss.reduce((sum, s) => sum + s.refPerp, 0) / ss.length,
           desired: Math.min(Math.max(axis, corridor.lo), corridor.hi),
         };
@@ -300,6 +321,10 @@ export function nudgeChannels(params: {
         (Math.abs(a.desired - b.desired) > EPS ? a.desired - b.desired : 0) ||
         a.ref - b.ref || a.key.localeCompare(b.key));
     const n = ordered.length;
+    // Замороженные пины канала — их линии неприкосновенны, и живая группа, оказавшаяся
+    // на такой линии, выбирает сторону ухода по выполнимости (см. пункт 3 в solveAt).
+    // Полный прогон: набор пуст, ни одной лишней итерации.
+    const frozenPins = fixedIds.size > 0 ? ordered.filter((g) => g.frozen) : [];
 
     // Применим ли сдвиг сегмента на офсет off: соседние перпендикулярные сегменты не
     // переламываются (знак направления сохраняется), цель вне клиренс-полос узлов —
@@ -363,6 +388,7 @@ export function nudgeChannels(params: {
     //    ОДИНОЧНЫЙ пин не трогаем: там цепочка решает сама и точнее (меньше сдвиг).
     // 2) Сепарация между ДВУМЯ пинами не требуется: двигать нечего, а уравнение только
     //    травит выполнимость всей системы.
+    // 3) СТОРОНА ЖИВОЙ ГРУППЫ ПРИ ЗАМОРОЖЕННОМ ПИНЕ (E84): см. пункт 3 внутри adj.
     const solveAt = (sepGap: number): number[] | null => {
       const isPin = ordered.map((g) => g.corridor.lo === g.corridor.hi);
       // пин-кластеры: соседние пины ближе 2·sepGap сливаются — между ними не встать
@@ -389,6 +415,24 @@ export function nudgeChannels(params: {
             .filter((v) => Math.abs(v - g.desired) <= MAX_EVICT * sepGap)
             .sort((x, y) => Math.abs(x - d) - Math.abs(y - d) || y - x)[0];
           if (cand !== undefined) d = cand;
+        }
+        // 3) ЖИВАЯ ГРУППА НА ЗАМОРОЖЕННОЙ ЛИНИИ (E84, скоупный прогон). Её ось совпала
+        //    с осью замороженного плеча в пределах EPS — ровно тот случай, ради которого
+        //    заморозка и объявлена пином. Сторону сдвига решил бы тай-брейк порядка (по
+        //    подходам), а он умеет отправить группу туда, где стенка коридора ближе
+        //    зазора: система становится невыполнимой, канал бросается ЦЕЛИКОМ — и живое
+        //    остаётся лежать ровно на замороженной линии. У замороженного пина права
+        //    уступить нет, поэтому сторона, диктуемая подходами, проверяется на
+        //    выполнимость, и при отказе берётся противоположная (приём тот же, что у
+        //    выпрыгивания из пролёта кластера выше). Обе не влезли — прежний отказ.
+        for (const p of frozenPins) {
+          if (Math.abs(d - p.desired) > EPS) continue;
+          const fits = (v: number): boolean =>
+            v >= g.corridor.lo && v <= g.corridor.hi &&
+            Math.abs(v - g.desired) <= MAX_EVICT * sepGap;
+          const byRef = g.ref >= p.ref ? p.desired + sepGap : p.desired - sepGap;
+          const other = g.ref >= p.ref ? p.desired - sepGap : p.desired + sepGap;
+          if (!fits(byRef) && fits(other)) d = other;
         }
         return d;
       });
@@ -441,6 +485,10 @@ export function nudgeChannels(params: {
 
     for (let j = 0; j < n; j++) {
       const g = ordered[j];
+      // ИНВАРИАНТ: группа с концевым или замороженным куском (g.fixed) не двигается
+      // никогда — значит ни один замороженный сегмент физически не может быть сдвинут
+      // и ни одно замороженное ребро не попадёт в nudged (оно вернётся из routes тем
+      // же массивом, каким пришло).
       if (g.fixed) continue;
       // сдвиг применяется по-сегментно к целевой линии: члены группы с чуть разными
       // осями (near-параллельный коридор) сходятся на одну линию

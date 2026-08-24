@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { computeViewLayout, buildRouteSig, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
+import {
+  computeViewLayout, buildRouteSig,
+  type LayoutResult, type PipelineInput, type ScopeDiag, type FrozenDiag,
+} from "../graph/layout/pipeline";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 import { NODE_W, NODE_H } from "../graph/constants";
 
@@ -916,5 +919,147 @@ describe("инкрементальный скоуп по prevScene (Ф3 router-o
     // снимок сцены на путь драга не влияет ВООБЩЕ (семантика E82 неприкосновенна)
     expect(sig(dragWithScene.layout)).toBe(sig(drag.layout));
     expect(dragWithScene.routeSig).toBe(drag.routeSig);
+  });
+});
+// ЗАМОРОЗКА СКОУПА НЕПОДВИЖНА ДЛЯ СТАДИЙ (E84, компромисс 3). Плечо незаскоупленного
+// ребра — НЕПОДВИЖНОЕ препятствие пост-обработки: нуджинг видит его пином и разводит
+// живых ОТ него, полировка джогов его не трогает. Прежде стадии двигали его наравне со
+// всеми, а конвейер возвращал постфактум (restoreFrozen) — разводка живых оказывалась
+// посчитана вокруг линии, которой на сцене не будет. Сцена — «лестница» из двух рядов:
+// цепочки навстречу друг другу, перемычки и диагонали дают каналы, в которых
+// замороженные и живые плечи реально встречаются.
+describe("заморозка скоупа неподвижна для стадий (E84, компромисс 3)", () => {
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  const COLS = 5, STEP = 420, ROW_DY = 620;
+  const IDS: string[] = [];
+  const POS: Record<string, { x: number; y: number }> = {};
+  for (let c = 0; c < COLS; c++) {
+    IDS.push(`U${c}`, `D${c}`);
+    POS[`U${c}`] = { x: c * STEP, y: 0 };
+    POS[`D${c}`] = { x: c * STEP, y: ROW_DY };
+  }
+  const EDGES: [string, string, string][] = [];
+  for (let c = 0; c + 1 < COLS; c++) {
+    EDGES.push([`u${c}`, `U${c}`, `U${c + 1}`]);   // верхний ряд слева направо
+    EDGES.push([`d${c}`, `D${c + 1}`, `D${c}`]);   // нижний — навстречу
+  }
+  for (let c = 0; c < COLS; c++) {
+    EDGES.push([`x${c}`, c % 2 ? `U${c}` : `D${c}`, c % 2 ? `D${c}` : `U${c}`]);
+  }
+  for (let c = 0; c + 2 < COLS; c++) EDGES.push([`s${c}`, `U${c + 2}`, `D${c}`]);
+
+  function ladderInput(moved: Record<string, { x: number; y: number }> = {}): PipelineInput {
+    const viewLayout: PipelineInput["viewLayout"] = {};
+    for (const id of IDS) viewLayout[id] = moved[id] ?? POS[id];
+    return {
+      nodes: IDS.map(appNode),
+      endpoints: [],
+      edges: EDGES.map(([id, src, tgt]) => edge(id, src, tgt)),
+      containerId: "P",
+      viewLayout,
+      ancestorIds: ["P"],
+      expanded: new Set(),
+      localChildren: {},
+      sizes: Object.fromEntries(IDS.map((id) => [id, SZ])),
+      edgeQuality: "full",
+    };
+  }
+
+  // Сегменты ломаной с пометкой «интерьерный» (оба конца — не концы маршрута): концевые
+  // пришпилены к портам, и канал их не двигает ни при каких условиях (раздача портов —
+  // не его дело), поэтому в проверке заморозки они не участвуют.
+  interface Leg { horiz: boolean; interior: boolean; a: { x: number; y: number }; b: { x: number; y: number } }
+  const legsOf = (pts: { x: number; y: number }[]): Leg[] => {
+    const out: Leg[] = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6) continue;
+      out.push({ horiz: Math.abs(a.y - b.y) < 1e-6, interior: i > 0 && i + 2 < pts.length, a, b });
+    }
+    return out;
+  };
+  // Встречное наложение: коллинеарные (допуск 0.5) сегменты с совместным пробегом ≥ 4,
+  // проходимые в противоположных направлениях.
+  const opposedOverlap = (
+    pa: { x: number; y: number }[], pb: { x: number; y: number }[], interiorOnly: boolean,
+  ): number => {
+    let n = 0;
+    for (const la of legsOf(pa)) for (const lb of legsOf(pb)) {
+      if (la.horiz !== lb.horiz) continue;
+      if (interiorOnly && !(la.interior && lb.interior)) continue;
+      const k = la.horiz ? "x" : "y";
+      const c = la.horiz ? "y" : "x";
+      if (Math.abs(la.a[c] - lb.a[c]) > 0.5) continue;
+      const lo = Math.max(Math.min(la.a[k], la.b[k]), Math.min(lb.a[k], lb.b[k]));
+      const hi = Math.min(Math.max(la.a[k], la.b[k]), Math.max(lb.a[k], lb.b[k]));
+      if (hi - lo < 4) continue;
+      if ((la.b[k] - la.a[k]) * (lb.b[k] - lb.a[k]) < 0) n++;
+    }
+    return n;
+  };
+
+  interface Hooks { __ARCHMAP_SCOPE_DIAG?: (d: ScopeDiag) => void; __ARCHMAP_FROZEN_DIAG?: (d: FrozenDiag) => void }
+
+  // Полный прогон, затем скоупный после сдвига U3 — снимок сцены кладётся рядом с
+  // маршрутами ровно так, как это делает LevelGraph.
+  async function scopedRun(): Promise<{
+    prev: Map<string, { x: number; y: number }[]>;
+    routes: Map<string, { x: number; y: number }[]>;
+    live: Set<string>;
+    frozenDiag: FrozenDiag;
+  }> {
+    const g = globalThis as unknown as Hooks;
+    let scope: ScopeDiag | null = null;
+    let frozenDiag: FrozenDiag | null = null;
+    const A = await computeViewLayout(ladderInput());
+    const base = A.layout.positions.get("U3")!;
+    try {
+      g.__ARCHMAP_SCOPE_DIAG = (d) => { scope = d; };
+      g.__ARCHMAP_FROZEN_DIAG = (d) => { frozenDiag = d; };
+      const B = await computeViewLayout({
+        ...ladderInput({ U3: { x: base.x + 70, y: base.y } }),
+        prevRoutes: A.layout.autoRoutes,
+        prevEdgeHandles: A.layout.edgeHandles,
+        prevScene: {
+          positions: new Map([...A.layout.positions].map(([id, p]) => [id, { x: p.x, y: p.y }])),
+          sizes: new Map(IDS.map((id) => [id, SZ])),
+        },
+      });
+      return {
+        prev: A.layout.autoRoutes!, routes: B.layout.autoRoutes!,
+        live: new Set((scope as ScopeDiag | null)!.autoScopeIds),
+        frozenDiag: (frozenDiag as FrozenDiag | null)!,
+      };
+    } finally {
+      delete g.__ARCHMAP_SCOPE_DIAG;
+      delete g.__ARCHMAP_FROZEN_DIAG;
+    }
+  }
+
+  it("страховка restoreFrozen — фактический no-op: ни одна стадия не двигает замороженных", async () => {
+    const { frozenDiag, prev, routes, live } = await scopedRun();
+    // сцена действительно скоуплена и заморозка непустая — иначе тест ничего не проверяет
+    expect(frozenDiag.frozen).toBeGreaterThan(0);
+    expect(live.size).toBeGreaterThan(0);
+    // ИНВАРИАНТ: стадиям нечего возвращать (нуджинг видит пины, полировка пропускает)
+    expect({ nudge: frozenDiag.nudge, jogs: frozenDiag.jogs, t4: frozenDiag.t4 })
+      .toEqual({ nudge: 0, jogs: 0, t4: 0 });
+    // и результат совпал с prev байт-в-байт (страховка отработала бы и без стадий)
+    for (const [id, rt] of routes) {
+      if (live.has(id)) continue;
+      expect(JSON.stringify(rt), `замороженное ${id}`).toBe(JSON.stringify(prev.get(id)));
+    }
+  });
+
+  it("живое плечо не лежит на замороженной линии встречно", async () => {
+    const { routes, live } = await scopedRun();
+    const frozen = [...routes.keys()].filter((id) => !live.has(id));
+    let merged = 0;
+    for (const f of frozen) {
+      for (const l of live) {
+        merged += opposedOverlap(routes.get(f)!, routes.get(l)!, true);
+      }
+    }
+    expect(merged, "живых плеч слилось встречно с замороженными").toBe(0);
   });
 });

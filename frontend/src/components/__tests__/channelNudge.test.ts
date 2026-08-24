@@ -356,4 +356,77 @@ describe("nudgeChannels", () => {
     });
     expect(nudged.size).toBe(0);
   });
+  // ── ЗАМОРОЖЕННЫЕ УЧАСТНИКИ (fixedIds; скоуп пересчёта E84, компромисс 3) ──────────
+  // Плечо незаскоупленного ребра для канала — НЕПОДВИЖНОЕ препятствие: оно держит свою
+  // линию, живые встают ОТ неё. Прежде такое плечо разводилось наравне со всеми, а
+  // конвейер возвращал его на место постфактум — и живое встречное оставалось лежать
+  // ровно на возвращённой линии (дефект Ф3, полевая находка приёмки).
+
+  it("замороженное плечо не двигается, живое разводится ОТ его фактической линии", () => {
+    const routes = new Map([
+      ["F", zRoute(40, 100, 40)],    // заморожено, подходы сверху (ref 40)
+      ["L", zRoute(160, 100, 160)],  // живое, подходы снизу (ref 160)
+    ]);
+    const before = JSON.stringify(routes.get("F"));
+    const { routes: out, nudged } = nudgeChannels({
+      routes, obstacles: [], gap: 12, fixedIds: new Set(["F"]),
+    });
+    expect(nudged.has("F")).toBe(false);
+    expect(JSON.stringify(out.get("F"))).toBe(before); // ни пикселя
+    expect(midY(out.get("F")!)).toBeCloseTo(100);
+    expect(midY(out.get("L")!)).toBeCloseTo(112);      // полный gap ОТ замороженной линии
+    // без заморозки тот же канал развёл бы обоих вокруг центра (94/106) — линия 100
+    // осталась бы ничьей, но замороженный вернулся бы именно на неё
+    const free = nudgeChannels({ routes, obstacles: [], gap: 12 }).routes;
+    expect(midY(free.get("F")!)).toBeCloseTo(94);
+    expect(midY(free.get("L")!)).toBeCloseTo(106);
+  });
+
+  it("замороженное НЕ отдаёт свою линию живому: слот 0 никому не достаётся (репро E84)", () => {
+    // Три плеча на y = 100. Без заморозки шкала слотов даёт 88/100/112 (тест «три чужих
+    // плеча» выше) — центральный слот занимает ЖИВОЕ, а замороженное уезжает на 88 и
+    // возвращается конвейером на 100: наложение прямо под живым. С заморозкой линия 100
+    // остаётся за её хозяином, живые уходят на 112 и 124.
+    const routes = new Map([
+      ["F", zRoute(20, 100, 20)],
+      ["B", zRoute(100, 100, 100)],
+      ["C", zRoute(200, 100, 200)],
+    ]);
+    const { routes: out, nudged } = nudgeChannels({
+      routes, obstacles: [], gap: 12, fixedIds: new Set(["F"]),
+    });
+    expect(nudged.has("F")).toBe(false);
+    expect(midY(out.get("F")!)).toBeCloseTo(100);
+    expect(midY(out.get("B")!)).toBeCloseTo(112);
+    expect(midY(out.get("C")!)).toBeCloseTo(124);
+    for (const id of ["B", "C"]) {
+      expect(Math.abs(midY(out.get(id)!) - 100), `живое ${id} на линии замороженного`)
+        .toBeGreaterThanOrEqual(11.9);
+    }
+  });
+
+  it("разводка невыполнима: канал брошен целиком, живое НЕ вытолкнуто на линию замороженного", () => {
+    // Свободный коридор между клиренс-полосами тел — [95..105]: полного зазора от
+    // замороженной линии 100 нет ни на одной ступени деградации (112/110/108 — за
+    // стенкой). Отказ канала прежний: никто не двигается (лучше остаточное наложение,
+    // чем ложь о теле узла).
+    const obstacles = [
+      { x: 100, y: 0, w: 100, h: 87 },    // клиренс-полоса [-8..95]
+      { x: 100, y: 113, w: 100, h: 90 },  // клиренс-полоса [105..211]
+    ];
+    const routes = new Map([
+      ["F", zRoute(40, 100, 40)],
+      ["L", zRoute(160, 100, 160)],
+    ]);
+    const snapshot = new Map([...routes].map(([id, pts]) => [id, JSON.stringify(pts)]));
+    const { routes: out, nudged } = nudgeChannels({
+      routes, obstacles, gap: 12, fixedIds: new Set(["F"]),
+    });
+    expect(nudged.size).toBe(0);
+    for (const [id, json] of snapshot) expect(JSON.stringify(out.get(id)), id).toBe(json);
+    // тест различающий: без заморозки тот же вход разводится на ступени 10 (95/105)
+    const free = nudgeChannels({ routes, obstacles, gap: 12 }).routes;
+    expect(midY(free.get("F")!)).toBeCloseTo(95);
+    expect(midY(free.get("L")!)).toBeCloseTo(105);
+  });
 });

@@ -259,6 +259,27 @@ export interface ScopeDiag {
   autoScopeIds: string[];
 }
 
+// ДИАГНОСТИКА ЗАМОРОЗКИ СКОУПА (E84, компромисс 3): полезная нагрузка необязательного
+// хука __ARCHMAP_FROZEN_DIAG на globalThis, по образцу двух хуков выше. Стадии
+// пост-обработки обязаны видеть замороженные плечи НЕПОДВИЖНЫМИ САМИ (нуджинг получает
+// их набор как пины, полировка джогов их пропускает), а restoreFrozen оставлен
+// СТРАХОВКОЙ. Числа ниже — сколько маршрутов страховке пришлось чинить на каждой
+// стадии; ИНВАРИАНТ: все три нуля. Без хука — мёртвый no-op.
+export interface FrozenDiag {
+  // заморожено рёбер в этом прогоне (0 — прогон не скоуплен)
+  frozen: number;
+  // разошлось после канального нуджинга
+  nudge: number;
+  // разошлось после полировки джогов
+  jogs: number;
+  // разошлось после доводки нуджинга за T4-мини-проходом
+  t4: number;
+}
+
+// Совпадение ломаных по битам координат — сторож заморозки скоупа (E84).
+const sameRoute = (a: readonly EdgePoint[], b: readonly EdgePoint[]): boolean =>
+  a.length === b.length && a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
+
 // Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
 // строк = число членов; одиночное ребро — «label · technology» в одну строку). Единый
 // источник для оценки габаритов (labelBox) в раздвижке A10 и в размещении плашек.
@@ -847,7 +868,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   }
   // СКОУП: фиксируем геометрию незаскоупленных рёбер — пост-обработка (нуджинг, полировка
   // джогов, T4) не должна её двигать, иначе дрейф возвращается (зонд: чурн ~6/поколение).
-  // Восстанавливаем после каждого прохода, который переписывает autoRoutes.
+  // СТАДИИ ВИДЯТ ЭТИ ПЛЕЧИ НЕПОДВИЖНЫМИ САМИ: нуджинг получает их набор как пины
+  // (fixedIds), полировка джогов их пропускает. restoreFrozen оставлен СТРАХОВКОЙ и
+  // обязан быть no-op — сколько ему пришлось чинить, считает frozenDrift (хук
+  // __ARCHMAP_FROZEN_DIAG в конце стадий; инвариант — нули).
   const frozenRoutes = new Map<string, EdgePoint[]>();
   if (scoped) {
     for (const g of groupArr) {
@@ -856,12 +880,20 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       if (rt) frozenRoutes.set(g.id, rt.map((p) => ({ x: p.x, y: p.y })));
     }
   }
-  const restoreFrozen = (): void => {
+  const frozenIds: ReadonlySet<string> = new Set(frozenRoutes.keys());
+  const frozenDrift = { nudge: 0, jogs: 0, t4: 0 };
+  const restoreFrozen = (): number => {
     // autoRoutes всегда определён к этому месту (присвоен ar.routes выше и далее
     // только переприсваивается в Map); tsc не видит этого сквозь замыкание.
     const target = autoRoutes;
-    if (!target) return;
-    for (const [id, rt] of frozenRoutes) target.set(id, rt.map((p) => ({ x: p.x, y: p.y })));
+    if (!target) return 0;
+    let drifted = 0;
+    for (const [id, rt] of frozenRoutes) {
+      const cur = target.get(id);
+      if (!cur || !sameRoute(cur, rt)) drifted++;
+      target.set(id, rt.map((p) => ({ x: p.x, y: p.y })));
+    }
+    return drifted;
   };
 
   const nodeRects = displayIds
@@ -874,9 +906,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
   // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
   // маршрутах.
-  const nu = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
+  // СКОУП (E84, компромисс 3): замороженные плечи идут в канал ПИНАМИ — живые
+  // разводятся ОТ их фактических линий. Двигать их наравне со всеми и возвращать
+  // страховкой нельзя: разводка была бы посчитана вокруг линии, которой на сцене не
+  // будет, и живое встречное плечо ложилось бы ровно на возвращённое замороженное.
+  const nu = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects, fixedIds: frozenIds });
   if (nu.nudged.size > 0) autoRoutes = nu.routes;
-  restoreFrozen(); // нуджинг мог сдвинуть незаскоупленные плечи — вернуть
+  frozenDrift.nudge = restoreFrozen(); // страховка: обязана не найти расхождений
   mark("нуджинг каналов");
 
   // ПОЛИРОВКА ДЖОГОВ ПОСЛЕ НУДЖИНГА (T2 «читаемые пучки»): и роутер (перескок из-за
@@ -891,6 +927,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     for (const g of groupArr) {
       const rt = autoRoutes.get(g.id);
       if (!rt || rt.length < 4) continue;
+      // СКОУП (E84): замороженные НЕ полируются. Их результат всё равно вернула бы
+      // страховка, но промежуточная полировка отравляла бы КОНТЕКСТ ОЦЕНКИ живых
+      // соседей (others/fellowRoutes ниже читают segsById/polished) — они мерились бы
+      // против линии, которой на сцене не будет. Сегменты замороженных при этом
+      // остаются в segsById и потому видны живым как препятствие и стволовой контекст.
+      if (frozenRoutes.has(g.id)) continue;
       const others: PlacedSeg[] = [];
       const fellowRoutes: EdgePoint[][] = []; // стволовой контекст оценки (E25 v2)
       for (const [id, s] of segsById) {
@@ -910,7 +952,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       autoRoutes = new Map(autoRoutes);
       for (const [id, rt] of polished) autoRoutes.set(id, rt);
     }
-    restoreFrozen(); // полировка могла изменить незаскоупленные маршруты — вернуть
+    frozenDrift.jogs = restoreFrozen(); // страховка: обязана не найти расхождений
   }
   mark("спрямление джогов");
 
@@ -1110,9 +1152,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         // минует канальную разводку (она отработала ВЫШЕ) и мог лечь коллинеарно
         // на чужое плечо — наложение оставалось до конца прогона. Повторный
         // nudgeChannels идемпотентен для уже разведённых каналов и дешёв.
-        const nu2 = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
+        const nu2 = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects, fixedIds: frozenIds });
         if (nu2.nudged.size > 0) autoRoutes = nu2.routes;
-        restoreFrozen(); // доводка нуджинга могла сдвинуть незаскоупленные — вернуть
+        frozenDrift.t4 = restoreFrozen(); // страховка: обязана не найти расхождений
         // пере-размещение по финальной геометрии (маршруты грязных изменились)
         labelPlacements = buildLabelPlacements({
           routes: autoRoutes,
@@ -1145,6 +1187,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   mark(skipT4
     ? "T4 мини-проход: ПРОПУЩЕН (ступень бюджета работ, P13)"
     : "T4 мини-проход (плашки-препятствия)");
+  // СТОРОЖ ЗАМОРОЗКИ (E84): что пришлось чинить страховке restoreFrozen. Инвариант —
+  // нули: стадии обязаны видеть замороженные плечи неподвижными сами. Без хука — no-op.
+  {
+    const diagG = globalThis as unknown as { __ARCHMAP_FROZEN_DIAG?: (d: FrozenDiag) => void };
+    diagG.__ARCHMAP_FROZEN_DIAG?.({ frozen: frozenRoutes.size, ...frozenDrift });
+  }
   return budget;
   };
   // АВТО-порог пропуска (edgeQuality не задан): И минимум штук, И доля сцены —
