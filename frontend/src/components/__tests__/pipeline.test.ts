@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { computeViewLayout, buildRouteSig, type LayoutResult, type PipelineInput } from "../graph/layout/pipeline";
+import { describe, it, expect, vi } from "vitest";
+import {
+  computeViewLayout, buildRouteSig,
+  type LayoutResult, type PipelineInput, type ScopeDiag, type FrozenDiag, type T4Diag,
+} from "../graph/layout/pipeline";
+import { DEFAULT_ROUTE_BUDGET, type RouteBudgetConfig } from "../graph/layout/routeBudget";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 import { NODE_W, NODE_H } from "../graph/constants";
 
@@ -592,5 +596,633 @@ describe("edgeQuality: фолбэк-прогон без стадий качес�
     expect([...skip.layout.positions.entries()]).toEqual([...full.layout.positions.entries()]);
     expect(skip.intents).toEqual(full.intents);
     expect(skip.layout.guestFrames).toEqual(full.layout.guestFrames);
+  });
+});
+
+// КЭШ МАРШРУТОВ ВИДА (Ф2 эпика router-opt, спека perf.md P11). Сверка routeSig
+// переехала ПЕРЕД стадии качества: совпадение сигнатуры доказывает, что полный прогон
+// вернул бы ровно prev, — значит стадии можно не звать вовсе (до Ф2 сверка стояла
+// ПОСЛЕ них и результат менялся, а счёт был полный). Здесь проверяются оба свойства:
+// пропуск счёта (по трассе стадий) и авторитетность прогона (гейт записи кэша).
+describe("кэш маршрутов вида: сверка routeSig ДО стадий качества (Ф2 router-opt)", () => {
+  // габариты ЗАМЕТНО отличаются от фолбэка NODE_W×NODE_H — иначе незамеренный прогон
+  // дал бы ту же сигнатуру (см. тест «незамеренный не хитует»)
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  const measured = { A: SZ, B: SZ, G: SZ, D: SZ };
+
+  // Перехват марок стадий (тот же хук, что у реплея профилирования).
+  async function withTrace<T>(fn: () => Promise<T>): Promise<{ out: T; marks: string[] }> {
+    const g = globalThis as unknown as { __ARCHMAP_TRACE?: (stage: string, ms: number) => void };
+    const marks: string[] = [];
+    const prev = g.__ARCHMAP_TRACE;
+    g.__ARCHMAP_TRACE = (stage) => { marks.push(stage); };
+    try {
+      return { out: await fn(), marks };
+    } finally {
+      if (prev) g.__ARCHMAP_TRACE = prev; else delete g.__ARCHMAP_TRACE;
+    }
+  }
+
+  const CACHE_MARK = "стадии качества стрелок: кэш-хит по routeSig";
+  const ROUTER_MARK = "роутер: A*+rip-up+слоты+сварка (проход 1)";
+
+  it("кэш-хит по sig: стадии качества НЕ исполняются, результат идентичен полному прогону", async () => {
+    const A = await computeViewLayout({ ...levelInput(), sizes: measured });
+    const { out: B, marks } = await withTrace(() => computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    }));
+    // счёт пропущен: марка кэш-хита есть, марок роутера/T4 нет
+    expect(marks).toContain(CACHE_MARK);
+    expect(marks).not.toContain(ROUTER_MARK);
+    expect(marks).not.toContain("T4 мини-проход (плашки-препятствия)");
+    // результат — байт-в-байт прежний
+    expect(B.routeSig).toBe(A.routeSig);
+    expect(sig(B.layout)).toBe(sig(A.layout));
+  });
+
+  it("незамеренный прогон НЕ хитует кэш полнозамеренного (в sig — фолбэк-габариты)", async () => {
+    const A = await computeViewLayout({ ...levelInput(), sizes: measured });
+    // тот же вид без замеров: авто-режим P10 → пропуск стадий; sig другая → не хит
+    const { out: B, marks } = await withTrace(() => computeViewLayout({
+      ...levelInput(), edgeQuality: undefined, sizes: undefined,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+    }));
+    expect(B.routeSig).not.toBe(A.routeSig);
+    expect(marks).not.toContain(CACHE_MARK);
+    expect(marks).toContain("стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)");
+    // маршруты прошлого прогона НЕ подменяют результат пропуска
+    expect(B.layout.autoRoutes).toBeUndefined();
+    expect(B.authoritative).toBe(false);
+  });
+
+  it("скоуп-прогон: сигнатура другая (routable-флаги), кэш-хита нет", async () => {
+    const A = await computeViewLayout({ ...levelInput(), sizes: measured });
+    const B = await computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+      scopeNodeIds: ["A"],
+    });
+    expect(B.routeSig).not.toBe(A.routeSig);
+    expect(B.authoritative).toBe(false);
+  });
+
+  it("authoritative — гейт записи кэша: полный замер без скоупа true, прочие false", async () => {
+    // (1) полный прогон, все замерены, скоупа нет → авторитетен
+    const full = await computeViewLayout({ ...levelInput(), sizes: measured });
+    expect(full.authoritative).toBe(true);
+    // (2) кэш-хит по sig — тоже авторитетен (геометрия финальная)
+    const hit = await computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: full.layout.autoRoutes,
+      prevEdgeHandles: full.layout.edgeHandles,
+      prevRouteSig: full.routeSig,
+      prevLabelPlacements: full.layout.labelPlacements,
+    });
+    expect(hit.authoritative).toBe(true);
+    // (3) явный пропуск стадий → нет
+    const skip = await computeViewLayout({ ...levelInput(), sizes: measured, edgeQuality: "skip" });
+    expect(skip.authoritative).toBe(false);
+    // (4) ЧАСТИЧНЫЕ замеры (стадии идут, но один узел на фолбэке) → нет
+    const partial = await computeViewLayout({
+      ...levelInput(), sizes: { A: SZ, B: SZ, G: SZ },
+    });
+    expect(partial.layout.autoRoutes).toBeDefined();
+    expect(partial.authoritative).toBe(false);
+    // (5) скоуп после драга → нет
+    const scoped = await computeViewLayout({
+      ...levelInput(), sizes: measured,
+      prevRoutes: full.layout.autoRoutes,
+      prevEdgeHandles: full.layout.edgeHandles,
+      scopeNodeIds: ["A"],
+    });
+    expect(scoped.authoritative).toBe(false);
+  });
+});
+
+// НЕПОЛНЫЙ СОСТАВ СЦЕНЫ (доработка Д1/Д2 приёмки Ф2, расширение P10). Уровень
+// догружается порциями: раскрытые локалы получают своих детей отдельными запросами.
+// Промежуточный прогон замерен полностью (unmeasured = 0) — прежний порог P10 его не
+// ловил: он гонял полный роутер, чьи маршруты выбрасывались приходом детей, и — хуже —
+// проходил как авторитетный, затирая кэш ПОЛНОЙ сцены частичным.
+describe("состав сцены: раскрытия, ждущие детей (Д1/Д2 приёмки Ф2)", () => {
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  const PENDING_MARK = "стадии качества стрелок: пропущены (недогруженные дети раскрытий)";
+
+  async function traced(input: PipelineInput) {
+    const g = globalThis as unknown as { __ARCHMAP_TRACE?: (stage: string, ms: number) => void };
+    const marks: string[] = [];
+    g.__ARCHMAP_TRACE = (stage) => { marks.push(stage); };
+    try {
+      return { out: await computeViewLayout(input), marks };
+    } finally {
+      delete g.__ARCHMAP_TRACE;
+    }
+  }
+
+  it("раскрытие БЕЗ детей в кэше: стадии качества пропущены, прогон не авторитетен", async () => {
+    const { out, marks } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A: SZ, B: SZ, G: SZ, D: SZ },   // все свои узлы ЗАМЕРЕНЫ — P10 молчит
+      expanded: new Set(["A"]),
+      localChildren: {},                       // детей ещё нет — состав неполон
+      childrenLazyLoad: true,
+    });
+    expect(marks).toContain(PENDING_MARK);
+    expect(out.layout.autoRoutes).toBeUndefined();
+    expect(out.authoritative).toBe(false);
+  });
+
+  it("те же дети ДОЕХАЛИ: стадии идут, прогон авторитетен", async () => {
+    const { out, marks } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A1: SZ, A2: SZ, B: SZ, G: SZ, D: SZ },
+      expanded: new Set(["A"]),
+      localChildren: { A: [appNode("A1"), appNode("A2")] },
+      childrenLazyLoad: true,
+    });
+    expect(marks).not.toContain(PENDING_MARK);
+    expect(marks).toContain("роутер: A*+rip-up+слоты+сварка (проход 1)");
+    expect(out.layout.autoRoutes).toBeDefined();
+    expect(out.authoritative).toBe(true);
+  });
+
+  it("БЕЗ ленивой догрузки (страничные схемы, read-only) отсутствие детей неполнотой НЕ считается", async () => {
+    // там useLevelDrill не фетчит вовсе: раскрытый контейнер рисуется свёрнутым
+    // ПОСТОЯННО, и «ждать состав» означало бы не посчитать стрелки никогда
+    const { out, marks } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A: SZ, B: SZ, G: SZ, D: SZ },
+      expanded: new Set(["A"]),
+      localChildren: {},
+      // childrenLazyLoad не задан — прежнее поведение
+    });
+    expect(marks).not.toContain(PENDING_MARK);
+    expect(out.layout.autoRoutes).toBeDefined();
+    expect(out.authoritative).toBe(true);
+  });
+
+  it("ПУСТОЙ состав (данные ещё не пришли) не авторитетен — кэш не затирается нулём", async () => {
+    const out = await computeViewLayout({
+      ...levelInput(), nodes: [], endpoints: [], edges: [], viewLayout: {},
+    });
+    expect(out.layout.nodes.length + out.layout.entities.length).toBe(0);
+    expect(out.authoritative).toBe(false);
+  });
+
+  it("загруженный ПУСТОЙ список детей (localChildren[id] = []) неполнотой не считается", async () => {
+    const { out } = await traced({
+      ...levelInput(),
+      edgeQuality: undefined,
+      sizes: { A: SZ, B: SZ, G: SZ, D: SZ },
+      expanded: new Set(["A"]),
+      localChildren: { A: [] },   // ответ пришёл: детей нет
+      childrenLazyLoad: true,
+    });
+    expect(out.layout.autoRoutes).toBeDefined();
+    expect(out.authoritative).toBe(true);
+  });
+});
+
+// ИНКРЕМЕНТАЛЬНЫЙ СКОУП ЛЮБОГО ПЕРЕСЧЁТА (Ф3 эпика router-opt, спека edge.md E84).
+// Конвейер получает снимок финальной сцены прошлого прогона (prevScene) и САМ считает,
+// какие рёбра обязаны перепроложиться: остальные — замороженный prev-контекст (та же
+// механика, что у скоупа драга E82). Здесь проверяется наблюдаемое поведение конвейера:
+// заморозка байт-в-байт, отказ в полный пересчёт по порогу и снятие авторитетности.
+describe("инкрементальный скоуп по prevScene (Ф3 router-opt, E84)", () => {
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  // Две строки по четыре узла: цепочка в каждой строке + две вертикальные перемычки.
+  // Сцена нарочно шире levelInput(): порог отказа (60% рёбер) на трёх рёбрах срабатывал
+  // бы от любого сдвига, и инкрементальный путь было бы не увидеть.
+  const IDS = ["A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7"];
+  const CHAIN: [string, string, string][] = [
+    ["c01", "A0", "A1"], ["c12", "A1", "A2"], ["c23", "A2", "A3"],
+    ["c45", "A4", "A5"], ["c56", "A5", "A6"], ["c67", "A6", "A7"],
+    ["v04", "A0", "A4"], ["v37", "A3", "A7"],
+  ];
+  const BOTTOM = ["c45", "c56", "c67"];   // заведомо далеко от верхней строки
+  const TOUCHED = ["c01", "c12"];         // рёбра сдвигаемого A1
+
+  function wideInput(moved: Record<string, { x: number; y: number }> = {}): PipelineInput {
+    const viewLayout: PipelineInput["viewLayout"] = {};
+    IDS.forEach((id, i) => {
+      viewLayout[id] = moved[id] ?? { x: (i % 4) * 500, y: i < 4 ? 0 : 800 };
+    });
+    return {
+      nodes: IDS.map(appNode),
+      endpoints: [],
+      edges: CHAIN.map(([id, s, t]) => edge(id, s, t)),
+      containerId: "P",
+      viewLayout,
+      ancestorIds: ["P"],
+      expanded: new Set(),
+      localChildren: {},
+      sizes: Object.fromEntries(IDS.map((id) => [id, SZ])),
+      edgeQuality: "full",
+    };
+  }
+
+  // снимок финальной сцены прогона — ровно то, что кладёт рядом с маршрутами LevelGraph
+  const sceneOf = (out: Awaited<ReturnType<typeof computeViewLayout>>) => ({
+    positions: new Map([...out.layout.positions].map(([id, p]) => [id, { x: p.x, y: p.y }])),
+    sizes: new Map(IDS.map((id) => [id, SZ])),
+  });
+  const routeOf = (out: Awaited<ReturnType<typeof computeViewLayout>>, id: string): string =>
+    JSON.stringify(out.layout.autoRoutes?.get(id) ?? null);
+
+  it("сдвинут один узел: незаскоупленные маршруты БАЙТ-В-БАЙТ прежние, его рёбра пересчитаны", async () => {
+    const A = await computeViewLayout(wideInput());
+    const B = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevScene: sceneOf(A),
+    });
+    // нижняя строка изменения не видела — её маршруты обязаны совпасть побитово
+    for (const id of BOTTOM) expect(routeOf(B, id), `ребро ${id}`).toBe(routeOf(A, id));
+    // рёбра переехавшего узла — пересчитаны (конец физически в другом месте)
+    for (const id of TOUCHED) expect(routeOf(B, id), `ребро ${id}`).not.toBe(routeOf(A, id));
+    // скоупленный прогон не авторитетен: часть маршрутов — замороженный prev
+    expect(B.authoritative).toBe(false);
+    // и он объявляет себя скоупленным — это триггер фоновой уборки (P14)
+    expect(B.scoped).toBe(true);
+    // и его сигнатура отличается от полной (в неё входят routable-флаги)
+    expect(B.routeSig).not.toBe(A.routeSig);
+  });
+
+  it("БЕЗ prevScene тот же сдвиг идёт полным путём (прогон авторитетен)", async () => {
+    const A = await computeViewLayout(wideInput());
+    const C = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+    });
+    expect(C.authoritative).toBe(true);
+    expect(C.scoped).toBe(false);
+  });
+
+  it("изменилась вся сцена (> порога) → авто-скоуп не применён, полный пересчёт", async () => {
+    const A = await computeViewLayout(wideInput());
+    const shifted = Object.fromEntries(
+      IDS.map((id, i) => [id, { x: (i % 4) * 500 + 130, y: (i < 4 ? 0 : 800) + 170 }]),
+    );
+    const B = await computeViewLayout({
+      ...wideInput(shifted),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevScene: sceneOf(A),
+    });
+    // скоупа нет → прогон авторитетен, как обычный полный
+    expect(B.authoritative).toBe(true);
+    // ОТКАЗ от авто-скоупа — это НЕ скоупленный прогон: убирать за ним нечего (P14)
+    expect(B.scoped).toBe(false);
+  });
+
+  it("сцена не изменилась: скоуп пуст → полный путь и кэш-хит по routeSig", async () => {
+    const A = await computeViewLayout(wideInput());
+    const B = await computeViewLayout({
+      ...wideInput(),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      prevRouteSig: A.routeSig,
+      prevLabelPlacements: A.layout.labelPlacements,
+      prevScene: sceneOf(A),
+    });
+    // пустой скоуп НЕ включает заморозку: иначе routable-флаги изменили бы sig и
+    // зеркальные прогоны перестали бы хитовать кэш и писаться в него (P11)
+    expect(B.routeSig).toBe(A.routeSig);
+    expect(B.authoritative).toBe(true);
+    expect(B.scoped).toBe(false);
+  });
+
+  it("скоуп ДРАГА сильнее авто-скоупа: при заданном scopeNodeIds дифф не считается", async () => {
+    const A = await computeViewLayout(wideInput());
+    const moved = wideInput({ A1: { x: 500, y: -600 } });
+    const drag = await computeViewLayout({
+      ...moved,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: ["A1"],
+    });
+    const dragWithScene = await computeViewLayout({
+      ...moved,
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: ["A1"],
+      prevScene: sceneOf(A),
+    });
+    // снимок сцены на путь драга не влияет ВООБЩЕ (семантика E82 неприкосновенна)
+    expect(sig(dragWithScene.layout)).toBe(sig(drag.layout));
+    expect(dragWithScene.routeSig).toBe(drag.routeSig);
+  });
+
+  // ПОЛЕ scoped (Ф3-раунд 2 того же эпика, спека perf.md P14) — единственный вход
+  // фоновой уборки по бездействию: холст взводит таймер ИМЕННО по нему, а не по
+  // authoritative (тот false у пропуска P10, частичных замеров и ступени бюджета —
+  // за ними убирать нечем и незачем).
+  it("scoped: скоуп драга — true, обычный полный прогон — false (триггер P14)", async () => {
+    const A = await computeViewLayout(wideInput());
+    expect(A.scoped, "полный прогон без prev не скоуплен").toBe(false);
+    const drag = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: ["A1"],
+    });
+    expect(drag.scoped, "явный скоуп драга — скоупленный прогон").toBe(true);
+    // ПУСТОЙ список узлов скоупом не считается (scopeSet === null) — прогон полный
+    const empty = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: [],
+    });
+    expect(empty.scoped).toBe(false);
+    expect(empty.authoritative).toBe(true);
+  });
+});
+// ЗАМОРОЗКА СКОУПА НЕПОДВИЖНА ДЛЯ СТАДИЙ (E84, компромисс 3). Плечо незаскоупленного
+// ребра — НЕПОДВИЖНОЕ препятствие пост-обработки: нуджинг видит его пином и разводит
+// живых ОТ него, полировка джогов его не трогает. Прежде стадии двигали его наравне со
+// всеми, а конвейер возвращал постфактум (restoreFrozen) — разводка живых оказывалась
+// посчитана вокруг линии, которой на сцене не будет. Сцена — «лестница» из двух рядов:
+// цепочки навстречу друг другу, перемычки и диагонали дают каналы, в которых
+// замороженные и живые плечи реально встречаются.
+describe("заморозка скоупа неподвижна для стадий (E84, компромисс 3)", () => {
+  const SZ = { w: NODE_W + 17, h: NODE_H + 13 };
+  const COLS = 5, STEP = 420, ROW_DY = 620;
+  const IDS: string[] = [];
+  const POS: Record<string, { x: number; y: number }> = {};
+  for (let c = 0; c < COLS; c++) {
+    IDS.push(`U${c}`, `D${c}`);
+    POS[`U${c}`] = { x: c * STEP, y: 0 };
+    POS[`D${c}`] = { x: c * STEP, y: ROW_DY };
+  }
+  const EDGES: [string, string, string][] = [];
+  for (let c = 0; c + 1 < COLS; c++) {
+    EDGES.push([`u${c}`, `U${c}`, `U${c + 1}`]);   // верхний ряд слева направо
+    EDGES.push([`d${c}`, `D${c + 1}`, `D${c}`]);   // нижний — навстречу
+  }
+  for (let c = 0; c < COLS; c++) {
+    EDGES.push([`x${c}`, c % 2 ? `U${c}` : `D${c}`, c % 2 ? `D${c}` : `U${c}`]);
+  }
+  for (let c = 0; c + 2 < COLS; c++) EDGES.push([`s${c}`, `U${c + 2}`, `D${c}`]);
+
+  function ladderInput(moved: Record<string, { x: number; y: number }> = {}): PipelineInput {
+    const viewLayout: PipelineInput["viewLayout"] = {};
+    for (const id of IDS) viewLayout[id] = moved[id] ?? POS[id];
+    return {
+      nodes: IDS.map(appNode),
+      endpoints: [],
+      edges: EDGES.map(([id, src, tgt]) => edge(id, src, tgt)),
+      containerId: "P",
+      viewLayout,
+      ancestorIds: ["P"],
+      expanded: new Set(),
+      localChildren: {},
+      sizes: Object.fromEntries(IDS.map((id) => [id, SZ])),
+      edgeQuality: "full",
+    };
+  }
+
+  // Сегменты ломаной с пометкой «интерьерный» (оба конца — не концы маршрута): концевые
+  // пришпилены к портам, и канал их не двигает ни при каких условиях (раздача портов —
+  // не его дело), поэтому в проверке заморозки они не участвуют.
+  interface Leg { horiz: boolean; interior: boolean; a: { x: number; y: number }; b: { x: number; y: number } }
+  const legsOf = (pts: { x: number; y: number }[]): Leg[] => {
+    const out: Leg[] = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      if (Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6) continue;
+      out.push({ horiz: Math.abs(a.y - b.y) < 1e-6, interior: i > 0 && i + 2 < pts.length, a, b });
+    }
+    return out;
+  };
+  // Встречное наложение: коллинеарные (допуск 0.5) сегменты с совместным пробегом ≥ 4,
+  // проходимые в противоположных направлениях.
+  const opposedOverlap = (
+    pa: { x: number; y: number }[], pb: { x: number; y: number }[], interiorOnly: boolean,
+  ): number => {
+    let n = 0;
+    for (const la of legsOf(pa)) for (const lb of legsOf(pb)) {
+      if (la.horiz !== lb.horiz) continue;
+      if (interiorOnly && !(la.interior && lb.interior)) continue;
+      const k = la.horiz ? "x" : "y";
+      const c = la.horiz ? "y" : "x";
+      if (Math.abs(la.a[c] - lb.a[c]) > 0.5) continue;
+      const lo = Math.max(Math.min(la.a[k], la.b[k]), Math.min(lb.a[k], lb.b[k]));
+      const hi = Math.min(Math.max(la.a[k], la.b[k]), Math.max(lb.a[k], lb.b[k]));
+      if (hi - lo < 4) continue;
+      if ((la.b[k] - la.a[k]) * (lb.b[k] - lb.a[k]) < 0) n++;
+    }
+    return n;
+  };
+
+  interface Hooks { __ARCHMAP_SCOPE_DIAG?: (d: ScopeDiag) => void; __ARCHMAP_FROZEN_DIAG?: (d: FrozenDiag) => void }
+
+  // Полный прогон, затем скоупный после сдвига U3 — снимок сцены кладётся рядом с
+  // маршрутами ровно так, как это делает LevelGraph.
+  async function scopedRun(): Promise<{
+    prev: Map<string, { x: number; y: number }[]>;
+    routes: Map<string, { x: number; y: number }[]>;
+    live: Set<string>;
+    frozenDiag: FrozenDiag;
+  }> {
+    const g = globalThis as unknown as Hooks;
+    let scope: ScopeDiag | null = null;
+    let frozenDiag: FrozenDiag | null = null;
+    const A = await computeViewLayout(ladderInput());
+    const base = A.layout.positions.get("U3")!;
+    try {
+      g.__ARCHMAP_SCOPE_DIAG = (d) => { scope = d; };
+      g.__ARCHMAP_FROZEN_DIAG = (d) => { frozenDiag = d; };
+      const B = await computeViewLayout({
+        ...ladderInput({ U3: { x: base.x + 70, y: base.y } }),
+        prevRoutes: A.layout.autoRoutes,
+        prevEdgeHandles: A.layout.edgeHandles,
+        prevScene: {
+          positions: new Map([...A.layout.positions].map(([id, p]) => [id, { x: p.x, y: p.y }])),
+          sizes: new Map(IDS.map((id) => [id, SZ])),
+        },
+      });
+      return {
+        prev: A.layout.autoRoutes!, routes: B.layout.autoRoutes!,
+        live: new Set((scope as ScopeDiag | null)!.autoScopeIds),
+        frozenDiag: (frozenDiag as FrozenDiag | null)!,
+      };
+    } finally {
+      delete g.__ARCHMAP_SCOPE_DIAG;
+      delete g.__ARCHMAP_FROZEN_DIAG;
+    }
+  }
+
+  it("страховка restoreFrozen — фактический no-op: ни одна стадия не двигает замороженных", async () => {
+    const { frozenDiag, prev, routes, live } = await scopedRun();
+    // сцена действительно скоуплена и заморозка непустая — иначе тест ничего не проверяет
+    expect(frozenDiag.frozen).toBeGreaterThan(0);
+    expect(live.size).toBeGreaterThan(0);
+    // ИНВАРИАНТ: стадиям нечего возвращать (нуджинг видит пины, полировка пропускает)
+    expect({ nudge: frozenDiag.nudge, jogs: frozenDiag.jogs, t4: frozenDiag.t4 })
+      .toEqual({ nudge: 0, jogs: 0, t4: 0 });
+    // и результат совпал с prev байт-в-байт (страховка отработала бы и без стадий)
+    for (const [id, rt] of routes) {
+      if (live.has(id)) continue;
+      expect(JSON.stringify(rt), `замороженное ${id}`).toBe(JSON.stringify(prev.get(id)));
+    }
+  });
+
+  it("живое плечо не лежит на замороженной линии встречно", async () => {
+    const { routes, live } = await scopedRun();
+    const frozen = [...routes.keys()].filter((id) => !live.has(id));
+    let merged = 0;
+    for (const f of frozen) {
+      for (const l of live) {
+        merged += opposedOverlap(routes.get(f)!, routes.get(l)!, true);
+      }
+    }
+    expect(merged, "живых плеч слилось встречно с замороженными").toBe(0);
+  });
+});
+
+// T4-МИНИ-ПРОХОД БЕЗ ПЕРЕПРОКЛАДКИ (E40 v3, п.3 финальной приёмки эпика «глубокая
+// оптимизация роутера», решение пользователя 2026-09-01).
+// ДЕФОЛТ (T4_REROUTE = false): стадия чинит ТОЛЬКО СЛОЙ ПЛАШЕК — маршрутов она не
+// касается вовсе, и конфликт, который плашке снять не удалось, остаётся на экране.
+// Прежнее поведение (перепрокладка грязных рёбер + доводка нуджинга + финальная
+// починка) живёт за флагом и здесь тоже проверяется — ветка обязана быть живой, пока
+// её не вырезали.
+describe("T4-мини-проход: только слой плашек (E40 v3)", () => {
+  // СЦЕНА, НА КОТОРОЙ МИНИ-ПРОХОДУ ЕСТЬ ЧТО ЧИНИТЬ. Разреженная сцена не годится:
+  // плашке всегда есть куда встать чисто, и конфликтов ноль (проверено — на
+  // треугольнике из трёх локалов их 0). Здесь плотная решётка 4×4 подписанных локалов
+  // с шагом чуть шире габарита и шесть гостей, чьи линии простреливают сцену насквозь:
+  // конфликтов 10 на 8 плашках, часть уступает, часть — нет (остаток и есть цена E40 v3).
+  const SZ4 = { w: 220, h: 96 };
+  const LBL = "публикация события заказа"; // длинная подпись → широкая плашка
+  const COLS = 4, ROWS = 4, GHOSTS = 6;
+  function denseInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
+    const ids: string[] = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) ids.push(`N${r}${c}`);
+    const viewLayout: Record<string, { x: number; y: number }> = {};
+    ids.forEach((id, i) => { viewLayout[id] = { x: (i % COLS) * 280, y: Math.floor(i / COLS) * 170 }; });
+    const edges: AppEdge[] = [];
+    // связи «сосед справа», «сосед снизу» и диагональ — плотный пучок в тесноте
+    for (let i = 0; i < ids.length; i++) {
+      for (const j of [i + 1, i + COLS, i + COLS + 1]) {
+        if (j < ids.length && (j % COLS !== 0 || j === i + COLS)) {
+          edges.push(edge(`e${i}_${j}`, ids[i], ids[j], `${LBL} ${i}→${j}`));
+        }
+      }
+    }
+    const guests: GhostNode[] = [];
+    for (let k = 0; k < GHOSTS; k++) {
+      guests.push(ghost(`Q${k}`, []));
+      edges.push(edge(`eq${k}`, `Q${k}`, ids[(k * 3 + 1) % ids.length], `${LBL} гость ${k}`));
+      edges.push(edge(`eq${k}b`, ids[(k * 5 + 2) % ids.length], `Q${k}`, `${LBL} ответ ${k}`));
+    }
+    return {
+      nodes: ids.map(appNode), endpoints: guests, edges,
+      containerId: "P", viewLayout, ancestorIds: ["P"],
+      expanded: new Set(), localChildren: {},
+      sizes: Object.fromEntries([...ids, ...guests.map((g) => g.id)].map((id) => [id, SZ4])),
+      edgeQuality: "full",
+      ...overrides,
+    };
+  }
+
+  // Форс-бюджет ТОЛЬКО на ступень «пропуск T4» (P13 №4): доли rip-up и сварки подняты
+  // выше единицы (не срабатывают никогда), доля T4 — ноль. Так получается прогон, у
+  // которого весь T4-блок не исполнялся ВООБЩЕ, — эталон «маршруты до T4».
+  const FORCE_T4_ONLY: RouteBudgetConfig = {
+    ...DEFAULT_ROUTE_BUDGET, skipRipupShare: 10, skipWeldShare: 10, skipT4Share: 0,
+  };
+
+  // Стабильная сериализация маршрутов: сравнение прогонов побитово.
+  const routesSig = (l: LayoutResult): string =>
+    [...(l.autoRoutes ?? new Map<string, { x: number; y: number }[]>())]
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([id, pts]) => `${id}=${pts.map((p) => `${p.x},${p.y}`).join(";")}`)
+      .join("\n");
+
+  type DiagHook = { __ARCHMAP_T4_DIAG?: (d: T4Diag) => void };
+  // Прогон с перехватом T4-диагностики (тот же хук, что у scripts/replay-prof.ts).
+  async function runWithDiag(
+    compute: (i: PipelineInput) => Promise<{ layout: LayoutResult }>,
+    input: PipelineInput,
+  ): Promise<{ layout: LayoutResult; diag: T4Diag | null }> {
+    const g = globalThis as unknown as DiagHook;
+    let diag: T4Diag | null = null;
+    g.__ARCHMAP_T4_DIAG = (d) => { diag = d; };
+    try {
+      const out = await compute(input);
+      return { layout: out.layout, diag: diag as T4Diag | null };
+    } finally {
+      delete g.__ARCHMAP_T4_DIAG;
+    }
+  }
+
+  it("дефолт: стадия НЕ трогает маршруты — они те же, что при полном пропуске T4", async () => {
+    const { layout, diag } = await runWithDiag(computeViewLayout, denseInput());
+    // Сцена действительно даёт конфликты — иначе тест ничего не проверяет.
+    expect(diag, "T4-диагностика не пришла: мини-проход не исполнялся").not.toBeNull();
+    expect(diag!.labelFirst.conflicts, "на сцене нет ни одного конфликта «линия режет плашку»")
+      .toBeGreaterThan(0);
+    // ЦЕНА РЕЖИМА, ЯВНО: остаток нерешённых конфликтов никуда не идёт и виден на экране.
+    expect(diag!.dirtyIds.length).toBeGreaterThan(0);
+    // Финальной починки нет: её место — ПОСЛЕ перепрокладки, а перепрокладки нет.
+    expect(diag!.finalRepair).toBeUndefined();
+
+    // ГЛАВНОЕ: маршруты совпадают с прогоном, где весь T4-блок пропущен ступенью
+    // бюджета. Значит стадия работает только по слою плашек.
+    const skipped = await computeViewLayout(denseInput({ routeBudget: FORCE_T4_ONLY }));
+    expect(skipped.budgetDegraded?.t4, "ступень «пропуск T4» обязана сработать").toBe(true);
+    expect(routesSig(layout)).toBe(routesSig(skipped.layout));
+  });
+
+  it("дефолт: плашка всё равно уступает (слой Б3б жив) — размещение отличается от пропуска T4", async () => {
+    const { layout, diag } = await runWithDiag(computeViewLayout, denseInput());
+    expect(diag!.labelFirst.moved, "ни одна плашка не уступила — слой Б3б мёртв").toBeGreaterThan(0);
+    // Уступка видна снаружи: при пропуске всего блока плашки стоят иначе.
+    const skipped = await computeViewLayout(denseInput({ routeBudget: FORCE_T4_ONLY }));
+    const labels = (l: LayoutResult): string =>
+      JSON.stringify([...(l.labelPlacements ?? new Map())].sort((p, q) => p[0].localeCompare(q[0])));
+    expect(labels(layout)).not.toBe(labels(skipped.layout));
+  });
+
+  it("T4_REROUTE=true — прежний путь жив: перепрокладка и финальная починка отрабатывают", async () => {
+    // Дефолтный прогон (флаг выключен) — снимок для сравнения геометрии.
+    const base = await runWithDiag(computeViewLayout, denseInput());
+
+    // Подмена ЗНАЧЕНИЯ ФЛАГА в модуле-доме (autoRoutes): остальное (buildAutoRoutes,
+    // штрафы) остаётся настоящим — doMock частичный, поверх importOriginal.
+    vi.resetModules();
+    vi.doMock("../graph/layout/autoRoutes", async (importOriginal) => ({
+      ...await importOriginal<typeof import("../graph/layout/autoRoutes")>(),
+      T4_REROUTE: true,
+    }));
+    try {
+      const mod = await import("../graph/layout/pipeline");
+      const rerouted = await runWithDiag(mod.computeViewLayout, denseInput());
+      // Ветка отработала: финальная починка живёт ТОЛЬКО за перепрокладкой.
+      expect(rerouted.diag!.finalRepair, "финальной починки нет — ветка не исполнялась")
+        .toBeDefined();
+      // И геометрия действительно другая — перепрокладка не пустышка.
+      expect(routesSig(rerouted.layout)).not.toBe(routesSig(base.layout));
+    } finally {
+      vi.doUnmock("../graph/layout/autoRoutes");
+      vi.resetModules();
+    }
   });
 });

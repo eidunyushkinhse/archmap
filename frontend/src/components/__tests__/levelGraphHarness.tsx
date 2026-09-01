@@ -95,6 +95,9 @@ export const pipeline: { result: PipelineOutput } = {
     liveInputs: { layoutEdges: [], nodeIds: [], localIds: new Set<string>() },
     intents: [],
     routeSig: "",
+    authoritative: false,
+    scoped: false,
+    budgetDegraded: null,
   },
 };
 
@@ -107,6 +110,7 @@ let sigCounter = 0;
 export function resetHarness(): void {
   sigCounter = 0;
   captured.getCb = undefined;
+  assembleCalls.length = 0;
   rfProps.current = {};
   templateDropMock.dropPreview = null;
   templateDropMock.dropTargetFrame = null;
@@ -126,6 +130,9 @@ export function resetHarness(): void {
     liveInputs: { layoutEdges: [], nodeIds: [], localIds: new Set<string>() },
     intents: [],
     routeSig: "",
+    authoritative: false,
+    scoped: false,
+    budgetDegraded: null,
   };
   rf.setCenter.mockReset();
   rf.fitBounds.mockReset();
@@ -254,9 +261,18 @@ export const layoutSigMock = {
 // ---------------------------------------------------------------------------
 // МОК assembleRfGraph: захват getCb, пустая сборка (RF-стейт контролирует тест).
 // ---------------------------------------------------------------------------
+// Журнал СБОРОК RF-графа. Сборка — единственная дорога раскладки на экран
+// (эффект-сборщик LevelGraph зовёт её на каждый ПРИМЕНЁННЫЙ layout), поэтому
+// «что сейчас на экране» тесты читают отсюда: длина журнала = число применений,
+// последний элемент = layout, из которого собраны текущие rfNodes/rfEdges.
+export const assembleCalls: PipelineOutput["layout"][] = [];
+
 export const assembleRfMock = {
-  assembleRfGraph: (args: { getCb: () => TestCb }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } => {
+  assembleRfGraph: (
+    args: { getCb: () => TestCb; layout: PipelineOutput["layout"] },
+  ): { nextNodes: RFNode[]; nextEdges: RFEdge[] } => {
     captured.getCb = args.getCb;
+    assembleCalls.push(args.layout);
     return { nextNodes: [], nextEdges: [] };
   },
 };

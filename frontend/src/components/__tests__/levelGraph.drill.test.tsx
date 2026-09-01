@@ -7,7 +7,10 @@
 //     onLayoutChanged + анимационная нота (noteExpand/noteCollapse);
 //   • own-on-expand: нерасположенный контейнер закрепляет текущую позицию из раскладки;
 //   • expandLocalContainer (локал): ленивая догрузка детей (nodesApi.list) → раскрытие;
-//     пустое раскрытие в read-only (дети нерелевантны) → НЕ раскрываем.
+//     пустое раскрытие в read-only (дети нерелевантны) → НЕ раскрываем;
+//   • ОТКАЗ ДОГРУЗКИ (Н1 внешнего аудита эпика router-opt): повтор → деградация
+//     состава до пустого (конвейер перестаёт считать сцену недогруженной) → warn;
+//     чтение уровня и повторное раскрытие дают новую попытку.
 // RF/конвейер замоканы; колбэки оркестрации — через getCb.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "@testing-library/react";
@@ -238,5 +241,108 @@ describe("LevelGraph orchestration: drill / expand", () => {
     expect(apiNodesMock.nodesApi.list).toHaveBeenCalledWith("c1");
     expect(layoutAnimMock.noteExpand).not.toHaveBeenCalled();
     expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
+  });
+
+  // ---------- ОТКАЗ ДОГРУЗКИ ДЕТЕЙ (находка Н1 внешнего аудита, 2026-08-22) ----------
+  // Сбой фетча детей ПЕРСИСТНО раскрытой рамки оставлял вид без стрелок навсегда:
+  // localChildren[id] вечно undefined → конвейер вечно считал состав неполным и
+  // пропускал стадии качества (P10 / pipeline.hasPendingChildren). Политика отказа:
+  // один повтор → деградация состава до ПУСТОГО (pipeline.test.ts: «загруженный
+  // ПУСТОЙ список детей неполнотой не считается» — стадии идут, прогон авторитетен)
+  // → предупреждение. Ниже: обе попытки, деградация и оба канала перезапуска.
+  // ⚠️ Каждый тест берёт СВОЙ id рамки: история вызовов nodesApi.list между тестами
+  // файла не сбрасывается (resetHarness переигрывает только реализацию), а отложенный
+  // повтор упавшей цепочки живёт дольше своего теста.
+  const listCalls = (id: string): number =>
+    apiNodesMock.nodesApi.list.mock.calls.filter((c) => c[0] === id).length;
+  const warnsAbout = (warn: { mock: { calls: unknown[][] } }, id: string): number =>
+    warn.mock.calls.filter((c) => String(c[0]).includes(id)).length;
+
+  it("сбой догрузки персистного раскрытия: повтор, деградация состава до пустого, предупреждение", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cA = appNode("cA");
+    apiNodesMock.nodesApi.list.mockRejectedValue(new Error("сеть недоступна"));
+
+    await renderGraph({ nodes: [cA], viewLayout: { cA: { expanded: true } } });
+    await settle();
+    // первая попытка провалилась, пауза перед повтором ещё идёт: состав НЕИЗВЕСТЕН —
+    // записи нет, врать «детей нет» раньше времени нельзя
+    expect(listCalls("cA")).toBe(1);
+    expect(lastLocalChildren().cA).toBeUndefined();
+    const runsBefore = pipelineClientMock.computeViewLayoutOffThread.mock.calls.length;
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await settle();
+
+    // ровно две попытки (первая + один повтор), затем деградация с предупреждением
+    expect(listCalls("cA")).toBe(2);
+    expect(warnsAbout(warn, "cA")).toBe(1);
+    expect(lastLocalChildren().cA).toEqual([]);
+    // и это НЕ мёртвое состояние: деградация запустила НОВЫЙ прогон конвейера — тот
+    // самый, который прежде блокировался вечным «состав неполон»
+    expect(pipelineClientMock.computeViewLayoutOffThread.mock.calls.length).toBeGreaterThan(runsBefore);
+    warn.mockRestore();
+  });
+
+  it("после деградации: чтение уровня (childrenRev) даёт новую попытку — состав восстанавливается", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cB = appNode("cB");
+    const kid = appNode("kid-b", { parent_id: "cB" });
+    apiNodesMock.nodesApi.list.mockRejectedValue(new Error("сеть недоступна"));
+    const { rerenderWith } = await renderGraph({ nodes: [cB], viewLayout: { cB: { expanded: true } } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await settle();
+    expect(lastLocalChildren().cB).toEqual([]);
+
+    apiNodesMock.nodesApi.list.mockResolvedValue([kid]); // сеть вернулась
+    await act(async () => { rerenderWith({ childrenRev: 1 }); });
+    await settle();
+
+    expect(lastLocalChildren().cB).toEqual([kid]);
+    warn.mockRestore();
+  });
+
+  it("после деградации: повторное раскрытие рамки — новая попытка", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cC = appNode("cC");
+    const kid = appNode("kid-c", { parent_id: "cC" });
+    apiNodesMock.nodesApi.list.mockRejectedValue(new Error("сеть недоступна"));
+    await renderGraph({ nodes: [cC], viewLayout: { cC: { expanded: true } } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await settle();
+    expect(lastLocalChildren().cC).toEqual([]);
+
+    apiNodesMock.nodesApi.list.mockResolvedValue([kid]);
+    // Жест пользователя: рамка нарисована свёрнутой, клик по ней — раскрытие. (В UI
+    // это вторая половина пары «свернуть → раскрыть»; гвард P5 «защита от
+    // прокликивания» снимается применением раскладки от первого жеста и здесь
+    // не участвует — его канал проверяется отдельно, levelGraph.busyGuard.)
+    await act(async () => { getCb().expandLocalContainer("cC"); });
+    await settle();
+
+    expect(listCalls("cC")).toBe(3);          // сбойная пара + новая попытка
+    expect(lastLocalChildren().cC).toEqual([kid]);
+    warn.mockRestore();
+  });
+
+  it("сбой догрузки по КЛИКУ: рамка не раскрывается, состав НЕ подделывается", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    apiNodesMock.nodesApi.list.mockRejectedValue(new Error("сеть недоступна"));
+    const { props } = await renderGraph({});
+
+    await act(async () => { getCb().expandLocalContainer("cD"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await settle();
+
+    // Рамка не раскрыта — клик остался без последствий, о сбое сказано в консоль.
+    // Пометки сбоя НЕТ (в отличие от персистного раскрытия): состав СВЁРНУТОЙ рамки
+    // конвейер не спрашивает, вечного «pending» тут не бывает — и подделывать
+    // «детей нет» не за чем.
+    expect(listCalls("cD")).toBe(2);
+    expect(warnsAbout(warn, "cD")).toBe(1);
+    expect(layoutAnimMock.noteExpand).not.toHaveBeenCalled();
+    expect(props.persistence?.onLayoutChanged).not.toHaveBeenCalled();
+    expect(lastLocalChildren().cD).toBeUndefined();
+    warn.mockRestore();
   });
 });

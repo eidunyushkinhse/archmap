@@ -21,7 +21,7 @@
 // Живой драг сварку НЕ гоняет (E62) — доворот на отпускании прячет drawIn (E64).
 import type { EdgePoint } from "../../../types";
 import { cleanup, type EdgeSide, type NodeRect } from "../edgePath";
-import { routePorts, __routeCounters } from "./orthoRoute";
+import { routePorts, __routeCounters, type RouteGridCache } from "./orthoRoute";
 import { buildPlacedIndex, evalRouteParts, makeMoveCost, toPlacedSegs, type PlacedIndex, type PlacedSeg, type RouteParts } from "./routeAll";
 import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 
@@ -33,13 +33,13 @@ export const MERGE_GAIN = 0.5;
 // мелкие рёбра): при MERGE_GAIN → 1 езда по стволу почти бесплатна, и без капа бонус
 // оплачивал крюки через весь уровень (мутант «вправо 885, чтобы вернуться влево 2200»,
 // журнал плана — донастройка жадности).
-const WELD_STRETCH = 1.25;
-const WELD_STRETCH_SLACK = 40;
+export const WELD_STRETCH = 1.25;
+export const WELD_STRETCH_SLACK = 40;
 // Изломов собрата перенимается за одну попытку; итерации до фикспойнта добирают глубже.
-const WELD_K = 3;
-const WELD_ITER_CAP = 3;
+export const WELD_K = 3;
+export const WELD_ITER_CAP = 3;
 // Порог строгого выигрыша чернил: ничьи не перекраивают маршрут (идемпотентность).
-const WELD_EPS = 0.5;
+export const WELD_EPS = 0.5;
 const EPS = 0.5;
 
 const portKey = (p: EdgePoint): string => `${Math.round(p.x * 2)}|${Math.round(p.y * 2)}`;
@@ -103,6 +103,27 @@ export function weldTrunks(params: WeldParams): Set<string> {
   const crossCost = params.crossCost ?? 200;
   const bp = params.bendPenalty ?? 40;
   const welded = new Set<string>();
+  // КЭШ СЕТОК ХВОСТОВ (А2.1, 2026-08-21). Прежде хвост звал routePorts БЕЗ кэша, и
+  // каждая попытка строила Hanan-сетку и гнала flood-fill заново — при том что
+  // фикспойнт крутится WELD_ITER_CAP раз и повторные пары пересматривают ТЕ ЖЕ
+  // кандидатские точки. Сетка хвоста зависит ТОЛЬКО от: обеих точек, обеих сторон
+  // (они задают portOrigin/стабы, sOrigins и goals), obstacles, stub, extraXs/Ys и
+  // margin. Из них внутри одного вызова weldTrunks меняются лишь точки и стороны:
+  // obstacles — параметр вызова, stub дефолтный, extraXs/Ys хвостам не передаются,
+  // а margin дописывает в ключ сам routePorts («@margin» — ступени лестницы клиренса
+  // получают разные сетки). moveCost в ключ НЕ входит и не должен: от него сетка не
+  // зависит (ровно та же посылка, что у gridCache в routeAll), а вместе с сеткой
+  // повторный кандидат бесплатно получает и поле reachable из А3а.
+  // Кэш живёт РОВНО один вызов: снаружи obstacles уже другие.
+  const gridCache: RouteGridCache = new Map();
+  // Ключ инъективен по своим параметрам: координаты пишутся ТОЧНО, без квантования.
+  // Огрубление (portKey использует Math.round(v·2) для ГРУППИРОВКИ вееров) здесь
+  // недопустимо: две разные точки в пределах 0.25 склеились бы в один ключ, и второй
+  // кандидат поехал бы по чужой сетке — маршрут молча уехал бы. Повторы, ради которых
+  // кэш и заведён, дают побитово равные числа (те же вершины тех же ломаных).
+  const tailKey = (
+    p1: EdgePoint, s1: EdgeSide, p2: EdgePoint, s2: EdgeSide | undefined,
+  ): string => `${p1.x}|${p1.y}|${s1}>${p2.x}|${p2.y}|${s2 ?? "-"}`;
 
   // контекст оценки follower-а: сегменты и ломаные ВСЕХ остальных (включая preplaced)
   const contextOf = (skipId: string): { segs: PlacedSeg[]; routes: EdgePoint[][]; idx: PlacedIndex } => {
@@ -297,6 +318,9 @@ export function weldTrunks(params: WeldParams): Set<string> {
               });
               __routeCounters.weldTails++;
               const expBefore = __routeCounters.expansions;
+              // Ф0: вызовы A* хвоста ВМЕСТЕ с его маргин-ретраями (weldTails считает
+              // попытки, а разбивка фаз по вызовам требует именно routePortsCalls).
+              const callsBefore = __routeCounters.routePortsCalls;
               const tail = routePorts(
                 [{ point: { x: q.p.x, y: q.p.y }, side: arrSide }],
                 [{ point: { x: dock.x, y: dock.y }, side: dockSide }],
@@ -306,9 +330,12 @@ export function weldTrunks(params: WeldParams): Set<string> {
                   moveCost: extra
                     ? (x1, y1, x2, y2): number => tailMove(x1, y1, x2, y2) + extra(x1, y1, x2, y2)
                     : tailMove,
+                  gridCache,
+                  cacheKey: tailKey(q.p, arrSide, dock, dockSide),
                 },
               );
               __routeCounters.weldExpansions += __routeCounters.expansions - expBefore;
+              __routeCounters.weldCalls += __routeCounters.routePortsCalls - callsBefore;
               if (!tail || tail.pts.length < 2) continue;
               // вершины ствола строго до точки расставания (дуга после cleanup растёт
               // строго); для проекции хвост стартует с q.p — сегмент-хозяин доклеится

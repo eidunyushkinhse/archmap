@@ -22,7 +22,7 @@
 // nodeCross в ключе выбора: чистое направление выигрывает даже дальнее, в полной тесноте нырок
 // допустим (плашка размещается всегда).
 import type { EdgePoint } from "../../../types";
-import { pointAtFraction, type NodeRect, type Segment } from "../edgePath";
+import { axisSegHitsRect, pointAtFraction, type NodeRect, type Segment } from "../edgePath";
 import { rectFromCenter, rectsOverlap, segCrossesRect } from "./arrowMetrics";
 import { edgeArcLength, subtractIntervals, type Interval } from "./coincidentLegs";
 import type { Size } from "./labelBox";
@@ -44,6 +44,10 @@ export interface LabelInput {
   preferredT?: number;    // желаемая доля arc-length 0..1 (ручной label_t); по умолч. 0.5
   shared?: Interval[];    // слитые с другими рёбрами плечи (R4) — куда ЯКОРЬ выноски ставить
                           // нельзя (иначе поводок указывает в коллинеарность, стрелку не отличить)
+  // РЕЖИМ ПОЧИНКИ (Б3б, E40 v2): прямоугольник ПРЕЖНЕГО места плашки. Если чистого
+  // места не нашлось, плашка остаётся там, где была, — и её прежний прямоугольник
+  // обязан остаться препятствием для следующих (E53), иначе сосед сядет на неё.
+  keepRect?: NodeRect;
 }
 
 // arc-середина самого ДЛИННОГО уникального (не слитого) участка ребра — самый заметный отрезок,
@@ -68,6 +72,28 @@ export interface Placement {
 interface Cand {
   center: EdgePoint;
   leader: boolean;
+}
+
+export interface PlaceOptions {
+  // РЕЖИМ ПОЧИНКИ (Б3б эпика «глубокая оптимизация роутера», E40 v2 — «сначала подвинь
+  // плашку»): плашка-жертва пробует уступить режущей её стрелке, и ребро перепрокладывают
+  // только если уступить не вышло.
+  //
+  // ПОЧЕМУ НЕ «ЖЁСТКИЙ ЗАПРЕТ ПОЛОСЫ ЧУЖИХ ПЛЕЧ». Компонент ovLegs ключа E52 считает
+  // ЧИСЛО чужих плеч в полосе LEG_T вокруг плашки — и проходящих РЯДОМ тоже. Запрет по
+  // нему бесполезен по построению: он стоит в лексикографическом ключе вторым, значит
+  // гриди прохода 1 УЖЕ выбрал минимум ovLegs; раз плашка всё-таки перерезана, кандидата
+  // с ovLegs = 0 в её наборе нет. Полевая проверка (Zabbix-корень, 42 жертвы): 0
+  // переездов, T4 не разгрузился ни на ребро. Запас лежит в разнице «рядом» и
+  // «насквозь»: кандидат с ДВУМЯ линиями впритык, но ни одной сквозь, ключу прохода 1
+  // проигрывает кандидату с ОДНОЙ линией НАСКВОЗЬ, — а T4 нужен ровно второй.
+  //
+  // ЧТО ДЕЛАЕТ РЕЖИМ: в ключ выбора между жёсткими наложениями и полосой плеч встаёт
+  // ЧИСЛО РЕЖУЩИХ СТРЕЛОК (предикат T4 — axisSegHitsRect), а переезд принимается, только
+  // если он строго уменьшает это число и не увеличивает жёсткие наложения (E52: залезть
+  // под узел ради бегства от линии — хуже, чем остаться). Не принят — плашки нет в
+  // результате, прежнее место живо (keepRect) и остаётся препятствием следующим (E53).
+  repair?: boolean;
 }
 
 // Точки-кандидаты вдоль интервалов: кламп желаемого, середина и концы каждого интервала,
@@ -97,6 +123,34 @@ function leaderCands(anchor: EdgePoint, box: Size): Cand[] {
     }
   }
   return out;
+}
+
+// Ключ выбора места (E52) + компонент починки: [жёсткие наложения, РЕЗ НАСКВОЗЬ,
+// чужие плечи в полосе, online<leader, поводок под узлами, кресты поводка, индекс].
+type Key = [number, number, number, number, number, number, number];
+const KEY_LEN = 7;
+
+// Сколько ЧУЖИХ СТРЕЛОК режет прямоугольник r насквозь — предикатом T4 (axisSegHitsRect,
+// edgePath) и с той же гранулярностью, что метрика «сквозь чужие плашки»: пара
+// (стрелка, плашка) считается один раз, сколько бы её плеч ни прошло.
+function cutCount(r: NodeRect, segsById: ReadonlyMap<string, Segment[]>): number {
+  let n = 0;
+  for (const [, segs] of segsById) {
+    for (const s of segs) {
+      if (axisSegHitsRect(s.x1, s.y1, s.x2, s.y2, r)) { n++; break; }
+    }
+  }
+  return n;
+}
+
+// Строго ли лучше найденное место прежнего (режим починки): режущих стрелок меньше,
+// жёстких наложений не больше.
+function improves(
+  key: Key, keepRect: NodeRect, placed: NodeRect[], segsById: ReadonlyMap<string, Segment[]>,
+): boolean {
+  let ovHard = 0;
+  for (const o of placed) if (rectsOverlap(keepRect, o)) ovHard++;
+  return key[1] < cutCount(keepRect, segsById) && key[0] <= ovHard;
 }
 
 // Сколько прямоугольников из others задевает плашка box с центром center.
@@ -176,6 +230,7 @@ export function placeLabels(
   // В штрафе поводка (nodeCross) НЕ участвуют — иначе live-скоринг разошёлся бы с
   // финальным, где ранее размещённые плашки в nodeCross тоже не входят.
   obstacles: NodeRect[] = [],
+  opts?: PlaceOptions,
 ): Placement[] {
   // плечи каждого ребра как препятствия + сырые сегменты для оценки пересечений поводка
   const legRectsById = new Map<string, NodeRect[]>();
@@ -197,7 +252,7 @@ export function placeLabels(
     const anchorArc = longestUniqueArc(unique) ?? preferredArc;
     const anchor = toPt(anchorArc);
     const cands: Cand[] = [...online, ...leaderCands(anchor, l.box)];
-    return { id: l.id, box: l.box, cands, onlineCount: online.length, anchor };
+    return { id: l.id, box: l.box, cands, onlineCount: online.length, anchor, keepRect: l.keepRect };
   });
 
   // самые стеснённые (мало online-кандидатов) — первыми; тай-брейк по id для детерминизма
@@ -211,9 +266,13 @@ export function placeLabels(
     // чужие плечи (все рёбра, кроме своего) — препятствия для ПЛАШКИ и помеха для поводка
     const otherLegRects: NodeRect[] = [];
     const otherSegs: Segment[] = [];
+    // те же чужие плечи, но ПО ВЛАДЕЛЬЦАМ — режим починки считает режущие СТРЕЛКИ, а не
+    // сегменты (пара «стрелка × плашка» = единица метрики «сквозь чужие плашки»)
+    const otherSegsById = new Map<string, Segment[]>();
     for (const [id, segs] of edgeSegs) {
       if (id === L.id) continue;
       otherSegs.push(...segs);
+      otherSegsById.set(id, segs);
       const rs = legRectsById.get(id);
       if (rs) otherLegRects.push(...rs);
     }
@@ -226,12 +285,17 @@ export function placeLabels(
     // узел и связь «плашка↔стрелка» теряется) — тоже МЯГКИЙ штраф: чистое направление
     // выигрывает даже дальнее/диагональное, но в полной тесноте нырок допустим; весом
     // выше крестов с чужими стрелками (перекрестье видно, исчезновение под узлом — нет).
-    let best = 0;
-    let bestKey: [number, number, number, number, number, number] = [Infinity, Infinity, Infinity, Infinity, Infinity, Infinity];
+    let best = -1;
+    let bestKey: Key = [Infinity, Infinity, Infinity, Infinity, Infinity, Infinity, Infinity];
     for (let k = 0; k < L.cands.length; k++) {
       const c = L.cands[k];
       const ovHard = overlapCount(c.center, L.box, placedRects);
+      // ПОЧИНКА (Б3б): жёсткие наложения и линии НАСКВОЗЬ — вето кандидата, а не штраф.
+      // Порядок проверок — от дешёвой к дорогой: сквозной тест гоняет все чужие плечи.
       const ovLegs = overlapCount(c.center, L.box, otherLegRects);
+      // ПОЧИНКА (Б3б): число ЧУЖИХ СТРЕЛОК, режущих плашку насквозь — то самое, что
+      // считает T4 (и метрика «сквозь чужие плашки»). В обычном режиме не считается.
+      const cutN = opts?.repair ? cutCount(rectFromCenter(c.center.x, c.center.y, L.box.w, L.box.h), otherSegsById) : 0;
       let cross = 0, nodeCross = 0;
       if (c.leader) {
         // хвост leaderEnd→center лежит под боксом плашки, чистоту бокса держит ovHard —
@@ -240,11 +304,23 @@ export function placeLabels(
         cross = connectorCrossings(L.anchor, end, otherSegs);
         nodeCross = rectCrossings(L.anchor, end, nodes);
       }
-      const key: [number, number, number, number, number, number] = [ovHard, ovLegs, c.leader ? 1 : 0, nodeCross, cross, k];
-      for (let d = 0; d < 6; d++) {
+      // Ключ выбора E52; в режиме починки между жёсткими наложениями и полосой плеч
+      // встаёт РЕЗ НАСКВОЗЬ (в обычном режиме компонент всегда 0 и на порядок не влияет).
+      const key: Key = [ovHard, cutN, ovLegs, c.leader ? 1 : 0, nodeCross, cross, k];
+      for (let d = 0; d < KEY_LEN; d++) {
         if (key[d] < bestKey[d]) { bestKey = key; best = k; break; }
         if (key[d] > bestKey[d]) break;
       }
+    }
+    // ПОЧИНКА (Б3б): чистого места нет — плашка остаётся на прежнем; её прежний
+    // прямоугольник всё равно занят и обязан отталкивать следующих (E53).
+    // ПОЧИНКА (Б3б): переезд принимается, только если он ДЕЙСТВИТЕЛЬНО УСТУПАЕТ линии —
+    // режущих стрелок стало строго меньше, а жёстких наложений не прибавилось (иначе
+    // плашка сбегала бы из-под стрелки под узел, а это по E52 хуже). Не принят — плашка
+    // остаётся на прежнем месте, и её прямоугольник обязан отталкивать следующих (E53).
+    if (best < 0 || (L.keepRect && !improves(bestKey, L.keepRect, placedRects, otherSegsById))) {
+      if (L.keepRect) placedRects.push(L.keepRect);
+      continue;
     }
     const c = L.cands[best];
     placedRects.push(rectFromCenter(c.center.x, c.center.y, L.box.w, L.box.h));
@@ -258,7 +334,8 @@ export function placeLabels(
     });
   }
 
-  // chosen заполнен для каждой плашки в цикле выше — filter лишь гарантирует тип
+  // chosen заполнен для каждой плашки в цикле выше (в режиме починки — только для тех,
+  // кому нашлось безупречное место); flatMap отсеивает отказы и гарантирует тип
   return labels.flatMap((l) => {
     const c = chosen.get(l.id);
     return c ? [c] : [];

@@ -264,8 +264,19 @@ function axisSegmentHitsRect(
 export function pathCrossesRects(pts: EdgePoint[], rects: NodeRect[]): boolean {
   for (const s of segments(pts)) {
     for (const r of rects) {
-      if (axisSegmentHitsRect(s.x1, s.y1, s.x2, s.y2, r, 1)) return true;
+      if (axisSegHitsRect(s.x1, s.y1, s.x2, s.y2, r)) return true;
     }
   }
   return false;
+}
+
+// Режет ли ОДИН осевой сегмент прямоугольник — ровно та же семантика, что у
+// pathCrossesRects (сжатие на 1px: скольжение по грани и касание концом не в счёт).
+// Экспортируется, чтобы «линия режет плашку» считалось В ОДНОМ месте: этим же
+// предикатом Б3б (E40 v2) проверяет кандидатов пере-размещения плашки, а T4 — грязных
+// рёбер; разъедься они — починка «чистого места» не снимала бы грязь.
+export function axisSegHitsRect(
+  x1: number, y1: number, x2: number, y2: number, r: NodeRect,
+): boolean {
+  return axisSegmentHitsRect(x1, y1, x2, y2, r, 1);
 }

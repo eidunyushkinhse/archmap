@@ -31,8 +31,13 @@ import type {
   LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
 } from "./graph/types";
 import type { LayoutResult } from "./graph/layout/pipeline";
+import type { PrevScene } from "./graph/layout/incrementalScope";
 import type { LabelPlacement } from "./graph/layout/labelLayout";
 import { computeViewLayoutOffThread } from "./graph/layout/pipelineClient";
+import {
+  routeCache, viewCacheKey, toCacheEntry, fromCacheEntry, type RouteCacheView,
+} from "./graph/layout/routeCacheStore";
+import { getCurrentProjectId } from "../api/projectScope";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
 import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
@@ -62,6 +67,7 @@ import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
+import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
 
 // --- Основной компонент ---
 
@@ -245,7 +251,7 @@ function LevelGraphInner({
   const runIdRef = useRef(0); // «последний выигрывает» для async-прогонов
   const lastSigRef = useRef<string | null>(null); // сигнатура последнего применённого
   const appliedResolveRef = useRef<(() => void) | null>(null); // ждун применения (flush)
-  const computeNowRef = useRef<() => Promise<"applied" | "skipped" | "stale">>(
+  const computeNowRef = useRef<(opts?: { cleanup?: boolean }) => Promise<"applied" | "skipped" | "stale">>(
     async () => "stale",
   );
   const gate = useMemo<LayoutGate>(() => ({
@@ -282,6 +288,12 @@ function LevelGraphInner({
   const overloadedRef = useRef(false);
   const [overloadToastOpen, setOverloadToastOpen] = useState(false);
   const overloadToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  // ТОСТ СТУПЕНЕЙ БЮДЖЕТА РАБОТ (Ф5 эпика router-opt, спека perf.md P13) — по образцу
+  // разового тоста перегрузки P8. Ступень бюджета означает, что часть стадий качества
+  // стрелок принесена в жертву потолку работ; молчаливая деградация запрещена ровно так
+  // же, как молчаливое отключение анимаций.
+  const [budgetToastOpen, setBudgetToastOpen] = useState(false);
+  const budgetToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
   // Занятость конвейера (P4): счётчик прогонов в полёте; бейдж «Считаю
   // раскладку…» проявляется CSS-задержкой INDICATE_AFTER_MS=300мс (LevelGraph.css).
   const [computing, setComputing] = useState(0);
@@ -457,6 +469,10 @@ function LevelGraphInner({
   // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
   // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
   const [dragging, setDragging] = useState(false);
+  // Зеркало для СИНХРОННОГО чтения вне рендера (таймер фоновой уборки P14): стейт
+  // виден только следующему рендеру, а таймеру нужен факт «драг в полёте» сейчас.
+  const draggingRef = useRef(false);
+  useEffect(() => { draggingRef.current = dragging; });
 
   // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): их rect производен от
   // детей, перемещение содержимого = перемещение самих узлов. ЖИВОЙ bbox-follow
@@ -683,13 +699,39 @@ function LevelGraphInner({
     // (конвейер удерживает результат целиком из prev при неизменных входах)
     labels?: Map<string, LabelPlacement>;
     sig?: string;
+    // СНИМОК ФИНАЛЬНОЙ СЦЕНЫ прогона (Ф3, E84): позиции и габариты, по которым
+    // посчитаны routes. Конвейер диффует его со своими финальными позициями и сам
+    // считает скоуп пересчёта (раскрытие/сворачивание больше не платит всей сценой).
+    // Копии ГЛУБОКИЕ: positions конвейера и словарь замеров живут своей жизнью, а
+    // снимок обязан описывать именно тот прогон, чьи маршруты лежат рядом.
+    scene: PrevScene;
     version: number;
   } | null>(null);
   // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
   // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
   // обнуляет — следующий прогон (не дроп) считает всё целиком.
   const dragScopeRef = useRef<string[] | null>(null);
-  useEffect(() => { prevRoutesRef.current = null; lastSigRef.current = null; }, [containerId]);
+  // ПЕРСИСТНЫЙ КЭШ МАРШРУТОВ ВИДА (Ф2 эпика router-opt, спека perf.md P11): маршруты
+  // последнего АВТОРИТЕТНОГО прогона этого вида, пережившие уход с вида и перезагрузку.
+  // Открытие уровня — единственный сценарий без prev (гистерезис и скоуп бессильны):
+  // кэш возвращает конвейеру prev, и при совпадении routeSig стадии качества стрелок
+  // не считаются вовсе. Ключ вида и сама запись — в рефах: чтение кэша не имеет права
+  // порождать рендер или лишний прогон конвейера.
+  const cachedEntryRef = useRef<RouteCacheView | null>(null);
+  const viewCacheKeyRef = useRef<string>("");
+  // Смена ВИДА: гистерезис прошлого вида невалиден (сброс), кэш нового — читается.
+  // layoutViewId в зависимостях, потому что вид — это пара (структурный containerId,
+  // ключ раскладки): на странице объекта соседние узлы делят parent_id и различаются
+  // только layoutViewId. Эффект объявлен ВЫШЕ эффекта раскладки — на смене вида он
+  // успевает подставить свежий кэш до первого прогона.
+  useEffect(() => {
+    prevRoutesRef.current = null;
+    lastSigRef.current = null;
+    const key = viewCacheKey(getCurrentProjectId(), containerId, layoutViewId);
+    viewCacheKeyRef.current = key;
+    const entry = routeCache.load(key);
+    cachedEntryRef.current = entry ? fromCacheEntry(entry) : null;
+  }, [containerId, layoutViewId]);
 
   // Сборка RF-узлов/рёбер из раскладки и синхронизация в контролируемый стейт RF.
   // Стейт нужен мутабельным: onNodesChange/onEdgesChange пишут туда драг и выделение
@@ -737,48 +779,173 @@ function LevelGraphInner({
     appliedResolveRef.current = null;
   }, [layout, isArchitect, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
 
+  // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
+  // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
+  // холст досчитывает полный прогон С ГИСТЕРЕЗИСОМ и НЕ ПОКАЗЫВАЕТ его: экран
+  // меняется только от действия пользователя. Уборка пишет ровно две вещи — кэш вида
+  // (P11) и снимок гистерезиса; чистая геометрия приезжает СЛЕДУЮЩИМ действием.
+  // Таймер живёт в хуке (чистая логика под тест), прогон — здесь: уборка идёт той же
+  // оркестрацией («последний выигрывает» по runId).
+  // «Занято» читаем СИНХРОННО: драг в полёте (draggingRef) или открытое тихое окно
+  // анимации (holdRef — в нём прогоны вообще откладываются) — уборка ждёт тишины.
+  const idleCleanup = useIdleCleanup({
+    run: () => { void computeNowRef.current({ cleanup: true }); },
+    isBusy: () => draggingRef.current || holdRef.current,
+  });
+
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).
   // «Последний выигрывает»: прогон, перегнанный более новым (runIdRef), не пишет
   // ничего — ни снапшота гистерезиса, ни персиста интентов, ни setLayout.
-  const computeNow = useCallback(async (): Promise<"applied" | "skipped" | "stale"> => {
+  const computeNow = useCallback(async (
+    // УБОРОЧНЫЙ ПРОГОН (P14): тот же путь и тот же билдер входа, но (1) без sig,
+    // снимка сцены и скоупа, (2) результат НЕ ПРИМЕНЯЕТСЯ на экран — только кэш вида
+    // и снимок гистерезиса. Экран меняется исключительно от действия пользователя.
+    opts?: { cleanup?: boolean },
+  ): Promise<"applied" | "skipped" | "stale"> => {
+    const cleanup = opts?.cleanup === true;
     const runId = ++runIdRef.current;
+    idleCleanup.noteRunStarted(); // любой новый прогон снимает взведённую уборку
     // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
     // нуля перед снятием сигнатуры): раскладка двухфазная (фолбэк-габариты → замер →
     // пере-прогон), и без явного сигнала снапшот ловил межфазное состояние.
     const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
     w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
     w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
-    setComputing((c) => c + 1); // индикация занятости (P4)
+    // ИНДИКАЦИЯ ЗАНЯТОСТИ (P4) — но НЕ для уборки: бейдж «Считаю раскладку…» и
+    // курсор progress без действия пользователя это снова «само что-то происходит»
+    // (исключение зафиксировано в P4). Полигонные счётчики выше НЕ трогаем — их
+    // ждут зонды, и уборка для них такой же прогон, как всякий другой.
+    if (!cleanup) setComputing((c) => c + 1);
     try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
+      const cached = sameSizes ? null : cachedEntryRef.current;
+      // Ключ вида ФИКСИРУЕМ до await: если вид сменится, пока прогон в полёте, его
+      // результат не имеет права лечь под ключ нового вида (sig всё равно не совпал бы,
+      // но занятый впустую слот — тоже потеря).
+      const cacheKey = viewCacheKeyRef.current;
       // скоуп после драга: роутим только рёбра перетащенных узлов (обрывает каскад rip-up
       // и дрейф). Обнуляем СРАЗУ: прогон берёт скоуп ровно один раз, следующий — полный.
-      const scopeNodeIds = dragScopeRef.current ?? undefined;
-      dragScopeRef.current = null;
+      // Уборка скоуп НЕ ЧИТАЕТ И НЕ СЪЕДАЕТ: она полна по построению, а взведённый
+      // жестом скоуп обязан достаться прогону этого жеста.
+      const scopeNodeIds = cleanup ? undefined : (dragScopeRef.current ?? undefined);
+      if (!cleanup) dragScopeRef.current = null;
+      // Словарь замеров ФИКСИРУЕМ до await: useLevelMeasure подменяет его целиком на
+      // новом замере, а снимок сцены обязан описывать ровно то, что видел этот прогон.
+      const sizesAtRun = nodeSizesRef.current;
+      // PREV-ПОЛЯ ВХОДА — ОДИН БИЛДЕР НА ВСЕ ПРОГОНЫ (P14): уборочный отличается ровно
+      // тремя вычеркнутыми полями (sig, scene, scope) — второго билдера входа не
+      // заводим, иначе они разъедутся. Почему уборка идёт С ГИСТЕРЕЗИСОМ: холодный
+      // прогон не стабилен к сдвигу позиций и дал бы телепорт почти всех рёбер при
+      // следующем действии; гистерезис же чинит ровно грязные линии, оставляя
+      // остальные на месте (полевая находка приёмки №1, раунд 3).
+      // ПОЧЕМУ БЕЗ SIG — ОТДЕЛЬНЫЙ ИНВАРИАНТ: входы уборки совпадают со входами
+      // последнего прогона, совпавший prevRouteSig увёл бы конвейер в кэш-хит-ветку
+      // «вернуть prev целиком» (сверка стоит ДО стадий) — уборка вернула бы ту самую
+      // грязь и записала бы её в кэш вида с authoritative = true (отравление P11).
+      // Без sig стадии качества отрабатывают по-настоящему — уборка и авторитетна,
+      // и чиста. СНИМОК СЦЕНЫ — тоже нет: он включил бы авто-скоуп (E84), а уборка
+      // обязана перепроложить ВСЁ. СКОУП драга уборке не достаётся по построению.
+      // prev — свой снимок (тот же комплект замеров) ИЛИ персистный кэш вида, когда
+      // своего снимка нет/он от других замеров. Кэш даёт одно из двух: совпал
+      // routeSig — мгновенный результат без стадий качества; не совпал — обычная
+      // гистерезис-валидация (buildAutoRoutes сам отбрасывает невалидный prev).
+      // На SKIP-прогонах (P10) кэш тоже передаём: стадии там не идут, но кэш-хит по
+      // sig сильнее пропуска — сцена открывается сразу со стрелками, а не кадром
+      // smoothstep. Когда sig не совпал, prev в пропущенных стадиях просто не читается.
+      // СНИМОК ПРОШЛОЙ СЦЕНЫ — только вместе со СВОИМ prev (ветка sameSizes): конвейер
+      // диффует его с финальными позициями и роутит лишь окрестность изменений (E84).
+      // Персистный кэш вида снимка не несёт (в ветке !sameSizes prev приходит из него),
+      // поэтому там авто-скоуп не работает: либо кэш-хит по routeSig, либо честный
+      // полный прогон — оба варианта корректны, инкремента просто нет.
+      const prev = {
+        routes: sameSizes ? prevRoutesRef.current?.routes : cached?.routes,
+        handles: sameSizes ? prevRoutesRef.current?.handles : cached?.handles,
+        labels: sameSizes ? prevRoutesRef.current?.labels : cached?.labels,
+        // три поля, вычеркнутые у уборки (см. блок выше)
+        sig: cleanup ? undefined : (sameSizes ? prevRoutesRef.current?.sig : cached?.sig),
+        scene: cleanup ? undefined : (sameSizes ? prevRoutesRef.current?.scene : undefined),
+        scope: cleanup ? undefined : (sameSizes ? scopeNodeIds : undefined),
+      };
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
-      const { layout: next, liveInputs, intents, routeSig } = await computeViewLayoutOffThread({
+      const {
+        layout: next, liveInputs, intents, routeSig, authoritative, scoped, budgetDegraded,
+      } = await computeViewLayoutOffThread({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren,
-        sizes: nodeSizesRef.current,
+        // ленивая догрузка детей раскрытий живёт только в редактируемом режиме
+        // (useLevelDrill не фетчит в read-only): конвейеру это нужно, чтобы отличить
+        // «дети ещё едут» (состав неполон, прогон повторится) от «детей не будет»
+        // (страничные схемы — там раскрытый контейнер рисуется свёрнутым навсегда).
+        childrenLazyLoad: !isReadOnly,
+        sizes: sizesAtRun,
         // edgeQuality НЕ задаём — авто-режим конвейера (P10): прогоны с крупной
         // пачкой незамеренных узлов (первый показ, раскрытие с новыми детьми)
         // идут без стадий качества стрелок — их пересчитает прогон по замерам.
-        prevRoutes: sameSizes ? prevRoutesRef.current?.routes : undefined,
-        prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : undefined,
-        prevRouteSig: sameSizes ? prevRoutesRef.current?.sig : undefined,
-        prevLabelPlacements: sameSizes ? prevRoutesRef.current?.labels : undefined,
-        scopeNodeIds: sameSizes ? scopeNodeIds : undefined,
+        prevRoutes: prev.routes,
+        prevEdgeHandles: prev.handles,
+        prevRouteSig: prev.sig,
+        prevLabelPlacements: prev.labels,
+        scopeNodeIds: prev.scope,
+        prevScene: prev.scene,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
+      // УЧЁТ СКОУПНОЙ ГРЯЗИ (P14): скоупный прогон её создал, авторитетный — смыл.
+      // Отсюда взводится (и снимается) таймер фоновой уборки; уборочный прогон,
+      // не ставший авторитетным, повторной попытки не получает.
+      idleCleanup.noteRunFinished({ scoped, authoritative, cleanup });
+      // СТУПЕНИ БЮДЖЕТА (P13): объявляем пользователю разовым тостом на вид — один на
+      // вход в тяжёлый вид, а не на каждый пересчёт (механика P8). Гейт authoritative
+      // уже не даст такому прогону попасть в кэш вида (P11), так что «тихая» ступень,
+      // законсервированная в кэше, невозможна.
+      // Уборка тостов НЕ показывает: её геометрию пользователь не видит (на экран она
+      // не идёт), а всплывшее без действия предупреждение — то же «само происходит».
+      if (budgetDegraded && !cleanup) {
+        const viewKey = containerId ?? "__root__";
+        if (!budgetToastShownRef.current.has(viewKey)) {
+          budgetToastShownRef.current.add(viewKey);
+          setBudgetToastOpen(true);
+        }
+      }
+      // СНИМОК ГИСТЕРЕЗИСА — И ДЛЯ УБОРКИ (P14): её маршруты чистые, а позиции она не
+      // меняла, поэтому снимок сцены (из ЕЁ результата, как у всех прогонов) совпадает
+      // с экранной сценой — дифф следующего драга остаётся честным. Именно эта запись
+      // и обрывает НАКОПЛЕНИЕ грязи: следующий прогон стартует с чистого prev.
       if (next.autoRoutes) {
         prevRoutesRef.current = {
           routes: next.autoRoutes, handles: next.edgeHandles,
           labels: next.labelPlacements, sig: routeSig, version: sizesVersion,
+          scene: {
+            positions: new Map([...next.positions].map(([id, p]) => [id, { x: p.x, y: p.y }])),
+            sizes: new Map(Object.entries(sizesAtRun).map(([id, s]) => [id, { w: s.w, h: s.h }])),
+          },
         };
+        // ЗАПИСЬ ПЕРСИСТНОГО КЭША — только АВТОРИТЕТНЫЙ прогон (P11): стадии качества
+        // отработали или пришёл кэш-хит, все узлы замерены, скоупа нет. Прочие прогоны
+        // (пропуск P10, частичные замеры, пересчёт после драга) временны по построению
+        // и отравили бы кэш геометрией фолбэк-габаритов или замороженного prev-контекста.
+        if (authoritative && next.labelPlacements) {
+          const view: RouteCacheView = {
+            sig: routeSig, routes: next.autoRoutes,
+            handles: next.edgeHandles, labels: next.labelPlacements,
+          };
+          routeCache.save(
+            cacheKey,
+            toCacheEntry(view.sig, view.routes, view.handles, view.labels, Date.now()),
+          );
+          // горячая копия — только если вид с начала прогона не сменился
+          if (cacheKey === viewCacheKeyRef.current) cachedEntryRef.current = view;
+        }
       }
+      // ГРАНИЦА «ЗАПИСАТЬ» / «ПРИМЕНИТЬ» (P14). Выше — то, что уборке МОЖНО: кэш вида
+      // и снимок гистерезиса (оба невидимы). Ниже — применение на экран: снимок входов
+      // живого драга, персист интентов раскладки, setLayout. Уборке ничего из этого
+      // нельзя: экран меняется только от действия пользователя, а её чистая геометрия
+      // приедет СЛЕДУЮЩИМ прогоном — тот возьмёт чистый prev, записанный выше.
+      // Возврат "skipped" честен по смыслу: прогон посчитан и не применён.
+      if (cleanup) return "skipped";
       liveHandleInputs.current = liveInputs;
       // Побочные записи раскладки (интенты) — через единый commitLayout: засев владения
       // own-on-first-render. Зеркало onLayoutChanged кладёт их в viewLayout → следующий
@@ -803,15 +970,17 @@ function LevelGraphInner({
       return "applied";
     } finally {
       w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 1) - 1;
-      setComputing((c) => c - 1);
+      if (!cleanup) setComputing((c) => c - 1); // симметрично инкременту выше
     }
     // Геометрия рёбер внутри viewLayout не вся влияет на позиции, НО зависимость — весь
     // объект намеренно: изломы/хэндлы пучков читает эффект-сборщик выше, и он должен
     // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
+    // idleCleanup ссылочно стабилен (useMemo в хуке) — identity computeNow от него не
+    // дрожит, эффект раскладки не перезапускается.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nodeSizesRef — стабильный ref из useLevelMeasure (читается по .current), в deps не нужен
-  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly, idleCleanup]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
   // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).
@@ -1124,6 +1293,18 @@ function LevelGraphInner({
           <button
             className="lg-overload-close"
             onClick={() => setOverloadToastOpen(false)}
+            aria-label="Закрыть предупреждение"
+          >✕</button>
+        </div>
+      )}
+      {/* Разовый тост ступеней бюджета работ (P13): честное объявление о том, что
+          раскладка стрелок упрощена ради потолка счёта. */}
+      {budgetToastOpen && (
+        <div className="lg-budget-toast" role="status">
+          <span>Сцена очень плотная: раскладка упрощена.</span>
+          <button
+            className="lg-overload-close"
+            onClick={() => setBudgetToastOpen(false)}
             aria-label="Закрыть предупреждение"
           >✕</button>
         </div>

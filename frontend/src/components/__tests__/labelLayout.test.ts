@@ -67,3 +67,46 @@ describe("buildLabelPlacements — выноска", () => {
     expect(out.get("g1")!.mode).toBe("leader");
   });
 });
+
+// РЕЖИМ ПОЧИНКИ (Б3б, E40 v2): мост обязан переразмещать ТОЛЬКО названные группы,
+// сравнивать с ПРЕЖНИМ местом (keepRectOf) и возвращать ТОЛЬКО переехавших —
+// вызывающий (T4) сливает их со своим размещением сам.
+describe("buildLabelPlacements — починка (Б3б, E40 v2)", () => {
+  const routes = new Map([
+    ["g1", poly([0, 0], [220, 0])],        // подписанная жертва
+    ["g2", poly([110, -120], [110, 120])], // чужая стрелка режет линию g1 посередине
+  ]);
+  const groups = [group("g1", [edge("g1", "жертва")]), group("g2", [edge("g2")])];
+  const common = {
+    routes, groups,
+    labelMeta: (g: EdgeGroup): LabelMeta | null => (g.id === "g1" ? meta("жертва") : null),
+    preferredT: (): number | undefined => undefined,
+    nodeRects: [] as NodeRect[],
+  };
+  const box = labelBoxSize("жертва");
+  // прежнее место — ровно на чужой стрелке (её и чинит Б3б)
+  const cutKeep = new Map([["g1", rectFromCenter(110, 0, box.w, box.h)]]);
+
+  it("жертву с чужой линии уводит прочь", () => {
+    const out = buildLabelPlacements({
+      ...common, repair: { only: new Set(["g1"]), keepRectOf: cutKeep },
+    });
+    const p = out.get("g1")!;
+    expect(Math.abs(p.center.x - 110)).toBeGreaterThan(box.w / 2);
+  });
+
+  it("прежнее место не режется → переезда нет, результат пуст", () => {
+    const clean = new Map([["g1", rectFromCenter(200, -300, box.w, box.h)]]);
+    const out = buildLabelPlacements({
+      ...common, repair: { only: new Set(["g1"]), keepRectOf: clean },
+    });
+    expect(out.size).toBe(0);
+  });
+
+  it("группы вне `only` не переразмещаются", () => {
+    const out = buildLabelPlacements({
+      ...common, repair: { only: new Set(["g2"]), keepRectOf: cutKeep },
+    });
+    expect(out.size).toBe(0); // у g2 подписи нет, а g1 в only не входит
+  });
+});

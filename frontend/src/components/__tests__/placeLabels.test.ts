@@ -206,3 +206,82 @@ describe("placeLabels — детерминизм", () => {
     expect(placeLabels(make())).toEqual(placeLabels(make()));
   });
 });
+
+// РЕЖИМ ПОЧИНКИ (Б3б эпика «глубокая оптимизация роутера», E40 v2 — «сначала подвинь
+// плашку»): плашка-жертва уступает режущей её стрелке, а если уступить некуда — отказ,
+// и ребро перепрокладывает T4. Отказ обязан ОСТАВИТЬ прежнее место занятым (E53).
+describe("placeLabels — починка (Б3б, E40 v2)", () => {
+  // чужая стрелка едет ровно по y=0 — плашка на линии перерезана насквозь
+  const cutter = new Map<string, Segment[]>([["X", [seg(-500, 0, 500, 0)]]]);
+  const cut = (r: NodeRect): boolean =>
+    segCrossesRect({ x: -500, y: 0 }, { x: 500, y: 0 }, r);
+  // коридор высотой 40 вокруг линии: любой отход плашки упирается в тело
+  const corridor: NodeRect[] = [
+    { x: -400, y: -400, w: 900, h: 380 },
+    { x: -400, y: 20, w: 900, h: 380 },
+  ];
+
+  it("режущую плашку уводит с линии (режущих стрелок становится 0)", () => {
+    const keepRect = rectFromCenter(100, 0, 60, 16);
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [{ s: 0, e: 200 }], box: box(60, 16), keepRect },
+    ];
+    const [p] = placeLabels(labels, [], cutter, [], { repair: true });
+    expect(p).toBeDefined();
+    expect(cut(keepRect)).toBe(true); // прежнее место резалось…
+    expect(cut(rectFromCenter(p.center.x, p.center.y, p.box.w, p.box.h))).toBe(false); // …новое нет
+  });
+
+  it("уступить некуда (коридор между телами) → ОТКАЗ, плашки нет в результате", () => {
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [{ s: 0, e: 200 }], box: box(60, 16),
+        keepRect: rectFromCenter(100, 0, 60, 16) },
+    ];
+    expect(placeLabels(labels, corridor, cutter, [], { repair: true })).toEqual([]);
+  });
+
+  it("плашку, которую никто не режет, починка не трогает (переезд только с выигрышем)", () => {
+    const keepRect = rectFromCenter(100, 200, 60, 16); // далеко от линии y=0
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 200], [200, 200]), candidates: [{ s: 0, e: 200 }], box: box(60, 16), keepRect },
+    ];
+    expect(cut(keepRect)).toBe(false);
+    expect(placeLabels(labels, [], cutter, [], { repair: true })).toEqual([]);
+  });
+
+  it("отказавшая плашка остаётся препятствием для следующих (E53)", () => {
+    // A не режется (переезд ей не полагается) и стоит ровно там, куда метит B
+    const keepA = rectFromCenter(100, 20, 60, 16);
+    const A: LabelInput = {
+      id: "A", path: poly([0, 20], [200, 20]), candidates: [{ s: 0, e: 200 }], box: box(60, 16), keepRect: keepA,
+    };
+    const B: LabelInput = {
+      id: "B", path: poly([100, -100], [100, 100]), candidates: [{ s: 0, e: 200 }], box: box(60, 16),
+      keepRect: rectFromCenter(100, 0, 60, 16),
+    };
+    const withA = placeLabels([A, B], [], cutter, [], { repair: true });
+    const alone = placeLabels([B], [], cutter, [], { repair: true });
+    expect(withA.map((p) => p.id)).toEqual(["B"]); // A отказалась
+    // прежнее место A занято: B выбрала ДРУГОЕ место, чем без A, и на A не наложилась
+    expect(withA[0].center).not.toEqual(alone[0].center);
+    expect(rectsOverlap(rectFromCenter(withA[0].center.x, withA[0].center.y, 60, 16), keepA)).toBe(false);
+  });
+
+  it("обычный режим (без repair) ставит плашку ВСЕГДА — отказа нет (E52)", () => {
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [{ s: 0, e: 200 }], box: box(60, 16) },
+    ];
+    expect(placeLabels(labels, corridor, cutter)).toHaveLength(1);
+  });
+
+  it("детерминизм починки: тот же вход → тот же результат", () => {
+    const make = (): LabelInput[] => [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [{ s: 0, e: 200 }], box: box(60, 16),
+        keepRect: rectFromCenter(100, 0, 60, 16) },
+      { id: "B", path: poly([0, 0], [200, 0]), candidates: [{ s: 0, e: 200 }], box: box(60, 16),
+        keepRect: rectFromCenter(140, 0, 60, 16) },
+    ];
+    expect(placeLabels(make(), [], cutter, [], { repair: true }))
+      .toEqual(placeLabels(make(), [], cutter, [], { repair: true }));
+  });
+});

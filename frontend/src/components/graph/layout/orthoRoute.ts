@@ -41,6 +41,11 @@ export interface RouteOptions {
   // Ключ включает margin (ступенчатый сброс клиренса строит ДРУГУЮ сетку).
   cacheKey?: string;
   gridCache?: RouteGridCache;
+  // ПОТОЛОК ЭКСПАНСИЙ ОДНОГО ВЫЗОВА (Ф5 эпика «глубокая оптимизация роутера», спека
+  // perf.md P12/P13). Не задан — CALL_EXPANSION_CAP. По достижении потолка поиск НЕ
+  // обрывается (обрыв = потеря связи, E18): он переключается в ГРИДИ-режим и дотягивается
+  // до ближайшей цели за O(длина пути) экспансий — см. блок «ГРИДИ-ФОЛБЭК» ниже.
+  expansionCap?: number;
 }
 
 // Подготовленная сетка терминала (см. RouteOptions.gridCache). Содержимое приватно для
@@ -55,6 +60,12 @@ interface PreparedGrid {
   hPass: Int8Array;    // проходимость шага (i,j)→(i+1,j); -1 не считана, 0 нет, 1 да
   vPass: Int8Array;    // проходимость шага (i,j)→(i,j+1)
   hMemo: Float64Array; // эвристика вершины (i*NY+j); -1 не считана
+  // КЭШ ДОСТИЖИМОСТИ (А3а, 2026-08-21): ответ BFS «цель достижима из стартов» —
+  // функция ТОЛЬКО содержимого этой сетки (sOrigins, goals, проходимость шагов —
+  // всё детерминировано и зафиксировано ею), поэтому живёт в ней же. undefined —
+  // флуд ещё не гонялся. Кэш-хит просто пропускает BFS: hPass/vPass флуд наполняет
+  // лениво, и то же самое доспросит сам A* — результат побитово тот же.
+  reachable?: boolean;
 }
 export type RouteGridCache = Map<string, PreparedGrid>;
 
@@ -75,9 +86,20 @@ export interface PortsRoute {
   endIdx: number;     // индекс выбранного целевого порта
 }
 
-const DEFAULT_MARGIN = 12;
-const DEFAULT_BEND_PENALTY = 40;
-const EPS = 0.5;
+// ЭКСПОРТ (Ф2 эпика router-opt): константы геометрии маршрута входят в реестр
+// ROUTER_VERSION (routerVersion.ts) — сторож протухания кэша маршрутов вида.
+export const DEFAULT_MARGIN = 12;
+export const DEFAULT_BEND_PENALTY = 40;
+export const EPS = 0.5;
+
+// ПОТОЛОК ЭКСПАНСИЙ НА ОДИН ВЫЗОВ routePorts (Ф5, спека perf.md P12). Единица —
+// РАБОТА (экспансии A*), а не время: бюджет по часам сделал бы результат
+// недетерминированным, а E17 (тот же вход → тот же маршрут) неприкосновенен.
+// ЗНАЧЕНИЕ — СТРАХОВКА ХВОСТА, не рабочий режим: максимум гистограммы Ф0 по всем
+// эталонам — 100 254 экспансии на вызов (Sentry-корень), потолок взят ~3× от него.
+// Действует БЕЗУСЛОВНО (любой вызов, включая хвосты сварки и живой драг) — перекрыть
+// его может только явный opts.expansionCap (априорный контур бюджета и тесты).
+export const CALL_EXPANSION_CAP = 300_000;
 
 // Знаковые направления хода (для запрета разворота и штрафа за поворот).
 const NONE = 0, XP = 1, XM = 2, YP = 3, YM = 4;
@@ -142,13 +164,28 @@ function lineIndex(lines: number[], v: number): number {
 }
 
 // Минимальная двоичная куча (ключ состояния + приоритет f). Параллельные массивы.
-class MinHeap {
-  private keys: number[] = [];
-  private prio: number[] = [];
-  get size(): number { return this.keys.length; }
+// ХРАНИЛИЩЕ ТИПИЗИРОВАННОЕ (А4, 2026-08-21): вместо number[] — Int32Array ключей и
+// Float64Array приоритетов с ростом удвоением. Мотив — V8-профиль Ф0: pop держал
+// 5.4–7.1% self-time на аллокациях/GC растущих массивов (сам GC 1.6%). Ключ влезает в
+// int32 по построению (encode < NX·NY·5, тем же числом индексируется cameFrom:Int32Array),
+// приоритет — тот же double, что и в number[] (Float64Array, НЕ Float32Array).
+// ЛОГИКА sift-up/sift-down/pop СКОПИРОВАНА ОДИН-В-ОДИН: те же сравнения с теми же
+// строгостями (`prio[parent] <= prio[i] → break`; в pop `<` и порядок left→right), то же
+// «последний элемент наверх». Это критично для ТАЙ-БРЕЙКОВ: равные приоритеты обязаны
+// разрешаться в прежнем порядке, иначе маршруты поплывут при зелёных метриках.
+// ЭКСПОРТ — ДЛЯ ТЕСТА ИДЕНТИЧНОСТИ (__tests__/minHeap.test.ts сверяет полную
+// pop-последовательность с дословной копией прежней кучи); снаружи модуля не нужна.
+export class MinHeap {
+  private keys = new Int32Array(1024);
+  private prio = new Float64Array(1024);
+  private n = 0;
+  get size(): number { return this.n; }
+  // Переиспользование буфера следующим владельцем (см. heapPool): длина — это n.
+  clear(): void { this.n = 0; }
   push(key: number, p: number): void {
-    this.keys.push(key); this.prio.push(p);
-    let i = this.keys.length - 1;
+    if (this.n === this.keys.length) this.grow();
+    this.keys[this.n] = key; this.prio[this.n] = p;
+    let i = this.n++;
     while (i > 0) {
       const parent = (i - 1) >> 1;
       if (this.prio[parent] <= this.prio[i]) break;
@@ -157,11 +194,12 @@ class MinHeap {
   }
   pop(): number {
     const top = this.keys[0];
-    // Вызывающий гарантирует size > 0, поэтому pop() вернёт определённое значение
-    const k = this.keys.pop() ?? 0; const p = this.prio.pop() ?? 0;
-    if (this.keys.length > 0) {
+    // Вызывающий гарантирует size > 0 (единственный вызов — под `while (open.size > 0)`)
+    const last = --this.n;                       // снятый последний = новая длина
+    const k = this.keys[last], p = this.prio[last];
+    if (this.n > 0) {
       this.keys[0] = k; this.prio[0] = p;
-      const n = this.keys.length; let i = 0;
+      const n = this.n; let i = 0;
       for (;;) {
         const l = 2 * i + 1, r = 2 * i + 2; let m = i;
         if (l < n && this.prio[l] < this.prio[m]) m = l;
@@ -172,10 +210,31 @@ class MinHeap {
     }
     return top;
   }
+  private grow(): void {
+    const nk = new Int32Array(this.keys.length * 2); nk.set(this.keys); this.keys = nk;
+    const np = new Float64Array(this.prio.length * 2); np.set(this.prio); this.prio = np;
+  }
   private swap(a: number, b: number): void {
     const tk = this.keys[a]; this.keys[a] = this.keys[b]; this.keys[b] = tk;
     const tp = this.prio[a]; this.prio[a] = this.prio[b]; this.prio[b] = tp;
   }
+}
+
+// ПУЛ КУЧ ПО ГЛУБИНЕ ЛЕСТНИЦЫ КЛИРЕНСА (А4). Цель правки — не аллоцировать буферы на
+// вызов, поэтому куча переживает вызовы routePorts. Один модульный скретч был бы
+// формально небезопасен: routePorts рекурсивно зовёт себя через retryLowerMargin, и на
+// ветке «флуд сказал недостижимо» внешняя куча в этот момент НЕ пуста (семена уже
+// разложены) — она просто больше не читается. Опираться на «дальше не читаем» хрупко,
+// поэтому вызов на глубине d берёт СВОЙ буфер pool[d]: retryDepth увеличивается ДО
+// рекурсивного вызова, значит вложенный поиск всегда получает pool[d+1]. Освобождать
+// нечего — следующий владелец начинает с clear(); глубина ограничена лестницей
+// 12→6→3→1.5→0.
+const heapPool: MinHeap[] = [];
+function acquireHeap(depth: number): MinHeap {
+  let h = heapPool[depth];
+  if (!h) { h = new MinHeap(); heapPool[depth] = h; }
+  h.clear();
+  return h;
 }
 
 // Сборка PreparedGrid терминала: грид-линии, раздутые тела, цели. Кэши проходимости
@@ -231,6 +290,7 @@ function prepareGrid(
     hPass: new Int8Array(Math.max(0, (NX - 1) * NY)).fill(-1),
     vPass: new Int8Array(Math.max(0, NX * (NY - 1))).fill(-1),
     hMemo: new Float64Array(NX * NY).fill(-1),
+    reachable: undefined,
   };
 }
 
@@ -276,7 +336,72 @@ const scratch = {
 export const __routeCounters = {
   routePortsCalls: 0, expansions: 0, moveCostCalls: 0,
   marginRetries: 0, weldTails: 0, failedExpansions: 0, weldExpansions: 0,
+  // ИЗМЕРИТЕЛЬ v2 (Ф0 эпика «глубокая оптимизация роутера», 2026-08-21). Всё ниже —
+  // только накопители: ни одной аллокации в горячем цикле, цена в проде — инкремент
+  // int (и два performance.now() на вызов routePorts, вне цикла экспансий).
+  //
+  // Цена ПОДГОТОВКИ поиска: сборка сетки терминала (считаются только ФАКТИЧЕСКИЕ
+  // вызовы prepareGrid — попадание в gridCache бесплатно) и BFS-достижимости.
+  prepMs: 0, floodMs: 0,
+  // Хиты кэша достижимости (А3а): вызовы routePorts, взявшие ответ флуда из
+  // PreparedGrid и не гонявшие BFS. floodMs после А3а меряет ФАКТИЧЕСКИЕ прогоны.
+  floodCacheHits: 0,
+  // РАЗМЕТКА ФАЗ по вызовам/экспансиям: rip-up (routeAll оборачивает свой фикспойнт
+  // дельтами счётчиков) и сварка хвостов (weldTrunks — так же). Первичная прокладка
+  // прохода-1 = дельта стадии минус rip-up минус сварка.
+  ripupCalls: 0, ripupExpansions: 0, weldCalls: 0,
+  // ИТОГ ЦЕПОЧКИ МАРГИН-РЕТРАЕВ (лестница клиренса 12→6→3→1.5→0): фиксируется у
+  // КОРНЯ цепочки — сколько цепочек упёрлись в дно (null) против нашедших маршрут
+  // на пониженной ступени (окупаемость раннего null, кандидат А3б плана).
+  marginChainNull: 0, marginChainOk: 0,
+  // ГИСТОГРАММА ЭКСПАНСИЙ НА ВЫЗОВ (лог-бакеты EXP_BUCKET_EDGES) + максимум. У
+  // каждого вызова routePorts учитываются ТОЛЬКО ЕГО СОБСТВЕННЫЕ экспансии: замер
+  // снимается ДО рекурсивного маргин-ретрая, а ретрай пишет свою запись сам (иначе
+  // экспансии цепочки считались бы по разу на каждую ступень). Отсюда: сумма
+  // бакетов == routePortsCalls, взвешенная сумма == expansions.
+  expBuckets: new Int32Array(8), maxExpansionsPerCall: 0,
+  // ГРИДИ-ФОЛБЭК ПОТОЛКА (Ф5): сколько вызовов routePorts упёрлись в expansionCap и
+  // доигрывались h-доминантным приоритетом. На эталонах обязан оставаться 0 — по нему
+  // конвейер и отчитывается наружу (PipelineOutput.budgetDegraded.greedyCalls).
+  budgetGreedyCalls: 0,
 };
+
+// Верхние границы бакетов гистограммы (последний — «всё, что больше»).
+const EXP_BUCKET_EDGES = [100, 300, 1e3, 3e3, 1e4, 3e4, 1e5];
+
+// Запись собственных экспансий вызова в гистограмму (см. __routeCounters.expBuckets).
+function noteExpansions(own: number): void {
+  let b = EXP_BUCKET_EDGES.length;
+  for (let i = 0; i < EXP_BUCKET_EDGES.length; i++) {
+    if (own <= EXP_BUCKET_EDGES[i]) { b = i; break; }
+  }
+  __routeCounters.expBuckets[b]++;
+  if (own > __routeCounters.maxExpansionsPerCall) __routeCounters.maxExpansionsPerCall = own;
+}
+
+// Глубина рекурсии лестницы клиренса: routePorts синхронна и не реентерабельна, поэтому
+// «цепочка ретраев» однозначно определяется возвратом на глубину 0 (см. marginChainOk).
+let retryDepth = 0;
+
+// Ступень лестницы клиренса — ТОЛЬКО обёртка учёта: тот же рекурсивный вызов, что был.
+function retryLowerMargin(
+  starts: PortCandidate[],
+  ends: PortCandidate[],
+  obstacles: NodeRect[],
+  opts: RouteOptions | undefined,
+  next: number,
+): PortsRoute | null {
+  __routeCounters.marginRetries++;
+  retryDepth++;
+  const r = routePorts(starts, ends, obstacles, { ...opts, margin: next });
+  retryDepth--;
+  if (retryDepth === 0) {
+    if (r) __routeCounters.marginChainOk++;
+    else __routeCounters.marginChainNull++;
+  }
+  return r;
+}
+
 export function routePorts(
   starts: PortCandidate[],
   ends: PortCandidate[],
@@ -289,13 +414,21 @@ export function routePorts(
   const bendPenalty = opts?.bendPenalty ?? DEFAULT_BEND_PENALTY;
   const moveCost = opts?.moveCost;
   const stub = opts?.stub ?? EDGE_STUB;
+  // Потолок работ ЭТОГО вызова (см. CALL_EXPANSION_CAP), сразу абсолютной отметкой —
+  // в горячем цикле остаётся одно сравнение. Лестница клиренса рекурсивна, и каждая её
+  // ступень — отдельный вызов со СВОИМ потолком: семантика «на один вызов».
+  const expLimit = expAtStart + (opts?.expansionCap ?? CALL_EXPANSION_CAP);
 
   // Подготовленная сетка терминала — из кэша вызывающего (если дан) или свежая.
   const gridCache = opts?.gridCache;
   const cacheKey = opts?.cacheKey != null && gridCache ? `${opts.cacheKey}@${margin}` : null;
   let grid = cacheKey ? gridCache?.get(cacheKey) : undefined;
   if (!grid) {
+    // ЗАМЕР prepMs (Ф0): обёртка вокруг ФАКТИЧЕСКОГО prepareGrid, а не вокруг
+    // routePorts — иначе рекурсия маргин-ретраев дала бы двойной счёт.
+    const tPrep = performance.now();
     grid = prepareGrid(starts, ends, obstacles, margin, stub, opts?.extraXs, opts?.extraYs);
+    __routeCounters.prepMs += performance.now() - tPrep;
     if (cacheKey) gridCache?.set(cacheKey, grid);
   }
   const { xs, ys, grown, sOrigins, eOrigins, goals, hPass, vPass, hMemo } = grid;
@@ -380,7 +513,7 @@ export function routePorts(
   const genArr = scratch.gen, closedGen = scratch.closedGen;
   const sGen = ++scratch.cur;
   const seedOf = new Map<number, number>(); // стартовое состояние → индекс порта
-  const open = new MinHeap();
+  const open = acquireHeap(retryDepth); // свой буфер на глубину ретрая (см. heapPool)
 
   sOrigins.forEach((o, k) => {
     const i = lineIndex(xs, o.x), j = lineIndex(ys, o.y);
@@ -413,35 +546,48 @@ export function routePorts(
   // Ненаправленная недостижимость ⇒ недостижимость в A* (необходимое условие) —
   // результат побитово тот же; направленные тупики (редкость) решает сам A*.
   {
-    const nCells = NX * NY;
-    if (floodScratch.gen.length < nCells) {
-      floodScratch.gen = new Int32Array(nCells);
-      floodScratch.queue = new Int32Array(nCells);
-    }
-    const fGen = ++floodScratch.cur;
-    const fSeen = floodScratch.gen, fQ = floodScratch.queue;
-    let qLen = 0;
-    for (const o of sOrigins) {
-      const cell = lineIndex(xs, o.x) * NY + lineIndex(ys, o.y);
-      if (fSeen[cell] !== fGen) { fSeen[cell] = fGen; fQ[qLen++] = cell; }
-    }
-    let reachable = false;
-    for (let qi = 0; qi < qLen && !reachable; qi++) {
-      const cell = fQ[qi];
-      if (goals.has(cell)) { reachable = true; break; }
-      const j = cell % NY;
-      const i = (cell - j) / NY;
-      if (i + 1 < NX && fSeen[cell + NY] !== fGen && stepPassH(i, j)) { fSeen[cell + NY] = fGen; fQ[qLen++] = cell + NY; }
-      if (i - 1 >= 0 && fSeen[cell - NY] !== fGen && stepPassH(i - 1, j)) { fSeen[cell - NY] = fGen; fQ[qLen++] = cell - NY; }
-      if (j + 1 < NY && fSeen[cell + 1] !== fGen && stepPassV(i, j)) { fSeen[cell + 1] = fGen; fQ[qLen++] = cell + 1; }
-      if (j - 1 >= 0 && fSeen[cell - 1] !== fGen && stepPassV(i, j - 1)) { fSeen[cell - 1] = fGen; fQ[qLen++] = cell - 1; }
+    // КЭШ ДОСТИЖИМОСТИ (А3а): ответ мог быть посчитан прошлым вызовом на ЭТОЙ же
+    // сетке — rip-up и гистерезис-сравнения зовут тот же терминал на том же margin,
+    // cacheKey совпадает, а флуд зависит только от содержимого сетки. Тогда BFS не
+    // гоняем: и «достижимо», и «нет» отвечаем сохранённым значением.
+    let reachable = grid.reachable;
+    if (reachable === undefined) {
+      const tFlood = performance.now(); // замер floodMs (Ф0) — весь блок достижимости
+      const nCells = NX * NY;
+      if (floodScratch.gen.length < nCells) {
+        floodScratch.gen = new Int32Array(nCells);
+        floodScratch.queue = new Int32Array(nCells);
+      }
+      const fGen = ++floodScratch.cur;
+      const fSeen = floodScratch.gen, fQ = floodScratch.queue;
+      let qLen = 0;
+      for (const o of sOrigins) {
+        const cell = lineIndex(xs, o.x) * NY + lineIndex(ys, o.y);
+        if (fSeen[cell] !== fGen) { fSeen[cell] = fGen; fQ[qLen++] = cell; }
+      }
+      reachable = false;
+      for (let qi = 0; qi < qLen && !reachable; qi++) {
+        const cell = fQ[qi];
+        if (goals.has(cell)) { reachable = true; break; }
+        const j = cell % NY;
+        const i = (cell - j) / NY;
+        if (i + 1 < NX && fSeen[cell + NY] !== fGen && stepPassH(i, j)) { fSeen[cell + NY] = fGen; fQ[qLen++] = cell + NY; }
+        if (i - 1 >= 0 && fSeen[cell - NY] !== fGen && stepPassH(i - 1, j)) { fSeen[cell - NY] = fGen; fQ[qLen++] = cell - NY; }
+        if (j + 1 < NY && fSeen[cell + 1] !== fGen && stepPassV(i, j)) { fSeen[cell + 1] = fGen; fQ[qLen++] = cell + 1; }
+        if (j - 1 >= 0 && fSeen[cell - 1] !== fGen && stepPassV(i, j - 1)) { fSeen[cell - 1] = fGen; fQ[qLen++] = cell - 1; }
+      }
+      __routeCounters.floodMs += performance.now() - tFlood;
+      grid.reachable = reachable;
+    } else {
+      __routeCounters.floodCacheHits++;
     }
     if (!reachable) {
+      // собственные экспансии вызова (здесь всегда 0 — поиск не стартовал)
+      noteExpansions(__routeCounters.expansions - expAtStart);
       // тот же выход, что у исчерпанного A* (goalKey < 0), но без экспансий
       if (margin > EPS) {
         const next = margin >= 2 ? margin / 2 : 0;
-        __routeCounters.marginRetries++;
-        return routePorts(starts, ends, obstacles, { ...opts, margin: next });
+        return retryLowerMargin(starts, ends, obstacles, opts, next);
       }
       return null;
     }
@@ -449,10 +595,27 @@ export function routePorts(
 
   let goalKey = -1, goalEndIdx = -1;
   let bestFin = Infinity;
+  // ГРИДИ-ФОЛБЭК ПОТОЛКА РАБОТ (Ф5 эпика router-opt, спека perf.md P13, ступень 1).
+  // Исчерпав expansionCap, поиск НЕ обрывается и не перезапускается (перезапуск сжёг бы
+  // бюджет дважды): с этого момента НОВЫЕ push'ы получают приоритет h(состояние) вместо
+  // f = g + h — очередь становится «лучший-первым к цели», и поиск дотягивается до
+  // ближайшей цели за O(длина пути) экспансий. Уже лежащее в куче не переприоритезируется
+  // (переключение мягкое — перестройка кучи стоила бы дороже выигрыша).
+  // ЧТО ГАРАНТИРОВАНО: маршрут ВАЛИДЕН — сетка и проходимость шагов те же, значит E19
+  // (тела — абсолютное препятствие), E14 (ортогональность) и E15 (нет разворотов —
+  // держит запрет хода против dir) выполняются по построению. ЧЕМ ПЛАТИМ: субоптимальность
+  // по ШТРАФАМ (кресты, езда, чужие плашки, изломы) — цена ступени, названная в P13.
+  // ДЕТЕРМИНИЗМ: переключение по детерминированному счётчику собственных экспансий вызова,
+  // тай-брейки кучи прежние ⇒ (вход, потолок) → тот же маршрут побитово (E17).
+  let greedy = false;
   while (open.size > 0) {
     const key = open.pop();
     if (closedGen[key] === sGen) continue;
     __routeCounters.expansions++;
+    if (!greedy && __routeCounters.expansions >= expLimit) {
+      greedy = true;
+      __routeCounters.budgetGreedyCalls++;
+    }
 
     const dir = key % 5;
     const cell = (key - dir) / 5;
@@ -468,6 +631,10 @@ export function routePorts(
         const fin = gScore[key] + (ends[gl.endIdx].penalty ?? 0);
         if (fin < bestFin) { bestFin = fin; goalKey = key; goalEndIdx = gl.endIdx; }
       }
+      // В гриди-режиме приоритет очереди — не f, и «дальше только дороже» не выполняется:
+      // копить лучший финиш нечем, берём ПЕРВУЮ достигнутую цель (при нескольких
+      // кандидатах в одной клетке — дешевейшую по тому же правилу, что и выше).
+      if (greedy && goalKey >= 0) break;
     }
 
     const g = gScore[key];
@@ -487,7 +654,7 @@ export function routePorts(
         gScore[nkey] = ng;
         genArr[nkey] = sGen;
         cameFrom[nkey] = key;
-        open.push(nkey, ng + h(ni, nj));
+        open.push(nkey, greedy ? h(ni, nj) : ng + h(ni, nj));
       }
     };
     if (i + 1 < NX && opp !== XP) expand(i + 1, j, XP, stepPassH(i, j));
@@ -496,6 +663,9 @@ export function routePorts(
     if (j - 1 >= 0 && opp !== YM) expand(i, j - 1, YM, stepPassV(i, j - 1));
   }
 
+  // Собственные экспансии этого вызова — поиск завершён, рекурсия ретрая ещё не
+  // стартовала (см. __routeCounters.expBuckets).
+  noteExpansions(__routeCounters.expansions - expAtStart);
   if (goalKey < 0) {
     __routeCounters.failedExpansions += __routeCounters.expansions - expAtStart;
     // Пути нет (узел заперт). Частая причина в плотной рамке: раздутые на клиренс границы
@@ -505,8 +675,7 @@ export function routePorts(
     // от граней, а не сразу липнет к ним.
     if (margin > EPS) {
       const next = margin >= 2 ? margin / 2 : 0;
-      __routeCounters.marginRetries++;
-      return routePorts(starts, ends, obstacles, { ...opts, margin: next });
+      return retryLowerMargin(starts, ends, obstacles, opts, next);
     }
     return null;
   }

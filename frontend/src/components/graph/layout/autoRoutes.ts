@@ -24,6 +24,7 @@ import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 import { railAssignments } from "./railPairs";
 import { weldTrunks } from "./weldTrunks";
+import type { RouteBudget } from "./routeBudget";
 
 // Порт стыковки ребра на узле: сторона, слот хэндла (idx 1 — центр; рельсы встречной
 // пары — крайние idx 0/2) и готовая точка.
@@ -67,12 +68,44 @@ const sameRoute = (a: EdgePoint[], b: EdgePoint[]): boolean =>
 // пересечения стрелок (200), но 2 перехода (сквозь рамку насквозь) дороже разумного
 // обхода. Чужое ребро обходит рамку, внутреннее не выскакивает наружу, ребро
 // «внутрь» платит ровно один переход в любом маршруте — «ворота» выбирает A*.
-const FRAME_CROSS_COST = 150;
+export const FRAME_CROSS_COST = 150;
 // Штраф за пересечение ЧУЖОЙ плашки подписи (T4 эпика «читаемые пучки»): линия сквозь
 // текст нечитаема. Не жёсткое препятствие (в тесноте лучше линия под плашкой, чем
 // огород на пол-экрана), но дороже пары изломов; выше ROUTE_STICKINESS=100 — гистерезис
 // грязный маршрут не удержит.
-const LABEL_CROSS_COST = 150;
+export const LABEL_CROSS_COST = 150;
+
+// ЭКСПЕРИМЕНТ г1 (Ф4-II эпика «глубокая оптимизация роутера»): отдавать ли
+// T4-мини-проходу грид-подсказки от портов ВСЕХ рёбер сцены (gridHintGroups ниже), а
+// не только перепрокладываемых. Мотив (Ф0): T4 роутит на БЕДНОЙ сетке и тратит 12.3
+// маргин-ретрая на ребро против 10.9 у полного прохода. ВЫКЛЮЧЕН ПО ЗАМЕРУ: сетка
+// плотнее → шаг дороже, время T4 растёт, а качество не выигрывает (числа — в журнале
+// Ф4-II, docs/plan-router-deep-opt.md). Флаг оставлен в дереве, чтобы эксперимент
+// воспроизводился одной правкой, а не археологией.
+// ЖИВЁТ ЗДЕСЬ, А НЕ В pipeline.ts (где его читают, — находка Н2 внешнего аудита): его
+// включение МЕНЯЕТ ГЕОМЕТРИЮ (другое пространство поиска), значит он обязан входить в
+// реестр сторожа контракта (routerVersion.ts), а тот собирает константы только из
+// ЛЁГКИХ модулей роутера — импорт pipeline.ts утащил бы весь конвейер в главный бандл
+// через routeCacheStore.
+export const T4_FULL_GRID_HINTS: boolean = false;
+
+// ПЕРЕПРОКЛАДКА В T4 (п.3 финальной приёмки эпика «глубокая оптимизация роутера»,
+// решение пользователя 2026-09-01; спека edge.md E40 v3).
+//   false — ДЕФОЛТ: T4-мини-проход чинит ТОЛЬКО СЛОЙ ПЛАШЕК (уступка Б3б, E40 v2).
+//     Рёбра не перепрокладываются вовсе, а вместе с перепрокладкой уходят доводка
+//     нуджинга, пере-размещение плашек по новой геометрии и финальная починка поверх
+//     него. Конфликт «линия сквозь плашку», который плашка снять не смогла, ОСТАЁТСЯ
+//     на экране — осознанная цена, её видно метрикой throughLabels (route-quality.ts).
+//   true — ПРЕЖНЕЕ ПОВЕДЕНИЕ ЦЕЛИКОМ (перепрокладка грязных рёбер по штрафному
+//     ландшафту чужих плашек + доводка нуджинга + финальная починка).
+// МОТИВ (замер Ф4-II, журнал в docs/plan-router-deep-opt.md): перепрокладка держит
+// около половины цены конвейера, а покупает единицы рёбер — дешёвый слой плашек даёт
+// больше. Флаг оставлен в дереве до вырезания: им сравнивают режимы и откатываются.
+// ЖИВЁТ ЗДЕСЬ ПО ТОЙ ЖЕ ПРИЧИНЕ, ЧТО T4_FULL_GRID_HINTS ВЫШЕ: включение МЕНЯЕТ
+// ГЕОМЕТРИЮ, значит флаг обязан входить в реестр сторожа контракта (routerVersion.ts),
+// а тот собирает константы только из ЛЁГКИХ модулей роутера — импорт pipeline.ts
+// утащил бы весь конвейер в главный бандл через routeCacheStore.
+export const T4_REROUTE: boolean = false;
 
 // Сколько раз осевой ход (x1,y1)→(x2,y2) пересекает границу прямоугольника.
 // Горизонтальный ход считает переходы через вертикальные грани (когда y строго внутри
@@ -90,6 +123,74 @@ function borderCrossings(x1: number, y1: number, x2: number, y2: number, r: { x:
     const lo = Math.min(y1, y2), hi = Math.max(y1, y2);
     if (lo < r.y - EPS && hi > r.y + EPS) n++;
     if (lo < r.y + r.h - EPS && hi > r.y + r.h + EPS) n++;
+  }
+  return n;
+}
+
+// ИНДЕКС ГРАНЕЙ ПЛАШЕК (А1 эпика «глубокая оптимизация роутера», 2026-08-21). В T4-мини-
+// проходе чужими плашками ребру служит вся сцена (85–128 прямоугольников), и линейный
+// скан по ним крутился на КАЖДОМ ходе A* — половина цены стадии. Здесь те же
+// прямоугольники разложены по ГРАНЯМ (каждая грань считается независимо — ровно как в
+// borderCrossings: ход насквозь = 2 перехода) и отсортированы по своей координате: ход
+// платит только за грани своего диапазона, диапазон достаётся двоичным поиском (та же
+// механика, что PlacedIndex в routeAll). Математика штрафа не меняется — сумма целых
+// переходов не зависит от порядка слагаемых, — поэтому маршруты байт-в-байт.
+interface LabelFace {
+  g: number;    // координата грани (x у вертикальной, y у горизонтальной)
+  lo: number;   // створ прямоугольника поперёк грани (y-створ у вертикальной)
+  hi: number;
+  gid: string;  // владелец плашки: своя плашка ребра не отталкивает
+}
+interface LabelFaceIndex {
+  v: LabelFace[]; // вертикальные грани (x = g) — их режет ГОРИЗОНТАЛЬНЫЙ ход
+  h: LabelFace[]; // горизонтальные грани (y = g) — их режет ВЕРТИКАЛЬНЫЙ ход
+}
+
+function buildLabelFaceIndex(
+  labels: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>,
+): LabelFaceIndex {
+  const v: LabelFace[] = [];
+  const h: LabelFace[] = [];
+  for (const [gid, r] of labels) {
+    v.push({ g: r.x, lo: r.y, hi: r.y + r.h, gid });
+    v.push({ g: r.x + r.w, lo: r.y, hi: r.y + r.h, gid });
+    h.push({ g: r.y, lo: r.x, hi: r.x + r.w, gid });
+    h.push({ g: r.y + r.h, lo: r.x, hi: r.x + r.w, gid });
+  }
+  const byG = (a: LabelFace, b: LabelFace): number => a.g - b.g;
+  v.sort(byG);
+  h.sort(byG);
+  return { v, h };
+}
+
+// Первая грань с g >= val (нижняя граница диапазона кандидатов).
+function lowerBoundFaces(arr: LabelFace[], val: number): number {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].g < val) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+// Сколько граней ЧУЖИХ плашек пересекает осевой ход — тождественно сумме borderCrossings
+// по всем плашкам, кроме своей (пороги EPS взяты оттуда слово в слово).
+function countLabelCrossings(
+  idx: LabelFaceIndex, ownGid: string,
+  x1: number, y1: number, x2: number, y2: number,
+): number {
+  const horiz = Math.abs(y1 - y2) <= EPS;
+  const c = horiz ? y1 : x1;                                 // постоянная координата хода
+  const lo = horiz ? Math.min(x1, x2) : Math.min(y1, y2);    // протяжённость хода
+  const hi = horiz ? Math.max(x1, x2) : Math.max(y1, y2);
+  const faces = horiz ? idx.v : idx.h;
+  let n = 0;
+  for (let k = lowerBoundFaces(faces, lo - EPS); k < faces.length && faces[k].g <= hi + EPS; k++) {
+    const f = faces[k];
+    if (!(c > f.lo + EPS && c < f.hi - EPS)) continue;  // ход обязан идти строго внутри створа
+    if (!(lo < f.g - EPS && hi > f.g + EPS)) continue;  // касание грани концом не считается
+    if (f.gid === ownGid) continue;                    // своя плашка лежит на своей же линии
+    n++;
   }
   return n;
 }
@@ -142,8 +243,20 @@ export function buildAutoRoutes(params: {
   // СВАРКА СТВОЛОВ (Ф2, E78): по умолчанию включена; живой драг передаёт false —
   // сварка не гоняется живьём (E62), доворот на отпускании прячет drawIn (E64).
   weld?: boolean;
+  // ЭКСПЕРИМЕНТ г1 (Ф4-II эпика «глубокая оптимизация роутера»): набор групп, чьи порты
+  // идут в решётку ДОПОЛНИТЕЛЬНО к портам роутируемых. Скоупенный вызов (T4-мини-проход)
+  // иначе ищет на БЕДНОЙ сетке — свернуть можно только на линии своих портов, отсюда
+  // лишние маргин-ретраи (Ф0: 12.3 ретрая на ребро против 10.9 у полного прохода).
+  // ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНО: не байт-в-байт (другое пространство поиска), решение о
+  // включении — за замером (см. журнал Ф4-II в docs/plan-router-deep-opt.md).
+  gridHintGroups?: EdgeGroup[];
+  // БЮДЖЕТ РАБОТ (Ф5 эпика router-opt, спека perf.md P12/P13) — ПАРАМЕТРОМ, не
+  // синглтоном. Здесь он решает ступень «пропустить сварку» и едет дальше в routeAll
+  // (потолок вызова A* + ступень «пропустить rip-up»). Не задан — бюджета нет,
+  // поведение прежнее байт-в-байт (фазз-полигон, живой драг, юнит-тесты).
+  budget?: RouteBudget;
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld, gridHintGroups, budget } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -167,15 +280,39 @@ export function buildAutoRoutes(params: {
   // стороной/слотом → хэндлом).
   const portsById = new Map<string, { s: PortSpec[]; t: PortSpec[] }>();
   // тела узлов + плашки раскрытых рамок — общий набор препятствий терминалов и сварки
-  const obstacleBodies = [...rects.values(), ...(frames ?? []).map((f) => f.plaque)];
+  const framePlaques = (frames ?? []).map((f) => f.plaque);
+  const obstacleBodies = [...rects.values(), ...framePlaques];
   // пер-рёберный штраф среды — сварка оценивает кандидатов той же средой, что роутер
   const extraById = new Map<string, (x1: number, y1: number, x2: number, y2: number) => number>();
+  // ИНДЕКС ГРАНЕЙ ПЛАШЕК — ОДИН на вызов, а не на ребро: своя плашка отсеивается по gid
+  // прямо в счёте хода (А1). Без плашек (проход 1) индекса нет и путь прежний.
+  const labelFaces = labelObstacles ? buildLabelFaceIndex(labelObstacles) : null;
   // валидированные прежние маршруты (гистерезис) + их распарсенные хэндлы
   const prevValid = new Map<string, {
     route: EdgePoint[];
     s: { side: EdgeSide; idx: number };
     t: { side: EdgeSide; idx: number };
   }>();
+  // Порты-кандидаты ребра: рельса встречной пары — единственный порт на своём крайнем
+  // слоте (A11), свободное ребро — все четыре стороны × все слоты (T1 эпика «читаемые
+  // пучки», V2.2 давал только центры): веер сам расползается по свободным слотам (езда по
+  // чужому штрафуется, ствол в общем слоте бесплатен), in/out разводятся прямо в поиске —
+  // пост-хок distributeSlots остаётся фолбэком. Центр (idx 1) первым — детерминированный
+  // тай-брейк и прежний фолбэк ports[0].
+  const SLOT_ORDER = [1, 0, 2];
+  const portsForGroup = (id: string, sr: NodeRect, tr: NodeRect): { s: PortSpec[]; t: PortSpec[] } => {
+    const rail = rails.get(id);
+    if (rail) {
+      return {
+        s: [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sr, rail.sSide, rail.sIdx) }],
+        t: [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tr, rail.tSide, rail.tIdx) }],
+      };
+    }
+    return {
+      s: ALL_SIDES.flatMap((side) => SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(sr, side, idx) }))),
+      t: ALL_SIDES.flatMap((side) => SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(tr, side, idx) }))),
+    };
+  };
   const terminals: EdgeTerminal[] = [];
   for (const g of groups) {
     if (!routableIds.has(g.id)) continue;
@@ -209,25 +346,7 @@ export function buildAutoRoutes(params: {
         }
       }
     }
-    const rail = rails.get(g.id);
-    let sPorts: PortSpec[], tPorts: PortSpec[];
-    if (rail) {
-      // встречная пара — единственный порт: обращённая сторона на своём слоте-рельсе
-      // (idx разводит плечи направлений на параллельные рельсы)
-      sPorts = [{ side: rail.sSide, idx: rail.sIdx, point: handlePoint(sr, rail.sSide, rail.sIdx) }];
-      tPorts = [{ side: rail.tSide, idx: rail.tIdx, point: handlePoint(tr, rail.tSide, rail.tIdx) }];
-    } else {
-      // свободное ребро: порты на всех четырёх сторонах И ВСЕХ слотах (T1 эпика «читаемые
-      // пучки», V2.2 давал только центры): веер сам расползается по свободным слотам
-      // (езда по чужому штрафуется, ствол в общем слоте бесплатен), in/out разводятся
-      // прямо в поиске — пост-хок distributeSlots остаётся фолбэком. Центр (idx 1)
-      // первым — детерминированный тай-брейк и прежний фолбэк ports[0].
-      const SLOT_ORDER = [1, 0, 2];
-      sPorts = ALL_SIDES.flatMap((side) =>
-        SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(sr, side, idx) })));
-      tPorts = ALL_SIDES.flatMap((side) =>
-        SLOT_ORDER.map((idx) => ({ side, idx, point: handlePoint(tr, side, idx) })));
-    }
+    const { s: sPorts, t: tPorts } = portsForGroup(g.id, sr, tr);
     portsById.set(g.id, { s: sPorts, t: tPorts });
     // Границы ЧУЖИХ рамок (ни один конец не член) — штраф за переход: чужое ребро
     // обходит рамку, а не режет насквозь. Свои рамки бесплатны (переход неизбежен),
@@ -238,19 +357,20 @@ export function buildAutoRoutes(params: {
       .filter((f) => !f.memberIds.has(g.source) && !f.memberIds.has(g.target)
         && f.id !== g.source && f.id !== g.target)
       .map((f) => f.rect);
-    // чужие плашки подписей (T4) — штраф за переход границы; своя не отталкивает
-    const foreignLabels: { x: number; y: number; w: number; h: number }[] = [];
-    if (labelObstacles) {
-      for (const [gid, r] of labelObstacles) {
-        if (gid !== g.id) foreignLabels.push(r);
-      }
-    }
+    // чужие плашки подписей (T4) — штраф за переход границы; своя не отталкивает.
+    // Рамок 0–5 — их перебираем линейно; плашек вся сцена — их считает общий индекс
+    // граней (А1). Индекс не нужен, когда чужих плашек нет (сцена из одной плашки).
+    const ownGid = g.id;
+    const foreignLabelCount = labelObstacles
+      ? labelObstacles.size - (labelObstacles.has(ownGid) ? 1 : 0)
+      : 0;
+    const labelIdx = foreignLabelCount > 0 ? labelFaces : null;
     const extraMoveCost =
-      foreignRects.length > 0 || foreignLabels.length > 0
+      foreignRects.length > 0 || foreignLabelCount > 0
         ? (x1: number, y1: number, x2: number, y2: number): number => {
             let n = 0;
             for (const r of foreignRects) n += borderCrossings(x1, y1, x2, y2, r) * FRAME_CROSS_COST;
-            for (const r of foreignLabels) n += borderCrossings(x1, y1, x2, y2, r) * LABEL_CROSS_COST;
+            if (labelIdx) n += countLabelCrossings(labelIdx, ownGid, x1, y1, x2, y2) * LABEL_CROSS_COST;
             return n;
           }
         : undefined;
@@ -278,7 +398,28 @@ export function buildAutoRoutes(params: {
       if (pr && pr.length >= 2) preplaced.push(pr.map((p) => ({ x: p.x, y: p.y })));
     }
   }
-  const raw = routeAll(terminals, preplaced.length > 0 ? { preplaced } : undefined);
+  // г1: грид-подсказки от портов ВСЕХ рёбер сцены (не только роутируемых). Считаются
+  // ровно теми же портами, что у терминалов, — сетка совпадает с сеткой полного прохода.
+  let gridHints: { xs: number[]; ys: number[] } | undefined;
+  if (gridHintGroups && gridHintGroups.length > 0) {
+    const xs: number[] = [], ys: number[] = [];
+    for (const g of gridHintGroups) {
+      if (routableIds.has(g.id)) continue; // свои порты уже в решётке набора
+      const sr = dockRects.get(g.source), tr = dockRects.get(g.target);
+      if (!sr || !tr) continue;
+      const pp = portsForGroup(g.id, sr, tr);
+      for (const p of [...pp.s, ...pp.t]) { xs.push(p.point.x); ys.push(p.point.y); }
+    }
+    if (xs.length > 0) gridHints = { xs, ys };
+  }
+  const routeOpts = preplaced.length > 0 || gridHints || budget
+    ? {
+      ...(preplaced.length > 0 ? { preplaced } : {}),
+      ...(gridHints ? { gridHints } : {}),
+      ...(budget ? { budget } : {}),
+    }
+    : undefined;
+  const raw = routeAll(terminals, routeOpts);
   const routes = new Map<string, EdgePoint[]>();
   const handles = new Map<string, { sourceHandle: string; targetHandle: string }>();
   const docks: Dock[] = [];
@@ -308,8 +449,10 @@ export function buildAutoRoutes(params: {
   }
 
   // V2.4c: раздача слотов портов — вход и выход не делят точку стыковки (Т4 уточнено:
-  // общий хэндл легитимен только В ОДНОМ направлении).
-  distributeSlots(docks, routes, rects, dockRects);
+  // общий хэндл легитимен только В ОДНОМ направлении). Плашки раскрытых рамок идут
+  // отдельным списком: они ЖЁСТКОЕ препятствие (E21), но телом стыковки не являются
+  // и в `rects`/`dockRects` не лежат.
+  distributeSlots(docks, routes, rects, dockRects, framePlaques);
 
   // выбранную сторону+слот отдаём как хэндл; idx важен для рельс (A11) и раздачи
   // слотов: RF стыкует на своём слоте.
@@ -332,7 +475,15 @@ export function buildAutoRoutes(params: {
   // префиксы/суффиксы собратьев через изломы, где это строго выигрывает по «чернилам
   // с бонусом слияния» без новой грязи. После раздачи слотов: доки финальны, их
   // стороны — направленный финиш хвостов.
-  if (weld !== false) {
+  // СТУПЕНЬ ДЕГРАДАЦИИ «ПРОПУСК СВАРКИ» (P13, ступень 3). Точка осуществимости — ровно
+  // здесь: сварка ещё не начиналась, а путь `weld === false` в дереве уже есть (живой
+  // драг, E62) и заведомо валиден. Цена ступени — followers вееров не перенимают
+  // префиксы/суффиксы собратьев (E78/E79): линий на экране больше, «чернил» больше,
+  // но ни один инвариант не нарушен.
+  // Спрашиваем бюджет, только когда сварка вообще собиралась гоняться: иначе живой
+  // драг (weld === false) записывал бы «ступень сработала» там, где стадии и не было.
+  const skipWeld = weld !== false && (budget?.takeWeld() ?? false);
+  if (weld !== false && !skipWeld) {
     weldTrunks({
       routes,
       routableIds,
@@ -364,11 +515,15 @@ interface Dock {
 // перенос переломил бы соседа, упёрся в чужое тело или маршрут прямой (2 точки).
 // `rects` — тела-ПРЕПЯТСТВИЯ (только узлы), `dockRects` — тела СТЫКОВКИ (узлы + рамки-концы):
 // у рамки слоты раздаются по её прямоугольнику, но сама она чужому плечу не мешает.
+// `framePlaques` — плашки подписей раскрытых рамок: жёсткое препятствие (E21), в тела
+// не входят ни как препятствие узла, ни как тело стыковки — но перенос сквозь них
+// запрещён ровно так же (баг Ф0-полигона: сид 12, ребро e12).
 function distributeSlots(
   docks: Dock[],
   routes: Map<string, EdgePoint[]>,
   rects: Map<string, NodeRect>,
   dockRects: Map<string, NodeRect>,
+  framePlaques: readonly NodeRect[],
 ): void {
   const byNodeSide = new Map<string, Dock[]>();
   for (const d of docks) {
@@ -401,7 +556,7 @@ function distributeSlots(
       if (slot == null) continue;
       for (const d of g.docks) {
         if (!d.free || d.idx === slot) continue;
-        if (moveDock(d, slot, routes, rects, dockRects)) d.idx = slot;
+        if (moveDock(d, slot, routes, rects, dockRects, framePlaques)) d.idx = slot;
       }
     }
   }
@@ -414,6 +569,7 @@ function moveDock(
   routes: Map<string, EdgePoint[]>,
   rects: Map<string, NodeRect>,
   dockRects: Map<string, NodeRect>,
+  framePlaques: readonly NodeRect[],
 ): boolean {
   const pts = routes.get(d.edgeId);
   const r = dockRects.get(d.nodeId);
@@ -432,17 +588,26 @@ function moveDock(
   const span = lat(pts[i2]) - lat(pts[i1]);
   const newSpan = lat(pts[i2]) - (lat(pts[i1]) + delta);
   if (Math.abs(span) > 0.5 && (Math.sign(newSpan) !== Math.sign(span) || Math.abs(newSpan) < 2)) return false;
-  // сдвинутый стаб не должен лечь на чужое тело
+  // сдвинутый стаб не должен лечь на чужое тело — и на плашку раскрытой рамки: она
+  // ЖЁСТКОЕ препятствие (E21), а не штраф, и сквозь текст плечо не ходит. Проверки
+  // плашек тут не было до Ф4 эпика «глубокая оптимизация роутера» — перенос молча
+  // протаскивал плечо сквозь подпись рамки (репро фазз-полигона: сид 12, ребро e12).
   const nl = Math.min(lat(pts[i0]) + delta, lat(pts[i1]) + delta);
   const nh = Math.max(lat(pts[i0]) + delta, lat(pts[i1]) + delta);
   const al = Math.min(vertical ? pts[i0].x : pts[i0].y, vertical ? pts[i1].x : pts[i1].y);
   const ah = Math.max(vertical ? pts[i0].x : pts[i0].y, vertical ? pts[i1].x : pts[i1].y);
-  for (const [id, b] of rects) {
-    if (id === d.nodeId) continue;
+  // допуск 2px — тот же, что у тел: легально-тесный маршрут margin-лестницы не отменяет
+  // перенос, а реальное наложение отменяет
+  const hits = (b: NodeRect): boolean => {
     const bl = vertical ? b.y : b.x, bh = vertical ? b.y + b.h : b.x + b.w;
     const cl = vertical ? b.x : b.y, ch = vertical ? b.x + b.w : b.y + b.h;
-    if (nl < bh - 2 && nh > bl + 2 && al < ch - 2 && ah > cl + 2) return false;
+    return nl < bh - 2 && nh > bl + 2 && al < ch - 2 && ah > cl + 2;
+  };
+  for (const [id, b] of rects) {
+    if (id === d.nodeId) continue;
+    if (hits(b)) return false;
   }
+  for (const b of framePlaques) if (hits(b)) return false;
   setLat(pts[i0], lat(pts[i0]) + delta);
   setLat(pts[i1], lat(pts[i1]) + delta);
   return true;

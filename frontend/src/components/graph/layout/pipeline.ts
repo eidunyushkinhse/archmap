@@ -35,17 +35,25 @@ import { projectGhosts } from "./projectGhosts";
 import { layoutLevel } from "./engine";
 import { assignEdgeHandles } from "./level";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
-import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN, type FrameRect } from "./frames";
+import { computeFrames, frameLocalIds, framePlaqueRect, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN, type FrameRect } from "./frames";
 import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { spawnFreshChildren } from "./spawnChildren";
-import { buildAutoRoutes } from "./autoRoutes";
+// T4_FULL_GRID_HINTS (экспериментальный флаг г1, Ф4-II) и T4_REROUTE (перепрокладка в
+// T4, E40 v3) — читаются здесь, а объявлены в autoRoutes.ts, чтобы входить в реестр
+// сторожа контракта роутера (Н2 внешнего аудита: routerVersion.ts не имеет права
+// импортировать pipeline.ts — утащил бы весь конвейер в бандл воркера).
+import { buildAutoRoutes, T4_FULL_GRID_HINTS, T4_REROUTE } from "./autoRoutes";
+import {
+  createRouteBudget, type BudgetDegraded, type RouteBudget, type RouteBudgetConfig,
+} from "./routeBudget";
 import { nudgeChannels } from "./channelNudge";
 import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { metaLabelBox } from "./labelBox";
 import { pathCrossesRects } from "../edgePath";
+import { computeIncrementalScope, type PrevScene } from "./incrementalScope";
 import { widenNodesForLabels } from "./widenForLabels";
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
@@ -112,6 +120,14 @@ export interface PipelineInput {
   // дети): id контейнера → его прямые дети. Пока детей нет в карте — контейнер
   // рисуется свёрнутым (ленивая догрузка, LevelGraph качает по требованию).
   localChildren: Record<string, AppNode[]>;
+  // ЛЕНИВАЯ ДОГРУЗКА ДЕТЕЙ раскрытых ЛОКАЛОВ активна у вызывающего (редактор:
+  // useLevelDrill фетчит состав по мере надобности). Тогда раскрытый локал БЕЗ записи
+  // в localChildren — «ещё не приехал»: состав сцены НЕПОЛОН, прогон гарантированно
+  // повторится (см. hasPendingChildren ниже). В read-only догрузки нет вообще
+  // (страничные схемы), и там отсутствие детей — состояние ПОСТОЯННОЕ: считать такой
+  // состав неполным нельзя, иначе стрелки не посчитались бы никогда. Не задан — false
+  // (прежнее поведение: реплей/полигоны/тесты гоняют полные составы).
+  childrenLazyLoad?: boolean;
   // РЕАЛЬНЫЕ габариты узлов из DOM (node.measured, V2.2b): узлы растут по контенту, и
   // стадии КАЧЕСТВА СТРЕЛОК (роутер/плашки/детуры) обязаны видеть настоящие тела —
   // иначе маршрут ложится «по грани»/поверх реального узла (канон libavoid: препятствия
@@ -134,6 +150,17 @@ export interface PipelineInput {
   // 18–26 из 32 маршрутов и не сходил к фикспойнту (дрейф гистерезисных прогонов). Полный
   // пересчёт всех рёбер остаётся на открытие уровня и «Переразложить» (scopeNodeIds не задан).
   scopeNodeIds?: string[];
+  // СНИМОК ФИНАЛЬНОЙ СЦЕНЫ ПРОШЛОГО ПРОГОНА (Ф3 эпика router-opt, спека edge.md E84):
+  // позиции и габариты, по которым посчитаны prevRoutes. Когда он задан, явного скоупа
+  // драга нет и prev-маршруты есть, конвейер вычисляет скоуп САМ — диффом своих
+  // ФИНАЛЬНЫХ позиций против этого снимка (computeIncrementalScope): роутятся только
+  // рёбра окрестности изменений, остальные замораживаются той же механикой, что у драга.
+  // Так раскрытие/сворачивание контейнера перестаёт платить полным пересчётом сцены.
+  // Вызывающий обязан давать снимок ТОЛЬКО вместе с СООТВЕТСТВУЮЩИМИ ему prevRoutes
+  // (тот же прогон, тот же комплект замеров) — иначе дифф врёт. Персистный кэш вида
+  // (P11) снимка сцены не несёт: с кэш-prev авто-скоуп не работает — там либо кэш-хит
+  // по routeSig, либо честный полный прогон.
+  prevScene?: PrevScene;
   // ГАШЕНИЕ ОСЦИЛЛЯЦИЙ МАРШРУТОВ (2026-08-06): сигнатура входов роутинга прошлого
   // прогона и его плашки. Если входы роутинга ТЕКУЩЕГО прогона совпадают с сигнатурой
   // ПО БИТАМ, результат берётся ЦЕЛИКОМ из prev (маршруты/хэндлы/плашки): роутер
@@ -153,6 +180,13 @@ export interface PipelineInput {
   // autoRoutes/labelPlacements в результате отсутствуют — сборка рисует рёбра
   // простыми (smoothstep) до пере-прогона.
   edgeQuality?: "full" | "skip";
+  // ПЕРЕОПРЕДЕЛЕНИЕ БЮДЖЕТА РАБОТ (Ф5 эпика router-opt, спека perf.md P12/P13).
+  // В ПРОДЕ НЕ ЗАДАЁТСЯ — там работают дефолт-константы routeBudget.ts (они же в реестре
+  // ROUTER_VERSION). Ручка существует ради ТЕСТОВ и полигонов: форс-бюджет с крошечными
+  // лимитами прогоняет ступени деградации на обычной сцене, не выдумывая патологическую.
+  // Место и семантика — те же, что у edgeQuality: пер-прогонная ручка ПОВЕДЕНИЯ стадий,
+  // а не глобальный мутабельный синглтон (тот сделал бы тесты порядкозависимыми).
+  routeBudget?: RouteBudgetConfig;
 }
 
 export interface PipelineOutput {
@@ -165,7 +199,103 @@ export interface PipelineOutput {
   // маршрутами и возвращает в следующем прогоне — гашение осцилляций
   // (см. PipelineInput.prevRouteSig).
   routeSig: string;
+  // АВТОРИТЕТНЫЙ ПРОГОН (Ф2 эпика router-opt, спека perf.md P11) — гейт записи
+  // ПЕРСИСТНОГО кэша маршрутов вида. true ⇔ (стадии качества стрелок отработали
+  // полноценно ИЛИ результат взят целиком из prev по совпавшей routeSig) И в сцене
+  // НЕТ незамеренных узлов И прогон НЕ скоуплен — ни драг-скоупом (scopeNodeIds), ни
+  // инкрементальным авто-скоупом (prevScene, E84). Только такой результат равен
+  // байт-в-байт полному холодному прогону — прочие (пропуск P10, частичные замеры,
+  // любой скоуп) в кэш не кладутся: они по построению временные и отравили бы кэш
+  // геометрией фолбэк-габаритов или замороженного prev-контекста.
+  authoritative: boolean;
+  // ПРОГОН РЕАЛЬНО СКОУПЛЕН (Ф3 того же эпика, спека perf.md P14) — триггер ФОНОВОЙ
+  // УБОРКИ ПО БЕЗДЕЙСТВИЮ. true ⇔ применена одна из двух механик заморозки: явный
+  // скоуп драга (scopeNodeIds, E82) ИЛИ инкрементальный авто-скоуп по prevScene (E84);
+  // false — полный прогон, кэш-хит по routeSig и ОТКАЗ от авто-скоупа (пустой скоуп
+  // либо порог SCOPE_FULL_RECALC_SHARE — обе ветки идут полным путём).
+  // ЗАЧЕМ ОТДЕЛЬНО ОТ authoritative: тот отвечает на вопрос «можно ли КОНСЕРВИРОВАТЬ
+  // эту геометрию» и false у целой пачки причин (пропуск P10, частичные замеры,
+  // ступень бюджета), а уборке нужен ровно один класс — «на экране лежит замороженный
+  // prev-контекст, и его грязь не самоизлечится до полного пересчёта».
+  scoped: boolean;
+  // СТУПЕНИ БЮДЖЕТА РАБОТ, СРАБОТАВШИЕ В ЭТОМ ПРОГОНЕ (Ф5, спека perf.md P12/P13).
+  // null — обычный случай: бюджета хватило, ни одна ступень не включалась, результат
+  // полноценный. Не-null означает, что часть стадий качества принесена в жертву
+  // потолку работ: такой прогон НЕ авторитетен (деградированную геометрию в кэш P11 не
+  // пишем) и обязан быть объявлен пользователю разовым тостом (P13).
+  budgetDegraded: BudgetDegraded | null;
 }
+
+// ДИАГНОСТИКА T4 (Ф0 эпика «глубокая оптимизация роутера», 2026-08-21): полезная
+// нагрузка необязательного хука __ARCHMAP_T4_DIAG на globalThis — им реплей снимает
+// метрики, решающие судьбу кандидатов Б3 и цену дыры В8.1 (см. блок T4 ниже).
+export interface T4Diag {
+  // «грязные» рёбра мини-прохода: маршрут режет прямоугольник ЧУЖОЙ плашки. С Ф4-II
+  // (Б3б) это ОСТАТОК ПОСЛЕ ПОЧИНКИ ПЛАШЕК. С E40 v3 остаток НИКУДА НЕ ИДЁТ — это
+  // НЕРЕШЁННЫЕ КОНФЛИКТЫ, остающиеся на экране (при T4_REROUTE — состав перепрокладки)
+  dirtyIds: string[];
+  // из них те, чей конец — РАМКА. ИСТОРИЯ: до Ф4 эпика router-opt T4-вызов не получал
+  // frameEndpoints, и такие рёбра молча не перепрокладывались никогда (дыра В8.1
+  // плана); дыра закрыта, счётчик оставлен как метрика доли этого класса
+  frameEndDirtyIds: string[];
+  // ГЛУБИНА ВРЕЗА: минимальный inset k ∈ {2,4,6,8,10}, при котором маршрут уже НЕ
+  // режет ни одной чужой плашки, сжатой на k со всех сторон; 12 — «режет и при 10»
+  // (касание краем против глубокого реза — выбор варианта Б3)
+  cutDepths: { id: string; depth: number }[];
+  // Б3б («сначала подвинь плашку», Ф4-II): что сняла с роутера починка плашек.
+  labelFirst: {
+    conflicts: number;    // пар «маршрут A режет плашку B» ДО починки
+    dirtyBefore: number;  // рёбер, которых пришлось бы перепрокладывать без Б3б
+    victims: number;      // плашек-жертв (их пытались переставить)
+    moved: number;        // из них уехали в БЕЗУПРЕЧНОЕ место
+    solvedEdges: number;  // рёбер, чей конфликт снят починкой плашек
+  };
+  // Б3б, финальный проход: та же починка ПОСЛЕ пере-размещения плашек по новой
+  // геометрии (финальный гриди не имеет права откатить решения Б3б на линии).
+  // ЕСТЬ ТОЛЬКО ПРИ T4_REROUTE (E40 v3): без перепрокладки геометрия после слоя
+  // плашек не меняется, пере-размещать нечего — поле законно отсутствует
+  finalRepair?: { conflicts: number; victims: number; moved: number };
+}
+
+// ДИАГНОСТИКА ИНКРЕМЕНТАЛЬНОГО СКОУПА (Ф3 того же эпика): полезная нагрузка
+// необязательного хука __ARCHMAP_SCOPE_DIAG на globalThis — им реплей и полевой зонд
+// видят, сколько рёбер реально ушло в пересчёт. Без хука — мёртвый no-op.
+export interface ScopeDiag {
+  // рёбра-кандидаты роутинга (оба конца с геометрией)
+  candidates: number;
+  // сколько отображаемых сущностей переехало/появилось/исчезло против прошлой сцены
+  changedNodes: number;
+  // размер скоупа ДО порога отказа: близко к candidates — сцена изменилась целиком
+  rawScope: number;
+  // размер авто-скоупа; null — «не применён» (скоуп драга, нет prevScene/prevRoutes,
+  // изменений нет вовсе либо их больше порога SCOPE_FULL_RECALC_SHARE)
+  autoScope: number | null;
+  // id рёбер авто-скоупа (отсортированы) — для разбора границы скоупа
+  autoScopeIds: string[];
+}
+
+// ДИАГНОСТИКА ЗАМОРОЗКИ СКОУПА (E84, компромисс 3): полезная нагрузка необязательного
+// хука __ARCHMAP_FROZEN_DIAG на globalThis, по образцу двух хуков выше. Стадии
+// пост-обработки обязаны видеть замороженные плечи НЕПОДВИЖНЫМИ САМИ (нуджинг получает
+// их набор как пины, полировка джогов их пропускает), а restoreFrozen оставлен
+// СТРАХОВКОЙ. Числа ниже — сколько маршрутов страховке пришлось чинить на каждой
+// стадии; ИНВАРИАНТ: все три нуля. Без хука — мёртвый no-op.
+export interface FrozenDiag {
+  // заморожено рёбер в этом прогоне (0 — прогон не скоуплен)
+  frozen: number;
+  // разошлось после канального нуджинга
+  nudge: number;
+  // разошлось после полировки джогов
+  jogs: number;
+  // разошлось после доводки нуджинга за T4-мини-проходом. Доводка живёт в ветке
+  // перепрокладки, поэтому в дефолтном режиме (T4_REROUTE=false, E40 v3) поле — ноль
+  // ПО ПОСТРОЕНИЮ: двигать замороженное там нечему. Ноль — валидное значение сторожа
+  t4: number;
+}
+
+// Совпадение ломаных по битам координат — сторож заморозки скоупа (E84).
+const sameRoute = (a: readonly EdgePoint[], b: readonly EdgePoint[]): boolean =>
+  a.length === b.length && a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
 
 // Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
 // строк = число членов; одиночное ребро — «label · technology» в одну строку). Единый
@@ -218,8 +348,8 @@ export function buildRouteSig(
 export async function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
   const {
     nodes: rawNodes, endpoints, edges, containerId, viewLayout, ancestorIds,
-    expanded, localChildren, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
-    prevRouteSig, prevLabelPlacements,
+    expanded, localChildren, childrenLazyLoad, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
+    prevRouteSig, prevLabelPlacements, prevScene,
   } = input;
   const intents: PersistIntent[] = [];
 
@@ -259,8 +389,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // предки уровня как AncestorRef-лайт: для расчёта lca в computeFrames важны
   // только id (имена рамок уровня рисует ancestorNames — не отсюда)
   const bcRefs: AncestorRef[] = ancestorIds.map((id) => ({ id, name: id, is_external: false }));
+  // НЕПОЛНЫЙ СОСТАВ СЦЕНЫ (Ф2 эпика router-opt, полевая находка приёмки): корень
+  // догружается ПОРЦИЯМИ (0 → 17 → 26 → 34 узла), и промежуточные прогоны имеют
+  // unmeasured = 0 (свои узлы замерены) — P10 их не ловит. Такой прогон гонял полный
+  // роутер, а его маршруты всё равно выбрасывались приходом детей; хуже того, он
+  // проходил как авторитетный и ПЕРЕЗАПИСЫВАЛ кэш полной сцены частичным.
+  let hasPendingChildren = false;
   const expandLocal = (n: AppNode, path: AncestorRef[]) => {
     const kids = expanded.has(n.id) ? localChildren[n.id] : undefined;
+    // раскрытый локал, чьи дети ещё не приехали (запись в localChildren отсутствует —
+    // пустой массив означает «загружено, детей нет» и неполнотой не является)
+    if (childrenLazyLoad && expanded.has(n.id) && localChildren[n.id] === undefined
+      && path.length < MAX_INLINE_DEPTH) hasPendingChildren = true;
     // R5 с пределом глубины (C8): инлайн раскрываем, пока узел НЕ глубже
     // MAX_INLINE_DEPTH слоёв от уровня (path.length = число раскрытых предков над
     // узлом). Узел на пределе остаётся свёрнутым, даже если expanded персистно —
@@ -566,6 +706,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // рёбер level/main-схемы.
   let autoRoutes: Map<string, EdgePoint[]> | undefined;
   let labelPlacements: Map<string, LabelPlacement> | undefined;
+  // Отработали ли стадии качества по-настоящему (не пропуск P10 и не кэш-хит) —
+  // слагаемое гейта авторитетности прогона (см. authoritative ниже).
+  let ranQualityStages = false;
+  // Бюджет работ роутера (P12): создаётся В МОМЕНТ старта стадий качества — его отметка
+  // расхода снимается со счётчика экспансий, и всё, что натикает дальше, есть расход
+  // ЭТОГО прогона. null — стадии не запускались (пропуск P10 / кэш-хит): бюджету нечего
+  // мерить, ступеней нет. Значение ВОЗВРАЩАЕТ сам runEdgeQualityStages (а не пишет в
+  // замыкание): присваивание внутри замыкания tsc в поток управления не заводит, и
+  // чтение ниже сузилось бы до never.
+  let runBudget: RouteBudget | null = null;
   const displayIds = [...nodes.map((n) => n.id), ...entities.map((e) => e.id)];
   // реальные габариты для стадий качества стрелок (роутер/плашки)
   const sizeMap = new Map<string, { w: number; h: number }>(
@@ -612,13 +762,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       id: f.id,
       rect: f.rect,
       // плашка подписи: слева-внизу рамки (nodes.tsx FrameNode), ширина — моноширинная
-      // оценка «🔍 имя ✕» с паддингами
-      plaque: {
-        x: f.rect.x + 10,
-        y: f.rect.y + f.rect.h - 30,
-        w: Math.min(f.rect.w - 20, 56 + 6.5 * f.name.length),
-        h: 22,
-      },
+      // оценка «🔍 имя ✕» с паддингами. Формула — в frames.ts (framePlaqueRect):
+      // она константа контракта маршрутов и обязана быть видима реестру ROUTER_VERSION.
+      plaque: framePlaqueRect(f.rect, f.name),
       memberIds: f.memberIds,
     }));
 
@@ -632,29 +778,95 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   }
   const hasGeometry = (id: string): boolean => !!positions.get(id) || frameEndpoints.has(id);
 
-  const routableIds = new Set<string>();
+  // КАНДИДАТЫ РОУТИНГА — рёбра с позиционированными концами, ДО применения скоупа:
+  // это знаменатель порога отказа авто-скоупа и область его замыкания по стволам.
+  const routeCandidates = new Set<string>();
   for (const g of groupArr) {
     if (!hasGeometry(g.source) || !hasGeometry(g.target)) continue;
+    routeCandidates.add(g.id);
+  }
+  // АВТО-СКОУП (Ф3 эпика router-opt, спека edge.md E84): явного скоупа драга нет, но
+  // есть снимок прошлой сцены и её маршруты → конвейер вычисляет скоуп САМ, диффом
+  // ФИНАЛЬНЫХ позиций (здесь они уже финальны: инварианты, A10 и рамки отработали).
+  // В отличие от скоупа драга это множество РЁБЕР, а не узлов. null — «инкрементальный
+  // путь не применим» (нечего пересчитывать либо изменений слишком много): дальше всё
+  // идёт прежним полным путём.
+  const scopeStats = { changedNodes: 0, rawScope: 0 };
+  const autoScopeEdges = scopeSet === null && prevScene && prevRoutes
+    ? computeIncrementalScope({
+      positions, sizes: sizeMap, prevScene, groups: groupArr,
+      candidates: routeCandidates, prevRoutes, stats: scopeStats,
+      // рамки-ОБЛАСТИ (раскрытые, они же routerFrames) + родные рамки, служащие ТЕЛОМ
+      // СТЫКОВКИ (frameEndpoints): у вторых region = false — их rect охватывает всю
+      // сцену, в грязную зону ему нельзя, но сдвиг их членов обязан перепроложить
+      // рёбра, состыкованные в саму рамку (E40).
+      frames: finalFrames
+        .filter((f) => !f.native || frameEndpoints.has(f.id))
+        .map((f) => ({ id: f.id, rect: f.rect, memberIds: f.memberIds, region: !f.native })),
+    })
+    : null;
+  // ЕСТЬ ЛИ СКОУП ВООБЩЕ: любая из двух механик включает заморозку незаскоупленных
+  // рёбер (preplaced-контекст + restoreFrozen после каждого прохода) и снимает
+  // авторитетность прогона. Ветви ниже смотрят СЮДА, а не на scopeSet — путь драга при
+  // этом байт-в-байт прежний (при заданном scopeNodeIds авто-скоуп не считается вовсе).
+  const scoped = scopeSet !== null || autoScopeEdges !== null;
+  {
+    const diagG = globalThis as unknown as { __ARCHMAP_SCOPE_DIAG?: (d: ScopeDiag) => void };
+    diagG.__ARCHMAP_SCOPE_DIAG?.({
+      candidates: routeCandidates.size,
+      changedNodes: scopeStats.changedNodes,
+      rawScope: scopeStats.rawScope,
+      autoScope: autoScopeEdges ? autoScopeEdges.size : null,
+      autoScopeIds: autoScopeEdges ? [...autoScopeEdges] : [],
+    });
+  }
+  const routableIds = new Set<string>();
+  for (const g of groupArr) {
+    if (!routeCandidates.has(g.id)) continue;
     if (scopeSet && !scopeSet.has(g.source) && !scopeSet.has(g.target)) continue;
+    if (autoScopeEdges && !autoScopeEdges.has(g.id)) continue;
     routableIds.add(g.id);
   }
+  // СИГНАТУРА ВХОДОВ РОУТИНГА. Считается ЗДЕСЬ — ДО стадий качества (Ф2 эпика
+  // router-opt): все её входы (позиции, габариты, группы, скоуп, рамки) уже готовы,
+  // а совпадение с prev делает сами стадии лишними (см. дальше). До Ф2 сверка стояла
+  // ПОСЛЕ стадий и только гасила осцилляции — результат был тот же, а счёт полный.
+  const routeSig = buildRouteSig(displayIds, positions, sizeMap, groupArr, routableIds, routerFrames);
+  // КЭШ-ХИТ ПО СИГНАТУРЕ (он же — прежнее ГАШЕНИЕ ОСЦИЛЛЯЦИЙ, 2026-08-06). Входы
+  // роутинга совпали с прошлым прогоном ПО БИТАМ → результат берётся ЦЕЛИКОМ из prev.
+  // ЭКВИВАЛЕНТНОСТЬ: sig покрывает ВСЁ, что видят роутер и плашки (позиции/габариты
+  // отображаемых, мастер-рёбра с подписями и routable-флагом, рамки с плашками), а
+  // константы алгоритмов сторожит ROUTER_VERSION (routerVersion.ts) — значит полный
+  // прогон вернул бы ровно prev, и подстановка байт-в-байт равна счёту. Более того,
+  // удержание prev — ЕДИНСТВЕННЫЙ фикспойнт: роутер не идемпотентен относительно prev
+  // (гистерезис осциллирует — асимметрия раздачи слотов free/pinned + обратная связь
+  // маршрут↔плашка T4), и без этой ветки пара рёбер по очереди отжимала бы слоты.
+  const cacheHit = prevRouteSig === routeSig && !!prevRoutes && !!prevEdgeHandles && !!prevLabelPlacements;
   // СТАДИИ КАЧЕСТВА СТРЕЛОК (роутер → нуджинг → джоги → плашки → T4) — локальный
   // блок, чтобы фолбэк-прогон двухфазного замера (edgeQuality: "skip") мог
   // пропустить их целиком (Ф3). Пишут во внешние autoRoutes/labelPlacements/
   // edgeHandles; await внутри нет.
-  const runEdgeQualityStages = (): void => {
+  const runEdgeQualityStages = (): RouteBudget => {
+  // БЮДЖЕТ РАБОТ — ПЕРВЫМ ДЕЙСТВИЕМ СТАДИЙ (P12): отметка расхода снимается здесь, класс
+  // сцены — по P1 (отображаемые узлы против мастер-рёбер). Априорный контур решает всё
+  // тут же, до первой экспансии: прогноз работ по размеру сцены выше лимита класса →
+  // ступени включены с самого старта, а не после сжигания бюджета до первой границы.
+  const budget = createRouteBudget({
+    nodes: displayIds.length, edges: groupArr.length, config: input.routeBudget,
+  });
   const ar = buildAutoRoutes({
     groups: groupArr, routableIds, positions,
     displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
     // гистерезис: финальные маршруты/хэндлы прошлого прогона (если вызывающий дал)
     prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
+    budget,
   });
   autoRoutes = ar.routes;
   mark("роутер: A*+rip-up+слоты+сварка (проход 1)");
   // СКОУП: buildAutoRoutes вернул маршруты только заскоупленных рёбер; незаскоупленные
   // (инцидентные прочим узлам) берём из prevRoutes — они зафиксированы как preplaced и
   // сохраняют прежнюю геометрию (иначе потеряли бы маршрут и отвалились на smoothstep).
-  if (scopeSet && prevRoutes) {
+  if (scoped && prevRoutes) {
     for (const g of groupArr) {
       if (routableIds.has(g.id) || autoRoutes.has(g.id)) continue;
       const pr = prevRoutes.get(g.id);
@@ -664,7 +876,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // A8: выбранные роутером стороны → хэндлы (RF состыкует стрелку там).
   for (const [id, hh] of ar.handles) edgeHandles.set(id, hh);
   // хэндлы незаскоупленных рёбер — из прошлого прогона (их маршрут не менялся)
-  if (scopeSet && prevEdgeHandles) {
+  if (scoped && prevEdgeHandles) {
     for (const g of groupArr) {
       if (routableIds.has(g.id) || edgeHandles.has(g.id)) continue;
       const ph = prevEdgeHandles.get(g.id);
@@ -673,21 +885,32 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   }
   // СКОУП: фиксируем геометрию незаскоупленных рёбер — пост-обработка (нуджинг, полировка
   // джогов, T4) не должна её двигать, иначе дрейф возвращается (зонд: чурн ~6/поколение).
-  // Восстанавливаем после каждого прохода, который переписывает autoRoutes.
+  // СТАДИИ ВИДЯТ ЭТИ ПЛЕЧИ НЕПОДВИЖНЫМИ САМИ: нуджинг получает их набор как пины
+  // (fixedIds), полировка джогов их пропускает. restoreFrozen оставлен СТРАХОВКОЙ и
+  // обязан быть no-op — сколько ему пришлось чинить, считает frozenDrift (хук
+  // __ARCHMAP_FROZEN_DIAG в конце стадий; инвариант — нули).
   const frozenRoutes = new Map<string, EdgePoint[]>();
-  if (scopeSet) {
+  if (scoped) {
     for (const g of groupArr) {
       if (routableIds.has(g.id)) continue;
       const rt = autoRoutes.get(g.id);
       if (rt) frozenRoutes.set(g.id, rt.map((p) => ({ x: p.x, y: p.y })));
     }
   }
-  const restoreFrozen = (): void => {
+  const frozenIds: ReadonlySet<string> = new Set(frozenRoutes.keys());
+  const frozenDrift = { nudge: 0, jogs: 0, t4: 0 };
+  const restoreFrozen = (): number => {
     // autoRoutes всегда определён к этому месту (присвоен ar.routes выше и далее
     // только переприсваивается в Map); tsc не видит этого сквозь замыкание.
     const target = autoRoutes;
-    if (!target) return;
-    for (const [id, rt] of frozenRoutes) target.set(id, rt.map((p) => ({ x: p.x, y: p.y })));
+    if (!target) return 0;
+    let drifted = 0;
+    for (const [id, rt] of frozenRoutes) {
+      const cur = target.get(id);
+      if (!cur || !sameRoute(cur, rt)) drifted++;
+      target.set(id, rt.map((p) => ({ x: p.x, y: p.y })));
+    }
+    return drifted;
   };
 
   const nodeRects = displayIds
@@ -700,9 +923,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
   // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
   // маршрутах.
-  const nu = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
+  // СКОУП (E84, компромисс 3): замороженные плечи идут в канал ПИНАМИ — живые
+  // разводятся ОТ их фактических линий. Двигать их наравне со всеми и возвращать
+  // страховкой нельзя: разводка была бы посчитана вокруг линии, которой на сцене не
+  // будет, и живое встречное плечо ложилось бы ровно на возвращённое замороженное.
+  const nu = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects, fixedIds: frozenIds });
   if (nu.nudged.size > 0) autoRoutes = nu.routes;
-  restoreFrozen(); // нуджинг мог сдвинуть незаскоупленные плечи — вернуть
+  frozenDrift.nudge = restoreFrozen(); // страховка: обязана не найти расхождений
   mark("нуджинг каналов");
 
   // ПОЛИРОВКА ДЖОГОВ ПОСЛЕ НУДЖИНГА (T2 «читаемые пучки»): и роутер (перескок из-за
@@ -717,6 +944,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     for (const g of groupArr) {
       const rt = autoRoutes.get(g.id);
       if (!rt || rt.length < 4) continue;
+      // СКОУП (E84): замороженные НЕ полируются. Их результат всё равно вернула бы
+      // страховка, но промежуточная полировка отравляла бы КОНТЕКСТ ОЦЕНКИ живых
+      // соседей (others/fellowRoutes ниже читают segsById/polished) — они мерились бы
+      // против линии, которой на сцене не будет. Сегменты замороженных при этом
+      // остаются в segsById и потому видны живым как препятствие и стволовой контекст.
+      if (frozenRoutes.has(g.id)) continue;
       const others: PlacedSeg[] = [];
       const fellowRoutes: EdgePoint[][] = []; // стволовой контекст оценки (E25 v2)
       for (const [id, s] of segsById) {
@@ -736,7 +969,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       autoRoutes = new Map(autoRoutes);
       for (const [id, rt] of polished) autoRoutes.set(id, rt);
     }
-    restoreFrozen(); // полировка могла изменить незаскоупленные маршруты — вернуть
+    frozenDrift.jogs = restoreFrozen(); // страховка: обязана не найти расхождений
   }
   mark("спрямление джогов");
 
@@ -756,41 +989,181 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   });
   mark("плашки подписей (проход 1)");
 
-  // ПЛАШКИ → ПРЕПЯТСТВИЯ МАРШРУТОВ (T4 «читаемые пучки», один мини-проход): линия
-  // сквозь чужой текст нечитаема. «Грязные» рёбра (маршрут режет прямоугольник ЧУЖОЙ
-  // плашки) перепрокладываются со штрафом LABEL_CROSS_COST за переход границы плашки
-  // (своя не отталкивает); прочие маршруты — фиксированный контекст prev. После —
-  // одно пере-размещение плашек по изменённой геометрии. Второй итерации нет
-  // осознанно: сдвинутая плашка теоретически может лечь на другую линию — редкий
-  // остаток, не стоит цикла.
-  {
-    const labelRectOf = new Map<string, { x: number; y: number; w: number; h: number }>();
-    for (const g of groupArr) {
-      const lp = labelPlacements.get(g.id);
-      const meta = edgeLabelMeta(g);
-      if (!lp || !meta) continue;
-      const box = metaLabelBox(meta);
-      labelRectOf.set(g.id, {
-        x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h,
-      });
-    }
-    const dirty = new Set<string>();
-    for (const g of groupArr) {
-      // СКОУП: незаскоупленные рёбра заморожены — не перепрокладываем (иначе дрейф)
-      if (scopeSet && !routableIds.has(g.id)) continue;
-      const rt = autoRoutes.get(g.id);
-      if (!rt) continue;
-      for (const [gid, r] of labelRectOf) {
-        if (gid === g.id) continue;
-        if (pathCrossesRects(rt, [r])) { dirty.add(g.id); break; }
+  // T4 «читаемые пучки», один мини-проход: линия сквозь чужой текст нечитаема, и
+  // конфликт «маршрут ребра A режет ЧУЖУЮ плашку B» здесь чинится.
+  // ЧЕМ ЧИНИТСЯ (E40 v3, п.3 финальной приёмки эпика «глубокая оптимизация роутера»,
+  // 2026-09-01) — ТОЛЬКО СЛОЕМ ПЛАШЕК: уступает плашка (Б3б, E40 v2), переставить её
+  // стоит миллисекунды перебора. ПЕРЕПРОКЛАДКИ РЁБЕР В ДЕФОЛТНОМ РЕЖИМЕ НЕТ: она
+  // держала около половины цены конвейера, а снимала единицы рёбер (замер Ф4-II,
+  // журнал в docs/plan-router-deep-opt.md). Конфликт, который плашке снять не удалось,
+  // ОСТАЁТСЯ на экране — осознанная цена, её видно метрикой throughLabels.
+  // ПРЕЖНЕЕ ПОВЕДЕНИЕ — за флагом T4_REROUTE (autoRoutes.ts, до вырезания ветки): при
+  // нём остаток идёт как раньше — «грязные» рёбра перепрокладываются со штрафом
+  // LABEL_CROSS_COST за переход границы чужой плашки (своя не отталкивает), прочие
+  // маршруты — фиксированный контекст prev; после — доводка нуджинга, пере-размещение
+  // плашек по изменённой геометрии и ТА ЖЕ починка поверх него (финальный гриди мягок
+  // и имеет право снова сесть на линию). Второй итерации МИНИ-ПРОХОДА (перепрокладка →
+  // плашки → перепрокладка) нет осознанно и там: сдвинутая плашка теоретически может
+  // лечь на другую линию — редкий остаток, не стоит цикла.
+  //
+  // СТУПЕНЬ ДЕГРАДАЦИИ «ПРОПУСК T4» (P13, ступень 4). Точка осуществимости — ровно
+  // здесь, ПЕРЕД блоком: мини-прохода ещё не было, а сцена без него полностью валидна
+  // (так она и жила до эпика «читаемые пучки»). Ступень пропускает ВЕСЬ блок в обоих
+  // режимах — семантика ступени не зависит от флага. Цена названа честно: уходит
+  // дешёвый слой Б3б «плашка уступает первой» (а при T4_REROUTE — и перепрокладка),
+  // то есть линии остаются сквозь чужие плашки и плашки не уступают. Ступень
+  // последняя: её точка — та, где почти вся цена ещё впереди (при перепрокладке T4
+  // держал ~48% прогона).
+  const skipT4 = budget.takeT4();
+  if (!skipT4) {
+    // ПРЯМОУГОЛЬНИКИ ПЛАШЕК по ТЕКУЩЕМУ размещению (пересчитывается после починки).
+    const labelRectsNow = (): Map<string, { x: number; y: number; w: number; h: number }> => {
+      const out = new Map<string, { x: number; y: number; w: number; h: number }>();
+      for (const g of groupArr) {
+        const lp = labelPlacements?.get(g.id);
+        const meta = edgeLabelMeta(g);
+        if (!lp || !meta) continue;
+        const box = metaLabelBox(meta);
+        out.set(g.id, {
+          x: lp.center.x - box.w / 2, y: lp.center.y - box.h / 2, w: box.w, h: box.h,
+        });
       }
+      return out;
+    };
+    // КОНФЛИКТЫ «маршрут ребра A режет плашку группы B» — пары (A, B) в детерминированном
+    // порядке (id ребра, затем id плашки). СКОУП: перепрокладывать (при T4_REROUTE)
+    // можно только заскоупленные (незаскоупленные заморожены, иначе дрейф — E82/E84), но
+    // ПОЧИНИТЬ ПЛАШКУ можно и от замороженной линии: плашки и так размещаются по всей
+    // сцене каждый прогон (компромисс 4 в E84) — поэтому источником конфликта служит
+    // ЛЮБОЙ маршрут, а в dirty (кандидаты перепрокладки, они же счётчик нерешённого)
+    // попадают только заскоупленные виновники.
+    const collectConflicts = (
+      rects: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>,
+    ): { pairs: [string, string][]; dirty: Set<string>; victims: Set<string> } => {
+      const pairs: [string, string][] = [];
+      const dirty = new Set<string>();
+      const victims = new Set<string>();
+      const ids = groupArr.map((g) => g.id).sort();
+      const labelIds = [...rects.keys()].sort();
+      for (const id of ids) {
+        const rt = autoRoutes?.get(id);
+        if (!rt) continue;
+        for (const gid of labelIds) {
+          if (gid === id) continue;
+          const r = rects.get(gid);
+          if (!r || !pathCrossesRects(rt, [r])) continue;
+          pairs.push([id, gid]);
+          victims.add(gid);
+          if (!scoped || routableIds.has(id)) dirty.add(id);
+        }
+      }
+      return { pairs, dirty, victims };
+    };
+    // Б3б («СНАЧАЛА ПОДВИНЬ ПЛАШКУ», E40 v2). Плашка-жертва пробует УСТУПИТЬ режущим её
+    // стрелкам: переезд принимается, только если режущих стало строго меньше, а жёстких
+    // наложений (узлы/чужие плашки) не прибавилось (placeLabels repair). Ушла из-под всех
+    // — конфликт снят; не вышло — плашка остаётся где была, и конфликт остаётся с ней
+    // (при T4_REROUTE виновник идёт прежним путём — дорогой A* по штрафному ландшафту).
+    // Порядок пере-размещения — канонический E53 (стеснённые первыми, тай-брейк id):
+    // переехавшая плашка немедленно становится препятствием следующим.
+    // МУТАЦИЯ, А НЕ ПРОБА: финальный гриди переразмещает плашки по СВОИМ мягким
+    // правилам (E52 — чужое плечо лишь второй компонент ключа), поэтому «B умеет
+    // встать чисто» само по себе плашку не двигает; см. финальную починку в ветке
+    // T4_REROUTE ниже (в дефолтном режиме гриди после этой точки не гоняется вовсе).
+    const repairLabels = (
+      rects: Map<string, { x: number; y: number; w: number; h: number }>,
+      victims: ReadonlySet<string>,
+    ): number => {
+      if (victims.size === 0 || !autoRoutes) return 0;
+      const others: { x: number; y: number; w: number; h: number }[] = [];
+      for (const [gid, r] of rects) if (!victims.has(gid)) others.push(r);
+      const moved = buildLabelPlacements({
+        routes: autoRoutes,
+        groups: groupArr,
+        labelMeta: edgeLabelMeta,
+        preferredT: () => undefined,
+        nodeRects,
+        obstacleRects: others,
+        repair: { only: victims, keepRectOf: rects },
+      });
+      if (moved.size === 0) return 0;
+      const merged = new Map(labelPlacements);
+      for (const [id, lp] of moved) merged.set(id, lp);
+      labelPlacements = merged;
+      return moved.size;
+    };
+    // ВТОРОЙ ИТЕРАЦИИ ПОЧИНКИ НЕТ: она сошлась бы (переезд обязан строго уменьшать число
+    // режущих стрелок, маршруты внутри починки не двигаются — счёт монотонно убывает), но
+    // ЗАМЕР показал фикспойнт уже на первом проходе (4 эталонные сцены: 5/14/3/0 переездов
+    // на первой итерации, 0 на второй) — отказавшей плашке освободившееся место соседки не
+    // помогает. Лишний проход по 60–128 плашкам ради нуля не берём.
+    let labelRectOf = labelRectsNow();
+    const before = collectConflicts(labelRectOf);
+    const movedCount = repairLabels(labelRectOf, before.victims);
+    if (movedCount > 0) labelRectOf = labelRectsNow();
+    // Пересчёт грязных ПО ПОЧИНЕННЫМ плашкам — полным сканом: переезд обязан лишь
+    // УМЕНЬШИТЬ число режущих стрелок, а не обнулить его, поэтому уехавшая плашка
+    // теоретически может подставиться под другую линию. Скан по прямоугольникам дёшев
+    // (доли миллисекунды против секунд A*), гадать тут незачем.
+    const dirty = movedCount > 0 ? collectConflicts(labelRectOf).dirty : before.dirty;
+    // ДИАГНОСТИЧЕСКИЙ ХУК T4 (Ф0): по образцу __ARCHMAP_TRACE — без выставленного
+    // хука мёртвый no-op, ни одного лишнего вычисления в проде. Всё содержимое
+    // (в т.ч. лестница inset'ов глубины вреза) считается только здесь.
+    const diagG = globalThis as unknown as { __ARCHMAP_T4_DIAG?: (d: T4Diag) => void };
+    const t4diag = diagG.__ARCHMAP_T4_DIAG;
+    // Хук зовётся ОДИН раз в конце блока — числа финальной починки известны только там.
+    let diagPayload: T4Diag | null = null;
+    if (t4diag) {
+      const dirtyIds = [...dirty];
+      const frameEndDirtyIds: string[] = [];
+      for (const g of groupArr) {
+        if (!dirty.has(g.id)) continue;
+        if (frameIds.has(g.source) || frameIds.has(g.target)) frameEndDirtyIds.push(g.id);
+      }
+      const INSETS = [2, 4, 6, 8, 10];
+      const cutDepths = dirtyIds.map((id) => {
+        const rt = autoRoutes?.get(id) ?? [];
+        const foreign: { x: number; y: number; w: number; h: number }[] = [];
+        for (const [gid, r] of labelRectOf) if (gid !== id) foreign.push(r);
+        let depth = 12; // режет даже плашку, сжатую на 10 — «глубже 10»
+        for (const k of INSETS) {
+          const shrunk = foreign
+            .map((r) => ({ x: r.x + k, y: r.y + k, w: r.w - 2 * k, h: r.h - 2 * k }))
+            .filter((r) => r.w > 0 && r.h > 0);
+          if (!pathCrossesRects(rt, shrunk)) { depth = k; break; }
+        }
+        return { id, depth };
+      });
+      diagPayload = {
+        dirtyIds, frameEndDirtyIds, cutDepths,
+        labelFirst: {
+          conflicts: before.pairs.length,
+          dirtyBefore: before.dirty.size,
+          victims: before.victims.size,
+          moved: movedCount,
+          solvedEdges: before.dirty.size - dirty.size,
+        },
+      };
     }
-    if (dirty.size > 0) {
+    // ПЕРЕПРОКЛАДКА ОСТАТКА — только за флагом (E40 v3): в дефолтном режиме нерешённый
+    // конфликт остаётся, и блок заканчивается слоем плашек. Ветка ниже — прежнее
+    // поведение целиком, вместе со своей доводкой нуджинга и финальной починкой.
+    if (T4_REROUTE && dirty.size > 0) {
       const ar2 = buildAutoRoutes({
         groups: groupArr, routableIds: dirty, positions,
-        displayIds, sizes: sizeMap, frames: routerFrames,
+        // КОНЦЫ-РАМКИ — ТЕМ ЖЕ ЗНАЧЕНИЕМ, ЧТО В ПРОХОДЕ 1 (закрытие дыры В8.1, Ф4
+        // эпика router-opt): без них у ребра, состыкованного в рамку, нет тела
+        // стыковки — buildAutoRoutes отбраковывает его терминал (`if (!sr || !tr)
+        // continue`) и молча возвращает мини-проход без этого ребра. Дыра означала,
+        // что E40 к рёбрам с концом-рамкой не применялся НИКОГДА: их линия сквозь
+        // чужую плашку оставалась навсегда.
+        displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
         prev: { routes: autoRoutes, handles: edgeHandles },
         labelObstacles: labelRectOf,
+        gridHintGroups: T4_FULL_GRID_HINTS ? groupArr : undefined,
+        // Тот же бюджет: внутри мини-прохода живут СВОИ rip-up и сварка, и их ступени
+        // (P13 №2 и №3) обязаны действовать здесь так же, как в проходе 1.
+        budget,
       });
       let changed = false;
       for (const id of dirty) {
@@ -806,9 +1179,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         // минует канальную разводку (она отработала ВЫШЕ) и мог лечь коллинеарно
         // на чужое плечо — наложение оставалось до конца прогона. Повторный
         // nudgeChannels идемпотентен для уже разведённых каналов и дешёв.
-        const nu2 = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects });
+        const nu2 = nudgeChannels({ routes: autoRoutes, obstacles: nodeRects, fixedIds: frozenIds });
         if (nu2.nudged.size > 0) autoRoutes = nu2.routes;
-        restoreFrozen(); // доводка нуджинга могла сдвинуть незаскоупленные — вернуть
+        frozenDrift.t4 = restoreFrozen(); // страховка: обязана не найти расхождений
         // пере-размещение по финальной геометрии (маршруты грязных изменились)
         labelPlacements = buildLabelPlacements({
           routes: autoRoutes,
@@ -817,10 +1190,40 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           preferredT: () => undefined,
           nodeRects,
         });
+        // ФИНАЛЬНАЯ ПОЧИНКА (Б3б). Гриди выше — ИСТОЧНИК ПРАВДЫ размещения, и он честно
+        // переразмещает ВСЁ по мягким правилам E52: плашка, которую Б3б увёл с линии,
+        // могла вернуться на линию (уже другую — маршруты грязных изменились). Тот же
+        // проход починки поверх финала держит инвариант E40 v2 «плашка уступает первой»
+        // и на финальной геометрии. Перепрокладки за ним НЕТ — второй итерации T4
+        // по-прежнему нет осознанно (E40); чинится только слой плашек, и он
+        // идемпотентен (переехавшая плашка чиста, повторный проход — no-op).
+        const finalRects = labelRectsNow();
+        const fin = collectConflicts(finalRects);
+        const finMoved = repairLabels(finalRects, fin.victims);
+        if (diagPayload) {
+          diagPayload.finalRepair = {
+            conflicts: fin.pairs.length, victims: fin.victims.size, moved: finMoved,
+          };
+        }
       }
     }
+    if (t4diag && diagPayload) t4diag(diagPayload);
   }
-  mark("T4 мини-проход (плашки-препятствия)");
+  // Марка одна в обеих ветвях: трасса реплея/теста обязана ЯВНО показывать, что
+  // мини-прохода не было и почему (иначе «у пользователя сработало, у нас нет»).
+  // ТЕКСТ МАРКИ НЕ ЗАВИСИТ ОТ T4_REROUTE осознанно: это ИМЯ СТАДИИ конвейера, по нему
+  // сравнивают тайминги режимов до/после и по нему стоит гейт ступени бюджета
+  // (routeBudget.test.ts). Что внутри стадии — говорит T4-диагностика, не марка.
+  mark(skipT4
+    ? "T4 мини-проход: ПРОПУЩЕН (ступень бюджета работ, P13)"
+    : "T4 мини-проход (плашки-препятствия)");
+  // СТОРОЖ ЗАМОРОЗКИ (E84): что пришлось чинить страховке restoreFrozen. Инвариант —
+  // нули: стадии обязаны видеть замороженные плечи неподвижными сами. Без хука — no-op.
+  {
+    const diagG = globalThis as unknown as { __ARCHMAP_FROZEN_DIAG?: (d: FrozenDiag) => void };
+    diagG.__ARCHMAP_FROZEN_DIAG?.({ frozen: frozenRoutes.size, ...frozenDrift });
+  }
+  return budget;
   };
   // АВТО-порог пропуска (edgeQuality не задан): И минимум штук, И доля сцены —
   // единичные новые узлы (создание из палитры) не роняют все стрелки в
@@ -829,27 +1232,57 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const UNMEASURED_SKIP_MIN = 3;
   const UNMEASURED_SKIP_SHARE = 0.05;
   const unmeasured = displayIds.reduce((k, id) => k + (sizeMap.has(id) ? 0 : 1), 0);
-  const skipQuality = input.edgeQuality === "skip" || (
+  const skipByUnmeasured = input.edgeQuality === "skip" || (
     input.edgeQuality === undefined &&
     unmeasured >= UNMEASURED_SKIP_MIN &&
     unmeasured >= UNMEASURED_SKIP_SHARE * Math.max(1, displayIds.length)
   );
-  if (!skipQuality) runEdgeQualityStages();
-  else mark("стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)");
-
-  // Сигнатура входов роутинга этого прогона + ГАШЕНИЕ ОСЦИЛЛЯЦИЙ: входы совпали
-  // с прошлым прогоном ПО БИТАМ → результат ЦЕЛИКОМ из prev. Роутер не идемпотентен
-  // относительно prev (гистерезис осциллирует: асимметрия раздачи слотов free/pinned
-  // + обратная связь маршрут↔плашка T4 — пара рёбер по очереди отжимает слоты,
-  // плашки летают leader↔online, каждый прогон с prevRoutes переворачивает сцену).
-  // Удержание prev — единственный фикспойнт: стрелки/хэндлы/плашки не двигаются,
-  // пока не изменилось ничего, роутинг определяющего.
-  const routeSig = buildRouteSig(displayIds, positions, sizeMap, groupArr, routableIds, routerFrames);
-  if (prevRouteSig === routeSig && prevRoutes && prevEdgeHandles && prevLabelPlacements && autoRoutes) {
+  // ВТОРОЕ ОСНОВАНИЕ ПРОПУСКА (расширение P10): состав сцены неполон — раскрытия ждут
+  // своих детей. Прогон повторится по их приходу, и его маршруты будут выброшены ровно
+  // так же, как маршруты незамеренного прогона; жертва промежуточного кадра smoothstep
+  // санкционирована тем же решением. Явные "full"/"skip" не переопределяем.
+  const skipByPending = input.edgeQuality === undefined && hasPendingChildren;
+  const skipQuality = skipByUnmeasured || skipByPending;
+  // Порядок ветвей: КЭШ-ХИТ СИЛЬНЕЕ ПРОПУСКА P10. Совпадение sig доказывает, что
+  // геометрия, которую увидел бы роутер, тождественна прежней (незамеренный узел и
+  // узел, замеренный ровно в NODE_W×NODE_H, дают один токен sig — и один и тот же
+  // realRectOf), поэтому prev здесь не «протухшие маршруты фолбэк-прогона», а
+  // законный результат. Цель P10 (не жечь счёт, который выбросят) соблюдена: стадии
+  // не исполняются ни в одной из двух ветвей. Выигрыш — сцена открывается сразу со
+  // стрелками, а не с промежуточным кадром smoothstep.
+  if (cacheHit && prevRoutes && prevEdgeHandles && prevLabelPlacements) {
     autoRoutes = prevRoutes;
     edgeHandles = new Map(prevEdgeHandles);
     labelPlacements = prevLabelPlacements;
+    mark("стадии качества стрелок: кэш-хит по routeSig");
+  } else if (!skipQuality) {
+    runBudget = runEdgeQualityStages();
+    ranQualityStages = true;
+  } else {
+    mark(skipByUnmeasured
+      ? "стадии качества стрелок: пропущены (незамеренная сцена, авто/skip)"
+      : "стадии качества стрелок: пропущены (недогруженные дети раскрытий)");
   }
+
+  // АВТОРИТЕТНОСТЬ ПРОГОНА (гейт записи персистного кэша маршрутов вида, P11):
+  // результат годится в кэш, только если он равен тому, что дал бы ПОЛНЫЙ прогон на
+  // полных замерах и полном составе. Условия: стадии качества реально отработали ИЛИ
+  // пришёл кэш-хит по sig (обе ветви дают финальную геометрию); НЕТ незамеренных узлов
+  // (фолбэк NODE_W×NODE_H — не те тела, что увидит рендер); прогон НЕ скоуплен НИ ОДНОЙ
+  // из двух механик — ни драгом, ни авто-скоупом Ф3 (при скоупе часть маршрутов —
+  // замороженный prev-контекст); СОСТАВ ПОЛОН — раскрытия не
+  // ждут детей (полевая находка приёмки Ф2: частичный 17-узловой прогон корня имел
+  // unmeasured = 0 и затирал кэш полной 34-узловой сцены); состав НЕ ПУСТ (нулевой
+  // прогон до прихода данных — не «сцена без стрелок», а «данных ещё нет»).
+  // СТУПЕНИ БЮДЖЕТА ЭТОГО ПРОГОНА (P13): null — ни одна не срабатывала.
+  const budgetDegraded = runBudget?.result() ?? null;
+  const authoritative = (ranQualityStages || cacheHit)
+    && unmeasured === 0 && !scoped
+    && !hasPendingChildren && displayIds.length > 0
+    // ДЕГРАДИРОВАННЫЙ ПРОГОН НЕ АВТОРИТЕТЕН (P13): его геометрия — не то, что дал бы
+    // полный прогон, и в кэше вида (P11) она жила бы, пока не изменится сама сцена.
+    // Прогон со ступенями показывается, но не консервируется.
+    && budgetDegraded === null;
 
   // Снимок входов роутера для живого ре-роута затронутых стрелок при драге (issue 1):
   // те же groups/frames/sizes и ФИНАЛЬНЫЕ маршруты/хэндлы (контекст prev). Позиции драг
@@ -907,5 +1340,8 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     },
     intents,
     routeSig,
+    authoritative,
+    scoped,
+    budgetDegraded,
   };
 }
