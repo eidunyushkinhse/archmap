@@ -117,7 +117,7 @@ for (const d of t4) {
     console.error(
       `  Б3б: конфликтов ${lf.conflicts} на ${lf.victims} плашках-жертвах;` +
       ` переехало ${lf.moved}; рёбер было бы грязных ${lf.dirtyBefore} →` +
-      ` снято плашкой ${lf.solvedEdges}, осталось на перепрокладку ${d.dirtyIds.length}`,
+      ` снято плашкой ${lf.solvedEdges}, осталось нерешённых ${d.dirtyIds.length}`,
     );
   }
   if (d.finalRepair) {

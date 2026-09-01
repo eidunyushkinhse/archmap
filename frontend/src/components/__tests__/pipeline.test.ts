@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   computeViewLayout, buildRouteSig,
-  type LayoutResult, type PipelineInput, type ScopeDiag, type FrozenDiag,
+  type LayoutResult, type PipelineInput, type ScopeDiag, type FrozenDiag, type T4Diag,
 } from "../graph/layout/pipeline";
+import { DEFAULT_ROUTE_BUDGET, type RouteBudgetConfig } from "../graph/layout/routeBudget";
 import type { Node as AppNode, Edge as AppEdge, GhostNode, AncestorRef } from "../../types";
 import { NODE_W, NODE_H } from "../graph/constants";
 
@@ -1092,5 +1093,136 @@ describe("заморозка скоупа неподвижна для стади
       }
     }
     expect(merged, "живых плеч слилось встречно с замороженными").toBe(0);
+  });
+});
+
+// T4-МИНИ-ПРОХОД БЕЗ ПЕРЕПРОКЛАДКИ (E40 v3, п.3 финальной приёмки эпика «глубокая
+// оптимизация роутера», решение пользователя 2026-09-01).
+// ДЕФОЛТ (T4_REROUTE = false): стадия чинит ТОЛЬКО СЛОЙ ПЛАШЕК — маршрутов она не
+// касается вовсе, и конфликт, который плашке снять не удалось, остаётся на экране.
+// Прежнее поведение (перепрокладка грязных рёбер + доводка нуджинга + финальная
+// починка) живёт за флагом и здесь тоже проверяется — ветка обязана быть живой, пока
+// её не вырезали.
+describe("T4-мини-проход: только слой плашек (E40 v3)", () => {
+  // СЦЕНА, НА КОТОРОЙ МИНИ-ПРОХОДУ ЕСТЬ ЧТО ЧИНИТЬ. Разреженная сцена не годится:
+  // плашке всегда есть куда встать чисто, и конфликтов ноль (проверено — на
+  // треугольнике из трёх локалов их 0). Здесь плотная решётка 4×4 подписанных локалов
+  // с шагом чуть шире габарита и шесть гостей, чьи линии простреливают сцену насквозь:
+  // конфликтов 10 на 8 плашках, часть уступает, часть — нет (остаток и есть цена E40 v3).
+  const SZ4 = { w: 220, h: 96 };
+  const LBL = "публикация события заказа"; // длинная подпись → широкая плашка
+  const COLS = 4, ROWS = 4, GHOSTS = 6;
+  function denseInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
+    const ids: string[] = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) ids.push(`N${r}${c}`);
+    const viewLayout: Record<string, { x: number; y: number }> = {};
+    ids.forEach((id, i) => { viewLayout[id] = { x: (i % COLS) * 280, y: Math.floor(i / COLS) * 170 }; });
+    const edges: AppEdge[] = [];
+    // связи «сосед справа», «сосед снизу» и диагональ — плотный пучок в тесноте
+    for (let i = 0; i < ids.length; i++) {
+      for (const j of [i + 1, i + COLS, i + COLS + 1]) {
+        if (j < ids.length && (j % COLS !== 0 || j === i + COLS)) {
+          edges.push(edge(`e${i}_${j}`, ids[i], ids[j], `${LBL} ${i}→${j}`));
+        }
+      }
+    }
+    const guests: GhostNode[] = [];
+    for (let k = 0; k < GHOSTS; k++) {
+      guests.push(ghost(`Q${k}`, []));
+      edges.push(edge(`eq${k}`, `Q${k}`, ids[(k * 3 + 1) % ids.length], `${LBL} гость ${k}`));
+      edges.push(edge(`eq${k}b`, ids[(k * 5 + 2) % ids.length], `Q${k}`, `${LBL} ответ ${k}`));
+    }
+    return {
+      nodes: ids.map(appNode), endpoints: guests, edges,
+      containerId: "P", viewLayout, ancestorIds: ["P"],
+      expanded: new Set(), localChildren: {},
+      sizes: Object.fromEntries([...ids, ...guests.map((g) => g.id)].map((id) => [id, SZ4])),
+      edgeQuality: "full",
+      ...overrides,
+    };
+  }
+
+  // Форс-бюджет ТОЛЬКО на ступень «пропуск T4» (P13 №4): доли rip-up и сварки подняты
+  // выше единицы (не срабатывают никогда), доля T4 — ноль. Так получается прогон, у
+  // которого весь T4-блок не исполнялся ВООБЩЕ, — эталон «маршруты до T4».
+  const FORCE_T4_ONLY: RouteBudgetConfig = {
+    ...DEFAULT_ROUTE_BUDGET, skipRipupShare: 10, skipWeldShare: 10, skipT4Share: 0,
+  };
+
+  // Стабильная сериализация маршрутов: сравнение прогонов побитово.
+  const routesSig = (l: LayoutResult): string =>
+    [...(l.autoRoutes ?? new Map<string, { x: number; y: number }[]>())]
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([id, pts]) => `${id}=${pts.map((p) => `${p.x},${p.y}`).join(";")}`)
+      .join("\n");
+
+  type DiagHook = { __ARCHMAP_T4_DIAG?: (d: T4Diag) => void };
+  // Прогон с перехватом T4-диагностики (тот же хук, что у scripts/replay-prof.ts).
+  async function runWithDiag(
+    compute: (i: PipelineInput) => Promise<{ layout: LayoutResult }>,
+    input: PipelineInput,
+  ): Promise<{ layout: LayoutResult; diag: T4Diag | null }> {
+    const g = globalThis as unknown as DiagHook;
+    let diag: T4Diag | null = null;
+    g.__ARCHMAP_T4_DIAG = (d) => { diag = d; };
+    try {
+      const out = await compute(input);
+      return { layout: out.layout, diag: diag as T4Diag | null };
+    } finally {
+      delete g.__ARCHMAP_T4_DIAG;
+    }
+  }
+
+  it("дефолт: стадия НЕ трогает маршруты — они те же, что при полном пропуске T4", async () => {
+    const { layout, diag } = await runWithDiag(computeViewLayout, denseInput());
+    // Сцена действительно даёт конфликты — иначе тест ничего не проверяет.
+    expect(diag, "T4-диагностика не пришла: мини-проход не исполнялся").not.toBeNull();
+    expect(diag!.labelFirst.conflicts, "на сцене нет ни одного конфликта «линия режет плашку»")
+      .toBeGreaterThan(0);
+    // ЦЕНА РЕЖИМА, ЯВНО: остаток нерешённых конфликтов никуда не идёт и виден на экране.
+    expect(diag!.dirtyIds.length).toBeGreaterThan(0);
+    // Финальной починки нет: её место — ПОСЛЕ перепрокладки, а перепрокладки нет.
+    expect(diag!.finalRepair).toBeUndefined();
+
+    // ГЛАВНОЕ: маршруты совпадают с прогоном, где весь T4-блок пропущен ступенью
+    // бюджета. Значит стадия работает только по слою плашек.
+    const skipped = await computeViewLayout(denseInput({ routeBudget: FORCE_T4_ONLY }));
+    expect(skipped.budgetDegraded?.t4, "ступень «пропуск T4» обязана сработать").toBe(true);
+    expect(routesSig(layout)).toBe(routesSig(skipped.layout));
+  });
+
+  it("дефолт: плашка всё равно уступает (слой Б3б жив) — размещение отличается от пропуска T4", async () => {
+    const { layout, diag } = await runWithDiag(computeViewLayout, denseInput());
+    expect(diag!.labelFirst.moved, "ни одна плашка не уступила — слой Б3б мёртв").toBeGreaterThan(0);
+    // Уступка видна снаружи: при пропуске всего блока плашки стоят иначе.
+    const skipped = await computeViewLayout(denseInput({ routeBudget: FORCE_T4_ONLY }));
+    const labels = (l: LayoutResult): string =>
+      JSON.stringify([...(l.labelPlacements ?? new Map())].sort((p, q) => p[0].localeCompare(q[0])));
+    expect(labels(layout)).not.toBe(labels(skipped.layout));
+  });
+
+  it("T4_REROUTE=true — прежний путь жив: перепрокладка и финальная починка отрабатывают", async () => {
+    // Дефолтный прогон (флаг выключен) — снимок для сравнения геометрии.
+    const base = await runWithDiag(computeViewLayout, denseInput());
+
+    // Подмена ЗНАЧЕНИЯ ФЛАГА в модуле-доме (autoRoutes): остальное (buildAutoRoutes,
+    // штрафы) остаётся настоящим — doMock частичный, поверх importOriginal.
+    vi.resetModules();
+    vi.doMock("../graph/layout/autoRoutes", async (importOriginal) => ({
+      ...await importOriginal<typeof import("../graph/layout/autoRoutes")>(),
+      T4_REROUTE: true,
+    }));
+    try {
+      const mod = await import("../graph/layout/pipeline");
+      const rerouted = await runWithDiag(mod.computeViewLayout, denseInput());
+      // Ветка отработала: финальная починка живёт ТОЛЬКО за перепрокладкой.
+      expect(rerouted.diag!.finalRepair, "финальной починки нет — ветка не исполнялась")
+        .toBeDefined();
+      // И геометрия действительно другая — перепрокладка не пустышка.
+      expect(routesSig(rerouted.layout)).not.toBe(routesSig(base.layout));
+    } finally {
+      vi.doUnmock("../graph/layout/autoRoutes");
+      vi.resetModules();
+    }
   });
 });
