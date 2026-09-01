@@ -33,6 +33,15 @@ export const RelayoutIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M20 11 a8 8 0 0 0-14-4 M4 5 V8 H7" />
     <path d="M4 13 a8 8 0 0 0 14 4 M20 19 V16 H17" /></svg>);
+// «Подписи связей» — тумблер холста (canvas.md CV32): плашка подписи, сидящая на
+// линии связи. Вариант off (подписи скрыты) перечёркнут диагональю.
+export const EdgeLabelsIcon = ({ size = 17, off = false }: IcoProps & { off?: boolean }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
+    <path d="M2 12 H6" /><path d="M18 12 H22" />
+    <rect x="6" y="8.5" width="12" height="7" rx="2" />
+    <path d="M9 12 H15" />
+    {off && <path d="M4 20 L20 4" />}
+  </svg>);
 export const ChevronIcon = ({ size = 13 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M9 6 L15 12 L9 18" /></svg>);

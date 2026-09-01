@@ -277,7 +277,12 @@ function WrappedLabelEdge({
   // pointerEvents:"all" — иначе клик не дойдёт (контейнер EdgeLabelRenderer его глушит);
   // nodrag/nopan — клик по плашке не начинает pan/драг канвы.
   const boxInteract: CSSProperties = clickable ? { cursor: "pointer", pointerEvents: "all" } : {};
-  const boxCls = clickable ? "nodrag nopan" : undefined;
+  // lg-edge-label — адрес режима «подписи скрыты» (CV32: display:none через класс
+  // корня холста); lg-label--selected — исключение режима: плашка ВЫДЕЛЕННОЙ стрелки
+  // остаётся видимой (единственный способ прочитать подпись, не выключая режим).
+  const boxCls = "lg-edge-label"
+    + (selected ? " lg-label--selected" : "")
+    + (clickable ? " nodrag nopan" : "");
   const boxDouble = clickable ? openDetails : undefined;
 
   const boxBase: CSSProperties = {
@@ -325,7 +330,7 @@ function WrappedLabelEdge({
           оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). */}
       {labelPlacement?.mode === "leader" && !drawing && (
         <path
-          className="lg-edge-leader"
+          className={"lg-edge-leader" + (selected ? " lg-label--selected" : "")}
           d={`M ${labelPlacement.anchor.x},${labelPlacement.anchor.y} L ${labelPlacement.center.x},${labelPlacement.center.y}`}
           // T5 «читаемые пучки»: поводок заметнее (1.5px, темнее) — тонкий 1px-пунктир
           // в гуще линий терялся, и вынесенная плашка читалась как «текст ни о чём»

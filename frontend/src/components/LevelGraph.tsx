@@ -19,10 +19,11 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
-import { UndoIcon, RedoIcon, RelayoutIcon } from "../ui/icons";
+import { UndoIcon, RedoIcon, RelayoutIcon, EdgeLabelsIcon } from "../ui/icons";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import { NODE_W, NODE_H, OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
+import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
@@ -201,7 +202,7 @@ function LevelGraphInner({
   const {
     readOnly = false, edgesInspectable, nodesDraggable: nodesDraggableProp,
     arrangeOnly = false, ignorePersistedExpanded = false, fitOnLoad = false,
-    fitOnExpand = false, schemaView = "all",
+    fitOnExpand = false, schemaView = "all", edgeLabelsHidden: edgeLabelsHiddenMode,
   } = mode ?? {};
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onClearSelection } = drill;
   const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice, onReconnectFrameEnd } = edgeCallbacks;
@@ -297,6 +298,17 @@ function LevelGraphInner({
   // Занятость конвейера (P4): счётчик прогонов в полёте; бейдж «Считаю
   // раскладку…» проявляется CSS-задержкой INDICATE_AFTER_MS=300мс (LevelGraph.css).
   const [computing, setComputing] = useState(0);
+  // «Скрыть подписи связей» (CV32): чисто визуальный режим — скрытие CSS-классом на
+  // корне, раскладка/маршруты не пересчитываются. Собственное состояние живёт, когда
+  // тумблером владеет канвас (mode.edgeLabelsHidden не передан); управляемый режим
+  // (редактор-карта) приносит состояние пропом, свой тумблер не рисуется.
+  const [edgeLabelsHiddenOwn, setEdgeLabelsHiddenOwn] = useState(readEdgeLabelsHidden);
+  const labelsHidden = edgeLabelsHiddenMode ?? edgeLabelsHiddenOwn;
+  const toggleEdgeLabels = useCallback(() => {
+    const next = !edgeLabelsHiddenOwn;
+    writeEdgeLabelsHidden(next);
+    setEdgeLabelsHiddenOwn(next);
+  }, [edgeLabelsHiddenOwn]);
   // Защита от прокликивания (P5): id контейнеров с интентом раскрытия/сворачивания,
   // ждущим применения. Повторный клик по тому же id (в т.ч. «отменяющий») до
   // применения игнорируется — иначе каждый клик перезапускал бы конвейер
@@ -1161,6 +1173,7 @@ function LevelGraphInner({
         (connecting ? " lg-canvas--connecting" : "") +
         // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
         (animActive ? " lg-canvas--anim" : "") +
+        (labelsHidden ? " lg-canvas--nolabels" : "") +
         // конвейер в полёте: курсор занятости на контролах узлов (P4)
         (computing > 0 ? " lg-canvas--computing" : "")
       }
@@ -1231,20 +1244,36 @@ function LevelGraphInner({
           </div>
         </div>
       )}
-      {/* «Переразложить» — canvas-кнопка в ПРАВОМ верхнем углу (архитектор, передан
-          onRelayout). Стилистика едина с тулбаром Undo/Redo (тот же класс lg-seg).
-          Редактор-карта onRelayout не передаёт — там своя кнопка в топбаре. */}
-      {isArchitect && onRelayout && (
+      {/* ПРАВЫЙ верхний угол: «Переразложить» (архитектор, передан onRelayout) +
+          тумблер «Скрыть подписи связей» (CV32, все роли — просмотровый режим, не
+          правка). Стилистика едина с тулбаром Undo/Redo (тот же класс lg-seg).
+          Редактор-карта не передаёт onRelayout И владеет тумблером сама (управляемый
+          mode.edgeLabelsHidden): её угол холста занят рейлом алертов (AL10), поэтому
+          там обе кнопки живут в топбаре, а здесь угол остаётся пустым. */}
+      {(edgeLabelsHiddenMode === undefined || (isArchitect && onRelayout)) && (
         <div style={{ position: "absolute", top: 14, right: 14, zIndex: 5 }}>
           <div className="lg-seg">
-            <button
-              type="button"
-              onClick={onRelayout}
-              title="Переразложить уровень"
-              aria-label="Переразложить"
-            >
-              <RelayoutIcon />
-            </button>
+            {isArchitect && onRelayout && (
+              <button
+                type="button"
+                onClick={onRelayout}
+                title="Переразложить уровень"
+                aria-label="Переразложить"
+              >
+                <RelayoutIcon />
+              </button>
+            )}
+            {edgeLabelsHiddenMode === undefined && (
+              <button
+                type="button"
+                onClick={toggleEdgeLabels}
+                aria-pressed={labelsHidden}
+                title={labelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
+                aria-label="Подписи связей"
+              >
+                <EdgeLabelsIcon off={labelsHidden} />
+              </button>
+            )}
           </div>
         </div>
       )}

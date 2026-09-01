@@ -37,9 +37,10 @@ import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import { SchemaViewFilter } from "../components/SchemaViewFilter";
+import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "../components/graph/labelsPref";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
-import { LogoMark, RelayoutIcon, ChevronIcon } from "../ui/icons";
+import { LogoMark, RelayoutIcon, ChevronIcon, EdgeLabelsIcon } from "../ui/icons";
 import "../ui/chrome.css";
 
 interface Props {
@@ -105,6 +106,12 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [treeReload, setTreeReload] = useState(0);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(schemaView); }, [schemaView]);
+  // «Скрыть подписи связей» (CV32) — редактор владеет тумблером сам (управляемый
+  // режим канваса): правый верхний угол холста здесь занят рейлом алертов (AL10),
+  // поэтому кнопка живёт в топбаре, рядом с «Переразложить» — как на страницах,
+  // где обе соседствуют в углу холста.
+  const [edgeLabelsHidden, setEdgeLabelsHidden] = useState(readEdgeLabelsHidden);
+  useEffect(() => { writeEdgeLabelsHidden(edgeLabelsHidden); }, [edgeLabelsHidden]);
   const [remoteToast, showRemoteToast] = useToast();
 
   const history = useHistory();
@@ -617,7 +624,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const mode = useMemo<LevelModeFlags>(() => ({
     schemaView,
-  }), [schemaView]);
+    edgeLabelsHidden,
+  }), [schemaView, edgeLabelsHidden]);
 
   // ── Рендер ───────────────────────────────────────────────────────
   return (
@@ -655,6 +663,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               <RelayoutIcon />
             </button>
           )}
+          {/* Тумблер «Скрыть подписи связей» (CV32) — сосед «Переразложить», как в
+              углу холста на страницах; сам угол в редакторе занят рейлом алертов. */}
+          <button
+            className="icon-btn"
+            style={edgeLabelsHidden ? { ...iconBtn, background: "#e2e8f0", color: "#1e293b" } : iconBtn}
+            onClick={() => setEdgeLabelsHidden((v) => !v)}
+            aria-pressed={edgeLabelsHidden}
+            title={edgeLabelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
+          >
+            <EdgeLabelsIcon off={edgeLabelsHidden} />
+          </button>
           {/* Экспорт и обновление из репозитория — тот же компонент, что в шапке
               оболочки: в редакторе их не было вовсе (находка проверки 2026-08-08),
               а копия разметки разъехалась бы с оболочкой на первой же правке. */}

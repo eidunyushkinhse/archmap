@@ -30,6 +30,24 @@
 .lg-seg button:active:not(:disabled) {
   background: #dbeafe;
 }
+/* Нажатое состояние тумблера (aria-pressed): «Скрыть подписи связей» (CV32) */
+.lg-seg button[aria-pressed="true"] {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+/* Режим «подписи связей скрыты» (тумблер CV32): плашки и поводки выносок убраны с
+   холста ЧИСТО ВИЗУАЛЬНО — раскладка и маршруты не пересчитываются (плашки остаются
+   участниками раскладки, переключение мгновенно и стабильно). Исключение — плашка
+   ВЫДЕЛЕННОЙ стрелки и её поводок: единственный способ прочитать подпись, не
+   выключая режим. Панельная подсветка lg-linked-label исключением НЕ является:
+   инцидентные связи выделенного узла подсвечены линией, их плашки остаются скрыты. */
+.lg-canvas--nolabels .lg-edge-label:not(.lg-label--selected) {
+  display: none;
+}
+.lg-canvas--nolabels .lg-edge-leader:not(.lg-label--selected) {
+  display: none;
+}
 .lg-seg button:disabled {
   color: #cbd5e1;
   cursor: default;
