@@ -779,11 +779,13 @@ function LevelGraphInner({
     appliedResolveRef.current = null;
   }, [layout, isArchitect, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
 
-  // ФОНОВАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
+  // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
   // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
-  // холст тихо досчитывает ПОЛНЫЙ прогон (тот же computeNow, но без prev-полей) и
-  // подменяет им геометрию. Таймер живёт в хуке (чистая логика под тест), прогон —
-  // здесь: уборка обязана идти ШТАТНЫМ путём («последний выигрывает», запись кэша).
+  // холст досчитывает полный прогон С ГИСТЕРЕЗИСОМ и НЕ ПОКАЗЫВАЕТ его: экран
+  // меняется только от действия пользователя. Уборка пишет ровно две вещи — кэш вида
+  // (P11) и снимок гистерезиса; чистая геометрия приезжает СЛЕДУЮЩИМ действием.
+  // Таймер живёт в хуке (чистая логика под тест), прогон — здесь: уборка идёт той же
+  // оркестрацией («последний выигрывает» по runId).
   // «Занято» читаем СИНХРОННО: драг в полёте (draggingRef) или открытое тихое окно
   // анимации (holdRef — в нём прогоны вообще откладываются) — уборка ждёт тишины.
   const idleCleanup = useIdleCleanup({
@@ -796,8 +798,9 @@ function LevelGraphInner({
   // «Последний выигрывает»: прогон, перегнанный более новым (runIdRef), не пишет
   // ничего — ни снапшота гистерезиса, ни персиста интентов, ни setLayout.
   const computeNow = useCallback(async (
-    // УБОРОЧНЫЙ ПРОГОН (P14): тот же путь, но вход строится БЕЗ prev-полей — иначе
-    // гистерезис удержал бы ровно ту грязь, ради которой уборка и затевалась.
+    // УБОРОЧНЫЙ ПРОГОН (P14): тот же путь и тот же билдер входа, но (1) без sig,
+    // снимка сцены и скоупа, (2) результат НЕ ПРИМЕНЯЕТСЯ на экран — только кэш вида
+    // и снимок гистерезиса. Экран меняется исключительно от действия пользователя.
     opts?: { cleanup?: boolean },
   ): Promise<"applied" | "skipped" | "stale"> => {
     const cleanup = opts?.cleanup === true;
@@ -809,7 +812,11 @@ function LevelGraphInner({
     const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
     w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
     w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
-    setComputing((c) => c + 1); // индикация занятости (P4)
+    // ИНДИКАЦИЯ ЗАНЯТОСТИ (P4) — но НЕ для уборки: бейдж «Считаю раскладку…» и
+    // курсор progress без действия пользователя это снова «само что-то происходит»
+    // (исключение зафиксировано в P4). Полигонные счётчики выше НЕ трогаем — их
+    // ждут зонды, и уборка для них такой же прогон, как всякий другой.
+    if (!cleanup) setComputing((c) => c + 1);
     try {
       // гистерезис — только между прогонами с ОДНИМ комплектом замеров (см. prevRoutesRef)
       const sameSizes = prevRoutesRef.current?.version === sizesVersion;
@@ -828,10 +835,18 @@ function LevelGraphInner({
       // новом замере, а снимок сцены обязан описывать ровно то, что видел этот прогон.
       const sizesAtRun = nodeSizesRef.current;
       // PREV-ПОЛЯ ВХОДА — ОДИН БИЛДЕР НА ВСЕ ПРОГОНЫ (P14): уборочный отличается ровно
-      // тем, что prev у него НЕТ ВООБЩЕ (null), — второго билдера входа не заводим, иначе
-      // они разъедутся. Почему без prev: гистерезис (E35) удержал бы ровно те грязные
-      // маршруты, ради которых уборка и затевалась, а снимок сцены включил бы
-      // авто-скоуп (E84) — уборка обязана сойтись к ХОЛОДНОМУ полному прогону.
+      // тремя вычеркнутыми полями (sig, scene, scope) — второго билдера входа не
+      // заводим, иначе они разъедутся. Почему уборка идёт С ГИСТЕРЕЗИСОМ: холодный
+      // прогон не стабилен к сдвигу позиций и дал бы телепорт почти всех рёбер при
+      // следующем действии; гистерезис же чинит ровно грязные линии, оставляя
+      // остальные на месте (полевая находка приёмки №1, раунд 3).
+      // ПОЧЕМУ БЕЗ SIG — ОТДЕЛЬНЫЙ ИНВАРИАНТ: входы уборки совпадают со входами
+      // последнего прогона, совпавший prevRouteSig увёл бы конвейер в кэш-хит-ветку
+      // «вернуть prev целиком» (сверка стоит ДО стадий) — уборка вернула бы ту самую
+      // грязь и записала бы её в кэш вида с authoritative = true (отравление P11).
+      // Без sig стадии качества отрабатывают по-настоящему — уборка и авторитетна,
+      // и чиста. СНИМОК СЦЕНЫ — тоже нет: он включил бы авто-скоуп (E84), а уборка
+      // обязана перепроложить ВСЁ. СКОУП драга уборке не достаётся по построению.
       // prev — свой снимок (тот же комплект замеров) ИЛИ персистный кэш вида, когда
       // своего снимка нет/он от других замеров. Кэш даёт одно из двух: совпал
       // routeSig — мгновенный результат без стадий качества; не совпал — обычная
@@ -844,13 +859,14 @@ function LevelGraphInner({
       // Персистный кэш вида снимка не несёт (в ветке !sameSizes prev приходит из него),
       // поэтому там авто-скоуп не работает: либо кэш-хит по routeSig, либо честный
       // полный прогон — оба варианта корректны, инкремента просто нет.
-      const prev = cleanup ? null : {
+      const prev = {
         routes: sameSizes ? prevRoutesRef.current?.routes : cached?.routes,
         handles: sameSizes ? prevRoutesRef.current?.handles : cached?.handles,
-        sig: sameSizes ? prevRoutesRef.current?.sig : cached?.sig,
         labels: sameSizes ? prevRoutesRef.current?.labels : cached?.labels,
-        scene: sameSizes ? prevRoutesRef.current?.scene : undefined,
-        scope: sameSizes ? scopeNodeIds : undefined,
+        // три поля, вычеркнутые у уборки (см. блок выше)
+        sig: cleanup ? undefined : (sameSizes ? prevRoutesRef.current?.sig : cached?.sig),
+        scene: cleanup ? undefined : (sameSizes ? prevRoutesRef.current?.scene : undefined),
+        scope: cleanup ? undefined : (sameSizes ? scopeNodeIds : undefined),
       };
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
@@ -868,12 +884,12 @@ function LevelGraphInner({
         // edgeQuality НЕ задаём — авто-режим конвейера (P10): прогоны с крупной
         // пачкой незамеренных узлов (первый показ, раскрытие с новыми детьми)
         // идут без стадий качества стрелок — их пересчитает прогон по замерам.
-        prevRoutes: prev?.routes,
-        prevEdgeHandles: prev?.handles,
-        prevRouteSig: prev?.sig,
-        prevLabelPlacements: prev?.labels,
-        scopeNodeIds: prev?.scope,
-        prevScene: prev?.scene,
+        prevRoutes: prev.routes,
+        prevEdgeHandles: prev.handles,
+        prevRouteSig: prev.sig,
+        prevLabelPlacements: prev.labels,
+        scopeNodeIds: prev.scope,
+        prevScene: prev.scene,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
       // УЧЁТ СКОУПНОЙ ГРЯЗИ (P14): скоупный прогон её создал, авторитетный — смыл.
@@ -884,13 +900,19 @@ function LevelGraphInner({
       // вход в тяжёлый вид, а не на каждый пересчёт (механика P8). Гейт authoritative
       // уже не даст такому прогону попасть в кэш вида (P11), так что «тихая» ступень,
       // законсервированная в кэше, невозможна.
-      if (budgetDegraded) {
+      // Уборка тостов НЕ показывает: её геометрию пользователь не видит (на экран она
+      // не идёт), а всплывшее без действия предупреждение — то же «само происходит».
+      if (budgetDegraded && !cleanup) {
         const viewKey = containerId ?? "__root__";
         if (!budgetToastShownRef.current.has(viewKey)) {
           budgetToastShownRef.current.add(viewKey);
           setBudgetToastOpen(true);
         }
       }
+      // СНИМОК ГИСТЕРЕЗИСА — И ДЛЯ УБОРКИ (P14): её маршруты чистые, а позиции она не
+      // меняла, поэтому снимок сцены (из ЕЁ результата, как у всех прогонов) совпадает
+      // с экранной сценой — дифф следующего драга остаётся честным. Именно эта запись
+      // и обрывает НАКОПЛЕНИЕ грязи: следующий прогон стартует с чистого prev.
       if (next.autoRoutes) {
         prevRoutesRef.current = {
           routes: next.autoRoutes, handles: next.edgeHandles,
@@ -917,6 +939,13 @@ function LevelGraphInner({
           if (cacheKey === viewCacheKeyRef.current) cachedEntryRef.current = view;
         }
       }
+      // ГРАНИЦА «ЗАПИСАТЬ» / «ПРИМЕНИТЬ» (P14). Выше — то, что уборке МОЖНО: кэш вида
+      // и снимок гистерезиса (оба невидимы). Ниже — применение на экран: снимок входов
+      // живого драга, персист интентов раскладки, setLayout. Уборке ничего из этого
+      // нельзя: экран меняется только от действия пользователя, а её чистая геометрия
+      // приедет СЛЕДУЮЩИМ прогоном — тот возьмёт чистый prev, записанный выше.
+      // Возврат "skipped" честен по смыслу: прогон посчитан и не применён.
+      if (cleanup) return "skipped";
       liveHandleInputs.current = liveInputs;
       // Побочные записи раскладки (интенты) — через единый commitLayout: засев владения
       // own-on-first-render. Зеркало onLayoutChanged кладёт их в viewLayout → следующий
@@ -941,7 +970,7 @@ function LevelGraphInner({
       return "applied";
     } finally {
       w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 1) - 1;
-      setComputing((c) => c - 1);
+      if (!cleanup) setComputing((c) => c - 1); // симметрично инкременту выше
     }
     // Геометрия рёбер внутри viewLayout не вся влияет на позиции, НО зависимость — весь
     // объект намеренно: изломы/хэндлы пучков читает эффект-сборщик выше, и он должен

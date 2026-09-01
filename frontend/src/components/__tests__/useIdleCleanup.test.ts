@@ -1,7 +1,7 @@
 // ТАЙМЕР ФОНОВОЙ УБОРКИ СКОУПНОЙ ГРЯЗИ (спека perf.md P14, хук
 // graph/interaction/useIdleCleanup.ts). Здесь — ЧИСТАЯ ЛОГИКА защёлки: когда
 // уборка взводится, когда перезаводится, когда снимается и когда её НЕ бывает.
-// Сам прогон (вход без prev-полей, запись кэша) — оркестрация LevelGraph,
+// Сам прогон (вход без sig/сцены/скоупа, записи без применения) — оркестрация LevelGraph,
 // проверяется отдельно (routeCache/idleCleanup-интеграция).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
