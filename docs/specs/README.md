@@ -68,7 +68,7 @@ LevelGraph/MapEditorPage-машинерия, бэк-эндпоинты граф�
 | [view.md](view.md) | Уровень и вид | ../pages/{MapEditorPage,NodePage,ProjectHomePage}.tsx, LevelGraph.tsx (commitLayout/expanded), graph/layout/{pipeline,engine}.ts, ../api/{client,projectScope,nodes}.ts; бэк: models/view_layout.py, routers/{views,nodes}.py, projects.py, restore.py, tree.py |
 | [alerts.md](alerts.md) | Алерты схемы | SchemaAlerts.tsx + schemaAlerts.css, ../pages/{MapEditorPage,ProjectShell}.tsx + useSchemaAlerts.ts (знак в шапке + рейл в холсте, locate), LevelGraph.tsx (locate); бэк: routers/nodes.py (get_alerts) |
 | [context.md](context.md) | Контекст-схема (страница объекта) | ../pages/NodePage.tsx (SchemaSection), EmbeddedSchemaBlock.tsx, дальше штатные LevelGraph.tsx и graph/layout/pipeline.ts; бэк: routers/nodes.py (get_node_context_graph, _ghost_registry) |
-| [perf.md](perf.md) | Производительность и отзывчивость | graph/layout/{pipeline,pipelineClient,engine}.ts, LevelGraph.tsx (индикация занятости), scripts/perf-probe.mjs, __tests__/{pipelineReplay,layoutMockup}.perf.test.ts |
+| [perf.md](perf.md) | Производительность и отзывчивость | graph/layout/{pipeline,pipelineClient,engine}.ts, graph/interaction/useIdleCleanup.ts, LevelGraph.tsx (индикация занятости), scripts/perf-probe.mjs, __tests__/{pipelineReplay,layoutMockup}.perf.test.ts |
 | [transitions.md](transitions.md) | Анимации переходов | graph/interaction/{layoutAnimation,useLayoutAnimation}.ts, graph/layout/{pipeline.worker,pipelineClient,layoutSig}.ts, graph/EdgeJumpContext.tsx, graph/edges.tsx (drawIn), LevelGraph.tsx (gate/тихое окно), graph/reconcileRf.ts, scripts/dump-levels.mjs |
 
 Модули, живущие сразу в нескольких спеках (pipeline.ts, assembleRf.ts,

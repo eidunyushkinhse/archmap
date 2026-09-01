@@ -855,6 +855,8 @@ describe("инкрементальный скоуп по prevScene (Ф3 router-o
     for (const id of TOUCHED) expect(routeOf(B, id), `ребро ${id}`).not.toBe(routeOf(A, id));
     // скоупленный прогон не авторитетен: часть маршрутов — замороженный prev
     expect(B.authoritative).toBe(false);
+    // и он объявляет себя скоупленным — это триггер фоновой уборки (P14)
+    expect(B.scoped).toBe(true);
     // и его сигнатура отличается от полной (в неё входят routable-флаги)
     expect(B.routeSig).not.toBe(A.routeSig);
   });
@@ -867,6 +869,7 @@ describe("инкрементальный скоуп по prevScene (Ф3 router-o
       prevEdgeHandles: A.layout.edgeHandles,
     });
     expect(C.authoritative).toBe(true);
+    expect(C.scoped).toBe(false);
   });
 
   it("изменилась вся сцена (> порога) → авто-скоуп не применён, полный пересчёт", async () => {
@@ -882,6 +885,8 @@ describe("инкрементальный скоуп по prevScene (Ф3 router-o
     });
     // скоупа нет → прогон авторитетен, как обычный полный
     expect(B.authoritative).toBe(true);
+    // ОТКАЗ от авто-скоупа — это НЕ скоупленный прогон: убирать за ним нечего (P14)
+    expect(B.scoped).toBe(false);
   });
 
   it("сцена не изменилась: скоуп пуст → полный путь и кэш-хит по routeSig", async () => {
@@ -898,6 +903,7 @@ describe("инкрементальный скоуп по prevScene (Ф3 router-o
     // зеркальные прогоны перестали бы хитовать кэш и писаться в него (P11)
     expect(B.routeSig).toBe(A.routeSig);
     expect(B.authoritative).toBe(true);
+    expect(B.scoped).toBe(false);
   });
 
   it("скоуп ДРАГА сильнее авто-скоупа: при заданном scopeNodeIds дифф не считается", async () => {
@@ -919,6 +925,31 @@ describe("инкрементальный скоуп по prevScene (Ф3 router-o
     // снимок сцены на путь драга не влияет ВООБЩЕ (семантика E82 неприкосновенна)
     expect(sig(dragWithScene.layout)).toBe(sig(drag.layout));
     expect(dragWithScene.routeSig).toBe(drag.routeSig);
+  });
+
+  // ПОЛЕ scoped (Ф3-раунд 2 того же эпика, спека perf.md P14) — единственный вход
+  // фоновой уборки по бездействию: холст взводит таймер ИМЕННО по нему, а не по
+  // authoritative (тот false у пропуска P10, частичных замеров и ступени бюджета —
+  // за ними убирать нечем и незачем).
+  it("scoped: скоуп драга — true, обычный полный прогон — false (триггер P14)", async () => {
+    const A = await computeViewLayout(wideInput());
+    expect(A.scoped, "полный прогон без prev не скоуплен").toBe(false);
+    const drag = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: ["A1"],
+    });
+    expect(drag.scoped, "явный скоуп драга — скоупленный прогон").toBe(true);
+    // ПУСТОЙ список узлов скоупом не считается (scopeSet === null) — прогон полный
+    const empty = await computeViewLayout({
+      ...wideInput({ A1: { x: 500, y: -600 } }),
+      prevRoutes: A.layout.autoRoutes,
+      prevEdgeHandles: A.layout.edgeHandles,
+      scopeNodeIds: [],
+    });
+    expect(empty.scoped).toBe(false);
+    expect(empty.authoritative).toBe(true);
   });
 });
 // ЗАМОРОЗКА СКОУПА НЕПОДВИЖНА ДЛЯ СТАДИЙ (E84, компромисс 3). Плечо незаскоупленного

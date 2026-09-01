@@ -67,6 +67,7 @@ import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay
 import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/useLiveDragHandles";
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
+import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
 
 // --- Основной компонент ---
 
@@ -250,7 +251,7 @@ function LevelGraphInner({
   const runIdRef = useRef(0); // «последний выигрывает» для async-прогонов
   const lastSigRef = useRef<string | null>(null); // сигнатура последнего применённого
   const appliedResolveRef = useRef<(() => void) | null>(null); // ждун применения (flush)
-  const computeNowRef = useRef<() => Promise<"applied" | "skipped" | "stale">>(
+  const computeNowRef = useRef<(opts?: { cleanup?: boolean }) => Promise<"applied" | "skipped" | "stale">>(
     async () => "stale",
   );
   const gate = useMemo<LayoutGate>(() => ({
@@ -468,6 +469,10 @@ function LevelGraphInner({
   // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
   // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
   const [dragging, setDragging] = useState(false);
+  // Зеркало для СИНХРОННОГО чтения вне рендера (таймер фоновой уборки P14): стейт
+  // виден только следующему рендеру, а таймеру нужен факт «драг в полёте» сейчас.
+  const draggingRef = useRef(false);
+  useEffect(() => { draggingRef.current = dragging; });
 
   // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): их rect производен от
   // детей, перемещение содержимого = перемещение самих узлов. ЖИВОЙ bbox-follow
@@ -774,12 +779,30 @@ function LevelGraphInner({
     appliedResolveRef.current = null;
   }, [layout, isArchitect, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
 
+  // ФОНОВАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
+  // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
+  // холст тихо досчитывает ПОЛНЫЙ прогон (тот же computeNow, но без prev-полей) и
+  // подменяет им геометрию. Таймер живёт в хуке (чистая логика под тест), прогон —
+  // здесь: уборка обязана идти ШТАТНЫМ путём («последний выигрывает», запись кэша).
+  // «Занято» читаем СИНХРОННО: драг в полёте (draggingRef) или открытое тихое окно
+  // анимации (holdRef — в нём прогоны вообще откладываются) — уборка ждёт тишины.
+  const idleCleanup = useIdleCleanup({
+    run: () => { void computeNowRef.current({ cleanup: true }); },
+    isBusy: () => draggingRef.current || holdRef.current,
+  });
+
   // Один прогон конвейера раскладки (бывшее тело async-эффекта; Ф1 вынесла его в
   // колбэк, чтобы флаш тихого окна мог досчитать отложенное со СВЕЖИМИ пропсами).
   // «Последний выигрывает»: прогон, перегнанный более новым (runIdRef), не пишет
   // ничего — ни снапшота гистерезиса, ни персиста интентов, ни setLayout.
-  const computeNow = useCallback(async (): Promise<"applied" | "skipped" | "stale"> => {
+  const computeNow = useCallback(async (
+    // УБОРОЧНЫЙ ПРОГОН (P14): тот же путь, но вход строится БЕЗ prev-полей — иначе
+    // гистерезис удержал бы ровно ту грязь, ради которой уборка и затевалась.
+    opts?: { cleanup?: boolean },
+  ): Promise<"applied" | "skipped" | "stale"> => {
+    const cleanup = opts?.cleanup === true;
     const runId = ++runIdRef.current;
+    idleCleanup.noteRunStarted(); // любой новый прогон снимает взведённую уборку
     // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
     // нуля перед снятием сигнатуры): раскладка двухфазная (фолбэк-габариты → замер →
     // пере-прогон), и без явного сигнала снапшот ловил межфазное состояние.
@@ -797,15 +820,42 @@ function LevelGraphInner({
       const cacheKey = viewCacheKeyRef.current;
       // скоуп после драга: роутим только рёбра перетащенных узлов (обрывает каскад rip-up
       // и дрейф). Обнуляем СРАЗУ: прогон берёт скоуп ровно один раз, следующий — полный.
-      const scopeNodeIds = dragScopeRef.current ?? undefined;
-      dragScopeRef.current = null;
+      // Уборка скоуп НЕ ЧИТАЕТ И НЕ СЪЕДАЕТ: она полна по построению, а взведённый
+      // жестом скоуп обязан достаться прогону этого жеста.
+      const scopeNodeIds = cleanup ? undefined : (dragScopeRef.current ?? undefined);
+      if (!cleanup) dragScopeRef.current = null;
       // Словарь замеров ФИКСИРУЕМ до await: useLevelMeasure подменяет его целиком на
       // новом замере, а снимок сцены обязан описывать ровно то, что видел этот прогон.
       const sizesAtRun = nodeSizesRef.current;
+      // PREV-ПОЛЯ ВХОДА — ОДИН БИЛДЕР НА ВСЕ ПРОГОНЫ (P14): уборочный отличается ровно
+      // тем, что prev у него НЕТ ВООБЩЕ (null), — второго билдера входа не заводим, иначе
+      // они разъедутся. Почему без prev: гистерезис (E35) удержал бы ровно те грязные
+      // маршруты, ради которых уборка и затевалась, а снимок сцены включил бы
+      // авто-скоуп (E84) — уборка обязана сойтись к ХОЛОДНОМУ полному прогону.
+      // prev — свой снимок (тот же комплект замеров) ИЛИ персистный кэш вида, когда
+      // своего снимка нет/он от других замеров. Кэш даёт одно из двух: совпал
+      // routeSig — мгновенный результат без стадий качества; не совпал — обычная
+      // гистерезис-валидация (buildAutoRoutes сам отбрасывает невалидный prev).
+      // На SKIP-прогонах (P10) кэш тоже передаём: стадии там не идут, но кэш-хит по
+      // sig сильнее пропуска — сцена открывается сразу со стрелками, а не кадром
+      // smoothstep. Когда sig не совпал, prev в пропущенных стадиях просто не читается.
+      // СНИМОК ПРОШЛОЙ СЦЕНЫ — только вместе со СВОИМ prev (ветка sameSizes): конвейер
+      // диффует его с финальными позициями и роутит лишь окрестность изменений (E84).
+      // Персистный кэш вида снимка не несёт (в ветке !sameSizes prev приходит из него),
+      // поэтому там авто-скоуп не работает: либо кэш-хит по routeSig, либо честный
+      // полный прогон — оба варианта корректны, инкремента просто нет.
+      const prev = cleanup ? null : {
+        routes: sameSizes ? prevRoutesRef.current?.routes : cached?.routes,
+        handles: sameSizes ? prevRoutesRef.current?.handles : cached?.handles,
+        sig: sameSizes ? prevRoutesRef.current?.sig : cached?.sig,
+        labels: sameSizes ? prevRoutesRef.current?.labels : cached?.labels,
+        scene: sameSizes ? prevRoutesRef.current?.scene : undefined,
+        scope: sameSizes ? scopeNodeIds : undefined,
+      };
       // Ф3: счёт в Web Worker — главный поток на время прогона свободен (фолбэк
       // на прямой вызов модуля внутри клиента; «последний выигрывает» — runId ниже).
       const {
-        layout: next, liveInputs, intents, routeSig, authoritative, budgetDegraded,
+        layout: next, liveInputs, intents, routeSig, authoritative, scoped, budgetDegraded,
       } = await computeViewLayoutOffThread({
         nodes, endpoints, edges, containerId, viewLayout,
         ancestorIds: stableAncestorIds, expanded, localChildren,
@@ -818,26 +868,18 @@ function LevelGraphInner({
         // edgeQuality НЕ задаём — авто-режим конвейера (P10): прогоны с крупной
         // пачкой незамеренных узлов (первый показ, раскрытие с новыми детьми)
         // идут без стадий качества стрелок — их пересчитает прогон по замерам.
-        // prev — свой снимок (тот же комплект замеров) ИЛИ персистный кэш вида, когда
-        // своего снимка нет/он от других замеров. Кэш даёт одно из двух: совпал
-        // routeSig — мгновенный результат без стадий качества; не совпал — обычная
-        // гистерезис-валидация (buildAutoRoutes сам отбрасывает невалидный prev).
-        // На SKIP-прогонах (P10) кэш тоже передаём: стадии там не идут, но кэш-хит по
-        // sig сильнее пропуска — сцена открывается сразу со стрелками, а не кадром
-        // smoothstep. Когда sig не совпал, prev в пропущенных стадиях просто не читается.
-        prevRoutes: sameSizes ? prevRoutesRef.current?.routes : cached?.routes,
-        prevEdgeHandles: sameSizes ? prevRoutesRef.current?.handles : cached?.handles,
-        prevRouteSig: sameSizes ? prevRoutesRef.current?.sig : cached?.sig,
-        prevLabelPlacements: sameSizes ? prevRoutesRef.current?.labels : cached?.labels,
-        scopeNodeIds: sameSizes ? scopeNodeIds : undefined,
-        // СНИМОК ПРОШЛОЙ СЦЕНЫ — только вместе со СВОИМ prev (ветка sameSizes): конвейер
-        // диффует его с финальными позициями и роутит лишь окрестность изменений (E84).
-        // Персистный кэш вида снимка не несёт (в ветке !sameSizes prev приходит из него),
-        // поэтому там авто-скоуп не работает: либо кэш-хит по routeSig, либо честный
-        // полный прогон — оба варианта корректны, инкремента просто нет.
-        prevScene: sameSizes ? prevRoutesRef.current?.scene : undefined,
+        prevRoutes: prev?.routes,
+        prevEdgeHandles: prev?.handles,
+        prevRouteSig: prev?.sig,
+        prevLabelPlacements: prev?.labels,
+        scopeNodeIds: prev?.scope,
+        prevScene: prev?.scene,
       });
       if (runId !== runIdRef.current) return "stale"; // устаревший прогон: ничего не пишет
+      // УЧЁТ СКОУПНОЙ ГРЯЗИ (P14): скоупный прогон её создал, авторитетный — смыл.
+      // Отсюда взводится (и снимается) таймер фоновой уборки; уборочный прогон,
+      // не ставший авторитетным, повторной попытки не получает.
+      idleCleanup.noteRunFinished({ scoped, authoritative, cleanup });
       // СТУПЕНИ БЮДЖЕТА (P13): объявляем пользователю разовым тостом на вид — один на
       // вход в тяжёлый вид, а не на каждый пересчёт (механика P8). Гейт authoritative
       // уже не даст такому прогону попасть в кэш вида (P11), так что «тихая» ступень,
@@ -906,8 +948,10 @@ function LevelGraphInner({
     // работать с ОДНИМ снапшотом (layout). Иначе при реконнекте смена хэндла (async-
     // раскладка) и сброс изломов (sync-стейт) рассинхронятся: сборщик сработал бы со
     // старым layout → ребро прыгнуло бы на исходный хэндл.
+    // idleCleanup ссылочно стабилен (useMemo в хуке) — identity computeNow от него не
+    // дрожит, эффект раскладки не перезапускается.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nodeSizesRef — стабильный ref из useLevelMeasure (читается по .current), в deps не нужен
-  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly, idleCleanup]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
   // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).
