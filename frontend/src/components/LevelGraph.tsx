@@ -295,6 +295,10 @@ function LevelGraphInner({
   // же, как молчаливое отключение анимаций.
   const [budgetToastOpen, setBudgetToastOpen] = useState(false);
   const budgetToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  // Разовый совет о грязи стрелок на перегруженной сцене (P15) — только тем, кто
+  // может двигать узлы: совет «подёргайте узлы» наблюдателю невыполним.
+  const [dirtyToastOpen, setDirtyToastOpen] = useState(false);
+  const dirtyToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
   // Занятость конвейера (P4): счётчик прогонов в полёте; бейдж «Считаю
   // раскладку…» проявляется CSS-задержкой INDICATE_AFTER_MS=300мс (LevelGraph.css).
   const [computing, setComputing] = useState(0);
@@ -778,6 +782,16 @@ function LevelGraphInner({
         overloadToastShownRef.current.add(viewKey); // разовый тост на вид (P8)
         setOverloadToastOpen(true);
       }
+      // Разовый совет о грязи стрелок (P15, пожелание пользователя 2026-09-01):
+      // на перегруженной сцене холодная раскладка грубее, а выправляет её именно
+      // серия правок (скоуп E84 → невидимая уборка P14 → чистый гистерезис под
+      // следующим действием). Совет выполним только тому, кто может двигать узлы.
+      // Уборка сюда не доходит (setLayout не зовёт — apply не срабатывает), так
+      // что «сам всплывший» тост невозможен (аксиома P14).
+      if (isArchitect && canArrange && !dirtyToastShownRef.current.has(viewKey)) {
+        dirtyToastShownRef.current.add(viewKey);
+        setDirtyToastOpen(true);
+      }
     }
     // Применение состоялось — интенты раскрытий отражены на холсте, гвард
     // прокликивания (P5) отпускает накопленные id.
@@ -789,7 +803,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
+  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
 
   // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
   // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
@@ -1335,6 +1349,23 @@ function LevelGraphInner({
             className="lg-overload-close"
             onClick={() => setBudgetToastOpen(false)}
             aria-label="Закрыть предупреждение"
+          >✕</button>
+        </div>
+      )}
+      {/* Разовый совет о грязи стрелок на перегруженной сцене (P15): холодная
+          раскладка грубее, выправит её серия правок (невидимая уборка +
+          гистерезис, P14). Текст — пожелание пользователя 2026-09-01 дословно. */}
+      {dirtyToastOpen && (
+        <div className="lg-dirty-toast" role="status">
+          <span>
+            На вашей схеме очень много объектов, поэтому стрелки могут быть
+            расставлены неаккуратно. Подёргайте несколько узлов, и стрелки
+            выправятся сами.
+          </span>
+          <button
+            className="lg-overload-close"
+            onClick={() => setDirtyToastOpen(false)}
+            aria-label="Закрыть подсказку"
           >✕</button>
         </div>
       )}

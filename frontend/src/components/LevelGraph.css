@@ -649,3 +649,25 @@
   padding: 9px 12px 9px 14px;
   border-radius: 10px;
 }
+
+/* Разовый совет о грязи стрелок на перегруженной сцене (P15). Спокойный тон
+   (сланец, не янтарь предупреждений): это совет, а не тревога. Стопка тостов —
+   фиксированными ярусами, как у P8 (48px) и P13 (92px): совет — верхний ярус,
+   при закрытии нижних остаётся на месте (та же цена, что у пары P8/P13). */
+.lg-dirty-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 136px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100% - 32px));
+  background: rgba(30, 41, 59, 0.92);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.35;
+  padding: 9px 12px 9px 14px;
+  border-radius: 10px;
+}
