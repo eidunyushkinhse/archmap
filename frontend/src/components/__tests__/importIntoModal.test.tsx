@@ -9,7 +9,7 @@
 // Фикстуры типизированы схемами контракта (не any): разъедется контракт — поймает
 // tsc, а не глаз в проде. Поле current у кандидатов обязательно — по нему модалка
 // отличает «моё» от привозного.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ImportIntoModal from "../project/ImportIntoModal";
@@ -34,7 +34,7 @@ const СПОР: FamilyConflictOut = {
   key: "Оформление заказа",
   candidates: [
     {
-      origin: 0, origin_label: "текущий проект", summary: "12 строк",
+      origin: 0, origin_label: "Текущий проект", summary: "12 строк",
       body: "flowchart TD\n  A-->B", truncated: false, current: true,
     },
     {
@@ -131,12 +131,19 @@ describe("догрузка архива · превью и споры", () => {
     expect(screen.getByText(/Появятся:.*billing/)).toBeInTheDocument();
     expect(screen.getByText(/тёзка уже имеющегося/)).toBeInTheDocument();
 
-    // Спор виден, кандидат текущего проекта подписан явно…
+    // Спор виден, кандидат текущего проекта различим НАЧЕРТАНИЕМ: лейбл входа №0
+    // бэк фиксирует говорящим («Текущий проект»), текстовой приписки к нему нет.
     expect(screen.getByText("Споры содержимого (1)")).toBeInTheDocument();
-    expect(screen.getByText("— текущий проект")).toBeInTheDocument();
+    const моё = screen.getByRole("radio", { name: /Текущий проект · 12 строк/ });
+    const изАрхива = screen.getByRole("radio", { name: /b\.zip · 20 строк/ });
+    expect(within(моё.closest("label")!).getByText("Текущий проект"))
+      .toHaveStyle({ fontWeight: "700" });
+    expect(within(изАрхива.closest("label")!).getByText("b.zip"))
+      .toHaveStyle({ fontWeight: "600" });
+    expect(screen.queryByText(/— текущий проект/i)).not.toBeInTheDocument();
     // …и выбран по умолчанию: перетереть своё знание можно только руками.
-    expect(screen.getByRole("radio", { name: /текущий проект/ })).toBeChecked();
-    expect(screen.getByRole("radio", { name: /b\.zip · 20 строк/ })).not.toBeChecked();
+    expect(моё).toBeChecked();
+    expect(изАрхива).not.toBeChecked();
 
     // Файлы уехали в превью в том порядке, в каком их видит пользователь.
     const [id, files] = vi.mocked(projectsApi.importIntoPreview).mock.calls[0];
@@ -155,7 +162,7 @@ describe("догрузка архива · превью и споры", () => {
     expect(screen.getByRole("radio", { name: /b\.zip · 20 строк/ })).toBeChecked();
     // Обратное массовое действие снимает выбор — дефолт бэка и есть «моё».
     await userEvent.click(screen.getByRole("button", { name: "Везде оставить моё" }));
-    expect(screen.getByRole("radio", { name: /текущий проект/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Текущий проект/ })).toBeChecked();
     await userEvent.click(screen.getByRole("button", { name: "Везде взять из архивов" }));
 
     await userEvent.click(применить());

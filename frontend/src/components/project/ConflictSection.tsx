@@ -66,11 +66,11 @@ export default function ConflictSection({ conflicts, resolutions, onResolve }: P
                       onChange={() => onResolve(c.id, value)}
                     />
                     <span>
-                      <span style={{ fontWeight: 600 }}>{k.origin_label}</span>
-                      {/* Догрузка (Ф4): кандидат ЖИВОГО проекта подписан явно —
-                          origin_label у него говорящий, но перетереть своё знание
-                          по недосмотру нельзя, и метка надёжнее любой подписи. */}
-                      {k.current && <b style={mineStyle}> — текущий проект</b>}
+                      {/* Догрузка (Ф4): кандидат ЖИВОГО проекта отмечен НАЧЕРТАНИЕМ,
+                          а не текстом — лейбл входа №0 бэк фиксирует говорящим
+                          («Текущий проект»), и приписка к нему была бы дублем.
+                          Метка нужна, чтобы своё знание не перетёрли по недосмотру. */}
+                      <span style={k.current ? mineStyle : originStyle}>{k.origin_label}</span>
                       {" · "}
                       {k.summary}
                     </span>
@@ -116,8 +116,9 @@ const radioRow: CSSProperties = {
   display: "flex", alignItems: "baseline", gap: 8,
   fontSize: 12.5, color: "#334155", cursor: "pointer",
 };
-// Метка «моё» — тем же тёмным акцентом, что заголовок карточки: она обязана
-// читаться раньше имени файла, а не спорить с ним цветом.
+const originStyle: CSSProperties = { fontWeight: 600 };
+// Метка «моё» — начертанием: тем же тёмным акцентом, что заголовок карточки, чтобы
+// кандидат живого проекта читался раньше привозных, а не спорил с ними цветом.
 const mineStyle: CSSProperties = { fontWeight: 700, color: "#0f172a" };
 const detailsStyle: CSSProperties = { marginLeft: 22 };
 const summaryStyle: CSSProperties = { fontSize: 12, color: "#64748b", cursor: "pointer" };
