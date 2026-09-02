@@ -1,0 +1,400 @@
+// Модалка «Импорт проекта (zip)» — ДОГРУЗКА полных архивов знания к ЖИВОМУ
+// проекту (Ф4, docs/plan-unified-import.md). Кебаб «Действия со схемой» открывает
+// её на любой странице проекта.
+//
+// Отличие от создания проекта: там из архивов собирают проект с нуля, здесь схема
+// уже живёт — с раскладкой, схемами логики, спеками и ручными правками. Поэтому
+// центр окна не «что в архивах», а ДИФФ: сколько объектов и связей появится, какое
+// знание доедет и о чём придётся выбрать. Догрузка аддитивна: живая запись
+// перетирается ТОЛЬКО там, где пользователь явно выбрал кандидата из архива
+// (дефолт каждого спора — «оставить моё», его ставит бэк).
+//
+// YAML сюда не кладут принципиально: в существующий проект он заливается синком
+// («Импорт схемы» в том же меню) — там своя механика якорей и политик.
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import type { FamilyConflictOut, IntoApplyOut, IntoPreviewOut } from "../../types";
+import { projectsApi } from "../../api/projects";
+import { isConflict } from "../../api/client";
+import { plural } from "../../ui/plural";
+import { useFileDrop } from "../docsImport/useFileDrop";
+import { NoteList } from "../docsImport/agentModalReport";
+import {
+  head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
+} from "../docsImport/agentModalShared";
+import ConflictSection from "./ConflictSection";
+import Modal from "../../ui/Modal";
+import { CloseIcon } from "../../ui/icons";
+import { primaryBtn, secondaryBtn } from "../../ui/styles";
+
+interface Props {
+  projectId: string;
+  onClose: () => void;
+  /** Знание догружено — родитель показывает тост и перечитывает граф. */
+  onApplied: (message: string) => void;
+}
+
+// Устаревшее превью — не тупик: план пересчитывается сам, выбор пользователя цел.
+const STALE =
+  "Проект изменился — превью обновлено, проверьте и повторите.";
+
+/** Отказ самого превью показываем в той же форме, что и отказ разбора архива. */
+function failedPreview(msg: string): IntoPreviewOut {
+  return {
+    ok: false,
+    errors: [msg],
+    nodes_new: 0,
+    nodes_new_paths: [],
+    edges_new: 0,
+    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+    family_conflicts: [],
+    warnings: [],
+    base_graph_rev: 0,
+    base_meta_rev: 0,
+  };
+}
+
+/** Что приедет из архивов — только ненулевые семьи, иначе строка из одних нулей. */
+function familyLine(f: IntoPreviewOut["families"]): string | null {
+  const parts = [
+    f.docs && `${f.docs} ${plural(f.docs, ["схема логики", "схемы логики", "схем логики"])}`,
+    f.specs && `${f.specs} ${plural(f.specs, ["спека", "спеки", "спек"])}`,
+    f.tables && `${f.tables} ${plural(f.tables, ["таблица", "таблицы", "таблиц"])}`,
+    f.channels && `${f.channels} ${plural(f.channels, ["канал", "канала", "каналов"])}`,
+    f.params && `${f.params} ${plural(f.params, ["параметр", "параметра", "параметров"])}`,
+    f.processes && `${f.processes} ${plural(f.processes, ["процесс", "процесса", "процессов"])}`,
+  ].filter((s): s is string => typeof s === "string");
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** Строка тоста: тронутое, а не «сколько знания в проекте» (форма отчёта догрузки). */
+function applySummary(r: IntoApplyOut): string {
+  const parts = [
+    r.nodes_created && `${r.nodes_created} ${plural(r.nodes_created, ["объект", "объекта", "объектов"])}`,
+    r.edges_created && `${r.edges_created} ${plural(r.edges_created, ["связь", "связи", "связей"])}`,
+    r.docs_created && `${r.docs_created} ${plural(r.docs_created, ["схема логики", "схемы логики", "схем логики"])}`,
+    r.specs_applied && `${r.specs_applied} ${plural(r.specs_applied, ["спека", "спеки", "спек"])}`,
+    r.db?.tables_written && `${r.db.tables_written} ${plural(r.db.tables_written, ["таблица", "таблицы", "таблиц"])}`,
+    r.channels?.channels_written && `${r.channels.channels_written} ${plural(r.channels.channels_written, ["канал", "канала", "каналов"])}`,
+    r.config?.params_written && `${r.config.params_written} ${plural(r.config.params_written, ["параметр", "параметра", "параметров"])}`,
+    r.processes.length && `${r.processes.length} ${plural(r.processes.length, ["процесс", "процесса", "процессов"])}`,
+  ].filter((s): s is string => typeof s === "string");
+  return parts.length ? `Догружено: ${parts.join(", ")}` : "Догрузка завершена: нового не появилось";
+}
+
+/** Есть ли ради чего применять: хоть что-то новое или хоть один спор. */
+function brings(p: IntoPreviewOut): boolean {
+  return p.nodes_new > 0 || p.edges_new > 0
+    || familyLine(p.families) !== null || p.family_conflicts.length > 0;
+}
+
+/** Первый кандидат НЕ из текущего проекта — то, что берут массовым «из архивов». */
+const fromArchive = (c: FamilyConflictOut): number =>
+  c.candidates.findIndex((k) => !k.current);
+
+export default function ImportIntoModal({ projectId, onClose, onApplied }: Props) {
+  const [files, setFiles] = useState<File[]>([]);
+  // Превью привязано к составу файлов И к номеру перезапроса: устаревший ответ не
+  // показываем, а после 409 показ гаснет до прихода свежего плана.
+  const [preview, setPreview] = useState<
+    { forFiles: File[]; key: number; res: IntoPreviewOut } | null
+  >(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [resolutions, setResolutions] = useState<Record<string, string>>({});
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  // Отчёт применения показываем В ОКНЕ: замечания догрузки (промахи адресов,
+  // тёзки процессов) — видимая деградация, прятать их за закрытием нельзя.
+  const [result, setResult] = useState<IntoApplyOut | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const seqRef = useRef(0);
+
+  const addFiles = (list: ArrayLike<File> | null) => {
+    if (!list || list.length === 0) return;
+    setFiles((cur) => [...cur, ...Array.from(list)]);
+  };
+
+  const drop = useFileDrop({ accept: [".zip"], onFiles: addFiles });
+
+  // Превью БЕЗ дебаунса: состав файлов меняется редко (перетащили архив), а не
+  // посимвольно, как текст в редакторе. Устаревшие ответы отбрасывает seq —
+  // синхронного setState в эффекте нет (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (files.length === 0) return;
+    const seq = ++seqRef.current;
+    projectsApi.importIntoPreview(projectId, files).then(
+      (res) => { if (seq === seqRef.current) setPreview({ forFiles: files, key: reloadKey, res }); },
+      (e: unknown) => {
+        if (seq !== seqRef.current) return;
+        const msg = e instanceof Error ? e.message : "Не удалось проверить архивы";
+        setPreview({ forFiles: files, key: reloadKey, res: failedPreview(msg) });
+      },
+    );
+  }, [projectId, files, reloadKey]);
+
+  const fresh =
+    preview && preview.forFiles === files && preview.key === reloadKey ? preview.res : null;
+  const checking = files.length > 0 && fresh === null;
+  // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
+  // стабильность зависимых мемо ниже.
+  const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
+  // Резолюции ПЕРЕЖИВАЮТ перезапрос превью (в том числе после 409): id спора
+  // стабилен, пока состав входов и живое знание те же. Протухшие отбрасываем ПРИ
+  // РЕНДЕРЕ — паттерн «adjusting state when props change», а не зеркалящим эффектом.
+  if (fresh && Object.keys(resolutions).some((id) => !conflicts.some((c) => c.id === id))) {
+    setResolutions(Object.fromEntries(
+      Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
+    ));
+  }
+  // Массовые действия имеют смысл только там, где спорят С ЖИВЫМ: спор двух архивов
+  // между собой «моим» не разрешить.
+  const withMine = useMemo(() => conflicts.filter((c) => c.candidates.some((k) => k.current)), [conflicts]);
+
+  function resolveAll(mine: boolean) {
+    setResolutions((cur) => {
+      // «Везде оставить моё» — это дефолты бэка, и явные записи только мешают
+      // (после перезапроса дефолт может сместиться вместе с планом).
+      const next = Object.fromEntries(
+        Object.entries(cur).filter(([id]) => !withMine.some((c) => c.id === id)),
+      );
+      if (mine) return next;
+      for (const c of withMine) {
+        const i = fromArchive(c);
+        if (i >= 0) next[c.id] = `cand:${i}`;
+      }
+      return next;
+    });
+  }
+
+  function apply() {
+    if (!fresh?.ok || applying) return;
+    setApplying(true);
+    setApplyError(null);
+    projectsApi
+      .importIntoApply(projectId, files, {
+        resolutions,
+        baseGraphRev: fresh.base_graph_rev,
+        baseMetaRev: fresh.base_meta_rev,
+      })
+      .then((r) => setResult(r))
+      .catch((e: unknown) => {
+        // 409 — не тупик: проект уехал между превью и применением. Пересчитываем
+        // план и оставляем выбор пользователя (перезапрос СОБЫТИЙНЫЙ, из catch).
+        if (isConflict(e)) {
+          setApplyError(STALE);
+          setReloadKey((k) => k + 1);
+          return;
+        }
+        setApplyError(e instanceof Error ? e.message : "Не удалось выполнить догрузку");
+      })
+      .finally(() => setApplying(false));
+  }
+
+  // Применять нечего, когда архив ничего не добавляет и ни о чём не спорит (типовой
+  // случай: догрузили архив ЭТОГО же проекта) — кнопка гаснет, а дифф это объясняет.
+  const canApply = !!fresh?.ok && !applying && brings(fresh);
+
+  return (
+    <Modal
+      onClose={onClose}
+      closeButton={false}
+      boxStyle={{ width: 720, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}
+    >
+      <div style={head}>
+        <h3 style={{ margin: 0, fontSize: 16.5 }}>Импорт проекта из архива</h3>
+        <button className="modal-close" onClick={onClose} aria-label="Закрыть">
+          <CloseIcon />
+        </button>
+      </div>
+      <p style={sub}>
+        Догрузите к текущему проекту архив другого проекта — или сразу несколько. Схемы
+        смерджатся, вместе с ними приедут схемы логики, спеки, структуры баз и брокеров,
+        конфигурация и процессы. Живое знание не перетирается без вашего выбора, ничего не
+        удаляется, расположение объектов остаётся на месте. YAML от агента заливается в
+        существующий проект другим пунктом меню — «Импорт схемы».
+      </p>
+
+      {result ? (
+        <ApplyReport result={result} />
+      ) : (
+        <>
+          <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
+          <div style={chipsRow}>
+            {files.map((f, i) => (
+              <span key={f.name + i} style={chip}>
+                {/* Имя — подпись, а не кнопка: переключать в этом окне нечего
+                    (тело архива не правят), чипы служат только составом и снятием. */}
+                <span style={chipName} title={f.name}>{f.name}</span>
+                <button
+                  type="button"
+                  style={chipX}
+                  onClick={() => setFiles((cur) => cur.filter((_, k) => k !== i))}
+                  aria-label={`Убрать ${f.name}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {files.length > 0 && (
+              <button type="button" className="btn-soft" onClick={() => fileRef.current?.click()}>
+                Добавить архив…
+              </button>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept=".zip"
+              style={{ display: "none" }}
+              onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+            />
+          </div>
+
+          {files.length === 0 && (
+            <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
+              Перетащите сюда архивы .zip — те, что скачиваются пунктом «Экспорт проекта
+              (zip)», — или нажмите, чтобы выбрать их на диске.
+            </button>
+          )}
+          </div>
+          {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
+
+          {checking && <p style={{ ...grayLine, marginTop: 8 }}>Считаем, что приедет…</p>}
+          {fresh && !fresh.ok && (
+            <div style={errorBox}>
+              <div style={{ fontWeight: 600, marginBottom: 3 }}>Не получается прочитать архив:</div>
+              {fresh.errors.slice(0, 5).map((e, i) => (
+                <div key={i} style={{ marginTop: 2 }}>{e}</div>
+              ))}
+              {fresh.errors.length > 5 && (
+                <div style={{ marginTop: 2 }}>…ещё {fresh.errors.length - 5}</div>
+              )}
+            </div>
+          )}
+          {fresh?.ok && <Diff preview={fresh} />}
+
+          {conflicts.length > 0 && (
+            <>
+              <ConflictSection
+                conflicts={conflicts}
+                resolutions={resolutions}
+                onResolve={(id, choice) => setResolutions((cur) => ({ ...cur, [id]: choice }))}
+              />
+              {/* Массовые действия — под списком: сначала видно, о чём спор, потом
+                  «а можно всё разом». Спорам без живого кандидата они не касаются. */}
+              {withMine.length > 0 && (
+                <div style={bulkRow}>
+                  <button type="button" className="btn-soft" onClick={() => resolveAll(true)}>
+                    Везде оставить моё
+                  </button>
+                  <button type="button" className="btn-soft" onClick={() => resolveAll(false)}>
+                    Везде взять из архивов
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+          {applyError && (
+            <p style={{ ...grayLine, color: "#b45309", marginTop: 8 }}>{applyError}</p>
+          )}
+        </>
+      )}
+
+      <div style={footRow}>
+        {result ? (
+          <button
+            type="button"
+            style={primaryBtn}
+            onClick={() => { onApplied(applySummary(result)); onClose(); }}
+          >
+            Готово
+          </button>
+        ) : (
+          <>
+            <button type="button" style={secondaryBtn} onClick={onClose}>
+              Отмена
+            </button>
+            <button type="button" style={primaryBtn} onClick={apply} disabled={!canApply}>
+              {applying ? "Догружаем…" : "Применить"}
+            </button>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// Дифф превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов.
+function Diff({ preview }: { preview: IntoPreviewOut }) {
+  const families = familyLine(preview.families);
+  const paths = preview.nodes_new_paths;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
+        Нового: {preview.nodes_new} {plural(preview.nodes_new, ["объект", "объекта", "объектов"])}
+        {" · "}
+        {preview.edges_new} {plural(preview.edges_new, ["связь", "связи", "связей"])}
+      </div>
+      {families && <div style={{ ...grayLine, marginTop: 3 }}>Приедет: {families}</div>}
+      {paths.length > 0 && (
+        <div style={{ ...grayLine, marginTop: 3 }}>
+          Появятся: {paths.join(", ")}
+          {preview.nodes_new > paths.length ? ", …" : ""}
+        </div>
+      )}
+      {preview.warnings.length > 0 && <NoteList title="Проверьте" items={preview.warnings} />}
+    </div>
+  );
+}
+
+// Отчёт применения: «сколько записей тронуто» (форма догрузки), отчёты семей —
+// родные. Замечания видны до закрытия окна.
+function ApplyReport({ result }: { result: IntoApplyOut }) {
+  const linked = result.processes.reduce((s, p) => s + p.doc_linked, 0);
+  const unresolved = result.processes.reduce((s, p) => s + p.doc_unresolved, 0);
+  return (
+    <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
+        Архивы догружены
+      </div>
+      <div>
+        Создано объектов: {result.nodes_created} · связей: {result.edges_created}
+        {result.nodes_filled > 0 && ` · дополнено объектов: ${result.nodes_filled}`}
+      </div>
+      <div>
+        Схем логики: {result.docs_created}
+        {result.docs_replaced > 0 && ` · заменено: ${result.docs_replaced}`}
+        {" · спек: "}{result.specs_applied}
+      </div>
+      {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
+      {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
+      {result.config && (
+        <div>
+          Параметров конфигурации: {result.config.params_written}
+          {result.params_replaced > 0 && ` · заменено: ${result.params_replaced}`}
+        </div>
+      )}
+      {result.processes.length > 0 && (
+        <div>
+          Процессов: {result.processes.length} · привязок шагов: {linked}
+          {unresolved > 0 && (
+            <span style={{ color: "#b45309" }}> · не разрешилось: {unresolved}</span>
+          )}
+        </div>
+      )}
+      {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}
+      {result.resolved_conflicts > 0 && (
+        <div>Разрешено споров содержимого: {result.resolved_conflicts}</div>
+      )}
+      {result.warnings.length > 0 && <NoteList title="Замечания" items={result.warnings} />}
+    </div>
+  );
+}
+
+// Подпись архива в чипе: та же типографика, что у кнопки-чипа соседних окон,
+// но без интерактивных свойств.
+const chipName: CSSProperties = {
+  ...chipBtn, cursor: "default", display: "inline-block", maxWidth: 200,
+};
+const errorBox: CSSProperties = { marginTop: 8, fontSize: 13, color: "#dc2626" };
+const bulkRow: CSSProperties = { display: "flex", gap: 8, marginTop: 8 };

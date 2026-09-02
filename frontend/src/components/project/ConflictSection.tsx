@@ -7,6 +7,11 @@ import type { FamilyConflictOut } from "../../types";
  * параметр-тёзка с другим дефолтом. Байт-в-байт равные тела бэк дедуплицирует
  * молча, сюда приезжает только то, что рассудить может человек.
  *
+ * Та же секция обслуживает ДОГРУЗКУ к живому проекту (Ф4): там одним из кандидатов
+ * бывает само живое знание (current), и дефолт спора бэк ставит на него —
+ * «оставить моё». Массовые действия («везде моё» / «везде из архивов») живут
+ * снаружи: они про сценарий догрузки, а не про сам спор.
+ *
  * Секция ничего не решает сама: выбор поднимается наверх (resolutions), в
  * применение он уезжает словарём «id спора → выбор». Предвыбор — дефолт бэка
  * (доки — «взять все», скаляры — первый кандидат), поэтому пользователь может не
@@ -61,7 +66,13 @@ export default function ConflictSection({ conflicts, resolutions, onResolve }: P
                       onChange={() => onResolve(c.id, value)}
                     />
                     <span>
-                      <span style={{ fontWeight: 600 }}>{k.origin_label}</span> · {k.summary}
+                      <span style={{ fontWeight: 600 }}>{k.origin_label}</span>
+                      {/* Догрузка (Ф4): кандидат ЖИВОГО проекта подписан явно —
+                          origin_label у него говорящий, но перетереть своё знание
+                          по недосмотру нельзя, и метка надёжнее любой подписи. */}
+                      {k.current && <b style={mineStyle}> — текущий проект</b>}
+                      {" · "}
+                      {k.summary}
                     </span>
                   </label>
                   <details style={detailsStyle}>
@@ -105,6 +116,9 @@ const radioRow: CSSProperties = {
   display: "flex", alignItems: "baseline", gap: 8,
   fontSize: 12.5, color: "#334155", cursor: "pointer",
 };
+// Метка «моё» — тем же тёмным акцентом, что заголовок карточки: она обязана
+// читаться раньше имени файла, а не спорить с ним цветом.
+const mineStyle: CSSProperties = { fontWeight: 700, color: "#0f172a" };
 const detailsStyle: CSSProperties = { marginLeft: 22 };
 const summaryStyle: CSSProperties = { fontSize: 12, color: "#64748b", cursor: "pointer" };
 const bodyStyle: CSSProperties = {
