@@ -6,6 +6,7 @@
 НЕ скоупят через X-Project-Id — они оперируют самими проектами.
 """
 
+import json
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -61,6 +62,7 @@ from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
+from app.unified_apply import apply_unified_plan
 from app.unified_import import UnifiedImportError, build_unified_plan, preview_from_plan
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -358,6 +360,51 @@ async def import_unified_preview(
     except UnifiedImportError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return preview_from_plan(plan)
+
+
+@router.post(
+    "/import-unified", response_model=ArchiveImportResult, status_code=status.HTTP_201_CREATED
+)
+async def import_project_unified(
+    files: list[UploadFile] = File(default=[]),
+    name: str | None = Form(default=None),
+    description: str | None = Form(default=None),
+    resolutions: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_architect),
+) -> ArchiveImportResult:
+    """Создать НОВЫЙ проект из N входов ЛЮБОГО типа (Ф2а, docs/plan-unified-import.md).
+
+    Протокол стейтлесс: план считается заново по тем же файлам (мердж
+    детерминирован), а решения пользователя приезжают словарём «id спора → выбор»
+    JSON-объектом в поле resolutions. Резолюция не из плана — 400 «превью
+    устарело»: молча применить «не то» хуже, чем попросить пересобрать превью.
+
+    Имя и описание берутся из полей; при ЕДИНСТВЕННОМ входе-архиве их можно не
+    передавать — тогда они приедут из манифеста (П3)."""
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    try:
+        chosen = json.loads(resolutions) if resolutions else {}
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400, detail="Поле resolutions не разбирается как JSON"
+        ) from e
+    if not isinstance(chosen, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in chosen.items()
+    ):
+        raise HTTPException(
+            status_code=400, detail="Поле resolutions должно быть объектом «id спора → выбор»"
+        )
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        plan = build_unified_plan(inputs)
+        _, result = apply_unified_plan(db, plan, chosen, name, description, user.id)
+    except UnifiedImportError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    db.commit()
+    return result
 
 
 @router.post("/{project_id}/sync/preview", response_model=SyncPreviewOut)

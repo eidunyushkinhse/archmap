@@ -99,6 +99,7 @@ class FamilyItem:
     origin: int  # индекс входа
     origin_label: str
     value: FamilyValue
+    fname: str = ""  # файл-источник вклада: им зовут синтетический файл применения
 
 
 @dataclass
@@ -111,6 +112,7 @@ class FamilyCandidate:
     body: str
     truncated: bool
     value: FamilyValue  # полезная нагрузка для применения (Ф2), в схему не едет
+    fname: str = ""  # файл-источник вклада (в схему не едет, нужен применению)
 
 
 @dataclass
@@ -166,7 +168,11 @@ class UnifiedPlan:
     errors: list[str]
     report: MergeReport
     merged: ParsedImport | None = None
-    node_paths: list[str] = field(default_factory=list)
+    node_paths: list[str] = field(default_factory=list)  # пути узлов СЛИТОГО дерева
+    # Пути узлов КАЖДОГО входа в его СОБСТВЕННОЙ системе координат (порядок входов).
+    # Нужны применению (Ф2а): адрес «%% archmap-doc: путь / имя» в тексте процесса
+    # входа K написан путями архива K, а в новом проекте узел может лежать иначе.
+    origin_paths: list[list[str]] = field(default_factory=list)
     items: list[FamilyItem] = field(default_factory=list)
     conflicts: list[FamilyConflict] = field(default_factory=list)
     processes: list[ProcessItem] = field(default_factory=list)
@@ -612,6 +618,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
         report=report,
         merged=merged,
         node_paths=node_paths,
+        origin_paths=[_paths(p) for p in parts],
         items=items,
         conflicts=conflicts,
         processes=processes,
@@ -694,7 +701,7 @@ def _resolve_families(
         if len(distinct) == 1:
             items.append(FamilyItem(family=family, node_idx=node_idx, key=first.key_str,
                                     origin=first.origin, origin_label=first.label,
-                                    value=first.value))
+                                    value=first.value, fname=first.fname))
             _bump(counts, family, 1)
             continue
         conflicts.append(FamilyConflict(
@@ -722,6 +729,7 @@ def _candidate(raw: _Raw) -> FamilyCandidate:
         body=body[:MAX_BODY],
         truncated=len(body) > MAX_BODY,
         value=raw.value,
+        fname=raw.fname,
     )
 
 

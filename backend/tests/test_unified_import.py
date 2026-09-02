@@ -9,16 +9,33 @@
 """
 
 import io
+import json
 import uuid
 import zipfile
+from dataclasses import asdict
 
 import pytest
 import yaml
+from conftest import ensure_architect
 from fastapi.testclient import TestClient
 
+from app.archive_import import import_archive
 from app.auth import require_architect
+from app.data_import import parse_data_file
+from app.database import get_db
 from app.main import app
+from app.models.broker_channel import BrokerChannel
+from app.models.business_process import BusinessProcess
+from app.models.config_param import ConfigParam
+from app.models.db_table import DbTable
+from app.models.edge import Edge
+from app.models.node import Node
+from app.models.node_doc import NodeDoc
+from app.models.process_message import ProcessMessage
+from app.models.project import Project
 from app.models.user import User
+from app.processes import node_path
+from app.unified_apply import _synthetic_files, _winners, apply_unified_plan
 from app.unified_import import (
     MAX_INPUTS,
     DocIn,
@@ -27,6 +44,7 @@ from app.unified_import import (
 )
 
 РУЧКА = "/api/v1/projects/import/unified-preview"
+ПРИМЕНЕНИЕ = "/api/v1/projects/import-unified"
 
 # ── Строители входов ─────────────────────────────────────────────────────────
 
@@ -658,3 +676,456 @@ def test_эндпоинт_пустого_запроса_и_превышения_
     много = _post(клиент, *[(f"{i}.yaml", C4_ЯРМАРКА.encode()) for i in range(MAX_INPUTS + 1)])
     assert много.status_code == 400
     assert str(MAX_INPUTS) in много.json()["detail"]
+
+
+# ── 9. Применение плана: новый проект из N входов (Ф2а) ──────────────────────
+
+C4_ПОЛНЫЙ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        technology: Python
+      - name: Каталог-БД
+        shape: database
+      - name: Kafka
+        shape: broker
+edges:
+  - from: Ярмарка / orders
+    to: Ярмарка / Kafka
+    channel: orders.created
+    sync: false
+"""
+
+ПРОЦЕСС = """sequenceDiagram
+    participant orders
+    participant Каталог-БД
+    %% archmap-doc: Ярмарка / orders / POST /orders
+    orders->>Каталог-БД: положить заказ
+    Каталог-БД-->>orders: ок
+"""
+
+
+def _таблицы_с_ссылкой(node: str) -> str:
+    """Две таблицы: вторая ссылается на первую — так проверяется, что ссылка
+    доезжает до references_column_id (резолвит её родной приёмник, не мы)."""
+    return (
+        f"# archmap-node: {node}\n"
+        "tables:\n"
+        "- name: customers\n"
+        "  schema: public\n"
+        "  description: покупатели\n"
+        "  columns:\n"
+        "  - name: id\n"
+        "    type: uuid\n"
+        "    pk: true\n"
+        "    required: true\n"
+        "- name: orders\n"
+        "  schema: public\n"
+        "  description: заказы\n"
+        "  columns:\n"
+        "  - name: id\n"
+        "    type: uuid\n"
+        "    pk: true\n"
+        "  - name: customer_id\n"
+        "    type: uuid\n"
+        "    required: true\n"
+        "    references: customers.id\n"
+        "    description: покупатель\n"
+    )
+
+
+def _полный_архив(имя: str = "Ярмарка v2") -> bytes:
+    """Архив со ВСЕМИ категориями знания: C4 со связью-каналом, схемы логики
+    (включая заглушку), спека, таблицы со ссылкой, канал, параметр, процесс с
+    привязкой шага."""
+    return _архив(
+        name=имя,
+        description="полигон единого ввоза",
+        c4=C4_ПОЛНЫЙ,
+        docs=(
+            ("docs/001-orders.mmd", _док("Ярмарка / orders", "POST /orders",
+                                         "graph TD\n  A --> B\n", "POST /orders")),
+            ("docs/002-health.mmd", _док("Ярмарка / orders", "GET /health", "")),
+        ),
+        db=(("db/001-katalog.yaml", _таблицы_с_ссылкой("Ярмарка / Каталог-БД")),),
+        channels=(("channels/001-kafka.yaml", _канал("Ярмарка / Kafka", "at-least-once")),),
+        config=(("config/001-orders.yaml", _конфиг("Ярмарка / orders", "5000")),),
+        specs=(("specs/001-orders.yaml", _спека("Ярмарка / orders", "Orders API")),),
+        processes=(("processes/001-oformlenie.mmd", "Оформление", ПРОЦЕСС),),
+    )
+
+
+def _снимок(db, project_id) -> dict:
+    """СОДЕРЖИМОЕ проекта в сравнимом виде: id и время выкинуты, ссылки развёрнуты
+    в человеческие адреса. Два пути ввоза обязаны давать один снимок."""
+    узлы = db.query(Node).filter(Node.project_id == project_id).all()
+    все = {n.id: n for n in узлы}
+    путь = {n.id: node_path(все, n.id) for n in узлы}
+
+    таблицы = db.query(DbTable).join(Node, Node.id == DbTable.node_id).filter(
+        Node.project_id == project_id).all()
+    колонка_по_id = {c.id: f"{t.name}.{c.name}" for t in таблицы for c in t.columns}
+    каналы = db.query(BrokerChannel).join(Node, Node.id == BrokerChannel.node_id).filter(
+        Node.project_id == project_id).all()
+    доки = db.query(NodeDoc).join(Node, Node.id == NodeDoc.node_id).filter(
+        Node.project_id == project_id).all()
+    док_по_id = {d.id: f"{путь[d.node_id]} / {d.name}" for d in доки}
+    процессы = db.query(BusinessProcess).filter(
+        BusinessProcess.project_id == project_id).all()
+
+    return {
+        "узлы": sorted(
+            (путь[n.id], n.role, n.technology, n.shape, n.status, n.is_external,
+             n.source_ref, n.description, n.openapi_spec)
+            for n in узлы
+        ),
+        "связи": sorted(
+            (путь[e.source_id], путь[e.target_id], e.label, e.technology, e.channel,
+             e.is_synchronous)
+            for e in db.query(Edge).filter(Edge.project_id == project_id).all()
+        ),
+        "доки": sorted(
+            (путь[d.node_id], d.name, d.kind, d.operation, d.content) for d in доки
+        ),
+        "таблицы": sorted(
+            (путь[t.node_id], t.schema_name, t.name, t.description,
+             tuple(sorted(
+                 (c.name, c.type, c.is_primary_key, c.nullable, c.description,
+                  колонка_по_id.get(c.references_column_id))
+                 for c in t.columns
+             )))
+            for t in таблицы
+        ),
+        "каналы": sorted(
+            (путь[c.node_id], c.group_name, c.name, c.kind, c.partition_key, c.delivery,
+             c.retention, c.description,
+             tuple(sorted((f.name, f.type, f.required, f.description) for f in c.fields)))
+            for c in каналы
+        ),
+        "параметры": sorted(
+            (путь[p.node_id], p.name, p.value_type, p.required, p.default_value, p.description)
+            for p in db.query(ConfigParam).join(Node, Node.id == ConfigParam.node_id).filter(
+                Node.project_id == project_id).all()
+        ),
+        "процессы": sorted(
+            (
+                proc.name,
+                tuple((p.order, p.name, путь.get(p.node_id) if p.node_id else None)
+                      for p in sorted(proc.participants, key=lambda p: p.order)),
+                tuple((m.order, m.leg, m.caption, док_по_id.get(m.doc_id),
+                       m.edge_id is not None)
+                      for m in sorted(proc.messages, key=lambda m: m.order)),
+            )
+            for proc in процессы
+        ),
+    }
+
+
+def test_единый_импорт_одного_архива_равен_старому_импорту(db):
+    """Мост до Ф2б: пока фронт сидит на /import-archive, новый путь обязан давать
+    ТО ЖЕ содержимое. Расхождение снимков — регресс одного из двух путей."""
+    архив = _полный_архив()
+    архитектор = ensure_architect(db).id
+
+    старый, отчёт_старого = import_archive(db, архив, None, архитектор)
+    db.flush()
+    план = build_unified_plan([("archive.zip", архив)])
+    новый, отчёт = apply_unified_plan(db, план, {}, None, None, архитектор)
+    db.commit()
+
+    assert план.ok and план.conflicts == []
+    assert _снимок(db, старый.id) == _снимок(db, новый.id)
+    # Имя и описание — из манифеста (единственный вход, П3), как у старого пути.
+    assert (новый.name, новый.description) == (старый.name, старый.description)
+    # Отчёт — тот же формат и те же числа (ArchiveImportResult, вторых не заводим).
+    assert (отчёт.nodes, отчёт.edges) == (отчёт_старого.nodes, отчёт_старого.edges)
+    assert (отчёт.docs_created, отчёт.specs_applied) == (2, 1)
+    assert отчёт.db is not None and отчёт.db.tables_written == 2
+    assert отчёт.channels is not None and отчёт.channels.channels_written == 1
+    assert отчёт.config is not None and отчёт.config.params_written == 1
+    assert отчёт.warnings == [] and отчёт.resolved_conflicts == 0
+    [итог] = отчёт.processes
+    assert (итог.messages, итог.doc_linked, итог.doc_unresolved) == (2, 1, 0)
+
+
+def test_круговой_прогон_вклада_таблицы_через_синтетический_файл(db):
+    """Вклад → синтетический YAML → родной парсер → вклад: применение НЕ пишет
+    таблицы моделями, а собирает файлы ввозного формата, и потеря поля здесь
+    молча обрезала бы знание."""
+    архив = _архив(c4=C4_ПОЛНЫЙ, db=(("db/001-k.yaml", _таблицы_с_ссылкой("Ярмарка / Каталог-БД")),))
+    план = build_unified_plan([("a.zip", архив)])
+    победители = _winners(план, {})
+
+    [(имя_файла, текст)] = _synthetic_files("table", победители, план.node_paths)
+
+    assert имя_файла == "db/001-k.yaml"  # человек увидит его в замечаниях приёмника
+    assert текст.startswith("# archmap-node: Ярмарка / Каталог-БД\n")
+    разобрано = parse_data_file(текст)
+    assert разобрано is not None and разобрано.node_ref == "Ярмарка / Каталог-БД"
+    assert [asdict(t) for t in разобрано.tables] == [
+        asdict(w.value) for w in победители if w.family == "table"
+    ]
+
+
+def test_применение_с_дефолтами_разводит_тёзок_и_берёт_первого(db):
+    a = _архив(
+        name="A",
+        docs=(("docs/001-a.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  A\n")),),
+        config=(("config/001.yaml", _конфиг("Ярмарка / orders", "5000")),),
+        specs=(("specs/001.yaml", _спека("Ярмарка / orders", "A API")),),
+    )
+    b = _архив(
+        name="B",
+        c4=C4_ЯРМАРКА_2,
+        docs=(("docs/001-b.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  B\n")),),
+        config=(("config/001.yaml", _конфиг("Ярмарка / orders", "9000")),),
+        specs=(("specs/001.yaml", _спека("Ярмарка / orders", "B API")),),
+    )
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Слитая ярмарка", None, ensure_architect(db).id)
+    db.commit()
+
+    assert проект.name == "Слитая ярмарка" and отчёт.resolved_conflicts == 3
+    orders = db.query(Node).filter(Node.project_id == проект.id, Node.name == "orders").one()
+    # Доки: дефолт спора — «взять все», тёзке достаётся суффикс « (2)».
+    доки = {d.name: d.content for d in db.query(NodeDoc).filter(NodeDoc.node_id == orders.id)}
+    assert доки == {"POST /orders": "graph TD\n  A\n", "POST /orders (2)": "graph TD\n  B\n"}
+    assert отчёт.docs_created == 2
+    # Скаляры: брать всё некуда — едет первый кандидат (порядок входов значим).
+    assert "A API" in (orders.openapi_spec or "")
+    [параметр] = db.query(ConfigParam).filter(ConfigParam.node_id == orders.id).all()
+    assert параметр.default_value == "5000"
+
+
+def test_применение_с_явными_резолюциями_берёт_выбранное(db):
+    a = _архив(
+        name="A",
+        docs=(("docs/001-a.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  A\n")),),
+        specs=(("specs/001.yaml", _спека("Ярмарка / orders", "A API")),),
+    )
+    b = _архив(
+        name="B",
+        c4=C4_ЯРМАРКА_2,
+        docs=(("docs/001-b.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  B\n")),),
+        specs=(("specs/001.yaml", _спека("Ярмарка / orders", "B API")),),
+    )
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+    выбор = {
+        "doc|Ярмарка / orders|POST /orders": "cand:1",
+        "spec|Ярмарка / orders|openapi": "cand:1",
+    }
+
+    проект, отчёт = apply_unified_plan(db, план, выбор, "Выбор", None, ensure_architect(db).id)
+    db.commit()
+
+    orders = db.query(Node).filter(Node.project_id == проект.id, Node.name == "orders").one()
+    # Выбран второй кандидат — он ОДИН и под ИСХОДНЫМ именем, суффикса нет.
+    доки = {d.name: d.content for d in db.query(NodeDoc).filter(NodeDoc.node_id == orders.id)}
+    assert доки == {"POST /orders": "graph TD\n  B\n"} and отчёт.docs_created == 1
+    assert "B API" in (orders.openapi_spec or "")
+
+
+ПРОЦЕСС_B = (
+    "sequenceDiagram\n"
+    "    participant orders\n"
+    "    %% archmap-doc: Ярмарка v2 / orders / POST /orders\n"
+    "    orders->>orders: обработать\n"
+)
+
+
+def _архивы_с_якорем() -> tuple[bytes, bytes]:
+    """Два архива одного сервиса с ОДНИМ якорем source, но разной иерархией: узлы
+    склеятся якорем (он сильнее иерархии), и путь узла в проекте станет не тем, что
+    в архиве B. На такой паре видно обе части переписывания адреса — и путь, и имя."""
+    c4 = (
+        "nodes:\n"
+        "  - name: {root}\n"
+        "    children:\n"
+        "      - name: orders\n"
+        "        source:\n"
+        "          repo: github.com/shop/orders\n"
+    )
+    a = _архив(
+        name="A",
+        c4=c4.format(root="Ярмарка"),
+        docs=(("docs/001-a.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  A\n")),),
+    )
+    b = _архив(
+        name="B",
+        c4=c4.format(root="Ярмарка v2"),
+        docs=(("docs/001-b.mmd", _док("Ярмарка v2 / orders", "POST /orders",
+                                      "graph TD\n  B\n")),),
+        processes=(("processes/001.mmd", "Обработка", ПРОЦЕСС_B),),
+    )
+    return a, b
+
+
+def test_привязка_процесса_переезжает_на_свой_узел_и_имя(db):
+    """Адрес шага входа-2 написан ЕГО координатами: путь узла свой, имя схемы своё.
+    В проекте узел лежит по пути входа-1 (склейка якорем), а тёзке-схеме достался
+    суффикс — привязка обязана переехать, иначе шаг тихо потеряет схему."""
+    a, b = _архивы_с_якорем()
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+    assert план.node_paths[:2] == ["Ярмарка", "Ярмарка / orders"]
+
+    проект, отчёт = apply_unified_plan(db, план, {}, "Слияние", None, ensure_architect(db).id)
+    db.commit()
+
+    [итог] = отчёт.processes
+    assert (итог.doc_linked, итог.doc_unresolved) == (1, 0)
+    [шаг] = db.query(ProcessMessage).filter(
+        ProcessMessage.process_id == итог.process_id).all()
+    привязка = db.query(NodeDoc).filter(NodeDoc.id == шаг.doc_id).one()
+    # Шаг привёз тело СВОЕГО архива — под именем, которое ему досталось при разводе.
+    assert (привязка.name, привязка.content) == ("POST /orders (2)", "graph TD\n  B\n")
+    assert node_path(
+        {n.id: n for n in db.query(Node).filter(Node.project_id == проект.id)},
+        привязка.node_id,
+    ) == "Ярмарка / orders"
+
+
+def test_проигравшая_дока_оставляет_шаг_без_привязки(db):
+    """Резолюция «cand:0» — тела входа-2 в проекте нет. Адрес его процесса НЕ
+    переписывается: шаг честно едет без привязки, а не цепляется к чужому телу."""
+    a, b = _архивы_с_якорем()
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+    спор = next(c for c in план.conflicts if c.family == "doc")
+
+    _, отчёт = apply_unified_plan(
+        db, план, {спор.id: "cand:0"}, "Слияние", None, ensure_architect(db).id)
+    db.commit()
+
+    [итог] = отчёт.processes
+    assert (итог.doc_linked, итог.doc_unresolved) == (0, 1)
+    [шаг] = db.query(ProcessMessage).filter(
+        ProcessMessage.process_id == итог.process_id).all()
+    assert шаг.doc_id is None
+
+
+def test_тёзки_процессов_разводятся_суффиксом_и_замечанием(db):
+    процесс = "sequenceDiagram\n    participant orders\n    orders->>orders: шаг\n"
+    a = _архив(name="A", processes=(("processes/001.mmd", "Оформление", процесс),))
+    b = _архив(name="B", c4=C4_ЯРМАРКА_2,
+               processes=(("processes/001.mmd", "Оформление", процесс),))
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+
+    проект, отчёт = apply_unified_plan(db, план, {}, "Оба", None, ensure_architect(db).id)
+    db.commit()
+
+    имена = sorted(p.name for p in db.query(BusinessProcess).filter(
+        BusinessProcess.project_id == проект.id))
+    assert имена == ["Оформление", "Оформление (2)"]
+    assert any("«Оформление (2)»" in w for w in отчёт.warnings)
+
+
+def test_имя_из_манифеста_у_одиночного_архива(db):
+    план = build_unified_plan([("a.zip", _архив(name="Ярмарка v2", description="полигон"))])
+
+    проект, _ = apply_unified_plan(db, план, {}, None, None, ensure_architect(db).id)
+    db.commit()
+
+    assert (проект.name, проект.description) == ("Ярмарка v2", "полигон")
+
+
+def test_применение_отвергает_кривые_резолюции_и_пустое_имя(db):
+    a = _архив(
+        name="A",
+        docs=(("docs/001-a.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  A\n")),),
+        specs=(("specs/001.yaml", _спека("Ярмарка / orders", "A API")),),
+    )
+    b = _архив(
+        name="B", c4=C4_ЯРМАРКА_2,
+        docs=(("docs/001-b.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  B\n")),),
+        specs=(("specs/001.yaml", _спека("Ярмарка / orders", "B API")),),
+    )
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+    юзер = ensure_architect(db).id
+    было = db.query(Project).count()
+
+    # Резолюция к спору, которого в плане нет — превью устарело.
+    with pytest.raises(UnifiedImportError, match="несуществующему спору"):
+        apply_unified_plan(db, план, {"doc|Нет узла|Схема": "cand:0"}, "П", None, юзер)
+    # «Взять все» у скаляра: спеке брать всё некуда.
+    with pytest.raises(UnifiedImportError, match="взять все"):
+        apply_unified_plan(db, план, {"spec|Ярмарка / orders|openapi": "all"}, "П", None, юзер)
+    # Кандидата с таким номером нет.
+    with pytest.raises(UnifiedImportError, match="всего 2"):
+        apply_unified_plan(
+            db, план, {"doc|Ярмарка / orders|POST /orders": "cand:9"}, "П", None, юзер)
+    # Два входа — имя спрашиваем полем, и пустым оно быть не может (П3).
+    with pytest.raises(UnifiedImportError, match="имя проекта"):
+        apply_unified_plan(db, план, {}, "   ", None, юзер)
+    assert db.query(Project).count() == было  # ни один отказ не оставил проекта
+
+
+def test_непригодный_план_не_применяется(db):
+    план = build_unified_plan([("bad.zip", b"PK\x03\x04" + "мусор".encode())])
+
+    assert план.ok is False
+    with pytest.raises(UnifiedImportError, match="непригоден"):
+        apply_unified_plan(db, план, {}, "П", None, ensure_architect(db).id)
+
+
+# ── 10. Эндпоинт применения ──────────────────────────────────────────────────
+
+
+@pytest.fixture()
+def клиент_с_бд(db):
+    """Клиент с настоящей БД: применение пишет, и форму multipart с текстовыми
+    полями (имя, описание, JSON резолюций) видно только настоящим запросом."""
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[require_architect] = lambda: ensure_architect(db)
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_эндпоинт_применения_создаёт_проект_по_резолюциям(клиент_с_бд, db):
+    a = _архив(
+        name="A",
+        docs=(("docs/001-a.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  A\n")),),
+    )
+    b = _архив(
+        name="B", c4=C4_ЯРМАРКА_2,
+        docs=(("docs/001-b.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n  B\n")),),
+    )
+
+    r = клиент_с_бд.post(
+        ПРИМЕНЕНИЕ,
+        files=[("files", ("a.zip", a, "application/zip")),
+               ("files", ("b.zip", b, "application/zip"))],
+        data={
+            "name": "Федерация",
+            "description": "два прогона",
+            "resolutions": json.dumps({"doc|Ярмарка / orders|POST /orders": "cand:1"}),
+        },
+    )
+
+    assert r.status_code == 201, r.text
+    тело = r.json()
+    assert тело["project_name"] == "Федерация" and тело["nodes"] == 3
+    assert тело["docs_created"] == 1 and тело["resolved_conflicts"] == 1
+    проект = db.get(Project, uuid.UUID(тело["project_id"]))
+    assert проект is not None and проект.description == "два прогона"
+    [док] = db.query(NodeDoc).join(Node, Node.id == NodeDoc.node_id).filter(
+        Node.project_id == проект.id).all()
+    assert док.content == "graph TD\n  B\n"
+
+
+def test_эндпоинт_применения_отвергает_кривой_json_и_пустой_запрос(клиент_с_бд, db):
+    было = db.query(Project).count()
+
+    r = клиент_с_бд.post(
+        ПРИМЕНЕНИЕ,
+        files=[("files", ("a.zip", _архив(), "application/zip"))],
+        data={"resolutions": "{это не json"},
+    )
+    assert r.status_code == 400 and "resolutions" in r.json()["detail"]
+
+    пусто = клиент_с_бд.post(ПРИМЕНЕНИЕ)
+    assert пусто.status_code == 400 and "ни один файл" in пусто.json()["detail"]
+    assert db.query(Project).count() == было

@@ -466,11 +466,16 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     return ParsedImport(nodes=nodes, edges=edges, roots=roots), []
 
 
-def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> None:
+def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> list[uuid.UUID]:
     """Записать разобранный импорт в проект: узлы (родители раньше детей — порядок
     списка это гарантирует по построению walk), flush, затем связи. Строк
     view_layout не создаём (координат в формате нет). Коммит на вызывающей
-    стороне (как у seed_template)."""
+    стороне (как у seed_template).
+
+    Возвращает id созданных узлов В ПОРЯДКЕ parsed.nodes: единый импорт (Ф2а,
+    docs/plan-unified-import.md) вешает семьи фактов на узлы по ИНДЕКСУ плана, а
+    не по пути — пути неоднозначны (якорь source_ref разводит тёзок в одном
+    родителе). Прежним вызывающим возврат не мешает: они его игнорируют."""
     ids: list[uuid.UUID] = []
     for n in parsed.nodes:
         nid = uuid.uuid4()
@@ -506,3 +511,4 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> Non
                 is_synchronous=e.is_synchronous,
             )
         )
+    return ids
