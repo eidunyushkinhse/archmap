@@ -165,12 +165,15 @@ describe("MapEditorPage", () => {
 
   // Кнопки жили только в шапке ОБОЛОЧКИ, а редактор — отдельный роут мимо неё:
   // в пивоте они тут просто исчезли (находка ручной проверки 2026-08-08).
-  it("в шапке есть экспорт и обновление из репозитория", async () => {
+  it("в шапке есть меню действий: экспорт, синк и архив проекта", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
 
-    expect(screen.getByRole("button", { name: "Экспорт" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Обновить из репозитория" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    expect(screen.getByRole("menuitem", { name: "Экспорт схемы…" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Обновить из репозитория…" })).toBeInTheDocument();
+    // Архив проекта доступен и из редактора (корень = скоуп «вся схема»)
+    expect(screen.getByRole("menuitem", { name: "Скачать архив проекта (.zip)" })).toBeInTheDocument();
   });
 
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {

@@ -33,6 +33,10 @@ export const RelayoutIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <path d="M20 11 a8 8 0 0 0-14-4 M4 5 V8 H7" />
     <path d="M4 13 a8 8 0 0 0 14 4 M20 19 V16 H17" /></svg>);
+// «Действия со схемой» — кебаб-меню шапки (SchemaActions): пункты словами.
+export const KebabIcon = ({ size = 17 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none" style={{ display: "block" }} aria-hidden>
+    <circle cx="12" cy="5" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="12" cy="19" r="1.9" /></svg>);
 // «Подписи связей» — тумблер холста (canvas.md CV32): плашка подписи, сидящая на
 // линии связи. Вариант off (подписи скрыты) перечёркнут диагональю.
 export const EdgeLabelsIcon = ({ size = 17, off = false }: IcoProps & { off?: boolean }) => (

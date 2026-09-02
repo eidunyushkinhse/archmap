@@ -24,3 +24,8 @@
 .pf-logout:hover {
   background: #fef2f2;
 }
+
+/* Меню «Действия со схемой» (SchemaActions): пункты-кнопки словами */
+.sam-item { cursor: pointer; transition: background 0.12s ease; }
+.sam-item:hover:not(:disabled) { background: #f1f5f9; }
+.sam-item:disabled { color: #94a3b8; cursor: not-allowed; }

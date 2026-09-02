@@ -164,7 +164,9 @@ describe("ProjectShell", () => {
   it("экспорт из корня: заголовок «Экспорт схемы», load зовёт exportApi.all", async () => {
     vi.mocked(exportApi.all).mockResolvedValue({ format: "yaml", content: "yaml" });
     setup(null);
-    await userEvent.click(screen.getByRole("button", { name: "Экспорт" }));
+    // Действия схемы живут в кебаб-меню (П1 приёмки 2026-09-02): пункты словами.
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Экспорт схемы…" }));
     expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт схемы");
     await userEvent.click(screen.getByRole("button", { name: "run-load" }));
     expect(exportApi.all).toHaveBeenCalledOnce();
@@ -173,16 +175,18 @@ describe("ProjectShell", () => {
   it("экспорт при выбранном узле: load зовёт exportApi.subtree(nodeId)", async () => {
     vi.mocked(exportApi.subtree).mockResolvedValue({ format: "yaml", content: "yaml" });
     setup("n1");
-    await userEvent.click(screen.getByRole("button", { name: "Экспорт" }));
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Экспорт поддерева…" }));
     expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт поддерева");
     await userEvent.click(screen.getByRole("button", { name: "run-load" }));
     expect(exportApi.subtree).toHaveBeenCalledWith("n1");
   });
 
-  it("в «Процессы» без выбранного процесса кнопка экспорта заблокирована", async () => {
+  it("в «Процессы» без выбранного процесса пункт экспорта заблокирован", async () => {
     setup(null);
     await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
-    expect(screen.getByRole("button", { name: "Экспорт" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    expect(screen.getByRole("menuitem", { name: "Экспорт…" })).toBeDisabled();
   });
 
   it("в «Процессы» с выбранным процессом экспорт грузит Mermaid процесса", async () => {
@@ -191,9 +195,10 @@ describe("ProjectShell", () => {
     setup(null);
     await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
     await userEvent.click(screen.getByRole("button", { name: "select-proc" }));
-    const exportBtn = screen.getByRole("button", { name: "Экспорт" });
-    expect(exportBtn).toBeEnabled();
-    await userEvent.click(exportBtn);
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    const exportItem = screen.getByRole("menuitem", { name: /Экспорт процесса «Процесс X»/ });
+    expect(exportItem).toBeEnabled();
+    await userEvent.click(exportItem);
     expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт процесса «Процесс X»");
     await userEvent.click(screen.getByRole("button", { name: "run-load" }));
     expect(processesApi.exportMermaid).toHaveBeenCalledWith("p9");

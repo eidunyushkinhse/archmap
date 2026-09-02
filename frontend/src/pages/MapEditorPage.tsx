@@ -554,7 +554,12 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Экспортируем то, что открыто: поддерево текущего уровня, в корне — всю схему.
   const exportScope: ExportScope = currentParentId
     ? { key: currentParentId, title: "Экспорт поддерева", load: () => exportApi.subtree(currentParentId) }
-    : { key: "all", title: "Экспорт схемы", load: () => exportApi.all() };
+    : {
+        key: "all", title: "Экспорт схемы", load: () => exportApi.all(),
+        // Архив — операция над проектом целиком; в редакторе его прежде не было
+        // вовсе (кнопка жила в модалке экспорта оболочки). Меню выравнивает.
+        archive: { filename: "archmap.zip", load: () => exportApi.archive() },
+      };
 
   const hasNodes = nodes.length + levelGhosts.length > 0;
   const hasStatusInfo = showStatusControls(projectHasStatuses, nodes, levelGhosts);

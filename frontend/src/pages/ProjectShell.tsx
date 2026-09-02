@@ -166,7 +166,6 @@ export default function ProjectShell({
             projectId={projectId}
             isArchitect={isArchitect}
             exportScope={exportScope}
-            exportHint={mode === "proc" ? "Экспорт процесса в Mermaid" : "Экспорт в YAML"}
             syncHidden={mode === "proc"}
             onSynced={() => {
               setTreeReload((t) => t + 1);
