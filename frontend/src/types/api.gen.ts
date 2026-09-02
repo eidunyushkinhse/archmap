@@ -189,6 +189,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/import-archive/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Archive Preview
+         * @description Dry-run ДОГРУЗКИ архивов к живому проекту (Ф3, docs/plan-unified-import.md):
+         *     что появится и о чём придётся выбрать. БД не пишем.
+         *
+         *     Текущий проект участвует входом №0 (его собственный архив в память), поэтому
+         *     сравнение «живое vs привозное» делает то же ядро, что и федерацию архивов.
+         *     Только zip: YAML в существующий проект заливается синком («Импорт схемы») —
+         *     это другая механика, и подменять её мерджем нельзя.
+         */
+        post: operations["import_archive_preview_api_v1_projects__project_id__import_archive_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/import-archive/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Archive Apply
+         * @description Применить догрузку к живому проекту.
+         *
+         *     Протокол тот же, что у создания: план считается ЗАНОВО (мердж детерминирован),
+         *     решения приезжают словарём «id спора → выбор». Чтобы применение не разошлось с
+         *     увиденным в превью, клиент возвращает base_graph_rev и base_meta_rev —
+         *     разошлись хоть один, 409 «обновите превью». Курсоров два: догрузка меняет и
+         *     схему (узлы, связи), и мету (схемы логики, факты, спеки).
+         *
+         *     Аддитивность: живая запись перетирается ТОЛЬКО там, где пользователь явно
+         *     выбрал архивного кандидата; ничего никогда не удаляется.
+         */
+        post: operations["import_archive_apply_api_v1_projects__project_id__import_archive_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/sync/preview": {
         parameters: {
             query?: never;
@@ -2142,6 +2197,28 @@ export interface components {
             /** Dangling */
             dangling: number;
         };
+        /** Body_import_archive_apply_api_v1_projects__project_id__import_archive_apply_post */
+        Body_import_archive_apply_api_v1_projects__project_id__import_archive_apply_post: {
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
+            /** Resolutions */
+            resolutions?: string | null;
+            /** Base Graph Rev */
+            base_graph_rev?: number | null;
+            /** Base Meta Rev */
+            base_meta_rev?: number | null;
+        };
+        /** Body_import_archive_preview_api_v1_projects__project_id__import_archive_preview_post */
+        Body_import_archive_preview_api_v1_projects__project_id__import_archive_preview_post: {
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
+        };
         /** Body_import_project_unified_api_v1_projects_import_unified_post */
         Body_import_project_unified_api_v1_projects_import_unified_post: {
             /**
@@ -3614,6 +3691,11 @@ export interface components {
             body: string;
             /** Truncated */
             truncated: boolean;
+            /**
+             * Current
+             * @default false
+             */
+            current: boolean;
         };
         /**
          * FamilyConflictOut
@@ -3988,6 +4070,149 @@ export interface components {
             source_is_intermediate: boolean;
             /** Target Is Intermediate */
             target_is_intermediate: boolean;
+        };
+        /**
+         * IntoApplyOut
+         * @description Отчёт применения догрузки: что именно изменилось в живом проекте.
+         *
+         *     Форма СВОЯ, а не ArchiveImportResult: у создания числа значат «сколько знания
+         *     в проекте», у догрузки — «сколько записей тронуто», и путать их нельзя.
+         *     Отчёты семей при этом РОДНЫЕ (вторых форматов не заводим, норма эпика архива).
+         */
+        IntoApplyOut: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /**
+             * Nodes Created
+             * @default 0
+             */
+            nodes_created: number;
+            /**
+             * Nodes Filled
+             * @default 0
+             */
+            nodes_filled: number;
+            /**
+             * Edges Created
+             * @default 0
+             */
+            edges_created: number;
+            /**
+             * Docs Created
+             * @default 0
+             */
+            docs_created: number;
+            /**
+             * Docs Replaced
+             * @default 0
+             */
+            docs_replaced: number;
+            /**
+             * Specs Applied
+             * @default 0
+             */
+            specs_applied: number;
+            /**
+             * Params Replaced
+             * @default 0
+             */
+            params_replaced: number;
+            db?: components["schemas"]["DataImportReport"] | null;
+            channels?: components["schemas"]["ChannelsImportReport"] | null;
+            config?: components["schemas"]["ConfigImportReport"] | null;
+            /**
+             * Processes
+             * @default []
+             */
+            processes: components["schemas"]["ProcessImportResult"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Resolved Conflicts
+             * @default 0
+             */
+            resolved_conflicts: number;
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
+            /**
+             * Meta Rev
+             * @default 0
+             */
+            meta_rev: number;
+        };
+        /**
+         * IntoPreviewOut
+         * @description Сводка dry-run ДОГРУЗКИ архивов к живому проекту (Ф3). БД не тронута.
+         *
+         *     Числа тут — про ДИФФ, а не про содержимое архивов: сколько узлов и связей
+         *     появится, сколько записей семей приедет ПРИ ДЕФОЛТНЫХ решениях (а дефолт спора
+         *     с живым — «оставить моё», поэтому в счётчике только бесспорное новое).
+         *     Перетирание живого случается ровно там, где пользователь выбрал архивного
+         *     кандидата, — и видно это в family_conflicts, а не в счётчиках.
+         */
+        IntoPreviewOut: {
+            /** Ok */
+            ok: boolean;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Nodes New
+             * @default 0
+             */
+            nodes_new: number;
+            /**
+             * Nodes New Paths
+             * @default []
+             */
+            nodes_new_paths: string[];
+            /**
+             * Edges New
+             * @default 0
+             */
+            edges_new: number;
+            /**
+             * @default {
+             *       "docs": 0,
+             *       "specs": 0,
+             *       "tables": 0,
+             *       "channels": 0,
+             *       "params": 0,
+             *       "processes": 0
+             *     }
+             */
+            families: components["schemas"]["UnifiedFamilyCountsOut"];
+            /**
+             * Family Conflicts
+             * @default []
+             */
+            family_conflicts: components["schemas"]["FamilyConflictOut"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Base Graph Rev
+             * @default 0
+             */
+            base_graph_rev: number;
+            /**
+             * Base Meta Rev
+             * @default 0
+             */
+            base_meta_rev: number;
         };
         /**
          * IsolatedGroupAlert
@@ -5936,6 +6161,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArchiveImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_archive_preview_api_v1_projects__project_id__import_archive_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_archive_preview_api_v1_projects__project_id__import_archive_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntoPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_archive_apply_api_v1_projects__project_id__import_archive_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_archive_apply_api_v1_projects__project_id__import_archive_apply_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntoApplyOut"];
                 };
             };
             /** @description Validation Error */

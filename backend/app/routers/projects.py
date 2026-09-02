@@ -56,13 +56,14 @@ from app.schemas.project import (
     SyncPreviewOut,
     TemplateOut,
 )
-from app.schemas.unified_import import UnifiedPreviewOut
+from app.schemas.unified_import import IntoApplyOut, IntoPreviewOut, UnifiedPreviewOut
 from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
 from app.unified_apply import apply_unified_plan
 from app.unified_import import UnifiedImportError, build_unified_plan, preview_from_plan
+from app.unified_into import apply_into_plan, build_into_plan, into_preview
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -338,6 +339,27 @@ def import_preview(
     )
 
 
+def _parse_resolutions(raw: str | None) -> dict[str, str]:
+    """Решения пользователя по спорам: JSON-объект «id спора → выбор» в поле формы.
+
+    Форма multipart несёт файлы, поэтому словарь едет текстом — разбираем и
+    валидируем здесь, одинаково для создания и догрузки: кривое поле это 400 с
+    человеческим текстом, а не 500 внутри применения."""
+    try:
+        chosen = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400, detail="Поле resolutions не разбирается как JSON"
+        ) from e
+    if not isinstance(chosen, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in chosen.items()
+    ):
+        raise HTTPException(
+            status_code=400, detail="Поле resolutions должно быть объектом «id спора → выбор»"
+        )
+    return chosen
+
+
 @router.post("/import/unified-preview", response_model=UnifiedPreviewOut)
 async def import_unified_preview(
     files: list[UploadFile] = File(default=[]),
@@ -383,18 +405,7 @@ async def import_project_unified(
     передавать — тогда они приедут из манифеста (П3)."""
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
-    try:
-        chosen = json.loads(resolutions) if resolutions else {}
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=400, detail="Поле resolutions не разбирается как JSON"
-        ) from e
-    if not isinstance(chosen, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in chosen.items()
-    ):
-        raise HTTPException(
-            status_code=400, detail="Поле resolutions должно быть объектом «id спора → выбор»"
-        )
+    chosen = _parse_resolutions(resolutions)
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
     try:
         plan = build_unified_plan(inputs)
@@ -402,6 +413,79 @@ async def import_project_unified(
     except UnifiedImportError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
+    db.commit()
+    return result
+
+
+@router.post("/{project_id}/import-archive/preview", response_model=IntoPreviewOut)
+async def import_archive_preview(
+    project_id: uuid.UUID,
+    files: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_architect),
+) -> IntoPreviewOut:
+    """Dry-run ДОГРУЗКИ архивов к живому проекту (Ф3, docs/plan-unified-import.md):
+    что появится и о чём придётся выбрать. БД не пишем.
+
+    Текущий проект участвует входом №0 (его собственный архив в память), поэтому
+    сравнение «живое vs привозное» делает то же ядро, что и федерацию архивов.
+    Только zip: YAML в существующий проект заливается синком («Импорт схемы») —
+    это другая механика, и подменять её мерджем нельзя."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        into = build_into_plan(db, project, inputs)
+    except UnifiedImportError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return into_preview(into)
+
+
+@router.post("/{project_id}/import-archive/apply", response_model=IntoApplyOut)
+async def import_archive_apply(
+    project_id: uuid.UUID,
+    files: list[UploadFile] = File(default=[]),
+    resolutions: str | None = Form(default=None),
+    base_graph_rev: int | None = Form(default=None),
+    base_meta_rev: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_architect),
+) -> IntoApplyOut:
+    """Применить догрузку к живому проекту.
+
+    Протокол тот же, что у создания: план считается ЗАНОВО (мердж детерминирован),
+    решения приезжают словарём «id спора → выбор». Чтобы применение не разошлось с
+    увиденным в превью, клиент возвращает base_graph_rev и base_meta_rev —
+    разошлись хоть один, 409 «обновите превью». Курсоров два: догрузка меняет и
+    схему (узлы, связи), и мету (схемы логики, факты, спеки).
+
+    Аддитивность: живая запись перетирается ТОЛЬКО там, где пользователь явно
+    выбрал архивного кандидата; ничего никогда не удаляется."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if (base_graph_rev is not None and base_graph_rev != project.graph_rev) or (
+        base_meta_rev is not None and base_meta_rev != project.meta_rev
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Проект изменился после расчёта — обновите превью и повторите",
+        )
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    chosen = _parse_resolutions(resolutions)
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        into = build_into_plan(db, project, inputs)
+        result = apply_into_plan(db, project, into, chosen)
+    except UnifiedImportError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    project.updated_at = datetime.now(UTC)
+    project.updated_by_id = user.id
     db.commit()
     return result
 

@@ -52,8 +52,8 @@ const СПОР: FamilyConflictOut = {
   node_path: "Ярмарка / orders",
   key: "Оформление заказа",
   candidates: [
-    { origin: 0, origin_label: "a.zip", summary: "12 строк", body: "flowchart TD\n  A-->B", truncated: false },
-    { origin: 1, origin_label: "b.zip", summary: "20 строк", body: "flowchart TD\n  A-->C", truncated: true },
+    { origin: 0, origin_label: "a.zip", summary: "12 строк", body: "flowchart TD\n  A-->B", truncated: false, current: false },
+    { origin: 1, origin_label: "b.zip", summary: "20 строк", body: "flowchart TD\n  A-->C", truncated: true, current: false },
   ],
   default: "all",
   allow_all: true,
