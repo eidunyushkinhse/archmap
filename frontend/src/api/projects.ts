@@ -1,6 +1,7 @@
 import type {
-  ArchiveImportResult, ImportPromptOut, Project, ProjectCreate, ProjectUpdate,
-  PromptVariant, SyncApplyOut, SyncPreviewOut, TemplateOut, UnifiedPreviewOut,
+  ArchiveImportResult, ImportPromptOut, IntoApplyOut, IntoPreviewOut, Project,
+  ProjectCreate, ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut,
+  TemplateOut, UnifiedPreviewOut,
 } from "../types";
 import { api } from "./client";
 
@@ -45,6 +46,35 @@ export const projectsApi = {
       form.append("resolutions", JSON.stringify(opts.resolutions));
     }
     return api.upload<ArchiveImportResult>("/projects/import-unified", form);
+  },
+  // Догрузка полных архивов знания (.zip) к ЖИВОМУ проекту (Ф4): превью считает
+  // ДИФФ («что появится, о чём спор»), применение пишет. YAML сюда не кладут —
+  // в существующий проект он заливается синком («Импорт схемы»), это другая
+  // механика. Порядок files значим так же, как в едином ввозе: им бэк нумерует
+  // входы, и от него зависят подписи кандидатов в спорах.
+  importIntoPreview: (projectId: string, files: File[]): Promise<IntoPreviewOut> => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    return api.upload<IntoPreviewOut>(`/projects/${projectId}/import-archive/preview`, form);
+  },
+  // Применение догрузки. План бэк пересчитывает по тем же файлам (мердж
+  // детерминирован), поэтому наружу едут только решения по спорам. Пара базовых
+  // курсоров — fence увиденного превью: разошёлся хоть один, бэк ответит 409
+  // «обновите превью», и вслепую применено ничего не будет. Курсоров ДВА:
+  // догрузка меняет и схему (узлы/связи), и мету (доки, факты, спеки).
+  importIntoApply: (
+    projectId: string,
+    files: File[],
+    opts: { resolutions?: Record<string, string>; baseGraphRev: number; baseMetaRev: number },
+  ): Promise<IntoApplyOut> => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    if (opts.resolutions && Object.keys(opts.resolutions).length > 0) {
+      form.append("resolutions", JSON.stringify(opts.resolutions));
+    }
+    form.append("base_graph_rev", String(opts.baseGraphRev));
+    form.append("base_meta_rev", String(opts.baseMetaRev));
+    return api.upload<IntoApplyOut>(`/projects/${projectId}/import-archive/apply`, form);
   },
   // Универсальный промпт «Из репозитория» для ИИ-агента пользователя: один и тот
   // же промпт запускается в каждом репозитории системы, YAML-ответы импортируются.

@@ -67,6 +67,11 @@ export type UnifiedPreviewOut = Schemas["UnifiedPreviewOut"];
 export type FamilyConflictOut = Schemas["FamilyConflictOut"];
 export type FamilyCandidateOut = Schemas["FamilyCandidateOut"];
 export type UnifiedFamilyCountsOut = Schemas["UnifiedFamilyCountsOut"];
+// Догрузка архивов к ЖИВОМУ проекту (Ф3/Ф4 того же плана): дифф-превью («что
+// появится, о чём спор» + пара базовых курсоров-fence) и отчёт применения
+// («сколько записей тронуто» + родные отчёты семей).
+export type IntoPreviewOut = Schemas["IntoPreviewOut"];
+export type IntoApplyOut = Schemas["IntoApplyOut"];
 
 // Вариант BYOA-промпта, общий для всех четырёх промпт-ручек: строительный
 // (дефолт, прежний байт-в-байт), оркестраторная обёртка с аудитом вторым
