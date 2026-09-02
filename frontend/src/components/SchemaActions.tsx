@@ -1,10 +1,10 @@
 // Меню «Действия со схемой» в шапке: кебаб (три точки) с пунктами СЛОВАМИ,
 // сетка 2×2 (имена — приёмка 2026-09-02): «Экспорт схемы» / «Импорт схемы»
 // (синк из репозитория) про YAML-схему, «Экспорт проекта (zip)» / «Импорт
-// проекта (zip)» про архив знания целиком. «Импорт проекта» — ЗАГЛУШКА до
-// эпика «единый импорт» (догрузка архива/архивов к текущему проекту с
-// мерджем). Прежде были две пиктограммы, а архив прятался кнопкой в модалке
-// экспорта — непонятно, что скачается архив ВСЕГО проекта.
+// проекта (zip)» про архив знания целиком. «Импорт проекта (zip)» — догрузка
+// архива (или нескольких) другого проекта к текущему с мерджем: живой пункт
+// с Ф4 эпика «единый импорт». Прежде были две пиктограммы, а архив прятался
+// кнопкой в модалке экспорта — непонятно, что скачается архив ВСЕГО проекта.
 //
 // Живёт отдельным компонентом, потому что шапок ДВЕ и они не наследуются друг от
 // друга: оболочка проекта (ProjectShell) и редактор-карта (MapEditorPage, свой
@@ -12,12 +12,14 @@
 // просто не было (находка ручной проверки 2026-08-08), а копирование разметки
 // гарантировало бы расхождение при первой же правке.
 //
-// Компонент владеет ОБЕИМИ модалками, скачиванием архива и тостом итога:
-// страницам остаётся сказать, что экспортировать, и перечитать данные после синка.
+// Компонент владеет ВСЕМИ тремя модалками, скачиванием архива и тостом итога:
+// страницам остаётся сказать, что экспортировать, и перечитать данные после того,
+// как схему изменил синк или догрузка архива.
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import ExportModal from "./ExportModal";
 import SyncRepoModal from "./docsImport/SyncRepoModal";
+import ImportIntoModal from "./project/ImportIntoModal";
 import { KebabIcon } from "../ui/icons";
 
 /** Область экспорта: что грузим и как назвать окно/пункт меню. */
@@ -56,6 +58,7 @@ export default function SchemaActions({
   const [menuOpen, setMenuOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [importIntoOpen, setImportIntoOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -159,15 +162,15 @@ export default function SchemaActions({
             </button>
           )}
           {isArchitect && exportScope?.archive && (
-            // ЗАГЛУШКА (решение приёмки 2026-09-02): функциональность — часть
-            // эпика «единый импорт проекта» (tasks.md): догрузить архив другого
-            // проекта (или несколько) к текущему, чтобы они смерджились.
+            // Зеркало «Экспорта проекта»: архив, скачанный там, здесь доливается к
+            // другому проекту. Мердж аддитивен — живое знание перетирается только
+            // явным выбором в превью (Ф4 эпика «единый импорт»).
             <button
               className="sam-item"
               style={menuItem}
               role="menuitem"
-              disabled
-              title="Скоро: догрузить архив другого проекта (или несколько) к текущему с мерджем"
+              title="Догрузить архив другого проекта (или несколько) к текущему с мерджем"
+              onClick={() => { setMenuOpen(false); setImportIntoOpen(true); }}
             >
               Импорт проекта (zip)
             </button>
@@ -189,6 +192,17 @@ export default function SchemaActions({
           onClose={() => setSyncOpen(false)}
           onApplied={(message) => {
             showToast(message);
+            onSynced();
+          }}
+        />
+      )}
+      {importIntoOpen && (
+        <ImportIntoModal
+          projectId={projectId}
+          onClose={() => setImportIntoOpen(false)}
+          onApplied={(message) => {
+            showToast(message);
+            // Схема изменилась — тот же канал ресинка, что у «Импорта схемы».
             onSynced();
           }}
         />

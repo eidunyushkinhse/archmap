@@ -174,8 +174,8 @@ describe("MapEditorPage", () => {
     expect(screen.getByRole("menuitem", { name: "Импорт схемы" })).toBeInTheDocument();
     // Архив проекта доступен и из редактора (корень = скоуп «вся схема»)
     expect(screen.getByRole("menuitem", { name: "Экспорт проекта (zip)" })).toBeInTheDocument();
-    // Заглушка до эпика «единый импорт»: пункт есть, но выключен
-    expect(screen.getByRole("menuitem", { name: "Импорт проекта (zip)" })).toBeDisabled();
+    // Догрузка архива к живому проекту (Ф4 «единого импорта») — пункт активен
+    expect(screen.getByRole("menuitem", { name: "Импорт проекта (zip)" })).toBeEnabled();
   });
 
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {
