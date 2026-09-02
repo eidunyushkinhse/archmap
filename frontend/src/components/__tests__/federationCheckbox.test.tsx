@@ -17,7 +17,7 @@ import { projectsApi } from "../../api/projects";
 
 vi.mock("../../api/projects", () => ({
   projectsApi: {
-    templates: vi.fn(), importPrompt: vi.fn(), importPreview: vi.fn(), create: vi.fn(),
+    templates: vi.fn(), importPrompt: vi.fn(), create: vi.fn(),
   },
 }));
 // Нативный <dialog> в jsdom не открывается — та же замена, что в соседних тестах.

@@ -1,7 +1,6 @@
 import type {
-  ArchiveImportResult, ImportPreviewOut, ImportPromptOut, Project, ProjectCreate,
-  ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut, TemplateOut,
-  UnifiedPreviewOut,
+  ArchiveImportResult, ImportPromptOut, Project, ProjectCreate, ProjectUpdate,
+  PromptVariant, SyncApplyOut, SyncPreviewOut, TemplateOut, UnifiedPreviewOut,
 } from "../types";
 import { api } from "./client";
 
@@ -47,10 +46,6 @@ export const projectsApi = {
     }
     return api.upload<ArchiveImportResult>("/projects/import-unified", form);
   },
-  // Dry-run импорта YAML (N документов → слияние): сводка/ошибки/отчёт слияния
-  // для живой валидации в модалке, БД не трогает.
-  importPreview: (contents: string[]): Promise<ImportPreviewOut> =>
-    api.post<ImportPreviewOut>(`/projects/import/preview`, { contents }),
   // Универсальный промпт «Из репозитория» для ИИ-агента пользователя: один и тот
   // же промпт запускается в каждом репозитории системы, YAML-ответы импортируются.
   // variant выбирает, что вернёт ручка: строительный промпт (дефолт), обёртку с

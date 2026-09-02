@@ -17,7 +17,7 @@ import type { Project } from "../../types";
 
 vi.mock("../../api/projects", () => ({
   projectsApi: {
-    templates: vi.fn(), importPrompt: vi.fn(), importPreview: vi.fn(),
+    templates: vi.fn(), importPrompt: vi.fn(),
     get: vi.fn(), syncPreview: vi.fn(), syncApply: vi.fn(), create: vi.fn(),
   },
 }));
