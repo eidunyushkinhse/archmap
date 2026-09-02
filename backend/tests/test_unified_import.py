@@ -19,7 +19,6 @@ import yaml
 from conftest import ensure_architect
 from fastapi.testclient import TestClient
 
-from app.archive_import import import_archive
 from app.auth import require_architect
 from app.data_import import parse_data_file
 from app.database import get_db
@@ -757,8 +756,8 @@ def _полный_архив(имя: str = "Ярмарка v2") -> bytes:
 
 
 def _снимок(db, project_id) -> dict:
-    """СОДЕРЖИМОЕ проекта в сравнимом виде: id и время выкинуты, ссылки развёрнуты
-    в человеческие адреса. Два пути ввоза обязаны давать один снимок."""
+    """СОДЕРЖИМОЕ проекта в проверяемом виде: id и время выкинуты, ссылки развёрнуты
+    в человеческие адреса — так видно, что знание доехало до последнего поля."""
     узлы = db.query(Node).filter(Node.project_id == project_id).all()
     все = {n.id: n for n in узлы}
     путь = {n.id: node_path(все, n.id) for n in узлы}
@@ -822,26 +821,71 @@ def _снимок(db, project_id) -> dict:
     }
 
 
-def test_единый_импорт_одного_архива_равен_старому_импорту(db):
-    """Мост до Ф2б: пока фронт сидит на /import-archive, новый путь обязан давать
-    ТО ЖЕ содержимое. Расхождение снимков — регресс одного из двух путей."""
-    архив = _полный_архив()
-    архитектор = ensure_architect(db).id
+def test_единый_импорт_архива_везёт_всё_знание(db):
+    """Архив со ВСЕМИ категориями знания доезжает единым ввозом до последнего поля.
 
-    старый, отчёт_старого = import_archive(db, архив, None, архитектор)
-    db.flush()
-    план = build_unified_plan([("archive.zip", архив)])
-    новый, отчёт = apply_unified_plan(db, план, {}, None, None, архитектор)
+    Проверка прямая, литералами: раньше здесь сравнивались снимки старого
+    (import_archive) и нового путей, но одноархивный путь снят (Ф2в) — да и общую
+    потерю поля сравнение двух путей всё равно не ловило. Полнота по семьям: пути
+    узлов, доки с телами и видом (заглушка ОСТАЁТСЯ пустой — Д4), спека без нашей
+    адресной строки, таблицы с колонками и разрешённой FK-ссылкой, канал с полями,
+    параметр, процесс с автосопоставленными участниками и привязкой шага к схеме."""
+    план = build_unified_plan([("archive.zip", _полный_архив())])
+    проект, отчёт = apply_unified_plan(db, план, {}, None, None, ensure_architect(db).id)
     db.commit()
 
-    assert план.ok and план.conflicts == []
-    assert _снимок(db, старый.id) == _снимок(db, новый.id)
-    # Имя и описание — из манифеста (единственный вход, П3), как у старого пути.
-    assert (новый.name, новый.description) == (старый.name, старый.description)
-    # Отчёт — тот же формат и те же числа (ArchiveImportResult, вторых не заводим).
-    assert (отчёт.nodes, отчёт.edges) == (отчёт_старого.nodes, отчёт_старого.edges)
+    assert план.ok and план.conflicts == [] and план.input_remarks == [[]]
+    # Имя и описание — из манифеста: вход единственный и архив (П3).
+    assert (проект.name, проект.description) == ("Ярмарка v2", "полигон единого ввоза")
+
+    снимок = _снимок(db, проект.id)
+    # C4: три узла под корнем, форма и технология на месте, спека — байт-в-байт
+    # авторская (ведущий «# archmap-node:» наш, в тело узла он не едет).
+    assert снимок["узлы"] == [
+        ("Ярмарка", None, None, "service", "existing", False, None, None, None),
+        ("Ярмарка / Kafka", None, None, "broker", "existing", False, None, None, None),
+        ("Ярмарка / orders", None, "Python", "service", "existing", False, None, None,
+         "openapi: 3.0.3\ninfo:\n  title: Orders API\npaths: {}\n"),
+        ("Ярмарка / Каталог-БД", None, None, "database", "existing", False, None, None, None),
+    ]
+    assert снимок["связи"] == [
+        ("Ярмарка / orders", "Ярмарка / Kafka", None, None, "orders.created", False),
+    ]
+    # Доки: обе схемы с видом и операцией; заглушка приехала ЗАГЛУШКОЙ (пустое тело).
+    assert снимок["доки"] == [
+        ("Ярмарка / orders", "GET /health", "operation", None, ""),
+        ("Ярмарка / orders", "POST /orders", "operation", "POST /orders",
+         "graph TD\n  A --> B\n"),
+    ]
+    # Структура данных: описания таблиц и колонок, флаги, и главное — ссылка
+    # customer_id → customers.id разрешена в references_column_id, а не потеряна.
+    assert снимок["таблицы"] == [
+        ("Ярмарка / Каталог-БД", "public", "customers", "покупатели",
+         (("id", "uuid", True, False, None, None),)),
+        ("Ярмарка / Каталог-БД", "public", "orders", "заказы",
+         (("customer_id", "uuid", False, False, "покупатель", "customers.id"),
+          ("id", "uuid", True, True, None, None))),
+    ]
+    assert снимок["каналы"] == [
+        ("Ярмарка / Kafka", "shop", "orders.created", "topic", "", "at-least-once", "", None,
+         (("order_id", "uuid", False, None),)),
+    ]
+    assert снимок["параметры"] == [
+        ("Ярмарка / orders", "TIMEOUT_MS", "int", False, "5000", None),
+    ]
+    # Процесс: участники сопоставлены узлам сами (кандидат единственный), шаг
+    # привязан к схеме НОВОГО проекта по адресу «%% archmap-doc».
+    assert снимок["процессы"] == [
+        ("Оформление",
+         ((0, "orders", "Ярмарка / orders"), (1, "Каталог-БД", "Ярмарка / Каталог-БД")),
+         ((0, "forward", "положить заказ", "Ярмарка / orders / POST /orders", False),
+          (1, "return", "ок", None, False))),
+    ]
+
+    # Отчёт — тем же ArchiveImportResult: числа семей из родных приёмников.
+    assert (отчёт.nodes, отчёт.edges) == (4, 1)
     assert (отчёт.docs_created, отчёт.specs_applied) == (2, 1)
-    assert отчёт.db is not None and отчёт.db.tables_written == 2
+    assert отчёт.db is not None and (отчёт.db.tables_written, отчёт.db.columns_written) == (2, 3)
     assert отчёт.channels is not None and отчёт.channels.channels_written == 1
     assert отчёт.config is not None and отчёт.config.params_written == 1
     assert отчёт.warnings == [] and отчёт.resolved_conflicts == 0

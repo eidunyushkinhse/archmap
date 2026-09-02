@@ -25,7 +25,6 @@ from fastapi import (
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.archive_import import ArchiveError, import_archive
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.import_merge import parse_and_merge, split_remarks
@@ -545,30 +544,6 @@ def get_project(
         raise HTTPException(status_code=404, detail="Проект не найден")
     nc, ec = _counts(db, [p.id])
     return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
-
-
-@router.post(
-    "/import-archive", response_model=ArchiveImportResult, status_code=status.HTTP_201_CREATED
-)
-async def import_project_archive(
-    file: UploadFile = File(...),
-    name: str | None = Form(default=None),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_architect),
-) -> ArchiveImportResult:
-    """Создать НОВЫЙ проект из архива знания (Ф4, docs/plan-archive-export.md).
-
-    Кривой zip/манифест/C4 — 400, проект не создаётся; частичные промахи
-    (неразрешённые адреса, тёзки путей) применяют остальное и едут замечаниями
-    в отчёте. Слияние с существующим проектом — отдельная задача."""
-    payload = await file.read()
-    try:
-        _, result = import_archive(db, payload, name, user.id)
-    except ArchiveError as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    db.commit()
-    return result
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)

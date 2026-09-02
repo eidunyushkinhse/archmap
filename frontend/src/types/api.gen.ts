@@ -267,30 +267,6 @@ export interface paths {
         patch: operations["update_project_api_v1_projects__project_id__patch"];
         trace?: never;
     };
-    "/api/v1/projects/import-archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Import Project Archive
-         * @description Создать НОВЫЙ проект из архива знания (Ф4, docs/plan-archive-export.md).
-         *
-         *     Кривой zip/манифест/C4 — 400, проект не создаётся; частичные промахи
-         *     (неразрешённые адреса, тёзки путей) применяют остальное и едут замечаниями
-         *     в отчёте. Слияние с существующим проектом — отдельная задача.
-         */
-        post: operations["import_project_archive_api_v1_projects_import_archive_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/projects/{project_id}/archive": {
         parameters: {
             query?: never;
@@ -2165,16 +2141,6 @@ export interface components {
             attached: number;
             /** Dangling */
             dangling: number;
-        };
-        /** Body_import_project_archive_api_v1_projects_import_archive_post */
-        Body_import_project_archive_api_v1_projects_import_archive_post: {
-            /**
-             * File
-             * Format: binary
-             */
-            file: string;
-            /** Name */
-            name?: string | null;
         };
         /** Body_import_project_unified_api_v1_projects_import_unified_post */
         Body_import_project_unified_api_v1_projects_import_unified_post: {
@@ -6137,39 +6103,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    import_project_archive_api_v1_projects_import_archive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_import_project_archive_api_v1_projects_import_archive_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArchiveImportResult"];
                 };
             };
             /** @description Validation Error */

@@ -1,9 +1,15 @@
-"""Импорт архива знания (Ф4, docs/plan-archive-export.md).
+"""Архив знания через ЕДИНЫЙ ввоз (docs/plan-unified-import.md, Ф2в).
 
-Главная гарантия — ПОЛНЫЙ КРУГ: build_archive → import_archive воспроизводит все
-категории знания (C4 с якорями и типом канала, доки с заглушками, спеки, БД,
-каналы, конфигурация, процессы с привязками шагов). Частичные промахи — видимой
-деградацией в замечаниях, кривой архив — ArchiveError без создания проекта.
+Главная гарантия — ПОЛНЫЙ КРУГ: build_archive → build_unified_plan +
+apply_unified_plan воспроизводит все категории знания (C4 с якорями и типом канала,
+доки с заглушками, спеки, БД, каналы, конфигурация, процессы с привязками шагов).
+Архив здесь — НАСТОЯЩИЙ, собранный экспортёром: синтетические архивы соседнего
+теста проверяют логику ввоза, а этот — что формат экспорта и формат ввоза сходятся.
+
+Отдельного одноархивного пути (POST /projects/import-archive, import_archive) больше
+нет — он поглощён единым ввозом, где архив просто один из N входов. Частичные
+промахи едут видимой деградацией в замечаниях, кривой архив — отказом без создания
+проекта.
 """
 
 import io
@@ -14,7 +20,6 @@ import pytest
 from conftest import ensure_architect, ensure_project
 
 from app.archive_export import build_archive
-from app.archive_import import ArchiveError, import_archive
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -26,6 +31,16 @@ from app.models.node_doc import NodeDoc
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
+from app.unified_apply import apply_unified_plan
+from app.unified_import import UnifiedImportError, build_unified_plan
+
+
+def _ввоз(db, архив: bytes, имя: str | None = None):
+    """Архив единственным входом единого ввоза — ровно то, что делает окно создания
+    проекта, когда пользователь принёс один zip и не спорил ни с чем."""
+    план = build_unified_plan([("archive.zip", архив)])
+    проект, отчёт = apply_unified_plan(db, план, {}, имя, None, ensure_architect(db).id)
+    return план, проект, отчёт
 
 
 def _полигон(db) -> Project:
@@ -81,10 +96,12 @@ def test_полный_круг_архива(db):
     исходный = _полигон(db)
     архив = build_archive(db, исходный)
 
-    новый, отчёт = import_archive(db, архив, None, ensure_architect(db).id)
+    план, новый, отчёт = _ввоз(db, архив)
     db.commit()
 
+    assert план.ok and план.conflicts == []
     assert отчёт.warnings == []
+    # Имя и описание — из манифеста: вход единственный и архив (П3).
     assert (новый.name, новый.description) == (исходный.name, "полигон архива")
     # C4: узлы с якорем, связь с каналом и явным типом.
     узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == новый.id)}
@@ -125,8 +142,13 @@ def test_полный_круг_архива(db):
 
 def test_кривой_zip_не_создаёт_проекта(db):
     было = db.query(Project).count()
-    with pytest.raises(ArchiveError, match="не читается как zip"):
-        import_archive(db, b"\x00\x01musor", None, ensure_architect(db).id)
+    # Магия zip есть, содержимого нет — вход разбирается как архив и падает на нём.
+    план = build_unified_plan([("a.zip", b"PK\x03\x04musor")])
+
+    assert not план.ok
+    assert план.errors == ["вход 1: Файл не читается как zip-архив"]
+    with pytest.raises(UnifiedImportError, match="непригоден"):
+        apply_unified_plan(db, план, {}, "П", None, ensure_architect(db).id)
     assert db.query(Project).count() == было
 
 
@@ -134,8 +156,12 @@ def test_архив_нового_формата_отклоняется(db):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("manifest.yaml", "archmap-archive: 99\ncontents: {}\n")
-    with pytest.raises(ArchiveError, match="обновите ArchMap"):
-        import_archive(db, buf.getvalue(), None, ensure_architect(db).id)
+
+    план = build_unified_plan([("a.zip", buf.getvalue())])
+
+    assert not план.ok
+    [ошибка] = план.errors
+    assert ошибка.startswith("вход 1: ") and "обновите ArchMap" in ошибка
 
 
 def test_неразрешённый_адрес_дока_уходит_в_замечания(db):
@@ -149,10 +175,11 @@ def test_неразрешённый_адрес_дока_уходит_в_заме
         zf.writestr("c4.yaml", "nodes:\n  - name: orders\n")
         zf.writestr("docs/x.mmd", "%% archmap-name: Схема\n%% archmap-node: Нет такого\ngraph TD\n A\n")
 
-    новый, отчёт = import_archive(db, buf.getvalue(), "Переименован", ensure_architect(db).id)
+    _, новый, отчёт = _ввоз(db, buf.getvalue(), "Переименован")
     db.commit()
 
-    # Проект создан (переименование параметром работает), схема честно пропущена.
+    # Проект создан (переименование параметром работает), схема честно пропущена —
+    # замечание входа доехало до отчёта, а не потерялось между превью и применением.
     assert новый.name == "Переименован"
     assert отчёт.docs_created == 0
     assert any("Нет такого" in w for w in отчёт.warnings)
