@@ -170,10 +170,12 @@ describe("MapEditorPage", () => {
     await screen.findByTestId("level-graph");
 
     await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
-    expect(screen.getByRole("menuitem", { name: "Экспорт схемы…" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Обновить из репозитория…" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Экспорт схемы" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Импорт схемы" })).toBeInTheDocument();
     // Архив проекта доступен и из редактора (корень = скоуп «вся схема»)
-    expect(screen.getByRole("menuitem", { name: "Скачать архив проекта (.zip)" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Экспорт проекта (zip)" })).toBeInTheDocument();
+    // Заглушка до эпика «единый импорт»: пункт есть, но выключен
+    expect(screen.getByRole("menuitem", { name: "Импорт проекта (zip)" })).toBeDisabled();
   });
 
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {
