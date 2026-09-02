@@ -1126,6 +1126,16 @@ def test_эндпоинт_применения_отвергает_кривой_j
     )
     assert r.status_code == 400 and "resolutions" in r.json()["detail"]
 
+    # Отказ применения (резолюция не из плана) — тоже 400 с человеческим текстом,
+    # а не 500: превью устарело, и пользователю надо это сказать.
+    устарело = клиент_с_бд.post(
+        ПРИМЕНЕНИЕ,
+        files=[("files", ("a.zip", _архив(), "application/zip"))],
+        data={"resolutions": json.dumps({"doc|Нет узла|Схема": "cand:0"})},
+    )
+    assert устарело.status_code == 400
+    assert "превью устарело" in устарело.json()["detail"]
+
     пусто = клиент_с_бд.post(ПРИМЕНЕНИЕ)
     assert пусто.status_code == 400 and "ни один файл" in пусто.json()["detail"]
     assert db.query(Project).count() == было
