@@ -36,6 +36,7 @@ from app.models.user import User
 from app.processes import node_path
 from app.unified_apply import _synthetic_files, _winners, apply_unified_plan
 from app.unified_import import (
+    MAX_ARCHIVES,
     MAX_INPUTS,
     DocIn,
     UnifiedImportError,
@@ -551,13 +552,22 @@ def test_повторный_расчёт_даёт_те_же_id_и_порядок
     assert [c.summary for c in первый.conflicts[1].candidates] == ["1 колонка", "1 колонка"]
 
 
-def test_пустой_вход_и_превышение_капа_ломают_план_целиком():
+def test_пустой_вход_и_превышение_капов_ломают_план_целиком():
+    """Капа ДВА, и они про разное: голых YAML принимаем столько же, сколько
+    мульти-репо импорт (файл на репозиторий), а архивов — вшестнадцатеро меньше
+    (каждый распаковывается в память целиком). Тексты ошибок различимы."""
     with pytest.raises(UnifiedImportError, match="ни один файл"):
         build_unified_plan([])
+
     много = [(f"{i}.yaml", C4_ЯРМАРКА.encode()) for i in range(MAX_INPUTS + 1)]
-    with pytest.raises(UnifiedImportError, match=str(MAX_INPUTS)):
+    with pytest.raises(UnifiedImportError, match=f"Больше {MAX_INPUTS} файлов"):
         build_unified_plan(много)
-    assert build_unified_plan(много[:MAX_INPUTS]).ok  # ровно кап — принимаем
+    assert build_unified_plan(много[:2]).ok  # обычный пакет проходит
+
+    архивы = [(f"{i}.zip", _архив(name=f"A{i}")) for i in range(MAX_ARCHIVES + 1)]
+    with pytest.raises(UnifiedImportError, match=f"Больше {MAX_ARCHIVES} архивов"):
+        build_unified_plan(архивы)
+    assert build_unified_plan(архивы[:MAX_ARCHIVES]).ok  # ровно кап — принимаем
 
 
 def test_один_yaml_вход_проходит_как_обычный_импорт():
@@ -668,13 +678,18 @@ def test_эндпоинт_одиночного_архива_отдаёт_имя_
     assert (тело["manifest_name"], тело["manifest_description"]) == ("Ярмарка v2", "полигон")
 
 
-def test_эндпоинт_пустого_запроса_и_превышения_капа(клиент):
+def test_эндпоинт_пустого_запроса_и_превышения_капов(клиент):
     пусто = клиент.post(РУЧКА)
     assert пусто.status_code == 400 and "ни один файл" in пусто.json()["detail"]
 
     много = _post(клиент, *[(f"{i}.yaml", C4_ЯРМАРКА.encode()) for i in range(MAX_INPUTS + 1)])
     assert много.status_code == 400
-    assert str(MAX_INPUTS) in много.json()["detail"]
+    assert f"Больше {MAX_INPUTS} файлов" in много.json()["detail"]
+
+    архивов = _post(клиент, *[(f"{i}.zip", _архив(name=f"A{i}"))
+                              for i in range(MAX_ARCHIVES + 1)])
+    assert архивов.status_code == 400
+    assert f"Больше {MAX_ARCHIVES} архивов" in архивов.json()["detail"]
 
 
 # ── 9. Применение плана: новый проект из N входов (Ф2а) ──────────────────────

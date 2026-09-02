@@ -50,10 +50,14 @@ from app.schemas.unified_import import (
     UnifiedPreviewOut,
 )
 
-# Максимум входов за раз. Архив распаковывается в память целиком (капы _read_zip
-# держат каждый), поэтому предел тут строже, чем у голых YAML (MAX_IMPORT_FILES):
-# шестнадцать архивов знания — это уже федерация продуктов, а не пакет репозиториев.
-MAX_INPUTS = 16
+# Максимум входов за раз — тот же щедрый предел, что у голого мульти-YAML импорта
+# (MAX_IMPORT_FILES): мульти-репо BYOA присылает файл на репозиторий, и системе из
+# восьмидесяти сервисов тесно в любом меньшем.
+MAX_INPUTS = 256
+# Из них АРХИВОВ — не больше шестнадцати: архив распаковывается в память целиком
+# (капы _read_zip держат каждый по отдельности, но не их сумму), да и шестнадцать
+# архивов знания — это уже федерация продуктов, а не пакет репозиториев.
+MAX_ARCHIVES = 16
 # Сколько символов тела кандидата едет в превью. Пользователь выбирает из
 # кандидатов глазами, и мегабайтная спека в JSON-ответе никому не помогает.
 MAX_BODY = 4000
@@ -113,6 +117,9 @@ class FamilyCandidate:
     truncated: bool
     value: FamilyValue  # полезная нагрузка для применения (Ф2), в схему не едет
     fname: str = ""  # файл-источник вклада (в схему не едет, нужен применению)
+    # Вклад ТЕКУЩЕГО проекта (вход №0 догрузки, Ф3): его кандидат — «оставить моё»,
+    # и дефолт спора стоит на нём. При создании проекта входа №0 нет — всегда false.
+    current: bool = False
 
 
 @dataclass
@@ -554,6 +561,10 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
         raise UnifiedImportError("Не передан ни один файл")
     if len(inputs) > MAX_INPUTS:
         raise UnifiedImportError(f"Больше {MAX_INPUTS} файлов за раз не принимаем")
+    # Архивы считаем отдельно и ПО СОДЕРЖИМОМУ (та же магия zip, что у _read_input):
+    # у них своя цена — распаковка в память, — и свой, куда более строгий предел.
+    if sum(1 for _label, payload in inputs if payload.startswith(b"PK")) > MAX_ARCHIVES:
+        raise UnifiedImportError(f"Больше {MAX_ARCHIVES} архивов за раз не принимаем")
 
     read = [_read_input(label, payload) for label, payload in inputs]
     remarks: list[list[str]] = [[] for _ in read]
@@ -794,6 +805,7 @@ def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
                         summary=k.summary,
                         body=k.body,
                         truncated=k.truncated,
+                        current=k.current,
                     )
                     for k in c.candidates
                 ],
@@ -810,6 +822,7 @@ def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
 
 
 __all__ = [
+    "MAX_ARCHIVES",
     "MAX_INPUTS",
     "DocIn",
     "FamilyCandidate",

@@ -12,10 +12,15 @@
 судьба (первое читают, второе выбирают).
 """
 
+import uuid
 from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.channels_import import ChannelsImportReport
+from app.schemas.config_import import ConfigImportReport
+from app.schemas.data_import import DataImportReport
+from app.schemas.process_import import ProcessImportResult
 from app.schemas.project import ImportPreviewOut
 
 
@@ -30,6 +35,9 @@ class FamilyCandidateOut(BaseModel):
     summary: str  # человеческая сводка: «12 строк», «5 колонок», «тип int, дефолт «5000»»
     body: str
     truncated: bool
+    # Кандидат ТЕКУЩЕГО проекта (только догрузка, Ф3): на нём стоит дефолт спора,
+    # и подписан он «Оставить моё». При создании проекта таких кандидатов нет.
+    current: bool = False
 
 
 class FamilyConflictOut(BaseModel):
@@ -78,3 +86,56 @@ class UnifiedPreviewOut(BaseModel):
     name_source: Literal["manifest", "fields"] = "fields"
     manifest_name: str | None = None
     manifest_description: str | None = None
+
+
+class IntoPreviewOut(BaseModel):
+    """Сводка dry-run ДОГРУЗКИ архивов к живому проекту (Ф3). БД не тронута.
+
+    Числа тут — про ДИФФ, а не про содержимое архивов: сколько узлов и связей
+    появится, сколько записей семей приедет ПРИ ДЕФОЛТНЫХ решениях (а дефолт спора
+    с живым — «оставить моё», поэтому в счётчике только бесспорное новое).
+    Перетирание живого случается ровно там, где пользователь выбрал архивного
+    кандидата, — и видно это в family_conflicts, а не в счётчиках.
+    """
+
+    ok: bool
+    errors: list[str] = []  # адресованы чипу именем файла: «a.zip: …»
+    nodes_new: int = 0
+    nodes_new_paths: list[str] = []  # первые несколько путей — «что именно приедет»
+    edges_new: int = 0
+    families: UnifiedFamilyCountsOut = UnifiedFamilyCountsOut()
+    family_conflicts: list[FamilyConflictOut] = []
+    # Одним списком: замечания слияния, тёзки процессов и промахи адресов семей —
+    # для человека это одна категория «посмотри глазами» (норма синка).
+    warnings: list[str] = []
+    # Fence: применение вернёт их обратно, и разошедшийся проект получит 409
+    # «обновите превью». Курсоров ДВА — догрузка меняет и схему, и мету.
+    base_graph_rev: int = 0
+    base_meta_rev: int = 0
+
+
+class IntoApplyOut(BaseModel):
+    """Отчёт применения догрузки: что именно изменилось в живом проекте.
+
+    Форма СВОЯ, а не ArchiveImportResult: у создания числа значат «сколько знания
+    в проекте», у догрузки — «сколько записей тронуто», и путать их нельзя.
+    Отчёты семей при этом РОДНЫЕ (вторых форматов не заводим, норма эпика архива).
+    """
+
+    project_id: uuid.UUID
+    nodes_created: int = 0
+    nodes_filled: int = 0  # живые узлы, которым долили пустые поля (fill-only)
+    edges_created: int = 0
+    docs_created: int = 0
+    docs_replaced: int = 0  # тело живой схемы заменено выбором «взять из архива»
+    specs_applied: int = 0
+    params_replaced: int = 0
+    db: DataImportReport | None = None
+    channels: ChannelsImportReport | None = None
+    config: ConfigImportReport | None = None
+    processes: list[ProcessImportResult] = []
+    warnings: list[str] = []
+    resolved_conflicts: int = 0
+    # Свежие курсоры: фронт кладёт их в поллинг, не дожидаясь следующего опроса.
+    graph_rev: int = 0
+    meta_rev: int = 0
