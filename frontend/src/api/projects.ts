@@ -1,6 +1,7 @@
 import type {
   ArchiveImportResult, ImportPreviewOut, ImportPromptOut, Project, ProjectCreate,
   ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut, TemplateOut,
+  UnifiedPreviewOut,
 } from "../types";
 import { api } from "./client";
 
@@ -20,13 +21,31 @@ export const projectsApi = {
     api.get<Project[]>(`/projects?archived=${archived}`),
   // Каталог стартовых шаблонов для витрины создания проекта.
   templates: (): Promise<TemplateOut[]> => api.get<TemplateOut[]>(`/projects/templates`),
-  // Новый проект из полного архива знания (zip). Имя опционально — иначе из
-  // манифеста; отчёт несёт счётчики категорий и замечания (деградация видимая).
-  importArchive: (file: File, name?: string): Promise<ArchiveImportResult> => {
+  // Единый ввоз: N входов ЛЮБОГО типа (YAML C4 и/или полный архив знания .zip)
+  // одним мультипартом. ПОРЯДОК files ЗНАЧИМ — им бэк нумерует входы («вход 3»,
+  // file_remarks), от него же зависят tie-break C4-мерджа и дефолты споров семей,
+  // поэтому файлы едут ровно в том порядке, в каком их видит пользователь.
+  unifiedPreview: (files: File[]): Promise<UnifiedPreviewOut> => {
     const form = new FormData();
-    form.append("file", file);
-    if (name) form.append("name", name);
-    return api.upload<ArchiveImportResult>("/projects/import-archive", form);
+    for (const f of files) form.append("files", f);
+    return api.upload<UnifiedPreviewOut>("/projects/import/unified-preview", form);
+  },
+  // Применение того же ввоза: создать проект. Имя/описание опциональны — при
+  // единственном входе-архиве они приедут из манифеста (П3). resolutions —
+  // решения пользователя по спорам семей («id спора → выбор»), JSON-строкой:
+  // протокол стейтлесс, план бэк пересчитывает по тем же файлам.
+  importUnified: (
+    files: File[],
+    opts: { name?: string; description?: string; resolutions?: Record<string, string> },
+  ): Promise<ArchiveImportResult> => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    if (opts.name) form.append("name", opts.name);
+    if (opts.description) form.append("description", opts.description);
+    if (opts.resolutions && Object.keys(opts.resolutions).length > 0) {
+      form.append("resolutions", JSON.stringify(opts.resolutions));
+    }
+    return api.upload<ArchiveImportResult>("/projects/import-unified", form);
   },
   // Dry-run импорта YAML (N документов → слияние): сводка/ошибки/отчёт слияния
   // для живой валидации в модалке, БД не трогает.
