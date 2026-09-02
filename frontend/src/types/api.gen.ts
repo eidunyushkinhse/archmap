@@ -161,6 +161,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/import-unified": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Project Unified
+         * @description Создать НОВЫЙ проект из N входов ЛЮБОГО типа (Ф2а, docs/plan-unified-import.md).
+         *
+         *     Протокол стейтлесс: план считается заново по тем же файлам (мердж
+         *     детерминирован), а решения пользователя приезжают словарём «id спора → выбор»
+         *     JSON-объектом в поле resolutions. Резолюция не из плана — 400 «превью
+         *     устарело»: молча применить «не то» хуже, чем попросить пересобрать превью.
+         *
+         *     Имя и описание берутся из полей; при ЕДИНСТВЕННОМ входе-архиве их можно не
+         *     передавать — тогда они приедут из манифеста (П3).
+         */
+        post: operations["import_project_unified_api_v1_projects_import_unified_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/sync/preview": {
         parameters: {
             query?: never;
@@ -2119,6 +2147,11 @@ export interface components {
              * @default []
              */
             warnings: string[];
+            /**
+             * Resolved Conflicts
+             * @default 0
+             */
+            resolved_conflicts: number;
         };
         /**
          * BindResult
@@ -2142,6 +2175,20 @@ export interface components {
             file: string;
             /** Name */
             name?: string | null;
+        };
+        /** Body_import_project_unified_api_v1_projects_import_unified_post */
+        Body_import_project_unified_api_v1_projects_import_unified_post: {
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Resolutions */
+            resolutions?: string | null;
         };
         /** Body_import_unified_preview_api_v1_projects_import_unified_preview_post */
         Body_import_unified_preview_api_v1_projects_import_unified_preview_post: {
@@ -5890,6 +5937,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnifiedPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_project_unified_api_v1_projects_import_unified_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_project_unified_api_v1_projects_import_unified_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveImportResult"];
                 };
             };
             /** @description Validation Error */

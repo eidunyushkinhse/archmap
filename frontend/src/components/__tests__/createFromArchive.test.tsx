@@ -32,6 +32,7 @@ const ОТЧЁТ: ArchiveImportResult = {
   config: null,
   processes: [],
   warnings: ["docs/x.mmd: узел «Нет такого» не найден — файл пропущен"],
+  resolved_conflicts: 0,
 };
 
 async function открыть() {
