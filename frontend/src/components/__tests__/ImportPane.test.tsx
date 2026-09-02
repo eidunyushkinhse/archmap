@@ -9,7 +9,8 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ImportPane from "../project/ImportPane";
-import type { ImportPreviewOut } from "../../types";
+import type { ArchiveInputs } from "../project/ImportPane";
+import type { FamilyConflictOut, ImportPreviewOut } from "../../types";
 
 const writeText = vi.fn((_text: string) => Promise.resolve());
 
@@ -175,11 +176,23 @@ const двухфайловая = (over: Partial<ImportPreviewOut> = {}): ImportP
     ...over,
   });
 
-// Документами владеет родитель (CreateProjectDialog) — в тестах его роль играет
-// эта обёртка: без неё чипы не переключались бы и файлы не добавлялись.
-function Harness({ initial, summary }: { initial: string[]; summary: ImportPreviewOut | null }) {
+// Документами и их именами владеет родитель (CreateProjectDialog) — в тестах его
+// роль играет эта обёртка: без неё чипы не переключались бы и файлы не добавлялись.
+function Harness({ initial, summary, archives }: {
+  initial: string[]; summary: ImportPreviewOut | null; archives?: ArchiveInputs;
+}) {
   const [docs, setDocs] = useState(initial);
-  return <ImportPane docs={docs} onDocs={setDocs} summary={summary} />;
+  const [names, setNames] = useState<(string | null)[]>([]);
+  return (
+    <ImportPane
+      docs={docs}
+      onDocs={setDocs}
+      names={names}
+      onNames={setNames}
+      summary={summary}
+      archives={archives}
+    />
+  );
 }
 
 const chip = (name: string | RegExp) => screen.getByRole("button", { name });
@@ -335,5 +348,108 @@ describe("одно-файловый режим не изменился (регр
     expect(screen.getByText(/текущие файлы в панели устареют/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Убрать из панели" }));
     expect(onDocs).toHaveBeenCalledWith([""]);
+  });
+});
+
+// ── единая панель: архивные входы (Ф2б) ──────────────────────────────────────
+//
+// Архив знания — такой же вход, как YAML: свой чип в той же полосе, свой номер
+// (нумерация входов сплошная — на неё ссылаются замечания бэка) и свои замечания.
+// Правит его не агент, а экспорт, поэтому кнопки «для агента» у него нет, а тело
+// не редактируется — вместо textarea карточка.
+
+const ЗАМ_АРХИВА = "docs/orders.mmd: узел «Нет такого» не найден — файл пропущен";
+
+const архивы = (over: Partial<ArchiveInputs> = {}): ArchiveInputs => ({
+  files: [new File(["zip"], "archmap.zip", { type: "application/zip" })],
+  onFiles: vi.fn(),
+  counts: { docs: 3, specs: 1, tables: 0, channels: 0, params: 0, processes: 0 },
+  conflicts: [],
+  resolutions: {},
+  onResolve: vi.fn(),
+  ...over,
+});
+
+const СПЕКА_СПОР: FamilyConflictOut = {
+  id: "spec|Ярмарка / orders|openapi",
+  family: "spec",
+  node_path: "Ярмарка / orders",
+  key: "openapi",
+  candidates: [
+    { origin: 0, origin_label: "a.zip", summary: "12 строк, 400 Б", body: "openapi: 3.0.0", truncated: false },
+    { origin: 1, origin_label: "b.zip", summary: "20 строк, 800 Б", body: "openapi: 3.1.0", truncated: true },
+  ],
+  default: "cand:0",
+  allow_all: false,
+};
+
+describe("архивные входы единой панели", () => {
+  it("чип архива помечен «zip» и продолжает нумерацию входов", () => {
+    render(<Harness initial={["nodes: a"]} summary={двухфайловая()} archives={архивы()} />);
+
+    // Один непустой YAML — архив занимает вход 2 (им же подписаны его замечания).
+    expect(chip("zip 2 · archmap.zip")).toBeInTheDocument();
+    // Знание архива в C4-счётчиках не видно — его называет отдельная строка.
+    expect(screen.getByText(/Из архивов:/)).toHaveTextContent("3 схемы логики · 1 спека");
+  });
+
+  it("клик по чипу архива открывает карточку с замечаниями ЕГО входа", async () => {
+    render(
+      <Harness
+        initial={["nodes: a"]}
+        summary={двухфайловая({
+          file_remarks: [
+            { file: 1, errors: [], warnings: [Ф1] },
+            { file: 2, errors: [], warnings: [ЗАМ_АРХИВА] },
+          ],
+        })}
+        archives={архивы()}
+      />,
+    );
+
+    await userEvent.click(chip("zip 2 · archmap.zip"));
+
+    expect(screen.getByText("Замечания к архиву:")).toBeInTheDocument();
+    expect(screen.getByText(ЗАМ_АРХИВА)).toBeInTheDocument();
+    expect(screen.queryByText(Ф1)).toBeNull();
+    // Тело архива не правят — textarea заменена карточкой.
+    expect(screen.queryByPlaceholderText(/Перетащите сюда/)).toBeNull();
+    // Архив собирал экспорт, а не агент: кнопки «для агента» у него нет.
+    expect(screen.queryByRole("button", { name: /Скопировать замечания/ })).toBeNull();
+  });
+
+  it("архив без замечаний говорит об этом (корзина бывает короче номера)", async () => {
+    render(
+      <Harness
+        initial={["nodes: a"]}
+        summary={двухфайловая({ file_remarks: [{ file: 1, errors: [], warnings: [Ф1] }] })}
+        archives={архивы()}
+      />,
+    );
+
+    await userEvent.click(chip("zip 2 · archmap.zip"));
+    expect(screen.getByText("К архиву замечаний нет.")).toBeInTheDocument();
+  });
+
+  it("спор содержимого: предвыбран дефолт, выбор уходит наверх", async () => {
+    const onResolve = vi.fn();
+    render(
+      <Harness
+        initial={["nodes: a"]}
+        summary={двухфайловая()}
+        archives={архивы({ conflicts: [СПЕКА_СПОР], onResolve })}
+      />,
+    );
+
+    expect(screen.getByText("Споры содержимого (1)")).toBeInTheDocument();
+    expect(screen.getByText("Спека API · openapi")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /a\.zip · 12 строк/ })).toBeChecked();
+    // Скаляру брать всё некуда — вариант «взять все» есть только у доков.
+    expect(screen.queryByRole("radio", { name: /Взять все/ })).toBeNull();
+    // Обрезанное тело честно говорит, что показано начало.
+    expect(screen.getByText("…показано начало")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("radio", { name: /b\.zip · 20 строк/ }));
+    expect(onResolve).toHaveBeenCalledWith(СПЕКА_СПОР.id, "cand:1");
   });
 });
