@@ -54,6 +54,17 @@ nodes:
 """
 
 
+# Тот же корень с брокером — для каналов (у семьи свой адресат-владелец).
+C4_С_БРОКЕРОМ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+      - name: Kafka
+        shape: broker
+"""
+
+
 def _док(node: str, name: str, body: str, operation: str | None = None) -> str:
     шапка = f"%% archmap-name: {name}\n%% archmap-kind: operation\n"
     if operation:
@@ -81,6 +92,20 @@ def _конфиг(node: str, default: str) -> str:
         "- name: TIMEOUT_MS\n"
         "  type: int\n"
         f"  default: '{default}'\n"
+    )
+
+
+def _канал(node: str, delivery: str) -> str:
+    return (
+        f"# archmap-node: {node}\n"
+        "channels:\n"
+        "- name: orders.created\n"
+        "  group: shop\n"
+        "  kind: topic\n"
+        f"  delivery: {delivery}\n"
+        "  fields:\n"
+        "  - name: order_id\n"
+        "    type: uuid\n"
     )
 
 
@@ -288,6 +313,25 @@ def test_конфликт_спеки_и_параметра_конфига():
     assert (параметр.default, параметр.allow_all) == ("cand:0", False)
     # При дефолтных резолюциях приедет по одному экземпляру каждого.
     assert (план.counts.specs, план.counts.params) == (1, 1)
+
+
+def test_конфликт_канала_ключом_группа_и_имя():
+    a = _архив(name="A", c4=C4_С_БРОКЕРОМ,
+               channels=(("channels/001-k.yaml", _канал("Ярмарка / Kafka", "at-least-once")),))
+    b = _архив(name="B", c4=C4_С_БРОКЕРОМ,
+               channels=(("channels/001-k.yaml", _канал("Ярмарка / Kafka", "exactly-once")),))
+
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+
+    [спор] = план.conflicts
+    assert спор.family == "channel" and спор.key == "shop/orders.created"
+    assert спор.id == "channel|Ярмарка / Kafka|shop/orders.created"
+    assert [c.summary for c in спор.candidates] == [
+        "1 поле, at-least-once", "1 поле, exactly-once"]
+    # Тело кандидата — YAML своего ввозного формата (пользователь видел его в архиве).
+    assert "delivery: at-least-once" in спор.candidates[0].body
+    assert "order_id" in спор.candidates[0].body
+    assert план.counts.channels == 1  # дефолт скаляра — первый кандидат
 
 
 def test_равные_спеки_дедуплицируются_молча():
