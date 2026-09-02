@@ -59,6 +59,20 @@ export type TemplateEdge = Schemas["TemplateEdgeOut"];
 export type ImportPreviewOut = Schemas["ImportPreviewOut"];
 export type ImportPromptOut = Schemas["ImportPromptOut"];
 
+// Единый ввоз (docs/plan-unified-import.md): N входов ЛЮБОГО типа (YAML C4 и/или
+// zip-архив знания) одной панелью. Сводка = C4-часть прежним ImportPreviewOut +
+// счётчики семей фактов + СПОРЫ о телах (доки-тёзки, две спеки, параметр с другим
+// дефолтом) — их рассуживает пользователь, выбирая кандидата в превью.
+export type UnifiedPreviewOut = Schemas["UnifiedPreviewOut"];
+export type FamilyConflictOut = Schemas["FamilyConflictOut"];
+export type FamilyCandidateOut = Schemas["FamilyCandidateOut"];
+export type UnifiedFamilyCountsOut = Schemas["UnifiedFamilyCountsOut"];
+// Догрузка архивов к ЖИВОМУ проекту (Ф3/Ф4 того же плана): дифф-превью («что
+// появится, о чём спор» + пара базовых курсоров-fence) и отчёт применения
+// («сколько записей тронуто» + родные отчёты семей).
+export type IntoPreviewOut = Schemas["IntoPreviewOut"];
+export type IntoApplyOut = Schemas["IntoApplyOut"];
+
 // Вариант BYOA-промпта, общий для всех четырёх промпт-ручек: строительный
 // (дефолт, прежний байт-в-байт), оркестраторная обёртка с аудитом вторым
 // агентом-скептиком и отдельный промпт аудита. Литерал ВЫВОДИМ из генерата —

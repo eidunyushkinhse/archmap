@@ -1,25 +1,30 @@
 import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ImportPreviewOut } from "../../types";
+import type { FamilyConflictOut, ImportPreviewOut, UnifiedFamilyCountsOut } from "../../types";
 import { plural } from "../../ui/plural";
 import { useFileDrop } from "../docsImport/useFileDrop";
 import { inputFingerprint, useRepeatedInput } from "../docsImport/agentModalShared";
 import { StaleFilesConfirm, UnchangedInputNote } from "../docsImport/agentModalReport";
+import ConflictSection from "./ConflictSection";
 
 /**
- * Правая панель импорта YAML в модалке создания проекта: несколько документов
- * (чипы «Файл N» — мульти-репо сценарий «Из репозитория»), textarea активного
- * документа, сводка dry-run с отчётом слияния и кнопка «Скопировать замечания»
- * (уносится ИИ-агенту на починку). Данные (docs) и сводка живут у родителя —
- * здесь представление и локальный выбор активного документа.
+ * Единая панель ввоза в модалке создания проекта: N входов ЛЮБОГО типа — YAML
+ * (чипы «Файл N» — мульти-репо сценарий «Из репозитория») и полные архивы знания
+ * .zip (чипы «zip»), вперемешку. Внизу — сводка dry-run с отчётом слияния, споры
+ * содержимого (ConflictSection) и кнопка «Скопировать замечания» (уносится
+ * ИИ-агенту на починку). Данные (docs, archives) и сводка живут у родителя —
+ * здесь представление и локальный выбор активного входа.
  *
- * Мульти-режим (файлов больше одного) адресует замечания: пакет собирают N агентов,
+ * Мульти-режим (входов больше одного) адресует замечания: пакет собирают N агентов,
  * каждый видит ТОЛЬКО свой репозиторий и переписывает только свой документ. Поэтому
  * под панелью показываются замечания АКТИВНОГО файла со своей кнопкой копирования, а
  * замечания слитой схемы (конфликты файлов, оторванные группы) вынесены отдельной
  * секцией без кнопки — их чинит человек, видящий весь ландшафт (Ф6 плана
  * docs/plan-skeptic-audit.md). Одно-файловый режим не меняется ничем: там агент
  * видит всю систему и чинит всё.
+ *
+ * У АРХИВНОГО входа кнопки «для агента» нет вовсе: архив собирал экспорт, а не
+ * агент, и переписывать его некому — замечания архива только читают.
  */
 
 // Зеркало MAX_IMPORT_FILES бэка (schemas/project.py) — клиентский предохранитель.
@@ -59,23 +64,52 @@ interface Attempts {
 }
 const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: [] };
 
+/**
+ * Архивная половина панели: сами zip-входы, счётчики того, что они привезут, и
+ * споры содержимого с выбором пользователя. Бандл, а не россыпь пропсов: всё это
+ * одна ответственность («архивы»), и точка вызова собирает её одним useMemo.
+ * Не передан — панель принимает только YAML (так её зовут тесты BYOA-механики).
+ */
+export interface ArchiveInputs {
+  files: File[];
+  onFiles: (next: File[]) => void;
+  /** Что приедет из архивов при текущих (дефолтных) резолюциях. */
+  counts: UnifiedFamilyCountsOut;
+  conflicts: FamilyConflictOut[];
+  /** Выбор пользователя по спорам: id → «cand:<i>» либо «all». */
+  resolutions: Record<string, string>;
+  onResolve: (id: string, choice: string) => void;
+}
+
 interface Props {
   docs: string[];
   onDocs: (next: string[]) => void;
-  // Актуальная сводка по ТЕКУЩИМ docs (устаревшие родитель уже отбросил); null — нет/грузится.
+  // Настоящие имена файлов, положенных с диска (вставленные текстом имени не имеют).
+  // Массив идёт строка в строку с docs. Владеет им РОДИТЕЛЬ: теми же именами он
+  // подписывает входы мультипарта, и имя чипа обязано совпасть с именем в превью.
+  names?: (string | null)[];
+  onNames?: (next: (string | null)[]) => void;
+  // Актуальная C4-сводка по ТЕКУЩИМ входам (устаревшие родитель уже отбросил); null — нет/грузится.
   summary: ImportPreviewOut | null;
+  archives?: ArchiveInputs;
 }
 
-export default function ImportPane({ docs, onDocs, summary }: Props) {
+const isZip = (f: File): boolean => f.name.toLowerCase().endsWith(".zip");
+
+export default function ImportPane({
+  docs, onDocs, names = [], onNames, summary, archives,
+}: Props) {
   // Индекс активного документа — чисто вьюшное состояние; при удалении чипов
   // может выйти за границы, поэтому в рендере всегда клампится.
   const [activeRaw, setActiveRaw] = useState(0);
   const active = Math.min(activeRaw, docs.length - 1);
+  // Активный АРХИВНЫЙ чип (null — активен yaml-чип). Клампится тем же приёмом:
+  // архив могли убрать крестиком, и производное состояние в эффект не зеркалим.
+  const [activeZipRaw, setActiveZipRaw] = useState<number | null>(null);
+  const zips = archives?.files ?? [];
+  const activeZip = activeZipRaw !== null && activeZipRaw < zips.length ? activeZipRaw : null;
   const fileRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
-  // Настоящие имена файлов, положенных с диска (вставленные текстом имени не имеют).
-  // Массив идёт строка в строку с docs — любая правка состава документов двигает и его.
-  const [names, setNames] = useState<(string | null)[]>([]);
   // Дифф попыток. Переставляем ПРИ РЕНДЕРЕ по смене ссылки сводки (React-паттерн
   // «adjusting state when props change»), а не зеркалящим эффектом: setState в
   // useEffect линтом запрещён и даёт лишний кадр со старым составом.
@@ -84,7 +118,8 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     setSeen({ from: summary, prev: seen.cur, cur: summary.node_names });
   }
   // Гвард «вход не изменился»: тот же байт-в-байт документ, что в прошлый заход, —
-  // повод посмотреть на файл, а не на замечание (находка полевой приёмки).
+  // повод посмотреть на файл, а не на замечание (находка полевой приёмки). Считаем
+  // по YAML-текстам: архивы правит не агент, и «переспросить» их незачем.
   const fingerprint = useMemo(() => inputFingerprint(docs), [docs]);
   const repeatedInput = useRepeatedInput(docs, fingerprint);
   // Набор документов, к которому задан вопрос об устаревании (после копирования
@@ -99,10 +134,19 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     let n = 0;
     return docs.map((d) => (d.trim() ? ++n : n + 1));
   }, [docs]);
+  // Архивы едут ПОСЛЕ всех непустых YAML в порядке добавления — этой же нумерацией
+  // бэк подписывает входы и их замечания (file_remarks[номер − 1]).
+  const yamlCount = useMemo(() => docs.filter((d) => d.trim()).length, [docs]);
+  const zipNo = (j: number): number => yamlCount + j + 1;
   const nameOf = (i: number): string | null => names[i] ?? null;
 
   function setDoc(i: number, text: string) {
     onDocs(docs.map((d, k) => (k === i ? text : d)));
+  }
+
+  function selectDoc(i: number) {
+    setActiveRaw(i);
+    setActiveZipRaw(null);
   }
 
   function addDocs(texts: string[], added: (string | null)[]) {
@@ -110,9 +154,9 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     // Единственный пустой стартовый документ замещается загруженными файлами.
     const drop = docs.length === 1 && !docs[0].trim();
     const next = [...(drop ? [] : docs), ...texts].slice(0, MAX_IMPORT_FILES);
-    setNames([...(drop ? [] : names), ...added].slice(0, MAX_IMPORT_FILES));
+    onNames?.([...(drop ? [] : names), ...added].slice(0, MAX_IMPORT_FILES));
     onDocs(next);
-    setActiveRaw(next.length - 1);
+    selectDoc(next.length - 1);
   }
 
   function removeDoc(i: number) {
@@ -121,17 +165,36 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     // Убрали последний файл — история попыток начинается заново (сравнивать не с чем).
     if (!next.length) setSeen(NO_ATTEMPTS);
     onDocs(next.length ? next : [""]);
-    setNames(next.length ? nextNames : []);
+    onNames?.(next.length ? nextNames : []);
     setActiveRaw(Math.max(0, active - (i <= active ? 1 : 0)));
   }
 
+  function addArchives(files: File[]) {
+    if (!archives || !files.length) return;
+    archives.onFiles([...archives.files, ...files]);
+    setActiveZipRaw(archives.files.length + files.length - 1);
+  }
+
+  function removeArchive(j: number) {
+    if (!archives) return;
+    archives.onFiles(archives.files.filter((_, k) => k !== j));
+    // Убрали активный — активность возвращается к YAML; убрали левее — съезжает.
+    setActiveZipRaw((cur) => (cur === null || cur === j ? null : cur > j ? cur - 1 : cur));
+  }
+
   // ArrayLike, а не FileList: тем же путём заходят перетащенные файлы (useFileDrop
-  // отдаёт отфильтрованный массив). Нечитаемое пропускаем: перетащить можно и то,
-  // чего не бывает в диалоге выбора.
+  // отдаёт отфильтрованный массив). Архивы отделяем по расширению — читать их
+  // текстом нельзя, они уезжают родителю как файлы. Нечитаемый YAML пропускаем:
+  // перетащить можно и то, чего не бывает в диалоге выбора.
   function pickFiles(list: ArrayLike<File> | null) {
     if (!list || list.length === 0) return;
+    const all = Array.from(list);
+    const zip = archives ? all.filter(isZip) : [];
+    const yaml = archives ? all.filter((f) => !isZip(f)) : all;
+    addArchives(zip);
+    if (!yaml.length) return;
     void Promise.all(
-      Array.from(list).map((f) =>
+      yaml.map((f) =>
         f.text().then((text) => ({ text, name: f.name })).catch(() => null),
       ),
     ).then((read) => {
@@ -141,18 +204,25 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
   }
 
   // Перетаскивание в ту же зону, что и кнопка: расширения — как в input accept.
+  const accept = archives ? [".yaml", ".yml", ".zip"] : [".yaml", ".yml"];
   const drop = useFileDrop({
-    accept: [".yaml", ".yml"],
+    accept,
     onFiles: pickFiles,
     disabled: docs.length >= MAX_IMPORT_FILES,
   });
 
-  // Мульти-режим — по числу РАЗОБРАННЫХ документов, а не чипов: пустой чип в dry-run
+  // Мульти-режим — по числу РАЗОБРАННЫХ входов, а не чипов: пустой чип в dry-run
   // не уезжает, и бэк в таком случае кладёт всё в единственный файл.
   const multi = (summary?.files ?? 1) > 1;
   // Замечания активного файла: их и только их уносит его агент.
-  const activeFile = docs[active]?.trim() ? summary?.file_remarks[fileNo[active] - 1] : undefined;
+  const activeFile = activeZip === null && docs[active]?.trim()
+    ? summary?.file_remarks[fileNo[active] - 1]
+    : undefined;
   const activeRemarks = activeFile ? [...activeFile.errors, ...activeFile.warnings] : [];
+  // Замечания активного архива. Корзина может быть короче номера (сводка отказа
+  // пофайловых корзин не несёт) — индексируемся защищённо.
+  const zipFile = activeZip !== null ? summary?.file_remarks[zipNo(activeZip) - 1] : undefined;
+  const zipRemarks = zipFile ? [...zipFile.errors, ...zipFile.warnings] : [];
 
   // Замечания для агента: при ошибках — они; при зелёной сводке — конфликты и
   // предупреждения слияния (промпт учит агента чинить по такому списку).
@@ -167,6 +237,10 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
   const remarksIntro = multi
     ? (summary?.ok ? INTRO_MANY_OK : INTRO_MANY_BAD)
     : (summary?.ok ? INTRO_ONE_OK : INTRO_ONE_BAD);
+
+  // Кнопка «для агента» уместна только у yaml-чипа с содержимым: архив собирал
+  // экспорт, и переписывать его некому.
+  const canCopy = activeZip === null && Boolean(docs[active]?.trim());
 
   // Что исчезло между попытками (prev − cur, по именам). Рост не показываем — норма.
   const vanished = useMemo(() => {
@@ -200,8 +274,8 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     }
     setSeen(NO_ATTEMPTS);
     onDocs([""]);
-    setNames([]);
-    setActiveRaw(0);
+    onNames?.([]);
+    selectDoc(0);
   }
 
   const copyBtn = (
@@ -214,14 +288,14 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
     <>
       <div style={chipsRow}>
         {docs.map((_, i) => (
-          <span key={i} className={`cp-chip${i === active ? " cp-chip--on" : ""}`}>
+          <span key={i} className={`cp-chip${i === active && activeZip === null ? " cp-chip--on" : ""}`}>
             {/* Без крестика padding должен быть симметричным: асимметрия ниже
                 рассчитана на соседство с ним, иначе текст жмётся вправо. */}
             <button
               type="button"
               style={docs.length > 1 ? chipBtn : { ...chipBtn, padding: "3px 10px" }}
               title={nameOf(i) ?? undefined}
-              onClick={() => setActiveRaw(i)}
+              onClick={() => selectDoc(i)}
             >
               {nameOf(i) ? `${fileNo[i]} · ${nameOf(i)}` : `Файл ${fileNo[i]}`}
             </button>
@@ -237,6 +311,29 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
             )}
           </span>
         ))}
+        {/* Архивные чипы — та же полоса, свой номер входа и метка «zip»: их тела
+            не редактируются, поэтому вместо textarea у них карточка. */}
+        {zips.map((f, j) => (
+          <span key={`zip-${j}`} className={`cp-chip${activeZip === j ? " cp-chip--on" : ""}`}>
+            <button
+              type="button"
+              style={chipBtn}
+              title={f.name}
+              onClick={() => setActiveZipRaw(j)}
+            >
+              <span style={zipTag}>zip</span>
+              {` ${zipNo(j)} · ${f.name}`}
+            </button>
+            <button
+              type="button"
+              style={chipX}
+              title="Убрать архив"
+              onClick={() => removeArchive(j)}
+            >
+              ×
+            </button>
+          </span>
+        ))}
         {/* «+» — пустой документ под вставку текста (второй YAML не обязан быть файлом) */}
         {docs.length < MAX_IMPORT_FILES && docs[docs.length - 1].trim() !== "" && (
           <button
@@ -246,8 +343,8 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
             title="Добавить ещё один YAML вставкой"
             onClick={() => {
               onDocs([...docs, ""]);
-              setNames([...names, null]);
-              setActiveRaw(docs.length);
+              onNames?.([...names, null]);
+              selectDoc(docs.length);
             }}
           >
             +
@@ -256,7 +353,7 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
         <input
           ref={fileRef}
           type="file"
-          accept=".yaml,.yml"
+          accept={accept.join(",")}
           multiple
           style={{ display: "none" }}
           onChange={(e) => { pickFiles(e.target.files); e.target.value = ""; }}
@@ -272,17 +369,23 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
       </div>
 
       <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
-        <textarea
-          style={importArea}
-          value={docs[active]}
-          onChange={(e) => setDoc(active, e.target.value)}
-          placeholder={
-            "Перетащите сюда .yaml-файлы или вставьте текст. Файлов может быть несколько\n" +
-            "(по одному на репозиторий каждого сервиса, из которых состоит система),\n" +
-            "они сольются автоматически."
-          }
-          spellCheck={false}
-        />
+        {activeZip !== null ? (
+          <ArchiveCard file={zips[activeZip]} no={zipNo(activeZip)} remarks={zipRemarks} />
+        ) : (
+          <textarea
+            style={importArea}
+            value={docs[active]}
+            onChange={(e) => setDoc(active, e.target.value)}
+            placeholder={
+              (archives
+                ? "Перетащите сюда .yaml-файлы и архивы .zip или вставьте текст. Входов может быть\n"
+                : "Перетащите сюда .yaml-файлы или вставьте текст. Файлов может быть\n") +
+              "несколько (по одному на репозиторий каждого сервиса, из которых состоит\n" +
+              "система), они сольются автоматически."
+            }
+            spellCheck={false}
+          />
+        )}
       </div>
       {drop.error && (
         <p style={{ ...grayLine, color: "#b45309" }}>{drop.error}</p>
@@ -307,6 +410,9 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
               Готово к импорту: {summary.node_count} {plural(summary.node_count, ["объект", "объекта", "объектов"])} · {summary.edge_count} {plural(summary.edge_count, ["связь", "связи", "связей"])}
               {summary.files > 1 && ` · из ${summary.files} ${plural(summary.files, ["файла", "файлов", "файлов"])}`}
             </div>
+            {/* Знание архивов не видно в C4-счётчиках — называем его отдельной строкой,
+                иначе неясно, что вместе со схемой едут доки, спеки и структуры. */}
+            {archives && <FamilyCounts counts={archives.counts} />}
             {summary.roots.length > 0 && (
               <div style={grayLine}>Корневые: {summary.roots.join(", ")}</div>
             )}
@@ -343,10 +449,10 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
             )}
           </div>
         )}
-        {!multi && remarks.length > 0 && copyBtn}
+        {!multi && canCopy && remarks.length > 0 && copyBtn}
         {multi && summary !== null && (
           <>
-            {activeRemarks.length > 0 ? (
+            {activeZip === null && (activeRemarks.length > 0 ? (
               <>
                 <ReportList
                   title={`Замечания к файлу ${fileNo[active]}${nameOf(active) ? ` · ${nameOf(active)}` : ""}:`}
@@ -356,7 +462,7 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
               </>
             ) : docs[active].trim() !== "" ? (
               <div style={grayLine}>К файлу {fileNo[active]} замечаний нет.</div>
-            ) : null}
+            ) : null)}
             {summary.schema_warnings.length > 0 && (
               <>
                 <ReportList title="Замечания к слитой схеме:" items={summary.schema_warnings} />
@@ -369,6 +475,14 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
               </>
             )}
           </>
+        )}
+        {/* Споры содержимого — под сводкой: сначала «что приедет», потом «чьё». */}
+        {archives && (
+          <ConflictSection
+            conflicts={archives.conflicts}
+            resolutions={archives.resolutions}
+            onResolve={archives.onResolve}
+          />
         )}
         {askedFor === docs && (
           <StaleFilesConfirm
@@ -383,6 +497,42 @@ export default function ImportPane({ docs, onDocs, summary }: Props) {
       </div>
     </>
   );
+}
+
+// Карточка активного архива вместо textarea: тело архива не правят — его читают.
+// Кнопки «для агента» здесь нет принципиально (архив собирал экспорт).
+function ArchiveCard({ file, no, remarks }: { file: File; no: number; remarks: string[] }) {
+  return (
+    <div style={archiveCard}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{file.name}</div>
+      <div style={grayLine}>
+        Вход {no} · {(file.size / 1024).toFixed(0)} КБ · полный архив знания
+      </div>
+      {remarks.length > 0 ? (
+        <ReportList title="Замечания к архиву:" items={remarks} />
+      ) : (
+        <div style={grayLine}>К архиву замечаний нет.</div>
+      )}
+      <div style={{ ...grayLine, marginTop: 10 }}>
+        Из архива приедут схемы логики, спеки, структуры БД и брокеров,
+        конфигурация и процессы. Раскладка пересчитается заново.
+      </div>
+    </div>
+  );
+}
+
+// Что привезут архивы при текущих резолюциях: C4-счётчики про это молчат.
+function FamilyCounts({ counts }: { counts: UnifiedFamilyCountsOut }) {
+  const parts = [
+    counts.docs && `${counts.docs} ${plural(counts.docs, ["схема логики", "схемы логики", "схем логики"])}`,
+    counts.specs && `${counts.specs} ${plural(counts.specs, ["спека", "спеки", "спек"])}`,
+    counts.tables && `${counts.tables} ${plural(counts.tables, ["таблица", "таблицы", "таблиц"])}`,
+    counts.channels && `${counts.channels} ${plural(counts.channels, ["канал", "канала", "каналов"])}`,
+    counts.params && `${counts.params} ${plural(counts.params, ["параметр", "параметра", "параметров"])}`,
+    counts.processes && `${counts.processes} ${plural(counts.processes, ["процесс", "процесса", "процессов"])}`,
+  ].filter((s): s is string => typeof s === "string");
+  if (!parts.length) return null;
+  return <div style={grayLine}>Из архивов: {parts.join(" · ")}</div>;
 }
 
 // Красная шапка мульти-режима: сами ошибки лежат в списке своего файла (их уносит
@@ -437,6 +587,12 @@ const chipX: CSSProperties = {
   border: "none", background: "none", cursor: "pointer", color: "#94a3b8",
   fontSize: 14, lineHeight: 1, padding: "3px 8px 3px 4px",
 };
+// Метка типа входа в чипе: архив от YAML отличается не только содержимым, но и тем,
+// что его нельзя править в панели.
+const zipTag: CSSProperties = {
+  padding: "1px 5px", borderRadius: 5, background: "#e2e8f0", color: "#475569",
+  fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3,
+};
 const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8", marginTop: 3 };
 // Тот же amber, что у заголовков отчёта слияния (ReportList) и ошибки перетаскивания.
 const vanishedLine: CSSProperties = {
@@ -447,4 +603,9 @@ const importArea: CSSProperties = {
   padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 10,
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   fontSize: 12.5, lineHeight: 1.5, color: "#0f172a", background: "#fff",
+};
+// Карточка архива занимает место textarea — панель не должна прыгать при смене чипа.
+const archiveCard: CSSProperties = {
+  height: 246, boxSizing: "border-box", overflowY: "auto",
+  padding: "12px 14px", border: "1px solid #e2e8f0", borderRadius: 10, background: "#fff",
 };

@@ -14,7 +14,9 @@ passthrough одного файла, нечувствительность к п�
 его байт-в-байт; Ф1: контейнерное замечание несёт перечень реальных компонентов и
 всегда адресуется файлу связи (П5); вторая итерация тюнинга Ф0: совпадение слабого
 якоря не гасит спор сильного поля (К3), связь узла с собственным потомком — свой
-класс замечания вместо контейнерного (К4).
+класс замечания вместо контейнерного (К4); Ф0 «Единого импорта»: происхождение
+вкладов с точностью до узла входного файла (node_contribs) — по нему семьи фактов
+архивов переедут на merged-узлы.
 """
 
 import uuid
@@ -22,7 +24,13 @@ from itertools import permutations
 
 from conftest import ensure_project
 
-from app.import_merge import merge_imports, parse_and_merge, split_remarks
+from app.import_merge import (
+    MergeReport,
+    _run_merge,
+    merge_imports,
+    parse_and_merge,
+    split_remarks,
+)
 from app.import_yaml import ParsedImport, parse_import
 from app.models.edge import Edge
 from app.models.node import Node
@@ -52,6 +60,34 @@ def _edge_sig(p: ParsedImport) -> set[tuple]:
     return {
         (paths[e.source_idx], paths[e.target_idx], e.label, e.technology) for e in p.edges
     }
+
+
+def _вклады(
+    merged: ParsedImport, report: MergeReport, parts: list[ParsedImport], path: str
+) -> list[tuple[int, int, str]]:
+    """Происхождение merged-узла по его пути: (файл, индекс узла в файле, имя того
+    узла). Имя достаётся из самого входа — чтобы тест утверждал, ЧТО найдено по
+    индексу, а не сверялся с номерами на веру."""
+    i = _path_list(merged).index(path)
+    return [(fi, ni, parts[fi].nodes[ni].name) for fi, ni in report.node_contribs[i]]
+
+
+def _вклады_согласованы(
+    merged: ParsedImport, report: MergeReport, parts: list[ParsedImport]
+) -> None:
+    """Инвариант происхождения (Ф0 «Единого импорта», docs/plan-unified-import.md):
+    node_contribs индексируется как merged.nodes, огрубляется РОВНО в node_files и
+    раскладывает каждый узел каждого входа ровно по одному разу.
+
+    Последнее и есть рабочее свойство: семья фактов архива N адресована путём по C4
+    СВОЕГО архива, поэтому у неё всегда есть ровно один адресат в слитом дереве —
+    ни потерянных вкладов (семье некуда переехать), ни задвоенных (переедет дважды)."""
+    assert len(report.node_contribs) == len(merged.nodes)
+    for i, вклады in enumerate(report.node_contribs):
+        assert {fi for fi, _ni in вклады} == report.node_files[i], i
+    все = [c for вклады in report.node_contribs for c in вклады]
+    входные = {(fi, ni) for fi, part in enumerate(parts) for ni in range(len(part.nodes))}
+    assert sorted(все) == sorted(входные)  # без потерь и без дублей
 
 
 # Два «репозитория» одной системы: payments богат в A и заглушка в B, orders —
@@ -115,7 +151,8 @@ edges:
 def test_stub_plus_rich_merge():
     """Заглушки доливаются богатыми версиями из «родных» файлов, дети объединяются,
     точный дубль ребра выброшен, конфликтов нет."""
-    merged, report = merge_imports([_parse(FILE_A), _parse(FILE_B)])
+    файлы = [_parse(FILE_A), _parse(FILE_B)]
+    merged, report = merge_imports(файлы)
     paths = set(_path_list(merged))
     assert paths == {
         "Ярмарка",
@@ -138,6 +175,20 @@ def test_stub_plus_rich_merge():
     assert report.conflicts == [] and report.errors == []
     # предупреждений о fuzzy нет: payments/payments-db жили в одном файле
     assert report.warnings == []
+    # Происхождение с точностью до узла файла (Ф0 единого импорта): у склеенных узлов
+    # по вкладу от каждого файла с ТОЧНЫМИ индексами (у «payments» они разные — 1 и 4),
+    # у несклеенных — единственный вклад своего файла.
+    _вклады_согласованы(merged, report, файлы)
+    assert _вклады(merged, report, файлы, "Ярмарка / payments") == [
+        (0, 1, "payments"),
+        (1, 4, "payments"),
+    ]
+    assert _вклады(merged, report, файлы, "Ярмарка / orders") == [
+        (0, 5, "orders"),
+        (1, 1, "orders"),
+    ]
+    assert _вклады(merged, report, файлы, "Ярмарка / payments / api") == [(0, 2, "api")]
+    assert _вклады(merged, report, файлы, "Ярмарка / orders / checkout") == [(1, 2, "checkout")]
 
 
 def test_order_insensitive_semantics():
@@ -218,6 +269,10 @@ def test_single_file_passthrough():
     assert merged is a
     assert report.files == 1
     assert report.merged_paths == [] and report.conflicts == [] and report.warnings == []
+    # Происхождение заполнено и в вырожденном случае — по той же причине, что и
+    # атрибуция: потребитель не должен знать, сколько было входов (Ф0 единого импорта).
+    _вклады_согласованы(merged, report, [a])
+    assert report.node_contribs == [[(0, i)] for i in range(len(a.nodes))]
 
 
 def test_total_limit_overflow():
@@ -258,11 +313,19 @@ def test_якорь_склеивает_сервис_названный_по_ра
         "      - name: payments\n"
         "        source: {host: payments}\n"
     )
-    merged, report = merge_imports([own, caller])
+    файлы = [own, caller]
+    merged, report = merge_imports(файлы)
 
     assert _path_list(merged) == ["Система", "Система / app"]
     assert _node_by_path(merged, "Система / app").technology == "Go"
     assert any("имя" in c and "payments" in c for c in report.conflicts)
+    # Ф0 единого импорта: склейка поверх РАЗНЫХ ИМЁН адресуема точно — вклад каждого
+    # файла указывает на его собственный узел («app» и «payments»), а не только на файл.
+    _вклады_согласованы(merged, report, файлы)
+    assert _вклады(merged, report, файлы, "Система / app") == [
+        (0, 1, "app"),
+        (1, 1, "payments"),
+    ]
 
 
 def test_якорь_разводит_тёзок_из_разных_репозиториев():
@@ -320,11 +383,17 @@ def test_якорь_сильнее_иерархии():
         "          - name: auth\n"
         "            source: {repo: github.com/org/auth}\n"
     )
-    merged, report = merge_imports([a, b])
+    файлы = [a, b]
+    merged, report = merge_imports(файлы)
 
     paths = _path_list(merged)
     assert "Система / auth" in paths and "Система / gateway / auth" not in paths
     assert any("родитель" in c for c in report.conflicts)
+    # Ф0 единого импорта: склейка поверх РАЗНЫХ РОДИТЕЛЕЙ тоже точна — вклад второго
+    # файла указывает на его «auth» (узел 2, внук), а не на что-то по совпадению имени.
+    _вклады_согласованы(merged, report, файлы)
+    assert _вклады(merged, report, файлы, "Система / auth") == [(0, 1, "auth"), (1, 2, "auth")]
+    assert _вклады(merged, report, файлы, "Система / gateway") == [(1, 1, "gateway")]
 
 
 def test_склеенный_узел_наследует_все_грани_источника():
@@ -1781,7 +1850,8 @@ def test_склейка_федерации_не_зависит_от_порядк
     отличить их она не даёт. Спор полей это не задевает: П2 держит продукт от
     покраски заглушкой в любом порядке."""
     for порядок in permutations((_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)):
-        merged, report = merge_imports([_parse(t) for t in порядок])
+        файлы = [_parse(t) for t in порядок]
+        merged, report = merge_imports(файлы)
         ядро = _с_ключом(merged, "git:github.com/grafana/grafana")
         плагин = _с_ключом(merged, "git:github.com/alexanderzobnin/grafana-zabbix")
 
@@ -1794,6 +1864,44 @@ def test_склейка_федерации_не_зависит_от_порядк
         assert (продукт.is_external, продукт.technology) == (False, "Go, TypeScript"), порядок
         assert merged.nodes[плагин[0]].is_external is False, порядок
         assert any("РАЗНЫЕ объекты" in w for w in report.warnings), порядок
+        # Ф0 единого импорта: происхождение целое в любом порядке — прогон проходит
+        # через стабилизацию, и вклады обязаны пережить её, где бы кто ни лёг.
+        _вклады_согласованы(merged, report, файлы)
+        # …и указывают на верные узлы входов: якорь merged-узла прослеживается до того
+        # самого узла того самого файла, который его принёс.
+        for узел, ключ in (
+            (ядро[0], "git:github.com/grafana/grafana"),
+            (плагин[0], "git:github.com/alexanderzobnin/grafana-zabbix"),
+        ):
+            вклады = report.node_contribs[узел]
+            assert any(ключ in файлы[fi].nodes[ni].source_keys for fi, ni in вклады), порядок
+
+
+def test_повторный_проход_стабилизации_сохраняет_происхождение_вкладов():
+    """Ф0 единого импорта: node_contribs собирает ПОСЛЕДНИЙ проход слияния, поэтому
+    происхождение обязано пережить пересборку, которую заказывает стабилизация
+    (_regroup): она отдаёт разметку «атом (файл, узел файла) → группа», и merge_imports
+    повторяет проход с ней — индексы merged-узлов при этом другие.
+
+    Разметка здесь задаётся руками, а не добывается из _regroup: после К3 предикат
+    _bridged на полевых формах молчит (склейку решают сами матчеры, см. тесты выше), и
+    повторный проход иначе не достижим. Проверяется именно ПЕРЕНОС происхождения, а не
+    решение о склейке — форма взята прежняя, пред-К3: три «графаны» полевой тройки,
+    силой сведённые в один узел продукта."""
+    файлы = [_parse(t) for t in (_ЗАГЛУШКА_СОСЕДА, _СВОЙ_РЕПОЗИТОРИЙ, _ПЛАГИН)]
+    группы = {(0, 2): 42, (1, 0): 42, (2, 0): 42}  # три «графаны» — одна группа
+    merged, report = _run_merge(файлы, группы).finish(файлы)
+
+    assert len(merged.nodes) == 7  # продукт един, а не раздвоен
+    _вклады_согласованы(merged, report, файлы)
+    assert _вклады(merged, report, файлы, "Grafana") == [
+        (0, 2, "Grafana"),
+        (1, 0, "Grafana"),
+        (2, 0, "grafana"),
+    ]
+    assert _вклады(merged, report, файлы, "Grafana / zabbix-datasource") == [
+        (2, 1, "zabbix-datasource"),
+    ]
 
 
 def test_свидетель_не_сводит_тёзок_спорящих_напрямую():

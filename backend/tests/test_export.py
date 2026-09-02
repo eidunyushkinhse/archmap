@@ -5,13 +5,18 @@
 распарсенному YAML, а не по тексту, — устойчивы к форматированию.
 """
 
+import io
 import uuid
+import zipfile
 
 import pytest
 import yaml
 from conftest import ensure_project
 from fastapi import HTTPException
 
+from app.archive_export import build_archive, build_archive_ordered
+from app.export import build_export_ordered
+from app.import_yaml import parse_import
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -183,3 +188,56 @@ def test_export_канал_связи_пишется_только_когда_з�
     доставка = next(e for e in doc["edges"] if e["from"] == "Kafka")
     assert публикация["channel"] == "orders.created"
     assert "channel" not in доставка
+
+
+def test_порядок_id_экспорта_совпадает_с_нумерацией_разбора(db):
+    """Ф3 единого импорта: build_export_ordered отдаёт id узлов в порядке документа,
+    и этот порядок обязан совпадать с нумерацией parse_import — по нему догрузка
+    возвращает узел разобранного C4 к его ЖИВОЙ записи.
+
+    Полигон нарочно с ТЁЗКАМИ в одном родителе (адресация путём тут неоднозначна —
+    ради этого карта и строится по порядку, а не по путям)."""
+    корень = _node(db, "Ярмарка")
+    _node(db, "orders", корень, technology="Python")
+    _node(db, "orders", корень, technology="Go")  # тёзка того же родителя — легально
+    _node(db, "Каталог-БД", корень, shape="database")
+    другой = _node(db, "Внешний", shape="service")
+    _edge(db, другой, корень)
+    db.commit()
+
+    узлы = db.query(Node).filter(Node.project_id == ensure_project(db).id).all()
+    рёбра = db.query(Edge).filter(Edge.project_id == ensure_project(db).id).all()
+    текст, порядок = build_export_ordered(узлы, рёбра)
+
+    parsed, ошибки = parse_import(текст)
+    assert ошибки == [] and parsed is not None
+    assert len(порядок) == len(узлы) == len(parsed.nodes)
+    # Индекс в индекс: имя и родитель разобранного узла — от узла с тем же номером.
+    по_id = {n.id: n for n in узлы}
+    for i, node_id in enumerate(порядок):
+        живой, разобранный = по_id[node_id], parsed.nodes[i]
+        assert разобранный.name == живой.name
+        родитель = порядок[разобранный.parent_idx] if разобранный.parent_idx is not None else None
+        assert родитель == живой.parent_id
+    # Тёзки различимы только порядком: пути у них совпадают, а технологии разные.
+    orders = [i for i, nid in enumerate(порядок) if по_id[nid].name == "orders"]
+    assert [parsed.nodes[i].technology for i in orders] == [по_id[порядок[i]].technology
+                                                            for i in orders]
+
+
+def test_архив_отдаёт_порядок_узлов_своего_c4(db):
+    """build_archive_ordered — тот же архив плюс порядок; байты не меняются."""
+    корень = _node(db, "Ярмарка")
+    _node(db, "orders", корень)
+    db.commit()
+    проект = ensure_project(db)
+
+    байты, порядок = build_archive_ordered(db, проект)
+
+    assert байты == build_archive(db, проект)  # хвост аддитивен, архив прежний
+    c4 = zipfile.ZipFile(io.BytesIO(байты)).read("c4.yaml").decode()
+    parsed, _ = parse_import(c4)
+    assert parsed is not None
+    assert [n.name for n in parsed.nodes] == [
+        db.get(Node, nid).name for nid in порядок
+    ] == ["Ярмарка", "orders"]

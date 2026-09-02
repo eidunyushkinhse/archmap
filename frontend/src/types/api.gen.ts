@@ -134,6 +134,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/import/unified-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Unified Preview
+         * @description Dry-run ЕДИНОГО ввоза: N входов ЛЮБОГО типа (YAML C4 и/или zip-архив знания)
+         *     вперемешку — C4 всех входов сливается, семьи фактов архивов переезжают на
+         *     смердженные узлы, споры о телах показываются пользователю (Ф1,
+         *     docs/plan-unified-import.md). БД не трогаем: проекта ещё нет, применение — Ф2.
+         *
+         *     Тип входа определяется ПО СОДЕРЖИМОМУ (магия zip), а не по имени файла: чип
+         *     может приехать из буфера обмена, а расширение — соврать. Беда отдельного
+         *     входа не 400-ит запрос, а едет ошибкой, адресованной этому входу.
+         */
+        post: operations["import_unified_preview_api_v1_projects_import_unified_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/import-unified": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Project Unified
+         * @description Создать НОВЫЙ проект из N входов ЛЮБОГО типа (Ф2а, docs/plan-unified-import.md).
+         *
+         *     Протокол стейтлесс: план считается заново по тем же файлам (мердж
+         *     детерминирован), а решения пользователя приезжают словарём «id спора → выбор»
+         *     JSON-объектом в поле resolutions. Резолюция не из плана — 400 «превью
+         *     устарело»: молча применить «не то» хуже, чем попросить пересобрать превью.
+         *
+         *     Имя и описание берутся из полей; при ЕДИНСТВЕННОМ входе-архиве их можно не
+         *     передавать — тогда они приедут из манифеста (П3).
+         */
+        post: operations["import_project_unified_api_v1_projects_import_unified_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/import-archive/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Archive Preview
+         * @description Dry-run ДОГРУЗКИ архивов к живому проекту (Ф3, docs/plan-unified-import.md):
+         *     что появится и о чём придётся выбрать. БД не пишем.
+         *
+         *     Текущий проект участвует входом №0 (его собственный архив в память), поэтому
+         *     сравнение «живое vs привозное» делает то же ядро, что и федерацию архивов.
+         *     Только zip: YAML в существующий проект заливается синком («Импорт схемы») —
+         *     это другая механика, и подменять её мерджем нельзя.
+         */
+        post: operations["import_archive_preview_api_v1_projects__project_id__import_archive_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/import-archive/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Archive Apply
+         * @description Применить догрузку к живому проекту.
+         *
+         *     Протокол тот же, что у создания: план считается ЗАНОВО (мердж детерминирован),
+         *     решения приезжают словарём «id спора → выбор». Чтобы применение не разошлось с
+         *     увиденным в превью, клиент возвращает base_graph_rev и base_meta_rev —
+         *     разошлись хоть один, 409 «обновите превью». Курсоров два: догрузка меняет и
+         *     схему (узлы, связи), и мету (схемы логики, факты, спеки).
+         *
+         *     Аддитивность: живая запись перетирается ТОЛЬКО там, где пользователь явно
+         *     выбрал архивного кандидата; ничего никогда не удаляется.
+         */
+        post: operations["import_archive_apply_api_v1_projects__project_id__import_archive_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/sync/preview": {
         parameters: {
             query?: never;
@@ -210,30 +320,6 @@ export interface paths {
         head?: never;
         /** Update Project */
         patch: operations["update_project_api_v1_projects__project_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/projects/import-archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Import Project Archive
-         * @description Создать НОВЫЙ проект из архива знания (Ф4, docs/plan-archive-export.md).
-         *
-         *     Кривой zip/манифест/C4 — 400, проект не создаётся; частичные промахи
-         *     (неразрешённые адреса, тёзки путей) применяют остальное и едут замечаниями
-         *     в отчёте. Слияние с существующим проектом — отдельная задача.
-         */
-        post: operations["import_project_archive_api_v1_projects_import_archive_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/projects/{project_id}/archive": {
@@ -2092,6 +2178,11 @@ export interface components {
              * @default []
              */
             warnings: string[];
+            /**
+             * Resolved Conflicts
+             * @default 0
+             */
+            resolved_conflicts: number;
         };
         /**
          * BindResult
@@ -2106,15 +2197,49 @@ export interface components {
             /** Dangling */
             dangling: number;
         };
-        /** Body_import_project_archive_api_v1_projects_import_archive_post */
-        Body_import_project_archive_api_v1_projects_import_archive_post: {
+        /** Body_import_archive_apply_api_v1_projects__project_id__import_archive_apply_post */
+        Body_import_archive_apply_api_v1_projects__project_id__import_archive_apply_post: {
             /**
-             * File
-             * Format: binary
+             * Files
+             * @default []
              */
-            file: string;
+            files: string[];
+            /** Resolutions */
+            resolutions?: string | null;
+            /** Base Graph Rev */
+            base_graph_rev?: number | null;
+            /** Base Meta Rev */
+            base_meta_rev?: number | null;
+        };
+        /** Body_import_archive_preview_api_v1_projects__project_id__import_archive_preview_post */
+        Body_import_archive_preview_api_v1_projects__project_id__import_archive_preview_post: {
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
+        };
+        /** Body_import_project_unified_api_v1_projects_import_unified_post */
+        Body_import_project_unified_api_v1_projects_import_unified_post: {
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
             /** Name */
             name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Resolutions */
+            resolutions?: string | null;
+        };
+        /** Body_import_unified_preview_api_v1_projects_import_unified_preview_post */
+        Body_import_unified_preview_api_v1_projects_import_unified_preview_post: {
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
         };
         /** Body_login_api_v1_auth_login_post */
         Body_login_api_v1_auth_login_post: {
@@ -3549,6 +3674,56 @@ export interface components {
             content: string;
         };
         /**
+         * FamilyCandidateOut
+         * @description Один вариант тела в споре: чей он и что в нём.
+         *
+         *     body обрезан капом превью (truncated=true) — выбор делается по сводке и
+         *     началу текста, целиком тело приедет применением.
+         */
+        FamilyCandidateOut: {
+            /** Origin */
+            origin: number;
+            /** Origin Label */
+            origin_label: string;
+            /** Summary */
+            summary: string;
+            /** Body */
+            body: string;
+            /** Truncated */
+            truncated: boolean;
+            /**
+             * Current
+             * @default false
+             */
+            current: boolean;
+        };
+        /**
+         * FamilyConflictOut
+         * @description Спор о теле одного ключа у одного узла слитого дерева.
+         *
+         *     id стабилен между превью и применением (мердж детерминирован), поэтому
+         *     резолюции передаются словарём id → выбор, а план пересчитывается на сервере.
+         */
+        FamilyConflictOut: {
+            /** Id */
+            id: string;
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "doc" | "spec" | "table" | "channel" | "config";
+            /** Node Path */
+            node_path: string;
+            /** Key */
+            key: string;
+            /** Candidates */
+            candidates: components["schemas"]["FamilyCandidateOut"][];
+            /** Default */
+            default: string;
+            /** Allow All */
+            allow_all: boolean;
+        };
+        /**
          * FileRemarksOut
          * @description Замечания к ОДНОМУ файлу пакета: их чинит агент того репозитория, из которого
          *     файл пришёл (он видит только свой код и переписывает только свой YAML). Тексты —
@@ -3895,6 +4070,149 @@ export interface components {
             source_is_intermediate: boolean;
             /** Target Is Intermediate */
             target_is_intermediate: boolean;
+        };
+        /**
+         * IntoApplyOut
+         * @description Отчёт применения догрузки: что именно изменилось в живом проекте.
+         *
+         *     Форма СВОЯ, а не ArchiveImportResult: у создания числа значат «сколько знания
+         *     в проекте», у догрузки — «сколько записей тронуто», и путать их нельзя.
+         *     Отчёты семей при этом РОДНЫЕ (вторых форматов не заводим, норма эпика архива).
+         */
+        IntoApplyOut: {
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /**
+             * Nodes Created
+             * @default 0
+             */
+            nodes_created: number;
+            /**
+             * Nodes Filled
+             * @default 0
+             */
+            nodes_filled: number;
+            /**
+             * Edges Created
+             * @default 0
+             */
+            edges_created: number;
+            /**
+             * Docs Created
+             * @default 0
+             */
+            docs_created: number;
+            /**
+             * Docs Replaced
+             * @default 0
+             */
+            docs_replaced: number;
+            /**
+             * Specs Applied
+             * @default 0
+             */
+            specs_applied: number;
+            /**
+             * Params Replaced
+             * @default 0
+             */
+            params_replaced: number;
+            db?: components["schemas"]["DataImportReport"] | null;
+            channels?: components["schemas"]["ChannelsImportReport"] | null;
+            config?: components["schemas"]["ConfigImportReport"] | null;
+            /**
+             * Processes
+             * @default []
+             */
+            processes: components["schemas"]["ProcessImportResult"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Resolved Conflicts
+             * @default 0
+             */
+            resolved_conflicts: number;
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
+            /**
+             * Meta Rev
+             * @default 0
+             */
+            meta_rev: number;
+        };
+        /**
+         * IntoPreviewOut
+         * @description Сводка dry-run ДОГРУЗКИ архивов к живому проекту (Ф3). БД не тронута.
+         *
+         *     Числа тут — про ДИФФ, а не про содержимое архивов: сколько узлов и связей
+         *     появится, сколько записей семей приедет ПРИ ДЕФОЛТНЫХ решениях (а дефолт спора
+         *     с живым — «оставить моё», поэтому в счётчике только бесспорное новое).
+         *     Перетирание живого случается ровно там, где пользователь выбрал архивного
+         *     кандидата, — и видно это в family_conflicts, а не в счётчиках.
+         */
+        IntoPreviewOut: {
+            /** Ok */
+            ok: boolean;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            /**
+             * Nodes New
+             * @default 0
+             */
+            nodes_new: number;
+            /**
+             * Nodes New Paths
+             * @default []
+             */
+            nodes_new_paths: string[];
+            /**
+             * Edges New
+             * @default 0
+             */
+            edges_new: number;
+            /**
+             * @default {
+             *       "docs": 0,
+             *       "specs": 0,
+             *       "tables": 0,
+             *       "channels": 0,
+             *       "params": 0,
+             *       "processes": 0
+             *     }
+             */
+            families: components["schemas"]["UnifiedFamilyCountsOut"];
+            /**
+             * Family Conflicts
+             * @default []
+             */
+            family_conflicts: components["schemas"]["FamilyConflictOut"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Base Graph Rev
+             * @default 0
+             */
+            base_graph_rev: number;
+            /**
+             * Base Meta Rev
+             * @default 0
+             */
+            base_meta_rev: number;
         };
         /**
          * IsolatedGroupAlert
@@ -5235,6 +5553,87 @@ export interface components {
             name: string;
         };
         /**
+         * UnifiedFamilyCountsOut
+         * @description Что приедет при ДЕФОЛТНЫХ резолюциях: доки спора едут все, скаляры — первый.
+         */
+        UnifiedFamilyCountsOut: {
+            /**
+             * Docs
+             * @default 0
+             */
+            docs: number;
+            /**
+             * Specs
+             * @default 0
+             */
+            specs: number;
+            /**
+             * Tables
+             * @default 0
+             */
+            tables: number;
+            /**
+             * Channels
+             * @default 0
+             */
+            channels: number;
+            /**
+             * Params
+             * @default 0
+             */
+            params: number;
+            /**
+             * Processes
+             * @default 0
+             */
+            processes: number;
+        };
+        /**
+         * UnifiedPreviewOut
+         * @description Сводка dry-run единого ввоза. БД не тронута — применение отдельным вызовом (Ф2).
+         */
+        UnifiedPreviewOut: {
+            /** Ok */
+            ok: boolean;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            c4?: components["schemas"]["ImportPreviewOut"] | null;
+            /**
+             * @default {
+             *       "docs": 0,
+             *       "specs": 0,
+             *       "tables": 0,
+             *       "channels": 0,
+             *       "params": 0,
+             *       "processes": 0
+             *     }
+             */
+            families: components["schemas"]["UnifiedFamilyCountsOut"];
+            /**
+             * Family Conflicts
+             * @default []
+             */
+            family_conflicts: components["schemas"]["FamilyConflictOut"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Name Source
+             * @default fields
+             * @enum {string}
+             */
+            name_source: "manifest" | "fields";
+            /** Manifest Name */
+            manifest_name?: string | null;
+            /** Manifest Description */
+            manifest_description?: string | null;
+        };
+        /**
          * UnlinkedMessageAlert
          * @description Шаг процесса без привязки к схеме логики (doc_id = NULL) — алерт ПОЛНОТЫ.
          *
@@ -5709,6 +6108,142 @@ export interface operations {
             };
         };
     };
+    import_unified_preview_api_v1_projects_import_unified_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_unified_preview_api_v1_projects_import_unified_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnifiedPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_project_unified_api_v1_projects_import_unified_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_project_unified_api_v1_projects_import_unified_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_archive_preview_api_v1_projects__project_id__import_archive_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_archive_preview_api_v1_projects__project_id__import_archive_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntoPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_archive_apply_api_v1_projects__project_id__import_archive_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_archive_apply_api_v1_projects__project_id__import_archive_apply_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntoApplyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     sync_preview_api_v1_projects__project_id__sync_preview_post: {
         parameters: {
             query?: never;
@@ -5863,39 +6398,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    import_project_archive_api_v1_projects_import_archive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_import_project_archive_api_v1_projects_import_archive_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArchiveImportResult"];
                 };
             };
             /** @description Validation Error */

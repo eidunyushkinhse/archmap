@@ -25,7 +25,7 @@ import zipfile
 import yaml
 from sqlalchemy.orm import Session, undefer
 
-from app.export import build_export
+from app.export import build_export_ordered
 from app.mmd_header import render_header, strip_header
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -202,6 +202,15 @@ def build_archive(db: Session, project: Project) -> bytes:
 
     Детерминизм: перечни отсортированы, штампы времени в zip фиксированы —
     два архива одного состояния совпадают байт-в-байт (diff архивов читаем)."""
+    return build_archive_ordered(db, project)[0]
+
+
+def build_archive_ordered(db: Session, project: Project) -> tuple[bytes, list[uuid.UUID]]:
+    """То же, что build_archive, плюс ПОРЯДОК id узлов в c4.yaml архива.
+
+    Нужен догрузке (unified_into): архив живого проекта едет там входом №0, и по
+    этому порядку узел разобранного C4 возвращается к своей ЖИВОЙ записи. Адресация
+    путём была бы неверной — тёзки в одном родителе легальны."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     all_nodes = {n.id: n for n in nodes}
@@ -217,7 +226,8 @@ def build_archive(db: Session, project: Project) -> bytes:
     if project.description:
         manifest["project"]["description"] = project.description
     contents: dict = {"c4": "c4.yaml"}
-    files.append(("c4.yaml", build_export(nodes, edges)))
+    c4_text, node_order = build_export_ordered(nodes, edges)
+    files.append(("c4.yaml", c4_text))
 
     # Схемы логики — включая заглушки разведки (пустое тело — план работ, Д4).
     docs = (
@@ -305,4 +315,4 @@ def build_archive(db: Session, project: Project) -> bytes:
             info = zipfile.ZipInfo(fname, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, content)
-    return buf.getvalue()
+    return buf.getvalue(), node_order

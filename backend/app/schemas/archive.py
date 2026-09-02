@@ -29,3 +29,7 @@ class ArchiveImportResult(BaseModel):
     config: ConfigImportReport | None = None
     processes: list[ProcessImportResult] = []
     warnings: list[str] = []
+    # Споров о телах фактов, разрешённых при ввозе (единый импорт, Ф2а): дефолтом
+    # плана или явным выбором пользователя. У одноархивного импорта споров нет по
+    # построению — там всегда 0, поэтому поле с дефолтом, а не второй формат отчёта.
+    resolved_conflicts: int = 0

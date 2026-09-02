@@ -244,6 +244,15 @@ class MergeReport:
     # адресовать замечание о конкретном объекте.
     node_files: list[set[int]] = field(default_factory=list)
     edge_files: list[set[int]] = field(default_factory=list)
+    # Происхождение вкладов с точностью ДО УЗЛА ВХОДНОГО ФАЙЛА (Ф0 единого импорта,
+    # docs/plan-unified-import.md): для каждого merged-узла (индексация та же, что у
+    # node_files и merged.nodes) список (индекс файла, индекс узла в этом файле) в
+    # порядке поступления файлов. node_files огрубляет это до множества файлов —
+    # проверкам содержания хватает «кто виноват», а перевеске семей фактов архивов
+    # (доки, БД, каналы, конфиги) на merged-узлы в Ф1 нужен адрес конкретного узла:
+    # семья адресована путём по C4 СВОЕГО архива, и её надо довести до узла слитого
+    # дерева. Каждый узел каждого входа встречается ровно один раз.
+    node_contribs: list[list[tuple[int, int]]] = field(default_factory=list)
 
     def warn(self, text: str, file: int | None = None) -> None:
         """Предупреждение: в плоский список (как раньше) и в разметку природы."""
@@ -857,6 +866,8 @@ class _Merger:
         # Атрибуция — до предупреждений содержания: по ней warn_content решает,
         # чей файл виноват в замечании о конкретном узле/связи.
         self.report.node_files = [set(s) for s in self.sources]
+        # Наружу — только адрес вклада: якорные ключи — внутренняя кухня стабилизации.
+        self.report.node_contribs = [[(fi, ni) for (fi, ni, _keys) in c] for c in self.contribs]
         self.report.edge_files = self.edge_files
         self.warn_similar_edges()
         self.warn_fuzzy_siblings()
@@ -888,6 +899,7 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
             files=1,
             node_files=[{0} for _ in parts[0].nodes],
             edge_files=[{0} for _ in parts[0].edges],
+            node_contribs=[[(0, i)] for i in range(len(parts[0].nodes))],
         )
         # Единственное замечание слияния, которое имеет смысл и без второго файла:
         # общий repo без path — промах ОДНОГО документа, и ответ на него не зависит

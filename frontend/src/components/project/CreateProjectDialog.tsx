@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ArchiveImportResult, ImportPreviewOut, Project, PromptVariant, TemplateOut } from "../../types";
+import type {
+  ArchiveImportResult, Project, PromptVariant, TemplateOut, UnifiedFamilyCountsOut,
+  UnifiedPreviewOut,
+} from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
@@ -12,11 +15,16 @@ import "./createProject.css";
 
 /**
  * Создание проекта — двухпанельная витрина: слева способ старта (Пустой / Шаблон /
- * Копия / Импорт) со списком вариантов и полями имени/описания, справа живое
- * превью выбранного шаблона (C4Preview 1:1 с холстом) либо панель импорта YAML
- * (несколько документов-чипов + живая сводка dry-run с отчётом слияния —
- * ImportPane). Открывается из лендинга и из дропдауна шапки — компонент один,
- * без редиректов. Успех → onCreated(id).
+ * Копия / Импорт / ИИ-агент) со списком вариантов и полями имени/описания, справа
+ * живое превью выбранного шаблона (C4Preview 1:1 с холстом) либо ЕДИНАЯ панель
+ * ввоза (ImportPane: чипы YAML и .zip вперемешку + живая сводка dry-run с отчётом
+ * слияния и спорами содержимого). Открывается из лендинга и из дропдауна шапки —
+ * компонент один, без редиректов. Успех → onCreated(id).
+ *
+ * Отдельного таба «Из архива» больше нет: архив — такой же вход панели, как YAML
+ * (Ф2б, docs/plan-unified-import.md). Ввоз идёт мультипартом /import-unified, а не
+ * через POST /projects — отсюда второй шаг «Открыть проект»: отчёт применения
+ * (счётчики, замечания) показывается ДО перехода в проект.
  */
 
 interface Props {
@@ -26,10 +34,10 @@ interface Props {
   onCreated: (id: string) => void;
 }
 
-// "repo" — «Из репозитория»: генератор промпта для ИИ-агента пользователя +
-// та же панель импорта (создание идёт как start="import" с import_yamls).
-// "archive" — из полного архива знания (zip, кнопка «Скачать архив» экспорта).
-type StartMode = "blank" | "template" | "copy" | "import" | "repo" | "archive";
+// "repo" — «Из репозитория»: генератор промпта для ИИ-агента пользователя + ТА ЖЕ
+// единая панель ввоза, что у «Импорта» (таб отдельный — витрина BYOA, решение
+// груминга; панель внутри одна).
+type StartMode = "blank" | "template" | "copy" | "import" | "repo";
 
 // Линейные SVG-глифы шаблонов (currentColor, без эмодзи), по id из каталога.
 function TemplateGlyph({ id, size = 18 }: { id: string; size?: number }) {
@@ -60,12 +68,20 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [templates, setTemplates] = useState<TemplateOut[] | null>(null); // null = грузится
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(projects[0]?.id ?? null);
-  // Документы импорта (мульти-репо: по YAML на репозиторий). Каждое изменение —
-  // новый массив, поэтому актуальность сводки проверяется по ссылке (forDocs).
+  // Документы импорта (мульти-репо: по YAML на репозиторий) и их имена с диска
+  // (строка в строку с docs, null — вставленный текст). Каждое изменение — новый
+  // массив, поэтому актуальность сводки проверяется по ссылке (forDocs).
   const [docs, setDocs] = useState<string[]>([""]);
-  // Сводка dry-run привязана к документам, для которых получена: устаревший
-  // ответ не показываем и не засчитываем в готовность кнопки.
-  const [importSummary, setImportSummary] = useState<{ forDocs: string[]; res: ImportPreviewOut } | null>(null);
+  const [docNames, setDocNames] = useState<(string | null)[]>([]);
+  // Архивные входы той же панели (.zip из «Экспорт проекта (zip)»).
+  const [archives, setArchives] = useState<File[]>([]);
+  // Решения пользователя по спорам содержимого: id спора → «cand:<i>» | «all».
+  const [resolutions, setResolutions] = useState<Record<string, string>>({});
+  // Сводка dry-run привязана к входам, для которых получена: устаревший ответ не
+  // показываем и не засчитываем в готовность кнопки.
+  const [preview, setPreview] = useState<
+    { forDocs: string[]; forArchives: File[]; res: UnifiedPreviewOut } | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Параметры промпта «Из репозитория» (имя системы = название проекта).
@@ -77,11 +93,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // значение перестаёт зависеть от имени навсегда (защёлка null → boolean), а
   // производное считается в рендере, а не эффектом.
   const [multiProduct, setMultiProduct] = useState<boolean | null>(null);
-  // «Из архива»: выбранный zip и отчёт применения. Отчёт показываем В ДИАЛОГЕ до
-  // перехода в проект: замечания импорта (неразрешённые адреса, тёзки путей) —
-  // видимая деградация, молча провалиться в проект значило бы их спрятать.
-  const [archiveFile, setArchiveFile] = useState<File | null>(null);
-  const [archiveResult, setArchiveResult] = useState<ArchiveImportResult | null>(null);
+  // Отчёт применения показываем В ДИАЛОГЕ до перехода в проект: замечания ввоза
+  // (неразрешённые адреса, тёзки путей) — видимая деградация, молча провалиться в
+  // проект значило бы их спрятать.
+  const [unifiedResult, setUnifiedResult] = useState<ArchiveImportResult | null>(null);
 
   // Загрузка каталога шаблонов (легитимный эффект). По умолчанию выбран webapp,
   // иначе первый из ответа.
@@ -98,53 +113,88 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     );
   }, []);
 
-  // Живая сводка импорта: дебаунс 500мс → dry-run (все непустые документы);
-  // устаревшие ответы отбрасываются (alive-флаг в cleanup). Пустые документы
-  // сводку не запрашивают — она скрыта по несовпадению forDocs, синхронного
-  // сброса стейта в эффекте нет.
+  const importish = mode === "import" || mode === "repo";
+
+  // ПОРЯДОК ВХОДОВ — норматив ввоза: сначала непустые YAML в порядке чипов, затем
+  // архивы в порядке добавления. Им бэк нумерует входы («вход 3», file_remarks) и
+  // от него же зависят tie-break C4-мерджа и дефолты споров, поэтому один и тот же
+  // список уезжает и в превью, и в применение. Взаимный порядок yaml/zip на споры
+  // не влияет: семьи фактов возят только архивы.
+  const inputFiles = useMemo(() => {
+    const texts = docs
+      .map((text, i) => ({ text, name: docNames[i] ?? null }))
+      .filter((d) => d.text.trim());
+    return [
+      ...texts.map((d, i) =>
+        new File([d.text], d.name ?? `Файл ${i + 1}.yaml`, { type: "application/yaml" })),
+      ...archives,
+    ];
+  }, [docs, docNames, archives]);
+
+  // Живая сводка ввоза: дебаунс 500мс → dry-run всех входов; устаревшие ответы
+  // отбрасываются (alive-флаг в cleanup). Пустая панель сводку не запрашивает — она
+  // скрыта по несовпадению ссылок, синхронного сброса стейта в эффекте нет.
   useEffect(() => {
-    if (mode !== "import" && mode !== "repo") return;
+    if (!importish || inputFiles.length === 0) return;
     const forDocs = docs;
-    const texts = forDocs.filter((d) => d.trim());
-    if (texts.length === 0) return;
+    const forArchives = archives;
     let alive = true;
     const t = setTimeout(() => {
-      projectsApi.importPreview(texts).then(
-        (res) => { if (alive) setImportSummary({ forDocs, res }); },
+      projectsApi.unifiedPreview(inputFiles).then(
+        (res) => { if (alive) setPreview({ forDocs, forArchives, res }); },
         (e: unknown) => {
           if (!alive) return;
-          const msg = e instanceof Error ? e.message : "Не удалось проверить YAML";
-          setImportSummary({ forDocs, res: {
-            ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [], node_names: [],
-            files: texts.length, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
-            // Отказ проверки — беда всего пакета, а не чьего-то файла: агенту такое
-            // не адресуем (в панели показывается схемной строкой).
-            file_remarks: [], schema_errors: [msg], schema_warnings: [],
-          } });
+          const msg = e instanceof Error ? e.message : "Не удалось проверить входы";
+          setPreview({ forDocs, forArchives, res: failedPreview(msg, inputFiles.length) });
         },
       );
     }, 500);
     return () => { alive = false; clearTimeout(t); };
-  }, [docs, mode]);
+  }, [docs, archives, inputFiles, importish]);
 
   const tpl = templates?.find((t) => t.id === templateId) ?? null;
   const source = projects.find((p) => p.id === sourceId) ?? null;
-  const summary = importSummary && importSummary.forDocs === docs && docs.some((d) => d.trim())
-    ? importSummary.res
+  const fresh = preview && preview.forDocs === docs && preview.forArchives === archives
+    && inputFiles.length > 0
+    ? preview.res
     : null;
-  const importish = mode === "import" || mode === "repo";
+  // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
+  // стабильность бандла архивов ниже (лишние ре-рендеры панели).
+  const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
+  // Резолюции ПЕРЕЖИВАЮТ перезапрос: id спора стабилен при неизменном составе входов,
+  // и правка YAML-текста не должна стирать выбор по архивным спорам. Протухшие
+  // (спора больше нет) отбрасываем ПРИ РЕНДЕРЕ — паттерн «adjusting state when props
+  // change», а не зеркалящим эффектом.
+  if (fresh && Object.keys(resolutions).some((id) => !conflicts.some((c) => c.id === id))) {
+    setResolutions(Object.fromEntries(
+      Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
+    ));
+  }
+  // П3: единственный вход и он архив — «копия одного архива», имя и описание берутся
+  // из манифеста, поля не рендерятся вовсе.
+  const fromManifest = fresh?.name_source === "manifest";
   const multiProductOn = multiProduct ?? name.includes("+");
 
+  const archiveInputs = useMemo(() => ({
+    files: archives,
+    onFiles: setArchives,
+    counts: fresh?.families ?? NO_FAMILIES,
+    conflicts,
+    resolutions,
+    onResolve: (id: string, choice: string) =>
+      setResolutions((cur) => ({ ...cur, [id]: choice })),
+  }), [archives, fresh, conflicts, resolutions]);
+
   const canSubmit =
-    mode === "archive"
-      // Архив: имя опционально (иначе — из манифеста), нужен только файл;
-      // после применения кнопка становится «Открыть проект».
-      ? !busy && (archiveResult !== null || archiveFile !== null)
+    importish
+      // Ввоз: после применения кнопка становится «Открыть проект»; до него нужна
+      // зелёная сводка и имя — кроме «копии одного архива», где имя из манифеста.
+      ? !busy && (unifiedResult !== null
+        || (fresh?.ok === true && (fromManifest || name.trim().length > 0)))
       : name.trim().length > 0 &&
         !busy &&
         !(mode === "template" && !templateId) &&
-        !(mode === "copy" && !sourceId) &&
-        !(importish && !summary?.ok);
+        !(mode === "copy" && !sourceId);
 
   // Промпт собирает бэкенд (истина формата — рядом с валидатором импорта);
   // копирование после fetch — в пределах жеста, Chrome это допускает. Имя системы
@@ -175,19 +225,24 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
   async function submit() {
     if (!canSubmit) return;
-    if (mode === "archive") {
+    if (importish) {
       // Второй клик — уже «Открыть проект»: отчёт показан, переходим.
-      if (archiveResult) {
-        onCreated(archiveResult.project_id);
+      if (unifiedResult) {
+        onCreated(unifiedResult.project_id);
         return;
       }
-      if (!archiveFile) return;
       setBusy(true);
       setError(null);
       try {
-        setArchiveResult(await projectsApi.importArchive(archiveFile, name.trim() || undefined));
+        setUnifiedResult(await projectsApi.importUnified(inputFiles, {
+          // «Копия одного архива»: поля скрыты, и обещание «имя из архива» должно
+          // держаться — набранное раньше в другом составе входов не подсовываем.
+          name: fromManifest ? undefined : name.trim(),
+          description: fromManifest ? undefined : description.trim() || undefined,
+          resolutions,
+        }));
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Не удалось импортировать архив");
+        setError(e instanceof Error ? e.message : "Не удалось выполнить импорт");
       }
       setBusy(false);
       return;
@@ -196,15 +251,12 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     setError(null);
     const start =
       mode === "template" ? `template:${templateId}` :
-      mode === "copy" ? `copy:${sourceId}` :
-      importish ? "import" : "blank";
+      mode === "copy" ? `copy:${sourceId}` : "blank";
     try {
       const created = await projectsApi.create({
         name: name.trim(),
         description: description.trim() || null,
         start,
-        import_yaml: null,
-        import_yamls: importish ? docs.filter((d) => d.trim()) : null,
       });
       onCreated(created.id);
     } catch (e: unknown) {
@@ -234,6 +286,20 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     </div>
   );
 
+  // П3: единственный вход-архив — поля не показываем вовсе, называем источник.
+  const manifestNote = (
+    <div style={manifestBox}>
+      <div style={{ fontSize: 13, color: "#334155" }}>
+        Имя и описание — из архива: «{fresh?.manifest_name ?? "без имени"}»
+      </div>
+      {fresh?.manifest_description && (
+        <div style={{ fontSize: 12.5, color: "#94a3b8", marginTop: 3 }}>
+          {fresh.manifest_description}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <Modal onClose={onClose} boxStyle={{ width: 904, maxHeight: "90vh", padding: 0, overflow: "hidden" }}>
       <div style={root}>
@@ -253,7 +319,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
               />
               <SegBtn label="Импорт" on={mode === "import"} onClick={() => setMode("import")} />
               <SegBtn label="ИИ-агент" on={mode === "repo"} onClick={() => setMode("repo")} />
-              <SegBtn label="Из архива" on={mode === "archive"} onClick={() => setMode("archive")} />
             </div>
 
             <div style={listArea}>
@@ -300,41 +365,13 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
               {mode === "import" && (
                 <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
-                  Формат — тот же YAML, что выдаёт «Экспорт». Файлов может быть
-                  несколько (по одному на репозиторий каждого сервиса, из которых
-                  состоит система) — они сольются автоматически, сводка справа
-                  покажет склейку, конфликты и подозрения.
+                  Принимаются и .yaml-файлы (тот же формат, что выдаёт «Экспорт»), и
+                  полные архивы знания .zip из «Экспорт проекта (zip)» — можно
+                  вперемешку. Схемы сольются автоматически, сводка справа покажет
+                  склейку, конфликты и подозрения; архивы привезут ещё и
+                  документацию — схемы логики, спеки, структуры БД и брокеров,
+                  конфигурацию, процессы. Раскладка пересчитается заново.
                 </p>
-              )}
-
-              {mode === "archive" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
-                    Полный архив знания из «Экспорт схемы → Скачать архив»: C4,
-                    схемы логики, спеки, структуры БД и брокеров, конфигурация,
-                    процессы с привязками шагов. Раскладка пересчитается заново.
-                    Имя можно не задавать — возьмётся из архива.
-                  </p>
-                  <label className="cp-row" style={{ cursor: "pointer" }}>
-                    <input
-                      type="file"
-                      accept=".zip,application/zip"
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        setArchiveFile(e.target.files?.[0] ?? null);
-                        setArchiveResult(null);
-                      }}
-                    />
-                    <span style={{ fontWeight: 600 }}>
-                      {archiveFile ? archiveFile.name : "Выбрать файл (.zip)…"}
-                    </span>
-                    {archiveFile && (
-                      <span style={{ marginLeft: "auto", fontSize: 12, color: "#64748b" }}>
-                        {(archiveFile.size / 1024).toFixed(0)} КБ
-                      </span>
-                    )}
-                  </label>
-                </div>
               )}
 
               {mode === "repo" && (
@@ -401,9 +438,8 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             {/* Имя и описание живут слева ТОЛЬКО там, где слева есть место.
                 В режимах со вставкой файлов левая колонка занята параметрами
                 промпта, и поля выдавливали кнопку «Скопировать промпт» за край —
-                там они переезжают вправо, над зоной вставки. У архива поля тоже
-                справа (слева — выбор файла), иначе имя рендерилось бы дважды. */}
-            {!importish && mode !== "archive" && nameFields}
+                там они переезжают вправо, над зоной вставки. */}
+            {!importish && nameFields}
           </div>
 
           {/* ── Правая колонка: живое превью выбранного варианта ── */}
@@ -453,68 +489,24 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
               </>
             )}
 
-            {importish && (
+            {importish && (unifiedResult === null ? (
               <>
-                <div style={{ marginBottom: 12 }}>{nameFields}</div>
-                <ImportPane docs={docs} onDocs={setDocs} summary={summary} />
+                <div style={{ marginBottom: 12 }}>{fromManifest ? manifestNote : nameFields}</div>
+                <ImportPane
+                  docs={docs}
+                  onDocs={setDocs}
+                  names={docNames}
+                  onNames={setDocNames}
+                  summary={fresh?.c4 ?? null}
+                  archives={archiveInputs}
+                />
               </>
-            )}
+            ) : (
+              /* Отчёт применения ДО перехода в проект: замечания — видимая
+                 деградация, прятать их за навигацией нельзя. */
+              <ImportReport result={unifiedResult} />
+            ))}
 
-            {mode === "archive" && (
-              archiveResult === null ? (
-                <>
-                  <div style={{ marginBottom: 12 }}>{nameFields}</div>
-                  <div style={emptyFrame}>
-                    <div style={{ textAlign: "center", padding: "0 24px" }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, color: "#475569" }}>
-                        {archiveFile ? archiveFile.name : "Архив не выбран"}
-                      </div>
-                      <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>
-                        проект создастся со всем знанием архива
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* Отчёт применения ДО перехода в проект: замечания — видимая
-                   деградация, прятать их за навигацией нельзя. */
-                <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
-                    «{archiveResult.project_name}» создан
-                  </div>
-                  <div>Объектов: {archiveResult.nodes} · связей: {archiveResult.edges}</div>
-                  <div>Схем логики: {archiveResult.docs_created} · спек: {archiveResult.specs_applied}</div>
-                  {archiveResult.db && (
-                    <div>Таблиц БД: {archiveResult.db.tables_written}</div>
-                  )}
-                  {archiveResult.channels && (
-                    <div>Каналов брокеров: {archiveResult.channels.channels_written}</div>
-                  )}
-                  {archiveResult.config && (
-                    <div>Параметров конфигурации: {archiveResult.config.params_written}</div>
-                  )}
-                  {archiveResult.processes.length > 0 && (
-                    <div>
-                      Процессов: {archiveResult.processes.length} · привязок шагов:{" "}
-                      {archiveResult.processes.reduce((s, p) => s + p.doc_linked, 0)}
-                      {archiveResult.processes.some((p) => p.doc_unresolved > 0) && (
-                        <span style={{ color: "#b45309" }}>
-                          {" "}· не разрешилось: {archiveResult.processes.reduce((s, p) => s + p.doc_unresolved, 0)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {archiveResult.warnings.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontWeight: 600, color: "#b45309" }}>Замечания</div>
-                      <ul style={{ margin: "4px 0 0", paddingLeft: 18, color: "#64748b", fontSize: 12.5 }}>
-                        {archiveResult.warnings.map((w, i) => <li key={i}>{w}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )
-            )}
           </div>
         </div>
 
@@ -527,12 +519,77 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             onClick={submit}
           >
             {busy ? "Создание…"
-              : mode === "archive" && archiveResult ? "Открыть проект"
+              : importish && unifiedResult ? "Открыть проект"
               : "Создать проект"}
           </button>
         </div>
       </div>
     </Modal>
+  );
+}
+
+// Счётчики семей, пока сводки нет: панель показывает строку «Из архивов: …»
+// только по непустым числам, поэтому нули её просто не рисуют.
+const NO_FAMILIES: UnifiedFamilyCountsOut = {
+  docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0,
+};
+
+// Отказ самой проверки — беда всего пакета, а не чьего-то входа: агенту такое не
+// адресуем, в панели оно показывается схемной строкой.
+function failedPreview(msg: string, files: number): UnifiedPreviewOut {
+  return {
+    ok: false,
+    errors: [msg],
+    families: NO_FAMILIES,
+    family_conflicts: [],
+    warnings: [],
+    name_source: "fields",
+    c4: {
+      ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [], node_names: [],
+      files, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
+      file_remarks: [], schema_errors: [msg], schema_warnings: [],
+    },
+  };
+}
+
+// Отчёт применения ввоза: сколько чего приехало и что не разрешилось. Показывается
+// вместо панели — из него уходят в проект кнопкой «Открыть проект».
+function ImportReport({ result }: { result: ArchiveImportResult }) {
+  const linked = result.processes.reduce((s, p) => s + p.doc_linked, 0);
+  const unresolved = result.processes.reduce((s, p) => s + p.doc_unresolved, 0);
+  return (
+    <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
+      <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
+        «{result.project_name}» создан
+      </div>
+      <div>Объектов: {result.nodes} · связей: {result.edges}</div>
+      <div>Схем логики: {result.docs_created} · спек: {result.specs_applied}</div>
+      {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
+      {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
+      {result.config && <div>Параметров конфигурации: {result.config.params_written}</div>}
+      {result.processes.length > 0 && (
+        <div>
+          Процессов: {result.processes.length} · привязок шагов: {linked}
+          {unresolved > 0 && (
+            <span style={{ color: "#b45309" }}> · не разрешилось: {unresolved}</span>
+          )}
+        </div>
+      )}
+      {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}
+      {result.resolved_conflicts > 0 && (
+        <div>
+          Разрешено споров содержимого: {result.resolved_conflicts}
+        </div>
+      )}
+      {result.warnings.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontWeight: 600, color: "#b45309" }}>Замечания</div>
+          <ul style={{ margin: "4px 0 0", paddingLeft: 18, color: "#64748b", fontSize: 12.5 }}>
+            {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -559,6 +616,10 @@ const glyphBox: CSSProperties = {
   justifyContent: "center", color: "#64748b",
 };
 const blurbStyle: CSSProperties = { margin: "8px 0 12px", fontSize: 13.5, lineHeight: 1.55, color: "#475569" };
+// Плашка вместо полей имени/описания, когда единственный вход — архив (П3).
+const manifestBox: CSSProperties = {
+  padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#f8fafc",
+};
 // Строка-галка в стиле подписей соседних параметров промпта (labelStyle без блока).
 const checkRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 8,

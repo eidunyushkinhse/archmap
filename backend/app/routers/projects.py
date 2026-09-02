@@ -6,6 +6,7 @@
 НЕ скоупят через X-Project-Id — они оперируют самими проектами.
 """
 
+import json
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -24,7 +25,6 @@ from fastapi import (
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.archive_import import ArchiveError, import_archive
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.import_merge import parse_and_merge, split_remarks
@@ -56,10 +56,14 @@ from app.schemas.project import (
     SyncPreviewOut,
     TemplateOut,
 )
+from app.schemas.unified_import import IntoApplyOut, IntoPreviewOut, UnifiedPreviewOut
 from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
+from app.unified_apply import apply_unified_plan
+from app.unified_import import UnifiedImportError, build_unified_plan, preview_from_plan
+from app.unified_into import apply_into_plan, build_into_plan, into_preview
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -335,6 +339,157 @@ def import_preview(
     )
 
 
+def _parse_resolutions(raw: str | None) -> dict[str, str]:
+    """Решения пользователя по спорам: JSON-объект «id спора → выбор» в поле формы.
+
+    Форма multipart несёт файлы, поэтому словарь едет текстом — разбираем и
+    валидируем здесь, одинаково для создания и догрузки: кривое поле это 400 с
+    человеческим текстом, а не 500 внутри применения."""
+    try:
+        chosen = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400, detail="Поле resolutions не разбирается как JSON"
+        ) from e
+    if not isinstance(chosen, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in chosen.items()
+    ):
+        raise HTTPException(
+            status_code=400, detail="Поле resolutions должно быть объектом «id спора → выбор»"
+        )
+    return chosen
+
+
+@router.post("/import/unified-preview", response_model=UnifiedPreviewOut)
+async def import_unified_preview(
+    files: list[UploadFile] = File(default=[]),
+    _user: User = Depends(require_architect),
+) -> UnifiedPreviewOut:
+    """Dry-run ЕДИНОГО ввоза: N входов ЛЮБОГО типа (YAML C4 и/или zip-архив знания)
+    вперемешку — C4 всех входов сливается, семьи фактов архивов переезжают на
+    смердженные узлы, споры о телах показываются пользователю (Ф1,
+    docs/plan-unified-import.md). БД не трогаем: проекта ещё нет, применение — Ф2.
+
+    Тип входа определяется ПО СОДЕРЖИМОМУ (магия zip), а не по имени файла: чип
+    может приехать из буфера обмена, а расширение — соврать. Беда отдельного
+    входа не 400-ит запрос, а едет ошибкой, адресованной этому входу."""
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        plan = build_unified_plan(inputs)
+    except UnifiedImportError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return preview_from_plan(plan)
+
+
+@router.post(
+    "/import-unified", response_model=ArchiveImportResult, status_code=status.HTTP_201_CREATED
+)
+async def import_project_unified(
+    files: list[UploadFile] = File(default=[]),
+    name: str | None = Form(default=None),
+    description: str | None = Form(default=None),
+    resolutions: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_architect),
+) -> ArchiveImportResult:
+    """Создать НОВЫЙ проект из N входов ЛЮБОГО типа (Ф2а, docs/plan-unified-import.md).
+
+    Протокол стейтлесс: план считается заново по тем же файлам (мердж
+    детерминирован), а решения пользователя приезжают словарём «id спора → выбор»
+    JSON-объектом в поле resolutions. Резолюция не из плана — 400 «превью
+    устарело»: молча применить «не то» хуже, чем попросить пересобрать превью.
+
+    Имя и описание берутся из полей; при ЕДИНСТВЕННОМ входе-архиве их можно не
+    передавать — тогда они приедут из манифеста (П3)."""
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    chosen = _parse_resolutions(resolutions)
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        plan = build_unified_plan(inputs)
+        _, result = apply_unified_plan(db, plan, chosen, name, description, user.id)
+    except UnifiedImportError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    db.commit()
+    return result
+
+
+@router.post("/{project_id}/import-archive/preview", response_model=IntoPreviewOut)
+async def import_archive_preview(
+    project_id: uuid.UUID,
+    files: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_architect),
+) -> IntoPreviewOut:
+    """Dry-run ДОГРУЗКИ архивов к живому проекту (Ф3, docs/plan-unified-import.md):
+    что появится и о чём придётся выбрать. БД не пишем.
+
+    Текущий проект участвует входом №0 (его собственный архив в память), поэтому
+    сравнение «живое vs привозное» делает то же ядро, что и федерацию архивов.
+    Только zip: YAML в существующий проект заливается синком («Импорт схемы») —
+    это другая механика, и подменять её мерджем нельзя."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        into = build_into_plan(db, project, inputs)
+    except UnifiedImportError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return into_preview(into)
+
+
+@router.post("/{project_id}/import-archive/apply", response_model=IntoApplyOut)
+async def import_archive_apply(
+    project_id: uuid.UUID,
+    files: list[UploadFile] = File(default=[]),
+    resolutions: str | None = Form(default=None),
+    base_graph_rev: int | None = Form(default=None),
+    base_meta_rev: int | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_architect),
+) -> IntoApplyOut:
+    """Применить догрузку к живому проекту.
+
+    Протокол тот же, что у создания: план считается ЗАНОВО (мердж детерминирован),
+    решения приезжают словарём «id спора → выбор». Чтобы применение не разошлось с
+    увиденным в превью, клиент возвращает base_graph_rev и base_meta_rev —
+    разошлись хоть один, 409 «обновите превью». Курсоров два: догрузка меняет и
+    схему (узлы, связи), и мету (схемы логики, факты, спеки).
+
+    Аддитивность: живая запись перетирается ТОЛЬКО там, где пользователь явно
+    выбрал архивного кандидата; ничего никогда не удаляется."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if (base_graph_rev is not None and base_graph_rev != project.graph_rev) or (
+        base_meta_rev is not None and base_meta_rev != project.meta_rev
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Проект изменился после расчёта — обновите превью и повторите",
+        )
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    chosen = _parse_resolutions(resolutions)
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        into = build_into_plan(db, project, inputs)
+        result = apply_into_plan(db, project, into, chosen)
+    except UnifiedImportError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    project.updated_at = datetime.now(UTC)
+    project.updated_by_id = user.id
+    db.commit()
+    return result
+
+
 @router.post("/{project_id}/sync/preview", response_model=SyncPreviewOut)
 def sync_preview(
     project_id: uuid.UUID,
@@ -473,30 +628,6 @@ def get_project(
         raise HTTPException(status_code=404, detail="Проект не найден")
     nc, ec = _counts(db, [p.id])
     return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
-
-
-@router.post(
-    "/import-archive", response_model=ArchiveImportResult, status_code=status.HTTP_201_CREATED
-)
-async def import_project_archive(
-    file: UploadFile = File(...),
-    name: str | None = Form(default=None),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_architect),
-) -> ArchiveImportResult:
-    """Создать НОВЫЙ проект из архива знания (Ф4, docs/plan-archive-export.md).
-
-    Кривой zip/манифест/C4 — 400, проект не создаётся; частичные промахи
-    (неразрешённые адреса, тёзки путей) применяют остальное и едут замечаниями
-    в отчёте. Слияние с существующим проектом — отдельная задача."""
-    payload = await file.read()
-    try:
-        _, result = import_archive(db, payload, name, user.id)
-    except ArchiveError as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    db.commit()
-    return result
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)

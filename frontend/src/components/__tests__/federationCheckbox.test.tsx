@@ -1,5 +1,6 @@
-// Чекбокс «Проект объединяет несколько продуктов» в окне создания проекта
-// (docs/plan-federation-tuning.md, П1).
+// Чекбокс «Проект объединяет несколько продуктов» в ОБОИХ окнах, заказывающих промпт
+// «Из репозитория»: создание проекта и синк живого (docs/plan-federation-tuning.md, П1;
+// docs/plan-unified-import.md, Ф5).
 //
 // Полевой мультирепо-QA: конвенция «имя системы = название проекта» заставляет
 // каждого агента растворять свой продукт прямо в корне — заглушки соседей не
@@ -13,11 +14,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import CreateProjectDialog from "../project/CreateProjectDialog";
+import SyncRepoModal from "../docsImport/SyncRepoModal";
 import { projectsApi } from "../../api/projects";
+import type { Project } from "../../types";
 
 vi.mock("../../api/projects", () => ({
   projectsApi: {
-    templates: vi.fn(), importPrompt: vi.fn(), importPreview: vi.fn(), create: vi.fn(),
+    templates: vi.fn(), importPrompt: vi.fn(), create: vi.fn(),
+    get: vi.fn(), syncPreview: vi.fn(), syncApply: vi.fn(),
   },
 }));
 // Нативный <dialog> в jsdom не открывается — та же замена, что в соседних тестах.
@@ -98,5 +102,50 @@ describe("федерация продуктов · чекбокс окна со�
     expect(галка()).toBeChecked();
     await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));
     await waitFor(() => expect(переданное()).toBe(true));
+  });
+});
+
+// ── то же окно синка «Обновить из репозитория» ───────────────────────────────
+// Синк обязан просить у агента ТО ЖЕ, что просило создание (как и глубину): промпт
+// без раздела федерации приведёт план обновления по укладке, которой в схеме нет —
+// продукт в корне против контейнера-продукта, и синк предложит «создать» весь
+// проект заново. Имя проекта окно догружает запросом, поэтому предвключение по «+»
+// срабатывает только после его приезда — это и проверяем.
+const ЗАДАНИЕ = "Скопировать задание для агента";
+
+async function открытьСинк(имяПроекта: string) {
+  vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: имяПроекта } as Project);
+  render(<SyncRepoModal projectId="p1" onClose={vi.fn()} onApplied={vi.fn()} />);
+  // До приезда имени вся тройка неактивна — ждём её.
+  await waitFor(() => expect(screen.getByRole("button", { name: ЗАДАНИЕ })).toBeEnabled());
+}
+
+describe("федерация продуктов · чекбокс окна синка", () => {
+  it("«+» в названии проекта предвключает галку", async () => {
+    await открытьСинк("Zabbix+Grafana");
+    expect(галка()).toBeChecked();
+  });
+
+  it("без «+» галка выключена и уходит параметром false", async () => {
+    await открытьСинк("Ярмарка");
+    expect(галка()).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: ЗАДАНИЕ }));
+    await waitFor(() => expect(переданное()).toBe(false));
+  });
+
+  it("включённая галка уходит параметром во ВСЕ три варианта промпта", async () => {
+    await открытьСинк("Zabbix+Grafana");
+    for (const кнопка of [ЗАДАНИЕ, "Промпт без аудита", "Только промпт аудита"]) {
+      await userEvent.click(screen.getByRole("button", { name: кнопка }));
+      await waitFor(() => expect(переданное()).toBe(true));
+    }
+  });
+
+  it("снятая руками галка не возвращается сама", async () => {
+    await открытьСинк("Zabbix+Grafana");
+    await userEvent.click(галка());
+    expect(галка()).not.toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: ЗАДАНИЕ }));
+    await waitFor(() => expect(переданное()).toBe(false));
   });
 });
