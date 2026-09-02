@@ -56,10 +56,12 @@ from app.schemas.project import (
     SyncPreviewOut,
     TemplateOut,
 )
+from app.schemas.unified_import import UnifiedPreviewOut
 from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, build_sync_plan
 from app.templates import list_templates, seed_template
+from app.unified_import import UnifiedImportError, build_unified_plan, preview_from_plan
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -333,6 +335,29 @@ def import_preview(
         schema_errors=schema_errors,
         schema_warnings=schema_warnings,
     )
+
+
+@router.post("/import/unified-preview", response_model=UnifiedPreviewOut)
+async def import_unified_preview(
+    files: list[UploadFile] = File(default=[]),
+    _user: User = Depends(require_architect),
+) -> UnifiedPreviewOut:
+    """Dry-run ЕДИНОГО ввоза: N входов ЛЮБОГО типа (YAML C4 и/или zip-архив знания)
+    вперемешку — C4 всех входов сливается, семьи фактов архивов переезжают на
+    смердженные узлы, споры о телах показываются пользователю (Ф1,
+    docs/plan-unified-import.md). БД не трогаем: проекта ещё нет, применение — Ф2.
+
+    Тип входа определяется ПО СОДЕРЖИМОМУ (магия zip), а не по имени файла: чип
+    может приехать из буфера обмена, а расширение — соврать. Беда отдельного
+    входа не 400-ит запрос, а едет ошибкой, адресованной этому входу."""
+    if not files:
+        raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    try:
+        plan = build_unified_plan(inputs)
+    except UnifiedImportError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return preview_from_plan(plan)
 
 
 @router.post("/{project_id}/sync/preview", response_model=SyncPreviewOut)

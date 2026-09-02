@@ -134,6 +134,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/import/unified-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Unified Preview
+         * @description Dry-run ЕДИНОГО ввоза: N входов ЛЮБОГО типа (YAML C4 и/или zip-архив знания)
+         *     вперемешку — C4 всех входов сливается, семьи фактов архивов переезжают на
+         *     смердженные узлы, споры о телах показываются пользователю (Ф1,
+         *     docs/plan-unified-import.md). БД не трогаем: проекта ещё нет, применение — Ф2.
+         *
+         *     Тип входа определяется ПО СОДЕРЖИМОМУ (магия zip), а не по имени файла: чип
+         *     может приехать из буфера обмена, а расширение — соврать. Беда отдельного
+         *     входа не 400-ит запрос, а едет ошибкой, адресованной этому входу.
+         */
+        post: operations["import_unified_preview_api_v1_projects_import_unified_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/sync/preview": {
         parameters: {
             query?: never;
@@ -2116,6 +2143,14 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** Body_import_unified_preview_api_v1_projects_import_unified_preview_post */
+        Body_import_unified_preview_api_v1_projects_import_unified_preview_post: {
+            /**
+             * Files
+             * @default []
+             */
+            files: string[];
+        };
         /** Body_login_api_v1_auth_login_post */
         Body_login_api_v1_auth_login_post: {
             /** Grant Type */
@@ -3547,6 +3582,51 @@ export interface components {
             format: "yaml" | "mermaid";
             /** Content */
             content: string;
+        };
+        /**
+         * FamilyCandidateOut
+         * @description Один вариант тела в споре: чей он и что в нём.
+         *
+         *     body обрезан капом превью (truncated=true) — выбор делается по сводке и
+         *     началу текста, целиком тело приедет применением.
+         */
+        FamilyCandidateOut: {
+            /** Origin */
+            origin: number;
+            /** Origin Label */
+            origin_label: string;
+            /** Summary */
+            summary: string;
+            /** Body */
+            body: string;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * FamilyConflictOut
+         * @description Спор о теле одного ключа у одного узла слитого дерева.
+         *
+         *     id стабилен между превью и применением (мердж детерминирован), поэтому
+         *     резолюции передаются словарём id → выбор, а план пересчитывается на сервере.
+         */
+        FamilyConflictOut: {
+            /** Id */
+            id: string;
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "doc" | "spec" | "table" | "channel" | "config";
+            /** Node Path */
+            node_path: string;
+            /** Key */
+            key: string;
+            /** Candidates */
+            candidates: components["schemas"]["FamilyCandidateOut"][];
+            /** Default */
+            default: string;
+            /** Allow All */
+            allow_all: boolean;
         };
         /**
          * FileRemarksOut
@@ -5235,6 +5315,87 @@ export interface components {
             name: string;
         };
         /**
+         * UnifiedFamilyCountsOut
+         * @description Что приедет при ДЕФОЛТНЫХ резолюциях: доки спора едут все, скаляры — первый.
+         */
+        UnifiedFamilyCountsOut: {
+            /**
+             * Docs
+             * @default 0
+             */
+            docs: number;
+            /**
+             * Specs
+             * @default 0
+             */
+            specs: number;
+            /**
+             * Tables
+             * @default 0
+             */
+            tables: number;
+            /**
+             * Channels
+             * @default 0
+             */
+            channels: number;
+            /**
+             * Params
+             * @default 0
+             */
+            params: number;
+            /**
+             * Processes
+             * @default 0
+             */
+            processes: number;
+        };
+        /**
+         * UnifiedPreviewOut
+         * @description Сводка dry-run единого ввоза. БД не тронута — применение отдельным вызовом (Ф2).
+         */
+        UnifiedPreviewOut: {
+            /** Ok */
+            ok: boolean;
+            /**
+             * Errors
+             * @default []
+             */
+            errors: string[];
+            c4?: components["schemas"]["ImportPreviewOut"] | null;
+            /**
+             * @default {
+             *       "docs": 0,
+             *       "specs": 0,
+             *       "tables": 0,
+             *       "channels": 0,
+             *       "params": 0,
+             *       "processes": 0
+             *     }
+             */
+            families: components["schemas"]["UnifiedFamilyCountsOut"];
+            /**
+             * Family Conflicts
+             * @default []
+             */
+            family_conflicts: components["schemas"]["FamilyConflictOut"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /**
+             * Name Source
+             * @default fields
+             * @enum {string}
+             */
+            name_source: "manifest" | "fields";
+            /** Manifest Name */
+            manifest_name?: string | null;
+            /** Manifest Description */
+            manifest_description?: string | null;
+        };
+        /**
          * UnlinkedMessageAlert
          * @description Шаг процесса без привязки к схеме логики (doc_id = NULL) — алерт ПОЛНОТЫ.
          *
@@ -5696,6 +5857,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportPreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_unified_preview_api_v1_projects_import_unified_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_unified_preview_api_v1_projects_import_unified_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnifiedPreviewOut"];
                 };
             };
             /** @description Validation Error */

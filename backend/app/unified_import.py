@@ -39,9 +39,16 @@ from app.archive_import import ArchiveError, _Archive, _listed, _read_zip
 from app.channels_import import ChannelIn, parse_channels_file
 from app.config_import import ParamIn, parse_config_file
 from app.data_import import LOOKS_LIKE_DATA, NODE_HEADER, TableIn, parse_data_file
-from app.import_merge import MergeReport, merge_imports, warn_content
+from app.import_merge import MergeReport, merge_imports, split_remarks, warn_content
 from app.import_yaml import ParsedImport, parse_import
 from app.mmd_header import parse_mmd_header, strip_header
+from app.schemas.project import FileRemarksOut, ImportPreviewOut
+from app.schemas.unified_import import (
+    FamilyCandidateOut,
+    FamilyConflictOut,
+    UnifiedFamilyCountsOut,
+    UnifiedPreviewOut,
+)
 
 # Максимум входов за раз. Архив распаковывается в память целиком (капы _read_zip
 # держат каждый), поэтому предел тут строже, чем у голых YAML (MAX_IMPORT_FILES):
@@ -725,6 +732,75 @@ def _bump(counts: FamilyCounts, family: Family, n: int) -> None:
     setattr(counts, attr, getattr(counts, attr) + n)
 
 
+# ── Превью (то же самое человеку и фронту) ───────────────────────────────────
+
+
+def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
+    """План → ответ превью единой панели.
+
+    Замечания семей доложены в ПОФАЙЛОВЫЕ корзины C4-отчёта по индексу входа: у
+    пользователя один список на чип, а не два рядом. Схемные корзины остаются
+    свойством слитой картины (split_remarks), как у обычного импорта."""
+    file_remarks, schema_errors, schema_warnings = split_remarks(plan.report)
+    remarks_out = [
+        FileRemarksOut(
+            file=f.file,
+            errors=f.errors,
+            warnings=[*f.warnings, *plan.input_remarks[i]],
+        )
+        for i, f in enumerate(file_remarks)
+    ]
+    merged = plan.merged
+    c4 = ImportPreviewOut(
+        ok=plan.ok,
+        errors=plan.errors,
+        node_count=len(merged.nodes) if merged else 0,
+        edge_count=len(merged.edges) if merged else 0,
+        roots=merged.roots[:8] if merged else [],
+        files=len(plan.labels),
+        merged_count=len(plan.report.merged_paths),
+        merged=plan.report.merged_paths[:8],
+        conflicts=plan.report.conflicts,
+        warnings=plan.report.warnings,
+        dropped_edges=plan.report.dropped_edges,
+        node_names=[n.name for n in merged.nodes] if merged else [],
+        file_remarks=remarks_out,
+        schema_errors=schema_errors,
+        schema_warnings=schema_warnings,
+    )
+    return UnifiedPreviewOut(
+        ok=plan.ok,
+        errors=plan.errors,
+        c4=c4,
+        families=UnifiedFamilyCountsOut(**asdict(plan.counts)),
+        family_conflicts=[
+            FamilyConflictOut(
+                id=c.id,
+                family=c.family,
+                node_path=c.node_path,
+                key=c.key,
+                candidates=[
+                    FamilyCandidateOut(
+                        origin=k.origin,
+                        origin_label=k.origin_label,
+                        summary=k.summary,
+                        body=k.body,
+                        truncated=k.truncated,
+                    )
+                    for k in c.candidates
+                ],
+                default=c.default,
+                allow_all=c.allow_all,
+            )
+            for c in plan.conflicts
+        ],
+        warnings=plan.warnings,
+        name_source=plan.name_source,
+        manifest_name=plan.manifest_name,
+        manifest_description=plan.manifest_description,
+    )
+
+
 __all__ = [
     "MAX_INPUTS",
     "DocIn",
@@ -736,4 +812,5 @@ __all__ = [
     "UnifiedImportError",
     "UnifiedPlan",
     "build_unified_plan",
+    "preview_from_plan",
 ]

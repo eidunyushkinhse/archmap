@@ -9,17 +9,24 @@
 """
 
 import io
+import uuid
 import zipfile
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
+from app.auth import require_architect
+from app.main import app
+from app.models.user import User
 from app.unified_import import (
     MAX_INPUTS,
     DocIn,
     UnifiedImportError,
     build_unified_plan,
 )
+
+РУЧКА = "/api/v1/projects/import/unified-preview"
 
 # ── Строители входов ─────────────────────────────────────────────────────────
 
@@ -498,3 +505,112 @@ def test_один_yaml_вход_проходит_как_обычный_импо�
     assert план.ok and план.node_paths[0] == "Ярмарка"
     assert план.conflicts == [] and план.processes == []
     assert план.counts.docs == 0 and план.report.files == 1
+
+
+# ── 8. Эндпоинт: multipart смесью типов ──────────────────────────────────────
+
+
+@pytest.fixture()
+def клиент():
+    """HTTP-клиент с подменённой ролью. БД подменять нечего: превью её не трогает
+    (проекта ещё нет), а форму multipart видно только настоящим запросом."""
+    app.dependency_overrides[require_architect] = lambda: User(
+        id=uuid.uuid4(), username="arch", hashed_password="x", role="architect"
+    )
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _post(клиент, *входы: tuple[str, bytes]):
+    return клиент.post(
+        РУЧКА,
+        files=[("files", (имя, payload, "application/octet-stream")) for имя, payload in входы],
+    )
+
+
+def test_эндпоинт_принимает_смесь_архива_и_yaml(клиент):
+    архив = _архив(
+        name="Ярмарка v2",
+        description="полигон",
+        docs=(("docs/001-a.mmd", _док("Ярмарка / orders", "POST /orders", "graph TD\n A\n")),),
+        db=(("db/001-k.yaml", _таблица("Ярмарка / Каталог-БД")),),
+    )
+
+    r = _post(клиент, ("a.zip", архив), ("b.yaml", C4_ЯРМАРКА_2.encode()))
+
+    assert r.status_code == 200, r.text
+    тело = r.json()
+    assert тело["ok"] is True and тело["errors"] == []
+    # C4-часть — та же модель, что у обычного превью; входы нумеруются как файлы.
+    assert тело["c4"]["ok"] is True and тело["c4"]["files"] == 2
+    assert тело["c4"]["node_count"] == 3 and тело["c4"]["merged_count"] == 3
+    assert [f["file"] for f in тело["c4"]["file_remarks"]] == [1, 2]
+    assert тело["families"] == {"docs": 1, "specs": 0, "tables": 1, "channels": 0,
+                                "params": 0, "processes": 0}
+    assert тело["family_conflicts"] == [] and тело["warnings"] == []
+    # Входов двое — имя проекта спрашиваем полями, манифест не при чём (П3).
+    assert тело["name_source"] == "fields" and тело["manifest_name"] is None
+
+
+def test_эндпоинт_отдаёт_конфликт_с_происхождением(клиент):
+    a = _архив(name="A", docs=(("docs/001-a.mmd",
+                                _док("Ярмарка / orders", "POST /orders", "graph TD\n A\n")),))
+    b = _архив(name="B", c4=C4_ЯРМАРКА_2,
+               docs=(("docs/001-b.mmd",
+                      _док("Ярмарка / orders", "POST /orders", "graph TD\n B\n")),))
+
+    тело = _post(клиент, ("прогон-1.zip", a), ("прогон-2.zip", b)).json()
+
+    [спор] = тело["family_conflicts"]
+    assert спор["id"] == "doc|Ярмарка / orders|POST /orders"
+    assert спор["family"] == "doc" and спор["default"] == "all" and спор["allow_all"] is True
+    assert [(k["origin"], k["origin_label"]) for k in спор["candidates"]] == [
+        (0, "прогон-1.zip"), (1, "прогон-2.zip")]
+    assert спор["candidates"][0]["body"] == "graph TD\n A\n"
+    assert спор["candidates"][0]["truncated"] is False
+
+
+def test_эндпоинт_кладёт_замечания_семей_в_корзину_своего_входа(клиент):
+    архив = _архив(name="A", docs=(("docs/001-x.mmd",
+                                    _док("Нет такого", "Схема", "graph TD\n A\n")),))
+
+    тело = _post(клиент, ("a.zip", архив), ("b.yaml", C4_ЯРМАРКА_2.encode())).json()
+
+    первый, второй = тело["c4"]["file_remarks"]
+    # Замечание семьи дописано в корзину СВОЕГО входа — рядом с замечаниями слияния
+    # (у пользователя один список на чип, а не два).
+    assert первый["warnings"][-1] == (
+        "docs/001-x.mmd: узел «Нет такого» не найден — файл пропущен")
+    assert not any("docs/001-x.mmd" in w for w in второй["warnings"])
+    assert тело["ok"] is True  # промах адреса — деградация, а не отказ ввоза
+
+
+def test_эндпоинт_адресует_кривой_вход_и_не_падает(клиент):
+    мусор = b"PK\x03\x04" + "не архив вовсе".encode()
+
+    r = _post(клиент, ("a.yaml", C4_ЯРМАРКА.encode()), ("bad.zip", мусор))
+
+    assert r.status_code == 200, r.text
+    тело = r.json()
+    assert тело["ok"] is False and тело["c4"]["ok"] is False
+    assert тело["errors"] == ["вход 2: Файл не читается как zip-архив"]
+    assert тело["c4"]["file_remarks"][1]["errors"] == ["Файл не читается как zip-архив"]
+    assert тело["c4"]["file_remarks"][0]["errors"] == []
+
+
+def test_эндпоинт_одиночного_архива_отдаёт_имя_из_манифеста(клиент):
+    тело = _post(клиент, ("a.zip", _архив(name="Ярмарка v2", description="полигон"))).json()
+
+    assert тело["name_source"] == "manifest"
+    assert (тело["manifest_name"], тело["manifest_description"]) == ("Ярмарка v2", "полигон")
+
+
+def test_эндпоинт_пустого_запроса_и_превышения_капа(клиент):
+    пусто = клиент.post(РУЧКА)
+    assert пусто.status_code == 400 and "ни один файл" in пусто.json()["detail"]
+
+    много = _post(клиент, *[(f"{i}.yaml", C4_ЯРМАРКА.encode()) for i in range(MAX_INPUTS + 1)])
+    assert много.status_code == 400
+    assert str(MAX_INPUTS) in много.json()["detail"]
