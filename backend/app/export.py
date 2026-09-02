@@ -46,6 +46,20 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
     родитель вне набора (для поддерева это и есть его корень, для всей схемы —
     настоящие корни parent_id=None).
     """
+    return build_export_ordered(nodes, edges, root_id)[0]
+
+
+def build_export_ordered(
+    nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None = None
+) -> tuple[str, list[uuid.UUID]]:
+    """То же, что build_export, плюс ПОРЯДОК id узлов в готовом документе.
+
+    Порядок — обход в глубину, родитель раньше своих детей: ровно тот, в котором
+    parse_import нумерует узлы разобранного документа. По нему догрузка архива
+    (unified_into) строит карту «узел моего же экспорта → живой узел»: ПУТИ для
+    этого не годятся — тёзки в одном родителе легальны, и путь адресует двоих.
+    """
+    order: list[uuid.UUID] = []
     by_id: dict[uuid.UUID, Node] = {n.id: n for n in nodes}
     included = set(by_id)
 
@@ -76,6 +90,7 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
     def node_dict(node: Node) -> dict:
         # Порядок ключей осознанный (sort_keys=False при дампе): сперва идентичность
         # и тип, потом необязательная семантика, дети — последними.
+        order.append(node.id)  # до рекурсии по детям: обход = порядок документа
         d: dict = {"name": node.name, "shape": node.shape}
         if node.status != "existing":
             d["status"] = node.status
@@ -126,7 +141,7 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
         "nodes": [node_dict(r) for r in sorted(roots, key=lambda n: n.name)],
         "edges": edge_dicts,
     }
-    return yaml.dump(
+    text = yaml.dump(
         structure,
         Dumper=_Dumper,
         allow_unicode=True,
@@ -134,3 +149,4 @@ def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None
         default_flow_style=False,
         width=4096,
     )
+    return text, order
