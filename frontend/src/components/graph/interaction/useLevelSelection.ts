@@ -19,6 +19,24 @@ import type { WrappedEdgeData } from "../types";
 // Что открыто в правой панели — цель устойчивой подсветки. Гость сводится к kind:"node".
 export type LinkedHighlight = { kind: "node" | "edge"; id: string };
 
+// Перенос RF-выделения на НЕСУЩЕЕ ребро выбранной связи (та же резолюция «член
+// пучка → отрисованный мастер», что в эффекте ниже). Возвращает новый массив с
+// единственным выделенным ребром или null, когда менять нечего (ребро не
+// отрисовано / выделение уже ровно такое). Используется LevelGraph: выбор связи
+// в панели/модалке двигает и RF-выделение — при скрытых подписях (CV32)
+// исключение «плашка выделенной стрелки» следует за выбором (приёмка 2026-09-02).
+export function selectCarrierEdge(edges: RFEdge[], memberId: string): RFEdge[] | null {
+  const target = edges.find((e) => {
+    const mids = (e.data as WrappedEdgeData | undefined)?.memberIds;
+    return mids ? mids.includes(memberId) : e.id === memberId;
+  });
+  if (!target) return null;
+  if (edges.every((e) => !!e.selected === (e.id === target.id))) return null;
+  return edges.map((e) =>
+    !!e.selected === (e.id === target.id) ? e : { ...e, selected: e.id === target.id },
+  );
+}
+
 interface UseLevelSelectionArgs {
   linkedHighlight?: LinkedHighlight | null;
   rfNodes: RFNode[];

@@ -61,7 +61,7 @@ import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
 import { ANIM_MOVE_MS } from "./graph/interaction/layoutAnimation";
 import { useLevelLocate } from "./graph/interaction/useLevelLocate";
-import { useLevelSelection } from "./graph/interaction/useLevelSelection";
+import { useLevelSelection, selectCarrierEdge } from "./graph/interaction/useLevelSelection";
 import { useLevelQuickConnect } from "./graph/interaction/useLevelQuickConnect";
 import { useLevelEdgeChoice } from "./graph/interaction/useLevelEdgeChoice";
 import { useFrameFollowOverlay } from "./graph/interaction/useFrameFollowOverlay";
@@ -1099,6 +1099,19 @@ function LevelGraphInner({
   // useLevelSelection (Фаза 3б). onClearSelection (сброс по клику на пустом холсте)
   // остаётся в cbRef — это триггер выделения, а не его подсветка.
   useLevelSelection({ linkedHighlight, rfNodes, rfEdges });
+
+  // Выбор связи в панели/модалке (linkedHighlight kind:"edge") переносит и
+  // RF-ВЫДЕЛЕНИЕ на несущее ребро: при скрытых подписях (CV32) исключение
+  // «плашка выделенной стрелки» следует за выбором — видна та и только та
+  // плашка, чью стрелку выбрали (находка приёмки 2026-09-02: модалка ствола
+  // ставила подсветку, а выделенной оставалась стрелка одиночного клика).
+  // Зависимость — ТОЛЬКО смена цели: последующие ручные клики по стрелкам
+  // двигают выделение свободно, эффект с ними не воюет.
+  useEffect(() => {
+    if (!linkedHighlight || linkedHighlight.kind !== "edge") return;
+    const next = selectCarrierEdge(getEdges(), linkedHighlight.id);
+    if (next) setRfEdges(next);
+  }, [linkedHighlight, getEdges, setRfEdges]);
 
   // АДАПТИВНАЯ ТОЛЩИНА РАМОК ПОД ЗУМ: рамки (нативные C4-boundary и compound-рамки
   // раскрытий) рисуются 1px-пунктиром в координатах графа — на сильном отдалении
