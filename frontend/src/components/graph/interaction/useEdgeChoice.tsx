@@ -84,10 +84,10 @@ export function useEdgeChoice({
       return (
         <EdgeChoiceModal
           edges={edges}
-          title="Связи общего плеча"
+          title="Тут несколько стрелок"
           subtitle={kind === "out"
-            ? `Исходящий ствол из «${endLabel(edges.map((e) => e.original_source_name), edges[0].source_id)}»`
-            : `Входящий ствол в «${endLabel(edges.map((e) => e.original_target_name), edges[0].target_id)}»`}
+            ? `Они исходят из объекта «${endLabel(edges.map((e) => e.original_source_name), edges[0].source_id)}». Какая вам нужна?`
+            : `Они входят в объект «${endLabel(edges.map((e) => e.original_target_name), edges[0].target_id)}». Какая вам нужна?`}
           rowDetail={(e) => (kind === "out"
             ? `➜ ${e.original_target_name || labelOf(e.target_id)}`
             : `⬅ ${e.original_source_name || labelOf(e.source_id)}`)}
