@@ -118,22 +118,37 @@ describe("DocOverlay", () => {
     expect(screen.queryByRole("button", { name: "Показать код" })).not.toBeInTheDocument();
   });
 
-  it("провал на чтение: кнопка «Править» зовёт onRequestEdit, футер объясняет режим", async () => {
+  it("провал на чтение: кнопка «Править» зовёт onRequestEdit, футера-подсказки нет", async () => {
     // Барьер У7 (процессы → доки шага): архитектор пришёл ЧИТАТЬ чужую схему —
-    // редактор включается явной кнопкой, а не самим фактом провала.
+    // редактор включается явной кнопкой, а не самим фактом провала. Подсказка
+    // «открыто на чтение» в футере признана лишней (UI-проход 2026-09-03) —
+    // футер в этом режиме не рендерится вовсе, а не остаётся пустой полосой.
     const onRequestEdit = vi.fn();
-    render(
+    const { container } = render(
       <DocOverlay {...base} mode="flowchart" isArchitect={false} onRequestEdit={onRequestEdit} />,
     );
-    expect(
-      screen.getByText("Открыто на чтение — редактирование включается кнопкой «Править»"),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/Открыто на чтение/)).not.toBeInTheDocument();
+    expect(container.querySelector(".doc-foot")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Готово" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Править" }));
     expect(onRequestEdit).toHaveBeenCalledOnce();
   });
 
-  it("в режиме редактора кнопки «Править» нет, даже если onRequestEdit передан", () => {
-    render(<DocOverlay {...base} mode="flowchart" isArchitect onRequestEdit={vi.fn()} />);
+  it("в режиме редактора на месте «Править» стоит «Готово» и зовёт onRequestView", async () => {
+    // Обратная дорога переключателя: без неё из правки в чтение попадали только
+    // через закрытие оверлея и повторный провал.
+    const onRequestView = vi.fn();
+    render(
+      <DocOverlay {...base} mode="flowchart" isArchitect onRequestEdit={vi.fn()} onRequestView={onRequestView} />,
+    );
+    expect(screen.queryByRole("button", { name: "Править" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Готово" }));
+    expect(onRequestView).toHaveBeenCalledOnce();
+  });
+
+  it("со страницы объекта (без onRequestView) кнопки «Готово» у архитектора нет", () => {
+    render(<DocOverlay {...base} mode="flowchart" isArchitect />);
+    expect(screen.queryByRole("button", { name: "Готово" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Править" })).not.toBeInTheDocument();
   });
 

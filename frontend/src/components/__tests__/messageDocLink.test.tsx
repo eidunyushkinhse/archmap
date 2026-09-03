@@ -52,6 +52,7 @@ vi.mock("../inspector/DocOverlay", () => ({
     isArchitect: boolean;
     initialDocId?: string;
     onRequestEdit?: () => void;
+    onRequestView?: () => void;
     onDocEvent: (evt: unknown) => void;
     onClose: () => void;
   }) => (
@@ -60,6 +61,7 @@ vi.mock("../inspector/DocOverlay", () => ({
       <span data-testid="ov-doc">{props.initialDocId ?? "none"}</span>
       <span data-testid="ov-edit">{String(props.isArchitect)}</span>
       {props.onRequestEdit && <button onClick={props.onRequestEdit}>ov-править</button>}
+      {props.onRequestView && <button onClick={props.onRequestView}>ov-готово</button>}
       <button onClick={() => props.onDocEvent({ type: "edit" })}>ov-мутация</button>
     </div>
   ),
@@ -201,13 +203,23 @@ describe("карточка шага: привязка к схеме логики
     expect(screen.getByTestId("ov-node").textContent).toBe("Заказы");
   });
 
-  it("явная кнопка правки включает редактор", async () => {
+  it("явная кнопка правки включает редактор, «Готово» возвращает в чтение", async () => {
+    // Переключатель двусторонний: в чтении есть только «Править», в правке —
+    // только «Готово»; закрывать оверлей ради возврата в чтение не нужно.
     await открыть(ПРИВЯЗАН);
     await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
+    expect(screen.queryByText("ov-готово")).toBeNull();
 
     await userEvent.click(screen.getByText("ov-править"));
 
     expect(screen.getByTestId("ov-edit").textContent).toBe("true");
+    expect(screen.queryByText("ov-править")).toBeNull();
+
+    await userEvent.click(screen.getByText("ov-готово"));
+
+    expect(screen.getByTestId("ov-edit").textContent).toBe("false");
+    expect(screen.getByTestId("doc-overlay")).toBeTruthy();
+    expect(screen.getByText("ov-править")).toBeTruthy();
   });
 
   it("правка схемы в оверлее перечитывает процесс и каталог", async () => {

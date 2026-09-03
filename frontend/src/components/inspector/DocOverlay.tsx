@@ -31,8 +31,14 @@ interface Props {
   notice?: string | null;
   // Провал «на чтение» (процессы → доки шага, барьер У7): архитектор пришёл ЧИТАТЬ
   // чужую схему — редактор включается этой явной кнопкой, а не самим фактом провала.
-  // Передан вместе с isArchitect=false → в шапке кнопка «Править», футер об этом.
+  // Передан вместе с isArchitect=false → в шапке кнопка «Править»; футера в этом
+  // режиме нет (подсказка «открыто на чтение» была лишней — находка UI-прохода).
   onRequestEdit?: () => void;
+  // Обратная дорога того же переключателя: в режиме правки (isArchitect=true) на
+  // месте «Править» стоит «Готово» и возвращает оверлей в чтение. Несохранённое
+  // не теряется: клик по кнопке снимает фокус с редактора, а blur уже коммитит.
+  // Со страницы объекта не передаётся — там оверлей всегда редактор.
+  onRequestView?: () => void;
 }
 
 // «3.0.3» → «3.0» для тега «OAS 3.0 · YAML»
@@ -40,7 +46,7 @@ function shortVersion(v: string): string {
   return v.split(".").slice(0, 2).join(".");
 }
 
-export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose, autoCreate, initialDocId, notice, onRequestEdit }: Props) {
+export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose, autoCreate, initialDocId, notice, onRequestEdit, onRequestView }: Props) {
   const [showCode, setShowCode] = useState(false);
   // Версия OAS из последнего валидного парса спеки (шлёт OpenApiDoc)
   const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
@@ -48,9 +54,9 @@ export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitec
   const commitApi = useCallback((v: string) => onCommitOpenapi(v), [onCommitOpenapi]);
 
   const isFlow = mode === "flowchart";
-  const foot = !isArchitect
+  const foot: string | null = !isArchitect
     ? onRequestEdit
-      ? "Открыто на чтение — редактирование включается кнопкой «Править»"
+      ? null
       : "Наблюдателю редактирование недоступно"
     : isFlow
       ? "Сохраняет кнопка «Сохранить» или потеря фокуса — превью обновляется на лету"
@@ -82,6 +88,14 @@ export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitec
                 <path d="m11.3 2.7 2 2L6.6 11.4l-2.9.9.9-2.9Z" />
               </svg>
               Править
+            </button>
+          )}
+          {isArchitect && onRequestView && (
+            <button type="button" className="doc-codebtn" onClick={onRequestView}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m3 8.5 3 3 7-7" />
+              </svg>
+              Готово
             </button>
           )}
           {!isArchitect && (
@@ -118,7 +132,7 @@ export default function DocOverlay({ mode, nodeId, nodeName, openapi, isArchitec
           )}
         </div>
 
-        <div className="doc-foot">{foot}</div>
+        {foot && <div className="doc-foot">{foot}</div>}
       </div>
     </Modal>
   );

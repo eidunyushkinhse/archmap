@@ -1094,7 +1094,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         })()}
 
         {/* Провал из карточки шага в схему логики (У7/У8): НА ЧТЕНИЕ, редактор — явной
-            кнопкой «Править». Колбэки настоящие, не заглушки (ловушка У8):
+            кнопкой «Править», обратно в чтение — «Готово» на том же месте (режим
+            живёт здесь, в docView.editing). Колбэки настоящие, не заглушки (ловушка У8):
             onDocEvent перечитывает процесс (имя схемы в шаге, SET NULL при удалении)
             и каталог карточки; onCommitOpenapi недостижим — режим flowchart
             OpenApiDoc не рендерит, спекой этот оверлей не занимается. */}
@@ -1108,6 +1109,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             initialDocId={docView.docId}
             onRequestEdit={isArchitect && !docView.editing
               ? () => setDocView((v) => v && { ...v, editing: true })
+              : undefined}
+            onRequestView={isArchitect && docView.editing
+              ? () => setDocView((v) => v && { ...v, editing: false })
               : undefined}
             onCommitOpenapi={() => undefined}
             onDocEvent={() => { setDocCatalogRev((r) => r + 1); reload(); }}
