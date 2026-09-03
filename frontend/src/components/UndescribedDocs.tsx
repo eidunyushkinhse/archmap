@@ -11,9 +11,9 @@
 // Компоненты объявлены на верхнем уровне модуля (ловушка проекта: объявленный
 // внутри другого ремаунтится каждый рендер).
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import type { NodeDocMeta, NodeDocUsage } from "../types";
 import { ChevronDownIcon } from "../ui/icons";
-import { plural } from "../ui/plural";
 import NodeDocsList from "./NodeDocsList";
 
 interface Props {
@@ -30,7 +30,6 @@ interface Props {
 export default function UndescribedDocs({ docs, onOpen, onDescribe, onDescribeAll, usage, onOpenProcess }: Props) {
   // Поза на время просмотра, никуда не сохраняется — как у групп видов.
   const [open, setOpen] = useState(false);
-  const n = docs.length;
   return (
     <div className="np-undescribed">
       <div className="np-undescribed-head">
@@ -46,9 +45,9 @@ export default function UndescribedDocs({ docs, onOpen, onDescribe, onDescribeAl
             <ChevronDownIcon />
           </span>
           Не описано
-          <span className="np-doc-group-count">
-            {n} {plural(n, ["точка входа", "точки входа", "точек входа"])}
-          </span>
+          {/* Счётчик в скобках сразу за заголовком — как у групп «Операции (N)»
+              (замечание приёмки: «215 точек входа» смущало). */}
+          <span style={headCount}>({docs.length})</span>
         </button>
         {onDescribeAll && (
           <button type="button" className="np-undescribed-all" onClick={onDescribeAll}>
@@ -70,3 +69,6 @@ export default function UndescribedDocs({ docs, onOpen, onDescribe, onDescribeAl
     </div>
   );
 }
+
+// Тот же стиль, что у счётчика групп в NodeDocsList (groupCount).
+const headCount: CSSProperties = { fontSize: 12, fontWeight: 400, color: "#94a3b8" };

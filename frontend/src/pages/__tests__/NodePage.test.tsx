@@ -634,11 +634,13 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
   });
 
-  it("блок «Не описано» свёрнут, в шапке число точек входа; раскрывается кликом", async () => {
+  it("блок «Не описано» свёрнут, в шапке счётчик в скобках как у групп; раскрывается кликом", async () => {
     setupDocs(СМЕСЬ());
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
     const шапка = screen.getByRole("button", { name: /^Не описано/ });
-    expect(шапка).toHaveTextContent("2 точки входа");
+    // Пробел между словом и скобками даёт flex-gap, в textContent его нет (как у групп).
+    expect(шапка).toHaveTextContent(/Не описано\s*\(2\)/);
+    expect(шапка).not.toHaveTextContent("точк");
     expect(шапка).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("GET /orders")).toBeNull();
 
@@ -662,7 +664,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
     // Так выглядит объект сразу после разведки; «не заданы» тут соврало бы.
     setupDocs([док({ id: "d2", name: "GET /orders", described: false })]);
     await waitFor(() => expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("1 точка входа");
+    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(1)");
   });
 
   it("«Описать все» открывает окно доков пакетом", async () => {
@@ -707,7 +709,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
       док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
     setupDocs([...много, док({ id: "w1", name: "email_senders", kind: "worker", described: false })]);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("201 точка входа");
+    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(201)");
 
     await раскрытьНеОписано();
 
