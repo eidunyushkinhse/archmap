@@ -4,7 +4,7 @@
 // подпись из интерфейса было нечем, хотя бэк это умел. Заодно закреплено обещание
 // новой модели — подпись принадлежит шагу, пустое поле значит «подписи нет», а не
 // «взять метку связи».
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import ProcessCanvas from "../processes/ProcessCanvas";
@@ -76,6 +76,38 @@ function renderCanvas() {
 }
 
 const field = () => screen.getByPlaceholderText("что происходит на этом шаге") as HTMLInputElement;
+
+// Канал с живым плечом «ответ»: только на нём уход в асинхрон что-то ломает, и
+// только там карточка спрашивает подтверждение.
+function withReturnLeg() {
+  vi.mocked(processesApi.get).mockResolvedValue({
+    ...DETAIL,
+    messages: [
+      { ...MSG, id: "m1", order: 0, caption: "вызов" },
+      { ...MSG, id: "m9", order: 1, caption: "ответ", leg: "return", kind: "return",
+        from_participant_id: "pb", to_participant_id: "pa" },
+    ],
+  } as unknown as ProcessDetail);
+  return renderCanvas();
+}
+
+// Шаг с привязанной схемой: имя и путь длинные нарочно — именно на них прежняя
+// однострочная «путь · имя» обрывалась ровно на имени.
+const DOC_NAME = "Вебхук статуса платежа";
+const DOC_PATH = "Маркетплейс «Ярмарка» / Сервис оплат";
+function withLinkedDoc() {
+  vi.mocked(processesApi.get).mockResolvedValue({
+    ...DETAIL,
+    messages: [{ ...MSG, id: "m1", order: 0, caption: "вызов",
+      doc_id: "d1", doc_name: DOC_NAME, doc_node_id: "nb", doc_node_path: DOC_PATH }],
+  } as unknown as ProcessDetail);
+  vi.mocked(processesApi.messageDocs).mockResolvedValue({
+    default_node_id: "nb",
+    docs: [{ id: "d1", node_id: "nb", node_path: DOC_PATH, name: DOC_NAME,
+      kind: "operation", operation: "POST /pay", described: true }],
+  } as never);
+  return renderCanvas();
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -270,20 +302,72 @@ describe("карточка шага: подпись", () => {
     expect(edgesApi.update).not.toHaveBeenCalled();
   });
 
-  it("предупреждает, что уход в асинхронный сломает ответы", async () => {
+  it("и обратный путь: с асинхронного канала возвращает на синхронный", async () => {
     vi.mocked(processesApi.get).mockResolvedValue({
       ...DETAIL,
-      messages: [
-        { ...MSG, id: "m1", order: 0, caption: "вызов" },
-        { ...MSG, id: "m9", order: 1, caption: "ответ", leg: "return", kind: "return",
-          from_participant_id: "pb", to_participant_id: "pa" },
-      ],
+      messages: [{ ...MSG, id: "m1", order: 0, caption: "вызов", edge_synchronous: false }],
     } as unknown as ProcessDetail);
     await renderCanvas();
     await userEvent.click(screen.getByText("click-m1"));
     await screen.findByText("Шаг сценария");
 
-    expect(screen.getByText(/один шаг-ответ/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Синхронный" }));
+
+    await waitFor(() =>
+      expect(edgesApi.update).toHaveBeenCalledWith("e1", { is_synchronous: true }),
+    );
+  });
+
+  // Редизайн карточки 2026-09-03 (вариант А по прототипу): постоянно висевшее
+  // предупреждение читалось как упрёк ни за что — человек его видел, ничего ещё не
+  // сделав. Теперь это ПОДТВЕРЖДЕНИЕ в момент выбора «Асинхронный».
+  it("до клика предупреждения о поломке ответов на карточке нет", async () => {
+    await withReturnLeg();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    expect(screen.queryByText(/шаг-ответ/)).toBeNull();
+    expect(screen.queryByText(/сломается/)).toBeNull();
+  });
+
+  it("уход в асинхрон при живом ответе сперва спрашивает подтверждение", async () => {
+    await withReturnLeg();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
+
+    // Связь НЕ тронута: сначала человек должен увидеть цену решения.
+    expect(edgesApi.update).not.toHaveBeenCalled();
+    expect(screen.getByText(/На канале 1 шаг-ответ/)).toBeTruthy();
+    expect(screen.getByText(/он сломается/)).toBeTruthy();
+  });
+
+  it("«Оставить синхронным» убирает подтверждение и связь не трогает", async () => {
+    await withReturnLeg();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+    await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
+    await screen.findByText(/На канале 1 шаг-ответ/);
+
+    await userEvent.click(screen.getByRole("button", { name: "Оставить синхронным" }));
+
+    expect(screen.queryByText(/На канале 1 шаг-ответ/)).toBeNull();
+    expect(edgesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("«Сменить всё равно» доводит смену типа до связи", async () => {
+    await withReturnLeg();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+    await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
+    await screen.findByText(/На канале 1 шаг-ответ/);
+
+    await userEvent.click(screen.getByRole("button", { name: "Сменить всё равно" }));
+
+    await waitFor(() =>
+      expect(edgesApi.update).toHaveBeenCalledWith("e1", { is_synchronous: false }),
+    );
   });
 
   it("у шага без канала тумблера нет", async () => {
@@ -298,6 +382,60 @@ describe("карточка шага: подпись", () => {
     await screen.findByText("Шаг сценария");
 
     expect(screen.queryByRole("button", { name: "Асинхронный" })).toBeNull();
+  });
+
+  // Редизайн 2026-09-03: имя схемы — главное и целиком, путь узла — вторая строка.
+  // Прежде они делили одну строку «путь · имя», и путь съедал её без остатка.
+  it("имя привязанной схемы и путь узла — разные элементы", async () => {
+    await withLinkedDoc();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    const open = screen.getByRole("button", { name: DOC_NAME });
+    expect(open.textContent).not.toContain("Сервис оплат");
+    const path = screen.getByText(DOC_PATH);
+    expect(open.contains(path)).toBe(false);
+    // Полный путь остаётся доступен наведением — вторая строка режется многоточием.
+    expect(path.getAttribute("title")).toBe(DOC_PATH);
+  });
+
+  it("«×» у плитки отвязывает схему и сохраняет имя действия", async () => {
+    await withLinkedDoc();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Отвязать" }));
+
+    await waitFor(() =>
+      expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { doc_id: null, base_version: 3 }),
+    );
+  });
+
+  it("«свернуть» закрывает каталог выбора", async () => {
+    await withLinkedDoc();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+    await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    await screen.findByPlaceholderText("поиск по имени, операции или объекту");
+
+    await userEvent.click(screen.getByRole("button", { name: "свернуть" }));
+
+    expect(screen.queryByPlaceholderText("поиск по имени, операции или объекту")).toBeNull();
+    expect(screen.getByRole("button", { name: "Изменить" })).toBeTruthy();
+  });
+
+  it("в открытом каталоге «Отмена» на карточке ровно одна — нижняя", async () => {
+    await withLinkedDoc();
+    await userEvent.click(screen.getByText("click-m1"));
+    await screen.findByText("Шаг сценария");
+
+    await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    await screen.findByPlaceholderText("поиск по имени, операции или объекту");
+
+    // Прежняя «Отмена» под списком спорила с нижней карточной: два одинаковых слова
+    // рядом означали разное («закрыть выбор» и «закрыть карточку»).
+    const card = field().parentElement!;
+    expect(within(card).getAllByRole("button", { name: "Отмена" })).toHaveLength(1);
   });
 
   it("вне режима правки карточка не открывается", async () => {

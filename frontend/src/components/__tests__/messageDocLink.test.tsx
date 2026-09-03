@@ -141,7 +141,9 @@ describe("карточка шага: привязка к схеме логики
     // Схемы владельца идут первыми, схема вызывающего — тоже в списке: клиентский
     // сценарий живёт именно у него, и запирать каталог владельцем нельзя.
     const строки = screen.getAllByRole("button").filter((b) => b.textContent?.includes("Ярмарка /"));
-    expect(строки.map((b) => b.querySelector("span")?.textContent)).toEqual([
+    // Строка каталога двухэтажная (редизайн 2026-09-03): первый этаж — обёртка с
+    // именем и чипами, второй — путь. Имя схемы — вложенный в этаж span.
+    expect(строки.map((b) => b.querySelector("span span")?.textContent)).toEqual([
       "POST /orders", "email_senders", "Оформление заказа",
     ]);
     // Пометка исполнителя стоит у схем владельца и не стоит у схемы вызывающего.
@@ -176,9 +178,10 @@ describe("карточка шага: привязка к схеме логики
   it("привязанный шаг показывает схему с путём объекта и умеет отвязать", async () => {
     await открыть(ПРИВЯЗАН);
 
-    // Путь берётся из каталога: в самом шаге его нет, а одного имени схемы для
-    // понимания «чья это схема» мало.
-    expect(await screen.findByText("Ярмарка / Заказы · POST /orders")).toBeTruthy();
+    // Имя схемы — первой строкой и целиком, путь объекта — второй: одного имени для
+    // понимания «чья это схема» мало, но и съедать им имя путь больше не вправе.
+    expect(await screen.findByRole("button", { name: "POST /orders" })).toBeTruthy();
+    expect(screen.getByText("Ярмарка / Заказы")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Отвязать" }));
 
@@ -190,7 +193,7 @@ describe("карточка шага: привязка к схеме логики
     // Барьер У7: провал не должен приводить архитектора в редактор чужой схемы.
     await открыть(ПРИВЯЗАН);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Ярмарка / Заказы · POST /orders" }));
+    await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
 
     expect(screen.getByTestId("ov-doc").textContent).toBe("d1");
     expect(screen.getByTestId("ov-edit").textContent).toBe("false");
@@ -200,7 +203,7 @@ describe("карточка шага: привязка к схеме логики
 
   it("явная кнопка правки включает редактор", async () => {
     await открыть(ПРИВЯЗАН);
-    await userEvent.click(await screen.findByRole("button", { name: "Ярмарка / Заказы · POST /orders" }));
+    await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
 
     await userEvent.click(screen.getByText("ov-править"));
 
@@ -211,7 +214,7 @@ describe("карточка шага: привязка к схеме логики
     // Барьер У8: колбэки оверлея настоящие. Заглушка здесь показала бы в строке
     // привязки старое имя схемы, а после удаления — привязку к уже мёртвой схеме.
     await открыть(ПРИВЯЗАН);
-    await userEvent.click(await screen.findByRole("button", { name: "Ярмарка / Заказы · POST /orders" }));
+    await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
     expect(processesApi.get).toHaveBeenCalledTimes(1);
     expect(processesApi.messageDocs).toHaveBeenCalledTimes(1);
 
@@ -224,7 +227,7 @@ describe("карточка шага: привязка к схеме логики
   it("Escape закрывает оверлей, а карточка шага остаётся", async () => {
     // Оверлей стоит в стеке Escape ВЫШЕ карточки — иначе клавиша роняла бы обоих.
     await открыть(ПРИВЯЗАН);
-    await userEvent.click(await screen.findByRole("button", { name: "Ярмарка / Заказы · POST /orders" }));
+    await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
 
     await userEvent.keyboard("{Escape}");
 
