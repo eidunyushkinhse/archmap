@@ -119,7 +119,11 @@ export function useContainerChildren(nodeId: string, isContainer: boolean): Cont
       const sg = specByAnchor.get(anchor.id);
       if (!dg || !sg) continue;
       const isSelf = d.id === anchor.id;
+      // Заглушки разведки (схемы без тела) в объединение не идут: бэклог
+      // документирования живёт на странице владельца (блок «Не описано»), а
+      // витрина контейнера — только описанные схемы потомков.
       for (const doc of d.docs) {
+        if (!doc.described) continue;
         if (isSelf) dg.own.push(doc);
         else dg.deep.push({ doc, child: d });
       }

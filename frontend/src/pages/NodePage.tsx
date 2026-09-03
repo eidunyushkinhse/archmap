@@ -22,6 +22,7 @@ import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
 import NodeDocsList, { StubMark } from "../components/NodeDocsList";
+import UndescribedDocs from "../components/UndescribedDocs";
 import { KIND_LABEL } from "../components/docsList";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import ReconAgentModal from "../components/docsImport/ReconAgentModal";
@@ -314,14 +315,14 @@ function NodePageInner({
     />
   ) : null;
 
-  // Счётчик «описано N из M» — ПРОИЗВОДНОЕ в рендере (эффект с setState тут запрещён
-  // линтом и рассинхронился бы с метой). Знаменатель — ВСЕ схемы объекта: после
-  // отказа от вида «обзор» оба оставшихся вида (операция, воркер) — точки входа,
-  // и отсеивать из знаменателя больше нечего.
-  const describedCount = useMemo(
-    () => node.docs.filter((d) => d.described).length,
-    [node.docs],
-  );
+  // Схемы объекта делятся НАДВОЕ — производное в рендере (эффект с setState тут
+  // запрещён линтом и рассинхронился бы с метой). «Логика» показывает только
+  // описанные схемы (с телом); заглушки разведки — строки перечня без тела — это не
+  // схемы, а бэклог документирования, и живут они в блоке «Не описано» под чертой
+  // (решение пользователя 2026-09-03: витрина не смешивается с бэклогом, а счётчики
+  // «описано N из M» при физически разделённых списках лишние).
+  const describedDocs = useMemo(() => node.docs.filter((d) => d.described), [node.docs]);
+  const stubDocs = useMemo(() => node.docs.filter((d) => !d.described), [node.docs]);
 
   // Открытие своей схемы из списка «Логики» (стабильная ссылка — список схем
   // монолита длинный, лишних ре-рендеров ему не нужно).
@@ -347,6 +348,9 @@ function NodePageInner({
   const describeDoc = useCallback((d: NodeDocMeta) => {
     setDocsAgent({ mode: "single", target: d.operation ?? d.name });
   }, []);
+  // «Описать все» в шапке блока «Не описано»: окно доков «пакетом» — промпт сам
+  // знает два перечня (что описано — не трогай, что разведано — бери отсюда).
+  const describeAll = useCallback(() => setDocsAgent({ mode: "batch" }), []);
 
   // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
   // Контейнеру спеку создавать нельзя (правила контейнеров).
@@ -682,14 +686,7 @@ function NodePageInner({
         {(allow.logic || legacyLogic || container.docGroups.length > 0)
           && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
           <div className="np-card">
-            <h3 className="np-card-title">
-              Логика
-              {/* Схем нет вовсе — счётчика нет: «описано 0 из 0» это шум на каждом
-                  узле проекта, а не полезное знание. */}
-              {node.docs.length > 0 && (
-                <span style={docsCounter}>описано {describedCount} из {node.docs.length}</span>
-              )}
-            </h3>
+            <h3 className="np-card-title">Логика</h3>
             {isContainer ? (
               <>
                 {/* Собственные (grandfather) схемы контейнера: по правилам у
@@ -775,11 +772,6 @@ function NodePageInner({
                   <p className="np-empty">Схемы логики не заданы</p>
                 )}
               </>
-            ) : node.docs.length === 0 ? (
-              <>
-                <p className="np-empty">Схемы логики не заданы</p>
-                {addLogicMenu}
-              </>
             ) : (
               <>
                 {legacyLogic && (
@@ -787,18 +779,37 @@ function NodePageInner({
                     Схемы логики описывают код сервиса, а у этого объекта его нет — перенесите их на сервис, который с ним работает
                   </p>
                 )}
-                {/* Свои схемы — группами по видам: разведка приносит сюда двести с
-                    лишним строк, и плоский столбец в них нечитаем. На маленьком
-                    объекте группы стартуют развёрнутыми. У неописанной точки входа —
-                    кнопка «Описать»: из строки списка сразу в окно доков с адресом. */}
-                <NodeDocsList
-                  docs={node.docs}
-                  onOpen={openDoc}
-                  onDescribe={isArchitect && allow.logic ? describeDoc : undefined}
-                  usage={docUsage}
-                  onOpenProcess={onNavigateProcesses}
-                />
+                {/* Витрина — только ОПИСАННЫЕ схемы, группами по видам (после
+                    разведки монолита их может быть двести, и плоский столбец
+                    нечитаем; на маленьком объекте группы стартуют развёрнутыми).
+                    Одни заглушки и ни одной описанной — так выглядит объект сразу
+                    после разведки; «не заданы» тут соврало бы: перечень лежит ниже. */}
+                {describedDocs.length === 0 ? (
+                  <p className="np-empty">
+                    {stubDocs.length > 0 ? "Описанных схем логики пока нет" : "Схемы логики не заданы"}
+                  </p>
+                ) : (
+                  <NodeDocsList
+                    docs={describedDocs}
+                    onOpen={openDoc}
+                    usage={docUsage}
+                    onOpenProcess={onNavigateProcesses}
+                  />
+                )}
                 {addLogicMenu}
+                {/* Бэклог документирования — заглушки разведки — под чертой, в той же
+                    карточке и свёрнутым: у строки «Описать» (окно доков с адресом)
+                    и «открыть →», в шапке «Описать все». Нет заглушек — нет блока. */}
+                {stubDocs.length > 0 && (
+                  <UndescribedDocs
+                    docs={stubDocs}
+                    onOpen={openDoc}
+                    onDescribe={isArchitect && allow.logic ? describeDoc : undefined}
+                    onDescribeAll={isArchitect && allow.logic ? describeAll : undefined}
+                    usage={docUsage}
+                    onOpenProcess={onNavigateProcesses}
+                  />
+                )}
               </>
             )}
           </div>
@@ -1024,13 +1035,6 @@ function NodePageInner({
   );
 }
 
-// Счётчик «описано N из M» в заголовке секции «Логика» — знаменателем идут только
-// точки входа (операции и воркеры). Метка заглушки «не описана» и подписи видов
-// живут в NodeDocsList: список схем и его строки — одна ответственность.
-const docsCounter: CSSProperties = {
-  marginLeft: 8, fontSize: 12, fontWeight: 500, color: "#64748b",
-};
-
 // Split-кнопка схемы потомка в объединении контейнера: левая (широкая) часть
 // открывает схему владельца напрямую (в его контексте), правая (узкая) ведёт на
 // страницу владельца — доки принадлежат ему.
@@ -1050,7 +1054,6 @@ function DocSplitRow({ doc, child, onOpen, onNavigateNode }: {
       >
         <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
         <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
-        {!doc.described && <StubMark />}
         {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
       </button>

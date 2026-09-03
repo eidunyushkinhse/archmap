@@ -10,6 +10,7 @@ import uuid
 from collections import defaultdict
 from typing import Literal
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 
 from app.data_refs import (
@@ -37,6 +38,7 @@ from app.schemas.node import (
     OrphanLegAlert,
     PersonInsideAlert,
     UnboundParticipantAlert,
+    UndescribedDocsAlert,
     UnlinkedMessageAlert,
     UnresolvedChannelRefAlert,
     UnresolvedConfigRefAlert,
@@ -99,7 +101,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     11) связи, у которых конец — брокер, а канал не назван (missing) либо назван,
        но структура брокера его не знает (unknown);
     13) шаги процессов без привязки к схеме логики (doc_id = NULL) — алерт
-       полноты, той же семьи, что «не описана» у разведки: гаснет привязкой.
+       полноты, той же семьи, что «не описана» у разведки: гаснет привязкой;
+    14) объекты с неописанными схемами логики (заглушки разведки — схемы без
+       тела): одна запись на объект с числом заглушек, гаснет описанием.
     Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
@@ -411,6 +415,27 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         )
     ]
 
+    # 14) Объекты с неописанными схемами логики (AL35). Заглушка разведки — строка
+    #     перечня без тела (docs/plan-recon.md): не схема, а обещание её написать.
+    #     Алерт ПОЛНОТЫ той же семьи, что AL34, но ОДНА запись на объект, а не на
+    #     заглушку: после разведки монолита заглушек две сотни, и две сотни строк в
+    #     панели — стена, а не сигнал; построчный бэклог живёт на странице объекта
+    #     (блок «Не описано»). Признак — тот же, что у витрины (NodeDoc.described:
+    #     тело после trim пустое). Гаснет, когда все заглушки описаны или удалены.
+    undescribed_docs: list[UndescribedDocsAlert] = []
+    if node_ids:
+        stub_rows = (
+            db.query(NodeDoc.node_id, func.count(NodeDoc.id))
+            .filter(NodeDoc.node_id.in_(node_ids), ~NodeDoc.described)
+            .group_by(NodeDoc.node_id)
+            .all()
+        )
+        undescribed_docs = [
+            UndescribedDocsAlert(node_id=nid, node_name=name_by_id.get(nid, "?"), count=cnt)
+            for nid, cnt in stub_rows
+        ]
+        undescribed_docs.sort(key=lambda a: a.node_name)
+
     # 9) Пометки обращений, не нашедшие цели (AL29, пивот §9 plan-db-docs.md).
     #    «читает: orders.status» в тексте схемы логики — обещание факта, и невыполненное
     #    обещание обязано быть видно: обратный индекс базы такую пометку не показывает
@@ -550,6 +575,7 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         unbound_participants=unbound_participants,
         orphan_legs=orphan_legs,
         unlinked_messages=unlinked_messages,
+        undescribed_docs=undescribed_docs,
         unresolved_data_refs=unresolved_data_refs,
         unresolved_channel_refs=unresolved_channel_refs,
         unresolved_config_refs=unresolved_config_refs,

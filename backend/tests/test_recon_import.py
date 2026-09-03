@@ -508,20 +508,27 @@ def test_контейнер_адресат_предупреждает(db):
 
 
 # ── Ловушки: заглушка — это документация, которой нет ─────────────────────────
-def test_массовые_заглушки_не_рождают_алертов(db):
-    """Пустая схема не участвует в резолве пометок (alerts.py: `if not content`), но
-    двести пустых схем не должны родить и никакого другого алерта."""
-    _node(db, "backend")
+def test_массовые_заглушки_рождают_один_алерт_на_объект(db):
+    """Пустая схема не участвует в резолве пометок (alerts.py: `if not content`), и
+    двести пустых схем не рождают ни одного алерта пометок/структуры. Единственное,
+    что они рождают, — ОДНА запись AL35 «объект с неописанными схемами» с числом
+    заглушек (2026-09-03): панель из двухсот строк была бы стеной, а не сигналом."""
+    узел = _node(db, "backend")
     db.flush()
     было = compute_alerts(db, ensure_project(db).id).model_dump()
+    assert было["undescribed_docs"] == []
 
     перечень = "node: backend\noperations:\n" + "".join(f"  - GET /op{i}\n" for i in range(200))
     report = _применить(db, перечень)
     assert report.created == 200
 
-    assert compute_alerts(db, ensure_project(db).id).model_dump() == было
+    стало = compute_alerts(db, ensure_project(db).id).model_dump()
+    assert стало["undescribed_docs"] == [{"node_id": узел.id, "node_name": "backend", "count": 200}]
+    # Всё остальное — байт-в-байт как до разведки: ни пометок, ни структуры заглушки не задели.
+    assert {k: v for k, v in стало.items() if k != "undescribed_docs"} == \
+        {k: v for k, v in было.items() if k != "undescribed_docs"}
     # Заглушка у ЛИСТА алерта «контейнер со своей документацией» не даёт.
-    assert compute_alerts(db, ensure_project(db).id).container_own_docs == []
+    assert стало["container_own_docs"] == []
 
 
 def test_копия_проекта_переживает_заглушки(db):

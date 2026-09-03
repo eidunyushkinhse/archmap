@@ -5,6 +5,7 @@ import type {
   UnresolvedChannelRefAlert,
   UnresolvedDataRefAlert,
 } from "../types";
+import { plural } from "../ui/plural";
 import "./schemaAlerts.css";
 
 /**
@@ -48,6 +49,10 @@ import "./schemaAlerts.css";
  *     Класс ОТДЕЛЬНЫЙ от (2): там конец уточняют до компонента, а здесь конец уже
  *     компонент этого самого контейнера — вложенность выражает иерархия, и связь
  *     удаляют либо перевешивают. Строка ведёт К СВЯЗИ на схеме.
+ * 11) Объекты с неописанными схемами логики — у объекта есть заглушки разведки
+ *     (схемы без тела, AL35). ОДНА строка на объект с числом заглушек, а не строка
+ *     на заглушку: построчный бэклог живёт на странице объекта (блок «Не описано»).
+ *     Строка ведёт К ОБЪЕКТУ на схеме, как (4).
  * Алерты глобальные, считаются на бэке — здесь только отображение.
  */
 
@@ -99,6 +104,8 @@ const IcoBrokenArrow = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16"
 // Ответное плечо, которого больше нет: дуга возврата, перечёркнутая косой.
 const IcoNoReturn = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M13.2 3.8H6.2a3 3 0 0 0 0 6h3.4" /><path d="M7.6 7.6 5.6 9.8l2 2.2" /><path d="M2.6 2.6l10.8 10.8" /></svg>;
 // Шаг без схемы логики: лист документа, перечёркнутый косой — документации нет.
+// Заглушка: документ пунктиром — тела нет, но и не поломка (спокойный контур, как у метки на странице объекта)
+const IcoStubDoc = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M4 1.8h5.2L12 4.6v9.6H4Z" strokeDasharray="2 1.6" /><path d="M9.2 1.8v2.8H12" /></svg>;
 const IcoNoDoc = (s = 13) => <svg width={s} height={s} viewBox="0 0 16 16" {...sIco}><path d="M4 1.8h5.2L12 4.6v9.6H4Z" /><path d="M9.2 1.8v2.8H12" /><path d="M2.6 2.6l10.8 10.8" /></svg>;
 // Обращение к неописанным данным: цилиндр базы со знаком вопроса — цель пометки
 // не нашлась.
@@ -173,6 +180,9 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
   // Шаги процессов без привязки к схеме логики — алерт ПОЛНОТЫ (Р4 «шумно, зато
   // консистентно»): не «сломалось», а «не документировано», гаснет привязкой шагов.
   const unlinkedMessages = alerts.unlinked_messages;
+  // Объекты с заглушками разведки (схемы без тела) — та же полнота, но ОДНА запись
+  // на объект: две сотни строк после разведки монолита были бы стеной, а не сигналом.
+  const undescribedDocs = alerts.undescribed_docs;
   // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
   // связь, 3 → 2 и т.д. В ОБЩИЙ счётчик «Незавершённость схемы» идёт groups − 1 (число
   // проблем), а в счётчик самой секции — фактическое число групп (см. ниже): 2 группы
@@ -182,7 +192,8 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
     disconnected.length + intermediate.length + descendant.length + isolatedProblems +
     containerOwn.length + personsInside.length + dangling.length + unbound.length +
     orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length +
-    unresolvedConfigRefs.length + brokerEdges.length + unlinkedMessages.length;
+    unresolvedConfigRefs.length + brokerEdges.length + unlinkedMessages.length +
+    undescribedDocs.length;
 
   // Отслеживаем переходы total: рост → пульс; обнуление (>0 → 0) → тост
   const prevTotal = useRef(total);
@@ -451,6 +462,19 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess }: Props)
                 </span>
                 <span style={{ display: "block", fontSize: 11.5, color: "#9ca3af", lineHeight: 1.35 }}>
                   {m.from_name} → {m.to_name}
+                </span>
+              </Item>
+            ))}
+          </Section>
+
+          <Section icon={IcoStubDoc(13)} title="Объекты с неописанными схемами логики" count={undescribedDocs.length}>
+            {/* Одна строка на объект с числом заглушек: построчный бэклог — на странице
+                объекта (блок «Не описано»), сюда его не тащим. */}
+            {undescribedDocs.map((u) => (
+              <Item key={u.node_id} onClick={onLocate && (() => locate({ kind: "node", id: u.node_id }))}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                  <span>{u.node_name}</span>
+                  <span style={{ color: "#9ca3af" }}>{u.count} {plural(u.count, ["схема", "схемы", "схем"])}</span>
                 </span>
               </Item>
             ))}

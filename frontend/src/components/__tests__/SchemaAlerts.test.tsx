@@ -24,6 +24,7 @@ const EMPTY: Alerts = {
   broker_edge_channels: [],
   descendant_edges: [],
   unlinked_messages: [],
+  undescribed_docs: [],
 };
 
 const DANGLING = {
@@ -65,6 +66,26 @@ describe("SchemaAlerts: шаги без схемы логики (AL34)", () => {
     await userEvent.click(screen.getByText(/Оформление заказа/));
 
     expect(onOpenProcess).toHaveBeenCalledWith("proc-1");
+  });
+});
+
+describe("SchemaAlerts: объекты с неописанными схемами логики (AL35)", () => {
+  // Одна строка на объект, а не на заглушку: после разведки монолита заглушек две
+  // сотни, и панель из двухсот строк — стена. Построчный бэклог — на странице объекта.
+  const UNDESCRIBED = { node_id: "n-1", node_name: "Сервис заказов", count: 13 };
+
+  it("объект с заглушками — одна проблема в счётчике, строка ведёт к объекту", async () => {
+    const onLocate = vi.fn();
+    render(<SchemaAlerts alerts={{ ...EMPTY, undescribed_docs: [UNDESCRIBED] }} onLocate={onLocate} />);
+
+    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    await openPanel();
+    expect(screen.getByText("Объекты с неописанными схемами логики")).toBeTruthy();
+    expect(screen.getByText("13 схем")).toBeTruthy();
+
+    await userEvent.click(screen.getByText("Сервис заказов"));
+
+    expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n-1" });
   });
 });
 

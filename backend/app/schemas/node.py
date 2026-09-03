@@ -352,6 +352,19 @@ class UnlinkedMessageAlert(BaseModel):
     to_name: str
 
 
+class UndescribedDocsAlert(BaseModel):
+    """Объект с неописанными схемами логики (AL35) — алерт ПОЛНОТЫ.
+
+    Заглушка разведки — строка перечня точек входа без тела (docs/plan-recon.md):
+    не схема, а обещание её написать. ОДНА запись на объект, а не на заглушку:
+    после разведки монолита заглушек две сотни, и панель алертов из двухсот строк —
+    стена, а не сигнал; построчный бэклог живёт на странице объекта (блок
+    «Не описано» под чертой в «Логике»). count — сколько заглушек у объекта."""
+    node_id: uuid.UUID
+    node_name: str
+    count: int
+
+
 class UnresolvedDataRefAlert(BaseModel):
     """Пометка «читает:/пишет:» в схеме логики, не нашедшая свою таблицу.
 
@@ -460,6 +473,8 @@ class AlertsResponse(BaseModel):
     unresolved_config_refs: list[UnresolvedConfigRefAlert] = []
     # Шаги процессов без привязки к схеме логики (AL34) — дефолт [] по той же причине.
     unlinked_messages: list[UnlinkedMessageAlert] = []
+    # Объекты с неописанными схемами логики (AL35) — дефолт [] по той же причине.
+    undescribed_docs: list[UndescribedDocsAlert] = []
 
 
 # --- Перенос grandfather-доков/спеки контейнера на его детей («Распределить по детям») ---

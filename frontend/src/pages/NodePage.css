@@ -650,6 +650,42 @@
   padding-left: 18px;
 }
 
+/* ── «Не описано»: бэклог документирования под чертой внутри «Логики» ──── */
+.np-undescribed {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #eef0f2;
+}
+.np-undescribed-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.np-undescribed-head .np-doc-group-toggle {
+  flex: 1;
+  min-width: 0;
+}
+/* «Описать все» — сосед кнопки-заголовка (вложенные <button> невалидны) */
+.np-undescribed-all {
+  flex: none;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.np-undescribed-all:hover {
+  background: #f8fafc;
+}
+.np-undescribed-body {
+  margin-top: 8px;
+}
+
 /* «+ Добавить» в карточках «Логика»/«OpenAPI» (архитектор) */
 .np-addbtn {
   margin-top: 10px;

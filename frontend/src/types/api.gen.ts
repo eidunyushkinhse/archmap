@@ -2132,6 +2132,11 @@ export interface components {
              * @default []
              */
             unlinked_messages: components["schemas"]["UnlinkedMessageAlert"][];
+            /**
+             * Undescribed Docs
+             * @default []
+             */
+            undescribed_docs: components["schemas"]["UndescribedDocsAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -5551,6 +5556,27 @@ export interface components {
             participant_id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * UndescribedDocsAlert
+         * @description Объект с неописанными схемами логики (AL35) — алерт ПОЛНОТЫ.
+         *
+         *     Заглушка разведки — строка перечня точек входа без тела (docs/plan-recon.md):
+         *     не схема, а обещание её написать. ОДНА запись на объект, а не на заглушку:
+         *     после разведки монолита заглушек две сотни, и панель алертов из двухсот строк —
+         *     стена, а не сигнал; построчный бэклог живёт на странице объекта (блок
+         *     «Не описано» под чертой в «Логике»). count — сколько заглушек у объекта.
+         */
+        UndescribedDocsAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /** Count */
+            count: number;
         };
         /**
          * UnifiedFamilyCountsOut

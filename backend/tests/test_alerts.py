@@ -958,3 +958,36 @@ def test_шаг_без_схемы_логики_даёт_алерт_полнот�
         ("посчитать скидку", "Сервис заказов", "Сервис заказов"),
     ]
     assert all(m.process_name == "Оформление заказа" for m in out)
+
+
+def test_undescribed_docs_one_alert_per_node(db):
+    """AL35: объект с заглушками даёт ОДНУ запись с числом заглушек (не по записи на
+    заглушку); объект, у которого все схемы описаны, и объект без схем не алертятся;
+    признак — тот же, что у витрины (тело после SQL-trim пустое: одни пробелы — тоже
+    заглушка; переводы строк trim НЕ режет, и такая схема считается описанной в
+    обоих местах одинаково); порядок — по имени объекта."""
+    from app.models.node_doc import NodeDoc
+
+    заказы = _node(db, "Сервис заказов")
+    оплата = _node(db, "Сервис оплаты")
+    витрина = _node(db, "Веб-витрина")
+    _node(db, "Без схем")
+    db.flush()
+    db.add_all([
+        NodeDoc(id=uuid.uuid4(), node_id=заказы.id, name="POST /orders",
+                kind="operation", content="graph TD\n  A-->B"),
+        NodeDoc(id=uuid.uuid4(), node_id=заказы.id, name="GET /orders",
+                kind="operation", content=""),
+        NodeDoc(id=uuid.uuid4(), node_id=заказы.id, name="email_senders",
+                kind="worker", content="   "),
+        NodeDoc(id=uuid.uuid4(), node_id=оплата.id, name="POST /pay",
+                kind="operation", content="graph TD\n  A-->B"),
+        NodeDoc(id=uuid.uuid4(), node_id=витрина.id, name="GET /",
+                kind="operation", content=""),
+    ])
+    db.commit()
+
+    out = get_alerts(db=db, project=ensure_project(db), _=None).undescribed_docs
+    assert [(a.node_name, a.count) for a in out] == [("Веб-витрина", 1), ("Сервис заказов", 2)]
+    assert {a.node_id for a in out} == {витрина.id, заказы.id}
+

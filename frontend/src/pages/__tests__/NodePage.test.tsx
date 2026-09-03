@@ -591,7 +591,7 @@ describe("NodePage: документация по форме узла", () => {
 // отличать (иначе заглушку не спутать с документацией нельзя), показывать остаток
 // работы числом (без знаменателя «опиши монолит» снова становится безразмерным) и
 // пережить две сотни строк: до разведки полевым максимумом были тринадцать.
-describe("NodePage: заглушки разведки, счётчик «описано N из M» и группы по видам", () => {
+describe("NodePage: «Логика» — описанные схемы, заглушки в блоке «Не описано», группы по видам", () => {
   beforeEach(() => vi.clearAllMocks());
 
   function док(over: Partial<NodeDocMeta> = {}): NodeDocMeta {
@@ -608,34 +608,70 @@ describe("NodePage: заглушки разведки, счётчик «опис
     return render(<NodePage nodeId="n1" isArchitect {...nav} />);
   }
 
-  it("счётчик считает ВСЕ схемы: оба вида — точки входа", async () => {
-    // После отказа от вида «обзор» отсеивать из знаменателя нечего: и операция, и
-    // воркер — точки входа, и обе зависят от разведки.
-    setupDocs([
-      док({ id: "d1", name: "POST /orders", kind: "operation", described: true }),
-      док({ id: "d2", name: "GET /orders", kind: "operation", described: false }),
-      док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
-    ]);
-    await waitFor(() => expect(screen.getByText("описано 1 из 3")).toBeInTheDocument());
-  });
+  const СМЕСЬ = () => [
+    док({ id: "d1", name: "POST /orders", kind: "operation", described: true }),
+    док({ id: "d2", name: "GET /orders", kind: "operation", described: false }),
+    док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
+  ];
 
-  it("схем нет — счётчика нет вовсе", async () => {
-    // «описано 0 из 0» это шум на каждом узле проекта, а не полезное знание.
-    setupDocs([]);
-    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
-    expect(screen.queryByText(/описано \d+ из/)).toBeNull();
-  });
+  async function раскрытьНеОписано() {
+    await userEvent.click(screen.getByRole("button", { name: /^Не описано/ }));
+  }
 
-  it("строка-заглушка помечена «не описана», описанная — нет", async () => {
-    setupDocs([
-      док({ id: "d1", name: "POST /orders", described: false }),
-      док({ id: "d2", name: "GET /orders", described: true }),
-    ]);
+  // ── Заглушки — не в «Логике», а в блоке «Не описано» под чертой ──────────
+  it("заглушки в «Логике» не показываются, счётчиков «описано» нет", async () => {
+    // Решение пользователя 2026-09-03: витрина объекта — описанные схемы; заглушка
+    // разведки — не схема, а бэклог, и смешивать их нельзя. Счётчики отделяли одно
+    // от другого внутри одного списка — при разделённых списках они лишние.
+    setupDocs(СМЕСЬ());
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    const метки = screen.getAllByText("не описана");
-    expect(метки).toHaveLength(1);
-    // Метка стоит в строке заглушки, а не где-то рядом.
-    expect(метки[0].closest("button")).toHaveTextContent("POST /orders");
+    expect(screen.queryByText("GET /orders")).toBeNull();
+    expect(screen.queryByText("email_senders")).toBeNull();
+    expect(screen.queryByText(/описано \d+/)).toBeNull();
+    expect(screen.queryByText("не описана")).toBeNull();
+    // Заголовок группы — только размер, без «остатка работы»; пустая группа не рисуется.
+    expect(screen.getByRole("button", { name: /^Операции/ })).toHaveTextContent("(1)");
+    expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
+  });
+
+  it("блок «Не описано» свёрнут, в шапке число точек входа; раскрывается кликом", async () => {
+    setupDocs(СМЕСЬ());
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    const шапка = screen.getByRole("button", { name: /^Не описано/ });
+    expect(шапка).toHaveTextContent("2 точки входа");
+    expect(шапка).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("GET /orders")).toBeNull();
+
+    await раскрытьНеОписано();
+
+    expect(шапка).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("GET /orders")).toBeInTheDocument();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
+    // Блок — часть карточки «Логика» под чертой, а не карточка наравне с ней.
+    expect(шапка.closest(".np-card")).toBe(screen.getByText("Логика").closest(".np-card"));
+  });
+
+  it("заглушек нет — блока «Не описано» нет вовсе", async () => {
+    setupDocs([док({ id: "d1", name: "POST /orders" })]);
+    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /^Не описано/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Описать все" })).toBeNull();
+  });
+
+  it("одни заглушки: «Логика» говорит, что описанных пока нет, блок лежит ниже", async () => {
+    // Так выглядит объект сразу после разведки; «не заданы» тут соврало бы.
+    setupDocs([док({ id: "d2", name: "GET /orders", described: false })]);
+    await waitFor(() => expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("1 точка входа");
+  });
+
+  it("«Описать все» открывает окно доков пакетом", async () => {
+    setupDocs([док({ id: "d2", name: "GET /orders", described: false })]);
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Описать все" }));
+    expect(screen.getByTestId("docs-modal")).toHaveAttribute("data-mode", "batch");
+    // Кнопка — сосед заголовка, а не его часть: список от неё не раскрывается.
+    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveAttribute("aria-expanded", "false");
   });
 
   // ── Масштаб списка: группы по видам ───────────────────────────────────────
@@ -650,19 +686,34 @@ describe("NodePage: заглушки разведки, счётчик «опис
   });
 
   it("двести схем: свёрнута только группа-стена, воркеры видны сразу", async () => {
-    const много = Array.from({ length: 200 }, (_, i) =>
-      док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
+    const много = Array.from({ length: 200 }, (_, i) => док({ id: `o${i}`, name: `GET /r${i}` }));
     setupDocs([
       ...много,
-      док({ id: "w1", name: "email_senders", kind: "worker", described: false }),
+      док({ id: "w1", name: "email_senders", kind: "worker" }),
     ]);
-    await waitFor(() => expect(screen.getByText("описано 0 из 201")).toBeInTheDocument());
     // Стены из двухсот кнопок нет, а соседняя группа — не стена, и прятать её незачем.
+    await waitFor(() => expect(screen.getByText("email_senders")).toBeInTheDocument());
     expect(screen.queryByText("GET /r0")).toBeNull();
-    expect(screen.getByText("email_senders")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Операции/ })).toHaveTextContent("(200)");
 
     await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
     expect(screen.getByText("GET /r0")).toBeInTheDocument();
+    expect(screen.getByText("GET /r199")).toBeInTheDocument();
+  });
+
+  it("двести заглушек: внутри «Не описано» группа-стена тоже свёрнута", async () => {
+    // Тот же порог, что и в «Логике»: раскрытый блок не должен разворачивать стену.
+    const много = Array.from({ length: 200 }, (_, i) =>
+      док({ id: `o${i}`, name: `GET /r${i}`, described: false }));
+    setupDocs([...много, док({ id: "w1", name: "email_senders", kind: "worker", described: false })]);
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("201 точка входа");
+
+    await раскрытьНеОписано();
+
+    expect(screen.queryByText("GET /r0")).toBeNull();
+    expect(screen.getByText("email_senders")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^Операции/ }));
     expect(screen.getByText("GET /r199")).toBeInTheDocument();
   });
 
@@ -681,17 +732,17 @@ describe("NodePage: заглушки разведки, счётчик «опис
     expect(screen.getByText("email_senders")).toBeInTheDocument();
   });
 
-  it("в заголовке группы — число строк и остаток работы", async () => {
+  it("в заголовке группы — число строк, и только оно", async () => {
     setupDocs([
-      док({ id: "d1", name: "POST /orders", described: true }),
-      док({ id: "d2", name: "GET /orders", described: false }),
-      док({ id: "d3", name: "email_senders", kind: "worker", described: false }),
+      док({ id: "d1", name: "POST /orders" }),
+      док({ id: "d2", name: "GET /orders" }),
+      док({ id: "d3", name: "email_senders", kind: "worker" }),
     ]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
     const операции = screen.getByRole("button", { name: /^Операции/ });
     expect(операции).toHaveTextContent("(2)");
-    expect(операции).toHaveTextContent("описано 1");
-    expect(screen.getByRole("button", { name: /^Воркеры/ })).toHaveTextContent("описано 0");
+    expect(операции).not.toHaveTextContent("описано");
+    expect(screen.getByRole("button", { name: /^Воркеры/ })).toHaveTextContent("(1)");
   });
 
   it("пустая группа не рисуется вовсе", async () => {
@@ -700,7 +751,7 @@ describe("NodePage: заглушки разведки, счётчик «опис
     expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
   });
 
-  // ── Прямой путь «описать вот эту строку» ──────────────────────────────────
+  // ── Прямой путь «описать вот эту строку» (внутри блока «Не описано») ──────
   it("«Описать» открывает окно доков «по одной» с адресом строки, а схему не открывает", async () => {
     // У схемы, написанной до разведки, имя человеческое, а точка входа — в поле
     // operation: адресом агенту идёт именно она.
@@ -708,7 +759,8 @@ describe("NodePage: заглушки разведки, счётчик «опис
       док({ id: "d1", name: "Оформление заказа", operation: "POST /orders", described: false }),
       док({ id: "d2", name: "email_senders", kind: "worker", described: false }),
     ]);
-    await waitFor(() => expect(screen.getByText("Оформление заказа")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
+    await раскрытьНеОписано();
     const кнопки = screen.getAllByRole("button", { name: "Описать" });
     expect(кнопки).toHaveLength(2);
 
@@ -724,14 +776,16 @@ describe("NodePage: заглушки разведки, счётчик «опис
     // Имена классов-обработчиков недоверенные (замер 4/14), адрес воркера — очередь,
     // а она и есть имя схемы-заглушки.
     setupDocs([док({ id: "d2", name: "email_senders", kind: "worker", described: false })]);
-    await waitFor(() => expect(screen.getByText("email_senders")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
+    await раскрытьНеОписано();
     await userEvent.click(screen.getByRole("button", { name: "Описать" }));
     expect(screen.getByTestId("docs-modal")).toHaveAttribute("data-target", "email_senders");
   });
 
-  it("клик по строке по-прежнему открывает схему, а не окно агента", async () => {
+  it("клик по строке заглушки открывает схему (писать руками), а не окно агента", async () => {
     setupDocs([док({ id: "d1", name: "POST /orders", described: false })]);
-    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
+    await раскрытьНеОписано();
     await userEvent.click(screen.getByText("POST /orders"));
     expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "d1");
     expect(screen.queryByTestId("docs-modal")).toBeNull();
@@ -759,7 +813,7 @@ describe("NodePage: заглушки разведки, счётчик «опис
   });
 
   it("читателю видно состояние схем, но разведка ему не предлагается", async () => {
-    // Окно только архитектору (меню целиком под isArchitect) — а вот остаток работы
+    // Окно только архитектору (меню целиком под isArchitect) — а вот бэклог
     // читатель видеть вправе: это состояние документации, а не действие над ней.
     const n = node("n1", {
       docs: [док({ id: "d1", name: "POST /orders", described: false })],
@@ -771,11 +825,13 @@ describe("NodePage: заглушки разведки, счётчик «опис
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
     render(<NodePage nodeId="n1" isArchitect={false} {...nav} />);
-    await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
-    expect(screen.getByText("не описана")).toBeInTheDocument();
-    expect(screen.getByText("описано 0 из 1")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
+    expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument();
     expect(screen.queryByText("+ Добавить")).toBeNull();
-    // «Описать» — тоже действие над документацией, читателю его не предлагаем.
+    // «Описать» и «Описать все» — действия над документацией, читателю их не предлагаем.
+    expect(screen.queryByRole("button", { name: "Описать все" })).toBeNull();
+    await раскрытьНеОписано();
+    expect(screen.getByText("POST /orders")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
   });
 });

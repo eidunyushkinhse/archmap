@@ -2,10 +2,14 @@
 //
 // Зачем группы: разведка монолита кладёт в «Логику» двести с лишним строк (у Zulip
 // посчитано 212 точек входа), а до неё полевым максимумом были тринадцать. Плоский
-// столбец из двухсот кнопок — не витрина, а стена: в ней не видно ни того, что уже
-// сделано, ни того, за что браться. Сворачиваемые заголовки с числами дают и то, и
-// другое, а свёрнутой стартует только та группа, которая сама стена (порог считается
-// по её строкам): на маленьком объекте список выглядит как раньше.
+// столбец из двухсот кнопок — не витрина, а стена. Сворачиваемые заголовки с числами
+// дают обзор, а свёрнутой стартует только та группа, которая сама стена (порог
+// считается по её строкам): на маленьком объекте список выглядит как раньше.
+//
+// Список НЕ различает описанные схемы и заглушки: делит их владелец. «Логика»
+// отдаёт сюда только описанные, блок «Не описано» (UndescribedDocs) — только
+// заглушки, поэтому ни счётчика «описано N», ни метки «не описана» у строк нет
+// (решение пользователя 2026-09-03: витрина не смешивается с бэклогом).
 //
 // Списки «схемы потомков» у контейнера сюда НЕ ходят: там своя группировка по
 // объектам, и вторая вложенность сделала бы кашу.
@@ -96,7 +100,7 @@ export default function NodeDocsList({ docs, onOpen, onDescribe, usage, onOpenPr
   );
 }
 
-// Группа одного вида: заголовок с числом строк и остатком работы, тело — строки.
+// Группа одного вида: заголовок с числом строк, тело — строки.
 // Состояние «свёрнуто/развёрнуто» живёт здесь и никуда не сохраняется: это поза
 // списка на время просмотра, а не настройка.
 function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc, onOpenProcess }: {
@@ -110,7 +114,6 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc,
 }) {
   const [open, setOpen] = useState(startOpen);
   const toggle = useCallback(() => setOpen((o) => !o), []);
-  const described = items.filter((d) => d.described).length;
   return (
     <>
       <button type="button" className="np-doc-group-toggle" onClick={toggle} aria-expanded={open}>
@@ -119,7 +122,6 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc,
         </span>
         {title}
         <span style={groupCount}>({items.length})</span>
-        <span style={groupDescribed}>описано {described}</span>
       </button>
       {open && (
         <div className="np-doc-group-body">
@@ -167,7 +169,6 @@ function DocRow({ doc, onOpen, onDescribe, usage, onOpenProcess }: {
         >
           <span style={rowName}>{doc.name}</span>
           <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
-          {!doc.described && <StubMark />}
           {doc.operation && <span style={rowOperation}>{doc.operation}</span>}
           <span style={rowOpen}>открыть →</span>
         </button>
@@ -220,16 +221,15 @@ function DocRow({ doc, onOpen, onDescribe, usage, onOpenProcess }: {
 // Метка заглушки: схема в списке есть, а тела у неё нет — список операций от агента
 // создал её строкой перечня (docs/plan-recon.md). Спокойный пунктирный контур, а НЕ
 // красная тревога: неописанная точка входа — нормальное состояние работы по списку,
-// а не ошибка.
+// а не ошибка. В списках «Логики» больше не стоит (заглушки живут отдельным блоком);
+// остаётся у собственных (grandfather) схем контейнера — там список предупреждения,
+// и что именно переезжает к детям, видеть полезно.
 export function StubMark() {
   return <span style={stubMark}>не описана</span>;
 }
 
 // ── inline-стили строк и заголовков групп ─────────────────────────────
 const groupCount: CSSProperties = { fontSize: 12, fontWeight: 400, color: "#94a3b8" };
-const groupDescribed: CSSProperties = {
-  marginLeft: "auto", fontSize: 12, fontWeight: 500, color: "#64748b", whiteSpace: "nowrap",
-};
 const rowName: CSSProperties = { fontWeight: 600, fontSize: 13 };
 const rowOperation: CSSProperties = { fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" };
 const rowOpen: CSSProperties = { marginLeft: "auto", fontSize: 12, color: "#94a3b8" };
