@@ -6,9 +6,12 @@
 
   • чтение — понять систему (проекты, дерево, карточка, алерты, процессы, YAML);
   • правила формата — те же промпты, что отдаёт интерфейс (BYOA): агент сперва
-    узнаёт требуемый формат, потом строит YAML/.mmd;
-  • запись — пачкой через превью→применение (импорт, синк, доки) и точечно
-    (создать/поправить объект или связь).
+    узнаёт требуемый формат, потом строит YAML/.mmd/перечень/таблицы. Сюда же
+    входит разведка — единственный промпт, который производит не документацию, а
+    ОГЛАВЛЕНИЕ: перечень точек входа, по которому документирование идёт адресно;
+  • запись — пачкой через превью→применение (импорт, синк, доки, заглушки
+    разведки, три семьи табличных фактов одной тройкой инструментов с аргументом
+    family) и точечно (создать/поправить объект или связь).
 
 УДАЛЕНИЙ НЕТ НИ ОДНОГО — осознанно (решение пользователя 2026-08-10). Снос узла
 уводит поддерево, связи, доки и спеки; такое делают глазами, а не «на всякий
@@ -466,6 +469,85 @@ async def t_recon_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
     )
 
 
+# ── Семьи табличных фактов ───────────────────────────────────────────────────
+
+# Семья → префикс ручек. ТРИ инструмента с аргументом family, а не девять по числу
+# ручек (решение 1 плана эпика): поток у семей один и тот же — промпт, превью,
+# применение, — и различаются они только сущностью, которую описывают. Девять имён
+# в каталоге агент читал бы как девять разных умений.
+FACT_PATH = {
+    "tables": "/data-import",
+    "channels": "/channels-import",
+    "config": "/config-import",
+}
+
+# Какой форме объекта принадлежит семья — тем же словом, каким названа форма в
+# карточке. Ошибка «канал у сервиса» дешевле всего лечится текстом описания.
+FACT_OWNER = {
+    "tables": "структура БД — у объектов формы database",
+    "channels": "каналы — у объектов формы broker",
+    "config": "параметры конфигурации — у объектов формы service",
+}
+
+
+def _family(args: dict[str, Any]) -> str:
+    """Семья из аргумента. Неизвестная — ошибка СО СПИСКОМ допустимых: модель
+    промахивается мимо значения enum регулярно, и «422 от сервера» ей ничего не
+    подсказывает, а перечень подсказывает."""
+    family = str(args.get("family") or "")
+    if family not in FACT_PATH:
+        raise ArchMapError(
+            f"Неизвестная семья фактов «{family}». Допустимые: "
+            + ", ".join(f"{k} ({FACT_OWNER[k]})" for k in FACT_PATH)
+            + "."
+        )
+    return family
+
+
+async def t_facts_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, _ = await resolve_project(client, args["project"])
+    family = _family(args)
+    params: dict[str, Any] = {}
+    _variant(args, params)
+    data = await client.request(
+        "GET", f"{FACT_PATH[family]}/prompt", project_id=pid, params=params
+    )
+    return str(data["prompt"])
+
+
+def _facts_body(args: dict[str, Any]) -> dict[str, Any]:
+    # Форма тела у всех трёх семей одна: files (записи {name, content}), node_id и
+    # overwrite. Сверено со схемами DataImportIn / ChannelsImportIn / ConfigImportIn.
+    body: dict[str, Any] = {"files": _docs(args), "overwrite": bool(args.get("overwrite", False))}
+    if args.get("node_id"):
+        body["node_id"] = args["node_id"]
+    return body
+
+
+async def t_facts_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    family = _family(args)
+    data = await client.request(
+        "POST", f"{FACT_PATH[family]}/preview", project_id=pid, json=_facts_body(args)
+    )
+    return (
+        f"Проект «{pname}» — план дозаливки фактов\n\n"
+        + render.facts_report(data, family, applied=False)
+    )
+
+
+async def t_facts_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    family = _family(args)
+    data = await client.request(
+        "POST", f"{FACT_PATH[family]}/apply", project_id=pid, json=_facts_body(args)
+    )
+    return (
+        f"Проект «{pname}» — дозаливка фактов применена\n\n"
+        + render.facts_report(data, family, applied=True)
+    )
+
+
 # ── Точечные правки ──────────────────────────────────────────────────────────
 
 async def t_create_node(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -531,6 +613,24 @@ VARIANT_ARG = {
         "orchestrated — обёртка «построил → аудит скептика → починил», требует субагентов; "
         "skeptic — только промпт аудита готового пакета."
     ),
+}
+
+FAMILY_ARG = {
+    "type": "string",
+    "enum": ["tables", "channels", "config"],
+    "description": (
+        "Семья табличных фактов: tables — структура БД (объекты формы database); "
+        "channels — каналы брокера (форма broker); config — параметры конфигурации "
+        "сервиса (форма service, значений сред не бывает — только дефолт из кода)."
+    ),
+}
+
+# Политика занятых полей у всех трёх семей одна: дефолт «не трогать заполненное»
+# делает результат независимым от порядка загрузки пакетов («побеждает описанное
+# раньше»), а один канал или сервис описывают прогоны разных репозиториев.
+OVERWRITE_ARG = {
+    "type": "boolean",
+    "description": "Перезаписывать уже заполненные поля. По умолчанию false — описанное раньше побеждает.",
 }
 
 FILES_ARG = {
@@ -800,6 +900,70 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "files"],
         },
         "handler": t_recon_apply,
+    },
+    {
+        "name": "archmap_facts_prompt",
+        "description": (
+            "ПРАВИЛА ФОРМАТА для ТАБЛИЧНЫХ ФАКТОВ — третьего слоя документации после схемы и "
+            "схем логики. family выбирает семью: tables — структура БД (таблицы и колонки, у "
+            "объектов формы database), channels — каналы брокера с полями сообщений (форма "
+            "broker), config — параметры конфигурации сервиса (форма service). Формат файлов "
+            "задаёт сам промпт — вызывать ДО прогона агента. ⚠ Конфигурация НЕ НЕСЁТ ЗНАЧЕНИЙ "
+            "СРЕД: хранится только текст дефолта из кода. Обращения к таблицам, каналам и "
+            "параметрам этими пакетами не приезжают — они живут пометками в тексте схем логики. "
+            "variant — строительный промпт (по умолчанию), оркестраторный с аудитом скептика "
+            "(нужны субагенты) или один аудит."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "family": FAMILY_ARG,
+                "variant": VARIANT_ARG,
+            },
+            "required": ["project", "family"],
+        },
+        "handler": t_facts_prompt,
+    },
+    {
+        "name": "archmap_facts_preview",
+        "description": (
+            "План дозаливки табличных фактов БЕЗ записи: какие таблицы, каналы или параметры "
+            "приедут, к какому объекту и что с ними станет (новая, перезапись, пропуск занятого, "
+            "без изменений). family — tables | channels | config. node_id — объект-адресат для "
+            "записей без адреса в файле."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "family": FAMILY_ARG,
+                "files": FILES_ARG,
+                "overwrite": OVERWRITE_ARG,
+                "node_id": {"type": "string", "description": "Объект-адресат записей без адреса."},
+            },
+            "required": ["project", "family", "files"],
+        },
+        "handler": t_facts_preview,
+    },
+    {
+        "name": "archmap_facts_apply",
+        "description": (
+            "ПРИМЕНЯЕТ дозаливку табличных фактов выбранной семьи. Удалений нет ни при какой "
+            "политике: агент не сносит то, чего не увидел. Вызывать после archmap_facts_preview."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "family": FAMILY_ARG,
+                "files": FILES_ARG,
+                "overwrite": OVERWRITE_ARG,
+                "node_id": {"type": "string"},
+            },
+            "required": ["project", "family", "files"],
+        },
+        "handler": t_facts_apply,
     },
     {
         "name": "archmap_create_node",

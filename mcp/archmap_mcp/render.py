@@ -531,3 +531,105 @@ def problems(data: dict[str, Any]) -> list[str]:
             out.append(f"{title} ({len(rows)}):")
             out.extend("  • " + str(r) for r in rows)
     return out
+
+
+# Слова действий — дословно из ACTION_LABEL окон дозаливки
+# (frontend/src/components/docsImport/agentModalShared.ts). «fill» здесь отдельным
+# словом не случайно: заполнение ЗАГЛУШКИ разведки безопасно, а настоящая
+# перезапись — нет, и путать их нельзя ни человеку, ни агенту.
+ACTION_WORD = {
+    "create": "новая",
+    "fill": "заполнит заглушку",
+    "overwrite": "перезапись",
+    "skip": "пропуск (занято)",
+    "unchanged": "без изменений",
+}
+
+
+def _fact_table(item: dict[str, Any]) -> str:
+    name = f"{item['schema_name']}.{item['name']}" if item.get("schema_name") else str(item["name"])
+    return f"{name} · колонок {item.get('columns', 0)}"
+
+
+def _fact_channel(item: dict[str, Any]) -> str:
+    name = f"{item['group_name']}/{item['name']}" if item.get("group_name") else str(item["name"])
+    return f"{name} · полей {item.get('fields', 0)}"
+
+
+def _fact_param(item: dict[str, Any]) -> str:
+    bits = [str(item["value_type"])] if item.get("value_type") else []
+    bits.append("обяз." if item.get("required") else "необяз.")
+    return f"{item['name']} ({', '.join(bits)})"
+
+
+# Три семьи табличных фактов одной таблицей: ключ списка в отчёте, как рисуется
+# строка, как называются записи и какие счётчики записи печатать. Инструменты у
+# семей общие (решение 1 плана эпика) — значит и сводка обязана быть одной формы,
+# иначе агент читает три разных отчёта об одном и том же действии.
+FACT_FAMILIES: dict[str, dict[str, Any]] = {
+    "tables": {
+        "items_key": "tables",
+        "row": _fact_table,
+        "title": "ТАБЛИЦЫ",
+        "forms": ("таблица", "таблицы", "таблиц"),
+        "written": (("tables_written", "таблиц"), ("columns_written", "колонок")),
+    },
+    "channels": {
+        "items_key": "channels",
+        "row": _fact_channel,
+        "title": "КАНАЛЫ",
+        "forms": ("канал", "канала", "каналов"),
+        "written": (("channels_written", "каналов"), ("fields_written", "полей")),
+    },
+    "config": {
+        "items_key": "params",
+        "row": _fact_param,
+        "title": "ПАРАМЕТРЫ",
+        "forms": ("параметр", "параметра", "параметров"),
+        "written": (("params_written", "параметров"),),
+    },
+}
+
+# Кап строк сводки семьи: у крупной БД сотни таблиц, и агенту нужны числа и
+# образцы, а не полный дамп его же собственного пакета.
+FACT_REPORT_CAP = 80
+
+
+def facts_report(data: dict[str, Any], family: str, *, applied: bool) -> str:
+    """Сводка дозаливки одной семьи фактов — общая форма для всех трёх.
+
+    Счётчики: сколько записей приехало и сколько из них новых (то же, что окно
+    показывает строкой «Таблиц: N (новых K)»), а после записи — числа СЕРВЕРА о
+    том, что он действительно записал.
+    """
+    spec = FACT_FAMILIES[family]
+    items = [i for i in (data.get(spec["items_key"]) or []) if isinstance(i, dict)]
+
+    n = len(items)
+    head = f"{spec['title']}: {n} {_plural(n, spec['forms'])}"
+    new = sum(1 for i in items if i.get("action") == "create")
+    if new:
+        head += f" (новых {new})"
+    out = [head]
+    if applied:
+        out.append(
+            "Записано: "
+            + ", ".join(f"{word} {data.get(key, 0)}" for key, word in spec["written"])
+        )
+
+    lines = []
+    for it in items:
+        action = str(it.get("action", "?"))
+        # Путь объекта в каждой строке, а не общей шапкой: один пакет описывает
+        # РАЗНЫЕ объекты (у монолита несколько БД), и без адреса строка безымянна.
+        lines.append(
+            f"  {ACTION_WORD.get(action, action)}: «{it.get('node_path', '?')}» · {spec['row'](it)}"
+        )
+    if lines:
+        out.append("")
+        out.extend(_capped(lines, FACT_REPORT_CAP, spec["forms"]))
+
+    out.extend(problems(data))
+    if not applied:
+        out.append("\nНичего не записано — для записи вызовите archmap_facts_apply.")
+    return "\n".join(out)
