@@ -4498,6 +4498,7 @@ export interface components {
              * @enum {string}
              */
             status: "existing" | "planned" | "deprecated";
+            source?: components["schemas"]["NodeSource"] | null;
             /** Pos X */
             pos_x?: number | null;
             /** Pos Y */

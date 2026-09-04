@@ -99,7 +99,13 @@ def create_node(
         if not parent:
             raise HTTPException(status_code=404, detail="Родительский узел не найден")
     # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
-    node = Node(**payload.model_dump(exclude={"pos_x", "pos_y"}), project_id=project.id)
+    # Якорь — не колонка: блок source приезжает разобранным по видам, а хранится
+    # каноническим ключом (та же функция и те же отказы 422, что у PATCH).
+    node = Node(
+        **payload.model_dump(exclude={"pos_x", "pos_y", "source"}),
+        source_ref=_source_ref_of(payload.source.model_dump() if payload.source else None),
+        project_id=project.id,
+    )
     db.add(node)
     db.flush()
     # Координаты дропа шаблона — строкой раскладки в вид РОДИТЕЛЯ (R3: единое

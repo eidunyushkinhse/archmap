@@ -19,8 +19,8 @@ from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.models.node import Node
-from app.routers.nodes import anchor_preview, get_node, update_node
-from app.schemas.node import NodeResponse, NodeSource, NodeUpdate
+from app.routers.nodes import anchor_preview, create_node, get_node, update_node
+from app.schemas.node import NodeCreate, NodeResponse, NodeSource, NodeUpdate
 
 
 def _node(db, name="payments", source_ref=None):
@@ -205,3 +205,45 @@ class TestDryRun:
         db.refresh(node)
         assert node.source_ref == "host:kafka"
         assert node.version == 1
+
+
+class TestСоздатьСЯкорем:
+    """POST /nodes — объект рождается сразу опознаваемым из кода.
+
+    Агенту (MCP) иначе понадобился бы второй вызов: создать узел, потом PATCH
+    якоря. Правила и отказы обязаны быть теми же, что у PATCH, — функция одна.
+    """
+
+    def _create(self, db, **kwargs):
+        return create_node(
+            NodeCreate(**kwargs),
+            db=db,
+            project=ensure_project(db),
+            user=ensure_architect(db),
+        )
+
+    def test_якорь_кода_нормализуется_как_в_patch(self, db):
+        out = self._create(
+            db,
+            name="orders",
+            source=NodeSource(repo="https://github.com/Org/Repo.git", path="./src/api/"),
+        )
+        assert out.source_ref == "git:github.com/org/repo#src/api"
+        assert NodeResponse.model_validate(out).source == NodeSource(
+            repo="github.com/org/repo", path="src/api"
+        )
+
+    def test_имя_зависимости(self, db):
+        out = self._create(db, name="Kafka", shape="broker", source=NodeSource(host="kafka:9092"))
+        assert out.source_ref == "host:kafka"
+
+    def test_адрес_среды_отказ_при_создании(self, db):
+        with pytest.raises(HTTPException) as e:
+            self._create(db, name="Postgres", source=NodeSource(host="localhost:5432"))
+        assert e.value.status_code == 422
+        assert "принадлежат среде" in e.value.detail
+
+    def test_без_source_узел_как_раньше(self, db):
+        out = self._create(db, name="ручной")
+        assert out.source_ref is None
+        assert NodeResponse.model_validate(out).source is None
