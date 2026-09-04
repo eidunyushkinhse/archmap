@@ -423,3 +423,111 @@ def config_params(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
     n = len(items)
     title = f"КОНФИГУРАЦИЯ ({n} {_plural(n, ('параметр', 'параметра', 'параметров'))}):"
     return title, _capped(lines, FACT_ROWS_CAP, ("параметр", "параметра", "параметров"))
+
+
+# Группы превью разведки: порядок и ЗАГОЛОВКИ — дословно из окна ReconAgentModal
+# (GROUPS), потому что агент и человек смотрят на один и тот же отчёт. Пояснение
+# у двух групп — там, где действие не читается из заголовка: «уже описаны» и
+# «не найдено в коде» обе выглядят как повод что-то сделать, а делать нечего.
+# Четвёртый элемент — короткая подпись для строки счётчиков: заголовок группы
+# («Есть в документации, но не найдено в коде») в перечислении не читается.
+RECON_GROUPS: tuple[tuple[str, str, str, str], ...] = (
+    ("create", "Создадим заглушки", "", "создадим заглушек"),
+    ("unchanged", "Заглушки уже есть", "", "заглушки уже есть"),
+    (
+        "described",
+        "Уже описаны — не тронем",
+        "повторный сбор перечня не затирает работу",
+        "уже описано",
+    ),
+    (
+        "vanished",
+        "Есть в документации, но не найдено в коде",
+        "ничего не удаляем — это показ расхождения",
+        "не найдено в коде",
+    ),
+)
+
+# Кап строк одной группы разведки. Перечень монолита — сотни точек входа (Zulip:
+# 201), и вываливать их целиком в контекст незачем: агенту нужны числа и образцы,
+# а полный список он и так держит в файле, который сам же и составил.
+RECON_GROUP_CAP = 80
+
+
+def recon_report(data: dict[str, Any], *, applied: bool) -> str:
+    """Отчёт разведки: счётчики по действиям, затем группы строк, затем проблемы.
+
+    Форма общая у превью и применения (её различает applied) — как у отчёта
+    дозаливки: разница только в хвосте «ничего не записано» и в том, что после
+    применения печатается число созданных заглушек.
+    """
+    items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
+    by_action: dict[str, list[dict[str, Any]]] = {}
+    for it in items:
+        by_action.setdefault(str(it.get("action")), []).append(it)
+
+    out: list[str] = []
+    node_path = str(data.get("node_path") or "")
+    if node_path:
+        out.append(f"Объект: {node_path}")
+    # После записи «создадим» — ложь: то же поле отчёта описывает уже сделанное.
+    # Переименовывается ровно одна группа, три остальных читаются в обоих временах.
+    def words(action: str, title: str, short: str) -> tuple[str, str]:
+        if applied and action == "create":
+            return "Заглушки созданы", "создано заглушек"
+        return title, short
+
+    counts = [
+        f"{words(action, title, short)[1]} {len(by_action.get(action, []))}"
+        for action, title, _note, short in RECON_GROUPS
+        # После записи созданное называет отдельная строка ЧИСЛОМ СЕРВЕРА — в
+        # счётчике оно было бы вторым, слегка другим ответом на тот же вопрос.
+        if by_action.get(action) and not (applied and action == "create")
+    ]
+    if applied:
+        out.append(f"Создано заглушек: {data.get('created', 0)}")
+    if counts:
+        out.append("Остальное: " if applied else "Итог: ")
+        out[-1] += ", ".join(counts)
+    elif not applied:
+        out.append("Итог: перечень пуст")
+
+    for action, title, note, _short in RECON_GROUPS:
+        rows = by_action.get(action) or []
+        if not rows:
+            continue
+        out.append("")
+        out.append(f"{words(action, title, _short)[0]} ({len(rows)}):")
+        if note:  # пояснение отдельной строкой: в заголовке два тире не читаются
+            out.append(f"  ({note})")
+        lines = []
+        for it in rows:
+            kind = str(it.get("kind", "?"))
+            # doc_name приходит, только когда имя существующей схемы отличается от
+            # строки перечня: «POST /messages» бывает описан схемой «Отправка
+            # сообщения», и агент обязан видеть, ЧТО именно закрыло операцию.
+            tail = f" → {it['doc_name']}" if it.get("doc_name") else ""
+            lines.append(f"  • {it.get('name', '?')} ({KIND_WORD.get(kind, kind)}){tail}")
+        out.extend(_capped(lines, RECON_GROUP_CAP, ("строка", "строки", "строк")))
+
+    out.extend(problems(data))
+    if not applied:
+        out.append("\nНичего не записано — для записи вызовите archmap_recon_apply.")
+    return "\n".join(out)
+
+
+def problems(data: dict[str, Any]) -> list[str]:
+    """Ошибки и предупреждения отчёта — общий хвост всех сводок записи.
+
+    Ошибки и предупреждения РАЗДЕЛЕНЫ: при errors бэкенд не пишет ничего вовсе, а
+    warnings записи не мешают — свалить их в одну кучу значит заставить агента
+    гадать, сорвалась заливка или нет.
+    """
+    out: list[str] = []
+    for key, title in (("errors", "Проблемы"), ("warnings", "Предупреждения")):
+        rows = data.get(key) or []
+        if rows:
+            out.append("")
+            out.append(f"{title} ({len(rows)}):")
+            out.extend("  • " + str(r) for r in rows)
+    return out

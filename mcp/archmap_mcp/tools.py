@@ -421,6 +421,51 @@ def _docs_report(data: dict[str, Any], *, applied: bool) -> str:
     return "\n".join(out) if out else json.dumps(data, ensure_ascii=False)[:2000]
 
 
+# ── Разведка точек входа ─────────────────────────────────────────────────────
+
+async def t_recon_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, _ = await resolve_project(client, args["project"])
+    # node_id обязателен и у ручки: перечень принадлежит объекту, разведка без
+    # адреса бессмысленна. Промпт СРЕЗА СХЕМЫ НЕ НЕСЁТ и ранее разведанного
+    # перечня тоже — разведка всегда идёт от кода, иначе второй заход унаследует
+    # пропуски первого (решение пользователя, §3 docs/plan-recon.md).
+    params: dict[str, Any] = {"node_id": args["node_id"]}
+    _variant(args, params)
+    data = await client.request("GET", "/recon/prompt", project_id=pid, params=params)
+    return str(data["prompt"])
+
+
+def _recon_body(args: dict[str, Any]) -> dict[str, Any]:
+    # Поля overwrite здесь НЕТ и не будет (Р13 плана разведки): применение только
+    # создаёт недостающие заглушки, описанное не трогается ни при какой политике.
+    body: dict[str, Any] = {"files": _docs(args)}
+    if args.get("node_id"):
+        body["node_id"] = args["node_id"]
+    return body
+
+
+async def t_recon_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    data = await client.request(
+        "POST", "/recon/preview", project_id=pid, json=_recon_body(args)
+    )
+    return (
+        f"Проект «{pname}» — план разведки точек входа\n\n"
+        + render.recon_report(data, applied=False)
+    )
+
+
+async def t_recon_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    data = await client.request(
+        "POST", "/recon/apply", project_id=pid, json=_recon_body(args)
+    )
+    return (
+        f"Проект «{pname}» — разведка применена\n\n"
+        + render.recon_report(data, applied=True)
+    )
+
+
 # ── Точечные правки ──────────────────────────────────────────────────────────
 
 async def t_create_node(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -689,6 +734,72 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "files"],
         },
         "handler": t_docs_apply,
+    },
+    {
+        "name": "archmap_recon_prompt",
+        "description": (
+            "ПРАВИЛА ФОРМАТА: как обойти репозиторий и составить ПЕРЕЧЕНЬ точек входа объекта — "
+            "операций его API и фоновых воркеров. Это НУЛЕВОЙ шаг документирования монолита: "
+            "перечень — оглавление, а не документация. Сценарий целиком: archmap_recon_prompt → "
+            "агент читает код и пишет перечень в формате промпта → archmap_recon_preview → "
+            "archmap_recon_apply (строки лягут ЗАГЛУШКАМИ — схемами логики с пустым телом) → "
+            "дальше каждую точку входа описывают адресно через archmap_docs_prompt с node_id и "
+            "archmap_docs_preview/apply. Без разведки задание «опиши логику сервиса» безадресно, "
+            "и модель сама решает, где остановиться (полевой факт: 13 схем на 201 точку входа). "
+            "variant — строительный промпт (по умолчанию), оркестраторный с двумя прогонами, "
+            "объединением и аудитом скептика (нужны субагенты) или один аудит."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "node_id": {
+                    "type": "string",
+                    "description": "Объект, чьи точки входа разведываем. Обязателен: перечень принадлежит объекту.",
+                },
+                "variant": VARIANT_ARG,
+            },
+            "required": ["project", "node_id"],
+        },
+        "handler": t_recon_prompt,
+    },
+    {
+        "name": "archmap_recon_preview",
+        "description": (
+            "План разведки БЕЗ записи: какие точки входа станут заглушками, какие заглушки уже "
+            "есть, какие УЖЕ ОПИСАНЫ (их не тронут ни при какой политике) и какие есть в "
+            "документации, но не найдены в коде. Он же дифф повторной разведки после релиза. "
+            "node_id — объект-адресат для строк перечня без строки «node:»."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "files": FILES_ARG,
+                "node_id": {"type": "string", "description": "Объект-адресат перечня."},
+            },
+            "required": ["project", "files"],
+        },
+        "handler": t_recon_preview,
+    },
+    {
+        "name": "archmap_recon_apply",
+        "description": (
+            "ПРИМЕНЯЕТ перечень: создаёт недостающие заглушки схем логики. Только создаёт — "
+            "описанные схемы не перезаписывает, не удаляет ничего, поэтому перечень можно "
+            "приносить повторно после релиза (даст дифф, а не дубли). Вызывать после "
+            "archmap_recon_preview; описывают заглушки потом через archmap_docs_prompt/apply."
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "files": FILES_ARG,
+                "node_id": {"type": "string"},
+            },
+            "required": ["project", "files"],
+        },
+        "handler": t_recon_apply,
     },
     {
         "name": "archmap_create_node",
