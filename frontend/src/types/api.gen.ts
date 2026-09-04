@@ -4630,6 +4630,7 @@ export interface components {
             has_children: boolean;
             /** Source Ref */
             source_ref?: string | null;
+            source?: components["schemas"]["NodeSource"] | null;
             /**
              * Version
              * @default 1
@@ -4685,6 +4686,27 @@ export interface components {
             /** Source Ref */
             source_ref?: string | null;
         };
+        /**
+         * NodeSource
+         * @description ЯКОРЬ узла — чем ArchMap опознаёт объект при обновлениях из кода
+         *     (docs/plan-anchor-ux.md). Видов ровно два, и они взаимоисключающи:
+         *
+         *     • КОД — repo (+ path внутри него) у объектов, чей код лежит в продукте;
+         *     • ИМЯ ЗАВИСИМОСТИ — host: как продукт САМ называет базу, брокер или соседний
+         *       продукт в своих манифестах и дефолтах. Не адрес среды.
+         *
+         *     В ОТВЕТЕ repo и host никогда не заполнены одновременно: хранится один
+         *     канонический ключ (nodes.source_ref), и словарь — его разбор. В ЗАПРОСЕ
+         *     (NodeUpdate) прислать оба — 422: вид якоря надо выбрать.
+         */
+        NodeSource: {
+            /** Repo */
+            repo?: string | null;
+            /** Path */
+            path?: string | null;
+            /** Host */
+            host?: string | null;
+        };
         /** NodeUpdate */
         NodeUpdate: {
             /** Name */
@@ -4705,6 +4727,7 @@ export interface components {
             shape?: ("service" | "database" | "broker" | "person") | null;
             /** Status */
             status?: ("existing" | "planned" | "deprecated") | null;
+            source?: components["schemas"]["NodeSource"] | null;
             /** Base Version */
             base_version?: number | null;
         };

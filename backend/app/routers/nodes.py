@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import reparent, restore, tree
+from app import identity, reparent, restore, tree
 from app.alerts import compute_alerts
 from app.auth import get_current_user, require_architect
 from app.context_graph import build_context_graph
@@ -373,6 +373,44 @@ def validate_shape_change(db: Session, node: Node, new_shape: str) -> str | None
     return None
 
 
+def _source_ref_of(raw: dict | None) -> str | None:
+    """Блок source из PATCH → канонический ключ якоря (или None — очистка).
+
+    Отказы 422 с текстами принятого пояснения (docs/plan-anchor-ux.md, раздел
+    «Как заполнять»): вид якоря один на объект, путь живёт только при
+    репозитории, а адреса сред якорем не бывают. Валидация здесь, а не
+    pydantic-валидатором схемы, ради общего формата ошибки {"detail": "…"} —
+    список ошибок pydantic человеку в форме не показать."""
+    if raw is None:
+        return None
+    src = identity.SourceRef(repo=raw.get("repo"), path=raw.get("path"), host=raw.get("host"))
+    if src.empty:
+        return None  # объект без значимых полей — та же очистка, что и null
+    if src.repo and src.host:
+        raise HTTPException(
+            status_code=422,
+            detail="Якорь одного вида: либо код (репозиторий и путь), либо имя зависимости",
+        )
+    if src.path and not src.repo:
+        raise HTTPException(status_code=422, detail="Путь задаётся вместе с репозиторием")
+    norm = identity.normalized(src)
+    if src.host and not norm.host:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
+                "а не продукту — укажите имя, под которым продукт называет зависимость, "
+                "как в docker-compose или в имени k8s Service"
+            ),
+        )
+    if src.repo and not norm.repo:
+        raise HTTPException(
+            status_code=422,
+            detail="Репозиторий в виде github.com/org/repo или адрес клона целиком",
+        )
+    return identity.canonical_key(src)
+
+
 @router.patch("/{node_id}", response_model=NodeResponse)
 def update_node(
     node_id: uuid.UUID,
@@ -389,6 +427,10 @@ def update_node(
     base_version = data.pop("base_version", None)
     if base_version is not None and base_version != node.version:
         raise HTTPException(status_code=409, detail="Узел изменён в другой сессии")
+    # Якорь — НЕ колонка: блок source приезжает разобранным по видам, а хранится
+    # каноническим ключом. Достаём до цикла setattr, иначе присвоился бы словарь.
+    if "source" in data:
+        data["source_ref"] = _source_ref_of(data.pop("source"))
     if data:
         old_parent = node.parent_id
         # Перенос на другой уровень — единственная правка со ЗАПРЕТАМИ (цикл оторвал бы
@@ -410,6 +452,10 @@ def update_node(
         # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
         # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост
         # схемы в той же сессии, V48/V53).
+        # Якорь — мета: он ничего не меняет на холсте, только то, как ArchMap
+        # узнаёт объект при обновлениях (см. NodeSource). Отдельной ветки ему не
+        # нужно — общее правило «курсор по фактическому изменению» уже накрывает
+        # source_ref, раз он лежит в data обычным полем узла.
         structural = {"parent_id", "name", "shape"}
         struct_changed = any(data[f] != getattr(node, f) for f in data.keys() & structural)
         meta_changed = any(data[f] != getattr(node, f) for f in data.keys() - structural)

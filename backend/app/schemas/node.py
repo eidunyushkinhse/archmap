@@ -16,6 +16,23 @@ NodeShape = Literal["service", "database", "broker", "person"]
 NodeStatus = Literal["existing", "planned", "deprecated"]
 
 
+class NodeSource(BaseModel):
+    """ЯКОРЬ узла — чем ArchMap опознаёт объект при обновлениях из кода
+    (docs/plan-anchor-ux.md). Видов ровно два, и они взаимоисключающи:
+
+    • КОД — repo (+ path внутри него) у объектов, чей код лежит в продукте;
+    • ИМЯ ЗАВИСИМОСТИ — host: как продукт САМ называет базу, брокер или соседний
+      продукт в своих манифестах и дефолтах. Не адрес среды.
+
+    В ОТВЕТЕ repo и host никогда не заполнены одновременно: хранится один
+    канонический ключ (nodes.source_ref), и словарь — его разбор. В ЗАПРОСЕ
+    (NodeUpdate) прислать оба — 422: вид якоря надо выбрать."""
+
+    repo: str | None = None
+    path: str | None = None
+    host: str | None = None
+
+
 class NodeCreate(BaseModel):
     name: str
     description: str | None = None
@@ -45,6 +62,12 @@ class NodeUpdate(BaseModel):
     is_external: bool | None = None
     shape: NodeShape | None = None
     status: NodeStatus | None = None
+    # ЯКОРЬ узла. Поле НЕ ПРИСЛАНО — якорь не трогаем (фронт шлёт полный payload
+    # свойств и не обязан знать про якорь); прислан null или объект без значимых
+    # полей — якорь очищается; объект с полями — нормализуется (app/identity) и
+    # кладётся в source_ref сильнейшим ключом. Разбор и отказы — в routers.nodes,
+    # чтобы 422 приходил в общем формате {"detail": "…"}, а не списком pydantic.
+    source: NodeSource | None = None
     # CAS (этап 0 конкурентности): версия узла, от которой клиент правил. Не
     # совпала с текущей → 409 (узел изменён другой сессией — критично для текста
     # openapi_spec). None — без проверки (компенсации undo, совместимость).
@@ -70,9 +93,12 @@ class NodeResponse(BaseModel):
     # их наличия. child_count — для ранжирования узлов в дереве UI («главное» сверху).
     child_count: int = 0
     has_children: bool = False
-    # Канонический ключ источника (импорт/синк из репозитория). Только на чтение:
-    # ставится прогоном агента, в NodeUpdate его нет.
+    # Якорь узла: канонический ключ хранения (source_ref) и он же разобранный
+    # по видам (source). Ставится прогоном агента ИЛИ рукой архитектора —
+    # PATCH принимает source (см. NodeUpdate). Разобранный вид — для карточки
+    # объекта, ключ — для синка и внутренних сверок.
     source_ref: str | None = None
+    source: NodeSource | None = None
     # Версия для optimistic CAS: клиент шлёт её обратно как base_version в PATCH.
     version: int = 1
     created_at: datetime
