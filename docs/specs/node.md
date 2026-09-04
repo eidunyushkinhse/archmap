@@ -281,3 +281,17 @@ content, version}` (уникальность имени в пределах уз
   (код > имя зависимости > имя). [тесты: test_import_merge.py (основание…),
   test_sync_plan.py (TestMatchBasis), test_unified_into.py, test_import.py,
   syncPlanView.test.ts, ImportPane.test.tsx, importIntoModal.test.tsx]
+- **N36.** MCP ПЕЧАТАЕТ И ПРИНИМАЕТ ЯКОРЬ ТЕМИ ЖЕ СЛОВАМИ, ЧТО ИНТЕРФЕЙС (Ф4
+  эпика, 2026-09-04). Карточка объекта у агента (`archmap_node`) несёт строку
+  «Якорь: код github.com/org/repo, путь src/api» / «Якорь: имя зависимости
+  postgres» / «Якорь: нет — опознаётся по имени»; `archmap_create_node` и
+  `archmap_update_node` принимают блок `source` теми же правилами и с теми же
+  отказами 422, что PATCH (пустой объект — очистка), а отчёты импорта, догрузки
+  и синка называют основание словарём N35. Словарь у MCP СВОЙ (`mcp/render.py`),
+  но текстуально совпадает с фронтовым `components/anchor/anchorText.ts`:
+  человек и его агент обязаны называть якорь одинаково, иначе разговор о схеме
+  расходится с тем, что видно на экране. Создание объекта сразу с якорем —
+  `NodeCreate.source` (тот же `_source_ref_of`, что у PATCH), иначе агенту
+  понадобился бы второй вызов. [тесты: test_node_anchor.py
+  (TestСоздатьСЯкорем), mcp/tests/test_node_card.py, mcp/tests/test_tools.py,
+  mcp/tests/test_unified_import.py, mcp/tests/test_import_into.py]
