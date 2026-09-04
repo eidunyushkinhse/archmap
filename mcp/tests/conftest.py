@@ -83,7 +83,7 @@ class FakeApi:
 @pytest.fixture
 def api() -> FakeApi:
     fake = FakeApi()
-    fake.get("/projects/", [{"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}])
+    fake.get("/projects", [{"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}])
     return fake
 
 

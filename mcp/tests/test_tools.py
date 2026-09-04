@@ -35,7 +35,7 @@ async def test_неоднозначное_имя_не_выбирается_мо�
     # Молчаливый выбор «первого похожего» — самый дорогой вид ошибки: агент
     # напишет правки не в тот проект и узнает об этом от человека.
     api.get(
-        "/projects/",
+        "/projects",
         [
             {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 1},
             {"id": OTHER_ID, "name": "Ярмарка — мультисхемы", "object_count": 1},
@@ -51,7 +51,7 @@ async def test_неоднозначное_имя_не_выбирается_мо�
 
 async def test_точное_имя_бьёт_подстроку(client: ArchMapClient, api: FakeApi) -> None:
     api.get(
-        "/projects/",
+        "/projects",
         [
             {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 1},
             {"id": OTHER_ID, "name": "Ярмарка — мультисхемы", "object_count": 1},
@@ -260,7 +260,7 @@ async def test_превью_импорта_не_создаёт_проект(clie
     assert "объектов 12" in out
     assert "актор внутри системы" in out
     assert "НЕ создан" in out
-    assert all(c.url.path != "/api/v1/projects/" or c.method != "POST" for c in api.calls)
+    assert all(c.url.path != "/api/v1/projects" or c.method != "POST" for c in api.calls)
 
 
 async def test_превью_импорта_шлёт_contents_текстами(
@@ -336,7 +336,7 @@ async def test_создание_проекта_шлёт_yaml_текстами(
     # Третий носитель той же ошибки формы: ProjectCreate.import_yamls — список
     # текстов. Без этого теста чинилось бы только превью, а запись всё равно
     # ловила бы 422 на живом сервере.
-    api.post("/projects/", {"id": PROJECT_ID, "name": "Zabbix", "object_count": 12})
+    api.post("/projects", {"id": PROJECT_ID, "name": "Zabbix", "object_count": 12})
 
     out = await tools.call(
         "archmap_import_apply",

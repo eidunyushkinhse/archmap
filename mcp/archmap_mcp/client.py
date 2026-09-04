@@ -83,11 +83,13 @@ class ArchMapClient:
 
     def __init__(self, config: Config | None = None, http: httpx.AsyncClient | None = None) -> None:
         self.config = config or Config()
-        # follow_redirects обязателен: коллекции объявлены на бэке БЕЗ хвостового
-        # слэша («/projects»), а зовём мы их со слэшем — FastAPI отвечает 307 с
-        # пустым телом. Без следования редиректу клиент возвращал None, и живой
-        # сервер выглядел как «проектов нет» при полной базе (найдено полевой
+        # follow_redirects — страховка от промаха в хвостовом слэше: коллекции на
+        # бэке объявлены НЕОДНОРОДНО («/projects» и «/processes» без слэша,
+        # «/nodes/» и «/edges/» со слэшем), и на «не тот» вариант FastAPI отвечает
+        # 307 с пустым телом. Без следования редиректу клиент возвращал None, и
+        # живой сервер выглядел как «проектов нет» при полной базе (найдено полевой
         # проверкой Ф1). 307 сохраняет метод и тело, поэтому чинятся и POST-ы.
+        # Сами инструменты зовут канонические пути — редирект им не нужен.
         self._http = http or httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True)
         self._token: str | None = None
 

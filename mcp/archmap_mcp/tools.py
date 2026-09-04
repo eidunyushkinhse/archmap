@@ -48,7 +48,7 @@ async def resolve_project(client: ArchMapClient, ref: str) -> tuple[str, str]:
     """Ссылку на проект → (uuid, имя). Имя резолвится точным совпадением, затем
     подстрокой; неоднозначность — ошибка со списком вариантов, а не молчаливый
     выбор первого попавшегося."""
-    projects = await client.request("GET", "/projects/")
+    projects = await client.request("GET", "/projects")
     by_id = {str(p["id"]): p for p in projects}
     if _is_uuid(ref):
         found = by_id.get(ref)
@@ -71,7 +71,7 @@ async def resolve_project(client: ArchMapClient, ref: str) -> tuple[str, str]:
 # ── Чтение ───────────────────────────────────────────────────────────────────
 
 async def t_projects(client: ArchMapClient, args: dict[str, Any]) -> str:
-    projects = await client.request("GET", "/projects/")
+    projects = await client.request("GET", "/projects")
     if not projects:
         return "Проектов нет."
     lines = []
@@ -204,7 +204,7 @@ async def t_alerts(client: ArchMapClient, args: dict[str, Any]) -> str:
 async def t_processes(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     if not args.get("process_id"):
-        items = await client.request("GET", "/processes/", project_id=pid)
+        items = await client.request("GET", "/processes", project_id=pid)
         if not items:
             return f"В проекте «{pname}» бизнес-процессов нет."
         lines = [
@@ -313,7 +313,7 @@ async def t_import_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
         # ⚠️ То же, что у превью: ProjectCreate.import_yamls — список ТЕКСТОВ.
         "import_yamls": [f["content"] for f in args["files"]],
     }
-    data = await client.request("POST", "/projects/", json=body)
+    data = await client.request("POST", "/projects", json=body)
     return (
         f"Проект «{data['name']}» создан: {data.get('object_count', '?')} объектов. "
         f"id={data['id']}"

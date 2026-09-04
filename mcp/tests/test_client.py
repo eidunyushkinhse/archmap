@@ -97,7 +97,7 @@ async def test_сервис_не_поднят_говорит_куда_смотр
 
     broken = ArchMapClient(config, http=httpx.AsyncClient(transport=httpx.MockTransport(refuse)))
     with pytest.raises(ArchMapError) as exc:
-        await broken.request("GET", "/projects/")
+        await broken.request("GET", "/projects")
 
     assert "ARCHMAP_URL" in str(exc.value)
 
@@ -107,7 +107,12 @@ async def test_редирект_коллекции_со_слэшем_следу�
 ) -> None:
     """FastAPI отвечает на «/projects/» 307-редиректом на «/projects» с пустым
     телом. Клиент обязан за ним пойти: иначе тело — None, и живой ArchMap
-    выглядит как «проектов нет» при полной базе (полевая находка Ф1)."""
+    выглядит как «проектов нет» при полной базе (полевая находка Ф1).
+
+    Пути инструментов приведены к канону бэка, поэтому редиректа они больше не
+    вызывают — страховка остаётся: коллекции объявлены неоднородно («/projects»
+    без слэша, «/nodes/» со слэшем), и промах в новом инструменте не должен
+    выглядеть как пустой ответ."""
     api.routes[("GET", "/projects/")] = httpx.Response(
         307, headers={"location": "/api/v1/projects"}
     )
