@@ -51,6 +51,26 @@ describe("InfoPopover", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("прокрутка ВНУТРИ панели её не закрывает, прокрутка снаружи — закрывает", () => {
+    // Пояснение бывает длиннее окна. Слушатель прокрутки стоит в capture-фазе и
+    // без разбора цели ловил бы колесо над самой панелью — тогда хвост текста
+    // прочитать нельзя вовсе (находка приёмки Ф1).
+    отрисовать();
+    открыть();
+
+    fireEvent.scroll(screen.getByRole("dialog"));
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+
+    fireEvent.scroll(document);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("высота панели ограничена окном, а не своей константой", () => {
+    отрисовать();
+    открыть();
+    expect(screen.getByRole("dialog").style.maxHeight).toBe(`${window.innerHeight - 12}px`);
+  });
+
   it("панель не забирает фокус себе", () => {
     // Пояснение — не модальный шаг: человек читает его, не теряя места в форме.
     отрисовать();

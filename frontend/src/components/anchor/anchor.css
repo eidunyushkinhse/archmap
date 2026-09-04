@@ -39,6 +39,16 @@
   font-style: italic;
 }
 
+/* Действия чтения: «Изменить · Очистить» — с воздухом и точкой-разделителем. */
+.anchor-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.anchor-sep {
+  color: #cbd5e1;
+}
+
 .anchor-link {
   border: none;
   background: none;

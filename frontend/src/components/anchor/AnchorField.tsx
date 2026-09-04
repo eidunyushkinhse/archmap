@@ -134,21 +134,25 @@ export default function AnchorField({ source, isArchitect, onSave }: Props) {
           )}
           {help}
           {isArchitect && (
-            <>
+            <span className="anchor-acts">
               <button type="button" className="anchor-link" onClick={открыть} disabled={saving}>
                 Изменить
               </button>
               {source && (
-                <button
-                  type="button"
-                  className="anchor-link"
-                  onClick={() => { void commit(null); }}
-                  disabled={saving}
-                >
-                  Очистить
-                </button>
+                <>
+                  {/* Разделитель: без него два действия читались одним словом. */}
+                  <span className="anchor-sep" aria-hidden>·</span>
+                  <button
+                    type="button"
+                    className="anchor-link"
+                    onClick={() => { void commit(null); }}
+                    disabled={saving}
+                  >
+                    Очистить
+                  </button>
+                </>
               )}
-            </>
+            </span>
           )}
         </span>
         {saveError && <span className="anchor-err">{saveError}</span>}
