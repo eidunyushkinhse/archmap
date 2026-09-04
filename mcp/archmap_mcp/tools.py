@@ -173,6 +173,10 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         f"Проект «{pname}»",
         f"Путь: {render.path_of(str(node['id']), by_id)}",
         f"Объект: {render.node_line(node)}",
+        # Якорь — чем ArchMap опознает объект при следующем обновлении из кода.
+        # Печатаем ВСЕГДА, в том числе «нет»: у объекта без якоря переименование
+        # рождает дубль, и агент вправе знать это до правки, а не после.
+        render.anchor_line(node),
     ]
     if node.get("description"):
         out.append(f"Описание: {node['description']}")
@@ -704,8 +708,16 @@ async def t_create_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         "is_external": bool(args.get("is_external", False)),
         "status": args.get("status", "existing"),
     }
+    # Якорь при создании (NodeCreate.source): объект рождается опознаваемым из
+    # кода, без второго вызова. Пустого объекта здесь не бывает — «создать без
+    # якоря» это просто не передать source.
+    if args.get("source"):
+        body["source"] = args["source"]
     data = await client.request("POST", "/nodes/", project_id=pid, json=body)
-    return f"В проекте «{pname}» создан объект «{data['name']}». id={data['id']}"
+    return (
+        f"В проекте «{pname}» создан объект «{data['name']}». id={data['id']}\n"
+        + render.anchor_line(data)
+    )
 
 
 async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -715,10 +727,16 @@ async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         for k in ("name", "description", "role", "technology", "shape", "status", "is_external")
         if args.get(k) is not None
     }
+    # ⚠️ Якорь — ОТДЕЛЬНОЙ веткой, мимо фильтра «не None»: пустой объект {} у
+    # source не пустая правка, а ОЧИСТКА якоря, и отбросить его значило бы молча
+    # проигнорировать просьбу. Отсутствие ключа source якорь не трогает.
+    if "source" in args and args["source"] is not None:
+        body["source"] = args["source"]
     if not body:
         raise ArchMapError("Нечего менять: не передано ни одного поля.")
     data = await client.request("PATCH", f"/nodes/{args['node_id']}", project_id=pid, json=body)
-    return f"В проекте «{pname}» обновлён «{data['name']}»: {', '.join(body)}."
+    tail = "\n" + render.anchor_line(data) if "source" in body else ""
+    return f"В проекте «{pname}» обновлён «{data['name']}»: {', '.join(body)}." + tail
 
 
 async def t_create_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -775,6 +793,30 @@ OVERWRITE_ARG = {
     "description": "Перезаписывать уже заполненные поля. По умолчанию false — описанное раньше побеждает.",
 }
 
+# ЯКОРЬ объекта (docs/plan-anchor-ux.md). Описание — выжимка принятого текста
+# пояснения: агент задаёт якорь по тем же правилам, что человек в карточке
+# объекта, и должен знать про очистку пустым объектом (иначе снять якорь нечем).
+SOURCE_ARG = {
+    "type": "object",
+    "description": (
+        "Якорь объекта — чем ArchMap опознаёт его при обновлениях из кода "
+        "(переименованный сервис остаётся тем же объектом, а не дублем). Видов два, "
+        "и они взаимоисключающи: КОД — repo «github.com/org/repo» (можно вставить "
+        "адрес клона целиком) и необязательный path до каталога компонента внутри "
+        "репозитория («src/api»); ИМЯ ЗАВИСИМОСТИ — host: одно имя без порта и схемы, "
+        "как в docker-compose или в имени k8s Service («postgres», «kafka», «payments»), "
+        "для базы, брокера или соседнего продукта, чьего кода в продукте нет. "
+        "Адреса сред (localhost, 127.0.0.1, конкретные серверы) якорем не бывают — "
+        "будет отказ. Пустой объект {} — снять якорь (объект вернётся к опознаванию "
+        "по имени внутри контейнера)."
+    ),
+    "properties": {
+        "repo": {"type": "string"},
+        "path": {"type": "string"},
+        "host": {"type": "string"},
+    },
+}
+
 FILES_ARG = {
     "type": "array",
     "description": "Файлы прогона агента: [{name, content}].",
@@ -822,7 +864,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_node",
-        "description": "Карточка объекта: путь, мета, входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие схемы в бизнес-процессах), процессы, в которых участвует сам объект, наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
+        "description": "Карточка объекта: путь, мета, якорь (чем объект опознаётся при обновлениях из кода — «код github.com/org/repo, путь src/api», «имя зависимости postgres» либо «нет — опознаётся по имени»), входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие схемы в бизнес-процессах), процессы, в которых участвует сам объект, наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
         "schema": {
             "type": "object",
             "properties": {
@@ -1209,7 +1251,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_create_node",
-        "description": "Создать один объект. parent_id — внутри какого объекта (без него — корневой уровень). shape: service | database | broker | person; person ВСЕГДА корневой (человек живёт за границей системы). status: existing | planned | deprecated.",
+        "description": "Создать один объект. parent_id — внутри какого объекта (без него — корневой уровень). shape: service | database | broker | person; person ВСЕГДА корневой (человек живёт за границей системы). status: existing | planned | deprecated. source — якорь объекта (два вида, см. аргумент): объект сразу становится опознаваемым при обновлениях из кода, без второго вызова.",
         "schema": {
             "type": "object",
             "properties": {
@@ -1222,6 +1264,7 @@ TOOLS: list[dict[str, Any]] = [
                 "shape": {"type": "string", "enum": ["service", "database", "broker", "person"]},
                 "is_external": {"type": "boolean"},
                 "status": {"type": "string", "enum": ["existing", "planned", "deprecated"]},
+                "source": SOURCE_ARG,
             },
             "required": ["project", "name"],
         },
@@ -1229,7 +1272,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_update_node",
-        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность. Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
+        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность и ЯКОРЬ (source — два вида: код репозитория с путём либо имя зависимости; пустой объект {} снимает якорь). Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
         "schema": {
             "type": "object",
             "properties": {
@@ -1242,6 +1285,7 @@ TOOLS: list[dict[str, Any]] = [
                 "shape": {"type": "string", "enum": ["service", "database", "broker", "person"]},
                 "status": {"type": "string", "enum": ["existing", "planned", "deprecated"]},
                 "is_external": {"type": "boolean"},
+                "source": SOURCE_ARG,
             },
             "required": ["project", "node_id"],
         },

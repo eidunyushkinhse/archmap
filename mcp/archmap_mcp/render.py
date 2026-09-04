@@ -43,6 +43,70 @@ def node_line(node: dict[str, Any], *, with_id: bool = True) -> str:
     return f"{node.get('name', '?')}{tail}{ident}"
 
 
+# ── Якорь объекта (docs/plan-anchor-ux.md) ───────────────────────────────────
+#
+# Якорь — чем ArchMap опознаёт объект при обновлениях из кода (мердж нескольких
+# файлов, догрузка архивов, синк). Видов ровно два: КОД (репозиторий и путь в
+# нём) и ИМЯ ЗАВИСИМОСТИ (как продукт сам называет базу, брокер или соседний
+# продукт). Слова здесь — ДОСЛОВНАЯ копия словаря интерфейса
+# (frontend/src/components/anchor/anchorText.ts): агент и человек обязаны
+# называть одно и то же одинаково, иначе разговор о схеме расходится с тем, что
+# пользователь видит на экране (инвариант N36 docs/specs/node.md).
+
+KIND_LABEL = {"code": "код", "dependency": "имя зависимости"}
+BASIS_LABEL = {"code": "по коду", "dependency": "по имени зависимости", "name": "по имени"}
+NO_ANCHOR = "нет — опознаётся по имени"
+
+
+def anchor_kind(source: dict[str, Any] | None) -> str | None:
+    """Вид якоря словом-ключом: code | dependency | None (якоря нет)."""
+    if not source:
+        return None
+    if source.get("repo"):
+        return "code"
+    return "dependency" if source.get("host") else None
+
+
+def anchor_readable(source: dict[str, Any]) -> str:
+    """Якорь в человеческий вид: «github.com/org/repo, путь src/api» / «payments»."""
+    if source.get("repo"):
+        path = source.get("path")
+        return f"{source['repo']}, путь {path}" if path else str(source["repo"])
+    return str(source.get("host") or "")
+
+
+def anchor_value(source: dict[str, Any] | None) -> str:
+    """Значение поля «Якорь»: вид и сам якорь либо объяснение последствия."""
+    kind = anchor_kind(source)
+    if not source or not kind:
+        return NO_ANCHOR
+    return f"{KIND_LABEL[kind]} {anchor_readable(source)}"
+
+
+def anchor_line(node: dict[str, Any]) -> str:
+    """Строка карточки объекта. Читаем разобранный source, а не source_ref:
+    ключ хранения — внутренность, агенту незачем разбирать его самому."""
+    return f"Якорь: {anchor_value(node.get('source'))}"
+
+
+def anchor_note(source: dict[str, Any] | None) -> str:
+    """Якорь НОВОГО объекта строкой: с ним — какой именно, без него — последствие."""
+    kind = anchor_kind(source)
+    if source and kind:
+        return f"якорь: {KIND_LABEL[kind]} {anchor_readable(source)}"
+    return "якоря нет — будет опознаваться по имени"
+
+
+def basis_label(basis: str, path: str | None = None) -> str:
+    """Чем два объекта признаны одним. Для «по имени» дописываем ГДЕ: имя решает
+    только внутри своего контейнера, и без этого фраза обещает больше, чем сделал
+    матчер."""
+    if basis != "name":
+        return BASIS_LABEL.get(basis, basis)
+    parent = " / ".join((path or "").split(" / ")[:-1])
+    return f"по имени внутри «{parent}»" if parent else "по имени на верхнем уровне"
+
+
 def tree(nodes: list[dict[str, Any]], *, with_ids: bool = True) -> str:
     """Дерево объектов отступами. Порядок — по имени внутри уровня: агенту важна
     предсказуемость вывода, а не порядок вставки."""

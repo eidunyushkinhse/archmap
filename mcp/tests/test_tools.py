@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import get_args
 
+import httpx
 import pytest
 from conftest import PROJECT_ID, FakeApi, backend, node
 
@@ -307,3 +308,119 @@ async def test_каждый_инструмент_описан_и_вызывае�
         assert len(t["description"]) > 40, t["name"]
         assert t["schema"]["type"] == "object"
         assert callable(t["handler"])
+
+
+# ── Якорь в правках объекта ──────────────────────────────────────────────────
+
+def check_node_contract(schema: str, body: dict[str, object]) -> None:
+    """Тело правки объекта глазами бэкенда (NodeCreate / NodeUpdate)."""
+    getattr(backend("schemas.node"), schema).model_validate(body)
+
+
+async def test_создание_объекта_шлёт_якорь(client: ArchMapClient, api: FakeApi) -> None:
+    # Объект рождается опознаваемым из кода: без source в POST агенту пришлось бы
+    # делать второй вызов, а до него объект жил бы «безымянным» для синка.
+    api.post("/nodes/", node("n7", "Оркестратор", source={"repo": "github.com/org/repo",
+                                                         "path": "src/api", "host": None}))
+
+    out = await tools.call(
+        "archmap_create_node",
+        {"project": "Ярмарка", "name": "Оркестратор",
+         "source": {"repo": "https://github.com/Org/Repo.git", "path": "./src/api/"}},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body["source"] == {"repo": "https://github.com/Org/Repo.git", "path": "./src/api/"}
+    check_node_contract("NodeCreate", body)
+    # Карточкой ответа агент видит, во что сервер привёл вставленный адрес клона.
+    assert "Якорь: код github.com/org/repo, путь src/api" in out
+
+
+async def test_создание_без_якоря_поля_source_не_шлёт(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.post("/nodes/", node("n8", "Ручной"))
+
+    out = await tools.call(
+        "archmap_create_node", {"project": "Ярмарка", "name": "Ручной"}, client
+    )
+
+    assert "source" not in json.loads(api.calls[-1].content)
+    assert "Якорь: нет — опознаётся по имени" in out
+
+
+async def test_правка_объекта_шлёт_якорь(client: ArchMapClient, api: FakeApi) -> None:
+    api.patch("/nodes/n2", node("n2", "Kafka", shape="broker",
+                                source={"repo": None, "path": None, "host": "kafka"}))
+
+    out = await tools.call(
+        "archmap_update_node",
+        {"project": "Ярмарка", "node_id": "n2", "source": {"host": "kafka:9092"}},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body == {"source": {"host": "kafka:9092"}}
+    check_node_contract("NodeUpdate", body)
+    assert "Якорь: имя зависимости kafka" in out
+
+
+async def test_пустой_объект_source_доезжает_как_очистка(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """⚠️ Фильтр «не None» отбросил бы {} вместе с незаполненными полями, и
+    просьба снять якорь провалилась бы МОЛЧА — с бодрым «обновлён» в ответе."""
+    api.patch("/nodes/n2", node("n2", "Ручной", source=None))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "source": {}}, client
+    )
+
+    assert json.loads(api.calls[-1].content) == {"source": {}}
+    assert "Якорь: нет — опознаётся по имени" in out
+
+
+async def test_якорь_без_прочих_полей_это_уже_правка(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # «Нечего менять» должно оставаться правдой: source — полноценная правка.
+    api.patch("/nodes/n2", node("n2", "Узел", source={"repo": "github.com/org/x",
+                                                     "path": None, "host": None}))
+
+    await tools.call(
+        "archmap_update_node",
+        {"project": "Ярмарка", "node_id": "n2", "source": {"repo": "github.com/org/x"}},
+        client,
+    )
+
+    assert json.loads(api.calls[-1].content)["source"]["repo"] == "github.com/org/x"
+
+
+async def test_отказ_бэкенда_доезжает_текстом(client: ArchMapClient, api: FakeApi) -> None:
+    """422 про адрес среды — это ОБЪЯСНЕНИЕ, чем плох якорь, а не код ошибки:
+    агент должен прочитать его и исправиться, а не гадать."""
+    detail = (
+        "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
+        "а не продукту — укажите имя, под которым продукт называет зависимость, "
+        "как в docker-compose или в имени k8s Service"
+    )
+    api.patch("/nodes/n2", httpx.Response(422, json={"detail": detail}))
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_update_node",
+            {"project": "Ярмарка", "node_id": "n2", "source": {"host": "localhost"}},
+            client,
+        )
+
+    assert "принадлежат среде" in str(exc.value)
+
+
+async def test_каталог_объявляет_якорь_обоим_инструментам() -> None:
+    by_name = {t["name"]: t for t in tools.TOOLS}
+    for name in ("archmap_create_node", "archmap_update_node"):
+        props = by_name[name]["schema"]["properties"]
+        assert set(props["source"]["properties"]) == {"repo", "path", "host"}
+        assert "снять якорь" in props["source"]["description"]
+    assert "якорь" in by_name["archmap_node"]["description"].lower()
