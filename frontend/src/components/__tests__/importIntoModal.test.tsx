@@ -66,6 +66,12 @@ const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({
   errors: [],
   nodes_new: 3,
   nodes_new_paths: ["Ярмарка / billing", "Ярмарка / billing / api"],
+  new_nodes: [
+    { path: "Ярмарка / billing", source: { repo: "github.com/org/billing" } },
+    { path: "Ярмарка / billing / api", source: null },
+  ],
+  nodes_matched: 0,
+  matched_nodes: [],
   edges_new: 2,
   families: { docs: 4, specs: 1, tables: 0, channels: 0, params: 0, processes: 1 },
   family_conflicts: [СПОР],

@@ -37,7 +37,7 @@ from app.archive_export import build_archive_ordered
 from app.channels_import import ChannelIn, apply_channels_plan, build_channels_plan
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
-from app.identity import known_key
+from app.identity import known_key, source_ref_dict
 from app.import_yaml import _ImpNode
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -51,12 +51,15 @@ from app.processes import node_path
 from app.schemas.channels_import import ChannelsImportReport
 from app.schemas.config_import import ConfigImportReport
 from app.schemas.data_import import DataImportReport
+from app.schemas.node import NodeSource
 from app.schemas.process_import import ProcessImportResult
+from app.schemas.project import MergedNodeOut
 from app.schemas.unified_import import (
     FamilyCandidateOut,
     FamilyConflictOut,
     IntoApplyOut,
     IntoPreviewOut,
+    NewNodeOut,
     UnifiedFamilyCountsOut,
 )
 
@@ -333,16 +336,50 @@ def _process_notes(plan: UnifiedPlan, kept: list[int]) -> list[str]:
     return out
 
 
+def _anchor_of(plan: UnifiedPlan, m: int) -> NodeSource | None:
+    """Якорь merged-узла в виде контракта — «будет ли он у нового объекта».
+
+    Ключ снятого вида (архив прежней модели якоря) якорем не притворяется:
+    source_ref_dict вернёт пусто, и превью честно скажет «без якоря» — ровно то,
+    что запишет применение (гвард known_key на точках записи)."""
+    if plan.merged is None:
+        return None
+    keys = plan.merged.nodes[m].source_keys
+    d = source_ref_dict(keys[0]) if keys else {}
+    return NodeSource(**d) if d else None
+
+
 def into_preview(into: IntoPlan) -> IntoPreviewOut:
     """План догрузки → ответ превью (то же самое человеку и фронту)."""
     plan = into.plan
     paths = [plan.node_paths[m] for m in into.new_nodes] if plan else []
     conflicts = plan.conflicts if (plan and into.ok) else []
+    # Живые узлы, К КОТОРЫМ ЧТО-ТО ЕДЕТ: у них вклад не только свой (вход №0), но и
+    # хотя бы одного архива. Узел, который нашёл сам себя и больше ничей, — это не
+    # находка догрузки, а вся остальная схема: перечислять её значит топить дифф.
+    matched = (
+        [m for m in sorted(into.live_of) if len(plan.report.node_contribs[m]) > 1]
+        if plan and into.ok
+        else []
+    )
     return IntoPreviewOut(
         ok=into.ok,
         errors=into.errors,
         nodes_new=len(into.new_nodes),
         nodes_new_paths=paths[:MAX_PREVIEW_PATHS],
+        new_nodes=[
+            NewNodeOut(path=plan.node_paths[m], source=_anchor_of(plan, m))
+            for m in into.new_nodes[:MAX_PREVIEW_PATHS]
+        ] if plan else [],
+        nodes_matched=len(matched),
+        # Основание берём из отчёта мерджа — того же, каким сделана склейка.
+        matched_nodes=[
+            MergedNodeOut(
+                path=plan.node_paths[m],
+                basis=plan.report.node_basis[m] or "name",  # type: ignore[arg-type]
+            )
+            for m in matched[:MAX_PREVIEW_PATHS]
+        ] if plan else [],
         edges_new=len(into.new_edges),
         families=UnifiedFamilyCountsOut(
             docs=into.counts.docs,

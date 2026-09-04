@@ -340,6 +340,28 @@ class FileRemarks:
     warnings: list[str] = field(default_factory=list)
 
 
+# Сколько склеек перечисляем в превью поимённо (полное число рядом, merged_count).
+MAX_PREVIEW_MERGED = 8
+
+
+def merged_with_basis(report: MergeReport, limit: int = MAX_PREVIEW_MERGED) -> list[tuple[str, str]]:
+    """Склейки для превью: (путь, основание) — первые limit пар.
+
+    Два параллельных списка отчёта сводятся здесь, а не в каждом сборщике превью:
+    сборщиков у ImportPreviewOut два (обычный импорт и единая панель), и разъехаться
+    им нельзя."""
+    return list(zip(report.merged_paths, report.merged_basis, strict=True))[:limit]
+
+
+def count_without_anchor(merged: ParsedImport) -> int:
+    """Сколько узлов слитого дерева придут БЕЗ якоря (Ф2 docs/plan-anchor-ux.md).
+
+    Такой узел следующий прогон агента опознает только по имени внутри своего
+    контейнера: переименуют — появится дубль. Названо счётчиком, а не списком:
+    при создании проекта новые все узлы, и перечень был бы шумом."""
+    return sum(1 for n in merged.nodes if not n.source_keys)
+
+
 def split_remarks(report: MergeReport) -> tuple[list[FileRemarks], list[str], list[str]]:
     """Разложить замечания превью по ПРИРОДЕ: (пофайловые, ошибки слитой схемы,
     предупреждения слитой схемы). Записей пофайловых замечаний ровно столько,

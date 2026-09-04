@@ -31,6 +31,7 @@ vi.mock("../../ui/Modal", () => ({
 const c4 = (over: Partial<ImportPreviewOut> = {}): ImportPreviewOut => ({
   ok: true, errors: [], node_count: 4, edge_count: 1, roots: ["Ярмарка"],
   node_names: ["Ярмарка", "orders"], files: 1, merged_count: 0, merged: [],
+  merged_nodes: [], nodes_without_anchor: 0,
   conflicts: [], warnings: [], dropped_edges: 0,
   file_remarks: [{ file: 1, errors: [], warnings: [] }],
   schema_errors: [], schema_warnings: [], ...over,

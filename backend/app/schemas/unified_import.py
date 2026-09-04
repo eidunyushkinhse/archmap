@@ -20,8 +20,9 @@ from pydantic import BaseModel
 from app.schemas.channels_import import ChannelsImportReport
 from app.schemas.config_import import ConfigImportReport
 from app.schemas.data_import import DataImportReport
+from app.schemas.node import NodeSource
 from app.schemas.process_import import ProcessImportResult
-from app.schemas.project import ImportPreviewOut
+from app.schemas.project import ImportPreviewOut, MergedNodeOut
 
 
 class FamilyCandidateOut(BaseModel):
@@ -88,6 +89,17 @@ class UnifiedPreviewOut(BaseModel):
     manifest_description: str | None = None
 
 
+class NewNodeOut(BaseModel):
+    """Новый узел догрузки с его ЯКОРЕМ (Ф2 docs/plan-anchor-ux.md).
+
+    source пусто — якоря у узла не будет, и следующая догрузка найдёт его только по
+    имени внутри контейнера. Пользователь вправе знать это ДО применения: с якорем
+    объект переживает переименование, без якоря — превращается в дубль."""
+
+    path: str
+    source: NodeSource | None = None
+
+
 class IntoPreviewOut(BaseModel):
     """Сводка dry-run ДОГРУЗКИ архивов к живому проекту (Ф3). БД не тронута.
 
@@ -102,6 +114,14 @@ class IntoPreviewOut(BaseModel):
     errors: list[str] = []  # адресованы чипу именем файла: «a.zip: …»
     nodes_new: int = 0
     nodes_new_paths: list[str] = []  # первые несколько путей — «что именно приедет»
+    # Те же новые узлы С ЯКОРЯМИ (Ф2 якорей). nodes_new_paths выше не заменяется:
+    # контракты превью только дополняются.
+    new_nodes: list[NewNodeOut] = []
+    # Живые узлы, к которым ПРИЕДЕТ знание из архивов (найдены мерджем). Числа выше
+    # про новое, эти — про сопоставление: не назвав его, догрузка молчит о самой
+    # спорной своей части — что именно она сочла тем же объектом и почему.
+    nodes_matched: int = 0
+    matched_nodes: list[MergedNodeOut] = []  # первые несколько — путь + основание
     edges_new: int = 0
     families: UnifiedFamilyCountsOut = UnifiedFamilyCountsOut()
     family_conflicts: list[FamilyConflictOut] = []

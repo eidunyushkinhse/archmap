@@ -42,13 +42,15 @@ from app.data_import import LOOKS_LIKE_DATA, NODE_HEADER, TableIn, parse_data_fi
 from app.import_merge import (
     MergeReport,
     carry_parse_warnings,
+    count_without_anchor,
     merge_imports,
+    merged_with_basis,
     split_remarks,
     warn_content,
 )
 from app.import_yaml import ParsedImport, parse_import
 from app.mmd_header import parse_mmd_header, strip_header
-from app.schemas.project import FileRemarksOut, ImportPreviewOut
+from app.schemas.project import FileRemarksOut, ImportPreviewOut, MergedNodeOut
 from app.schemas.unified_import import (
     FamilyCandidateOut,
     FamilyConflictOut,
@@ -786,6 +788,12 @@ def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
         files=len(plan.labels),
         merged_count=len(plan.report.merged_paths),
         merged=plan.report.merged_paths[:8],
+        # Ф2 якорей: основание каждой склейки словами и счётчик узлов без якоря.
+        merged_nodes=[
+            MergedNodeOut(path=path, basis=basis)  # type: ignore[arg-type]  # словарь BASIS_ORDER
+            for path, basis in merged_with_basis(plan.report)
+        ],
+        nodes_without_anchor=count_without_anchor(merged) if merged else 0,
         conflicts=plan.report.conflicts,
         warnings=plan.report.warnings,
         dropped_edges=plan.report.dropped_edges,

@@ -4049,6 +4049,16 @@ export interface components {
              */
             merged: string[];
             /**
+             * Merged Nodes
+             * @default []
+             */
+            merged_nodes: components["schemas"]["MergedNodeOut"][];
+            /**
+             * Nodes Without Anchor
+             * @default 0
+             */
+            nodes_without_anchor: number;
+            /**
              * Conflicts
              * @default []
              */
@@ -4231,6 +4241,21 @@ export interface components {
              */
             nodes_new_paths: string[];
             /**
+             * New Nodes
+             * @default []
+             */
+            new_nodes: components["schemas"]["NewNodeOut"][];
+            /**
+             * Nodes Matched
+             * @default 0
+             */
+            nodes_matched: number;
+            /**
+             * Matched Nodes
+             * @default []
+             */
+            matched_nodes: components["schemas"]["MergedNodeOut"][];
+            /**
              * Edges New
              * @default 0
              */
@@ -4303,6 +4328,25 @@ export interface components {
             to_id: string;
             /** Default Caption */
             default_caption: string | null;
+        };
+        /**
+         * MergedNodeOut
+         * @description Склеенный узел с ОСНОВАНИЕМ склейки словами (Ф2 docs/plan-anchor-ux.md).
+         *
+         *     Якорь решает, какой узел считать тем же самым, — и до Ф2 это была невидимая
+         *     магия: превью говорило «склеено узлов: 7», не называя, почему. basis — единый
+         *     словарь бэка и фронта: «code» — совпал репозиторий (вид якоря «код»),
+         *     «dependency» — совпало имя зависимости, «name» — якорей не было и решило имя
+         *     внутри одного родителя.
+         */
+        MergedNodeOut: {
+            /** Path */
+            path: string;
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "code" | "dependency" | "name";
         };
         /** MessageCreate */
         MessageCreate: {
@@ -4409,6 +4453,19 @@ export interface components {
             doc_id?: string | null;
             /** Base Version */
             base_version?: number | null;
+        };
+        /**
+         * NewNodeOut
+         * @description Новый узел догрузки с его ЯКОРЕМ (Ф2 docs/plan-anchor-ux.md).
+         *
+         *     source пусто — якоря у узла не будет, и следующая догрузка найдёт его только по
+         *     имени внутри контейнера. Пользователь вправе знать это ДО применения: с якорем
+         *     объект переживает переименование, без якоря — превращается в дубль.
+         */
+        NewNodeOut: {
+            /** Path */
+            path: string;
+            source?: components["schemas"]["NodeSource"] | null;
         };
         /** NodeCreate */
         NodeCreate: {

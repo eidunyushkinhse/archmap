@@ -27,7 +27,12 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
-from app.import_merge import parse_and_merge, split_remarks
+from app.import_merge import (
+    count_without_anchor,
+    merged_with_basis,
+    parse_and_merge,
+    split_remarks,
+)
 from app.import_prompt import build_import_prompt
 from app.import_yaml import seed_import
 from app.models.edge import Edge
@@ -42,6 +47,7 @@ from app.schemas.project import (
     ImportPreviewIn,
     ImportPreviewOut,
     ImportPromptOut,
+    MergedNodeOut,
     ProjectCreate,
     ProjectPreview,
     ProjectPreviewEdge,
@@ -327,6 +333,13 @@ def import_preview(
         files=len(texts),
         merged_count=len(report.merged_paths),
         merged=report.merged_paths[:8],
+        # Ф2 якорей: у каждой склейки — ОСНОВАНИЕ словами, а у слитого дерева —
+        # счётчик узлов без якоря (их опознает только имя).
+        merged_nodes=[
+            MergedNodeOut(path=path, basis=basis)  # type: ignore[arg-type]  # словарь BASIS_ORDER
+            for path, basis in merged_with_basis(report)
+        ],
+        nodes_without_anchor=count_without_anchor(merged),
         conflicts=report.conflicts,
         warnings=report.warnings,
         dropped_edges=report.dropped_edges,

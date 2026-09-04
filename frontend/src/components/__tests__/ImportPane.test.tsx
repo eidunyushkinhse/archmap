@@ -22,13 +22,15 @@ beforeEach(() => {
 
 const green = (names: string[], over: Partial<ImportPreviewOut> = {}): ImportPreviewOut => ({
   ok: true, errors: [], node_count: names.length, edge_count: 0, roots: names.slice(0, 1),
-  files: 1, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
+  files: 1, merged_count: 0, merged: [], merged_nodes: [], nodes_without_anchor: 0,
+  conflicts: [], warnings: [], dropped_edges: 0,
   node_names: names, file_remarks: [], schema_errors: [], schema_warnings: [], ...over,
 });
 
 const red = (errors: string[], over: Partial<ImportPreviewOut> = {}): ImportPreviewOut => ({
   ok: false, errors, node_count: 0, edge_count: 0, roots: [], files: 1,
-  merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0, node_names: [],
+  merged_count: 0, merged: [], merged_nodes: [], nodes_without_anchor: 0,
+  conflicts: [], warnings: [], dropped_edges: 0, node_names: [],
   file_remarks: [], schema_errors: [], schema_warnings: [], ...over,
 });
 

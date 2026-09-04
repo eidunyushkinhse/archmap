@@ -773,3 +773,73 @@ def _отказ() -> User:
     from fastapi import HTTPException
 
     raise HTTPException(status_code=403, detail="Только архитектор")
+
+
+# ── Основание склейки и якоря новых объектов в превью (Ф2 якорей) ────────────
+#
+# Догрузка сопоставляет узлы по ЯКОРЮ, и до Ф2 превью об этом молчало: показывало
+# только новое. Теперь оно называет, сколько живых узлов найдено, ЧЕМ каждый найден
+# и будет ли якорь у создаваемых.
+
+
+def test_превью_догрузки_называет_основание_склейки(db):
+    """Свой архив: каждый живой узел найден — у узлов с якорем словами назван вид
+    якоря, у узлов без якоря — имя."""
+    проект, узлы = _ярмарка(db)
+    узлы["orders"].source_ref = "git:github.com/org/yarmarka#services/orders"
+    узлы["каталог"].source_ref = "host:catalog-db"
+    db.commit()
+
+    превью = into_preview(build_into_plan(db, проект, [("свой.zip", build_archive(db, проект))]))
+
+    assert превью.ok
+    assert превью.nodes_matched == 4  # корень + orders + Каталог-БД + Kafka
+    по_пути = {m.path: m.basis for m in превью.matched_nodes}
+    assert по_пути == {
+        "Ярмарка": "name",
+        "Ярмарка / orders": "code",
+        "Ярмарка / Каталог-БД": "dependency",
+        "Ярмарка / Kafka": "name",
+    }
+
+
+def test_превью_догрузки_называет_якоря_новых_объектов(db):
+    """«Появятся» — с якорем у тех, кто его получит, и пусто у остальных: без
+    якоря объект будет опознаваться только по имени."""
+    проект, _ = _ярмарка(db)
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Склад", role="система")
+    _узел(db, донор, "receiving", корень, technology="Go",
+          source_ref="git:github.com/org/wms#receiving")
+    _узел(db, донор, "Склад-БД", корень, shape="database", source_ref="host:wms-db")
+    _узел(db, донор, "ручной", корень)
+    db.commit()
+
+    превью = into_preview(build_into_plan(db, проект, [("донор.zip", build_archive(db, донор))]))
+
+    assert превью.ok and превью.nodes_new == 4
+    якоря = {n.path: n.source for n in превью.new_nodes}
+    assert якоря["Склад / receiving"] is not None
+    assert (якоря["Склад / receiving"].repo, якоря["Склад / receiving"].path) == (
+        "github.com/org/wms", "receiving"
+    )
+    assert якоря["Склад / Склад-БД"] is not None
+    assert якоря["Склад / Склад-БД"].host == "wms-db"
+    assert якоря["Склад / ручной"] is None
+    assert якоря["Склад"] is None
+    # Списки — параллельные: старое поле путей осталось нетронутым (его читает MCP).
+    assert [n.path for n in превью.new_nodes] == превью.nodes_new_paths
+
+
+def test_превью_догрузки_не_числит_несопоставленное(db):
+    """Донор с ЧУЖИМ деревом: сопоставлять нечего — ни одного найденного узла.
+    Своя схема, нашедшая сама себя, находкой догрузки не считается."""
+    проект, _ = _ярмарка(db)
+    донор = _проект(db, "Донор")
+    _узел(db, донор, "Склад", role="система")
+    db.commit()
+
+    превью = into_preview(build_into_plan(db, проект, [("донор.zip", build_archive(db, донор))]))
+
+    assert превью.ok
+    assert превью.nodes_matched == 0 and превью.matched_nodes == []

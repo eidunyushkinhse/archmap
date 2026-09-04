@@ -868,3 +868,62 @@ def test_sync_не_булево_это_ошибка_разбора(db):
     # Ошибка типа не роняет разбор целиком: поле обнуляется, ошибка в списке.
     assert errors == ["edges[0].sync: ожидается true/false"]
     assert parsed is None
+
+
+# ── Основание склейки и якоря в превью импорта (Ф2 docs/plan-anchor-ux.md) ───
+
+
+def test_preview_называет_основание_каждой_склейки(db):
+    """Три склейки трёх видов в одном пакете: по коду, по имени зависимости и по
+    имени. До Ф2 превью говорило «склеено узлов: 3», не называя почему."""
+    user = ensure_architect(db)
+    a = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {repo: github.com/org/payments}\n"
+        "      - name: Каталог-БД\n"
+        "        source: {host: catalog-db}\n"
+        "      - name: orders\n"
+    )
+    b = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        technology: Go\n"
+        "        source: {repo: github.com/org/payments}\n"
+        "      - name: Каталог-БД\n"
+        "        source: {host: catalog-db}\n"
+        "      - name: orders\n"
+    )
+    out = import_preview(ImportPreviewIn(contents=[a, b]), _user=user)
+
+    assert out.ok and out.merged_count == 4
+    assert {m.path: m.basis for m in out.merged_nodes} == {
+        "Система": "name",
+        "Система / payments": "code",
+        "Система / Каталог-БД": "dependency",
+        "Система / orders": "name",
+    }
+    # Старое поле путей осталось прежним — контракты превью только дополняются.
+    assert out.merged == [m.path for m in out.merged_nodes]
+
+
+def test_preview_считает_узлы_без_якоря(db):
+    """Счётчик «будут опознаваться по имени» — про СЛИТОЕ дерево, а не про файл."""
+    user = ensure_architect(db)
+    один = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {repo: github.com/org/payments}\n"
+        "      - name: orders\n"
+    )
+    out = import_preview(ImportPreviewIn(content=один), _user=user)
+
+    assert out.ok and out.node_count == 3
+    assert out.nodes_without_anchor == 2  # корень «Система» и «orders»
+    assert out.merged_nodes == []  # один файл — склеек нет
