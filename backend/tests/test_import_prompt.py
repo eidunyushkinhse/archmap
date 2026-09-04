@@ -501,10 +501,15 @@ def test_example_carries_source_anchors():
 
 
 def test_prompt_explains_source_field():
+    """Видов якоря два (docs/plan-anchor-ux.md): код (repo + path) и имя
+    зависимости (host). Образ и объект k8s из идентичности убраны — промпт не
+    должен их просить, иначе агент тратит проход на приметы контура развёртывания."""
     text = build_import_prompt("Ярмарка")
     assert "## Поле source" in text
-    for field in ("repo", "path", "image", "deployment", "host"):
+    for field in ("repo", "path", "host"):
         assert field in text
+    источник = text.split("## Поле source", 1)[1].split("## Формат YAML", 1)[0]
+    assert "image" not in источник and "deployment" not in источник
 
 
 def test_правило_path_называет_последствие_правдиво():

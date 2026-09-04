@@ -1,0 +1,155 @@
+/* Поле «Якорь» (components/anchor/AnchorField.tsx). Классы свои, не заимствованные
+   у страницы объекта или у инспектора: компонент один на оба места и обязан
+   выглядеть одинаково в обоих.
+   ⚠️ Осторожно с «звёздочка-слэш» в тексте комментария — она закрывает его
+   досрочно и молча съедает следующее правило (поймано глазами: поле развалилось
+   в строку, потому что .anchor-field остался без display:flex). */
+
+.anchor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  /* Свой кегль, а не унаследованный: компонент стоит и в «Свойствах» страницы
+     (13px), и в панели редактора (там наследовался бы кегль панели — 18px). */
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.anchor-read {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.anchor-kind {
+  color: #64748b;
+}
+/* Значение якоря — моноширинно: это машинный ключ, в нём важен каждый символ. */
+.anchor-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+.anchor-empty {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Действия чтения: «Изменить · Очистить» — с воздухом и точкой-разделителем. */
+.anchor-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.anchor-sep {
+  color: #cbd5e1;
+}
+
+.anchor-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: #2563eb;
+  cursor: pointer;
+}
+.anchor-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.anchor-link:disabled {
+  color: #94a3b8;
+  cursor: default;
+}
+
+/* Переключатель вида: два сегмента, выбранный — залит. */
+.anchor-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.anchor-tab {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 7px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 12.5px;
+  color: #475569;
+  cursor: pointer;
+}
+.anchor-tab.is-on {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.anchor-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11.5px;
+  color: #64748b;
+}
+.anchor-input {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: #0f172a;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.anchor-input:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.anchor-hint {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #94a3b8;
+}
+/* Ответ dry-run: спокойный (что запишется) и красный (отказ сервера). */
+.anchor-preview {
+  font-size: 12px;
+  color: #047857;
+  overflow-wrap: anywhere;
+}
+.anchor-err {
+  font-size: 12px;
+  color: #b91c1c;
+  line-height: 1.45;
+}
+
+.anchor-actions {
+  display: flex;
+  gap: 6px;
+}
+.anchor-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 7px;
+  padding: 4px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  color: #334155;
+  cursor: pointer;
+}
+.anchor-btn.is-primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.anchor-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

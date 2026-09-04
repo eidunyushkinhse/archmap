@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.node import NodeSource
+
 # Один YAML-документ импорта (текст файла). Лимит — защита от «бомбы» в textarea.
 _ImportDoc = Annotated[str, Field(max_length=2_000_000)]
 # Максимум документов за раз (мульти-репо «Из репозитория»). Щедрый предел: реальные
@@ -49,6 +51,19 @@ class FileRemarksOut(BaseModel):
     warnings: list[str] = []
 
 
+class MergedNodeOut(BaseModel):
+    """Склеенный узел с ОСНОВАНИЕМ склейки словами (Ф2 docs/plan-anchor-ux.md).
+
+    Якорь решает, какой узел считать тем же самым, — и до Ф2 это была невидимая
+    магия: превью говорило «склеено узлов: 7», не называя, почему. basis — единый
+    словарь бэка и фронта: «code» — совпал репозиторий (вид якоря «код»),
+    «dependency» — совпало имя зависимости, «name» — якорей не было и решило имя
+    внутри одного родителя."""
+
+    path: str
+    basis: Literal["code", "dependency", "name"]
+
+
 class ImportPreviewOut(BaseModel):
     """Сводка dry-run импорта для живой валидации в модалке создания.
     Поля слияния заполнены и при одном файле (нулями) — фронт не ветвится."""
@@ -61,6 +76,13 @@ class ImportPreviewOut(BaseModel):
     files: int = 1  # сколько документов разбиралось
     merged_count: int = 0  # узлов, склеенных из ≥2 файлов
     merged: list[str] = []  # пути склеенных узлов, не больше первых 8
+    # Те же склейки с ОСНОВАНИЕМ каждой (Ф2 якорей). merged выше не заменяется:
+    # его читает MCP, а контракты превью только дополняются.
+    merged_nodes: list[MergedNodeOut] = []
+    # Сколько узлов слитого дерева придут БЕЗ якоря — их следующий прогон опознает
+    # только по имени внутри контейнера. Счётчик, а не список: при создании проекта
+    # новые ВСЕ узлы, и перечень был бы шумом, а не предупреждением.
+    nodes_without_anchor: int = 0
     conflicts: list[str] = []  # расхождения полей (оставлено первое)
     warnings: list[str] = []  # fuzzy-пары, несовпавшие корни, похожие рёбра
     dropped_edges: int = 0  # выброшенные точные дубли рёбер
@@ -112,7 +134,14 @@ class SyncNodeActionOut(BaseModel):
     node_id: uuid.UUID | None = None
     source_ref: str | None = None
     fields: list[str] = []  # какие поля изменит update
-    matched_by: Literal["source", "name"] | None = None  # чем опознан живой узел
+    # ОСНОВАНИЕ матча словами (Ф2 docs/plan-anchor-ux.md) — тот же словарь, что у
+    # склеек импорта: «code» — сошёлся репозиторий, «dependency» — имя зависимости,
+    # «name» — якорей не было и решило имя внутри смэтченного родителя.
+    matched_by: Literal["code", "dependency", "name"] | None = None
+    # ЯКОРЬ, который получит узел (разбор source_ref, как в карточке объекта).
+    # Нужен строкам create: «якорь: код github.com/org/x» против «якоря нет — будет
+    # опознаваться по имени». Пусто и то и другое различает только это поле.
+    source: NodeSource | None = None
     # Узел был помечен устаревшим, а в YAML снова есть. Показывается ВСЕГДА,
     # даже когда статус не трогаем.
     returned: bool = False

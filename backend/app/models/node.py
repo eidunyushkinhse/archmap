@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.identity import source_ref_dict
 
 if TYPE_CHECKING:
     # Только для типов/линтера: связь Node ↔ Edge SQLAlchemy резолвит по строке
@@ -47,10 +48,11 @@ class Node(Base):
     # статус жизненного цикла: existing (as-is, дефолт) | planned (to-be) | deprecated.
     # Версионируемая семантика, не раскладка. Кодируется на схеме цветом тела узла.
     status: Mapped[str] = mapped_column(String(16), default="existing", server_default="existing")
-    # Канонический ключ источника (app/identity): чем узел опознаётся между прогонами
-    # ИИ-агента — git-remote, образ, деплоймент или сетевое имя, приведённые к
-    # каноническому виду («git:github.com/org/payments»). Пишется импортом и синком,
-    # руками не правится: это отпечаток прогона, а не пользовательские данные.
+    # Канонический ключ источника — ЯКОРЬ узла (app/identity): чем узел опознаётся
+    # между прогонами ИИ-агента. Видов два: код («git:github.com/org/payments#src/api»)
+    # и имя зависимости («host:postgres»). Пишется импортом и синком И РУКАМИ —
+    # PATCH /nodes/{id} с блоком source задаёт и чистит якорь (Ф0 эпика
+    # docs/plan-anchor-ux.md: якорь — первоклассная сущность, видимая и управляемая).
     # УНИКАЛЬНОСТИ НЕТ намеренно — монорепо легально даёт один repo многим узлам.
     source_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Версия для optimistic CAS (этап 0 конкурентности, docs/archive/plan-concurrency.md):
@@ -144,3 +146,16 @@ class Node(Base):
     # (проверено: в __table__/__mapper__ не попадают), дефолт совпадает со схемой.
     child_count: int = 0
     has_children: bool = False
+
+    @property
+    def source(self) -> dict[str, str] | None:
+        """Якорь узла В РАЗОБРАННОМ ВИДЕ — то, что отдаётся в NodeResponse.source.
+
+        Хранится ОДИН канонический ключ, поэтому в словаре заполнена ровно одна
+        сторона: repo (+path) — вид «код», host — вид «имя зависимости». Якоря
+        нет — None: карточка объекта показывает «опознаётся по имени».
+        Свойство, а не колонка: единственный источник правды — source_ref,
+        а разбор ключа обязан жить в одном месте (app/identity)."""
+        if not self.source_ref:
+            return None
+        return source_ref_dict(self.source_ref) or None

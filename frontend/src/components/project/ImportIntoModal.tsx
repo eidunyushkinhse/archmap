@@ -23,6 +23,7 @@ import {
   head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
 } from "../docsImport/agentModalShared";
 import ConflictSection from "./ConflictSection";
+import { anchorKind, basisLabel } from "../anchor/anchorText";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -45,6 +46,9 @@ function failedPreview(msg: string): IntoPreviewOut {
     errors: [msg],
     nodes_new: 0,
     nodes_new_paths: [],
+    new_nodes: [],
+    nodes_matched: 0,
+    matched_nodes: [],
     edges_new: 0,
     families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
     family_conflicts: [],
@@ -327,7 +331,8 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
 // Дифф превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов.
 function Diff({ preview }: { preview: IntoPreviewOut }) {
   const families = familyLine(preview.families);
-  const paths = preview.nodes_new_paths;
+  const появятся = preview.new_nodes;
+  const найдены = preview.matched_nodes;
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
@@ -336,10 +341,37 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
         {preview.edges_new} {plural(preview.edges_new, ["связь", "связи", "связей"])}
       </div>
       {families && <div style={{ ...grayLine, marginTop: 3 }}>Приедет: {families}</div>}
-      {paths.length > 0 && (
+      {/* Догрузка сопоставляет узлы ЯКОРЕМ, и до Ф2 (docs/plan-anchor-ux.md) она об
+          этом молчала — показывала только новое. Самое спорное её решение («это тот
+          же объект») теперь названо вслух, вместе с основанием каждой находки. */}
+      {preview.nodes_matched > 0 && (
         <div style={{ ...grayLine, marginTop: 3 }}>
-          Появятся: {paths.join(", ")}
-          {preview.nodes_new > paths.length ? ", …" : ""}
+          Найдено в проекте: {preview.nodes_matched}{" "}
+          {plural(preview.nodes_matched, ["объект", "объекта", "объектов"])}
+          {найдены.map((m) => (
+            <div key={m.path} style={subRow}>
+              {m.path} — {basisLabel(m.basis, m.path)}
+            </div>
+          ))}
+          {preview.nodes_matched > найдены.length && (
+            <div style={subRow}>…ещё {preview.nodes_matched - найдены.length}</div>
+          )}
+        </div>
+      )}
+      {появятся.length > 0 && (
+        <div style={{ ...grayLine, marginTop: 3 }}>
+          Появятся:
+          {появятся.map((n) => (
+            <div key={n.path} style={subRow}>
+              {n.path}
+              {/* Без якоря объект будет опознаваться только по имени: следующая
+                  догрузка не узнает его, если имя изменится. */}
+              {anchorKind(n.source) === null && " (без якоря)"}
+            </div>
+          ))}
+          {preview.nodes_new > появятся.length && (
+            <div style={subRow}>…ещё {preview.nodes_new - появятся.length}</div>
+          )}
         </div>
       )}
       {preview.warnings.length > 0 && <NoteList title="Проверьте" items={preview.warnings} />}
@@ -391,6 +423,8 @@ function ApplyReport({ result }: { result: IntoApplyOut }) {
   );
 }
 
+// Строка перечня внутри серой сводки: отступом влево показывает подчинённость.
+const subRow: CSSProperties = { marginLeft: 10 };
 // Подпись архива в чипе: та же типографика, что у кнопки-чипа соседних окон,
 // но без интерактивных свойств.
 const chipName: CSSProperties = {

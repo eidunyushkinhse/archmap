@@ -53,7 +53,7 @@ archmap/
 │   ├── tasks-archive.md   # журнал закрытых задач
 │   └── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
 ├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки)
-│   ├── archmap_mcp/       # client.py (логин+скоуп+ошибки), tools.py (29 инструментов), render.py, server.py
+│   ├── archmap_mcp/       # client.py (логин+скоуп+ошибки), tools.py (29 инструментов, якорь объекта в карточке и правках), render.py, server.py
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── .env.example       # ARCHMAP_URL/USERNAME/PASSWORD → копировать в mcp/.env (в .gitignore)
 │   └── README.md          # каталог инструментов, подключение, сценарии
@@ -133,6 +133,10 @@ Node (узел)
 - is_external — флаг «внешний узел» (на чужих уровнях — «гость»)
 - status      — жизненный цикл: existing | planned | deprecated
 - openapi_spec — OpenAPI YAML (опционально)
+- source_ref — ЯКОРЬ: чем ArchMap опознаёт объект при обновлениях из кода
+  (мердж, догрузка, синк) вместо имени. Видов два: код (`git:repo#path`) и имя
+  зависимости (`host:name`); в API — разобранным `source {repo, path, host}`,
+  задаётся и чистится PATCH-полем `source` (app/identity.py, docs/plan-anchor-ux.md)
 - version     — CAS-версия для optimistic concurrency
 - docs        — коллекция NodeDoc (именованные схемы логики, lazy="selectin")
 - created_at, updated_at

@@ -514,6 +514,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/anchor-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Anchor Preview
+         * @description Что ArchMap запишет в якорь, если сохранить эту форму, — БЕЗ записи.
+         *
+         *     Живая нормализация в форме поля «Якорь»: вставленный адрес клона
+         *     (https://…/repo.git, git@host:org/repo) на глазах превращается в
+         *     «github.com/org/repo», а адрес среды — в понятный отказ. Валидация и
+         *     нормализация те же самые, что у PATCH (_source_ref_of), иначе форма обещала
+         *     бы одно, а сохранение делало другое.
+         *
+         *     ⚠️ Маршрут объявлен ДО «/{node_id}»: иначе «anchor-preview» разбирался бы
+         *     как UUID. Узел не нужен и не трогается — это чистая функция над строками,
+         *     поэтому доступ у любого участника проекта (наблюдателю форму не показывают,
+         *     но ручка безвредна: ничего не читает из БД и ничего не пишет).
+         */
+        post: operations["anchor_preview_api_v1_nodes_anchor_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}": {
         parameters: {
             query?: never;
@@ -2152,6 +2183,23 @@ export interface components {
              * @default false
              */
             is_external: boolean;
+        };
+        /**
+         * AnchorPreviewOut
+         * @description Ответ dry-run проверки якоря (POST /nodes/anchor-preview).
+         *
+         *     Форма якоря неинтуитивна: архитектор вставляет адрес клона или путь как в
+         *     файловой системе и не обязан знать, во что это превратится. Ручка отвечает
+         *     ровно то, что записал бы PATCH, НИЧЕГО не записывая: нормализованный блок
+         *     source (или null — очистка), вид якоря словом для UI и канонический ключ
+         *     хранения. Отказы — те же 422, что у PATCH (общая функция валидации).
+         */
+        AnchorPreviewOut: {
+            source?: components["schemas"]["NodeSource"] | null;
+            /** Kind */
+            kind?: ("code" | "dependency") | null;
+            /** Key */
+            key?: string | null;
         };
         /** ArchiveImportResult */
         ArchiveImportResult: {
@@ -4001,6 +4049,16 @@ export interface components {
              */
             merged: string[];
             /**
+             * Merged Nodes
+             * @default []
+             */
+            merged_nodes: components["schemas"]["MergedNodeOut"][];
+            /**
+             * Nodes Without Anchor
+             * @default 0
+             */
+            nodes_without_anchor: number;
+            /**
              * Conflicts
              * @default []
              */
@@ -4183,6 +4241,21 @@ export interface components {
              */
             nodes_new_paths: string[];
             /**
+             * New Nodes
+             * @default []
+             */
+            new_nodes: components["schemas"]["NewNodeOut"][];
+            /**
+             * Nodes Matched
+             * @default 0
+             */
+            nodes_matched: number;
+            /**
+             * Matched Nodes
+             * @default []
+             */
+            matched_nodes: components["schemas"]["MergedNodeOut"][];
+            /**
              * Edges New
              * @default 0
              */
@@ -4255,6 +4328,25 @@ export interface components {
             to_id: string;
             /** Default Caption */
             default_caption: string | null;
+        };
+        /**
+         * MergedNodeOut
+         * @description Склеенный узел с ОСНОВАНИЕМ склейки словами (Ф2 docs/plan-anchor-ux.md).
+         *
+         *     Якорь решает, какой узел считать тем же самым, — и до Ф2 это была невидимая
+         *     магия: превью говорило «склеено узлов: 7», не называя, почему. basis — единый
+         *     словарь бэка и фронта: «code» — совпал репозиторий (вид якоря «код»),
+         *     «dependency» — совпало имя зависимости, «name» — якорей не было и решило имя
+         *     внутри одного родителя.
+         */
+        MergedNodeOut: {
+            /** Path */
+            path: string;
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "code" | "dependency" | "name";
         };
         /** MessageCreate */
         MessageCreate: {
@@ -4362,6 +4454,19 @@ export interface components {
             /** Base Version */
             base_version?: number | null;
         };
+        /**
+         * NewNodeOut
+         * @description Новый узел догрузки с его ЯКОРЕМ (Ф2 docs/plan-anchor-ux.md).
+         *
+         *     source пусто — якоря у узла не будет, и следующая догрузка найдёт его только по
+         *     имени внутри контейнера. Пользователь вправе знать это ДО применения: с якорем
+         *     объект переживает переименование, без якоря — превращается в дубль.
+         */
+        NewNodeOut: {
+            /** Path */
+            path: string;
+            source?: components["schemas"]["NodeSource"] | null;
+        };
         /** NodeCreate */
         NodeCreate: {
             /** Name */
@@ -4393,6 +4498,7 @@ export interface components {
              * @enum {string}
              */
             status: "existing" | "planned" | "deprecated";
+            source?: components["schemas"]["NodeSource"] | null;
             /** Pos X */
             pos_x?: number | null;
             /** Pos Y */
@@ -4630,6 +4736,7 @@ export interface components {
             has_children: boolean;
             /** Source Ref */
             source_ref?: string | null;
+            source?: components["schemas"]["NodeSource"] | null;
             /**
              * Version
              * @default 1
@@ -4685,6 +4792,27 @@ export interface components {
             /** Source Ref */
             source_ref?: string | null;
         };
+        /**
+         * NodeSource
+         * @description ЯКОРЬ узла — чем ArchMap опознаёт объект при обновлениях из кода
+         *     (docs/plan-anchor-ux.md). Видов ровно два, и они взаимоисключающи:
+         *
+         *     • КОД — repo (+ path внутри него) у объектов, чей код лежит в продукте;
+         *     • ИМЯ ЗАВИСИМОСТИ — host: как продукт САМ называет базу, брокер или соседний
+         *       продукт в своих манифестах и дефолтах. Не адрес среды.
+         *
+         *     В ОТВЕТЕ repo и host никогда не заполнены одновременно: хранится один
+         *     канонический ключ (nodes.source_ref), и словарь — его разбор. В ЗАПРОСЕ
+         *     (NodeUpdate) прислать оба — 422: вид якоря надо выбрать.
+         */
+        NodeSource: {
+            /** Repo */
+            repo?: string | null;
+            /** Path */
+            path?: string | null;
+            /** Host */
+            host?: string | null;
+        };
         /** NodeUpdate */
         NodeUpdate: {
             /** Name */
@@ -4705,6 +4833,7 @@ export interface components {
             shape?: ("service" | "database" | "broker" | "person") | null;
             /** Status */
             status?: ("existing" | "planned" | "deprecated") | null;
+            source?: components["schemas"]["NodeSource"] | null;
             /** Base Version */
             base_version?: number | null;
         };
@@ -5248,7 +5377,8 @@ export interface components {
              */
             fields: string[];
             /** Matched By */
-            matched_by?: ("source" | "name") | null;
+            matched_by?: ("code" | "dependency" | "name") | null;
+            source?: components["schemas"]["NodeSource"] | null;
             /**
              * Returned
              * @default false
@@ -6779,6 +6909,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlertsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    anchor_preview_api_v1_nodes_anchor_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NodeSource"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnchorPreviewOut"];
                 };
             };
             /** @description Validation Error */

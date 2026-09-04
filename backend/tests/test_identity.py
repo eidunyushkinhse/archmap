@@ -10,8 +10,8 @@ from app.identity import (
     SourceRef,
     canonical_key,
     compare_identity,
+    known_key,
     normalize_host,
-    normalize_image,
     normalize_repo,
     source_keys,
 )
@@ -34,19 +34,6 @@ class TestNormalizeRepo:
     def test_пустое_и_none(self) -> None:
         assert normalize_repo(None) is None
         assert normalize_repo("   ") is None
-
-
-class TestNormalizeImage:
-    def test_тег_и_дайджест_срезаются(self) -> None:
-        assert normalize_image("reg.io/org/app:1.2.3") == "reg.io/org/app"
-        assert normalize_image("org/app@sha256:abc123") == "org/app"
-
-    def test_порт_реестра_не_срезается(self) -> None:
-        # Двоеточие до последнего слэша — порт, а не тег.
-        assert normalize_image("registry:5000/org/app:1.2") == "registry:5000/org/app"
-
-    def test_короткое_имя_без_реестра(self) -> None:
-        assert normalize_image("payments:latest") == "payments"
 
 
 class TestNormalizeHost:
@@ -75,15 +62,9 @@ class TestNormalizeHost:
 
 class TestSourceKeys:
     def test_порядок_убывания_различающей_силы(self) -> None:
-        src = SourceRef(
-            repo="github.com/org/repo", image="reg.io/app", deployment="payments", host="payments"
-        )
-        assert source_keys(src) == [
-            "git:github.com/org/repo",
-            "img:reg.io/app",
-            "k8s:payments",
-            "host:payments",
-        ]
+        # Видов якоря два: код (git) сильнее имени зависимости (host).
+        src = SourceRef(repo="github.com/org/repo", host="payments")
+        assert source_keys(src) == ["git:github.com/org/repo", "host:payments"]
         assert canonical_key(src) == "git:github.com/org/repo"
 
     def test_монорепо_различается_путём(self) -> None:
@@ -138,3 +119,17 @@ class TestCompareIdentity:
     def test_отсутствие_якорей_ничего_не_утверждает(self) -> None:
         assert compare_identity([], []) == "unknown"
         assert compare_identity(source_keys(SourceRef(repo="github.com/org/x")), []) == "unknown"
+
+
+class TestKnownKey:
+    def test_ключ_неизвестного_типа_не_проходит_гвард(self) -> None:
+        # Образ и объект k8s были якорями до 2026-09-04: архив и снимок тех
+        # времён не должны оживлять вид, которого больше нет.
+        assert known_key("img:reg.io/org/app") is None
+        assert known_key("k8s:payments") is None
+        assert known_key("чушь") is None
+        assert known_key(None) is None
+
+    def test_известные_виды_проходят_как_есть(self) -> None:
+        assert known_key("git:github.com/org/repo#src/api") == "git:github.com/org/repo#src/api"
+        assert known_key("host:payments") == "host:payments"

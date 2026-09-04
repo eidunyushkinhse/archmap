@@ -8,7 +8,8 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 
 Матчинг импортированного узла на живой — двухступенчатый, как в merge_imports:
 1. ЯКОРЬ (nodes.source_ref ∈ ключи импортного узла) — переживает переименование
-   сервиса, ради него и делалась Фаза 0;
+   сервиса, ради него и делалась Фаза 0; какой именно вид якоря сошёлся (код или
+   имя зависимости), план НАЗЫВАЕТ пользователю (matched_by, Ф2 эпика якорей);
 2. ИМЯ среди детей уже смэтченного родителя — прежний способ, с тем же
    предохранителем: тёзка с ПРОТИВОРЕЧАЩИМ якорем не матчится.
 Порядок важен: путь строится от смэтченного родителя, иначе переименование
@@ -24,7 +25,7 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 import uuid
 from dataclasses import dataclass, field
 
-from app.identity import compare_identity
+from app.identity import compare_identity, key_type
 from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
@@ -66,7 +67,10 @@ class SyncNodeAction:
     node_id: uuid.UUID | None  # живой узел (для update/unchanged/missing)
     source_ref: str | None  # якорь, который будет записан
     fields: list[str] = field(default_factory=list)  # какие поля меняет update
-    matched_by: str | None = None  # source | name (чем опознан живой узел)
+    # ОСНОВАНИЕ матча словами (Ф2 docs/plan-anchor-ux.md): code — сошёлся якорь
+    # вида «код» (репозиторий), dependency — якорь вида «имя зависимости»,
+    # name — якорей не было и решило имя внутри смэтченного родителя.
+    matched_by: str | None = None
     # Ссылки для МЕХАНИЧЕСКОГО применения (Фаза 2): значения полей apply берёт из
     # разобранного прогона по imp_idx, родителя создаваемого узла — по parent_path
     # (к тому моменту он уже создан или смэтчен). Так решения принимает один
@@ -138,8 +142,27 @@ def _live_keys(node: Node) -> list[str]:
 
 
 # Строки плана читает ПОЛЬЗОВАТЕЛЬ, а не мы: технический ключ вида
-# «git:github.com/org/x» превращаем в «репозиторию github.com/org/x».
-_SOURCE_KIND = {"git": "репозиторию", "img": "образу", "k8s": "деплойменту", "host": "сетевому имени"}
+# «git:github.com/org/x» превращаем в «коду github.com/org/x».
+#
+# Видов якоря ровно два — «код» и «имя зависимости» (Ф0 эпика якорей); прежние
+# «образу» и «деплойменту» из словаря убраны вместе с самими видами, а «сетевое
+# имя» переименовано так, как якорь зовётся везде: в карточке объекта, в
+# пояснении ⓘ и в промпте. Одно понятие — одно слово.
+_SOURCE_KIND = {"git": "коду", "host": "имени зависимости"}
+
+# Основание матча словами — тот же словарь, что у мерджа (import_merge.BASIS_ORDER):
+# им живёт и превью импорта, и план синка, и догрузка.
+_BASIS_OF_KEY_TYPE = {"git": "code", "host": "dependency"}
+
+
+# Основания, означающие «сошлось по ЯКОРЮ» (в отличие от имени).
+_ANCHOR_BASIS = frozenset({"code", "dependency"})
+
+
+def _basis_of_key(k: str) -> str:
+    """Ключ, по которому сошлись, → основание. Ключ снятого вида (архив прежней
+    модели якоря) основанием не притворяется — остаётся имя."""
+    return _BASIS_OF_KEY_TYPE.get(key_type(k), "name")
 
 
 def _human_source(ref: str | None) -> str:
@@ -200,7 +223,8 @@ class _Matcher:
         for k in imp.source_keys:
             cand = self.by_source.get(k)
             if cand is not None and cand.id not in self.taken:
-                return cand, "source"
+                # Основание — вид СОВПАВШЕГО ключа: им узлы и признаны одним.
+                return cand, _basis_of_key(k)
         siblings = self.children.get(parent_live.id if parent_live else None, [])
         for cand in siblings:
             if cand.id in self.taken or _norm(cand.name) != _norm(imp.name):
@@ -284,7 +308,7 @@ class _Matcher:
                 continue
             self.taken.add(live.id)
             self.imp_to_live[i] = live
-            if how == "source" and _norm(live.name) != _norm(imp.name):
+            if how in _ANCHOR_BASIS and _norm(live.name) != _norm(imp.name):
                 verb = (
                     "имя будет изменено"
                     if self.policies.update_names

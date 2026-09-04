@@ -43,6 +43,70 @@ def node_line(node: dict[str, Any], *, with_id: bool = True) -> str:
     return f"{node.get('name', '?')}{tail}{ident}"
 
 
+# ── Якорь объекта (docs/plan-anchor-ux.md) ───────────────────────────────────
+#
+# Якорь — чем ArchMap опознаёт объект при обновлениях из кода (мердж нескольких
+# файлов, догрузка архивов, синк). Видов ровно два: КОД (репозиторий и путь в
+# нём) и ИМЯ ЗАВИСИМОСТИ (как продукт сам называет базу, брокер или соседний
+# продукт). Слова здесь — ДОСЛОВНАЯ копия словаря интерфейса
+# (frontend/src/components/anchor/anchorText.ts): агент и человек обязаны
+# называть одно и то же одинаково, иначе разговор о схеме расходится с тем, что
+# пользователь видит на экране (инвариант N36 docs/specs/node.md).
+
+KIND_LABEL = {"code": "код", "dependency": "имя зависимости"}
+BASIS_LABEL = {"code": "по коду", "dependency": "по имени зависимости", "name": "по имени"}
+NO_ANCHOR = "нет — опознаётся по имени"
+
+
+def anchor_kind(source: dict[str, Any] | None) -> str | None:
+    """Вид якоря словом-ключом: code | dependency | None (якоря нет)."""
+    if not source:
+        return None
+    if source.get("repo"):
+        return "code"
+    return "dependency" if source.get("host") else None
+
+
+def anchor_readable(source: dict[str, Any]) -> str:
+    """Якорь в человеческий вид: «github.com/org/repo, путь src/api» / «payments»."""
+    if source.get("repo"):
+        path = source.get("path")
+        return f"{source['repo']}, путь {path}" if path else str(source["repo"])
+    return str(source.get("host") or "")
+
+
+def anchor_value(source: dict[str, Any] | None) -> str:
+    """Значение поля «Якорь»: вид и сам якорь либо объяснение последствия."""
+    kind = anchor_kind(source)
+    if not source or not kind:
+        return NO_ANCHOR
+    return f"{KIND_LABEL[kind]} {anchor_readable(source)}"
+
+
+def anchor_line(node: dict[str, Any]) -> str:
+    """Строка карточки объекта. Читаем разобранный source, а не source_ref:
+    ключ хранения — внутренность, агенту незачем разбирать его самому."""
+    return f"Якорь: {anchor_value(node.get('source'))}"
+
+
+def anchor_note(source: dict[str, Any] | None) -> str:
+    """Якорь НОВОГО объекта строкой: с ним — какой именно, без него — последствие."""
+    kind = anchor_kind(source)
+    if source and kind:
+        return f"якорь: {KIND_LABEL[kind]} {anchor_readable(source)}"
+    return "якоря нет — будет опознаваться по имени"
+
+
+def basis_label(basis: str, path: str | None = None) -> str:
+    """Чем два объекта признаны одним. Для «по имени» дописываем ГДЕ: имя решает
+    только внутри своего контейнера, и без этого фраза обещает больше, чем сделал
+    матчер."""
+    if basis != "name":
+        return BASIS_LABEL.get(basis, basis)
+    parent = " / ".join((path or "").split(" / ")[:-1])
+    return f"по имени внутри «{parent}»" if parent else "по имени на верхнем уровне"
+
+
 def tree(nodes: list[dict[str, Any]], *, with_ids: bool = True) -> str:
     """Дерево объектов отступами. Порядок — по имени внутри уровня: агенту важна
     предсказуемость вывода, а не порядок вставки."""
@@ -999,6 +1063,20 @@ def c4_preview(c4: dict[str, Any]) -> list[str]:
     if c4.get("merged_count"):
         merged = ", ".join(str(m) for m in (c4.get("merged") or []))
         out.append(f"Склеено из нескольких входов: {c4['merged_count']}" + (f" ({merged})" if merged else ""))
+        # ОСНОВАНИЕ каждой склейки: «склеено 7» без «почему» — невидимая магия, а
+        # ложная склейка хуже дубля именно тем, что выглядит правильной схемой.
+        for m in c4.get("merged_nodes") or []:
+            path = str(m.get("path", ""))
+            out.append(f"  • {path} — {basis_label(str(m.get('basis')), path)}")
+    # Узлы без якоря следующий прогон опознает только по имени внутри контейнера:
+    # переименуют — получится дубль. Счётчиком, а не списком: при создании проекта
+    # новые ВСЕ узлы, и перечень был бы шумом, а не предупреждением.
+    without = int(c4.get("nodes_without_anchor") or 0)
+    if without:
+        out.append(
+            f"Без якоря: {without} {_plural(without, ('объект', 'объекта', 'объектов'))} — "
+            "будут опознаваться по имени"
+        )
     for key, title in (
         ("warnings", "Предупреждения"),
         ("conflicts", "Конфликты слияния"),
@@ -1122,9 +1200,35 @@ def into_preview(data: dict[str, Any]) -> str:
     out = [
         f"Приедет нового: объектов {data.get('nodes_new', 0)}, связей {data.get('edges_new', 0)}."
     ]
-    paths = [str(p) for p in (data.get("nodes_new_paths") or [])]
-    if paths:
-        out.append("Новые объекты: " + ", ".join(paths))
+    # Самое спорное решение догрузки — «это тот же объект»: до Ф2 она о нём
+    # молчала, показывая только новое. Называем и находки, и основание каждой.
+    matched = int(data.get("nodes_matched") or 0)
+    if matched:
+        out.append(
+            f"Найдено в проекте: {matched} "
+            f"{_plural(matched, ('объект', 'объекта', 'объектов'))}"
+        )
+        shown = list(data.get("matched_nodes") or [])
+        for m in shown:
+            path = str(m.get("path", ""))
+            out.append(f"  • {path} — {basis_label(str(m.get('basis')), path)}")
+        if matched > len(shown):
+            out.append(f"  … и ещё {matched - len(shown)}")
+    # Новые объекты — с их якорями: «(без якоря)» значит, что следующая догрузка
+    # найдёт объект только по имени внутри контейнера.
+    new_nodes = list(data.get("new_nodes") or [])
+    if new_nodes:
+        out.append("Новые объекты:")
+        for n in new_nodes:
+            source = n.get("source")
+            tail = f" — якорь: {anchor_value(source)}" if anchor_kind(source) else " (без якоря)"
+            out.append(f"  • {n.get('path', '?')}{tail}")
+    else:
+        # Старое поле — запасной путь: контракты превью только дополняются, и
+        # отчёт не должен онеметь, если новых узлов перечень пришёл прежним видом.
+        paths = [str(p) for p in (data.get("nodes_new_paths") or [])]
+        if paths:
+            out.append("Новые объекты: " + ", ".join(paths))
     out.append(family_counts(_dict(data.get("families"))))
     out.extend(
         conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_into_apply")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import get_args
 
+import httpx
 import pytest
 from conftest import PROJECT_ID, FakeApi, backend, node
 
@@ -222,16 +223,27 @@ async def test_варианты_промпта_те_же_что_у_бэкенд�
 
 # ── Запись ───────────────────────────────────────────────────────────────────
 
-async def test_план_синка_считает_и_не_пишет(client: ArchMapClient, api: FakeApi) -> None:
-    api.post(f"/projects/{PROJECT_ID}/sync/preview", {
-        "nodes_created": 2, "nodes_updated": 1, "nodes_unchanged": 5,
-        "nodes_missing": 1, "nodes_returned": 0, "edges_created": 3,
+def sync_plan(**over: object) -> dict[str, object]:
+    """План синка как его отдаёт БЭКЕНД. ⚠️ Счётчики живут в summary и зовутся по
+    ИМЕНИ ДЕЙСТВИЯ («nodes_create»), а не «nodes_created» в корне ответа: на
+    выдуманной форме отчёт печатал нули на любом плане (полевая находка Ф4)."""
+    fields: dict[str, object] = {
+        "ok": True, "files": 1,
         "nodes": [
-            {"path": "Маркетплейс / Новый", "action": "create", "fields": [], "returned": False},
-            {"path": "Маркетплейс / Старый", "action": "missing", "fields": [], "returned": False},
+            {"path": "Маркетплейс / Новый", "action": "create"},
+            {"path": "Маркетплейс / Старый", "action": "missing"},
         ],
         "edges": [],
-    })
+        "summary": {"nodes_create": 2, "nodes_update": 1, "nodes_unchanged": 5,
+                    "nodes_missing": 1, "edges_create": 3},
+        "graph_rev": 11,
+    }
+    fields.update(over)
+    return backend("schemas.project").SyncPreviewOut(**fields).model_dump(mode="json")
+
+
+async def test_план_синка_считает_и_не_пишет(client: ArchMapClient, api: FakeApi) -> None:
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan())
 
     out = await tools.call(
         "archmap_sync_preview",
@@ -241,8 +253,12 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     )
 
     assert "создать объектов: 2" in out
+    assert "обновить: 1" in out and "без изменений: 5" in out
     assert "create: Маркетплейс / Новый" in out
     assert "Ничего не записано" in out
+    # Курсор схемы для применения обязан быть НАЗВАН: без него apply — слепая
+    # запись поверх чужой параллельной правки.
+    assert "base_graph_rev=11" in out
     body = json.loads(api.calls[-1].content)
     assert body["mark_missing_deprecated"] is True
     # Было `body["contents"][0]["name"] == "r.yaml"` — тест закреплял СЛОМАННУЮ
@@ -251,21 +267,70 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     check_contract("SyncPreviewIn", body)
 
 
+async def test_план_синка_без_изменений_говорит_это_вслух(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Фикспойнт синка: повторный прогон на том же входе пуст. Молчание тут
+    неотличимо от «инструмент сломался»."""
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(
+        nodes=[{"path": "Маркетплейс / Заказы", "action": "unchanged"}],
+        summary={"nodes_unchanged": 1},
+        is_noop=True,
+    ))
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "x"}]},
+        client,
+    )
+
+    assert "без изменений: 1" in out
+    assert "Схема уже соответствует прогону" in out
+
+
+async def test_негодный_прогон_называет_ошибки_а_не_нули(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(
+        ok=False, errors=["вход 1: корень документа должен быть словарём"],
+        nodes=[], summary={},
+    ))
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "мусор"}]},
+        client,
+    )
+
+    assert "корень документа должен быть словарём" in out
+    assert "Будет сделано" not in out
+
+
 async def test_применение_синка_шлёт_contents_текстами(
     client: ArchMapClient, api: FakeApi
 ) -> None:
-    api.post(f"/projects/{PROJECT_ID}/sync/apply", {
-        "nodes_created": 1, "nodes_updated": 0, "nodes_unchanged": 4, "nodes_missing": 0,
-        "nodes_returned": 0, "edges_created": 0, "nodes": [], "edges": [],
-    })
+    # ⚠️ Ответ применения — СВОЯ форма (SyncApplyOut): списки путей, а не план
+    # ещё раз. Отчёт, читавший поля плана, печатал пустоту после реальной записи.
+    api.post(f"/projects/{PROJECT_ID}/sync/apply", backend("schemas.project").SyncApplyOut(
+        created_nodes=["Маркетплейс / Новый"],
+        updated_nodes=["Маркетплейс / Заказы"],
+        deprecated_nodes=[],
+        created_edges=["Маркетплейс / Новый → Маркетплейс / Kafka"],
+        skipped=[],
+        graph_rev=12,
+    ).model_dump(mode="json"))
 
-    await tools.call(
+    out = await tools.call(
         "archmap_sync_apply",
         {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "прогон"}],
          "base_graph_rev": 7},
         client,
     )
 
+    assert "Создано объектов: 1" in out and "• Маркетплейс / Новый" in out
+    assert "Обновлено: 1" in out
+    assert "Создано связей: 1" in out
+    assert "graph_rev=12" in out
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == ["прогон"]
     assert body["base_graph_rev"] == 7  # курсор схемы не потерялся вместе с формой
@@ -307,3 +372,168 @@ async def test_каждый_инструмент_описан_и_вызывае�
         assert len(t["description"]) > 40, t["name"]
         assert t["schema"]["type"] == "object"
         assert callable(t["handler"])
+
+
+# ── Якорь в правках объекта ──────────────────────────────────────────────────
+
+def check_node_contract(schema: str, body: dict[str, object]) -> None:
+    """Тело правки объекта глазами бэкенда (NodeCreate / NodeUpdate)."""
+    getattr(backend("schemas.node"), schema).model_validate(body)
+
+
+async def test_создание_объекта_шлёт_якорь(client: ArchMapClient, api: FakeApi) -> None:
+    # Объект рождается опознаваемым из кода: без source в POST агенту пришлось бы
+    # делать второй вызов, а до него объект жил бы «безымянным» для синка.
+    api.post("/nodes/", node("n7", "Оркестратор", source={"repo": "github.com/org/repo",
+                                                         "path": "src/api", "host": None}))
+
+    out = await tools.call(
+        "archmap_create_node",
+        {"project": "Ярмарка", "name": "Оркестратор",
+         "source": {"repo": "https://github.com/Org/Repo.git", "path": "./src/api/"}},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body["source"] == {"repo": "https://github.com/Org/Repo.git", "path": "./src/api/"}
+    check_node_contract("NodeCreate", body)
+    # Карточкой ответа агент видит, во что сервер привёл вставленный адрес клона.
+    assert "Якорь: код github.com/org/repo, путь src/api" in out
+
+
+async def test_создание_без_якоря_поля_source_не_шлёт(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.post("/nodes/", node("n8", "Ручной"))
+
+    out = await tools.call(
+        "archmap_create_node", {"project": "Ярмарка", "name": "Ручной"}, client
+    )
+
+    assert "source" not in json.loads(api.calls[-1].content)
+    assert "Якорь: нет — опознаётся по имени" in out
+
+
+async def test_правка_объекта_шлёт_якорь(client: ArchMapClient, api: FakeApi) -> None:
+    api.patch("/nodes/n2", node("n2", "Kafka", shape="broker",
+                                source={"repo": None, "path": None, "host": "kafka"}))
+
+    out = await tools.call(
+        "archmap_update_node",
+        {"project": "Ярмарка", "node_id": "n2", "source": {"host": "kafka:9092"}},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body == {"source": {"host": "kafka:9092"}}
+    check_node_contract("NodeUpdate", body)
+    assert "Якорь: имя зависимости kafka" in out
+
+
+async def test_пустой_объект_source_доезжает_как_очистка(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """⚠️ Фильтр «не None» отбросил бы {} вместе с незаполненными полями, и
+    просьба снять якорь провалилась бы МОЛЧА — с бодрым «обновлён» в ответе."""
+    api.patch("/nodes/n2", node("n2", "Ручной", source=None))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "source": {}}, client
+    )
+
+    assert json.loads(api.calls[-1].content) == {"source": {}}
+    assert "Якорь: нет — опознаётся по имени" in out
+
+
+async def test_якорь_без_прочих_полей_это_уже_правка(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # «Нечего менять» должно оставаться правдой: source — полноценная правка.
+    api.patch("/nodes/n2", node("n2", "Узел", source={"repo": "github.com/org/x",
+                                                     "path": None, "host": None}))
+
+    await tools.call(
+        "archmap_update_node",
+        {"project": "Ярмарка", "node_id": "n2", "source": {"repo": "github.com/org/x"}},
+        client,
+    )
+
+    assert json.loads(api.calls[-1].content)["source"]["repo"] == "github.com/org/x"
+
+
+async def test_отказ_бэкенда_доезжает_текстом(client: ArchMapClient, api: FakeApi) -> None:
+    """422 про адрес среды — это ОБЪЯСНЕНИЕ, чем плох якорь, а не код ошибки:
+    агент должен прочитать его и исправиться, а не гадать."""
+    detail = (
+        "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
+        "а не продукту — укажите имя, под которым продукт называет зависимость, "
+        "как в docker-compose или в имени k8s Service"
+    )
+    api.patch("/nodes/n2", httpx.Response(422, json={"detail": detail}))
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_update_node",
+            {"project": "Ярмарка", "node_id": "n2", "source": {"host": "localhost"}},
+            client,
+        )
+
+    assert "принадлежат среде" in str(exc.value)
+
+
+async def test_каталог_объявляет_якорь_обоим_инструментам() -> None:
+    by_name = {t["name"]: t for t in tools.TOOLS}
+    for name in ("archmap_create_node", "archmap_update_node"):
+        props = by_name[name]["schema"]["properties"]
+        assert set(props["source"]["properties"]) == {"repo", "path", "host"}
+        assert "снять якорь" in props["source"]["description"]
+    assert "якорь" in by_name["archmap_node"]["description"].lower()
+
+
+async def test_план_синка_называет_основание_и_якоря(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Синк — единственное место, где ошибка опознания сразу пишется в живой
+    проект: «нашли по имени» и «нашли по коду» — решения разной надёжности."""
+    plan = backend("schemas.project").SyncPreviewOut(
+        ok=True,
+        nodes_created=2, nodes_updated=2, nodes_unchanged=0,
+        nodes_missing=0, nodes_returned=0, edges_created=0,
+        nodes=[
+            {"path": "М / Заказы", "action": "update", "fields": ["description"],
+             "matched_by": "code"},
+            {"path": "М / Kafka", "action": "update", "fields": [], "matched_by": "dependency"},
+            {"path": "М / Оплата", "action": "create",
+             "source": {"repo": "github.com/y/pay", "path": "svc"}},
+            {"path": "М / Ручной", "action": "create"},
+        ],
+        edges=[],
+    ).model_dump(mode="json")
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", plan)
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "x"}]},
+        client,
+    )
+
+    assert "update: М / Заказы (description) — по коду" in out
+    assert "update: М / Kafka — по имени зависимости" in out
+    assert "create: М / Оплата — якорь: код github.com/y/pay, путь svc" in out
+    assert "create: М / Ручной — якоря нет — будет опознаваться по имени" in out
+
+
+async def test_экспорт_отдаёт_сам_yaml_а_не_одну_шапку(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Полевая находка Ф4: инструмент читал поле «yaml», которого в ExportResponse
+    нет, и агент получал шапку без схемы — импорт такого «экспорта» падал на 400.
+    Фикстура собрана схемой бэкенда: она и есть судья имени поля."""
+    export = backend("schemas.export").ExportResponse(
+        format="yaml", content="nodes:\n  - name: Маркетплейс\nedges: []\n"
+    ).model_dump(mode="json")
+    api.get("/export", export)
+
+    out = await tools.call("archmap_export", {"project": "Ярмарка"}, client)
+
+    assert "nodes:" in out and "name: Маркетплейс" in out

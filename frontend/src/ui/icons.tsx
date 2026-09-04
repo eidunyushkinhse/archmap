@@ -81,6 +81,15 @@ export const PlusIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M12 5 V19 M5 12 H19" /></svg>);
 
+// Знак вопроса в круге — ⓘ-кнопка пояснения у поля с неинтуитивной механикой
+// (ui/InfoPopover.tsx; заведена под поле «Якорь»). Круг тонкий, глиф внутри —
+// того же линейного семейства, что и остальные иконки хрома.
+export const QuestionCircleIcon = ({ size = 15 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.4 9.2a2.7 2.7 0 1 1 3.4 3.2c-.6.2-.9.7-.9 1.3v.5" />
+    <path d="M12 17.2v.2" strokeWidth={2.4} /></svg>);
+
 // Логомарк: синяя плитка с мини-графом (узел + объект-контейнер + ребро).
 export function LogoMark({ size = 30 }: IcoProps) {
   return (

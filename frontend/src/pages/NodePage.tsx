@@ -21,6 +21,7 @@ import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
+import AnchorField from "../components/anchor/AnchorField";
 import NodeDocsList, { StubMark } from "../components/NodeDocsList";
 import UndescribedDocs from "../components/UndescribedDocs";
 import { KIND_LABEL } from "../components/docsList";
@@ -43,6 +44,9 @@ import "./NodePage.css";
 // «Свойства» страницы показывают именно их — сигнатура обязана их различать.
 const nodeSig = (n: Node): string => JSON.stringify([
   n.name, n.shape, n.role, n.technology, n.status, n.description, n.is_external, n.openapi_spec,
+  // Якорь — тоже строка «Свойств» (Ф1): чужая смена якоря обязана освежить
+  // страницу, иначе поле показывало бы снятый или прежний ключ.
+  n.source_ref,
   [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation, d.version]),
 ]);
 
@@ -589,6 +593,18 @@ function NodePageInner({
                 </span>
               </>
             )}
+
+            {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. Стоит
+                среди свойств, а не в служебном углу: у ручного и агентского узла
+                поведение при импорте разное, и разницу должно быть видно. */}
+            <span className="np-term np-term--top">Якорь</span>
+            <span className="np-value">
+              <AnchorField
+                source={node.source}
+                isArchitect={isArchitect}
+                onSave={patch.commitSource}
+              />
+            </span>
 
             {/* Описание — последняя строка таблицы свойств */}
             <span className="np-term np-term--top">Описание</span>

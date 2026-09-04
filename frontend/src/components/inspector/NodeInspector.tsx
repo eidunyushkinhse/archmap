@@ -5,13 +5,14 @@
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
 import { useCallback, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { DeletionSnapshot, Node, NodeShape, NodeStatus, NodeUpdate } from "../../types";
+import type { DeletionSnapshot, Node, NodeShape, NodeSource, NodeStatus, NodeUpdate } from "../../types";
 import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
 import { ApiError, isConflict } from "../../api/client";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
+import AnchorField from "../anchor/AnchorField";
 import { useContainerChildren } from "../../pages/useContainerChildren";
 import "./inspector.css";
 
@@ -69,8 +70,11 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // (over перекрывает то, что ещё не доехало в стейт на момент blur). openapi_spec
   // переносим из beforeRef без изменений — документацией управляет страница узла;
   // схемы логики живут отдельным API (node_docs), не здесь.
+  // Возвращает ТЕКСТ ОТКАЗА или null при успехе: плашки панели оно выставляет
+  // само (как и раньше), а возврат нужен полю «Якорь» — там 422 показывается
+  // прямо под формой, где его исправляют. Остальные зовут через void.
   const save = useCallback(
-    async (over: Partial<NodeUpdate>) => {
+    async (over: Partial<NodeUpdate>): Promise<string | null> => {
       const before = beforeRef.current;
       const payload: NodeUpdate = {
         name: name.trim() || before.name,
@@ -92,14 +96,16 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         beforeRef.current = saved;
         setConflict(null);
         setError(null);
+        return null;
       } catch (e: unknown) {
         if (!isConflict(e)) {
           // Отказ с причиной (400: смена типа у узла с детьми / у базы со
           // структурой). Раньше прочие ошибки уходили молча — правка «не
           // срабатывала» без объяснения; показываем текст сервера плашкой.
           setConflict(null);
-          setError(e instanceof ApiError ? e.message : "Правка не сохранена");
-          return;
+          const текст = e instanceof ApiError ? e.message : "Правка не сохранена";
+          setError(текст);
+          return текст;
         }
         // 409: подтягиваем свежие данные (правка НЕ применилась — чужая работа цела),
         // показываем плашку; в историю ничего не кладём (onNodeSaved не зовём).
@@ -116,7 +122,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           // узел могли удалить — уровень догонит поллинг/ресинк
         }
         setError(null);
-        setConflict("Узел изменён в другой сессии — данные обновлены, повторите правку");
+        const текст = "Узел изменён в другой сессии — данные обновлены, повторите правку";
+        setConflict(текст);
+        return текст;
       }
     },
     [name, description, role, technology, isExternal, status, node.id, onNodeSaved],
@@ -346,6 +354,17 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           </Row>
         )}
       </dl>
+
+      {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. НЕ строкой
+          меты, а отдельным блоком во всю ширину панели: в колонке значения
+          (≈140px при терме 104px) репозиторий не помещается ни в чтении, ни в
+          форме — рвался посреди слова. Тот же компонент, что в карточке объекта. */}
+      <div className="insp-block-label">Якорь</div>
+      <AnchorField
+        source={node.source}
+        isArchitect={isArchitect}
+        onSave={(source: NodeSource | null) => save({ source })}
+      />
 
       {/* Документация: управление схемами логики и спеками — только на странице
           узла; из редактора ведёт туда единая точка входа «Открыть». */}

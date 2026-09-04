@@ -16,7 +16,8 @@ passthrough одного файла, нечувствительность к п�
 якоря не гасит спор сильного поля (К3), связь узла с собственным потомком — свой
 класс замечания вместо контейнерного (К4); Ф0 «Единого импорта»: происхождение
 вкладов с точностью до узла входного файла (node_contribs) — по нему семьи фактов
-архивов переедут на merged-узлы.
+архивов переедут на merged-узлы; Ф2 эпика якорей: ОСНОВАНИЕ склейки (code /
+dependency / name) в отчёте — доклад, не решение (порядконезависим).
 """
 
 import uuid
@@ -398,14 +399,14 @@ def test_якорь_сильнее_иерархии():
 
 def test_склеенный_узел_наследует_все_грани_источника():
     """Третий файл должен найти узел по той грани, которой не было в первом:
-    A знает git, B — образ, C ходит только по сетевому имени."""
+    A знает только код, B — код и имя зависимости, C ходит только по имени."""
     a = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc}\n")
-    b = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc, image: reg.io/svc}\n")
-    c = _parse("nodes:\n  - name: другое-имя\n    source: {image: reg.io/svc}\n")
+    b = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc, host: svc-net}\n")
+    c = _parse("nodes:\n  - name: другое-имя\n    source: {host: svc-net}\n")
     merged, _report = merge_imports([a, b, c])
 
     assert len(merged.nodes) == 1
-    assert merged.nodes[0].source_keys == ["git:github.com/org/svc", "img:reg.io/svc"]
+    assert merged.nodes[0].source_keys == ["git:github.com/org/svc", "host:svc-net"]
 
 
 def test_узлы_одного_файла_не_склеиваются_общим_якорем():
@@ -1753,7 +1754,7 @@ edges:
   - from: grafana-frontend
     to: grafana-server
 """
-# Полевая форма плагина: своё имя, своё репо, образ — и тот же сетевой хост, потому
+# Полевая форма плагина: своё имя, своё репо — и тот же сетевой хост, потому
 # что плагин живёт ВНУТРИ процесса продукта.
 _ПЛАГИН_ПОЛЕ = """
 nodes:
@@ -1761,7 +1762,6 @@ nodes:
     source:
       repo: https://github.com/alexanderzobnin/grafana-zabbix
       host: grafana
-      image: alexanderzobnin-zabbix-app
     children:
       - name: datasource
       - name: panel-triggers
@@ -1906,21 +1906,22 @@ def test_повторный_проход_стабилизации_сохраня
 
 def test_свидетель_не_сводит_тёзок_спорящих_напрямую():
     """Оборотная сторона стабилизации после К3: вклад-свидетель гасит противоречие
-    только там, где по К3 его нет. Третий файл знает «api» лишь по образу и не
-    противоречит ни одной команде — но связать через себя два разных репозитория он
-    не вправе, иначе К3 обходился бы транзитивностью union-find (A+свидетель,
-    свидетель+B → A и B в одной группе вопреки их прямому спору)."""
+    только там, где по К3 его нет. Третий файл знает «api» лишь по имени зависимости
+    и не противоречит ни одной команде (общего типа ключа с ними нет) — но связать
+    через себя два разных репозитория он не вправе, иначе К3 обходился бы
+    транзитивностью union-find (A+свидетель, свидетель+B → A и B в одной группе
+    вопреки их прямому спору)."""
     команда_a = (
         "nodes:\n  - name: Система\n    children:\n      - name: api\n"
-        "        source: {repo: github.com/team-a/api.git, host: api-a}\n"
+        "        source: {repo: github.com/team-a/api.git}\n"
     )
     команда_b = (
         "nodes:\n  - name: Система\n    children:\n      - name: api\n"
-        "        source: {repo: github.com/team-b/api.git, host: api-b}\n"
+        "        source: {repo: github.com/team-b/api.git}\n"
     )
     свидетель = (
         "nodes:\n  - name: Система\n    children:\n      - name: api\n"
-        "        source: {image: reg.io/api}\n"
+        "        source: {host: api-net}\n"
     )
     for порядок in permutations((команда_a, команда_b, свидетель)):
         merged, report = merge_imports([_parse(t) for t in порядок])
@@ -2373,3 +2374,133 @@ def test_снимок_одно_файлового_прогона_со_всеми
         "file_remarks": [(1, [], предупреждения)],
         "schema": ([], []),
     }
+
+
+def test_предупреждение_разбора_доезжает_до_отчёта_с_адресом_файла():
+    """Замечание РАЗБОРА (снятые виды якоря — образ и объект k8s) видно только
+    парсеру одного документа, а показывает замечания отчёт слияния. Проверяем, что
+    оно доехало и адресовано ТОМУ файлу, где найдено, — иначе агент второго
+    репозитория чинил бы чужой YAML."""
+    чистый = "nodes:\n  - name: Система\n    children:\n      - name: a\n"
+    со_старым = (
+        "nodes:\n  - name: Система\n    children:\n      - name: b\n"
+        "        source: {image: reg.io/b, host: b}\n"
+    )
+    _merged, report, errors = parse_and_merge([чистый, со_старым])
+
+    assert errors == []
+    пары = list(zip(report.warnings, report.warning_files, strict=True))
+    свои = [(w, f) for w, f in пары if "больше не якорь" in w]
+    assert свои == [("nodes[0].children[0].source: образ и деплоймент больше не якорь "
+                     "— поле проигнорировано", 1)]
+
+
+# ── Основание склейки словами (Ф2 docs/plan-anchor-ux.md) ────────────────────
+#
+# Мердж докладывает, ЧЕМ узлы признаны одним объектом: «code» (совпал ключ git),
+# «dependency» (совпал host), «name» (имя внутри одного родителя). Это доклад, а не
+# решение: ни один тест склейки выше от появления оснований не изменился.
+
+
+def _basis(merged: ParsedImport, report: MergeReport, path: str) -> str | None:
+    return report.node_basis[_path_list(merged).index(path)]
+
+
+def test_основание_склейки_по_коду():
+    """Один и тот же репозиторий у обоих файлов — сошлись по коду."""
+    a = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/org/api}\n"
+    )
+    b = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n        role: сервис\n"
+        "        source: {repo: github.com/org/api}\n"
+    )
+    merged, report = merge_imports([a, b])
+
+    assert _path_list(merged) == ["Система", "Система / api"]
+    assert _basis(merged, report, "Система / api") == "code"
+    # Корень якоря не имеет — его свело имя.
+    assert _basis(merged, report, "Система") == "name"
+    assert report.merged_paths == ["Система", "Система / api"]
+    assert report.merged_basis == ["name", "code"]
+
+
+def test_основание_склейки_по_имени_зависимости():
+    """Свой репозиторий знает только вызывающий, у заглушки соседа кода нет —
+    общей гранью остаётся имя зависимости."""
+    свой = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: app\n"
+        "        source: {repo: github.com/org/payments, host: payments}\n"
+    )
+    сосед = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: payments\n"
+        "        source: {host: payments}\n"
+    )
+    merged, report = merge_imports([свой, сосед])
+
+    assert _basis(merged, report, "Система / app") == "dependency"
+
+
+def test_основание_склейки_по_имени_и_узел_из_одного_файла():
+    """Якорей нет вовсе — решило имя. Узел, встреченный ровно в одном файле,
+    основания не имеет (склейки не было): None, а не «name»."""
+    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n")
+    b = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "      - name: одинокий\n"
+    )
+    merged, report = merge_imports([a, b])
+
+    assert _basis(merged, report, "Система / api") == "name"
+    assert _basis(merged, report, "Система / одинокий") is None
+    assert len(report.node_basis) == len(merged.nodes)
+
+
+def test_основание_склейки_сильнейшее_из_вкладов():
+    """Три файла: второй сошёлся с первым по коду, третий — только по имени.
+    Показываем СИЛЬНЕЙШЕЕ основание: узел всё-таки опознан по коду."""
+    a = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/org/api}\n"
+    )
+    b = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "        source: {repo: github.com/org/api}\n"
+    )
+    c = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n")
+    merged, report = merge_imports([a, b, c])
+
+    assert _path_list(merged) == ["Система", "Система / api"]
+    assert _basis(merged, report, "Система / api") == "code"
+
+
+def test_основание_не_влияет_на_склейку_при_любом_порядке_файлов():
+    """Сторож порядконезависимости (стабилизация v3): основание — доклад. При любой
+    перестановке файлов результат тот же, и основание узла тоже одно и то же."""
+    свой = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: app\n"
+        "        source: {repo: github.com/org/payments, host: payments}\n"
+    )
+    сосед = _parse(
+        "nodes:\n  - name: Система\n    children:\n      - name: payments\n"
+        "        source: {host: payments}\n"
+    )
+    третий = _parse("nodes:\n  - name: Система\n    children:\n      - name: web\n")
+    исходы = set()
+    for перестановка in permutations([свой, сосед, третий]):
+        merged, report = merge_imports(list(перестановка))
+        assert len(report.node_basis) == len(merged.nodes)
+        # Имя склеенного узла берётся у СОЗДАТЕЛЯ и от порядка зависит осознанно
+        # («app» либо «payments»), поэтому сверяем набор оснований, а не пути.
+        исходы.add(tuple(sorted(report.node_basis, key=str)))
+    assert исходы == {(None, "dependency", "name")}
+
+
+def test_основание_склейки_один_файл_пусто():
+    """Passthrough одного документа: склеек нет, оснований тоже — по узлу на None."""
+    один = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n")
+    merged, report = merge_imports([один])
+
+    assert report.node_basis == [None, None]
+    assert report.merged_basis == []

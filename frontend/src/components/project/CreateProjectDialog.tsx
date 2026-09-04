@@ -546,7 +546,8 @@ function failedPreview(msg: string, files: number): UnifiedPreviewOut {
     name_source: "fields",
     c4: {
       ok: false, errors: [msg], node_count: 0, edge_count: 0, roots: [], node_names: [],
-      files, merged_count: 0, merged: [], conflicts: [], warnings: [], dropped_edges: 0,
+      files, merged_count: 0, merged: [], merged_nodes: [], nodes_without_anchor: 0,
+      conflicts: [], warnings: [], dropped_edges: 0,
       file_remarks: [], schema_errors: [msg], schema_warnings: [],
     },
   };

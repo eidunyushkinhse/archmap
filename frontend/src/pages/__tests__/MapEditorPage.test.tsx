@@ -356,6 +356,29 @@ describe("MapEditorPage: правка объекта в истории", () => {
     expect(nodesApi.update).toHaveBeenCalledWith("n1", {
       name: "Было", description: "опис", role: "ядро", technology: "Python",
       openapi_spec: "openapi: 3.0.0", is_external: false, shape: "service", status: "existing",
+      // Якорь у узла без якоря — явный null: не прислать поле значит «не трогать»,
+      // и откат правки якоря не вернул бы прежний.
+      source: null,
     });
+  });
+
+  it("Undo правки якоря возвращает прежний якорь, Redo — новый", async () => {
+    // Якорь — то, чем объект опознают при обновлениях из кода: если он не попал
+    // в снимок компенсации, Undo молча оставил бы объект с чужим отпечатком.
+    const before = node("n1", { source: { repo: "github.com/org/repo", path: null, host: null }, version: 1 });
+    const saved = node("n1", { source: { repo: null, path: null, host: "kafka" }, version: 2 });
+    const cmd = await поправить(before, saved);
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.undo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({
+      source: { repo: "github.com/org/repo", path: null, host: null },
+    }));
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.redo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({
+      source: { repo: null, path: null, host: "kafka" },
+    }));
   });
 });

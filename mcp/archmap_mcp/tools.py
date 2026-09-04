@@ -173,6 +173,10 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         f"Проект «{pname}»",
         f"Путь: {render.path_of(str(node['id']), by_id)}",
         f"Объект: {render.node_line(node)}",
+        # Якорь — чем ArchMap опознает объект при следующем обновлении из кода.
+        # Печатаем ВСЕГДА, в том числе «нет»: у объекта без якоря переименование
+        # рождает дубль, и агент вправе знать это до правки, а не после.
+        render.anchor_line(node),
     ]
     if node.get("description"):
         out.append(f"Описание: {node['description']}")
@@ -280,7 +284,10 @@ async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     path = f"/export/{args['node_id']}" if args.get("node_id") else "/export"
     data = await client.request("GET", path, project_id=pid)
-    return f"# Проект «{pname}» — семантический экспорт\n{data.get('yaml', '')}"
+    # ⚠️ Поле контракта — content (ExportResponse), НЕ «yaml»: по несуществующему
+    # ключу инструмент годами отдавал агенту пустой экспорт с одной шапкой, и
+    # ловилось это только живым прогоном (подменённый транспорт форму не судит).
+    return f"# Проект «{pname}» — семантический экспорт\n{data.get('content', '')}"
 
 
 async def t_export_archive(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -486,7 +493,7 @@ async def t_sync_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     body = _sync_body(args)
     data = await client.request("POST", f"/projects/{pid}/sync/preview", project_id=pid, json=body)
-    return f"Проект «{pname}» — план обновления из кода\n\n" + _sync_report(data, applied=False)
+    return f"Проект «{pname}» — план обновления из кода\n\n" + _sync_report(data)
 
 
 async def t_sync_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -495,7 +502,7 @@ async def t_sync_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
     if args.get("base_graph_rev") is not None:
         body["base_graph_rev"] = args["base_graph_rev"]
     data = await client.request("POST", f"/projects/{pid}/sync/apply", project_id=pid, json=body)
-    return f"Проект «{pname}» обновлён из кода\n\n" + _sync_report(data, applied=True)
+    return f"Проект «{pname}» обновлён из кода\n\n" + _sync_applied_report(data)
 
 
 def _sync_body(args: dict[str, Any]) -> dict[str, Any]:
@@ -514,17 +521,46 @@ def _sync_body(args: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
-def _sync_report(data: dict[str, Any], *, applied: bool) -> str:
-    verb = "Сделано" if applied else "Будет сделано"
-    counts = [
-        f"создать объектов: {data.get('nodes_created', 0)}",
-        f"обновить: {data.get('nodes_updated', 0)}",
-        f"без изменений: {data.get('nodes_unchanged', 0)}",
-        f"пропало из кода: {data.get('nodes_missing', 0)}",
-        f"вернулось: {data.get('nodes_returned', 0)}",
-        f"связей создать: {data.get('edges_created', 0)}",
-    ]
-    out = [f"{verb}: " + ", ".join(counts)]
+def _sync_basis(action: dict[str, Any]) -> str:
+    """Хвост строки плана: ЧЕМ узел опознан (update) либо КАКОЙ якорь он получит
+    (create). Синк — единственное место, где ошибка опознания сразу пишется в
+    живой проект: «нашли по имени» и «нашли по коду» — разной надёжности решения,
+    и агенту незачем угадывать, какое из них применилось (Ф2/Ф4 якорей)."""
+    kind = action.get("action")
+    if kind == "update" and action.get("matched_by"):
+        return " — " + render.basis_label(str(action["matched_by"]), str(action.get("path", "")))
+    if kind == "create":
+        return " — " + render.anchor_note(action.get("source"))
+    return ""
+
+
+# Сколько действий каждого рода — и КАК они называются в контракте. ⚠️ Ключи
+# счётчиков собираются из ИМЕНИ ДЕЙСТВИЯ («create», не «created»): SyncPlan.summary
+# складывает их как f"nodes_{action}". Раньше отчёт читал «nodes_created» и прочие
+# несуществующие ключи прямо из корня ответа — и печатал агенту сплошные нули на
+# любом плане (полевая находка Ф4; на моках такое не видно).
+SYNC_COUNTS: list[tuple[str, str]] = [
+    ("nodes_create", "создать объектов"),
+    ("nodes_update", "обновить"),
+    ("nodes_unchanged", "без изменений"),
+    ("nodes_missing", "пропало из кода"),
+    ("nodes_returned", "вернулось"),
+    ("edges_create", "связей создать"),
+]
+
+
+def _sync_report(data: dict[str, Any]) -> str:
+    """План синка (SyncPreviewOut) словами: счётчики, действия с основанием матча."""
+    if not data.get("ok", True):
+        rows = [str(e) for e in (data.get("errors") or [])] or ["причина не названа"]
+        return "Прогон разобрать не удалось:\n" + "\n".join("  • " + r for r in rows)
+
+    raw = data.get("summary")
+    summary: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    out = ["Будет сделано: " + ", ".join(f"{title}: {summary.get(key, 0)}" for key, title in SYNC_COUNTS)]
+    if data.get("is_noop"):
+        # Фикспойнт синка: повторный прогон на том же входе обязан быть пустым.
+        out.append("Схема уже соответствует прогону — менять нечего.")
     changed = [
         a for a in data.get("nodes", []) if a.get("action") in ("create", "update", "missing")
     ]
@@ -533,11 +569,47 @@ def _sync_report(data: dict[str, Any], *, applied: bool) -> str:
         out.append("ОБЪЕКТЫ:")
         for a in changed[:60]:
             fields = f" ({', '.join(a['fields'])})" if a.get("fields") else ""
-            out.append(f"  {a['action']}: {a['path']}{fields}")
+            out.append(f"  {a['action']}: {a['path']}{fields}{_sync_basis(a)}")
         if len(changed) > 60:
             out.append(f"  … и ещё {len(changed) - 60}")
-    if not applied:
-        out.append("\nНичего не записано — для записи вызовите archmap_sync_apply.")
+    for key, title in (("conflicts", "Расхождения (решены правилом)"), ("warnings", "Проверьте")):
+        rows = [str(r) for r in (data.get(key) or [])]
+        if rows:
+            out.append("")
+            out.append(f"{title} ({len(rows)}):")
+            out.extend("  • " + r for r in rows[:20])
+    out.append(
+        f"\nНичего не записано — для записи вызовите archmap_sync_apply "
+        f"с base_graph_rev={data.get('graph_rev', 0)} (защита от параллельной правки: "
+        "разошлась схема — 409, тогда перечитайте план)."
+    )
+    return "\n".join(out)
+
+
+# Что вернулось из применения (SyncApplyOut). Форма СВОЯ, не «план ещё раз»:
+# сервер пересчитывает план у себя и докладывает списками путей, а не действиями.
+SYNC_APPLIED: list[tuple[str, str]] = [
+    ("created_nodes", "Создано объектов"),
+    ("updated_nodes", "Обновлено"),
+    ("deprecated_nodes", "Помечено выводимыми"),
+    ("created_edges", "Создано связей"),
+    ("skipped", "Пропущено (цель исчезла между расчётом и записью)"),
+]
+
+
+def _sync_applied_report(data: dict[str, Any]) -> str:
+    out: list[str] = []
+    for key, title in SYNC_APPLIED:
+        rows = [str(r) for r in (data.get(key) or [])]
+        if not rows:
+            continue
+        out.append(f"{title}: {len(rows)}")
+        out.extend("  • " + r for r in rows[:40])
+        if len(rows) > 40:
+            out.append(f"  … и ещё {len(rows) - 40}")
+    if not out:
+        out.append("Ничего не изменилось — схема уже соответствовала прогону.")
+    out.append(f"\nНовый курсор схемы: graph_rev={data.get('graph_rev', 0)}.")
     return "\n".join(out)
 
 
@@ -704,8 +776,16 @@ async def t_create_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         "is_external": bool(args.get("is_external", False)),
         "status": args.get("status", "existing"),
     }
+    # Якорь при создании (NodeCreate.source): объект рождается опознаваемым из
+    # кода, без второго вызова. Пустого объекта здесь не бывает — «создать без
+    # якоря» это просто не передать source.
+    if args.get("source"):
+        body["source"] = args["source"]
     data = await client.request("POST", "/nodes/", project_id=pid, json=body)
-    return f"В проекте «{pname}» создан объект «{data['name']}». id={data['id']}"
+    return (
+        f"В проекте «{pname}» создан объект «{data['name']}». id={data['id']}\n"
+        + render.anchor_line(data)
+    )
 
 
 async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -715,10 +795,16 @@ async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         for k in ("name", "description", "role", "technology", "shape", "status", "is_external")
         if args.get(k) is not None
     }
+    # ⚠️ Якорь — ОТДЕЛЬНОЙ веткой, мимо фильтра «не None»: пустой объект {} у
+    # source не пустая правка, а ОЧИСТКА якоря, и отбросить его значило бы молча
+    # проигнорировать просьбу. Отсутствие ключа source якорь не трогает.
+    if "source" in args and args["source"] is not None:
+        body["source"] = args["source"]
     if not body:
         raise ArchMapError("Нечего менять: не передано ни одного поля.")
     data = await client.request("PATCH", f"/nodes/{args['node_id']}", project_id=pid, json=body)
-    return f"В проекте «{pname}» обновлён «{data['name']}»: {', '.join(body)}."
+    tail = "\n" + render.anchor_line(data) if "source" in body else ""
+    return f"В проекте «{pname}» обновлён «{data['name']}»: {', '.join(body)}." + tail
 
 
 async def t_create_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -775,6 +861,30 @@ OVERWRITE_ARG = {
     "description": "Перезаписывать уже заполненные поля. По умолчанию false — описанное раньше побеждает.",
 }
 
+# ЯКОРЬ объекта (docs/plan-anchor-ux.md). Описание — выжимка принятого текста
+# пояснения: агент задаёт якорь по тем же правилам, что человек в карточке
+# объекта, и должен знать про очистку пустым объектом (иначе снять якорь нечем).
+SOURCE_ARG = {
+    "type": "object",
+    "description": (
+        "Якорь объекта — чем ArchMap опознаёт его при обновлениях из кода "
+        "(переименованный сервис остаётся тем же объектом, а не дублем). Видов два, "
+        "и они взаимоисключающи: КОД — repo «github.com/org/repo» (можно вставить "
+        "адрес клона целиком) и необязательный path до каталога компонента внутри "
+        "репозитория («src/api»); ИМЯ ЗАВИСИМОСТИ — host: одно имя без порта и схемы, "
+        "как в docker-compose или в имени k8s Service («postgres», «kafka», «payments»), "
+        "для базы, брокера или соседнего продукта, чьего кода в продукте нет. "
+        "Адреса сред (localhost, 127.0.0.1, конкретные серверы) якорем не бывают — "
+        "будет отказ. Пустой объект {} — снять якорь (объект вернётся к опознаванию "
+        "по имени внутри контейнера)."
+    ),
+    "properties": {
+        "repo": {"type": "string"},
+        "path": {"type": "string"},
+        "host": {"type": "string"},
+    },
+}
+
 FILES_ARG = {
     "type": "array",
     "description": "Файлы прогона агента: [{name, content}].",
@@ -822,7 +932,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_node",
-        "description": "Карточка объекта: путь, мета, входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие схемы в бизнес-процессах), процессы, в которых участвует сам объект, наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
+        "description": "Карточка объекта: путь, мета, якорь (чем объект опознаётся при обновлениях из кода — «код github.com/org/repo, путь src/api», «имя зависимости postgres» либо «нет — опознаётся по имени»), входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие схемы в бизнес-процессах), процессы, в которых участвует сам объект, наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
         "schema": {
             "type": "object",
             "properties": {
@@ -1209,7 +1319,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_create_node",
-        "description": "Создать один объект. parent_id — внутри какого объекта (без него — корневой уровень). shape: service | database | broker | person; person ВСЕГДА корневой (человек живёт за границей системы). status: existing | planned | deprecated.",
+        "description": "Создать один объект. parent_id — внутри какого объекта (без него — корневой уровень). shape: service | database | broker | person; person ВСЕГДА корневой (человек живёт за границей системы). status: existing | planned | deprecated. source — якорь объекта (два вида, см. аргумент): объект сразу становится опознаваемым при обновлениях из кода, без второго вызова.",
         "schema": {
             "type": "object",
             "properties": {
@@ -1222,6 +1332,7 @@ TOOLS: list[dict[str, Any]] = [
                 "shape": {"type": "string", "enum": ["service", "database", "broker", "person"]},
                 "is_external": {"type": "boolean"},
                 "status": {"type": "string", "enum": ["existing", "planned", "deprecated"]},
+                "source": SOURCE_ARG,
             },
             "required": ["project", "name"],
         },
@@ -1229,7 +1340,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_update_node",
-        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность. Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
+        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность и ЯКОРЬ (source — два вида: код репозитория с путём либо имя зависимости; пустой объект {} снимает якорь). Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
         "schema": {
             "type": "object",
             "properties": {
@@ -1242,6 +1353,7 @@ TOOLS: list[dict[str, Any]] = [
                 "shape": {"type": "string", "enum": ["service", "database", "broker", "person"]},
                 "status": {"type": "string", "enum": ["existing", "planned", "deprecated"]},
                 "is_external": {"type": "boolean"},
+                "source": SOURCE_ARG,
             },
             "required": ["project", "node_id"],
         },

@@ -115,7 +115,7 @@ class TestIdentity:
 
         assert _by_action(plan, "create") == [] and _by_action(plan, "missing") == []
         act = next(a for a in plan.nodes if a.path.endswith("billing"))
-        assert act.action == "unchanged" and act.matched_by == "source"
+        assert act.action == "unchanged" and act.matched_by == "code"
         # Переименование ВИДНО, но по умолчанию не применяется.
         assert any("назван «billing»" in c and "оставляем как есть" in c for c in plan.conflicts)
 
@@ -292,6 +292,17 @@ def test_sync_preview_endpoint(db):
     assert plan.summary["edges_create"] == 1
     # Ничего не записано: схема осталась прежней.
     assert db.query(Node).filter(Node.project_id == p.id).count() == 4
+    # Ф2 якорей: ответ роутера несёт основание матча и РАЗОБРАННЫЙ якорь — по ним
+    # превью говорит «нашли по коду …» и «якорь: имя зависимости …».
+    по_пути = {a.path: a for a in plan.nodes}
+    assert по_пути["Система / payments"].matched_by == "code"
+    assert по_пути["Система / payments"].source is not None
+    assert по_пути["Система / payments"].source.repo == "github.com/org/payments"
+    assert по_пути["Система / orders-db"].matched_by == "dependency"
+    новый = по_пути["Система / cache"]
+    assert новый.action == "create" and новый.matched_by is None
+    assert новый.source is not None and новый.source.host == "cache"
+    assert по_пути["Система"].source is None  # у корня якоря нет
 
 
 def test_sync_preview_broken_yaml_and_404(db):
@@ -362,3 +373,70 @@ def test_обычный_узел_вернувшимся_не_считается(
 
     act = next(a for a in plan.nodes if a.path.endswith("seed-data"))
     assert act.returned is False and act.action == "unchanged"
+
+
+# ── Основание матча словами и якорь действия (Ф2 docs/plan-anchor-ux.md) ─────
+
+
+class TestMatchBasis:
+    """План называет, ЧЕМ опознан каждый живой узел, — словарём двух видов якоря.
+
+    Значений ровно три: «code» (сошёлся репозиторий), «dependency» (имя
+    зависимости) и «name» (якорей нет, решило имя внутри смэтченного родителя)."""
+
+    def test_три_основания_в_одном_прогоне(self):
+        parsed = _parse(RUN)
+        nodes, edges = _seed(parsed)
+        # «orders-db» знает только имя зависимости, у корня якоря нет вовсе.
+        plan = build_sync_plan(nodes, edges, parsed)
+
+        основания = {a.path: a.matched_by for a in plan.nodes if a.action != "missing"}
+        assert основания == {
+            "Система": "name",
+            "Система / payments": "code",
+            "Система / orders": "code",
+            "Система / orders-db": "dependency",
+        }
+
+    def test_якорь_действия_разобран_в_контракт(self):
+        """Строке «якорь: код …» нужен разобранный source, а не технический ключ."""
+        parsed = _parse(RUN)
+        nodes, edges = _seed(parsed)
+        plan = build_sync_plan(nodes, edges, parsed)
+
+        по_пути = {a.path: a.source_ref for a in plan.nodes}
+        assert по_пути["Система / payments"] == "git:github.com/org/payments"
+        assert по_пути["Система / orders-db"] == "host:orders-db"
+        assert по_пути["Система"] is None  # у корня якоря нет — опознают по имени
+
+    def test_тексты_называют_вид_якоря_словами(self):
+        """Хвост Ф0: план звал якорь «репозиторию» и «сетевому имени» — словами
+        снятой модели. Теперь — «коду» и «имени зависимости», как везде."""
+        parsed = _parse(RUN)
+        nodes, edges = _seed(parsed)
+        renamed = _parse(
+            RUN.replace("name: payments", "name: billing").replace("to: payments", "to: billing")
+        )
+
+        plan = build_sync_plan(nodes, edges, renamed)
+
+        строка = next(c for c in plan.conflicts if "billing" in c)
+        assert "узнали по коду github.com/org/payments" in строка
+        assert "репозитор" not in строка
+
+    def test_текст_тёзки_называет_имя_зависимости(self):
+        """Тот же словарь в предупреждении о тёзке с противоречащим якорем."""
+        parsed = _parse(RUN)
+        nodes, edges = _seed(parsed)
+        alien = _parse(
+            "nodes:\n"
+            "  - name: Система\n"
+            "    children:\n"
+            "      - name: orders-db\n"
+            "        source: {host: other-db}\n"
+        )
+        plan = build_sync_plan(nodes, edges, alien)
+
+        предупреждение = next(w for w in plan.warnings if "orders-db" in w)
+        assert "относится к другому имени зависимости orders-db" in предупреждение
+        assert "сетевому имени" not in предупреждение

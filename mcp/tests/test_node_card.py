@@ -16,7 +16,7 @@ from typing import Any
 
 from conftest import FakeApi, backend, node
 
-from archmap_mcp import tools
+from archmap_mcp import render, tools
 from archmap_mcp.client import ArchMapClient
 
 NODE = "33333333-3333-3333-3333-333333333333"
@@ -290,3 +290,73 @@ async def test_без_процессов_раздела_в_карточке_не
 
     assert "УЧАСТВУЕТ В ПРОЦЕССАХ" not in out
     assert f"/nodes/{NODE}/processes" in " ".join(paths(api))
+
+
+# ── Якорь объекта ────────────────────────────────────────────────────────────
+#
+# Якорь — чем ArchMap опознаёт объект при обновлениях из кода. В карточке до Ф4
+# его не было вовсе: агент правил имя объекта, не зная, переживёт ли объект эту
+# правку как тот же самый или следующий прогон сделает из него дубль.
+
+def anchored(api: FakeApi, source: dict[str, Any] | None, source_ref: str | None) -> None:
+    """Карточка узла с ЯКОРЕМ. Форма ответа сверяется NodeResponse бэкенда:
+    подменённый транспорт её не валидирует, и без сверки тест зелён на выдумке."""
+    target = node(NODE, "Оркестратор заказа", shape="service")
+    target |= {
+        "docs": [], "child_count": 0, "has_children": False,
+        "source_ref": source_ref, "source": source, "version": 3,
+        "created_at": "2026-09-04T10:00:00", "updated_at": "2026-09-04T10:00:00",
+    }
+    backend("schemas.node").NodeResponse.model_validate(target)
+    api.get(f"/nodes/{NODE}", target)
+    api.get("/nodes/all", [target])
+    api.get(f"/nodes/{NODE}/edges", [])
+    api.get(f"/nodes/{NODE}/docs", [])
+    api.get(f"/nodes/{NODE}/processes", [])
+    api.get(f"/nodes/{NODE}/config", [])
+
+
+async def test_карточка_печатает_якорь_кода(client: ArchMapClient, api: FakeApi) -> None:
+    anchored(
+        api,
+        {"repo": "github.com/org/repo", "path": "src/api", "host": None},
+        "git:github.com/org/repo#src/api",
+    )
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Якорь: код github.com/org/repo, путь src/api" in out
+
+
+async def test_карточка_печатает_имя_зависимости(client: ArchMapClient, api: FakeApi) -> None:
+    anchored(api, {"repo": None, "path": None, "host": "postgres"}, "host:postgres")
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Якорь: имя зависимости postgres" in out
+
+
+async def test_без_якоря_карточка_называет_последствие(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Не «пусто», а по чему объект тогда узнают: молчание тут читается как
+    # «якорь есть», и агент правит имя, не зная цены правки.
+    anchored(api, None, None)
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Якорь: нет — опознаётся по имени" in out
+
+
+async def test_слова_якоря_те_же_что_в_интерфейсе() -> None:
+    """N36 docs/specs/node.md: MCP и экран называют якорь одинаково. Судья —
+    сам словарь фронта (anchorText.ts), а не память автора теста."""
+    text = (
+        Path(__file__).resolve().parents[2]
+        / "frontend/src/components/anchor/anchorText.ts"
+    ).read_text(encoding="utf-8")
+    assert 'code: "код", dependency: "имя зависимости"' in text
+    assert f'NO_ANCHOR = "{render.NO_ANCHOR}"' in text
+    for word in render.BASIS_LABEL.values():
+        assert f'"{word}"' in text
+    assert "якоря нет — будет опознаваться по имени" in text

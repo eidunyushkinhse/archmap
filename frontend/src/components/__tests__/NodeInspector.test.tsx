@@ -17,6 +17,8 @@ vi.mock("../../api/nodes", () => ({
     getDescendants: vi.fn(() => Promise.resolve([])),
     deletionSnapshot: vi.fn(),
     delete: vi.fn(),
+    // Живая нормализация якоря: форма поля «Якорь» зовёт её при вводе.
+    anchorPreview: vi.fn(),
   },
 }));
 
@@ -98,5 +100,44 @@ describe("NodeInspector: смена типа", () => {
     setup(makeNode({ shape: "person" }), false);
     await waitFor(() => expect(screen.getAllByText("Пользователь").length).toBeGreaterThan(0));
     expect(screen.queryByRole("button", { name: /Пользователь/ })).toBeNull();
+  });
+});
+
+
+// ── Якорь ───────────────────────────────────────────────────────────────────
+// Та же строка «Якорь», что и в карточке объекта (один компонент на оба места):
+// в редакторе она правится не выходя с карты и уходит тем же save с CAS.
+describe("NodeInspector: якорь", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("показывает якорь узла и правит его тем же PATCH с base_version", async () => {
+    const n = makeNode({ shape: "service", source: { repo: null, path: null, host: "kafka" }, version: 3 });
+    vi.mocked(nodesApi.anchorPreview).mockResolvedValue({
+      source: { repo: "github.com/org/repo", path: null, host: null }, kind: "code", key: "git:github.com/org/repo",
+    });
+    vi.mocked(nodesApi.update).mockResolvedValue(
+      makeNode({ source: { repo: "github.com/org/repo", path: null, host: null }, version: 4 }),
+    );
+    render(<NodeInspector node={n} isArchitect {...cb} />);
+
+    expect(screen.getByText("имя зависимости:")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Код" }));
+    await userEvent.type(screen.getByLabelText("Репозиторий"), "github.com/org/repo");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({
+      source: { repo: "github.com/org/repo", path: null },
+      base_version: 3,
+    });
+    expect(cb.onNodeSaved).toHaveBeenCalled();
+  });
+
+  it("наблюдателю якорь только читается", () => {
+    const n = makeNode({ shape: "service", source: { repo: "github.com/org/repo", path: null, host: null } });
+    render(<NodeInspector node={n} isArchitect={false} {...cb} />);
+    expect(screen.getByText("код:")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
   });
 });

@@ -3,7 +3,7 @@
 // свежие данные и показывает конфликт-баннер. БЕЗ undo (правки на страницах в историю
 // редактора не попадают — ТЗ, решение Ф8-Б).
 import { useCallback, useRef, useState } from "react";
-import type { Node, NodeDocMeta, NodeUpdate } from "../types";
+import type { Node, NodeDocMeta, NodeSource, NodeUpdate } from "../types";
 import { nodesApi } from "../api/nodes";
 import { ApiError, isConflict } from "../api/client";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
@@ -36,6 +36,10 @@ interface NodePatch {
   // Смена типа узла (форма C4): структурная правка со своими запретами на сервере
   // (дети / описанная структура БД) — отказ приезжает в error, не молчанием.
   pickShape: (sh: Node["shape"]) => void;
+  // Якорь (поле «Якорь», components/anchor). Возвращает текст отказа — или null,
+  // если сохранилось: 422 обязан остаться ПОД ФОРМОЙ, где его исправляют, а не
+  // только в общей плашке страницы. null в аргументе — очистка якоря.
+  commitSource: (source: NodeSource | null) => Promise<string | null>;
   // Конфликт CAS
   conflict: string | null;
   // Отказ сервера, НЕ конфликт версий (400 с причиной: смена типа у контейнера,
@@ -81,8 +85,11 @@ export function useNodePatch(
     setShape(fresh.shape);
   }, []);
 
+  // Возвращает ТЕКСТ ОТКАЗА или null при успехе. Плашки conflict/error оно
+  // выставляет само (как и раньше); возврат нужен полям, которые показывают
+  // отказ у себя (якорь) — остальные зовут через void и его игнорируют.
   const save = useCallback(
-    async (over: Partial<NodeUpdate>) => {
+    async (over: Partial<NodeUpdate>): Promise<string | null> => {
       const before = beforeRef.current;
       const payload: NodeUpdate = {
         name: name.trim() || before.name,
@@ -103,6 +110,7 @@ export function useNodePatch(
         setConflict(null);
         setError(null);
         onSaved?.(saved);
+        return null;
       } catch (e: unknown) {
         if (!isConflict(e)) {
           // Не конфликт версий, а ОТКАЗ с причиной (400: смена типа у узла с детьми
@@ -112,8 +120,9 @@ export function useNodePatch(
           // (форма): иначе интерфейс показывал бы тип, которого в БД нет.
           setShape(beforeRef.current.shape);
           setConflict(null);
-          setError(e instanceof ApiError ? e.message : "Правка не сохранена");
-          return;
+          const текст = e instanceof ApiError ? e.message : "Правка не сохранена";
+          setError(текст);
+          return текст;
         }
         try {
           refresh(await nodesApi.get(before.id));
@@ -121,7 +130,9 @@ export function useNodePatch(
           // узел могли удалить
         }
         setError(null);
-        setConflict("Узел изменён в другой сессии — данные обновлены, повторите правку");
+        const текст = "Узел изменён в другой сессии — данные обновлены, повторите правку";
+        setConflict(текст);
+        return текст;
       }
     },
     [name, description, role, technology, isExternal, status, shape, onSaved, refresh],
@@ -172,6 +183,14 @@ export function useNodePatch(
     void save({ shape: sh });
   }, [shape, save]);
 
+  // Якорь в общий payload НЕ входит осознанно: поле source, не присланное в
+  // PATCH, якорь не трогает — иначе каждая правка роли переписывала бы отпечаток
+  // прогона агента. Кладём его только здесь, через over.
+  const commitSource = useCallback(
+    (source: NodeSource | null) => save({ source }),
+    [save],
+  );
+
   const applyDocEvent = useCallback((evt: NodeDocEvent) => {
     const patchDocs = (mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) => {
       setNode((n) => ({ ...n, docs: mut(n.docs) }));
@@ -186,7 +205,7 @@ export function useNodePatch(
     name, description, role, technology, isExternal, status, shape,
     setName, setDescription, setRole, setTechnology, setIsExternal, setStatus,
     commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal,
-    pickStatus, pickShape,
+    pickStatus, pickShape, commitSource,
     conflict, error, node, applyDocEvent, refresh,
   };
 }

@@ -120,6 +120,14 @@ export const withoutPersons = (nodes: Node[]): Node[] =>
 export type NodeCreate = Schemas["NodeCreate"];
 export type NodeUpdate = Schemas["NodeUpdate"];
 
+// ЯКОРЬ узла — чем ArchMap опознаёт объект при обновлениях из кода (импорт,
+// слияние репозиториев, догрузка архивов, синк). Видов ровно два и они
+// взаимоисключающи: код (repo + необязательный path) и имя зависимости (host).
+// В ответе сервера заполнена ровно одна сторона; в запросе прислать обе — 422.
+export type NodeSource = Schemas["NodeSource"];
+// Ответ dry-run проверки якоря: что запишется, если сохранить форму как есть.
+export type AnchorPreviewOut = Schemas["AnchorPreviewOut"];
+
 // Именованные схемы логики узла (node_docs): мета едет в Node.docs, полный док
 // (с контентом) — лениво GET-ом при открытии оверлея «Логика».
 export type NodeDoc = Schemas["NodeDocResponse"];

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import reparent, restore, tree
+from app import identity, reparent, restore, tree
 from app.alerts import compute_alerts
 from app.auth import get_current_user, require_architect
 from app.context_graph import build_context_graph
@@ -23,10 +23,12 @@ from app.models.view_layout import ViewLayoutItem
 from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
+    AnchorPreviewOut,
     GraphResponse,
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
+    NodeSource,
     NodeUpdate,
     TransitionApplyIn,
     TransitionApplyOut,
@@ -97,7 +99,13 @@ def create_node(
         if not parent:
             raise HTTPException(status_code=404, detail="Родительский узел не найден")
     # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
-    node = Node(**payload.model_dump(exclude={"pos_x", "pos_y"}), project_id=project.id)
+    # Якорь — не колонка: блок source приезжает разобранным по видам, а хранится
+    # каноническим ключом (та же функция и те же отказы 422, что у PATCH).
+    node = Node(
+        **payload.model_dump(exclude={"pos_x", "pos_y", "source"}),
+        source_ref=_source_ref_of(payload.source.model_dump() if payload.source else None),
+        project_id=project.id,
+    )
     db.add(node)
     db.flush()
     # Координаты дропа шаблона — строкой раскладки в вид РОДИТЕЛЯ (R3: единое
@@ -319,6 +327,69 @@ def get_alerts(
     return compute_alerts(db, project.id)
 
 
+def _source_ref_of(raw: dict | None) -> str | None:
+    """Блок source из PATCH → канонический ключ якоря (или None — очистка).
+
+    Отказы 422 с текстами принятого пояснения (docs/plan-anchor-ux.md, раздел
+    «Как заполнять»): вид якоря один на объект, путь живёт только при
+    репозитории, а адреса сред якорем не бывают. Валидация здесь, а не
+    pydantic-валидатором схемы, ради общего формата ошибки {"detail": "…"} —
+    список ошибок pydantic человеку в форме не показать."""
+    if raw is None:
+        return None
+    src = identity.SourceRef(repo=raw.get("repo"), path=raw.get("path"), host=raw.get("host"))
+    if src.empty:
+        return None  # объект без значимых полей — та же очистка, что и null
+    if src.repo and src.host:
+        raise HTTPException(
+            status_code=422,
+            detail="Якорь одного вида: либо код (репозиторий и путь), либо имя зависимости",
+        )
+    if src.path and not src.repo:
+        raise HTTPException(status_code=422, detail="Путь задаётся вместе с репозиторием")
+    norm = identity.normalized(src)
+    if src.host and not norm.host:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
+                "а не продукту — укажите имя, под которым продукт называет зависимость, "
+                "как в docker-compose или в имени k8s Service"
+            ),
+        )
+    if src.repo and not norm.repo:
+        raise HTTPException(
+            status_code=422,
+            detail="Репозиторий в виде github.com/org/repo или адрес клона целиком",
+        )
+    return identity.canonical_key(src)
+
+
+@router.post("/anchor-preview", response_model=AnchorPreviewOut)
+def anchor_preview(
+    payload: NodeSource,
+    _: User = Depends(get_current_user),
+    __: Project = Depends(get_current_project),
+) -> AnchorPreviewOut:
+    """Что ArchMap запишет в якорь, если сохранить эту форму, — БЕЗ записи.
+
+    Живая нормализация в форме поля «Якорь»: вставленный адрес клона
+    (https://…/repo.git, git@host:org/repo) на глазах превращается в
+    «github.com/org/repo», а адрес среды — в понятный отказ. Валидация и
+    нормализация те же самые, что у PATCH (_source_ref_of), иначе форма обещала
+    бы одно, а сохранение делало другое.
+
+    ⚠️ Маршрут объявлен ДО «/{node_id}»: иначе «anchor-preview» разбирался бы
+    как UUID. Узел не нужен и не трогается — это чистая функция над строками,
+    поэтому доступ у любого участника проекта (наблюдателю форму не показывают,
+    но ручка безвредна: ничего не читает из БД и ничего не пишет)."""
+    key = _source_ref_of(payload.model_dump())
+    if key is None:
+        return AnchorPreviewOut()
+    kind = "code" if identity.key_type(key) == "git" else "dependency"
+    return AnchorPreviewOut(source=NodeSource(**identity.source_ref_dict(key)), kind=kind, key=key)
+
+
 @router.get("/{node_id}", response_model=NodeResponse)
 def get_node(
     node_id: uuid.UUID,
@@ -389,6 +460,10 @@ def update_node(
     base_version = data.pop("base_version", None)
     if base_version is not None and base_version != node.version:
         raise HTTPException(status_code=409, detail="Узел изменён в другой сессии")
+    # Якорь — НЕ колонка: блок source приезжает разобранным по видам, а хранится
+    # каноническим ключом. Достаём до цикла setattr, иначе присвоился бы словарь.
+    if "source" in data:
+        data["source_ref"] = _source_ref_of(data.pop("source"))
     if data:
         old_parent = node.parent_id
         # Перенос на другой уровень — единственная правка со ЗАПРЕТАМИ (цикл оторвал бы
@@ -410,6 +485,10 @@ def update_node(
         # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
         # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост
         # схемы в той же сессии, V48/V53).
+        # Якорь — мета: он ничего не меняет на холсте, только то, как ArchMap
+        # узнаёт объект при обновлениях (см. NodeSource). Отдельной ветки ему не
+        # нужно — общее правило «курсор по фактическому изменению» уже накрывает
+        # source_ref, раз он лежит в data обычным полем узла.
         structural = {"parent_id", "name", "shape"}
         struct_changed = any(data[f] != getattr(node, f) for f in data.keys() & structural)
         meta_changed = any(data[f] != getattr(node, f) for f in data.keys() - structural)

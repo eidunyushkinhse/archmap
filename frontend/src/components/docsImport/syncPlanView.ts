@@ -5,6 +5,7 @@
 // занят весь план, см. критерий-фикспойнт), и вываливать его списком значит
 // топить настоящий diff. Счётчик неизменных остаётся в сводке.
 import type { SyncApplyOut, SyncEdgeAction, SyncNodeAction, SyncPreviewOut } from "../../types";
+import { anchorNote, basisLabel } from "../anchor/anchorText";
 
 /** Человеческие имена полей узла (fields действия update). */
 const FIELD_LABEL: Record<string, string> = {
@@ -14,14 +15,8 @@ const FIELD_LABEL: Record<string, string> = {
   technology: "технология",
   shape: "форма",
   status: "статус",
-  source_ref: "источник",
-};
-
-/** Как объект найден в схеме — от этого зависит доверие к строке плана.
- *  Формулировки без внутренних терминов: пользователю важно, по чему сошлось. */
-const MATCHED_LABEL: Record<string, string> = {
-  source: "нашли по репозиторию",
-  name: "нашли по имени",
+  // Якорь зовётся якорем везде — в карточке объекта, в ⓘ и здесь (Ф2 якорей).
+  source_ref: "якорь",
 };
 
 export interface PlanRow {
@@ -43,9 +38,10 @@ function nodeNote(a: SyncNodeAction): string {
   if (a.fields?.length) {
     parts.push(a.fields.map((f) => FIELD_LABEL[f] ?? f).join(", "));
   }
-  // «по имени» стоит показать даже без изменений полей: матч по имени слабее
-  // якорного, и пользователь вправе усомниться в нём глазами.
-  if (a.matched_by && MATCHED_LABEL[a.matched_by]) parts.push(MATCHED_LABEL[a.matched_by]);
+  // ОСНОВАНИЕ показываем всегда, даже без изменений полей (Ф2 якорей): матч по
+  // имени слабее якорного, и пользователь вправе усомниться в нём глазами — а
+  // чтобы сомневаться, надо сперва знать, чем именно объект опознан.
+  if (a.matched_by) parts.push(`нашли ${basisLabel(a.matched_by, a.path)}`);
   return parts.join(" · ");
 }
 
@@ -62,7 +58,9 @@ export function planSections(p: SyncPreviewOut): PlanSection[] {
     {
       key: "nodes_create",
       title: "Новые объекты",
-      rows: nodes("create").map((a) => ({ path: a.path, note: "" })),
+      // У нового объекта важен не список полей, а БУДЕТ ЛИ У НЕГО ЯКОРЬ: без
+      // якоря следующий прогон опознает его только по имени внутри контейнера.
+      rows: nodes("create").map((a) => ({ path: a.path, note: anchorNote(a.source) })),
     },
     {
       key: "nodes_update",

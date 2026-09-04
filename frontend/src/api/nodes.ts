@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeDocUsage, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { AnchorPreviewOut, NodeSource, TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeDocUsage, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -48,6 +48,12 @@ export const nodesApi = {
   update: (id: string, data: NodeUpdate): Promise<Node> =>
     api.patch<Node>(`/nodes/${id}`, data),
   delete: (id: string): Promise<void> => api.delete(`/nodes/${id}`),
+  // Живая нормализация якоря в форме поля «Якорь»: что ArchMap запишет, если
+  // сохранить эту форму, — БЕЗ записи. Узел не нужен (чистая функция над
+  // строками), отказы — те же 422-тексты, что и у update. Нормализация живёт
+  // ТОЛЬКО на сервере: форма показывает ответ, своей логики у неё нет.
+  anchorPreview: (source: NodeSource): Promise<AnchorPreviewOut> =>
+    api.post<AnchorPreviewOut>("/nodes/anchor-preview", source),
   // Снимок всего, что снесёт удаление узла (поддерево + рёбра + ghost-метаданные).
   // Берётся ПЕРЕД delete, чтобы откатить удаление через restore (Undo).
   deletionSnapshot: (id: string): Promise<DeletionSnapshot> =>

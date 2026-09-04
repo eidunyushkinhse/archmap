@@ -665,15 +665,34 @@ def test_source_block_parsed_into_keys():
         "  - name: payments\n"
         "    source:\n"
         "      repo: git@github.com:Org/Payments.git\n"
-        "      image: reg.io/org/payments:1.4\n"
         "      host: payments\n"
     )
     parsed, errors = parse_import(content)
     assert errors == [] and parsed is not None
     assert parsed.nodes[0].source_keys == [
         "git:github.com/org/payments",
-        "img:reg.io/org/payments",
         "host:payments",
+    ]
+    assert parsed.warnings == []
+
+
+def test_source_снятые_виды_якоря_игнорируются_с_предупреждением():
+    """Образ и объект k8s перестали быть якорями 2026-09-04 (docs/plan-anchor-ux.md),
+    но пакеты, собранные прежним промптом, обязаны ввозиться: поля не ошибка, они
+    просто не дают ключа — и об этом одно предупреждение на узел."""
+    content = (
+        "nodes:\n"
+        "  - name: payments\n"
+        "    source:\n"
+        "      image: reg.io/org/payments:1.4\n"
+        "      deployment: prod/payments\n"
+        "      host: payments\n"
+    )
+    parsed, errors = parse_import(content)
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == ["host:payments"]
+    assert parsed.warnings == [
+        "nodes[0].source: образ и деплоймент больше не якорь — поле проигнорировано"
     ]
 
 
@@ -800,7 +819,7 @@ def test_roundtrip_якоря_источника_и_типа_канала(db):
     orders = _node(db, src.id, "orders", ярмарка)
     orders.source_ref = "git:github.com/shop/orders#services/orders"
     витрина = _node(db, src.id, "web", ярмарка)
-    витрина.source_ref = "img:shop/web"
+    витрина.source_ref = "git:github.com/shop/web"
     kafka = _node(db, src.id, "Kafka", ярмарка, shape="broker")
     kafka.source_ref = "host:kafka"
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=orders.id, target_id=kafka.id,
@@ -825,7 +844,7 @@ def test_roundtrip_якоря_источника_и_типа_канала(db):
     # Явная сверка формы: канонический ключ собрался в ТОТ ЖЕ вид, что хранился.
     новые = {n.name: n.source_ref for n in db.query(Node).filter(Node.project_id == dst.id)}
     assert новые["orders"] == "git:github.com/shop/orders#services/orders"
-    assert новые["web"] == "img:shop/web"
+    assert новые["web"] == "git:github.com/shop/web"
     assert новые["Kafka"] == "host:kafka"
     # NULL остался NULL — дефолт не затвердел.
     syncs = {(e.label, e.is_synchronous)
@@ -849,3 +868,62 @@ def test_sync_не_булево_это_ошибка_разбора(db):
     # Ошибка типа не роняет разбор целиком: поле обнуляется, ошибка в списке.
     assert errors == ["edges[0].sync: ожидается true/false"]
     assert parsed is None
+
+
+# ── Основание склейки и якоря в превью импорта (Ф2 docs/plan-anchor-ux.md) ───
+
+
+def test_preview_называет_основание_каждой_склейки(db):
+    """Три склейки трёх видов в одном пакете: по коду, по имени зависимости и по
+    имени. До Ф2 превью говорило «склеено узлов: 3», не называя почему."""
+    user = ensure_architect(db)
+    a = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {repo: github.com/org/payments}\n"
+        "      - name: Каталог-БД\n"
+        "        source: {host: catalog-db}\n"
+        "      - name: orders\n"
+    )
+    b = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        technology: Go\n"
+        "        source: {repo: github.com/org/payments}\n"
+        "      - name: Каталог-БД\n"
+        "        source: {host: catalog-db}\n"
+        "      - name: orders\n"
+    )
+    out = import_preview(ImportPreviewIn(contents=[a, b]), _user=user)
+
+    assert out.ok and out.merged_count == 4
+    assert {m.path: m.basis for m in out.merged_nodes} == {
+        "Система": "name",
+        "Система / payments": "code",
+        "Система / Каталог-БД": "dependency",
+        "Система / orders": "name",
+    }
+    # Старое поле путей осталось прежним — контракты превью только дополняются.
+    assert out.merged == [m.path for m in out.merged_nodes]
+
+
+def test_preview_считает_узлы_без_якоря(db):
+    """Счётчик «будут опознаваться по имени» — про СЛИТОЕ дерево, а не про файл."""
+    user = ensure_architect(db)
+    один = (
+        "nodes:\n"
+        "  - name: Система\n"
+        "    children:\n"
+        "      - name: payments\n"
+        "        source: {repo: github.com/org/payments}\n"
+        "      - name: orders\n"
+    )
+    out = import_preview(ImportPreviewIn(content=один), _user=user)
+
+    assert out.ok and out.node_count == 3
+    assert out.nodes_without_anchor == 2  # корень «Система» и «orders»
+    assert out.merged_nodes == []  # один файл — склеек нет

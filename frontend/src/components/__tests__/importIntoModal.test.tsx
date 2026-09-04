@@ -66,6 +66,12 @@ const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({
   errors: [],
   nodes_new: 3,
   nodes_new_paths: ["Ярмарка / billing", "Ярмарка / billing / api"],
+  new_nodes: [
+    { path: "Ярмарка / billing", source: { repo: "github.com/org/billing" } },
+    { path: "Ярмарка / billing / api", source: null },
+  ],
+  nodes_matched: 0,
+  matched_nodes: [],
   edges_new: 2,
   families: { docs: 4, specs: 1, tables: 0, channels: 0, params: 0, processes: 1 },
   family_conflicts: [СПОР],
@@ -128,7 +134,7 @@ describe("догрузка архива · превью и споры", () => {
 
     expect(await screen.findByText(/Нового: 3 объекта · 2 связи/)).toBeInTheDocument();
     expect(screen.getByText(/Приедет:.*4 схемы логики/)).toBeInTheDocument();
-    expect(screen.getByText(/Появятся:.*billing/)).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка / billing")).toBeInTheDocument();
     expect(screen.getByText(/тёзка уже имеющегося/)).toBeInTheDocument();
 
     // Спор виден, кандидат текущего проекта различим НАЧЕРТАНИЕМ: лейбл входа №0
@@ -248,5 +254,43 @@ describe("меню «Действия со схемой» · пункт догр
     expect(screen.getByText("Импорт проекта из архива")).toBeInTheDocument();
     // Пустое окно превью не запрашивает — считать нечего.
     expect(projectsApi.importIntoPreview).not.toHaveBeenCalled();
+  });
+});
+
+describe("основание склейки и якоря новых (Ф2 docs/plan-anchor-ux.md)", () => {
+  // Догрузка сопоставляет узлы ЯКОРЕМ, и до Ф2 самое спорное её решение — «это тот
+  // же объект» — не показывалось вовсе: превью говорило только про новое.
+  it("найденные в проекте названы с основанием каждой находки", async () => {
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
+      nodes_matched: 5,
+      matched_nodes: [
+        { path: "Ярмарка / orders", basis: "code" },
+        { path: "Ярмарка / Каталог-БД", basis: "dependency" },
+        { path: "Ярмарка", basis: "name" },
+      ],
+    }));
+    await открыть(zip("b.zip"));
+
+    expect(await screen.findByText(/Найдено в проекте: 5 объектов/)).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка / orders — по коду")).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка / Каталог-БД — по имени зависимости")).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка — по имени на верхнем уровне")).toBeInTheDocument();
+    // Перечень обрезан капом — остаток назван счётчиком, а не съеден молча.
+    expect(screen.getByText("…ещё 2")).toBeInTheDocument();
+  });
+
+  it("сопоставлять нечего — строки нет вовсе", async () => {
+    await открыть(zip("b.zip"));
+    await screen.findByText(/Нового: 3 объекта/);
+
+    expect(screen.queryByText(/Найдено в проекте/)).not.toBeInTheDocument();
+  });
+
+  it("у новых объектов помечено отсутствие якоря", async () => {
+    await открыть(zip("b.zip"));
+
+    // Фикстура: у «billing» якорь-код есть, у его компонента — нет.
+    expect(await screen.findByText("Ярмарка / billing")).toBeInTheDocument();
+    expect(screen.getByText(/Ярмарка \/ billing \/ api \(без якоря\)/)).toBeInTheDocument();
   });
 });

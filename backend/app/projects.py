@@ -16,6 +16,7 @@ import uuid
 from sqlalchemy.orm import Session, undefer
 
 from app.copy_plan import copy_row
+from app.identity import known_key
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.channel_field import ChannelField
@@ -59,14 +60,16 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
         return d
 
     for n in sorted(nodes, key=depth):
-        db.add(
-            copy_row(
-                n,
-                id=nmap[n.id],
-                project_id=dst_id,
-                parent_id=nmap.get(n.parent_id) if n.parent_id else None,
-            )
+        copy = copy_row(
+            n,
+            id=nmap[n.id],
+            project_id=dst_id,
+            parent_id=nmap.get(n.parent_id) if n.parent_id else None,
         )
+        # Якорь снятого вида (образ, объект k8s — до 2026-09-04) в копию не едет:
+        # копировщик тащит колонки как есть, а гвард держит инвариант вида.
+        copy.source_ref = known_key(copy.source_ref)
+        db.add(copy)
     db.flush()
 
     if nmap:
