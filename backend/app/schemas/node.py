@@ -33,6 +33,22 @@ class NodeSource(BaseModel):
     host: str | None = None
 
 
+class AnchorPreviewOut(BaseModel):
+    """Ответ dry-run проверки якоря (POST /nodes/anchor-preview).
+
+    Форма якоря неинтуитивна: архитектор вставляет адрес клона или путь как в
+    файловой системе и не обязан знать, во что это превратится. Ручка отвечает
+    ровно то, что записал бы PATCH, НИЧЕГО не записывая: нормализованный блок
+    source (или null — очистка), вид якоря словом для UI и канонический ключ
+    хранения. Отказы — те же 422, что у PATCH (общая функция валидации)."""
+
+    source: NodeSource | None = None
+    # Вид якоря для подписи в UI: код (репозиторий и путь) или имя зависимости.
+    kind: Literal["code", "dependency"] | None = None
+    # Канонический ключ (nodes.source_ref) — то, чем узел будет опознаваться.
+    key: str | None = None
+
+
 class NodeCreate(BaseModel):
     name: str
     description: str | None = None

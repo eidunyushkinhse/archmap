@@ -23,10 +23,12 @@ from app.models.view_layout import ViewLayoutItem
 from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
+    AnchorPreviewOut,
     GraphResponse,
     NodeCreate,
     NodeEdgeInfo,
     NodeResponse,
+    NodeSource,
     NodeUpdate,
     TransitionApplyIn,
     TransitionApplyOut,
@@ -319,6 +321,69 @@ def get_alerts(
     return compute_alerts(db, project.id)
 
 
+def _source_ref_of(raw: dict | None) -> str | None:
+    """Блок source из PATCH → канонический ключ якоря (или None — очистка).
+
+    Отказы 422 с текстами принятого пояснения (docs/plan-anchor-ux.md, раздел
+    «Как заполнять»): вид якоря один на объект, путь живёт только при
+    репозитории, а адреса сред якорем не бывают. Валидация здесь, а не
+    pydantic-валидатором схемы, ради общего формата ошибки {"detail": "…"} —
+    список ошибок pydantic человеку в форме не показать."""
+    if raw is None:
+        return None
+    src = identity.SourceRef(repo=raw.get("repo"), path=raw.get("path"), host=raw.get("host"))
+    if src.empty:
+        return None  # объект без значимых полей — та же очистка, что и null
+    if src.repo and src.host:
+        raise HTTPException(
+            status_code=422,
+            detail="Якорь одного вида: либо код (репозиторий и путь), либо имя зависимости",
+        )
+    if src.path and not src.repo:
+        raise HTTPException(status_code=422, detail="Путь задаётся вместе с репозиторием")
+    norm = identity.normalized(src)
+    if src.host and not norm.host:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
+                "а не продукту — укажите имя, под которым продукт называет зависимость, "
+                "как в docker-compose или в имени k8s Service"
+            ),
+        )
+    if src.repo and not norm.repo:
+        raise HTTPException(
+            status_code=422,
+            detail="Репозиторий в виде github.com/org/repo или адрес клона целиком",
+        )
+    return identity.canonical_key(src)
+
+
+@router.post("/anchor-preview", response_model=AnchorPreviewOut)
+def anchor_preview(
+    payload: NodeSource,
+    _: User = Depends(get_current_user),
+    __: Project = Depends(get_current_project),
+) -> AnchorPreviewOut:
+    """Что ArchMap запишет в якорь, если сохранить эту форму, — БЕЗ записи.
+
+    Живая нормализация в форме поля «Якорь»: вставленный адрес клона
+    (https://…/repo.git, git@host:org/repo) на глазах превращается в
+    «github.com/org/repo», а адрес среды — в понятный отказ. Валидация и
+    нормализация те же самые, что у PATCH (_source_ref_of), иначе форма обещала
+    бы одно, а сохранение делало другое.
+
+    ⚠️ Маршрут объявлен ДО «/{node_id}»: иначе «anchor-preview» разбирался бы
+    как UUID. Узел не нужен и не трогается — это чистая функция над строками,
+    поэтому доступ у любого участника проекта (наблюдателю форму не показывают,
+    но ручка безвредна: ничего не читает из БД и ничего не пишет)."""
+    key = _source_ref_of(payload.model_dump())
+    if key is None:
+        return AnchorPreviewOut()
+    kind = "code" if identity.key_type(key) == "git" else "dependency"
+    return AnchorPreviewOut(source=NodeSource(**identity.source_ref_dict(key)), kind=kind, key=key)
+
+
 @router.get("/{node_id}", response_model=NodeResponse)
 def get_node(
     node_id: uuid.UUID,
@@ -371,44 +436,6 @@ def validate_shape_change(db: Session, node: Node, new_shape: str) -> str | None
         if has_channels:
             return "У узла описаны каналы брокера — сначала перенесите или удалите их"
     return None
-
-
-def _source_ref_of(raw: dict | None) -> str | None:
-    """Блок source из PATCH → канонический ключ якоря (или None — очистка).
-
-    Отказы 422 с текстами принятого пояснения (docs/plan-anchor-ux.md, раздел
-    «Как заполнять»): вид якоря один на объект, путь живёт только при
-    репозитории, а адреса сред якорем не бывают. Валидация здесь, а не
-    pydantic-валидатором схемы, ради общего формата ошибки {"detail": "…"} —
-    список ошибок pydantic человеку в форме не показать."""
-    if raw is None:
-        return None
-    src = identity.SourceRef(repo=raw.get("repo"), path=raw.get("path"), host=raw.get("host"))
-    if src.empty:
-        return None  # объект без значимых полей — та же очистка, что и null
-    if src.repo and src.host:
-        raise HTTPException(
-            status_code=422,
-            detail="Якорь одного вида: либо код (репозиторий и путь), либо имя зависимости",
-        )
-    if src.path and not src.repo:
-        raise HTTPException(status_code=422, detail="Путь задаётся вместе с репозиторием")
-    norm = identity.normalized(src)
-    if src.host and not norm.host:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
-                "а не продукту — укажите имя, под которым продукт называет зависимость, "
-                "как в docker-compose или в имени k8s Service"
-            ),
-        )
-    if src.repo and not norm.repo:
-        raise HTTPException(
-            status_code=422,
-            detail="Репозиторий в виде github.com/org/repo или адрес клона целиком",
-        )
-    return identity.canonical_key(src)
 
 
 @router.patch("/{node_id}", response_model=NodeResponse)

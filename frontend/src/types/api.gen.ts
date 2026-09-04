@@ -514,6 +514,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/anchor-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Anchor Preview
+         * @description Что ArchMap запишет в якорь, если сохранить эту форму, — БЕЗ записи.
+         *
+         *     Живая нормализация в форме поля «Якорь»: вставленный адрес клона
+         *     (https://…/repo.git, git@host:org/repo) на глазах превращается в
+         *     «github.com/org/repo», а адрес среды — в понятный отказ. Валидация и
+         *     нормализация те же самые, что у PATCH (_source_ref_of), иначе форма обещала
+         *     бы одно, а сохранение делало другое.
+         *
+         *     ⚠️ Маршрут объявлен ДО «/{node_id}»: иначе «anchor-preview» разбирался бы
+         *     как UUID. Узел не нужен и не трогается — это чистая функция над строками,
+         *     поэтому доступ у любого участника проекта (наблюдателю форму не показывают,
+         *     но ручка безвредна: ничего не читает из БД и ничего не пишет).
+         */
+        post: operations["anchor_preview_api_v1_nodes_anchor_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}": {
         parameters: {
             query?: never;
@@ -2152,6 +2183,23 @@ export interface components {
              * @default false
              */
             is_external: boolean;
+        };
+        /**
+         * AnchorPreviewOut
+         * @description Ответ dry-run проверки якоря (POST /nodes/anchor-preview).
+         *
+         *     Форма якоря неинтуитивна: архитектор вставляет адрес клона или путь как в
+         *     файловой системе и не обязан знать, во что это превратится. Ручка отвечает
+         *     ровно то, что записал бы PATCH, НИЧЕГО не записывая: нормализованный блок
+         *     source (или null — очистка), вид якоря словом для UI и канонический ключ
+         *     хранения. Отказы — те же 422, что у PATCH (общая функция валидации).
+         */
+        AnchorPreviewOut: {
+            source?: components["schemas"]["NodeSource"] | null;
+            /** Kind */
+            kind?: ("code" | "dependency") | null;
+            /** Key */
+            key?: string | null;
         };
         /** ArchiveImportResult */
         ArchiveImportResult: {
@@ -6802,6 +6850,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlertsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    anchor_preview_api_v1_nodes_anchor_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NodeSource"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnchorPreviewOut"];
                 };
             };
             /** @description Validation Error */

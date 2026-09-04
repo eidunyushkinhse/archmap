@@ -19,7 +19,7 @@ from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.models.node import Node
-from app.routers.nodes import get_node, update_node
+from app.routers.nodes import anchor_preview, get_node, update_node
 from app.schemas.node import NodeResponse, NodeSource, NodeUpdate
 
 
@@ -164,3 +164,44 @@ class TestЧтение:
         out = get_node(node.id, db=db, project=ensure_project(db))
         assert out.source is None
         assert NodeResponse.model_validate(out).source is None
+
+
+class TestDryRun:
+    """POST /nodes/anchor-preview — что запишется, БЕЗ записи.
+
+    Форма поля «Якорь» обещает результат до сохранения; обещание и запись обязаны
+    исходить из одной функции, иначе форма показывает одно, а PATCH делает другое.
+    """
+
+    def test_адрес_клона_приводится_к_виду_репозитория(self, db):
+        out = anchor_preview(NodeSource(repo="https://github.com/Org/Repo.git", path="./src/api/"))
+        assert out.source == NodeSource(repo="github.com/org/repo", path="src/api")
+        assert out.kind == "code"
+        assert out.key == "git:github.com/org/repo#src/api"
+
+    def test_имя_зависимости_теряет_порт(self, db):
+        out = anchor_preview(NodeSource(host="Kafka:9092"))
+        assert out.source == NodeSource(host="kafka")
+        assert out.kind == "dependency"
+        assert out.key == "host:kafka"
+
+    def test_адрес_среды_отказ_тем_же_текстом_что_у_patch(self, db):
+        node = _node(db)
+        with pytest.raises(HTTPException) as превью:
+            anchor_preview(NodeSource(host="localhost:5432"))
+        with pytest.raises(HTTPException) as запись:
+            _patch(db, node, source=NodeSource(host="localhost:5432"))
+        assert превью.value.status_code == 422
+        assert превью.value.detail == запись.value.detail
+
+    def test_пустая_форма_это_очистка_а_не_ошибка(self, db):
+        # Пользователь стёр поля: форма показывает «якоря не будет», а не красное.
+        out = anchor_preview(NodeSource())
+        assert (out.source, out.kind, out.key) == (None, None, None)
+
+    def test_узел_не_нужен_и_ничего_не_пишется(self, db):
+        node = _node(db, source_ref="host:kafka")
+        anchor_preview(NodeSource(repo="github.com/org/repo"))
+        db.refresh(node)
+        assert node.source_ref == "host:kafka"
+        assert node.version == 1
