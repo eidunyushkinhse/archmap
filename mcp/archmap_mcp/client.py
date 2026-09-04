@@ -120,19 +120,29 @@ class ArchMapClient:
             raise ArchMapError("ArchMap не вернул токен доступа.")
         return str(token)
 
-    async def request(
+    async def _send(
         self,
         method: str,
         path: str,
         *,
-        project_id: str | None = None,
-        json: Any | None = None,
-        params: dict[str, Any] | None = None,
-    ) -> Any:
-        """Запрос к /api/v1. project_id уходит заголовком X-Project-Id — им
-        бэкенд скоупит все доменные сущности."""
+        project_id: str | None,
+        json: Any | None,
+        params: dict[str, Any] | None,
+        files: list[tuple[str, tuple[str, bytes, str]]] | None,
+        data: dict[str, Any] | None,
+    ) -> httpx.Response:
+        """Один запрос к /api/v1 с перелогином и переводом отказов в текст.
+
+        Общий ствол для JSON-ответа и бинарного: различаются они только разбором
+        УСПЕШНОГО тела, а протокол доступа и словарь отказов у них один — дублировать
+        его значит однажды разойтись в формулировках.
+        """
         if self._token is None:
             self._token = await self._login()
+        # multipart и json в одном теле несовместимы: httpx возьмёт что-то одно
+        # молча. Раз файлы есть — тело формы, поля уходят в data.
+        body = None if files is not None else json
+        form = {k: v for k, v in (data or {}).items() if v is not None and v != ""}
 
         async def attempt() -> httpx.Response:
             headers = {"Authorization": f"Bearer {self._token}"}
@@ -143,8 +153,10 @@ class ArchMapClient:
                     method,
                     f"{self.config.base_url}{API_PREFIX}{path}",
                     headers=headers,
-                    json=json,
+                    json=body,
                     params=params,
+                    files=files,
+                    data=form or None,
                 )
             except httpx.RequestError as exc:
                 raise ArchMapError(
@@ -171,9 +183,48 @@ class ArchMapClient:
             raise ArchMapError(f"ArchMap отклонил данные: {_detail(resp)}")
         if resp.status_code >= 400:
             raise ArchMapError(f"Ошибка ArchMap ({resp.status_code}): {_detail(resp)}")
+        return resp
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        project_id: str | None = None,
+        json: Any | None = None,
+        params: dict[str, Any] | None = None,
+        files: list[tuple[str, tuple[str, bytes, str]]] | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> Any:
+        """Запрос к /api/v1. project_id уходит заголовком X-Project-Id — им
+        бэкенд скоупит все доменные сущности.
+
+        files/data — multipart (единый импорт и догрузка архивов принимают
+        files[] + поля формы). Пустые поля формы отбрасываются: у бэка они
+        Form(default=None), и «» вместо отсутствия меняет смысл (пустое имя
+        проекта — не «возьми из манифеста»).
+        """
+        resp = await self._send(
+            method, path, project_id=project_id, json=json, params=params, files=files, data=data
+        )
         if resp.status_code == 204 or not resp.content:
             return None
         return resp.json()
+
+    async def request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        project_id: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> bytes:
+        """То же, но тело возвращается сырым — архив проекта приезжает zip-ом,
+        и resp.json() на нём падает разбором."""
+        resp = await self._send(
+            method, path, project_id=project_id, json=None, params=params, files=None, data=None
+        )
+        return resp.content
 
 
 def _detail(resp: httpx.Response) -> str:

@@ -121,3 +121,58 @@ async def test_редирект_коллекции_со_слэшем_следу�
     assert await client.request("GET", "/projects/") == [
         {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}
     ]
+
+
+async def test_multipart_уходит_файлами_и_полями_формы(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Единый импорт принимает multipart: files[] + поля формы. httpx не даст
+    послать json и files разом, поэтому тело обязано быть формой целиком."""
+    api.post("/projects/import-unified", {"ok": True})
+
+    await client.request(
+        "POST",
+        "/projects/import-unified",
+        files=[
+            ("files", ("a.yaml", b"nodes: []", "text/yaml")),
+            ("files", ("b.zip", b"PK\x03\x04", "application/zip")),
+        ],
+        data={"name": "Проект", "description": None, "resolutions": '{"x": "cand:1"}'},
+    )
+
+    sent = api.calls[-1]
+    assert sent.headers["content-type"].startswith("multipart/form-data; boundary=")
+    body = sent.content
+    assert b'name="files"; filename="a.yaml"' in body
+    assert b'name="files"; filename="b.zip"' in body
+    assert b'name="name"' in body
+    assert "Проект".encode() in body
+    assert b'"cand:1"' in body
+    # Пустое поле формы не отправляется: у бэка Form(default=None), и «» вместо
+    # отсутствия — другой смысл (пустое имя вместо «возьми из манифеста»).
+    assert b'name="description"' not in body
+
+
+async def test_бинарный_ответ_возвращает_байты(client: ArchMapClient, api: FakeApi) -> None:
+    # Архив проекта — zip; resp.json() на нём падает разбором.
+    api.routes[("GET", "/export/archive")] = httpx.Response(
+        200, content=b"PK\x03\x04nonjson", headers={"content-type": "application/zip"}
+    )
+
+    payload = await client.request_bytes("GET", "/export/archive", project_id=PROJECT_ID)
+
+    assert payload.startswith(b"PK\x03\x04")
+    assert api.calls[-1].headers["X-Project-Id"] == PROJECT_ID
+
+
+async def test_отказ_на_бинарном_пути_переводится_так_же(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Словарь отказов у бинарного и JSON-пути общий — иначе формулировки
+    разойдутся, и агент на архиве получит «Ошибка 409» вместо инструкции."""
+    api.routes[("GET", "/export/archive")] = httpx.Response(409, json={"detail": "причина"})
+
+    with pytest.raises(ArchMapError) as exc:
+        await client.request_bytes("GET", "/export/archive", project_id=PROJECT_ID)
+
+    assert "Конфликт версий" in str(exc.value)
