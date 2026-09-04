@@ -9,6 +9,7 @@ participant_count, а концы шага — УЧАСТНИКИ (from_participa
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -194,3 +195,181 @@ async def test_чужой_процесс_отвечает_понятной_ош�
         )
 
     assert "не найден" in str(exc.value)
+
+
+# ── Каталог схем шага ────────────────────────────────────────────────────────
+
+CATALOG_PATH = f"/processes/{PROC}/messages/{M1}/docs"
+BIND_PATH = f"/processes/{PROC}/messages/{M1}"
+
+
+def choice(**over: Any) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "id": DOC, "node_id": NODE, "node_path": "Ярмарка / Заказы",
+        "name": "POST /orders", "kind": "operation", "operation": "POST /orders",
+        "described": True,
+    }
+    fields.update(over)
+    return dump("DocChoiceOut", **fields)
+
+
+def catalog(**over: Any) -> dict[str, Any]:
+    fields: dict[str, Any] = {"default_node_id": NODE, "docs": [choice()]}
+    fields.update(over)
+    return dump("MessageDocCatalog", **fields)
+
+
+async def test_каталог_шага_метит_исполнителя_и_заглушки(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.get(CATALOG_PATH, catalog(docs=[
+        choice(),
+        choice(id=M2, node_id=BUYER, node_path="Ярмарка / Склад", name="резерв",
+               kind="worker", operation=None, described=False),
+    ]))
+
+    out = await tools.call(
+        "archmap_step_docs",
+        {"project": "Ярмарка", "process_id": PROC, "message_id": M1},
+        client,
+    )
+
+    assert "ПОДХОДЯЩИЕ СХЕМЫ ЛОГИКИ (2)" in out
+    assert "POST /orders (операция · POST /orders) — Ярмарка / Заказы [исполнитель]" in out
+    assert "резерв (воркер) — Ярмарка / Склад [не описана]" in out
+    assert f"id={DOC}" in out
+
+
+async def test_пустой_каталог_говорит_что_описывать_нечем(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.get(CATALOG_PATH, catalog(default_node_id=None, docs=[]))
+
+    out = await tools.call(
+        "archmap_step_docs",
+        {"project": "Ярмарка", "process_id": PROC, "message_id": M1},
+        client,
+    )
+
+    assert "Подходящих схем логики нет" in out
+    assert "archmap_docs" in out
+
+
+async def test_длинный_каталог_обрезан_с_честным_хвостом(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    many = [
+        choice(id=f"55555555-5555-5555-5555-{i:012d}", name=f"схема {i}")
+        for i in range(1, 96)
+    ]
+    api.get(CATALOG_PATH, catalog(docs=many))
+
+    out = await tools.call(
+        "archmap_step_docs",
+        {"project": "Ярмарка", "process_id": PROC, "message_id": M1},
+        client,
+    )
+
+    assert "ПОДХОДЯЩИЕ СХЕМЫ ЛОГИКИ (95)" in out
+    assert "… и ещё 15 схем" in out
+
+
+# ── Привязка ─────────────────────────────────────────────────────────────────
+
+def bind_body(api: FakeApi) -> Any:
+    """Тело PATCH глазами САМОГО бэкенда: сверяем не словарь, а схему входа."""
+    payload = json.loads(api.calls[-1].content)
+    return backend("schemas.process").MessageUpdate.model_validate(payload), payload
+
+
+async def test_привязка_шлёт_только_doc_id_и_версию(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.patch(BIND_PATH, message(doc_id=DOC, doc_node_id=NODE, doc_name="POST /orders",
+                                 doc_node_path="Ярмарка / Заказы", version=4))
+
+    out = await tools.call(
+        "archmap_bind_step",
+        {"project": "Ярмарка", "process_id": PROC, "message_id": M1,
+         "doc_id": DOC, "base_version": 3},
+        client,
+    )
+
+    body, raw = bind_body(api)
+    # ⚠️ Лишний ключ здесь не безобиден: бэкенд применяет ПРИШЕДШИЕ поля
+    # (exclude_unset), и случайный caption переписал бы подпись шага.
+    assert set(raw) == {"doc_id", "base_version"}
+    assert str(body.doc_id) == DOC and body.base_version == 3
+    assert "→ схема «POST /orders» (Ярмарка / Заказы)" in out
+    assert "version=4" in out
+
+
+async def test_снятие_привязки_передаёт_настоящий_null(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Пропуск ключа бэкенд читает как «не трогать» (exclude_unset), поэтому
+    снятие обязано приехать явным null — иначе отвязка молча ничего не делает."""
+    api.patch(BIND_PATH, message(version=5))
+
+    out = await tools.call(
+        "archmap_bind_step",
+        {"project": "Ярмарка", "process_id": PROC, "message_id": M1,
+         "doc_id": None, "base_version": 4},
+        client,
+    )
+
+    body, raw = bind_body(api)
+    assert raw["doc_id"] is None
+    assert "doc_id" in body.model_fields_set and body.doc_id is None
+    assert "— схема не привязана" in out
+
+
+async def test_пустая_строка_тоже_снимает_привязку(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Клиенты MCP охотно выбрасывают настоящий null из аргументов; без синонима
+    # снятие стало бы невыразимым.
+    api.patch(BIND_PATH, message(version=5))
+
+    await tools.call(
+        "archmap_bind_step",
+        {"project": "Ярмарка", "process_id": PROC, "message_id": M1,
+         "doc_id": "", "base_version": 4},
+        client,
+    )
+
+    _, raw = bind_body(api)
+    assert raw["doc_id"] is None
+
+
+async def test_без_doc_id_привязка_не_ходит_на_сервер(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_bind_step",
+            {"project": "Ярмарка", "process_id": PROC, "message_id": M1,
+             "base_version": 3},
+            client,
+        )
+
+    assert "doc_id" in str(exc.value)
+    assert all(c.method != "PATCH" for c in api.calls)
+
+
+async def test_устаревшая_версия_шага_даёт_конфликт(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.routes[("PATCH", BIND_PATH)] = httpx.Response(
+        409, json={"detail": "Шаг изменён в другой сессии"}
+    )
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_bind_step",
+            {"project": "Ярмарка", "process_id": PROC, "message_id": M1,
+             "doc_id": DOC, "base_version": 1},
+            client,
+        )
+
+    assert "Конфликт версий" in str(exc.value) and "перечитайте" in str(exc.value)

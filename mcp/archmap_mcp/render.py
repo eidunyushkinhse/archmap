@@ -459,6 +459,56 @@ def process_detail(detail: dict[str, Any]) -> str:
     return "\n".join(out)
 
 
+# Каталог схем шага бывает широким (поддеревья ОБОИХ участников): кап тот же
+# приём, что у семей фактов — обрезать молча значит соврать о полноте.
+DOC_CATALOG_CAP = 80
+
+
+def step_docs(data: dict[str, Any]) -> str:
+    """Каталог «чем можно задокументировать шаг» (MessageDocCatalog).
+
+    Порядок бэкенда НЕ пересортировываем: он и есть подсказка — схемы владельца
+    шага (конец ребра, несущий логику) идут первыми, и пометка «исполнитель»
+    называет ровно их.
+    """
+    docs_ = data.get("docs") or []
+    if not docs_:
+        return (
+            "Подходящих схем логики нет: ни у участников шага, ни у их потомков не "
+            "заведено ни одной. Сначала опишите логику — archmap_docs_prompt / "
+            "archmap_docs_apply."
+        )
+    owner = str(data.get("default_node_id") or "")
+    lines: list[str] = []
+    for d in docs_:
+        kind = str(d.get("kind", "?"))
+        head = KIND_WORD.get(kind, kind)
+        if d.get("operation"):
+            head += f" · {d['operation']}"
+        marks: list[str] = []
+        if owner and str(d.get("node_id")) == owner:
+            marks.append("исполнитель")
+        if d.get("described") is False:
+            marks.append("не описана")
+        tail = f" [{', '.join(marks)}]" if marks else ""
+        lines.append(
+            f"  • {d.get('name', '?')} ({head}) — {d.get('node_path', '?')}{tail}"
+            f"  id={d.get('id', '?')}"
+        )
+    head_line = f"ПОДХОДЯЩИЕ СХЕМЫ ЛОГИКИ ({len(docs_)}):"
+    body = _capped(lines, DOC_CATALOG_CAP, ("схема", "схемы", "схем"))
+    return head_line + "\n" + "\n".join(body)
+
+
+def step_bound(m: dict[str, Any]) -> str:
+    """Итог привязки: новое состояние шага и НОВАЯ версия — следующая правка идёт
+    от неё, иначе CAS вернёт 409 на ровном месте."""
+    return (
+        f"Шаг {m.get('order', '?')} «{m.get('caption') or '—'}»{_step_binding(m)}"
+        f"  id={m.get('id', '?')} version={m.get('version', '?')}"
+    )
+
+
 def db_tables(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
     """Структура БД: таблица одной строкой, колонки — «имя тип» с флагами PK/NOT
     NULL (те же пометки, что в разделе «Структура» на странице объекта)."""

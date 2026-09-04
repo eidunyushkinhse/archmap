@@ -229,6 +229,40 @@ async def t_processes(client: ArchMapClient, args: dict[str, Any]) -> str:
     return f"{head}\n\n{render.process_detail(detail)}"
 
 
+async def t_step_docs(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Каталог схем, которыми ЗАКОННО задокументировать шаг.
+
+    Считает его бэкенд: правило владельца и скоуп (поддеревья обоих участников) —
+    доменное знание, и вторая его реализация здесь разошлась бы с первой. Задача
+    инструмента — не угадывать, а показать агенту допустимый выбор.
+    """
+    pid, pname = await resolve_project(client, args["project"])
+    path = f"/processes/{args['process_id']}/messages/{args['message_id']}/docs"
+    data = await client.request("GET", path, project_id=pid)
+    return f"Проект «{pname}» — чем можно задокументировать шаг\n\n" + render.step_docs(data)
+
+
+async def t_bind_step(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    if "doc_id" not in args:
+        raise ArchMapError(
+            "Не передан doc_id: id схемы из archmap_step_docs либо null (снять привязку)."
+        )
+    # ⚠️ Тело — РОВНО два поля: MessageUpdate несёт ещё caption и order, а бэкенд
+    # применяет пришедшие через exclude_unset — лишний ключ переписал бы подпись.
+    # doc_id кладём ВСЕГДА, в том числе null: пропуск ключа для бэка означает «не
+    # трогать привязку», а не «отвязать», и снятие молча ничего бы не сделало.
+    # Пустая строка — тот же null: клиенты MCP охотно выбрасывают из аргументов
+    # настоящий null, и без этого синонима снятие стало бы невыразимым.
+    body: dict[str, Any] = {
+        "doc_id": args["doc_id"] or None,
+        "base_version": args["base_version"],
+    }
+    path = f"/processes/{args['process_id']}/messages/{args['message_id']}"
+    msg = await client.request("PATCH", path, project_id=pid, json=body)
+    return f"Проект «{pname}» — привязка шага обновлена\n\n" + render.step_bound(msg)
+
+
 async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     path = f"/export/{args['node_id']}" if args.get("node_id") else "/export"
@@ -807,6 +841,42 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project"],
         },
         "handler": t_processes,
+    },
+    {
+        "name": "archmap_step_docs",
+        "description": "Схемы логики, которыми МОЖНО задокументировать шаг процесса: каталог считает сервер (схемы обоих участников и их потомков, схемы исполнителя шага — первыми и с пометкой «исполнитель»; «не описана» — заглушка разведки). Отсюда берут doc_id для archmap_bind_step. id и version самого шага — в выдаче archmap_processes с process_id.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "process_id": {"type": "string"},
+                "message_id": {"type": "string", "description": "Шаг процесса (id из archmap_processes)."},
+            },
+            "required": ["project", "process_id", "message_id"],
+        },
+        "handler": t_step_docs,
+    },
+    {
+        "name": "archmap_bind_step",
+        "description": "Привязывает шаг процесса к схеме логики — говорит, ЧЕМ шаг задокументирован. Порядок: archmap_processes с process_id (у шага есть id и version) → archmap_step_docs (допустимые схемы) → сюда с выбранным doc_id. doc_id null (или пустая строка) — снять привязку; удалений тут нет, снятие обратимо. base_version — version шага из выдачи процесса: если шаг изменили в другой сессии, будет конфликт версий и надо перечитать процесс.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "process_id": {"type": "string"},
+                "message_id": {"type": "string", "description": "Шаг процесса (id из archmap_processes)."},
+                "doc_id": {
+                    "type": ["string", "null"],
+                    "description": "Схема логики из archmap_step_docs. null — снять привязку.",
+                },
+                "base_version": {
+                    "type": "integer",
+                    "description": "version шага из archmap_processes (защита от параллельной правки).",
+                },
+            },
+            "required": ["project", "process_id", "message_id", "doc_id", "base_version"],
+        },
+        "handler": t_bind_step,
     },
     {
         "name": "archmap_export",
