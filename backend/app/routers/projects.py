@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_architect
 from app.database import get_db
+from app.identity import source_ref_dict
 from app.import_merge import (
     count_without_anchor,
     merged_with_basis,
@@ -42,6 +43,7 @@ from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.projects import copy_project_schema
 from app.schemas.archive import ArchiveImportResult
+from app.schemas.node import NodeSource
 from app.schemas.project import (
     FileRemarksOut,
     ImportPreviewIn,
@@ -503,6 +505,16 @@ async def import_archive_apply(
     return result
 
 
+def _action_source(ref: str | None) -> NodeSource | None:
+    """Якорь действия синка в виде контракта — тем же разбором, что у карточки узла.
+
+    Ключ снятого вида (архив прежней модели якоря) якорем не притворяется:
+    source_ref_dict вернёт пусто, и превью честно скажет «якоря нет» — ровно то,
+    что запишет применение (гвард known_key на точках записи)."""
+    d = source_ref_dict(ref) if ref else {}
+    return NodeSource(**d) if d else None
+
+
 @router.post("/{project_id}/sync/preview", response_model=SyncPreviewOut)
 def sync_preview(
     project_id: uuid.UUID,
@@ -550,6 +562,7 @@ def sync_preview(
                 source_ref=a.source_ref,
                 fields=a.fields,
                 matched_by=a.matched_by,  # type: ignore[arg-type]
+                source=_action_source(a.source_ref),
                 returned=a.returned,
             )
             for a in plan.nodes

@@ -13,15 +13,17 @@ import type { NodeSource } from "../../types";
 import { nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
 import InfoPopover from "../../ui/InfoPopover";
+import type { AnchorKind } from "./anchorText";
 import {
   ANCHOR_HELP, FIELD_LABEL, FORM_HINT, HELP_LABEL, KIND_LABEL, KIND_TAB,
   NO_ANCHOR, PLACEHOLDER, PREVIEW_EMPTY, PREVIEW_PREFIX,
+  anchorKind as kindOf, anchorReadable as readable,
 } from "./anchorText";
 import "./anchor.css";
 
 // Вид якоря: код (репозиторий + путь) или имя зависимости. Третьего нет —
 // контур развёртывания (образ, объект k8s) из идентичности убран (Ф0).
-type Kind = "code" | "dependency";
+type Kind = AnchorKind;
 
 interface Props {
   // Якорь узла как его отдаёт сервер (заполнена ровно одна сторона) либо ничего.
@@ -32,15 +34,6 @@ interface Props {
   // остаться под формой, где человек его исправит, а не увести форму со сцены.
   onSave: (source: NodeSource | null) => Promise<string | null>;
 }
-
-// Якорь в человеческий вид: «github.com/org/repo, путь src/api» / «payments».
-function readable(src: NodeSource): string {
-  if (src.repo) return src.path ? `${src.repo}, путь ${src.path}` : src.repo;
-  return src.host ?? "";
-}
-
-const kindOf = (src: NodeSource | null | undefined): Kind | null =>
-  !src ? null : src.repo ? "code" : src.host ? "dependency" : null;
 
 export default function AnchorField({ source, isArchitect, onSave }: Props) {
   const kindNow = kindOf(source);

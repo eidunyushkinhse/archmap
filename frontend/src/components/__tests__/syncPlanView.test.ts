@@ -27,7 +27,7 @@ describe("planSections", () => {
     const p = preview({
       nodes: [
         { returned: false, path: "С / new", action: "create", fields: [] },
-        { returned: false, path: "С / old", action: "unchanged", fields: [], matched_by: "source" },
+        { returned: false, path: "С / old", action: "unchanged", fields: [], matched_by: "code" },
         { returned: false, path: "С / упавший", action: "missing", fields: [] },
       ],
       edges: [
@@ -50,15 +50,46 @@ describe("planSections", () => {
   it("у изменённого узла видно, какие поля меняются и чем он опознан", () => {
     const p = preview({
       nodes: [
-        { returned: false, path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "source" },
+        { returned: false, path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "code" },
       ],
     });
-    expect(planSections(p)[0].rows[0].note).toBe("имя, источник · нашли по репозиторию");
+    expect(planSections(p)[0].rows[0].note).toBe("имя, якорь · нашли по коду");
   });
 
   it("матч по имени показан даже без изменений полей — он слабее якорного", () => {
     const p = preview({ nodes: [{ returned: false, path: "С / svc", action: "update", fields: [], matched_by: "name" }] });
-    expect(planSections(p)[0].rows[0].note).toBe("нашли по имени");
+    // Имя решает только ВНУТРИ контейнера — фраза называет, внутри какого.
+    expect(planSections(p)[0].rows[0].note).toBe("нашли по имени внутри «С»");
+  });
+
+  it("матч по имени зависимости назван своим словом", () => {
+    const p = preview({
+      nodes: [{ returned: false, path: "С / db", action: "update", fields: [], matched_by: "dependency" }],
+    });
+    expect(planSections(p)[0].rows[0].note).toBe("нашли по имени зависимости");
+  });
+
+  it("у объекта верхнего уровня имя решает не внутри контейнера, а на верхнем уровне", () => {
+    const p = preview({
+      nodes: [{ returned: false, path: "Система", action: "update", fields: [], matched_by: "name" }],
+    });
+    expect(planSections(p)[0].rows[0].note).toBe("нашли по имени на верхнем уровне");
+  });
+
+  it("у новых объектов сказано, будет ли якорь и какой", () => {
+    const p = preview({
+      nodes: [
+        { returned: false, path: "С / a", action: "create", fields: [],
+          source: { repo: "github.com/org/a", path: "src/api" } },
+        { returned: false, path: "С / b", action: "create", fields: [], source: { host: "postgres" } },
+        { returned: false, path: "С / c", action: "create", fields: [] },
+      ],
+    });
+    expect(planSections(p)[0].rows.map((r) => r.note)).toEqual([
+      "якорь: код github.com/org/a, путь src/api",
+      "якорь: имя зависимости postgres",
+      "якоря нет — будет опознаваться по имени",
+    ]);
   });
 });
 

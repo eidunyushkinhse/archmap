@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.node import NodeSource
+
 # Один YAML-документ импорта (текст файла). Лимит — защита от «бомбы» в textarea.
 _ImportDoc = Annotated[str, Field(max_length=2_000_000)]
 # Максимум документов за раз (мульти-репо «Из репозитория»). Щедрый предел: реальные
@@ -132,7 +134,14 @@ class SyncNodeActionOut(BaseModel):
     node_id: uuid.UUID | None = None
     source_ref: str | None = None
     fields: list[str] = []  # какие поля изменит update
-    matched_by: Literal["source", "name"] | None = None  # чем опознан живой узел
+    # ОСНОВАНИЕ матча словами (Ф2 docs/plan-anchor-ux.md) — тот же словарь, что у
+    # склеек импорта: «code» — сошёлся репозиторий, «dependency» — имя зависимости,
+    # «name» — якорей не было и решило имя внутри смэтченного родителя.
+    matched_by: Literal["code", "dependency", "name"] | None = None
+    # ЯКОРЬ, который получит узел (разбор source_ref, как в карточке объекта).
+    # Нужен строкам create: «якорь: код github.com/org/x» против «якоря нет — будет
+    # опознаваться по имени». Пусто и то и другое различает только это поле.
+    source: NodeSource | None = None
     # Узел был помечен устаревшим, а в YAML снова есть. Показывается ВСЕГДА,
     # даже когда статус не трогаем.
     returned: bool = False

@@ -5,6 +5,8 @@
 // дословно: механика якоря неинтуитивна, и текст выверен как продуктовое
 // объяснение — правки формулировок здесь только вместе с планом эпика.
 
+import type { NodeSource } from "../../types";
+
 export interface HelpParagraph {
   // Жирный подзаголовок абзаца (он же — то, что человек читает по диагонали).
   head: string;
@@ -50,6 +52,19 @@ export const ANCHOR_HELP: HelpParagraph[] = [
   },
 ];
 
+// Вид якоря: код (репозиторий + путь) либо имя зависимости. Третьего нет —
+// контур развёртывания (образ, объект k8s) из идентичности убран (Ф0).
+export type AnchorKind = "code" | "dependency";
+
+export const anchorKind = (src: NodeSource | null | undefined): AnchorKind | null =>
+  !src ? null : src.repo ? "code" : src.host ? "dependency" : null;
+
+/** Якорь в человеческий вид: «github.com/org/repo, путь src/api» / «payments». */
+export function anchorReadable(src: NodeSource): string {
+  if (src.repo) return src.path ? `${src.repo}, путь ${src.path}` : src.repo;
+  return src.host ?? "";
+}
+
 // Подписи двух видов якоря — в чтении и в переключателе формы.
 export const KIND_LABEL = { code: "код", dependency: "имя зависимости" } as const;
 export const KIND_TAB = { code: "Код", dependency: "Имя зависимости" } as const;
@@ -83,3 +98,35 @@ export const FORM_HINT = {
 export const PREVIEW_EMPTY = "якоря не будет — объект будет опознаваться по имени";
 export const PREVIEW_PREFIX = "будет сохранено как:";
 export const HELP_LABEL = "Что такое якорь";
+
+// ── Основание склейки словами (Ф2 docs/plan-anchor-ux.md) ────────────────────
+//
+// ОДИН словарь на три превью — импорта, догрузки и синка: пользователь читает
+// одну и ту же фразу, чем бы он ни ввозил. Значения приходят с бэка (мердж и
+// sync_plan считают их одним и тем же правилом), здесь только слова.
+
+/** Чем два объекта признаны одним: совпал якорь-код, якорь-имя зависимости, имя. */
+export type MergeBasis = "code" | "dependency" | "name";
+
+const BASIS_LABEL: Record<MergeBasis, string> = {
+  code: "по коду",
+  dependency: "по имени зависимости",
+  name: "по имени",
+};
+
+/** Основание словами. Для «по имени» дописываем ГДЕ: имя решает только внутри
+ *  своего контейнера, и без него фраза обещает больше, чем сделал матчер. */
+export function basisLabel(basis: MergeBasis, path?: string): string {
+  if (basis !== "name") return BASIS_LABEL[basis];
+  const parts = (path ?? "").split(" / ");
+  const parent = parts.slice(0, -1).join(" / ");
+  return parent ? `по имени внутри «${parent}»` : "по имени на верхнем уровне";
+}
+
+/** Якорь нового объекта строкой: с ним — какой именно, без него — последствие. */
+export function anchorNote(source: NodeSource | null | undefined): string {
+  const kind = anchorKind(source);
+  return source && kind
+    ? `якорь: ${KIND_LABEL[kind]} ${anchorReadable(source)}`
+    : "якоря нет — будет опознаваться по имени";
+}

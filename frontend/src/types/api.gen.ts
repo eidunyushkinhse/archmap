@@ -5376,7 +5376,8 @@ export interface components {
              */
             fields: string[];
             /** Matched By */
-            matched_by?: ("source" | "name") | null;
+            matched_by?: ("code" | "dependency" | "name") | null;
+            source?: components["schemas"]["NodeSource"] | null;
             /**
              * Returned
              * @default false
