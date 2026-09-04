@@ -68,6 +68,10 @@ SYNONYM_PHRASES: dict[str, str] = {
     "message queue": "queue",
     "объектное хранилище": "storage",
     "object storage": "storage",
+    # «Веб-клиент» ↔ «web-frontend» (Zulip): клиент здесь не «внешний потребитель»,
+    # а браузерная часть продукта — раскрываем в два токена.
+    "веб клиент": "web frontend",
+    "web client": "web frontend",
 }
 
 SYNONYMS: dict[str, str] = {
@@ -96,6 +100,11 @@ SYNONYMS: dict[str, str] = {
     "web": "web",
     "фронтенд": "frontend",
     "frontend": "frontend",
+    # Бэкенд — НЕ синоним сервера (сервер — процесс, бэкенд — сторона продукта),
+    # но как типовой суффикс имени он слаб (см. WEAK_TOKENS).
+    "бэкенд": "backend",
+    "бекенд": "backend",
+    "backend": "backend",
     "ui": "frontend",
     "spa": "frontend",
     "интерфейс": "frontend",
@@ -172,6 +181,10 @@ SYNONYMS: dict[str, str] = {
     "renderer": "renderer",
     "балансировщик": "balancer",
     "balancer": "balancer",
+    "движок": "engine",
+    "engine": "engine",
+    "хаб": "hub",
+    "hub": "hub",
     # доменные слова (частые в именах узлов)
     "платёж": "payment",
     "платеж": "payment",
@@ -263,6 +276,96 @@ STOPWORDS: frozenset[str] = frozenset(
 )
 
 
+# --------------------------------------------------------------------------
+# СЛАБЫЕ ТИПОВЫЕ ТОКЕНЫ. Модели любят дописывать к имени тип объекта:
+# «RabbitMQ» → «rabbitmq-broker», «Redis» → «redis-cache», «Tornado» →
+# «tornado-server». Такой суффикс не несёт различающего смысла, но рушит Жаккар
+# (0.5 < порога). Правило: если СИЛЬНЫЕ токены есть с обеих сторон, меру считаем
+# по ним; если у одной стороны сильных не осталось — обычный Жаккар по всем.
+# Расхождение формы при этом матч не отменяет (redis-cache у слабой модели —
+# broker, у эталона Redis — database), но даёт флаг «форма».
+# --------------------------------------------------------------------------
+WEAK_TOKENS: frozenset[str] = frozenset(
+    {
+        "app",
+        "backend",
+        "broker",
+        "bus",
+        "cache",
+        "db",
+        "engine",
+        "frontend",
+        "hub",
+        "queue",
+        "server",
+        "service",
+        "worker",
+    }
+)
+
+# Типовые окончания кириллицы для лёгкого стеммера (отсортированы по убыванию
+# длины — срезаем одно, самое длинное подходящее). Нужен, чтобы «Воркеры
+# очередей» сходились с «worker-queue»: словарь синонимов не может перечислить
+# все падежи.
+RU_ENDINGS: tuple[str, ...] = tuple(
+    sorted(
+        {
+            "ами",
+            "ого",
+            "ому",
+            "ов",
+            "ев",
+            "ей",
+            "ам",
+            "ах",
+            "ой",
+            "ия",
+            "ии",
+            "ие",
+            "ые",
+            "ых",
+            "ем",
+            "ом",
+            "ы",
+            "и",
+            "у",
+            "а",
+            "я",
+            "е",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+
+_CYRILLIC_RE = re.compile(r"[а-я]+")
+_MIN_STEM = 3  # короче основы не режем — «база»/«базы» и так ловит словарь
+
+
+def stem_ru(word: str) -> str:
+    """Срезает одно типовое окончание у кириллического слова длиннее 4 букв."""
+    if len(word) <= 4 or not _CYRILLIC_RE.fullmatch(word):
+        return word
+    for ending in RU_ENDINGS:
+        if word.endswith(ending) and len(word) - len(ending) >= _MIN_STEM:
+            return word[: -len(ending)]
+    return word
+
+
+def _stemmed_map(source: dict[str, str]) -> dict[str, str]:
+    """Основы словарных слов → канон. Неоднозначные основы выбрасываем."""
+    buckets: dict[str, set[str]] = {}
+    for word, canon in source.items():
+        stem = stem_ru(word)
+        if stem != word:
+            buckets.setdefault(stem, set()).add(canon)
+    return {stem: next(iter(values)) for stem, values in buckets.items() if len(values) == 1}
+
+
+STEM_SYNONYMS: dict[str, str] = _stemmed_map(SYNONYMS)
+STEM_STOPWORDS: frozenset[str] = frozenset(STOPWORDS) | {stem_ru(w) for w in STOPWORDS}
+
+
 class CompareError(Exception):
     """Ошибка разбора или сверки: сообщение адресовано человеку."""
 
@@ -316,8 +419,12 @@ def tokens(value: str | None) -> set[str]:
             text = text.replace(phrase, canon)
     result: set[str] = set()
     for raw in text.split():
-        token = SYNONYMS.get(raw, raw)
-        if token in STOPWORDS:
+        token = SYNONYMS.get(raw)
+        if token is None:
+            # Словарь не знает словоформу — пробуем основу (и её же по словарю).
+            stem = stem_ru(raw)
+            token = SYNONYMS.get(stem) or STEM_SYNONYMS.get(stem) or stem
+        if token in STEM_STOPWORDS:
             continue
         result.add(token)
     return result
@@ -337,15 +444,38 @@ def ratio(left: str, right: str) -> float:
     return difflib.SequenceMatcher(None, left, right).ratio()
 
 
+def name_jaccard(left: set[str], right: set[str]) -> float:
+    """Жаккар с поблажкой слабым типовым токенам (см. WEAK_TOKENS).
+
+    Слабый токен, которого нет у другой стороны, НЕ ШТРАФУЕТ: если сильные
+    токены есть с обеих сторон, считаем меру и по ним тоже и берём лучшую.
+    «rabbitmq-broker» против «RabbitMQ» — 1.0 вместо 0.5.
+
+    Именно лучшая из двух, а не замена обычного Жаккара строгим: замена рубит
+    класс «уточняющее слово с одной стороны» («Почтовый сервер (SMTP)» ↔
+    «SMTP-сервер», «Web UI» ↔ «Zabbix web-интерфейс» — по сильным токенам это
+    0.5). Слабые токены должны только помогать: помеха от них — регресс.
+    Если у одной стороны сильных токенов не осталось («Веб-приложение» —
+    сплошь типовые слова), остаётся обычный Жаккар: иначе имя из одних типовых
+    слов совпадало бы с чем угодно.
+    """
+    plain = jaccard(left, right)
+    strong_left = left - WEAK_TOKENS
+    strong_right = right - WEAK_TOKENS
+    if strong_left and strong_right:
+        return max(plain, jaccard(strong_left, strong_right))
+    return plain
+
+
 def name_measure(left: NodeRec, right: NodeRec) -> float:
     """Мера похожести имён: максимум из токенной и строковой."""
-    return max(jaccard(left.tokens, right.tokens), ratio(left.norm_name, right.norm_name))
+    return max(name_jaccard(left.tokens, right.tokens), ratio(left.norm_name, right.norm_name))
 
 
 def names_similar(left: NodeRec, right: NodeRec) -> bool:
     """Порог синонимичности имён (ступень 3)."""
     return (
-        jaccard(left.tokens, right.tokens) >= JACCARD_MIN
+        name_jaccard(left.tokens, right.tokens) >= JACCARD_MIN
         or ratio(left.norm_name, right.norm_name) >= RATIO_MIN
     )
 

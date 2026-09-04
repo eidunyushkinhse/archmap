@@ -433,3 +433,120 @@ def test_parse_reports_unknown_reference() -> None:
     with pytest.raises(CompareError) as exc:
         parse_model(doc, "тест")
     assert "не найден" in str(exc.value)
+
+
+# --------------------------------------------------------------------------
+# 4. Форма имени: слабые типовые токены, кириллические словоформы, веб-клиент
+# --------------------------------------------------------------------------
+
+TYPE_SUFFIX_ETALON = """
+nodes:
+- name: Платформа
+  shape: service
+  children:
+  - name: RabbitMQ
+    shape: broker
+    technology: RabbitMQ
+  - name: Redis
+    shape: database
+    technology: Redis
+  - name: Tornado
+    shape: service
+    technology: Python
+  - name: Django
+    shape: service
+    technology: Python
+edges: []
+"""
+
+TYPE_SUFFIX_CANDIDATE = """
+nodes:
+- name: Платформа
+  shape: service
+  children:
+  - name: rabbitmq-broker
+    shape: broker
+    technology: RabbitMQ
+  - name: redis-cache
+    shape: broker
+    technology: Redis
+  - name: tornado-server
+    shape: service
+    technology: Python
+  - name: django-backend
+    shape: service
+    technology: Python
+edges: []
+"""
+
+
+def test_type_suffix_tokens_do_not_break_match() -> None:
+    """Типовой суффикс имени («-broker», «-cache», «-server», «-backend») не промах."""
+    report = report_for(
+        yaml.safe_load(TYPE_SUFFIX_CANDIDATE), yaml.safe_load(TYPE_SUFFIX_ETALON)
+    )
+    nodes = report["метрики"]["узлы"]
+    assert nodes["полнота_%"] == 100.0
+    assert nodes["пропуски"] == 0
+    assert nodes["выдумки"] == 0
+    assert nodes["по_ступеням"].get("синоним") == 4
+    # Redis у эталона — БД, у кандидата брокер: матч остаётся, расхождение — флаг.
+    assert nodes["флаги"].get("форма") == 1
+    flagged = [item for item in report["списки"]["узлы_флаги"] if "форма" in item["флаги"]]
+    assert flagged[0]["кандидат"] == "Платформа / redis-cache"
+
+
+def test_weak_only_names_still_need_full_overlap() -> None:
+    """Имя из одних типовых слов не совпадает с чужим типовым именем."""
+    etalon = yaml.safe_load(
+        "nodes:\n- name: Очередь\n  shape: broker\nedges: []\n"
+    )
+    candidate = yaml.safe_load(
+        "nodes:\n- name: Кэш\n  shape: database\nedges: []\n"
+    )
+    report = report_for(candidate, etalon)
+    assert report["метрики"]["узлы"]["пропуски"] == 1
+    assert report["метрики"]["узлы"]["выдумки"] == 1
+
+
+def test_russian_word_forms_are_stemmed() -> None:
+    """«Воркеры очередей» ↔ «worker-queue»: падеж и число не мешают матчу."""
+    etalon = yaml.safe_load(
+        "nodes:\n- name: Воркеры очередей\n  shape: service\nedges: []\n"
+    )
+    candidate = yaml.safe_load("nodes:\n- name: worker-queue\n  shape: service\nedges: []\n")
+    report = report_for(candidate, etalon)
+    assert report["метрики"]["узлы"]["полнота_%"] == 100.0
+    assert report["метрики"]["узлы"]["по_ступеням"].get("синоним") == 1
+
+
+def test_web_client_matches_web_frontend() -> None:
+    """«Веб-клиент» ↔ «web-frontend» (Zulip): клиент здесь — браузерная часть."""
+    etalon = yaml.safe_load("nodes:\n- name: Веб-клиент\n  shape: service\nedges: []\n")
+    candidate = yaml.safe_load("nodes:\n- name: web-frontend\n  shape: service\nedges: []\n")
+    report = report_for(candidate, etalon)
+    assert report["метрики"]["узлы"]["полнота_%"] == 100.0
+    assert report["метрики"]["узлы"]["по_ступеням"].get("синоним") == 1
+
+
+def test_api_client_is_not_frontend() -> None:
+    """Отрицательный сентинел: «api-client» — не «frontend», матча быть не должно."""
+    etalon = yaml.safe_load("nodes:\n- name: frontend\n  shape: service\nedges: []\n")
+    candidate = yaml.safe_load("nodes:\n- name: api-client\n  shape: service\nedges: []\n")
+    report = report_for(candidate, etalon)
+    nodes = report["метрики"]["узлы"]
+    assert nodes["пропуски"] == 1
+    assert nodes["выдумки"] == 1
+    assert nodes["дубли"] == 0
+
+
+def test_shared_weak_token_still_helps() -> None:
+    """Слабые токены только помогают: общее типовое слово при уточнении с одной
+    стороны матч не отменяет («Почтовый сервер (SMTP)» ↔ «SMTP-сервер»)."""
+    etalon = yaml.safe_load(
+        "nodes:\n- name: Почтовый сервер (SMTP)\n  shape: service\nedges: []\n"
+    )
+    candidate = yaml.safe_load("nodes:\n- name: SMTP-сервер\n  shape: service\nedges: []\n")
+    report = report_for(candidate, etalon)
+    assert report["метрики"]["узлы"]["полнота_%"] == 100.0
+    assert report["метрики"]["узлы"]["по_ступеням"].get("синоним") == 1
