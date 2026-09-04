@@ -53,7 +53,7 @@ archmap/
 │   ├── tasks-archive.md   # журнал закрытых задач
 │   └── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
 ├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки)
-│   ├── archmap_mcp/       # client.py (логин+скоуп+ошибки), tools.py (18 инструментов), render.py, server.py
+│   ├── archmap_mcp/       # client.py (логин+скоуп+ошибки), tools.py (29 инструментов), render.py, server.py
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── .env.example       # ARCHMAP_URL/USERNAME/PASSWORD → копировать в mcp/.env (в .gitignore)
 │   └── README.md          # каталог инструментов, подключение, сценарии
