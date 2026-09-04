@@ -220,3 +220,18 @@ async def test_строки_семьи_режутся_с_честным_хвос
     # Согласование числительного, а не просто наличие хвоста: «3 таблиц» —
     # подстрока правильного «3 таблицы», и небрежная проверка пропустила бы ошибку.
     assert out.rstrip().splitlines()[-3] == "… и ещё 3 таблицы"
+
+
+async def test_запись_без_колонок_помечена(client: ArchMapClient, api: FakeApi) -> None:
+    # Самый частый брак пакета: таблица названа, колонки растеряны. Молчание тут —
+    # это молчаливое согласие залить пустышку.
+    api.post("/data-import/preview", report("tables", tables=[
+        {"node_path": "БД", "source": "a.yaml", "schema_name": "", "name": "orders",
+         "columns": 0, "action": "create"},
+    ]))
+
+    out = await tools.call(
+        "archmap_facts_preview", {"project": "Ярмарка", "family": "tables", "files": FILES}, client
+    )
+
+    assert "колонок 0 ⚠ проверьте файл" in out

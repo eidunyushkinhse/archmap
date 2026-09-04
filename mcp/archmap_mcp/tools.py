@@ -26,7 +26,6 @@ uuid). «Текущего проекта» в сервере нет намере
 
 from __future__ import annotations
 
-import json
 import uuid as uuidlib
 from typing import Any
 
@@ -387,7 +386,7 @@ async def t_docs_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
     data = await client.request(
         "POST", "/docs-import/preview", project_id=pid, json=_docs_body(args)
     )
-    return f"Проект «{pname}» — план дозаливки\n\n" + _docs_report(data, applied=False)
+    return f"Проект «{pname}» — план дозаливки\n\n" + render.docs_report(data, applied=False)
 
 
 async def t_docs_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -395,7 +394,7 @@ async def t_docs_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
     data = await client.request(
         "POST", "/docs-import/apply", project_id=pid, json=_docs_body(args)
     )
-    return f"Проект «{pname}» — дозаливка применена\n\n" + _docs_report(data, applied=True)
+    return f"Проект «{pname}» — дозаливка применена\n\n" + render.docs_report(data, applied=True)
 
 
 def _docs_body(args: dict[str, Any]) -> dict[str, Any]:
@@ -405,23 +404,6 @@ def _docs_body(args: dict[str, Any]) -> dict[str, Any]:
     if args.get("node_id"):
         body["node_id"] = args["node_id"]
     return body
-
-
-def _docs_report(data: dict[str, Any], *, applied: bool) -> str:
-    out: list[str] = []
-    items = data.get("items", [])
-    for it in items[:80]:
-        status = it.get("status", "?")
-        target = it.get("target") or it.get("node_path") or ""
-        out.append(f"  {status}: {it.get('name', '?')} → {target}")
-    if len(items) > 80:
-        out.append(f"  … и ещё {len(items) - 80}")
-    problems = data.get("errors") or []
-    if problems:
-        out.append("\nПроблемы:\n" + "\n".join("  • " + str(p) for p in problems))
-    if not applied:
-        out.append("\nНичего не записано — для записи вызовите archmap_docs_apply.")
-    return "\n".join(out) if out else json.dumps(data, ensure_ascii=False)[:2000]
 
 
 # ── Разведка точек входа ─────────────────────────────────────────────────────

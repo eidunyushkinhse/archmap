@@ -546,14 +546,22 @@ ACTION_WORD = {
 }
 
 
+# Пустая запись — самый частый брак пакета: агент назвал таблицу, но колонки
+# растерял. Окна помечают такую строку красным, и агенту знать это важнее, чем
+# человеку: чинить пакет ему.
+EMPTY_MARK = " ⚠ проверьте файл"
+
+
 def _fact_table(item: dict[str, Any]) -> str:
     name = f"{item['schema_name']}.{item['name']}" if item.get("schema_name") else str(item["name"])
-    return f"{name} · колонок {item.get('columns', 0)}"
+    n = int(item.get("columns", 0) or 0)
+    return f"{name} · колонок {n}" + (EMPTY_MARK if n == 0 else "")
 
 
 def _fact_channel(item: dict[str, Any]) -> str:
     name = f"{item['group_name']}/{item['name']}" if item.get("group_name") else str(item["name"])
-    return f"{name} · полей {item.get('fields', 0)}"
+    n = int(item.get("fields", 0) or 0)
+    return f"{name} · полей {n}" + (EMPTY_MARK if n == 0 else "")
 
 
 def _fact_param(item: dict[str, Any]) -> str:
@@ -633,3 +641,82 @@ def facts_report(data: dict[str, Any], family: str, *, applied: bool) -> str:
     if not applied:
         out.append("\nНичего не записано — для записи вызовите archmap_facts_apply.")
     return "\n".join(out)
+
+
+def docs_report(data: dict[str, Any], *, applied: bool) -> str:
+    """Сводка дозаливки схем логики и OpenAPI-спек.
+
+    ⚠ Читает `logic` и `specs` — ровно те поля, что отдаёт DocsImportReport. Прежняя
+    версия спрашивала `items`/`status`, которых в отчёте нет вовсе, и печатала
+    ПУСТОЙ ПЛАН на валидный пакет: агент видел «ничего не приедет» и всё равно шёл
+    применять вслепую (найдено живой проверкой Ф2). Форма отчёта — единственный
+    судья таких полей, поэтому фикстуры тестов валидируются ею.
+    """
+    logic = [i for i in (data.get("logic") or []) if isinstance(i, dict)]
+    specs = [i for i in (data.get("specs") or []) if isinstance(i, dict)]
+
+    out: list[str] = []
+    if applied:
+        out.append(
+            f"Применено: схем создано {data.get('created_docs', 0)}, "
+            f"заполнено заглушек {data.get('filled_docs', 0)}, "
+            f"перезаписано {data.get('updated_docs', 0)}, "
+            f"спек {data.get('specs_written', 0)}"
+        )
+
+    if logic:
+        n = len(logic)
+        counts = ", ".join(
+            f"{ACTION_WORD.get(a, a)} {sum(1 for i in logic if i.get('action') == a)}"
+            for a in ACTION_WORD
+            if any(i.get("action") == a for i in logic)
+        )
+        out.append("")
+        out.append(f"СХЕМЫ ЛОГИКИ: {n} ({counts})")
+        lines = []
+        for it in logic:
+            kind = str(it.get("kind", "?"))
+            head = f"{it.get('name', '?')} ({KIND_WORD.get(kind, kind)}"
+            head += f" · {it['operation']})" if it.get("operation") else ")"
+            action = str(it.get("action", "?"))
+            lines.append(
+                f"  {ACTION_WORD.get(action, action)}: «{it.get('node_path', '?')}» · {head}"
+            )
+        out.extend(_capped(lines, FACT_REPORT_CAP, ("схема", "схемы", "схем")))
+
+    if specs:
+        out.append("")
+        out.append(f"OPENAPI-СПЕКИ: {len(specs)}")
+        lines = []
+        for it in specs:
+            bits = [str(it.get("source", "?"))]
+            if it.get("oas_version"):
+                bits.append(f"OAS {it['oas_version']}")
+            # «Синтезирована из кода» — не мелочь: такую спеку человек обязан
+            # посмотреть глазами, и окно помечает её тем же словом.
+            if it.get("origin"):
+                bits.append(str(it["origin"]))
+            if not it.get("valid_yaml", True):
+                bits.append("невалидный YAML")
+            elif not it.get("looks_openapi", True):
+                bits.append("не похожа на OpenAPI")
+            action = str(it.get("action", "?"))
+            lines.append(
+                f"  {ACTION_WORD.get(action, action)}: «{it.get('node_path', '?')}» · "
+                + " · ".join(bits)
+            )
+        out.extend(_capped(lines, FACT_REPORT_CAP, ("спека", "спеки", "спек")))
+
+    conflicts = data.get("conflicts") or []
+    if conflicts:
+        out.append("")
+        out.append(f"Конфликты файлов ({len(conflicts)}, оставлен первый источник):")
+        out.extend("  • " + str(c) for c in conflicts)
+
+    out.extend(problems(data))
+    if not logic and not specs and not data.get("errors"):
+        out.append("")
+        out.append("Пакет ничего не принёс: ни схем логики, ни спек не распознано.")
+    if not applied:
+        out.append("\nНичего не записано — для записи вызовите archmap_docs_apply.")
+    return "\n".join(out).lstrip("\n")
