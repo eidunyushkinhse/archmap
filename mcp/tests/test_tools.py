@@ -457,3 +457,19 @@ async def test_план_синка_называет_основание_и_яко
     assert "update: М / Kafka — по имени зависимости" in out
     assert "create: М / Оплата — якорь: код github.com/y/pay, путь svc" in out
     assert "create: М / Ручной — якоря нет — будет опознаваться по имени" in out
+
+
+async def test_экспорт_отдаёт_сам_yaml_а_не_одну_шапку(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Полевая находка Ф4: инструмент читал поле «yaml», которого в ExportResponse
+    нет, и агент получал шапку без схемы — импорт такого «экспорта» падал на 400.
+    Фикстура собрана схемой бэкенда: она и есть судья имени поля."""
+    export = backend("schemas.export").ExportResponse(
+        format="yaml", content="nodes:\n  - name: Маркетплейс\nedges: []\n"
+    ).model_dump(mode="json")
+    api.get("/export", export)
+
+    out = await tools.call("archmap_export", {"project": "Ярмарка"}, client)
+
+    assert "nodes:" in out and "name: Маркетплейс" in out

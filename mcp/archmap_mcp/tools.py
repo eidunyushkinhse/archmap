@@ -284,7 +284,10 @@ async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     path = f"/export/{args['node_id']}" if args.get("node_id") else "/export"
     data = await client.request("GET", path, project_id=pid)
-    return f"# Проект «{pname}» — семантический экспорт\n{data.get('yaml', '')}"
+    # ⚠️ Поле контракта — content (ExportResponse), НЕ «yaml»: по несуществующему
+    # ключу инструмент годами отдавал агенту пустой экспорт с одной шапкой, и
+    # ловилось это только живым прогоном (подменённый транспорт форму не судит).
+    return f"# Проект «{pname}» — семантический экспорт\n{data.get('content', '')}"
 
 
 async def t_export_archive(client: ArchMapClient, args: dict[str, Any]) -> str:
