@@ -1,0 +1,55 @@
+/* ⓘ-поповер (ui/InfoPopover.tsx): кнопка-знак вопроса и панель пояснения. */
+
+.ipop-wrap {
+  display: inline-flex;
+  flex: none;
+}
+
+.ipop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #94a3b8;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.ipop-btn:hover,
+.ipop-btn[aria-expanded="true"] {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+/* Панель — fixed по координатам кнопки: правая панель редактора со своим
+   overflowY обрезала бы абсолютный слой (см. комментарий в InfoPopover). */
+.ipop-panel {
+  position: fixed;
+  z-index: 60;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.16);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #334155;
+  text-align: left;
+  white-space: normal;
+}
+
+.ipop-panel p {
+  margin: 0 0 9px;
+}
+.ipop-panel p:last-child {
+  margin-bottom: 0;
+}
+.ipop-panel b,
+.ipop-panel strong {
+  color: #0f172a;
+}
