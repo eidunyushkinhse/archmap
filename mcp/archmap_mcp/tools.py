@@ -26,8 +26,13 @@ uuid). «Текущего проекта» в сервере нет намере
 
 from __future__ import annotations
 
+import io
 import uuid as uuidlib
+import zipfile
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from archmap_mcp import render
 from archmap_mcp.client import ArchMapClient, ArchMapError
@@ -236,6 +241,40 @@ async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
     path = f"/export/{args['node_id']}" if args.get("node_id") else "/export"
     data = await client.request("GET", path, project_id=pid)
     return f"# Проект «{pname}» — семантический экспорт\n{data.get('yaml', '')}"
+
+
+async def t_export_archive(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Полный архив знания проекта (zip) — В ФАЙЛ на диске агента.
+
+    Почему файлом, а не телом ответа: архив несёт всё содержимое доков, спек и
+    таблиц; вернуть его в разговор — выложить весь проект в контекст модели, а
+    нужен он для бэкапа и переноса (тем же путём он и заезжает обратно —
+    archmap_import_apply/paths). Имя файла задаёт вызывающий: в заголовке ответа
+    оно ASCII-огрызок, истинное имя проекта живёт в манифесте.
+    """
+    pid, pname = await resolve_project(client, args["project"])
+    path = Path(str(args["out_path"])).expanduser()
+    if path.exists() and not args.get("overwrite"):
+        raise ArchMapError(
+            f"Файл {path} уже существует. Перезапись только явным overwrite=true "
+            "или укажите другой out_path."
+        )
+
+    payload = await client.request_bytes("GET", "/export/archive", project_id=pid)
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            names = zf.namelist()
+            manifest_raw = zf.read("manifest.yaml").decode("utf-8") if "manifest.yaml" in names else ""
+    except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as exc:
+        raise ArchMapError(f"ArchMap вернул не архив проекта «{pname}»: {exc}") from exc
+    parsed = yaml.safe_load(manifest_raw) if manifest_raw else {}
+    manifest: dict[str, Any] = parsed if isinstance(parsed, dict) else {}
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return render.archive_summary(
+        manifest, files=len(names), size=len(payload), path=str(path)
+    )
 
 
 # ── Правила формата (BYOA-промпты) ───────────────────────────────────────────
@@ -686,6 +725,26 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project"],
         },
         "handler": t_export,
+    },
+    {
+        "name": "archmap_export_archive",
+        "description": "ПОЛНЫЙ АРХИВ знания проекта в zip-файл на диске: C4, схемы логики, спеки OpenAPI, структура БД, каналы брокеров, конфигурация, процессы. Для бэкапа и переноса; тем же архивом проект восстанавливается (archmap_import_apply с paths). Отличие от archmap_export: тот отдаёт только семантический YAML в ответ, этот пишет ФАЙЛ и возвращает сводку манифеста.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "out_path": {
+                    "type": "string",
+                    "description": "Куда записать zip (путь на машине агента). Каталоги создаются.",
+                },
+                "overwrite": {
+                    "type": "boolean",
+                    "description": "Перезаписать существующий файл. По умолчанию false — иначе чужой бэкап затирается молча.",
+                },
+            },
+            "required": ["project", "out_path"],
+        },
+        "handler": t_export_archive,
     },
     {
         "name": "archmap_import_prompt",

@@ -720,3 +720,67 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
     if not applied:
         out.append("\nНичего не записано — для записи вызовите archmap_docs_apply.")
     return "\n".join(out).lstrip("\n")
+
+
+# ── Архив проекта ────────────────────────────────────────────────────────────
+
+# Категории манифеста архива (backend/app/archive_export.py, ключ contents) —
+# порядок и слова те же, что в самом архиве, чтобы агент и человек, открывший zip,
+# называли его состав одинаково.
+ARCHIVE_CATEGORIES: list[tuple[str, str]] = [
+    ("c4", "схема C4"),
+    ("docs", "схемы логики"),
+    ("specs", "спеки OpenAPI"),
+    ("db", "структура БД"),
+    ("channels", "каналы брокеров"),
+    ("config", "конфигурация"),
+    ("processes", "бизнес-процессы"),
+]
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    """Ветка манифеста словарём — или пустой словарь. Манифест приезжает из файла
+    на диске: чужой архив может оказаться каким угодно, а падать стектрейсом на
+    кривом zip-е инструменту нельзя."""
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def archive_summary(manifest: dict[str, Any], *, files: int, size: int, path: str) -> str:
+    """Сводка выгруженного архива: что внутри и куда лёг файл.
+
+    СОДЕРЖИМОГО файлов тут нет намеренно: архив — бэкап на диске, а не материал
+    для чтения моделью (полный дамп знания проекта в контекст — тот самый шум,
+    ради борьбы с которым сделан весь render). Истинное имя проекта берём из
+    манифеста: в заголовке HTTP оно ASCII-огрызок.
+    """
+    project = _dict(manifest.get("project"))
+    name = str(project.get("name") or "без имени")
+    out = [f"Архив проекта «{name}» сохранён: {path}"]
+    if project.get("description"):
+        out.append(f"Описание: {project['description']}")
+    fmt = manifest.get("archmap-archive")
+    out.append(
+        f"Формат archmap-archive: {fmt if fmt is not None else '?'}; "
+        f"файлов {files}; размер {size / 1024:.1f} КБ."
+    )
+
+    contents = _dict(manifest.get("contents"))
+    rows: list[str] = []
+    for key, title in ARCHIVE_CATEGORIES:
+        value = contents.get(key)
+        if value is None:
+            continue
+        count = len(value) if isinstance(value, list) else 1
+        rows.append(f"  • {title}: {count}")
+    # Категория, которой ещё не знает этот рендер, — лучше показать сырым ключом,
+    # чем молча потерять: архив обгоняет MCP-сервер (ровно это и лечит эпик).
+    for key in contents:
+        if key not in {k for k, _ in ARCHIVE_CATEGORIES}:
+            value = contents[key]
+            rows.append(f"  • {key}: {len(value) if isinstance(value, list) else 1}")
+    if rows:
+        out.append("Состав:")
+        out.extend(rows)
+    else:
+        out.append("Состав: пусто — в проекте нечего архивировать.")
+    return "\n".join(out)
