@@ -130,7 +130,7 @@ describe("AnchorField — правка", () => {
   it("пустая форма обещает очистку и сервер не тревожит", async () => {
     отрисовать(null);
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
-    expect(screen.getByText("якоря не будет — объект будет опознаваться по имени")).toBeTruthy();
+    expect(screen.getByText("Если якоря не будет, то объект будет опознаваться по имени")).toBeTruthy();
     expect(preview).not.toHaveBeenCalled();
   });
 });
