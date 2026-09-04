@@ -280,3 +280,146 @@ def alerts(data: dict[str, Any]) -> str:
     )
     head = f"Замечаний: {total}"
     return head + "\n\n" + "\n\n".join(blocks)
+
+
+# Вид схемы логики словарём — те же слова, что в списке схем на странице объекта
+# (KIND_LABEL из frontend/src/components/docsList.ts). Неизвестный вид печатается
+# как есть: молча подменять незнакомое слово хуже, чем показать сырое.
+KIND_WORD = {"operation": "операция", "worker": "воркер"}
+
+# Капы против раздувания контекста: карточку читает модель, и перечень на две
+# сотни строк она оплачивает целиком. Верхняя граница — по записям семьи и по
+# членам одной записи (колонки таблицы, поля канала); остаток называется числом.
+FACT_ROWS_CAP = 40
+FACT_MEMBERS_CAP = 20
+
+
+def _capped(lines: list[str], cap: int, forms: tuple[str, str, str]) -> list[str]:
+    """Список с хвостом «… и ещё N»: обрезать молча — значит соврать о полноте."""
+    if len(lines) <= cap:
+        return lines
+    rest = len(lines) - cap
+    return [*lines[:cap], f"… и ещё {rest} {_plural(rest, forms)}"]
+
+
+def docs(
+    items: list[dict[str, Any]],
+    *,
+    described: dict[str, bool],
+    usage: list[dict[str, Any]],
+) -> tuple[str, list[str]]:
+    """Схемы логики узла: вид словарём, метка заглушки, участие в процессах.
+
+    described приходит из МЕТЫ узла (NodeDocMeta.described — производное поле,
+    считается в БД по непустому телу): по content судить нельзя, «пусто» там —
+    результат SQL-trim, а не текста.
+
+    Возвращает (заголовок, строки): «описано N из M» дописывается в заголовок
+    только когда заглушки есть — иначе это шум в каждой карточке.
+    """
+    if not items:
+        return "СХЕМЫ ЛОГИКИ:", ["  (нет)"]
+
+    by_doc: dict[str, list[dict[str, Any]]] = {}
+    for row in usage:
+        by_doc.setdefault(str(row.get("doc_id")), []).append(row)
+
+    lines: list[str] = []
+    stubs = 0
+    for d in items:
+        doc_id = str(d["id"])
+        kind = str(d.get("kind", "?"))
+        head = KIND_WORD.get(kind, kind)
+        if d.get("operation"):
+            head += f" · {d['operation']}"
+        marks: list[str] = []
+        if described.get(doc_id) is False:
+            stubs += 1
+            marks.append("не описана")
+        rows = by_doc.get(doc_id, [])
+        if rows:
+            where = ", ".join(str(r.get("process_name", "?")) for r in rows)
+            n = len(rows)
+            marks.append(f"в {n} {_plural(n, ('процессе', 'процессах', 'процессах'))}: {where}")
+        tail = f" — {'; '.join(marks)}" if marks else ""
+        lines.append(f"  • {d['name']} ({head}){tail}  id={doc_id}")
+
+    title = "СХЕМЫ ЛОГИКИ:"
+    if stubs:
+        title = f"СХЕМЫ ЛОГИКИ (описано {len(items) - stubs} из {len(items)}):"
+    return title, lines
+
+
+def db_tables(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Структура БД: таблица одной строкой, колонки — «имя тип» с флагами PK/NOT
+    NULL (те же пометки, что в разделе «Структура» на странице объекта)."""
+    if not items:
+        return "СТРУКТУРА БД:", ["  (не описана)"]
+    lines: list[str] = []
+    for t in items:
+        name = f"{t['schema_name']}.{t['name']}" if t.get("schema_name") else str(t["name"])
+        cols: list[str] = []
+        for c in sorted(t.get("columns", []), key=lambda c: c.get("order", 0)):
+            bits = [str(c["name"])]
+            if c.get("type"):
+                bits.append(str(c["type"]))
+            if c.get("is_primary_key"):
+                bits.append("PK")
+            if c.get("nullable") is False:
+                bits.append("NOT NULL")
+            cols.append(" ".join(bits))
+        shown = _capped(cols, FACT_MEMBERS_CAP, ("колонка", "колонки", "колонок"))
+        lines.append(f"  • {name}: " + (", ".join(shown) if shown else "(колонок нет)"))
+    n = len(items)
+    title = f"СТРУКТУРА БД ({n} {_plural(n, ('таблица', 'таблицы', 'таблиц'))}):"
+    return title, _capped(lines, FACT_ROWS_CAP, ("таблица", "таблицы", "таблиц"))
+
+
+def broker_channels(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Каналы брокера: имя, свойства доставки в скобках, поля сообщения."""
+    if not items:
+        return "КАНАЛЫ:", ["  (не описаны)"]
+    lines: list[str] = []
+    for ch in items:
+        name = f"{ch['group_name']}/{ch['name']}" if ch.get("group_name") else str(ch["name"])
+        meta = [str(ch["kind"])] if ch.get("kind") else []
+        if ch.get("partition_key"):
+            meta.append(f"ключ: {ch['partition_key']}")
+        if ch.get("delivery"):
+            meta.append(str(ch["delivery"]))
+        if ch.get("retention"):
+            meta.append(f"retention: {ch['retention']}")
+        head = f"{name} [{', '.join(meta)}]" if meta else name
+        fields: list[str] = []
+        for f in sorted(ch.get("fields", []), key=lambda f: f.get("order", 0)):
+            bits = [str(f["name"])]
+            if f.get("type"):
+                bits.append(str(f["type"]))
+            if f.get("required"):
+                bits.append("обяз.")
+            fields.append(" ".join(bits))
+        shown = _capped(fields, FACT_MEMBERS_CAP, ("поле", "поля", "полей"))
+        lines.append(f"  • {head}: " + (", ".join(shown) if shown else "(полей нет)"))
+    n = len(items)
+    title = f"КАНАЛЫ ({n} {_plural(n, ('канал', 'канала', 'каналов'))}):"
+    return title, _capped(lines, FACT_ROWS_CAP, ("канал", "канала", "каналов"))
+
+
+def config_params(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Конфигурация сервиса: имя, тип, обязательность, дефолт ИЗ КОДА и «что
+    переключает». Значений сред здесь нет и быть не может (§2.5 плана семьи)."""
+    if not items:
+        return "КОНФИГУРАЦИЯ:", ["  (не описана)"]
+    lines: list[str] = []
+    for p in items:
+        bits: list[str] = []
+        if p.get("value_type"):
+            bits.append(str(p["value_type"]))
+        bits.append("обяз." if p.get("required") else "необяз.")
+        if p.get("default_value"):
+            bits.append(f"по умолчанию «{p['default_value']}»")
+        desc = f" — {p['description']}" if p.get("description") else ""
+        lines.append(f"  • {p['name']} ({', '.join(bits)}){desc}")
+    n = len(items)
+    title = f"КОНФИГУРАЦИЯ ({n} {_plural(n, ('параметр', 'параметра', 'параметров'))}):"
+    return title, _capped(lines, FACT_ROWS_CAP, ("параметр", "параметра", "параметров"))

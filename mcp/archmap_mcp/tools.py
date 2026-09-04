@@ -121,6 +121,17 @@ async def t_schema(client: ArchMapClient, args: dict[str, Any]) -> str:
     )
 
 
+# Какая семья табличных фактов уместна форме объекта. Зеркало shapeDocs()
+# фронта (frontend/src/types/index.ts) и гейтов shape в роутерах бэкенда:
+# структура — у базы, каналы — у брокера, конфигурация — у сервиса. Запрашивать
+# семью там, где её не бывает, — лишний круг к серверу и ложный раздел в карточке.
+FACT_FAMILY = {
+    "database": ("tables", render.db_tables),
+    "broker": ("channels", render.broker_channels),
+    "service": ("config", render.config_params),
+}
+
+
 async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     node_id = args["node_id"]
@@ -128,7 +139,17 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     all_nodes = await client.request("GET", "/nodes/all", project_id=pid)
     by_id = {str(n["id"]): n for n in all_nodes}
     incident = await client.request("GET", f"/nodes/{node_id}/edges", project_id=pid)
-    docs = await client.request("GET", f"/nodes/{node_id}/docs", project_id=pid)
+    doc_list = await client.request("GET", f"/nodes/{node_id}/docs", project_id=pid)
+    # Заглушка/описанность — из МЕТЫ узла: в ответе /docs поля described нет, а
+    # считать его по content нельзя (признак производный, живёт в БД).
+    described = {str(d["id"]): bool(d.get("described", True)) for d in node.get("docs", [])}
+    # Обратный индекс «в каких процессах» — только когда схемы есть: пустой узел
+    # не должен платить лишним запросом.
+    usage = (
+        await client.request("GET", f"/nodes/{node_id}/docs/usage", project_id=pid)
+        if doc_list
+        else []
+    )
 
     out = [
         f"Проект «{pname}»",
@@ -149,21 +170,27 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         out.append("  (нет)")
 
     out.append("")
-    out.append("СХЕМЫ ЛОГИКИ:")
-    if docs:
-        for d in docs:
-            op = f", операция {d['operation']}" if d.get("operation") else ""
-            out.append(f"  • {d['name']} ({d.get('kind', '?')}{op})  id={d['id']}")
-    else:
-        out.append("  (нет)")
+    title, lines = render.docs(doc_list, described=described, usage=usage)
+    out.append(title)
+    out.extend(lines)
+
+    # Семья табличных фактов — ровно одна и только по форме объекта.
+    family = FACT_FAMILY.get(str(node.get("shape")))
+    if family:
+        path, draw = family
+        rows = await client.request("GET", f"/nodes/{node_id}/{path}", project_id=pid)
+        title, lines = draw(rows)
+        out.append("")
+        out.append(title)
+        out.extend(lines)
 
     spec = node.get("openapi_spec")
     out.append("")
     out.append(f"OpenAPI-спека: {'есть' if spec else 'нет'}")
     if spec and args.get("include_spec"):
         out.append("```yaml\n" + str(spec) + "\n```")
-    if docs and args.get("include_docs"):
-        for d in docs:
+    if doc_list and args.get("include_docs"):
+        for d in doc_list:
             out.append(f"\n--- {d['name']} ---\n```mermaid\n{d.get('content', '')}\n```")
     return "\n".join(out)
 
@@ -490,7 +517,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_node",
-        "description": "Карточка объекта: путь, мета, входящие и исходящие связи, схемы логики, наличие OpenAPI-спеки. include_docs/include_spec — вернуть их текст целиком.",
+        "description": "Карточка объекта: путь, мета, входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие в бизнес-процессах), наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
         "schema": {
             "type": "object",
             "properties": {

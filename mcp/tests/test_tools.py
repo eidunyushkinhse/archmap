@@ -118,13 +118,16 @@ async def test_карточка_объекта_собирает_связи_и_д
         {"id": "e1", "direction": "incoming", "other_node_id": "n3",
          "other_node_name": "Покупатель", "label": "заказ", "technology": None},
     ])
-    api.get("/nodes/n2/docs", [{"id": "d1", "name": "Обзор", "kind": "обзор", "operation": None}])
+    api.get("/nodes/n2/docs", [{"id": "d1", "name": "POST /orders", "kind": "operation",
+                                "operation": None, "content": ""}])
+    api.get("/nodes/n2/docs/usage", [])
+    api.get("/nodes/n2/config", [])  # семья сервиса — карточка спрашивает её всегда
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": "n2"}, client)
 
     assert "Путь: Маркетплейс / Сервис заказов" in out
     assert "← Покупатель [заказ]" in out
-    assert "• Обзор (обзор)" in out
+    assert "• POST /orders (операция)" in out
     assert "OpenAPI-спека: есть" in out
     assert "openapi: 3.0.0" not in out  # текст спеки — только по явному запросу
 
