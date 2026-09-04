@@ -43,6 +43,7 @@ def base_routes(api: FakeApi, shape: str, **over: Any) -> dict[str, Any]:
     api.get("/nodes/all", [target])
     api.get(f"/nodes/{NODE}/edges", [])
     api.get(f"/nodes/{NODE}/docs", [])
+    api.get(f"/nodes/{NODE}/processes", [])
     return target
 
 
@@ -254,3 +255,38 @@ def test_семьи_фактов_совпадают_с_правилом_форм
     assert tools.FACT_FAMILY["database"][0] == "tables"
     assert tools.FACT_FAMILY["broker"][0] == "channels"
     assert tools.FACT_FAMILY["service"][0] == "config"
+
+
+# ── Участие в процессах ──────────────────────────────────────────────────────
+
+async def test_карточка_называет_процессы_объекта(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Вопрос «где этот сервис задействован» — про ОБЪЕКТ, а не про его схемы:
+    участником процесса узел бывает и без единой схемы логики."""
+    base_routes(api, "service")
+    api.get(f"/nodes/{NODE}/config", [])
+    api.get(f"/nodes/{NODE}/processes", check("process", "ProcessListItem", [
+        {"id": u(7), "name": "Оформление заказа", "scope_node_id": None,
+         "scope_name": None, "message_count": 12, "statuses": ["existing"]},
+        {"id": u(8), "name": "Возврат", "scope_node_id": NODE,
+         "scope_name": "Ярмарка / Заказы", "message_count": 3, "statuses": []},
+    ]))
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "УЧАСТВУЕТ В ПРОЦЕССАХ (2):" in out
+    assert "• Оформление заказа — шагов 12" in out
+    assert f"id={u(8)}" in out
+
+
+async def test_без_процессов_раздела_в_карточке_нет(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    base_routes(api, "service")
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "УЧАСТВУЕТ В ПРОЦЕССАХ" not in out
+    assert f"/nodes/{NODE}/processes" in " ".join(paths(api))

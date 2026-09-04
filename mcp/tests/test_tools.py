@@ -122,6 +122,7 @@ async def test_карточка_объекта_собирает_связи_и_д
                                 "operation": None, "content": ""}])
     api.get("/nodes/n2/docs/usage", [])
     api.get("/nodes/n2/config", [])  # семья сервиса — карточка спрашивает её всегда
+    api.get("/nodes/n2/processes", [])
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": "n2"}, client)
 

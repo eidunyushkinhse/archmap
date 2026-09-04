@@ -381,6 +381,18 @@ def process_list(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def node_processes(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Где объект участвует. Вопрос про ОБЪЕКТ, а не про его схемы: участником
+    процесса узел бывает и без единой схемы логики, поэтому раздел не выводится
+    из обратного индекса доков в карточке."""
+    lines = [
+        f"  • {p.get('name', '?')} — шагов {int(p.get('message_count', 0) or 0)}"
+        f"  id={p.get('id', '?')}"
+        for p in items
+    ]
+    return f"УЧАСТВУЕТ В ПРОЦЕССАХ ({len(items)}):", lines
+
+
 def _step_binding(m: dict[str, Any]) -> str:
     """Хвост привязки шага к схеме логики — адрес его документации.
 
