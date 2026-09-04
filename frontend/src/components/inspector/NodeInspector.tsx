@@ -353,18 +353,18 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             )}
           </Row>
         )}
-
-        {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. Последней
-            строкой меты: он не про то, ЧТО это за объект (тип/роль/технология), а
-            про то, как объект найдут снова. Сохраняет тот же save с CAS. */}
-        <Row icon={META_ICON.anchor} label="Якорь" top>
-          <AnchorField
-            source={node.source}
-            isArchitect={isArchitect}
-            onSave={(source: NodeSource | null) => save({ source })}
-          />
-        </Row>
       </dl>
+
+      {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. НЕ строкой
+          меты, а отдельным блоком во всю ширину панели: в колонке значения
+          (≈140px при терме 104px) репозиторий не помещается ни в чтении, ни в
+          форме — рвался посреди слова. Тот же компонент, что в карточке объекта. */}
+      <div className="insp-block-label">Якорь</div>
+      <AnchorField
+        source={node.source}
+        isArchitect={isArchitect}
+        onSave={(source: NodeSource | null) => save({ source })}
+      />
 
       {/* Документация: управление схемами логики и спеками — только на странице
           узла; из редактора ведёт туда единая точка входа «Открыть». */}
@@ -397,9 +397,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
 // Строка меты «терм → значение». dd — нейтральная флекс-ячейка; само значение несёт
 // класс .insp-value (его передаёт вызывающий — текст у наблюдателя / поле у архитектора).
-function Row({ icon, label, children, top }: { icon: ReactNode; label: string; children: ReactNode; top?: boolean }) {
+function Row({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
   return (
-    <div className={"insp-row" + (top ? " insp-row--top" : "")}>
+    <div className="insp-row">
       <dt className="insp-term">
         <span className="insp-term-ico">{icon}</span>
         {label}
@@ -422,14 +422,12 @@ const ms = {
   width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
   stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
 } as const;
-const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "anchor" | "flow" | "api" | "trash", ReactNode> = {
+const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "flow" | "api" | "trash", ReactNode> = {
   type: <svg {...ms}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
   placement: <svg {...ms}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
   status: <svg {...ms}><path d="M1.75 8h2.5l1.6-3.8 2.2 7.2 1.7-5 1 1.6h3.5" /></svg>,
   role: <svg {...ms}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
   tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
-  // Якорь — тот самый корабельный: он «держит» объект на месте при обновлениях.
-  anchor: <svg {...ms}><path d="M8 6.2v7.3" /><circle cx="8" cy="4.2" r="1.5" /><path d="M5 8h6" /><path d="M3 10.5a5 5 0 0 0 10 0" /></svg>,
   flow: <svg {...ms}><circle cx="4" cy="4" r="1.8" /><circle cx="12" cy="8" r="1.8" /><circle cx="4" cy="12" r="1.8" /><path d="M5.6 4H9a1.7 1.7 0 0 1 1.7 1.7v.6 M5.6 12H9a1.7 1.7 0 0 0 1.7-1.7v-.6" /></svg>,
   api: <svg {...ms}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M5 6.5 3.5 8 5 9.5 M11 6.5 12.5 8 11 9.5 M8.6 5.7 7.4 10.3" /></svg>,
   trash: <svg {...ms} width={15} height={15}><path d="M3 4.2h10 M5.5 4.2V3h5v1.2 M4.2 4.2l.6 8.3a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.3" /></svg>,

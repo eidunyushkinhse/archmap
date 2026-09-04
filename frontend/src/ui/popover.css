@@ -29,7 +29,9 @@
 .ipop-panel {
   position: fixed;
   z-index: 60;
-  max-height: min(70vh, 520px);
+  /* Высоту ставит сам компонент по свободному месту; здесь только прокрутка и
+     border-box, чтобы заданная ширина была шириной, а не шириной плюс поля. */
+  box-sizing: border-box;
   overflow-y: auto;
   background: #fff;
   border: 1px solid #e2e8f0;

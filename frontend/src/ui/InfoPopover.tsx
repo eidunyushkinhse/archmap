@@ -25,10 +25,12 @@ interface Props {
   width?: number;
 }
 
-type Pos = { top: number; left: number };
+type Pos = { top: number; left: number; maxHeight: number };
 
-// Зазор от кнопки и от края экрана.
+// Зазор от кнопки и от края экрана; потолок и минимум высоты панели.
 const GAP = 6;
+const MAX_H = 520;
+const MIN_H = 220;
 
 export default function InfoPopover({ label, children, width = 360 }: Props) {
   const [pos, setPos] = useState<Pos | null>(null);
@@ -41,10 +43,18 @@ export default function InfoPopover({ label, children, width = 360 }: Props) {
   const toggle = () => {
     if (open) { close(); return; }
     const r = btnRef.current?.getBoundingClientRect();
-    if (!r) { setPos({ top: GAP, left: GAP }); return; }
+    if (!r) { setPos({ top: GAP, left: GAP, maxHeight: MAX_H }); return; }
     // Вправо от кнопки, если хватает места, иначе прижимаем к правому краю окна.
     const left = Math.max(GAP, Math.min(r.left, window.innerWidth - width - GAP));
-    setPos({ top: r.bottom + GAP, left });
+    // Поле может стоять у нижнего края (последняя строка меты в инспекторе):
+    // тогда панель уходит за экран и хвост пояснения не прочитать. Ниже кнопки —
+    // пока места хватает, иначе выше неё; в обоих случаях высота ограничена
+    // свободным местом, и длинный текст прокручивается внутри панели.
+    const below = window.innerHeight - r.bottom - GAP * 2;
+    const above = r.top - GAP * 2;
+    setPos(below >= MIN_H || below >= above
+      ? { top: r.bottom + GAP, left, maxHeight: Math.min(MAX_H, below) }
+      : { top: GAP, left, maxHeight: Math.min(MAX_H, above) });
   };
 
   // Escape, клик вне и прокрутка предка — три способа закрыть. Слушатели живут
@@ -94,7 +104,7 @@ export default function InfoPopover({ label, children, width = 360 }: Props) {
           className="ipop-panel"
           role="dialog"
           aria-label={label}
-          style={{ top: pos.top, left: pos.left, width }}
+          style={{ top: pos.top, left: pos.left, width, maxHeight: pos.maxHeight }}
         >
           {children}
         </div>
