@@ -22,7 +22,13 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from typing import TypeGuard, TypeVar
 
-from app.identity import KEY_ORDER, compare_identity, key_type, merge_key_sets
+from app.identity import (
+    KEY_ORDER,
+    compare_identity,
+    key_type,
+    merge_key_sets,
+    strongest_common_type,
+)
 from app.import_yaml import (
     MAX_EDGES,
     MAX_NODES,
@@ -70,6 +76,26 @@ _MERGED_FIELDS = ("role", "technology", "description", "shape", "status", "is_ex
 # строго уменьшает число узлов, так что цикл сходится сам; кап — защита от
 # патологического входа, а не рабочий предел (на практике хватает одного повтора).
 _MAX_STABILIZE_PASSES = 5
+
+# ОСНОВАНИЕ СКЛЕЙКИ — чем два вклада признаны одним объектом (Ф2
+# docs/plan-anchor-ux.md). Словарь ЕДИНЫЙ на бэк и фронт: пользователь читает
+# «по коду» / «по имени зависимости» / «по имени», а не технические «git:»/«host:».
+# Порядок — убывание различающей силы (тот же, что у KEY_ORDER, плюс имя в хвосте):
+# у склеенного узла показываем СИЛЬНЕЙШЕЕ основание среди его вкладов.
+BASIS_ORDER = ("code", "dependency", "name")
+_BASIS_OF_KEY_TYPE = {"git": "code", "host": "dependency"}
+
+
+def _basis_of_key(k: str) -> str:
+    """Ключ, по которому сошлись, → основание словами. Неизвестный вид ключа
+    (архив прежней модели якоря) основанием не притворяется — остаётся имя."""
+    return _BASIS_OF_KEY_TYPE.get(key_type(k), "name")
+
+
+def _strongest_basis(bases: list[str]) -> str | None:
+    """Сильнейшее основание среди вкладов узла; пусто (узел из одного файла) → None."""
+    return next((b for b in BASIS_ORDER if b in bases), None)
+
 
 T = TypeVar("T", bound=Hashable)
 
@@ -226,6 +252,9 @@ class MergeReport:
 
     files: int
     merged_paths: list[str] = field(default_factory=list)  # узлы, склеенные из ≥2 файлов
+    # ОСНОВАНИЕ каждой склейки — строка в строку с merged_paths (Ф2 якорей):
+    # «code» | «dependency» | «name». Доклад, а не решение: на исход слияния не влияет.
+    merged_basis: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)  # расхождения полей (кто победил — в тексте)
     warnings: list[str] = field(default_factory=list)  # fuzzy-пары, разные корни, похожие рёбра
     dropped_edges: int = 0  # выброшенные точные дубли рёбер
@@ -253,6 +282,11 @@ class MergeReport:
     # семья адресована путём по C4 СВОЕГО архива, и её надо довести до узла слитого
     # дерева. Каждый узел каждого входа встречается ровно один раз.
     node_contribs: list[list[tuple[int, int]]] = field(default_factory=list)
+    # Основание склейки КАЖДОГО merged-узла (индексация та же, что у node_contribs):
+    # None — узел пришёл из одного файла и ни с кем не склеивался; иначе СИЛЬНЕЙШЕЕ
+    # основание среди его вкладов (code > dependency > name). Нужно догрузке: она
+    # называет пользователю, чем найден каждый живой узел, к которому едет знание.
+    node_basis: list[str | None] = field(default_factory=list)
 
     def warn(self, text: str, file: int | None = None) -> None:
         """Предупреждение: в плоский список (как раньше) и в разметку природы."""
@@ -459,6 +493,13 @@ class _Merger:
         # годится — он растёт по ходу прохода и делает исход зависимым от порядка
         # файлов; стабилизация (_regroup) сравнивает именно вклады.
         self.contribs: list[list[tuple[int, int, list[str]]]] = []
+        # Основания склеек узла: по строке на КАЖДЫЙ вклад сверх создающего (Ф2
+        # якорей). Пустой список = узел из одного файла. Считается ПОСЛЕ решения
+        # матчера и на решение не влияет — это доклад пользователю, чем сошлось.
+        self.basis: list[list[str]] = []
+        # merged-индексы строк report.merged_paths (строка в строку): по ним finish
+        # проставит merged_basis уже итоговыми, сильнейшими основаниями.
+        self.merged_idxs: list[int] = []
         # Склейки, установленные стабилизацией предыдущего прохода: атом (файл,
         # индекс в файле) → номер группы, и группа → уже созданный узел.
         self.force = force or {}
@@ -543,7 +584,7 @@ class _Merger:
             return
         self._decide(idx, fld, cur, new, fi, sub)
 
-    def _match_by_source(self, node: _ImpNode, fi: int) -> int | None:
+    def _match_by_source(self, node: _ImpNode, fi: int) -> tuple[int | None, str | None]:
         """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии: ловит сервис, которого
         разные прогоны назвали по-разному или положили под разных родителей.
 
@@ -566,8 +607,9 @@ class _Merger:
             # поэтому вердикт здесь — только «same» либо «different».
             if _compare_anchors(self.nodes[hit].source_keys, node.source_keys) == "different":
                 continue
-            return hit
-        return None
+            # Основание — вид СОВПАВШЕГО ключа: по нему узлы и признаны одним.
+            return hit, _basis_of_key(k)
+        return None, None
 
     def _match_by_name(self, node: _ImpNode, parent_m: int | None) -> int | None:
         """Матч по имени в пределах слитого родителя — прежнее поведение, но с
@@ -619,16 +661,26 @@ class _Merger:
         if gid is not None:
             self.by_group.setdefault(gid, idx)
 
-    def _match_by_group(self, fi: int, ni: int) -> int | None:
+    def _match_by_group(self, node: _ImpNode, fi: int, ni: int) -> tuple[int | None, str | None]:
         """Склейка, УЖЕ установленная стабилизацией предыдущего прохода (v3): решение
         принято на полном результате, где виден каждый вклад, поэтому оно сильнее
         инкрементальных матчеров и проверяется первым. Узлы одного файла не
         склеиваются и здесь — правило общее для всех матчеров."""
         gid = self.force.get((fi, ni))
         if gid is None:
-            return None
+            return None, None
         hit = self.by_group.get(gid)
-        return None if hit is None or fi in self.sources[hit] else hit
+        if hit is None or fi in self.sources[hit]:
+            return None, None
+        # Основание группы восстанавливается, а не хранится: решение стабилизации
+        # принято на ПРОШЛОМ проходе (_regroup видит все вклады сразу), и «какой
+        # именно ключ свёл» там не единственный — группу мог связать свидетель с
+        # якорями по обе стороны. Поэтому называем сильнейшую ОБЩУЮ грань пары
+        # «уже собранный узел ↔ новый вклад»: она и есть то, чем они признаны одним.
+        # Общей грани нет (у вклада якорей нет вовсе) — сошлись по имени: группы
+        # строятся из ОДНОИМЁННЫХ узлов одного родителя, другого основания там нет.
+        common = strongest_common_type(self.nodes[hit].source_keys, node.source_keys)
+        return hit, _BASIS_OF_KEY_TYPE.get(common or "", "name")
 
     def _note_absorbed(self, hit: int, node: _ImpNode) -> None:
         """Запомнить склейку узлов с РАЗНЫМИ именами по общему repo без path.
@@ -648,11 +700,12 @@ class _Merger:
                 self.absorbed.setdefault((hit, k), {self.nodes[hit].name}).add(node.name)
 
     def add_node(self, node: _ImpNode, parent_m: int | None, fi: int, ni: int, sub: bool) -> int:
-        hit = self._match_by_group(fi, ni)
+        hit, basis = self._match_by_group(node, fi, ni)
         if hit is None:
-            hit = self._match_by_source(node, fi)
+            hit, basis = self._match_by_source(node, fi)
         if hit is None:
             hit = self._match_by_name(node, parent_m)
+            basis = "name" if hit is not None else None
         if hit is None:
             idx = len(self.nodes)
             self.nodes.append(replace(node, parent_idx=parent_m))
@@ -661,6 +714,7 @@ class _Merger:
             self.sources.append({fi})
             self.substantial.append(sub)
             self.contribs.append([(fi, ni, list(node.source_keys))])
+            self.basis.append([])
             # Все поля нового узла пришли из этого файла — спорить с ними следующие
             # будут против его содержательности.
             self.value_src.append(dict.fromkeys(_MERGED_FIELDS, (fi, sub)))
@@ -668,6 +722,8 @@ class _Merger:
             self._register(idx, node, parent_m, fi)
             return idx
         self.contribs[hit].append((fi, ni, list(node.source_keys)))
+        # basis здесь заведомо не None: сюда приводит только сработавший матчер.
+        self.basis[hit].append(basis or "name")
         self._remember_group(hit, fi, ni)
         # До слияния наборов ключей ниже: после него общими окажутся все ключи
         # новичка, и «по какому основанию склеились» уже не восстановить.
@@ -676,6 +732,7 @@ class _Merger:
         # (различие лишь в регистре/пробелах — в отчёт не шумим).
         if fi not in self.sources[hit] and len(self.sources[hit]) == 1:
             self.report.merged_paths.append(self.paths[hit])
+            self.merged_idxs.append(hit)
         # Якорь связал узлы, названные ПО-РАЗНОМУ (в своём репозитории сервис зовётся
         # «app», вызывающие ходят на «payments») либо положенные под разных родителей.
         # Оставляем первое — перевешивать поддерево по позднему файлу опаснее, чем
@@ -868,6 +925,14 @@ class _Merger:
         self.report.node_files = [set(s) for s in self.sources]
         # Наружу — только адрес вклада: якорные ключи — внутренняя кухня стабилизации.
         self.report.node_contribs = [[(fi, ni) for (fi, ni, _keys) in c] for c in self.contribs]
+        # Основание узла — СИЛЬНЕЙШЕЕ среди его склеек: узел, найденный третьим файлом
+        # по имени, всё равно был опознан по коду, когда с ним же сошёлся второй.
+        self.report.node_basis = [_strongest_basis(b) for b in self.basis]
+        # Строка отчёта о склейке называет то же самое основание, что и сам узел, —
+        # иначе один узел говорил бы о себе в двух местах по-разному.
+        self.report.merged_basis = [
+            self.report.node_basis[i] or "name" for i in self.merged_idxs
+        ]
         self.report.edge_files = self.edge_files
         self.warn_similar_edges()
         self.warn_fuzzy_siblings()
@@ -900,6 +965,7 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
             node_files=[{0} for _ in parts[0].nodes],
             edge_files=[{0} for _ in parts[0].edges],
             node_contribs=[[(0, i)] for i in range(len(parts[0].nodes))],
+            node_basis=[None] * len(parts[0].nodes),
         )
         # Единственное замечание слияния, которое имеет смысл и без второго файла:
         # общий repo без path — промах ОДНОГО документа, и ответ на него не зависит
