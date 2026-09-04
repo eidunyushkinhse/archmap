@@ -5,13 +5,14 @@
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
 import { useCallback, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { DeletionSnapshot, Node, NodeShape, NodeStatus, NodeUpdate } from "../../types";
+import type { DeletionSnapshot, Node, NodeShape, NodeSource, NodeStatus, NodeUpdate } from "../../types";
 import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { nodesApi } from "../../api/nodes";
 import { ApiError, isConflict } from "../../api/client";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
+import AnchorField from "../anchor/AnchorField";
 import { useContainerChildren } from "../../pages/useContainerChildren";
 import "./inspector.css";
 
@@ -69,8 +70,11 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // (over перекрывает то, что ещё не доехало в стейт на момент blur). openapi_spec
   // переносим из beforeRef без изменений — документацией управляет страница узла;
   // схемы логики живут отдельным API (node_docs), не здесь.
+  // Возвращает ТЕКСТ ОТКАЗА или null при успехе: плашки панели оно выставляет
+  // само (как и раньше), а возврат нужен полю «Якорь» — там 422 показывается
+  // прямо под формой, где его исправляют. Остальные зовут через void.
   const save = useCallback(
-    async (over: Partial<NodeUpdate>) => {
+    async (over: Partial<NodeUpdate>): Promise<string | null> => {
       const before = beforeRef.current;
       const payload: NodeUpdate = {
         name: name.trim() || before.name,
@@ -92,14 +96,16 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         beforeRef.current = saved;
         setConflict(null);
         setError(null);
+        return null;
       } catch (e: unknown) {
         if (!isConflict(e)) {
           // Отказ с причиной (400: смена типа у узла с детьми / у базы со
           // структурой). Раньше прочие ошибки уходили молча — правка «не
           // срабатывала» без объяснения; показываем текст сервера плашкой.
           setConflict(null);
-          setError(e instanceof ApiError ? e.message : "Правка не сохранена");
-          return;
+          const текст = e instanceof ApiError ? e.message : "Правка не сохранена";
+          setError(текст);
+          return текст;
         }
         // 409: подтягиваем свежие данные (правка НЕ применилась — чужая работа цела),
         // показываем плашку; в историю ничего не кладём (onNodeSaved не зовём).
@@ -116,7 +122,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           // узел могли удалить — уровень догонит поллинг/ресинк
         }
         setError(null);
-        setConflict("Узел изменён в другой сессии — данные обновлены, повторите правку");
+        const текст = "Узел изменён в другой сессии — данные обновлены, повторите правку";
+        setConflict(текст);
+        return текст;
       }
     },
     [name, description, role, technology, isExternal, status, node.id, onNodeSaved],
@@ -345,6 +353,17 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             )}
           </Row>
         )}
+
+        {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. Последней
+            строкой меты: он не про то, ЧТО это за объект (тип/роль/технология), а
+            про то, как объект найдут снова. Сохраняет тот же save с CAS. */}
+        <Row icon={META_ICON.anchor} label="Якорь" top>
+          <AnchorField
+            source={node.source}
+            isArchitect={isArchitect}
+            onSave={(source: NodeSource | null) => save({ source })}
+          />
+        </Row>
       </dl>
 
       {/* Документация: управление схемами логики и спеками — только на странице
@@ -378,9 +397,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
 // Строка меты «терм → значение». dd — нейтральная флекс-ячейка; само значение несёт
 // класс .insp-value (его передаёт вызывающий — текст у наблюдателя / поле у архитектора).
-function Row({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
+function Row({ icon, label, children, top }: { icon: ReactNode; label: string; children: ReactNode; top?: boolean }) {
   return (
-    <div className="insp-row">
+    <div className={"insp-row" + (top ? " insp-row--top" : "")}>
       <dt className="insp-term">
         <span className="insp-term-ico">{icon}</span>
         {label}
@@ -403,12 +422,14 @@ const ms = {
   width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
   stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
 } as const;
-const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "flow" | "api" | "trash", ReactNode> = {
+const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "anchor" | "flow" | "api" | "trash", ReactNode> = {
   type: <svg {...ms}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
   placement: <svg {...ms}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
   status: <svg {...ms}><path d="M1.75 8h2.5l1.6-3.8 2.2 7.2 1.7-5 1 1.6h3.5" /></svg>,
   role: <svg {...ms}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
   tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
+  // Якорь — тот самый корабельный: он «держит» объект на месте при обновлениях.
+  anchor: <svg {...ms}><path d="M8 6.2v7.3" /><circle cx="8" cy="4.2" r="1.5" /><path d="M5 8h6" /><path d="M3 10.5a5 5 0 0 0 10 0" /></svg>,
   flow: <svg {...ms}><circle cx="4" cy="4" r="1.8" /><circle cx="12" cy="8" r="1.8" /><circle cx="4" cy="12" r="1.8" /><path d="M5.6 4H9a1.7 1.7 0 0 1 1.7 1.7v.6 M5.6 12H9a1.7 1.7 0 0 0 1.7-1.7v-.6" /></svg>,
   api: <svg {...ms}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M5 6.5 3.5 8 5 9.5 M11 6.5 12.5 8 11 9.5 M8.6 5.7 7.4 10.3" /></svg>,
   trash: <svg {...ms} width={15} height={15}><path d="M3 4.2h10 M5.5 4.2V3h5v1.2 M4.2 4.2l.6 8.3a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.3" /></svg>,

@@ -342,8 +342,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // exclude_unset, поэтому пропущенное поле молча не откатывается (так статус не
   // возвращался по Ctrl+Z, пока его тут не было). parent_id — осознанно вне списка:
   // у переноса свой шаг истории со снимком раскладки (handleReparent).
+  // Поля узла для ОТКАТА правки (Undo/Redo). Якорь входит явным null при его
+  // отсутствии: поле source, не присланное в PATCH, якорь НЕ трогает, и Undo
+  // правки якоря не вернул бы прежний (а Redo — новый). Для узла без якоря
+  // null — та же пустота, что и была: очистка пустого ничего не меняет и
+  // курсоров не двигает (проверено приёмкой Ф0).
   function nodeFields(n: Node): NodeUpdate {
-    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape, status: n.status };
+    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape, status: n.status, source: n.source ?? null };
   }
 
   // Перенос объекта на другой уровень (драг строки в дереве). Снимок раскладки
