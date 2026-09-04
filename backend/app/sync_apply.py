@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.identity import known_key
 from app.import_yaml import ParsedImport
 from app.models.edge import Edge
 from app.models.node import Node
@@ -100,7 +101,7 @@ def apply_sync_plan(
                 shape=imp.shape,
                 status=imp.status,
                 is_external=imp.is_external,
-                source_ref=act.source_ref,
+                source_ref=known_key(act.source_ref),
                 parent_id=parent.id if parent else None,
             )
             db.add(node)
@@ -122,7 +123,7 @@ def apply_sync_plan(
         # Что менять — решено планом (список fields); здесь только присваивание.
         for fld in act.fields:
             if fld == "source_ref":
-                node.source_ref = act.source_ref
+                node.source_ref = known_key(act.source_ref)
             elif fld == "name":
                 node.name = imp.name
             elif fld == "description":

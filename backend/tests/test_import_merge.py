@@ -398,14 +398,14 @@ def test_якорь_сильнее_иерархии():
 
 def test_склеенный_узел_наследует_все_грани_источника():
     """Третий файл должен найти узел по той грани, которой не было в первом:
-    A знает git, B — образ, C ходит только по сетевому имени."""
+    A знает только код, B — код и имя зависимости, C ходит только по имени."""
     a = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc}\n")
-    b = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc, image: reg.io/svc}\n")
-    c = _parse("nodes:\n  - name: другое-имя\n    source: {image: reg.io/svc}\n")
+    b = _parse("nodes:\n  - name: svc\n    source: {repo: github.com/org/svc, host: svc-net}\n")
+    c = _parse("nodes:\n  - name: другое-имя\n    source: {host: svc-net}\n")
     merged, _report = merge_imports([a, b, c])
 
     assert len(merged.nodes) == 1
-    assert merged.nodes[0].source_keys == ["git:github.com/org/svc", "img:reg.io/svc"]
+    assert merged.nodes[0].source_keys == ["git:github.com/org/svc", "host:svc-net"]
 
 
 def test_узлы_одного_файла_не_склеиваются_общим_якорем():
@@ -1753,7 +1753,7 @@ edges:
   - from: grafana-frontend
     to: grafana-server
 """
-# Полевая форма плагина: своё имя, своё репо, образ — и тот же сетевой хост, потому
+# Полевая форма плагина: своё имя, своё репо — и тот же сетевой хост, потому
 # что плагин живёт ВНУТРИ процесса продукта.
 _ПЛАГИН_ПОЛЕ = """
 nodes:
@@ -1761,7 +1761,6 @@ nodes:
     source:
       repo: https://github.com/alexanderzobnin/grafana-zabbix
       host: grafana
-      image: alexanderzobnin-zabbix-app
     children:
       - name: datasource
       - name: panel-triggers
@@ -1906,21 +1905,22 @@ def test_повторный_проход_стабилизации_сохраня
 
 def test_свидетель_не_сводит_тёзок_спорящих_напрямую():
     """Оборотная сторона стабилизации после К3: вклад-свидетель гасит противоречие
-    только там, где по К3 его нет. Третий файл знает «api» лишь по образу и не
-    противоречит ни одной команде — но связать через себя два разных репозитория он
-    не вправе, иначе К3 обходился бы транзитивностью union-find (A+свидетель,
-    свидетель+B → A и B в одной группе вопреки их прямому спору)."""
+    только там, где по К3 его нет. Третий файл знает «api» лишь по имени зависимости
+    и не противоречит ни одной команде (общего типа ключа с ними нет) — но связать
+    через себя два разных репозитория он не вправе, иначе К3 обходился бы
+    транзитивностью union-find (A+свидетель, свидетель+B → A и B в одной группе
+    вопреки их прямому спору)."""
     команда_a = (
         "nodes:\n  - name: Система\n    children:\n      - name: api\n"
-        "        source: {repo: github.com/team-a/api.git, host: api-a}\n"
+        "        source: {repo: github.com/team-a/api.git}\n"
     )
     команда_b = (
         "nodes:\n  - name: Система\n    children:\n      - name: api\n"
-        "        source: {repo: github.com/team-b/api.git, host: api-b}\n"
+        "        source: {repo: github.com/team-b/api.git}\n"
     )
     свидетель = (
         "nodes:\n  - name: Система\n    children:\n      - name: api\n"
-        "        source: {image: reg.io/api}\n"
+        "        source: {host: api-net}\n"
     )
     for порядок in permutations((команда_a, команда_b, свидетель)):
         merged, report = merge_imports([_parse(t) for t in порядок])

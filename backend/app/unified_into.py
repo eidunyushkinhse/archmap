@@ -37,6 +37,7 @@ from app.archive_export import build_archive_ordered
 from app.channels_import import ChannelIn, apply_channels_plan, build_channels_plan
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
+from app.identity import known_key
 from app.import_yaml import _ImpNode
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -417,7 +418,7 @@ def _fill_node(live: Node, imp: _ImpNode, path: str, warnings: list[str]) -> boo
     # Якорь источника — не «поле», а идентичность узла для будущего синка: пустой
     # долить можно, занятый перевешивать нельзя (перевесил бы прогоны на чужой репо).
     if not live.source_ref and imp.source_keys:
-        live.source_ref = imp.source_keys[0]
+        live.source_ref = known_key(imp.source_keys[0])
         changed = True
     for fld in ("shape", "status"):
         if getattr(imp, fld) != getattr(live, fld):
@@ -494,7 +495,7 @@ def apply_into_plan(
             shape=imp.shape,
             status=imp.status,
             is_external=imp.is_external,
-            source_ref=imp.source_keys[0] if imp.source_keys else None,
+            source_ref=known_key(imp.source_keys[0]) if imp.source_keys else None,
             parent_id=parent.id if parent else None,
         )
         db.add(node)

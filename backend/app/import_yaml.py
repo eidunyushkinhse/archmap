@@ -282,20 +282,22 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         """Блок source узла → канонические ключи (app/identity). Блок целиком
         опционален; кривой тип — ошибка, но узел от неё не пропадает (якоря
         необязательны, без них тождество решает имя). Неизвестные вложенные ключи
-        игнорируются молча, как и на верхнем уровне формата."""
+        игнорируются молча, как и на верхнем уровне формата.
+
+        image/deployment — поля СНЯТЫХ видов якоря (образ и объект k8s, убраны
+        2026-09-04, docs/plan-anchor-ux.md). Они не ошибка: пакеты, собранные
+        прежним промптом, обязаны ввозиться. Но и не ключ — игнорируются."""
         raw_src = raw.get("source")
         if raw_src is None:
             return []
         if not isinstance(raw_src, dict):
-            errors.append(f"{path}.source: ожидается словарь (repo/path/image/deployment/host)")
+            errors.append(f"{path}.source: ожидается словарь (repo/path/host)")
             return []
         sp = f"{path}.source"
         return source_keys(
             SourceRef(
                 repo=opt_str(raw_src, "repo", sp, 512),
                 path=opt_str(raw_src, "path", sp, 512),
-                image=opt_str(raw_src, "image", sp, 512),
-                deployment=opt_str(raw_src, "deployment", sp, 256),
                 host=opt_str(raw_src, "host", sp, 256),
             )
         )

@@ -665,16 +665,31 @@ def test_source_block_parsed_into_keys():
         "  - name: payments\n"
         "    source:\n"
         "      repo: git@github.com:Org/Payments.git\n"
-        "      image: reg.io/org/payments:1.4\n"
         "      host: payments\n"
     )
     parsed, errors = parse_import(content)
     assert errors == [] and parsed is not None
     assert parsed.nodes[0].source_keys == [
         "git:github.com/org/payments",
-        "img:reg.io/org/payments",
         "host:payments",
     ]
+
+
+def test_source_снятые_виды_якоря_не_ошибка():
+    """Образ и объект k8s перестали быть якорями 2026-09-04 (docs/plan-anchor-ux.md),
+    но пакеты, собранные прежним промптом, обязаны ввозиться: поля не ошибка, они
+    просто не дают ключа."""
+    content = (
+        "nodes:\n"
+        "  - name: payments\n"
+        "    source:\n"
+        "      image: reg.io/org/payments:1.4\n"
+        "      deployment: prod/payments\n"
+        "      host: payments\n"
+    )
+    parsed, errors = parse_import(content)
+    assert errors == [] and parsed is not None
+    assert parsed.nodes[0].source_keys == ["host:payments"]
 
 
 def test_source_block_optional_and_tolerant():
@@ -800,7 +815,7 @@ def test_roundtrip_якоря_источника_и_типа_канала(db):
     orders = _node(db, src.id, "orders", ярмарка)
     orders.source_ref = "git:github.com/shop/orders#services/orders"
     витрина = _node(db, src.id, "web", ярмарка)
-    витрина.source_ref = "img:shop/web"
+    витрина.source_ref = "git:github.com/shop/web"
     kafka = _node(db, src.id, "Kafka", ярмарка, shape="broker")
     kafka.source_ref = "host:kafka"
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=orders.id, target_id=kafka.id,
@@ -825,7 +840,7 @@ def test_roundtrip_якоря_источника_и_типа_канала(db):
     # Явная сверка формы: канонический ключ собрался в ТОТ ЖЕ вид, что хранился.
     новые = {n.name: n.source_ref for n in db.query(Node).filter(Node.project_id == dst.id)}
     assert новые["orders"] == "git:github.com/shop/orders#services/orders"
-    assert новые["web"] == "img:shop/web"
+    assert новые["web"] == "git:github.com/shop/web"
     assert новые["Kafka"] == "host:kafka"
     # NULL остался NULL — дефолт не затвердел.
     syncs = {(e.label, e.is_synchronous)

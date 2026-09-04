@@ -17,8 +17,9 @@ app/copy_plan.py, а состав снимка — с реестром app/resto
 
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
+from app.identity import known_key
 from app.schemas.node import NodeShape, NodeStatus
 from app.schemas.node_doc import NodeDocKind
 
@@ -39,6 +40,13 @@ class NodeSnapshot(BaseModel):
     source_ref: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("source_ref")
+    @classmethod
+    def _только_известный_вид_якоря(cls, v: str | None) -> str | None:
+        """Снимок мог быть снят прежней моделью якоря (образ, объект k8s — виды
+        сняты 2026-09-04): восстановление не оживляет вид, которого больше нет."""
+        return known_key(v)
 
 
 class NodeDocSnapshot(BaseModel):
