@@ -6,6 +6,7 @@ import { useFileDrop } from "../docsImport/useFileDrop";
 import { inputFingerprint, useRepeatedInput } from "../docsImport/agentModalShared";
 import { StaleFilesConfirm, UnchangedInputNote } from "../docsImport/agentModalReport";
 import ConflictSection from "./ConflictSection";
+import { basisLabel } from "../anchor/anchorText";
 
 /**
  * Единая панель ввоза в модалке создания проекта: N входов ЛЮБОГО типа — YAML
@@ -418,9 +419,29 @@ export default function ImportPane({
             )}
             {summary.merged_count > 0 && (
               <div style={grayLine}>
-                Склеено узлов: {summary.merged_count} ({summary.merged.join(", ")}
-                {summary.merged_count > summary.merged.length ? ", …" : ""})
+                Склеено узлов: {summary.merged_count}
                 {summary.dropped_edges > 0 && ` · дублей связей выброшено: ${summary.dropped_edges}`}
+                {/* Каждая склейка называет ОСНОВАНИЕ (Ф2 docs/plan-anchor-ux.md):
+                    «склеено 7» без «почему» — это невидимая магия, а ложная
+                    склейка хуже дубля именно тем, что выглядит правильной. */}
+                {summary.merged_nodes.map((m) => (
+                  <div key={m.path} style={basisRow}>
+                    {m.path} — {basisLabel(m.basis, m.path)}
+                  </div>
+                ))}
+                {summary.merged_count > summary.merged_nodes.length && (
+                  <div style={basisRow}>…ещё {summary.merged_count - summary.merged_nodes.length}</div>
+                )}
+              </div>
+            )}
+            {/* Узлы без якоря опознаются только по имени внутри контейнера:
+                переименуют — следующий прогон сделает дубль. Счётчиком, не
+                списком: при создании проекта новые ВСЕ объекты. */}
+            {summary.nodes_without_anchor > 0 && (
+              <div style={grayLine}>
+                Без якоря: {summary.nodes_without_anchor}{" "}
+                {plural(summary.nodes_without_anchor, ["объект", "объекта", "объектов"])} —
+                {" "}будут опознаваться по имени
               </div>
             )}
             {/* Один файл — плоский отчёт слияния, как было до Ф6. */}
@@ -594,6 +615,8 @@ const zipTag: CSSProperties = {
   fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3,
 };
 const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8", marginTop: 3 };
+// Строка перечня внутри серой сводки: отступом влево показывает подчинённость.
+const basisRow: CSSProperties = { marginLeft: 10 };
 // Тот же amber, что у заголовков отчёта слияния (ReportList) и ошибки перетаскивания.
 const vanishedLine: CSSProperties = {
   fontSize: 12.5, fontWeight: 600, color: "#b45309", marginBottom: 6,

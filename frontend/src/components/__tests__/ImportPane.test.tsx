@@ -455,3 +455,49 @@ describe("архивные входы единой панели", () => {
     expect(onResolve).toHaveBeenCalledWith(СПЕКА_СПОР.id, "cand:1");
   });
 });
+
+describe("основание склейки и якоря (Ф2 docs/plan-anchor-ux.md)", () => {
+  // «Склеено узлов: 7» без «почему» — это невидимая магия: ложная склейка хуже
+  // дубля именно тем, что выглядит правильной схемой.
+  it("каждая склейка названа своим основанием", () => {
+    paint(green(["Система", "payments", "Каталог-БД", "orders"], {
+      files: 2,
+      merged_count: 3,
+      merged: ["Система / payments", "Система / Каталог-БД", "Система / orders"],
+      merged_nodes: [
+        { path: "Система / payments", basis: "code" },
+        { path: "Система / Каталог-БД", basis: "dependency" },
+        { path: "Система / orders", basis: "name" },
+      ],
+    }));
+
+    expect(screen.getByText(/Склеено узлов: 3/)).toBeTruthy();
+    expect(screen.getByText("Система / payments — по коду")).toBeTruthy();
+    expect(screen.getByText("Система / Каталог-БД — по имени зависимости")).toBeTruthy();
+    expect(screen.getByText("Система / orders — по имени внутри «Система»")).toBeTruthy();
+  });
+
+  it("перечень склеек обрезан — остаток назван счётчиком", () => {
+    paint(green(["Система"], {
+      files: 2,
+      merged_count: 10,
+      merged_nodes: [{ path: "Система / a", basis: "code" }],
+    }));
+
+    expect(screen.getByText("…ещё 9")).toBeTruthy();
+  });
+
+  it("объекты без якоря названы счётчиком с последствием", () => {
+    paint(green(["Система", "orders"], { nodes_without_anchor: 2 }));
+
+    expect(screen.getByText(/Без якоря: 2 объекта/)).toHaveTextContent(
+      "будут опознаваться по имени",
+    );
+  });
+
+  it("якорь есть у всех — строки нет вовсе", () => {
+    paint(green(["Система"], { nodes_without_anchor: 0 }));
+
+    expect(screen.queryByText(/Без якоря/)).toBeNull();
+  });
+});
