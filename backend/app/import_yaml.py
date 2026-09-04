@@ -74,6 +74,11 @@ class ParsedImport:
     nodes: list[_ImpNode]
     edges: list[_ImpEdge]
     roots: list[str]  # имена корневых узлов (для сводки в превью импорта)
+    # Замечания РАЗБОРА, не мешающие ввозу (поля снятых видов якоря). Ошибки
+    # отдаются вторым элементом кортежа parse_import и валят импорт; эти — нет,
+    # их подхватывает parse_and_merge/единый импорт и кладёт в отчёт с адресацией
+    # тому файлу, где они найдены.
+    warnings: list[str] = field(default_factory=list)
 
 
 def _yaml_error(e: yaml.YAMLError) -> str:
@@ -241,6 +246,8 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     if doc is None:
         return None, load_errors
     errors: list[str] = []
+    # Замечания разбора, не мешающие ввозу (см. ParsedImport.warnings).
+    warnings: list[str] = []
     raw_nodes = doc.get("nodes")
     if raw_nodes is None:
         return None, ["nodes: обязательный список узлов отсутствует"]
@@ -286,7 +293,8 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
 
         image/deployment — поля СНЯТЫХ видов якоря (образ и объект k8s, убраны
         2026-09-04, docs/plan-anchor-ux.md). Они не ошибка: пакеты, собранные
-        прежним промптом, обязаны ввозиться. Но и не ключ — игнорируются."""
+        прежним промптом, обязаны ввозиться. Но и не ключ — только предупреждение,
+        одно на узел."""
         raw_src = raw.get("source")
         if raw_src is None:
             return []
@@ -294,6 +302,8 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             errors.append(f"{path}.source: ожидается словарь (repo/path/host)")
             return []
         sp = f"{path}.source"
+        if raw_src.get("image") is not None or raw_src.get("deployment") is not None:
+            warnings.append(f"{sp}: образ и деплоймент больше не якорь — поле проигнорировано")
         return source_keys(
             SourceRef(
                 repo=opt_str(raw_src, "repo", sp, 512),
@@ -465,7 +475,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     if errors:
         return None, errors
     roots = [n.name for n in nodes if n.parent_idx is None]
-    return ParsedImport(nodes=nodes, edges=edges, roots=roots), []
+    return ParsedImport(nodes=nodes, edges=edges, roots=roots, warnings=warnings), []
 
 
 def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> list[uuid.UUID]:

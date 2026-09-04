@@ -1363,6 +1363,17 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
         )
 
 
+def carry_parse_warnings(parts: list[ParsedImport], report: MergeReport) -> None:
+    """Замечания РАЗБОРА каждого файла — в отчёт слияния, адресованные этому файлу.
+
+    Разбор их адресовать не может (он видит один документ и не знает своего номера),
+    а превью показывает только отчёт. Индекс части = индекс входа: при ошибке
+    разбора любого файла общий путь возвращается раньше, поэтому parts плотный."""
+    for i, part in enumerate(parts):
+        for text in part.warnings:
+            report.warn(text, i)
+
+
 def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport, list[str]]:
     """Общий путь превью и создания: разобрать N текстов и слить. Возвращает
     (результат, отчёт, ошибки); при любых ошибках результат None. Ошибки
@@ -1384,5 +1395,6 @@ def parse_and_merge(texts: list[str]) -> tuple[ParsedImport | None, MergeReport,
     merged, report = merge_imports(parts)
     if report.errors:
         return None, report, list(report.errors)
+    carry_parse_warnings(parts, report)
     warn_content(merged, report)
     return merged, report, []

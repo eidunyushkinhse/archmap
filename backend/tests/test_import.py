@@ -673,12 +673,13 @@ def test_source_block_parsed_into_keys():
         "git:github.com/org/payments",
         "host:payments",
     ]
+    assert parsed.warnings == []
 
 
-def test_source_снятые_виды_якоря_не_ошибка():
+def test_source_снятые_виды_якоря_игнорируются_с_предупреждением():
     """Образ и объект k8s перестали быть якорями 2026-09-04 (docs/plan-anchor-ux.md),
     но пакеты, собранные прежним промптом, обязаны ввозиться: поля не ошибка, они
-    просто не дают ключа."""
+    просто не дают ключа — и об этом одно предупреждение на узел."""
     content = (
         "nodes:\n"
         "  - name: payments\n"
@@ -690,6 +691,9 @@ def test_source_снятые_виды_якоря_не_ошибка():
     parsed, errors = parse_import(content)
     assert errors == [] and parsed is not None
     assert parsed.nodes[0].source_keys == ["host:payments"]
+    assert parsed.warnings == [
+        "nodes[0].source: образ и деплоймент больше не якорь — поле проигнорировано"
+    ]
 
 
 def test_source_block_optional_and_tolerant():
