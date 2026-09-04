@@ -223,16 +223,27 @@ async def test_варианты_промпта_те_же_что_у_бэкенд�
 
 # ── Запись ───────────────────────────────────────────────────────────────────
 
-async def test_план_синка_считает_и_не_пишет(client: ArchMapClient, api: FakeApi) -> None:
-    api.post(f"/projects/{PROJECT_ID}/sync/preview", {
-        "nodes_created": 2, "nodes_updated": 1, "nodes_unchanged": 5,
-        "nodes_missing": 1, "nodes_returned": 0, "edges_created": 3,
+def sync_plan(**over: object) -> dict[str, object]:
+    """План синка как его отдаёт БЭКЕНД. ⚠️ Счётчики живут в summary и зовутся по
+    ИМЕНИ ДЕЙСТВИЯ («nodes_create»), а не «nodes_created» в корне ответа: на
+    выдуманной форме отчёт печатал нули на любом плане (полевая находка Ф4)."""
+    fields: dict[str, object] = {
+        "ok": True, "files": 1,
         "nodes": [
-            {"path": "Маркетплейс / Новый", "action": "create", "fields": [], "returned": False},
-            {"path": "Маркетплейс / Старый", "action": "missing", "fields": [], "returned": False},
+            {"path": "Маркетплейс / Новый", "action": "create"},
+            {"path": "Маркетплейс / Старый", "action": "missing"},
         ],
         "edges": [],
-    })
+        "summary": {"nodes_create": 2, "nodes_update": 1, "nodes_unchanged": 5,
+                    "nodes_missing": 1, "edges_create": 3},
+        "graph_rev": 11,
+    }
+    fields.update(over)
+    return backend("schemas.project").SyncPreviewOut(**fields).model_dump(mode="json")
+
+
+async def test_план_синка_считает_и_не_пишет(client: ArchMapClient, api: FakeApi) -> None:
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan())
 
     out = await tools.call(
         "archmap_sync_preview",
@@ -242,8 +253,12 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     )
 
     assert "создать объектов: 2" in out
+    assert "обновить: 1" in out and "без изменений: 5" in out
     assert "create: Маркетплейс / Новый" in out
     assert "Ничего не записано" in out
+    # Курсор схемы для применения обязан быть НАЗВАН: без него apply — слепая
+    # запись поверх чужой параллельной правки.
+    assert "base_graph_rev=11" in out
     body = json.loads(api.calls[-1].content)
     assert body["mark_missing_deprecated"] is True
     # Было `body["contents"][0]["name"] == "r.yaml"` — тест закреплял СЛОМАННУЮ
@@ -252,21 +267,70 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     check_contract("SyncPreviewIn", body)
 
 
+async def test_план_синка_без_изменений_говорит_это_вслух(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Фикспойнт синка: повторный прогон на том же входе пуст. Молчание тут
+    неотличимо от «инструмент сломался»."""
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(
+        nodes=[{"path": "Маркетплейс / Заказы", "action": "unchanged"}],
+        summary={"nodes_unchanged": 1},
+        is_noop=True,
+    ))
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "x"}]},
+        client,
+    )
+
+    assert "без изменений: 1" in out
+    assert "Схема уже соответствует прогону" in out
+
+
+async def test_негодный_прогон_называет_ошибки_а_не_нули(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(
+        ok=False, errors=["вход 1: корень документа должен быть словарём"],
+        nodes=[], summary={},
+    ))
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "мусор"}]},
+        client,
+    )
+
+    assert "корень документа должен быть словарём" in out
+    assert "Будет сделано" not in out
+
+
 async def test_применение_синка_шлёт_contents_текстами(
     client: ArchMapClient, api: FakeApi
 ) -> None:
-    api.post(f"/projects/{PROJECT_ID}/sync/apply", {
-        "nodes_created": 1, "nodes_updated": 0, "nodes_unchanged": 4, "nodes_missing": 0,
-        "nodes_returned": 0, "edges_created": 0, "nodes": [], "edges": [],
-    })
+    # ⚠️ Ответ применения — СВОЯ форма (SyncApplyOut): списки путей, а не план
+    # ещё раз. Отчёт, читавший поля плана, печатал пустоту после реальной записи.
+    api.post(f"/projects/{PROJECT_ID}/sync/apply", backend("schemas.project").SyncApplyOut(
+        created_nodes=["Маркетплейс / Новый"],
+        updated_nodes=["Маркетплейс / Заказы"],
+        deprecated_nodes=[],
+        created_edges=["Маркетплейс / Новый → Маркетплейс / Kafka"],
+        skipped=[],
+        graph_rev=12,
+    ).model_dump(mode="json"))
 
-    await tools.call(
+    out = await tools.call(
         "archmap_sync_apply",
         {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "прогон"}],
          "base_graph_rev": 7},
         client,
     )
 
+    assert "Создано объектов: 1" in out and "• Маркетплейс / Новый" in out
+    assert "Обновлено: 1" in out
+    assert "Создано связей: 1" in out
+    assert "graph_rev=12" in out
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == ["прогон"]
     assert body["base_graph_rev"] == 7  # курсор схемы не потерялся вместе с формой
