@@ -496,12 +496,15 @@ function NodePageInner({
 
             {/* Размещение. Внешность — относительно контура ОРГАНИЗАЦИИ (спека
                 N2а): чужой продукт/сторона, а не «вне системы» — границу системы
-                выражает дерево. Подсказка снимает двусмысленность (QA Zabbix v4). */}
+                выражает дерево. Подсказка снимает двусмысленность (QA Zabbix v4).
+                Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
+                сервис — активный синий, чужой — серый, как точка у наблюдателя ниже.
+                Данные не инвертируются — только вид. */}
             <span className="np-term" title={EXTERNAL_HINT}>Размещение</span>
             <span className="np-value" title={EXTERNAL_HINT}>
               {isArchitect ? (
-                <button type="button" className="np-toggle" onClick={patch.toggleExternal}>
-                  <span className={"np-switch" + (patch.isExternal ? " is-on" : "")} />
+                <button type="button" className="np-toggle" onClick={patch.toggleExternal} aria-pressed={!patch.isExternal}>
+                  <span className={"np-switch" + (patch.isExternal ? "" : " is-on")} />
                   {patch.isExternal ? "Внешний" : "Внутренний"}
                 </button>
               ) : (

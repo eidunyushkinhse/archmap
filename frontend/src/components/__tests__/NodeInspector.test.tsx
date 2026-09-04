@@ -141,3 +141,31 @@ describe("NodeInspector: якорь", () => {
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
   });
 });
+
+// Тогл «Размещение» инвертирован по решению пользователя 2026-09-04: «включён»
+// (синий) — ВНУТРЕННИЙ сервис, «выключен» (серый) — внешний. Данные при этом
+// прежние: клик по-прежнему переключает is_external.
+describe("NodeInspector: тогл размещения", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("внутренний — тогл включён и подписан «Внутренний», внешний — выключен", () => {
+    const { unmount } = setup(makeNode({ is_external: false }));
+    const inner = screen.getByRole("button", { name: "Внутренний" });
+    expect(inner.getAttribute("aria-pressed")).toBe("true");
+    expect(inner.querySelector(".insp-switch")?.classList.contains("is-on")).toBe(true);
+    unmount();
+
+    setup(makeNode({ is_external: true }));
+    const outer = screen.getByRole("button", { name: "Внешний" });
+    expect(outer.getAttribute("aria-pressed")).toBe("false");
+    expect(outer.querySelector(".insp-switch")?.classList.contains("is-on")).toBe(false);
+  });
+
+  it("клик по тоглу переключает is_external, а не вид", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ is_external: true, version: 4 }));
+    setup(makeNode({ is_external: false }));
+    await userEvent.click(screen.getByRole("button", { name: "Внутренний" }));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1].is_external).toBe(true);
+  });
+});

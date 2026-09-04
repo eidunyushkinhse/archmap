@@ -254,9 +254,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         <Row icon={META_ICON.placement} label="Размещение">
           {isArchitect ? (
             <span className="insp-value">
-              <button type="button" className="insp-toggle" onClick={toggleExternal} aria-pressed={isExternal}>
-                <span className={"insp-switch" + (isExternal ? " is-on" : "")} />
-                Внешний
+              {/* Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
+                  сервис — активный синий, чужой — серый, как точка у наблюдателя.
+                  Подпись называет состояние, а не «что включает» тогл. */}
+              <button type="button" className="insp-toggle" onClick={toggleExternal} aria-pressed={!isExternal}>
+                <span className={"insp-switch" + (isExternal ? "" : " is-on")} />
+                {isExternal ? "Внешний" : "Внутренний"}
               </button>
             </span>
           ) : (
