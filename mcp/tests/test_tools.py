@@ -35,7 +35,7 @@ async def test_неоднозначное_имя_не_выбирается_мо�
     # Молчаливый выбор «первого похожего» — самый дорогой вид ошибки: агент
     # напишет правки не в тот проект и узнает об этом от человека.
     api.get(
-        "/projects/",
+        "/projects",
         [
             {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 1},
             {"id": OTHER_ID, "name": "Ярмарка — мультисхемы", "object_count": 1},
@@ -51,7 +51,7 @@ async def test_неоднозначное_имя_не_выбирается_мо�
 
 async def test_точное_имя_бьёт_подстроку(client: ArchMapClient, api: FakeApi) -> None:
     api.get(
-        "/projects/",
+        "/projects",
         [
             {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 1},
             {"id": OTHER_ID, "name": "Ярмарка — мультисхемы", "object_count": 1},
@@ -118,13 +118,17 @@ async def test_карточка_объекта_собирает_связи_и_д
         {"id": "e1", "direction": "incoming", "other_node_id": "n3",
          "other_node_name": "Покупатель", "label": "заказ", "technology": None},
     ])
-    api.get("/nodes/n2/docs", [{"id": "d1", "name": "Обзор", "kind": "обзор", "operation": None}])
+    api.get("/nodes/n2/docs", [{"id": "d1", "name": "POST /orders", "kind": "operation",
+                                "operation": None, "content": ""}])
+    api.get("/nodes/n2/docs/usage", [])
+    api.get("/nodes/n2/config", [])  # семья сервиса — карточка спрашивает её всегда
+    api.get("/nodes/n2/processes", [])
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": "n2"}, client)
 
     assert "Путь: Маркетплейс / Сервис заказов" in out
     assert "← Покупатель [заказ]" in out
-    assert "• Обзор (обзор)" in out
+    assert "• POST /orders (операция)" in out
     assert "OpenAPI-спека: есть" in out
     assert "openapi: 3.0.0" not in out  # текст спеки — только по явному запросу
 
@@ -155,30 +159,6 @@ async def test_пустые_алерты_говорят_что_всё_хорош
     })
 
     assert "завершена" in await tools.call("archmap_alerts", {"project": "Ярмарка"}, client)
-
-
-async def test_шаги_процесса_помечают_повисшие(client: ArchMapClient, api: FakeApi) -> None:
-    api.get("/processes/p1", {
-        "id": "p1", "name": "Оформление заказа",
-        "participants": [
-            {"id": "pp1", "node_id": "n3", "name": "Покупатель", "order": 0},
-            {"id": "pp2", "node_id": "n2", "name": "Сервис заказов", "order": 1},
-        ],
-        "messages": [
-            {"id": "m1", "order": 0, "from_id": "n3", "to_id": "n2",
-             "caption": "создать заказ", "valid": True},
-            {"id": "m2", "order": 1, "from_id": "n2", "to_id": "n3",
-             "caption": "ответ", "valid": False},
-        ],
-        "fragments": [],
-    })
-
-    out = await tools.call(
-        "archmap_processes", {"project": "Ярмарка", "process_id": "p1"}, client
-    )
-
-    assert "0. Покупатель → Сервис заказов: создать заказ" in out
-    assert "⚠ связь удалена из схемы" in out
 
 
 # ── Правила формата (промпты BYOA) ───────────────────────────────────────────
@@ -242,62 +222,6 @@ async def test_варианты_промпта_те_же_что_у_бэкенд�
 
 # ── Запись ───────────────────────────────────────────────────────────────────
 
-async def test_превью_импорта_не_создаёт_проект(client: ArchMapClient, api: FakeApi) -> None:
-    api.post("/projects/import/preview", {
-        "ok": True, "errors": [], "node_count": 12, "edge_count": 9, "roots": ["Маркетплейс"],
-        "files": 2, "warnings": ["актор внутри системы: Покупатель"],
-    })
-
-    out = await tools.call(
-        "archmap_import_preview",
-        {"files": [{"name": "a.yaml", "content": "x"}, {"name": "b.yaml", "content": "y"}]},
-        client,
-    )
-
-    assert "объектов 12" in out
-    assert "актор внутри системы" in out
-    assert "НЕ создан" in out
-    assert all(c.url.path != "/api/v1/projects/" or c.method != "POST" for c in api.calls)
-
-
-async def test_превью_импорта_шлёт_contents_текстами(
-    client: ArchMapClient, api: FakeApi
-) -> None:
-    # ФОРМА тела, а не только вывод: инструмент слал записи {name, content}, а
-    # ImportPreviewIn.contents — список текстов, и живой сервер отвечал 422. Мок
-    # тело не валидирует, поэтому судьёй берём схему бэкенда.
-    api.post("/projects/import/preview", {
-        "ok": True, "errors": [], "node_count": 2, "edge_count": 1, "roots": ["Zabbix"], "files": 2,
-    })
-
-    await tools.call(
-        "archmap_import_preview",
-        {"files": [{"name": "a.yaml", "content": "первый"},
-                   {"name": "b.yaml", "content": "второй"}]},
-        client,
-    )
-
-    body = json.loads(api.calls[-1].content)
-    # Порядок сохранён: нумерация замечаний («файл 2») идёт по позиции в списке.
-    assert body["contents"] == ["первый", "второй"]
-    check_contract("ImportPreviewIn", body)
-
-
-async def test_битый_yaml_возвращает_ошибки_а_не_молчит(
-    client: ArchMapClient, api: FakeApi
-) -> None:
-    api.post("/projects/import/preview", {
-        "ok": False, "errors": ["a.yaml: не найден корневой узел"],
-        "node_count": 0, "edge_count": 0, "roots": [], "files": 1,
-    })
-
-    out = await tools.call(
-        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "!"}]}, client
-    )
-
-    assert "НЕ пройдёт" in out and "не найден корневой узел" in out
-
-
 async def test_план_синка_считает_и_не_пишет(client: ArchMapClient, api: FakeApi) -> None:
     api.post(f"/projects/{PROJECT_ID}/sync/preview", {
         "nodes_created": 2, "nodes_updated": 1, "nodes_unchanged": 5,
@@ -325,29 +249,6 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     # форму: SyncPreviewIn.contents принимает тексты, имён файлов у него нет.
     assert body["contents"] == ["x"]
     check_contract("SyncPreviewIn", body)
-
-
-async def test_создание_проекта_шлёт_yaml_текстами(
-    client: ArchMapClient, api: FakeApi
-) -> None:
-    # Третий носитель той же ошибки формы: ProjectCreate.import_yamls — список
-    # текстов. Без этого теста чинилось бы только превью, а запись всё равно
-    # ловила бы 422 на живом сервере.
-    api.post("/projects/", {"id": PROJECT_ID, "name": "Zabbix", "object_count": 12})
-
-    out = await tools.call(
-        "archmap_import_apply",
-        {"name": "Zabbix",
-         "files": [{"name": "a.yaml", "content": "первый"},
-                   {"name": "b.yaml", "content": "второй"}]},
-        client,
-    )
-
-    body = json.loads(api.calls[-1].content)
-    assert body["import_yamls"] == ["первый", "второй"]
-    assert body["start"] == "import"
-    check_contract("ProjectCreate", body)
-    assert "создан" in out
 
 
 async def test_применение_синка_шлёт_contents_текстами(

@@ -83,7 +83,7 @@ class FakeApi:
 @pytest.fixture
 def api() -> FakeApi:
     fake = FakeApi()
-    fake.get("/projects/", [{"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}])
+    fake.get("/projects", [{"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}])
     return fake
 
 
@@ -92,7 +92,9 @@ def client(api: FakeApi) -> ArchMapClient:
     config = Config()
     config.username, config.password = "arch", "secret"
     config.base_url = "http://archmap.test"
-    http = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()))
+    # follow_redirects — как у настоящего клиента: без него стенд не увидел бы
+    # 307 на коллекциях («/projects/» → «/projects»), который ломал живой сервис.
+    http = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()), follow_redirects=True)
     return ArchMapClient(config, http=http)
 
 

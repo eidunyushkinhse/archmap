@@ -97,38 +97,1115 @@ def path_of(node_id: str, by_id: dict[str, dict[str, Any]]) -> str:
     return " / ".join(reversed(parts))
 
 
+def _plural(n: int, forms: tuple[str, str, str]) -> str:
+    """Русское согласование числительного (зеркало ui/plural.ts фронта)."""
+    tens = n % 100
+    if 11 <= tens <= 14:
+        return forms[2]
+    ones = n % 10
+    if ones == 1:
+        return forms[0]
+    if 2 <= ones <= 4:
+        return forms[1]
+    return forms[2]
+
+
+# Почему пометка не срослась. Слова — дословно из панели SchemaAlerts.tsx
+# (REF_REASON / CHANNEL_REASON): агент и человек обязаны называть проблему
+# одинаково, иначе разговор о схеме идёт на двух языках.
+DATA_REASON = {
+    "unknown_table": "таблица не найдена",
+    "ambiguous": "имя неоднозначно — укажите „БД / таблица“",
+    "unknown_column": "колонки нет в таблице",
+}
+CHANNEL_REASON = {
+    "unknown_channel": "канал не найден у брокеров проекта",
+    "ambiguous": "имя неоднозначно — укажите „Брокер / канал“",
+    "unknown_field": "поля нет в канале",
+}
+# Пометка «зависит от:» причины не несёт — она единственная (AL33), поэтому текст
+# постоянный и, как в панели, называет ОБА выхода: описать ручку или переписать фразу.
+CONFIG_REASON = (
+    "параметра нет в конфигурации объекта: опишите его или, "
+    "если это обычная фраза, уберите двоеточие"
+)
+
+
+def _caption(item: dict[str, Any]) -> str:
+    return f"«{item['caption']}»" if item.get("caption") else "без подписи"
+
+
 def alerts(data: dict[str, Any]) -> str:
-    """Незавершённость схемы — по классам, с именами, а не идентификаторами."""
+    """Незавершённость схемы — 15 классов в порядке, заголовках и словах панели
+    SchemaAlerts.tsx (решение 7 плана эпика «Доработка MCP-сервера»).
+
+    Читается это агентом, а показывается человеку панелью — значит и называться
+    должно одинаково: расхождение слов дороже любой экономии контекста.
+
+    Все списки берутся через .get(..., []): сервер старше клиента новых классов не
+    отдаёт вовсе, и рендер обязан это пережить, а не упасть на KeyError.
+    """
+    def lst(key: str) -> list[dict[str, Any]]:
+        value = data.get(key) or []
+        return list(value) if isinstance(value, list) else []
+
+    disconnected = lst("disconnected_nodes")
+    intermediate = lst("intermediate_edges")
+    descendant = lst("descendant_edges")
+    isolated = lst("isolated_groups")
+    container_own = lst("container_own_docs")
+    data_refs = lst("unresolved_data_refs")
+    channel_refs = lst("unresolved_channel_refs")
+    config_refs = lst("unresolved_config_refs")
+    broker_edges = lst("broker_edge_channels")
+    dangling = lst("dangling_messages")
+    orphan_legs = lst("orphan_legs")
+    unbound = lst("unbound_participants")
+    unlinked = lst("unlinked_messages")
+    undescribed = lst("undescribed_docs")
+    persons_inside = lst("persons_inside")
+
     blocks: list[str] = []
 
     def add(title: str, items: list[str]) -> None:
         if items:
             blocks.append(f"{title} ({len(items)}):\n" + "\n".join("  • " + i for i in items))
 
-    add("Объекты без связей", [str(d["node_name"]) for d in data.get("disconnected_nodes", [])])
+    def end(name: str, marked: bool) -> str:
+        """Конец связи: проблемный выделяется кавычками — в панели он подсвечен."""
+        return f"«{name}»" if marked else name
+
+    add("Объекты без связей", [str(d["node_name"]) for d in disconnected])
     add(
         "Связи в контейнер",
-        [f"{e['source_name']} → {e['target_name']}" for e in data.get("intermediate_edges", [])],
+        [
+            f"{end(str(e['source_name']), bool(e.get('source_is_intermediate')))} → "
+            f"{end(str(e['target_name']), bool(e.get('target_is_intermediate')))}"
+            for e in intermediate
+        ],
+    )
+    add(
+        "Связи в собственный компонент",
+        [
+            f"{e['source_name']} → {e['target_name']}: "
+            f"«{e['source_name'] if e.get('source_is_part') else e['target_name']}» — часть "
+            f"«{e['target_name'] if e.get('source_is_part') else e['source_name']}»; "
+            "иерархия уже выражает вложенность — удалите связь или перевесьте её"
+            for e in descendant
+        ],
     )
     add(
         "Изолированные группы",
-        [", ".join(str(x) for x in g.get("node_names", [])) for g in data.get("isolated_groups", [])],
+        [
+            f"Группа {i + 1}: " + ", ".join(str(x) for x in g.get("node_names", []))
+            for i, g in enumerate(isolated)
+        ],
+    )
+    add("Контейнеры со своей документацией", [str(c["node_name"]) for c in container_own])
+    add(
+        "Обращения к неописанным данным",
+        [
+            f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — "
+            f"{DATA_REASON.get(str(r.get('reason')), str(r.get('reason')))}"
+            for r in data_refs
+        ],
     )
     add(
-        "Контейнеры со своей документацией",
-        [str(c["node_name"]) for c in data.get("container_own_docs", [])],
+        "Обращения к неописанным каналам",
+        [
+            f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — "
+            f"{CHANNEL_REASON.get(str(r.get('reason')), str(r.get('reason')))}"
+            for r in channel_refs
+        ],
     )
     add(
-        "Пользователи внутри контейнера",
-        [f"{p['node_name']} внутри {p['parent_name']}" for p in data.get("persons_inside", [])],
+        "Обращения к неописанным параметрам",
+        [f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — {CONFIG_REASON}" for r in config_refs],
+    )
+    add(
+        "Связи с брокером без канала",
+        [
+            f"{b['source_name']} → {b['target_name']}: "
+            + (
+                "канал не указан"
+                if b.get("reason") == "missing"
+                else f"канал «{b.get('channel')}» не найден у брокера «{b['broker_name']}»"
+            )
+            for b in broker_edges
+        ],
     )
     add(
         "Незадокументированные сообщения",
+        [f"{m['process_name']}: {_caption(m)} ({m['from_name']} → {m['to_name']})" for m in dangling],
+    )
+    add(
+        "Ответ на асинхронном канале",
         [
-            f"{m['process_name']}: {m.get('caption') or 'без подписи'} ({m['from_name']} → {m['to_name']})"
-            for m in data.get("dangling_messages", [])
+            f"{m['process_name']}: {_caption(m)} ({m['from_name']} → {m['to_name']}"
+            + (f" · канал «{m['edge_label']}»" if m.get("edge_label") else "")
+            + ")"
+            for m in orphan_legs
         ],
     )
+    add(
+        "Незадокументированные участники",
+        [f"{p['process_name']}: {p['name']}" for p in unbound],
+    )
+    add(
+        "Шаги без схемы логики",
+        [f"{m['process_name']}: {_caption(m)} ({m['from_name']} → {m['to_name']})" for m in unlinked],
+    )
+    add(
+        "Объекты с неописанными схемами логики",
+        [
+            f"{u['node_name']} — {u['count']} {_plural(int(u['count']), ('схема', 'схемы', 'схем'))}"
+            for u in undescribed
+        ],
+    )
+    add(
+        "Пользователи внутри контейнера",
+        [f"{p['node_name']} внутри {p['parent_name']}" for p in persons_inside],
+    )
+
     if not blocks:
         return "Замечаний нет — схема завершена."
-    return "\n\n".join(blocks)
+
+    # Общий счётчик — как бабл панели: изолированные группы дают не число групп, а
+    # число НЕДОСТАЮЩИХ связей (групп − 1), остальные классы — по записи.
+    total = (
+        len(disconnected) + len(intermediate) + len(descendant) + max(0, len(isolated) - 1)
+        + len(container_own) + len(data_refs) + len(channel_refs) + len(config_refs)
+        + len(broker_edges) + len(dangling) + len(orphan_legs) + len(unbound)
+        + len(unlinked) + len(undescribed) + len(persons_inside)
+    )
+    head = f"Замечаний: {total}"
+    return head + "\n\n" + "\n\n".join(blocks)
+
+
+# Вид схемы логики словарём — те же слова, что в списке схем на странице объекта
+# (KIND_LABEL из frontend/src/components/docsList.ts). Неизвестный вид печатается
+# как есть: молча подменять незнакомое слово хуже, чем показать сырое.
+KIND_WORD = {"operation": "операция", "worker": "воркер"}
+
+# Капы против раздувания контекста: карточку читает модель, и перечень на две
+# сотни строк она оплачивает целиком. Верхняя граница — по записям семьи и по
+# членам одной записи (колонки таблицы, поля канала); остаток называется числом.
+FACT_ROWS_CAP = 40
+FACT_MEMBERS_CAP = 20
+
+
+def _capped(lines: list[str], cap: int, forms: tuple[str, str, str]) -> list[str]:
+    """Список с хвостом «… и ещё N»: обрезать молча — значит соврать о полноте."""
+    if len(lines) <= cap:
+        return lines
+    rest = len(lines) - cap
+    return [*lines[:cap], f"… и ещё {rest} {_plural(rest, forms)}"]
+
+
+def docs(
+    items: list[dict[str, Any]],
+    *,
+    described: dict[str, bool],
+    usage: list[dict[str, Any]],
+) -> tuple[str, list[str]]:
+    """Схемы логики узла: вид словарём, метка заглушки, участие в процессах.
+
+    described приходит из МЕТЫ узла (NodeDocMeta.described — производное поле,
+    считается в БД по непустому телу): по content судить нельзя, «пусто» там —
+    результат SQL-trim, а не текста.
+
+    Возвращает (заголовок, строки): «описано N из M» дописывается в заголовок
+    только когда заглушки есть — иначе это шум в каждой карточке.
+    """
+    if not items:
+        return "СХЕМЫ ЛОГИКИ:", ["  (нет)"]
+
+    by_doc: dict[str, list[dict[str, Any]]] = {}
+    for row in usage:
+        by_doc.setdefault(str(row.get("doc_id")), []).append(row)
+
+    lines: list[str] = []
+    stubs = 0
+    for d in items:
+        doc_id = str(d["id"])
+        kind = str(d.get("kind", "?"))
+        head = KIND_WORD.get(kind, kind)
+        if d.get("operation"):
+            head += f" · {d['operation']}"
+        marks: list[str] = []
+        if described.get(doc_id) is False:
+            stubs += 1
+            marks.append("не описана")
+        rows = by_doc.get(doc_id, [])
+        if rows:
+            where = ", ".join(str(r.get("process_name", "?")) for r in rows)
+            n = len(rows)
+            marks.append(f"в {n} {_plural(n, ('процессе', 'процессах', 'процессах'))}: {where}")
+        tail = f" — {'; '.join(marks)}" if marks else ""
+        lines.append(f"  • {d['name']} ({head}){tail}  id={doc_id}")
+
+    title = "СХЕМЫ ЛОГИКИ:"
+    if stubs:
+        title = f"СХЕМЫ ЛОГИКИ (описано {len(items) - stubs} из {len(items)}):"
+    return title, lines
+
+
+# ── Бизнес-процессы ──────────────────────────────────────────────────────────
+# Тип шага словами. kind — ПРОИЗВОДНЫЙ (schemas/process.py): forward — обычный
+# вызов, о нём говорить нечего, поэтому в словаре его нет.
+STEP_KIND_WORD = {
+    "return": "ответ",
+    "async": "асинхронно",
+    "self": "самосообщение",
+}
+# Чем сломан шаг — теми же словами, что чип на диаграмме (SequenceDiagram.tsx):
+# «связь удалили из схемы» и «канал стал асинхронным, ответа у него не бывает».
+STEP_BROKEN_WORD = {
+    "edge_deleted": "связь удалена",
+    "leg_gone": "канал без ответа",
+}
+
+
+def process_list(items: list[dict[str, Any]]) -> str:
+    """Список процессов. Поля — ровно те, что отдаёт ProcessListItem: имени
+    участников в нём НЕТ, и печатать «участников ?» вместо честного «шагов N»
+    значит выдавать пробел контракта за свойство процесса."""
+    lines: list[str] = []
+    for p in items:
+        scope = p.get("scope_name") or "весь проект"
+        n = int(p.get("message_count", 0) or 0)
+        lines.append(
+            f"• {p.get('name', '?')} — область: {scope}, "
+            f"шагов {n}  id={p.get('id', '?')}"
+        )
+    return "\n".join(lines)
+
+
+def node_processes(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Где объект участвует. Вопрос про ОБЪЕКТ, а не про его схемы: участником
+    процесса узел бывает и без единой схемы логики, поэтому раздел не выводится
+    из обратного индекса доков в карточке."""
+    lines = [
+        f"  • {p.get('name', '?')} — шагов {int(p.get('message_count', 0) or 0)}"
+        f"  id={p.get('id', '?')}"
+        for p in items
+    ]
+    return f"УЧАСТВУЕТ В ПРОЦЕССАХ ({len(items)}):", lines
+
+
+def _step_binding(m: dict[str, Any]) -> str:
+    """Хвост привязки шага к схеме логики — адрес его документации.
+
+    Путь узла обязателен рядом с именем: одноимённые схемы живут у разных
+    объектов, и «схема „POST /orders“» без адреса неразличима."""
+    if not m.get("doc_id"):
+        return " — схема не привязана"
+    where = f" ({m['doc_node_path']})" if m.get("doc_node_path") else ""
+    return f" → схема «{m.get('doc_name', '?')}»{where}"
+
+
+def process_detail(detail: dict[str, Any]) -> str:
+    """Процесс: участники, шаги с привязками, фрагменты одной строкой.
+
+    ⚠️ Концы шага — УЧАСТНИКИ (from_participant_id / to_participant_id), а не
+    узлы: у непривязанного участника узла нет вовсе. Ключевать участников по
+    node_id — тот самый класс «сводка читает поля, которых нет»: у половины
+    процессов концы печатались бы как «?».
+    """
+    parts = sorted(detail.get("participants", []), key=lambda p: p.get("order", 0))
+    by_part = {str(p["id"]): p for p in parts}
+
+    scope = detail.get("scope_name") or "весь проект"
+    out = [f"Область: {scope}", "", "УЧАСТНИКИ:"]
+    if not parts:
+        out.append("  (нет)")
+    for p in parts:
+        marks = [str(p[k]) for k in ("role",) if p.get(k)]
+        if p.get("is_external"):
+            marks.append("внешний")
+        if not p.get("node_id"):
+            marks.append("не привязан к объекту")
+        tail = f" — {', '.join(marks)}" if marks else ""
+        out.append(f"  {p.get('order', '?')}. {p.get('name', '?')}{tail}")
+
+    out.append("")
+    out.append("ШАГИ:")
+    messages = sorted(detail.get("messages", []), key=lambda m: m.get("order", 0))
+    if not messages:
+        out.append("  (нет)")
+    for m in messages:
+        src = by_part.get(str(m.get("from_participant_id")), {}).get("name", "?")
+        dst = by_part.get(str(m.get("to_participant_id")), {}).get("name", "?")
+        marks = []
+        word = STEP_KIND_WORD.get(str(m.get("kind")))
+        if word:
+            marks.append(word)
+        if m.get("technology"):
+            marks.append(str(m["technology"]))
+        if not m.get("valid", True):
+            marks.append(
+                "⚠ " + STEP_BROKEN_WORD.get(str(m.get("invalid_reason")), "шаг сломан")
+            )
+        tail = " · " + " · ".join(marks) if marks else ""
+        # id и version печатаются ВСЕГДА: это вход archmap_bind_step (CAS), и
+        # без версии агенту пришлось бы перечитывать процесс ради одного числа.
+        out.append(
+            f"  {m.get('order', '?')}. {src} → {dst}: {m.get('caption') or '—'}"
+            f"{tail}{_step_binding(m)}  id={m.get('id', '?')} version={m.get('version', '?')}"
+        )
+
+    fragments = sorted(detail.get("fragments", []), key=lambda f: f.get("from_order", 0))
+    if fragments:
+        out.append("")
+        out.append("ФРАГМЕНТЫ:")
+        for f in fragments:
+            guard = f" «{f['guard']}»" if f.get("guard") else ""
+            branches = f.get("branches") or []
+            extra = (
+                f", ветвей ещё {len(branches)}" if branches else ""
+            )
+            out.append(
+                f"  {f.get('kind', '?')} шаги {f.get('from_order', '?')}–"
+                f"{f.get('to_order', '?')}{guard}{extra}"
+            )
+    return "\n".join(out)
+
+
+# Каталог схем шага бывает широким (поддеревья ОБОИХ участников): кап тот же
+# приём, что у семей фактов — обрезать молча значит соврать о полноте.
+DOC_CATALOG_CAP = 80
+
+
+def step_docs(data: dict[str, Any]) -> str:
+    """Каталог «чем можно задокументировать шаг» (MessageDocCatalog).
+
+    Порядок бэкенда НЕ пересортировываем: он и есть подсказка — схемы владельца
+    шага (конец ребра, несущий логику) идут первыми, и пометка «исполнитель»
+    называет ровно их.
+    """
+    docs_ = data.get("docs") or []
+    if not docs_:
+        return (
+            "Подходящих схем логики нет: ни у участников шага, ни у их потомков не "
+            "заведено ни одной. Сначала опишите логику — archmap_docs_prompt / "
+            "archmap_docs_apply."
+        )
+    owner = str(data.get("default_node_id") or "")
+    lines: list[str] = []
+    for d in docs_:
+        kind = str(d.get("kind", "?"))
+        head = KIND_WORD.get(kind, kind)
+        if d.get("operation"):
+            head += f" · {d['operation']}"
+        marks: list[str] = []
+        if owner and str(d.get("node_id")) == owner:
+            marks.append("исполнитель")
+        if d.get("described") is False:
+            marks.append("не описана")
+        tail = f" [{', '.join(marks)}]" if marks else ""
+        lines.append(
+            f"  • {d.get('name', '?')} ({head}) — {d.get('node_path', '?')}{tail}"
+            f"  id={d.get('id', '?')}"
+        )
+    head_line = f"ПОДХОДЯЩИЕ СХЕМЫ ЛОГИКИ ({len(docs_)}):"
+    body = _capped(lines, DOC_CATALOG_CAP, ("схема", "схемы", "схем"))
+    return head_line + "\n" + "\n".join(body)
+
+
+def step_bound(m: dict[str, Any]) -> str:
+    """Итог привязки: новое состояние шага и НОВАЯ версия — следующая правка идёт
+    от неё, иначе CAS вернёт 409 на ровном месте."""
+    return (
+        f"Шаг {m.get('order', '?')} «{m.get('caption') or '—'}»{_step_binding(m)}"
+        f"  id={m.get('id', '?')} version={m.get('version', '?')}"
+    )
+
+
+def db_tables(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Структура БД: таблица одной строкой, колонки — «имя тип» с флагами PK/NOT
+    NULL (те же пометки, что в разделе «Структура» на странице объекта)."""
+    if not items:
+        return "СТРУКТУРА БД:", ["  (не описана)"]
+    lines: list[str] = []
+    for t in items:
+        name = f"{t['schema_name']}.{t['name']}" if t.get("schema_name") else str(t["name"])
+        cols: list[str] = []
+        for c in sorted(t.get("columns", []), key=lambda c: c.get("order", 0)):
+            bits = [str(c["name"])]
+            if c.get("type"):
+                bits.append(str(c["type"]))
+            if c.get("is_primary_key"):
+                bits.append("PK")
+            if c.get("nullable") is False:
+                bits.append("NOT NULL")
+            cols.append(" ".join(bits))
+        shown = _capped(cols, FACT_MEMBERS_CAP, ("колонка", "колонки", "колонок"))
+        lines.append(f"  • {name}: " + (", ".join(shown) if shown else "(колонок нет)"))
+    n = len(items)
+    title = f"СТРУКТУРА БД ({n} {_plural(n, ('таблица', 'таблицы', 'таблиц'))}):"
+    return title, _capped(lines, FACT_ROWS_CAP, ("таблица", "таблицы", "таблиц"))
+
+
+def broker_channels(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Каналы брокера: имя, свойства доставки в скобках, поля сообщения."""
+    if not items:
+        return "КАНАЛЫ:", ["  (не описаны)"]
+    lines: list[str] = []
+    for ch in items:
+        name = f"{ch['group_name']}/{ch['name']}" if ch.get("group_name") else str(ch["name"])
+        meta = [str(ch["kind"])] if ch.get("kind") else []
+        if ch.get("partition_key"):
+            meta.append(f"ключ: {ch['partition_key']}")
+        if ch.get("delivery"):
+            meta.append(str(ch["delivery"]))
+        if ch.get("retention"):
+            meta.append(f"retention: {ch['retention']}")
+        head = f"{name} [{', '.join(meta)}]" if meta else name
+        fields: list[str] = []
+        for f in sorted(ch.get("fields", []), key=lambda f: f.get("order", 0)):
+            bits = [str(f["name"])]
+            if f.get("type"):
+                bits.append(str(f["type"]))
+            if f.get("required"):
+                bits.append("обяз.")
+            fields.append(" ".join(bits))
+        shown = _capped(fields, FACT_MEMBERS_CAP, ("поле", "поля", "полей"))
+        lines.append(f"  • {head}: " + (", ".join(shown) if shown else "(полей нет)"))
+    n = len(items)
+    title = f"КАНАЛЫ ({n} {_plural(n, ('канал', 'канала', 'каналов'))}):"
+    return title, _capped(lines, FACT_ROWS_CAP, ("канал", "канала", "каналов"))
+
+
+def config_params(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Конфигурация сервиса: имя, тип, обязательность, дефолт ИЗ КОДА и «что
+    переключает». Значений сред здесь нет и быть не может (§2.5 плана семьи)."""
+    if not items:
+        return "КОНФИГУРАЦИЯ:", ["  (не описана)"]
+    lines: list[str] = []
+    for p in items:
+        bits: list[str] = []
+        if p.get("value_type"):
+            bits.append(str(p["value_type"]))
+        bits.append("обяз." if p.get("required") else "необяз.")
+        if p.get("default_value"):
+            bits.append(f"по умолчанию «{p['default_value']}»")
+        desc = f" — {p['description']}" if p.get("description") else ""
+        lines.append(f"  • {p['name']} ({', '.join(bits)}){desc}")
+    n = len(items)
+    title = f"КОНФИГУРАЦИЯ ({n} {_plural(n, ('параметр', 'параметра', 'параметров'))}):"
+    return title, _capped(lines, FACT_ROWS_CAP, ("параметр", "параметра", "параметров"))
+
+
+# Группы превью разведки: порядок и ЗАГОЛОВКИ — дословно из окна ReconAgentModal
+# (GROUPS), потому что агент и человек смотрят на один и тот же отчёт. Пояснение
+# у двух групп — там, где действие не читается из заголовка: «уже описаны» и
+# «не найдено в коде» обе выглядят как повод что-то сделать, а делать нечего.
+# Четвёртый элемент — короткая подпись для строки счётчиков: заголовок группы
+# («Есть в документации, но не найдено в коде») в перечислении не читается.
+RECON_GROUPS: tuple[tuple[str, str, str, str], ...] = (
+    ("create", "Создадим заглушки", "", "создадим заглушек"),
+    ("unchanged", "Заглушки уже есть", "", "заглушки уже есть"),
+    (
+        "described",
+        "Уже описаны — не тронем",
+        "повторный сбор перечня не затирает работу",
+        "уже описано",
+    ),
+    (
+        "vanished",
+        "Есть в документации, но не найдено в коде",
+        "ничего не удаляем — это показ расхождения",
+        "не найдено в коде",
+    ),
+)
+
+# Кап строк одной группы разведки. Перечень монолита — сотни точек входа (Zulip:
+# 201), и вываливать их целиком в контекст незачем: агенту нужны числа и образцы,
+# а полный список он и так держит в файле, который сам же и составил.
+RECON_GROUP_CAP = 80
+
+
+def recon_report(data: dict[str, Any], *, applied: bool) -> str:
+    """Отчёт разведки: счётчики по действиям, затем группы строк, затем проблемы.
+
+    Форма общая у превью и применения (её различает applied) — как у отчёта
+    дозаливки: разница только в хвосте «ничего не записано» и в том, что после
+    применения печатается число созданных заглушек.
+    """
+    items = [i for i in (data.get("items") or []) if isinstance(i, dict)]
+    by_action: dict[str, list[dict[str, Any]]] = {}
+    for it in items:
+        by_action.setdefault(str(it.get("action")), []).append(it)
+
+    out: list[str] = []
+    node_path = str(data.get("node_path") or "")
+    if node_path:
+        out.append(f"Объект: {node_path}")
+    # После записи «создадим» — ложь: то же поле отчёта описывает уже сделанное.
+    # Переименовывается ровно одна группа, три остальных читаются в обоих временах.
+    def words(action: str, title: str, short: str) -> tuple[str, str]:
+        if applied and action == "create":
+            return "Заглушки созданы", "создано заглушек"
+        return title, short
+
+    counts = [
+        f"{words(action, title, short)[1]} {len(by_action.get(action, []))}"
+        for action, title, _note, short in RECON_GROUPS
+        # После записи созданное называет отдельная строка ЧИСЛОМ СЕРВЕРА — в
+        # счётчике оно было бы вторым, слегка другим ответом на тот же вопрос.
+        if by_action.get(action) and not (applied and action == "create")
+    ]
+    if applied:
+        out.append(f"Создано заглушек: {data.get('created', 0)}")
+    if counts:
+        out.append("Остальное: " if applied else "Итог: ")
+        out[-1] += ", ".join(counts)
+    elif not applied:
+        out.append("Итог: перечень пуст")
+
+    for action, title, note, _short in RECON_GROUPS:
+        rows = by_action.get(action) or []
+        if not rows:
+            continue
+        out.append("")
+        out.append(f"{words(action, title, _short)[0]} ({len(rows)}):")
+        if note:  # пояснение отдельной строкой: в заголовке два тире не читаются
+            out.append(f"  ({note})")
+        lines = []
+        for it in rows:
+            kind = str(it.get("kind", "?"))
+            # doc_name приходит, только когда имя существующей схемы отличается от
+            # строки перечня: «POST /messages» бывает описан схемой «Отправка
+            # сообщения», и агент обязан видеть, ЧТО именно закрыло операцию.
+            tail = f" → {it['doc_name']}" if it.get("doc_name") else ""
+            lines.append(f"  • {it.get('name', '?')} ({KIND_WORD.get(kind, kind)}){tail}")
+        out.extend(_capped(lines, RECON_GROUP_CAP, ("строка", "строки", "строк")))
+
+    out.extend(problems(data))
+    if not applied:
+        out.append("\nНичего не записано — для записи вызовите archmap_recon_apply.")
+    return "\n".join(out)
+
+
+def problems(data: dict[str, Any]) -> list[str]:
+    """Ошибки и предупреждения отчёта — общий хвост всех сводок записи.
+
+    Ошибки и предупреждения РАЗДЕЛЕНЫ: при errors бэкенд не пишет ничего вовсе, а
+    warnings записи не мешают — свалить их в одну кучу значит заставить агента
+    гадать, сорвалась заливка или нет.
+    """
+    out: list[str] = []
+    for key, title in (("errors", "Проблемы"), ("warnings", "Предупреждения")):
+        rows = data.get(key) or []
+        if rows:
+            out.append("")
+            out.append(f"{title} ({len(rows)}):")
+            out.extend("  • " + str(r) for r in rows)
+    return out
+
+
+# Слова действий — дословно из ACTION_LABEL окон дозаливки
+# (frontend/src/components/docsImport/agentModalShared.ts). «fill» здесь отдельным
+# словом не случайно: заполнение ЗАГЛУШКИ разведки безопасно, а настоящая
+# перезапись — нет, и путать их нельзя ни человеку, ни агенту.
+ACTION_WORD = {
+    "create": "новая",
+    "fill": "заполнит заглушку",
+    "overwrite": "перезапись",
+    "skip": "пропуск (занято)",
+    "unchanged": "без изменений",
+}
+
+
+# Пустая запись — самый частый брак пакета: агент назвал таблицу, но колонки
+# растерял. Окна помечают такую строку красным, и агенту знать это важнее, чем
+# человеку: чинить пакет ему.
+EMPTY_MARK = " ⚠ проверьте файл"
+
+
+def _fact_table(item: dict[str, Any]) -> str:
+    name = f"{item['schema_name']}.{item['name']}" if item.get("schema_name") else str(item["name"])
+    n = int(item.get("columns", 0) or 0)
+    return f"{name} · колонок {n}" + (EMPTY_MARK if n == 0 else "")
+
+
+def _fact_channel(item: dict[str, Any]) -> str:
+    name = f"{item['group_name']}/{item['name']}" if item.get("group_name") else str(item["name"])
+    n = int(item.get("fields", 0) or 0)
+    return f"{name} · полей {n}" + (EMPTY_MARK if n == 0 else "")
+
+
+def _fact_param(item: dict[str, Any]) -> str:
+    bits = [str(item["value_type"])] if item.get("value_type") else []
+    bits.append("обяз." if item.get("required") else "необяз.")
+    return f"{item['name']} ({', '.join(bits)})"
+
+
+# Три семьи табличных фактов одной таблицей: ключ списка в отчёте, как рисуется
+# строка, как называются записи и какие счётчики записи печатать. Инструменты у
+# семей общие (решение 1 плана эпика) — значит и сводка обязана быть одной формы,
+# иначе агент читает три разных отчёта об одном и том же действии.
+FACT_FAMILIES: dict[str, dict[str, Any]] = {
+    "tables": {
+        "items_key": "tables",
+        "row": _fact_table,
+        "title": "ТАБЛИЦЫ",
+        "forms": ("таблица", "таблицы", "таблиц"),
+        "written": (("tables_written", "таблиц"), ("columns_written", "колонок")),
+    },
+    "channels": {
+        "items_key": "channels",
+        "row": _fact_channel,
+        "title": "КАНАЛЫ",
+        "forms": ("канал", "канала", "каналов"),
+        "written": (("channels_written", "каналов"), ("fields_written", "полей")),
+    },
+    "config": {
+        "items_key": "params",
+        "row": _fact_param,
+        "title": "ПАРАМЕТРЫ",
+        "forms": ("параметр", "параметра", "параметров"),
+        "written": (("params_written", "параметров"),),
+    },
+}
+
+# Кап строк сводки семьи: у крупной БД сотни таблиц, и агенту нужны числа и
+# образцы, а не полный дамп его же собственного пакета.
+FACT_REPORT_CAP = 80
+
+
+def facts_report(data: dict[str, Any], family: str, *, applied: bool) -> str:
+    """Сводка дозаливки одной семьи фактов — общая форма для всех трёх.
+
+    Счётчики: сколько записей приехало и сколько из них новых (то же, что окно
+    показывает строкой «Таблиц: N (новых K)»), а после записи — числа СЕРВЕРА о
+    том, что он действительно записал.
+    """
+    spec = FACT_FAMILIES[family]
+    items = [i for i in (data.get(spec["items_key"]) or []) if isinstance(i, dict)]
+
+    n = len(items)
+    head = f"{spec['title']}: {n} {_plural(n, spec['forms'])}"
+    new = sum(1 for i in items if i.get("action") == "create")
+    if new:
+        head += f" (новых {new})"
+    out = [head]
+    if applied:
+        out.append(
+            "Записано: "
+            + ", ".join(f"{word} {data.get(key, 0)}" for key, word in spec["written"])
+        )
+
+    lines = []
+    for it in items:
+        action = str(it.get("action", "?"))
+        # Путь объекта в каждой строке, а не общей шапкой: один пакет описывает
+        # РАЗНЫЕ объекты (у монолита несколько БД), и без адреса строка безымянна.
+        lines.append(
+            f"  {ACTION_WORD.get(action, action)}: «{it.get('node_path', '?')}» · {spec['row'](it)}"
+        )
+    if lines:
+        out.append("")
+        out.extend(_capped(lines, FACT_REPORT_CAP, spec["forms"]))
+
+    out.extend(problems(data))
+    if not applied:
+        out.append("\nНичего не записано — для записи вызовите archmap_facts_apply.")
+    return "\n".join(out)
+
+
+def docs_report(data: dict[str, Any], *, applied: bool) -> str:
+    """Сводка дозаливки схем логики и OpenAPI-спек.
+
+    ⚠ Читает `logic` и `specs` — ровно те поля, что отдаёт DocsImportReport. Прежняя
+    версия спрашивала `items`/`status`, которых в отчёте нет вовсе, и печатала
+    ПУСТОЙ ПЛАН на валидный пакет: агент видел «ничего не приедет» и всё равно шёл
+    применять вслепую (найдено живой проверкой Ф2). Форма отчёта — единственный
+    судья таких полей, поэтому фикстуры тестов валидируются ею.
+    """
+    logic = [i for i in (data.get("logic") or []) if isinstance(i, dict)]
+    specs = [i for i in (data.get("specs") or []) if isinstance(i, dict)]
+
+    out: list[str] = []
+    if applied:
+        out.append(
+            f"Применено: схем создано {data.get('created_docs', 0)}, "
+            f"заполнено заглушек {data.get('filled_docs', 0)}, "
+            f"перезаписано {data.get('updated_docs', 0)}, "
+            f"спек {data.get('specs_written', 0)}"
+        )
+
+    if logic:
+        n = len(logic)
+        counts = ", ".join(
+            f"{ACTION_WORD.get(a, a)} {sum(1 for i in logic if i.get('action') == a)}"
+            for a in ACTION_WORD
+            if any(i.get("action") == a for i in logic)
+        )
+        out.append("")
+        out.append(f"СХЕМЫ ЛОГИКИ: {n} ({counts})")
+        lines = []
+        for it in logic:
+            kind = str(it.get("kind", "?"))
+            head = f"{it.get('name', '?')} ({KIND_WORD.get(kind, kind)}"
+            head += f" · {it['operation']})" if it.get("operation") else ")"
+            action = str(it.get("action", "?"))
+            lines.append(
+                f"  {ACTION_WORD.get(action, action)}: «{it.get('node_path', '?')}» · {head}"
+            )
+        out.extend(_capped(lines, FACT_REPORT_CAP, ("схема", "схемы", "схем")))
+
+    if specs:
+        out.append("")
+        out.append(f"OPENAPI-СПЕКИ: {len(specs)}")
+        lines = []
+        for it in specs:
+            bits = [str(it.get("source", "?"))]
+            if it.get("oas_version"):
+                bits.append(f"OAS {it['oas_version']}")
+            # «Синтезирована из кода» — не мелочь: такую спеку человек обязан
+            # посмотреть глазами, и окно помечает её тем же словом.
+            if it.get("origin"):
+                bits.append(str(it["origin"]))
+            if not it.get("valid_yaml", True):
+                bits.append("невалидный YAML")
+            elif not it.get("looks_openapi", True):
+                bits.append("не похожа на OpenAPI")
+            action = str(it.get("action", "?"))
+            lines.append(
+                f"  {ACTION_WORD.get(action, action)}: «{it.get('node_path', '?')}» · "
+                + " · ".join(bits)
+            )
+        out.extend(_capped(lines, FACT_REPORT_CAP, ("спека", "спеки", "спек")))
+
+    conflicts = data.get("conflicts") or []
+    if conflicts:
+        out.append("")
+        out.append(f"Конфликты файлов ({len(conflicts)}, оставлен первый источник):")
+        out.extend("  • " + str(c) for c in conflicts)
+
+    out.extend(problems(data))
+    if not logic and not specs and not data.get("errors"):
+        out.append("")
+        out.append("Пакет ничего не принёс: ни схем логики, ни спек не распознано.")
+    if not applied:
+        out.append("\nНичего не записано — для записи вызовите archmap_docs_apply.")
+    return "\n".join(out).lstrip("\n")
+
+
+# ── Архив проекта ────────────────────────────────────────────────────────────
+
+# Категории манифеста архива (backend/app/archive_export.py, ключ contents) —
+# порядок и слова те же, что в самом архиве, чтобы агент и человек, открывший zip,
+# называли его состав одинаково.
+ARCHIVE_CATEGORIES: list[tuple[str, str]] = [
+    ("c4", "схема C4"),
+    ("docs", "схемы логики"),
+    ("specs", "спеки OpenAPI"),
+    ("db", "структура БД"),
+    ("channels", "каналы брокеров"),
+    ("config", "конфигурация"),
+    ("processes", "бизнес-процессы"),
+]
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    """Ветка манифеста словарём — или пустой словарь. Манифест приезжает из файла
+    на диске: чужой архив может оказаться каким угодно, а падать стектрейсом на
+    кривом zip-е инструменту нельзя."""
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def archive_summary(manifest: dict[str, Any], *, files: int, size: int, path: str) -> str:
+    """Сводка выгруженного архива: что внутри и куда лёг файл.
+
+    СОДЕРЖИМОГО файлов тут нет намеренно: архив — бэкап на диске, а не материал
+    для чтения моделью (полный дамп знания проекта в контекст — тот самый шум,
+    ради борьбы с которым сделан весь render). Истинное имя проекта берём из
+    манифеста: в заголовке HTTP оно ASCII-огрызок.
+    """
+    project = _dict(manifest.get("project"))
+    name = str(project.get("name") or "без имени")
+    out = [f"Архив проекта «{name}» сохранён: {path}"]
+    if project.get("description"):
+        out.append(f"Описание: {project['description']}")
+    fmt = manifest.get("archmap-archive")
+    out.append(
+        f"Формат archmap-archive: {fmt if fmt is not None else '?'}; "
+        f"файлов {files}; размер {size / 1024:.1f} КБ."
+    )
+
+    contents = _dict(manifest.get("contents"))
+    rows: list[str] = []
+    for key, title in ARCHIVE_CATEGORIES:
+        value = contents.get(key)
+        if value is None:
+            continue
+        count = len(value) if isinstance(value, list) else 1
+        rows.append(f"  • {title}: {count}")
+    # Категория, которой ещё не знает этот рендер, — лучше показать сырым ключом,
+    # чем молча потерять: архив обгоняет MCP-сервер (ровно это и лечит эпик).
+    for key in contents:
+        if key not in {k for k, _ in ARCHIVE_CATEGORIES}:
+            value = contents[key]
+            rows.append(f"  • {key}: {len(value) if isinstance(value, list) else 1}")
+    if rows:
+        out.append("Состав:")
+        out.extend(rows)
+    else:
+        out.append("Состав: пусто — в проекте нечего архивировать.")
+    return "\n".join(out)
+
+
+# ── Единый импорт: N входов, споры содержимого, догрузка к живому ────────────
+
+C4_LIST_CAP = 20  # списки замечаний C4-части
+CONFLICT_CAP = 30  # споры содержимого: больше тридцати выбирают не в разговоре
+
+FAMILY_WORD = {
+    "doc": "схема логики",
+    "spec": "спека OpenAPI",
+    "table": "таблица",
+    "channel": "канал",
+    "config": "параметр",
+}
+
+# Счётчики единого превью (UnifiedFamilyCountsOut) — «что приедет при дефолтных
+# решениях»: те же слова, что в панели ввоза, чтобы агент и человек называли
+# приезжающее одинаково.
+FAMILY_COUNTS: list[tuple[str, str]] = [
+    ("docs", "схем логики"),
+    ("specs", "спек"),
+    ("tables", "таблиц"),
+    ("channels", "каналов"),
+    ("params", "параметров"),
+    ("processes", "процессов"),
+]
+
+
+def c4_preview(c4: dict[str, Any]) -> list[str]:
+    """C4-часть превью — общая для старого одно-YAML пути и единого ввоза.
+
+    Модель у них одна (ImportPreviewOut), и второй формат отчёта тут завести
+    значило бы, что один и тот же разбор читается по-разному в зависимости от
+    того, каким инструментом его позвали.
+    """
+    out = [
+        f"Разбор прошёл: объектов {c4.get('node_count', 0)}, "
+        f"связей {c4.get('edge_count', 0)}, файлов {c4.get('files', 0)}."
+    ]
+    if c4.get("roots"):
+        out.append("Корни: " + ", ".join(str(r) for r in c4["roots"]))
+    if c4.get("merged_count"):
+        merged = ", ".join(str(m) for m in (c4.get("merged") or []))
+        out.append(f"Склеено из нескольких входов: {c4['merged_count']}" + (f" ({merged})" if merged else ""))
+    for key, title in (
+        ("warnings", "Предупреждения"),
+        ("conflicts", "Конфликты слияния"),
+    ):
+        items = [str(i) for i in (c4.get(key) or [])]
+        if items:
+            out.append(f"{title} ({len(items)}):")
+            out.extend(_capped(["  • " + i for i in items], C4_LIST_CAP, ("штука", "штуки", "штук")))
+    if c4.get("dropped_edges"):
+        out.append(f"Отброшено дублей связей: {c4['dropped_edges']}")
+
+    # Пофайловые замечания адресованы ВХОДУ по номеру: пакет собирают несколько
+    # агентов, и «чините вход 2» — единственная работающая адресация.
+    for remark in c4.get("file_remarks") or []:
+        rows = [f"ошибка: {e}" for e in remark.get("errors") or []]
+        rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
+        if rows:
+            out.append(f"Вход {remark.get('file', '?')}:")
+            out.extend("  • " + r for r in rows)
+    return out
+
+
+def family_counts(counts: dict[str, Any]) -> str:
+    """Строка «что приедет» по семьям — только непустое: нули в перечне отвлекают."""
+    bits = [f"{title} {counts.get(key, 0)}" for key, title in FAMILY_COUNTS if counts.get(key)]
+    return "Содержимое: " + (", ".join(bits) if bits else "ничего кроме C4") + "."
+
+
+def conflicts(rows: list[dict[str, Any]], *, apply_tool: str) -> list[str]:
+    """Споры о ТЕЛЕ факта: один ключ описан по-разному в разных входах.
+
+    Их рассудить может только человек (или его агент), поэтому печатаем id, чем
+    спорят и что случится САМО СОБОЙ — дефолт применится, если решения не
+    передать. Тела не показываем целиком: спор различают по сводке, а полный
+    текст сделал бы вывод инструмента дампом всех версий всех схем.
+    """
+    if not rows:
+        return []
+    out = ["", f"Споры содержимого ({len(rows)}) — один факт описан по-разному:"]
+    lines: list[str] = []
+    for c in rows:
+        family = FAMILY_WORD.get(str(c.get("family")), str(c.get("family")))
+        lines.append(f"  «{c.get('id')}» — {family} «{c.get('key')}» у «{c.get('node_path')}»")
+        for i, cand in enumerate(c.get("candidates") or []):
+            mark = " [текущий в проекте]" if cand.get("current") else ""
+            lines.append(
+                f"      cand:{i} — {cand.get('origin_label', '?')} · "
+                f"{cand.get('summary', '')}{mark}"
+            )
+        allow = ', «all» — взять все' if c.get("allow_all") else ""
+        lines.append(f"      по умолчанию: {c.get('default')}{allow}")
+    out.extend(_capped(lines, CONFLICT_CAP * 3, ("строка", "строки", "строк")))
+    out.append(
+        f'Чтобы решить иначе, передайте в {apply_tool} resolutions: '
+        '{"<id спора>": "cand:<номер кандидата>"}. Без этого применится дефолт.'
+    )
+    return out
+
+
+def unified_preview(data: dict[str, Any]) -> str:
+    """Сводка dry-run единого ввоза (UnifiedPreviewOut): N входов любого типа."""
+    if not data.get("ok"):
+        rows = [str(e) for e in (data.get("errors") or [])] or ["причина не названа"]
+        return "Импорт НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in rows)
+
+    out: list[str] = []
+    c4 = data.get("c4")
+    if isinstance(c4, dict):
+        out.extend(c4_preview(c4))
+    else:
+        out.append("C4-схемы во входах нет — приедет только содержимое архивов.")
+    out.append(family_counts(_dict(data.get("families"))))
+    out.extend(conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_apply"))
+
+    warnings = [str(w) for w in (data.get("warnings") or [])]
+    if warnings:
+        out.append("")
+        out.append(f"Предупреждения ({len(warnings)}):")
+        out.extend("  • " + w for w in warnings)
+
+    # Имя проекта: у одного архива оно приедет из манифеста, во всех остальных
+    # случаях его обязан задать вызывающий — иначе применение откажет.
+    if data.get("name_source") == "manifest":
+        out.append(
+            f"\nИмя проекта возьмётся из манифеста: «{data.get('manifest_name') or '—'}»"
+            " (передайте name, чтобы назвать иначе)."
+        )
+    else:
+        out.append("\nИмя проекта придётся задать самому: аргумент name у archmap_import_apply.")
+    out.append("Ничего не создано — для создания вызовите archmap_import_apply.")
+    return "\n".join(out)
+
+
+def unified_result(data: dict[str, Any]) -> str:
+    """Отчёт создания проекта (ArchiveImportResult): что именно легло в новый проект."""
+    out = [
+        f"Проект «{data.get('project_name')}» создан: объектов {data.get('nodes', 0)}, "
+        f"связей {data.get('edges', 0)}. id={data.get('project_id')}"
+    ]
+    out.append(
+        f"Схем логики: {data.get('docs_created', 0)}; спек OpenAPI: {data.get('specs_applied', 0)}."
+    )
+    out.extend(_family_reports(data))
+    out.extend(_processes_report(list(data.get("processes") or [])))
+    if data.get("resolved_conflicts"):
+        out.append(f"Разрешено споров содержимого: {data['resolved_conflicts']}.")
+    out.extend(problems(data))
+    return "\n".join(out)
+
+
+def into_preview(data: dict[str, Any]) -> str:
+    """Сводка dry-run ДОГРУЗКИ архивов к живому проекту (IntoPreviewOut).
+
+    Числа тут про ДИФФ: что появится, а не что лежит в архивах. Дефолт спора с
+    живым — «оставить моё», поэтому перезапись случается только явным выбором.
+    """
+    if not data.get("ok"):
+        rows = [str(e) for e in (data.get("errors") or [])] or ["причина не названа"]
+        return "Догрузка НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in rows)
+
+    out = [
+        f"Приедет нового: объектов {data.get('nodes_new', 0)}, связей {data.get('edges_new', 0)}."
+    ]
+    paths = [str(p) for p in (data.get("nodes_new_paths") or [])]
+    if paths:
+        out.append("Новые объекты: " + ", ".join(paths))
+    out.append(family_counts(_dict(data.get("families"))))
+    out.extend(
+        conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_into_apply")
+    )
+
+    warnings = [str(w) for w in (data.get("warnings") or [])]
+    if warnings:
+        out.append("")
+        out.append(f"Предупреждения ({len(warnings)}):")
+        out.extend("  • " + w for w in warnings)
+
+    out.append("")
+    out.append(
+        f"Для применения передайте base_graph_rev={data.get('base_graph_rev', 0)} и "
+        f"base_meta_rev={data.get('base_meta_rev', 0)} — они защищают от параллельной "
+        "правки проекта (при расхождении будет 409, тогда перечитайте превью)."
+    )
+    out.append("Ничего не записано — для записи вызовите archmap_import_into_apply.")
+    return "\n".join(out)
+
+
+def into_result(data: dict[str, Any]) -> str:
+    """Отчёт применения догрузки (IntoApplyOut): что тронуто в живом проекте."""
+    out = [
+        f"Догружено: объектов создано {data.get('nodes_created', 0)}, "
+        f"дополнено {data.get('nodes_filled', 0)}, связей создано {data.get('edges_created', 0)}."
+    ]
+    out.append(
+        f"Схем логики создано {data.get('docs_created', 0)}, "
+        f"заменено {data.get('docs_replaced', 0)}; спек применено "
+        f"{data.get('specs_applied', 0)}; параметров заменено {data.get('params_replaced', 0)}."
+    )
+    out.extend(_family_reports(data))
+    out.extend(_processes_report(list(data.get("processes") or [])))
+    if data.get("resolved_conflicts"):
+        out.append(f"Разрешено споров содержимого: {data['resolved_conflicts']}.")
+    out.extend(problems(data))
+    out.append(
+        f"\nНовые ревизии проекта: graph_rev={data.get('graph_rev', 0)}, "
+        f"meta_rev={data.get('meta_rev', 0)}."
+    )
+    return "\n".join(out)
+
+
+def _family_reports(data: dict[str, Any]) -> list[str]:
+    """Отчёты трёх семей фактов — РОДНЫЕ, те же, что у BYOA-дозаливки: вторых
+    форматов отчёта не заводим (норма эпика архива)."""
+    out: list[str] = []
+    for key in ("db", "channels", "config"):
+        report = data.get(key)
+        if not isinstance(report, dict):
+            continue
+        family = {"db": "tables", "channels": "channels", "config": "config"}[key]
+        out.append("")
+        out.append(facts_report(report, family, applied=True))
+    return out
+
+
+def _processes_report(items: list[dict[str, Any]]) -> list[str]:
+    """Процессы: сколько шагов встало на каналы схемы и сколько осталось висеть.
+
+    Повисшие и непривязанные к схемам шаги — не косметика: именно они попадают в
+    алерты полноты, и агенту чинить их.
+    """
+    if not items:
+        return []
+    out = ["", f"Процессы: {len(items)}"]
+    for p in items:
+        bits = [
+            f"шагов {p.get('messages', 0)}",
+            f"на каналах {p.get('attached', 0)}",
+        ]
+        if p.get("dangling"):
+            bits.append(f"повисло {p['dangling']} ⚠")
+        if p.get("unbound"):
+            bits.append(f"участников без объекта {p['unbound']}")
+        if p.get("doc_linked"):
+            bits.append(f"шагов со схемой {p['doc_linked']}")
+        if p.get("doc_unresolved"):
+            bits.append(f"схема не найдена у {p['doc_unresolved']} ⚠")
+        if p.get("unsupported"):
+            bits.append(f"не поддержано: {len(p['unsupported'])}")
+        out.append(f"  • {p.get('process_id')}: " + ", ".join(bits))
+    return out
