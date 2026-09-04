@@ -784,3 +784,257 @@ def archive_summary(manifest: dict[str, Any], *, files: int, size: int, path: st
     else:
         out.append("Состав: пусто — в проекте нечего архивировать.")
     return "\n".join(out)
+
+
+# ── Единый импорт: N входов, споры содержимого, догрузка к живому ────────────
+
+C4_LIST_CAP = 20  # списки замечаний C4-части
+CONFLICT_CAP = 30  # споры содержимого: больше тридцати выбирают не в разговоре
+
+FAMILY_WORD = {
+    "doc": "схема логики",
+    "spec": "спека OpenAPI",
+    "table": "таблица",
+    "channel": "канал",
+    "config": "параметр",
+}
+
+# Счётчики единого превью (UnifiedFamilyCountsOut) — «что приедет при дефолтных
+# решениях»: те же слова, что в панели ввоза, чтобы агент и человек называли
+# приезжающее одинаково.
+FAMILY_COUNTS: list[tuple[str, str]] = [
+    ("docs", "схем логики"),
+    ("specs", "спек"),
+    ("tables", "таблиц"),
+    ("channels", "каналов"),
+    ("params", "параметров"),
+    ("processes", "процессов"),
+]
+
+
+def c4_preview(c4: dict[str, Any]) -> list[str]:
+    """C4-часть превью — общая для старого одно-YAML пути и единого ввоза.
+
+    Модель у них одна (ImportPreviewOut), и второй формат отчёта тут завести
+    значило бы, что один и тот же разбор читается по-разному в зависимости от
+    того, каким инструментом его позвали.
+    """
+    out = [
+        f"Разбор прошёл: объектов {c4.get('node_count', 0)}, "
+        f"связей {c4.get('edge_count', 0)}, файлов {c4.get('files', 0)}."
+    ]
+    if c4.get("roots"):
+        out.append("Корни: " + ", ".join(str(r) for r in c4["roots"]))
+    if c4.get("merged_count"):
+        merged = ", ".join(str(m) for m in (c4.get("merged") or []))
+        out.append(f"Склеено из нескольких входов: {c4['merged_count']}" + (f" ({merged})" if merged else ""))
+    for key, title in (
+        ("warnings", "Предупреждения"),
+        ("conflicts", "Конфликты слияния"),
+    ):
+        items = [str(i) for i in (c4.get(key) or [])]
+        if items:
+            out.append(f"{title} ({len(items)}):")
+            out.extend(_capped(["  • " + i for i in items], C4_LIST_CAP, ("штука", "штуки", "штук")))
+    if c4.get("dropped_edges"):
+        out.append(f"Отброшено дублей связей: {c4['dropped_edges']}")
+
+    # Пофайловые замечания адресованы ВХОДУ по номеру: пакет собирают несколько
+    # агентов, и «чините вход 2» — единственная работающая адресация.
+    for remark in c4.get("file_remarks") or []:
+        rows = [f"ошибка: {e}" for e in remark.get("errors") or []]
+        rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
+        if rows:
+            out.append(f"Вход {remark.get('file', '?')}:")
+            out.extend("  • " + r for r in rows)
+    return out
+
+
+def family_counts(counts: dict[str, Any]) -> str:
+    """Строка «что приедет» по семьям — только непустое: нули в перечне отвлекают."""
+    bits = [f"{title} {counts.get(key, 0)}" for key, title in FAMILY_COUNTS if counts.get(key)]
+    return "Содержимое: " + (", ".join(bits) if bits else "ничего кроме C4") + "."
+
+
+def conflicts(rows: list[dict[str, Any]], *, apply_tool: str) -> list[str]:
+    """Споры о ТЕЛЕ факта: один ключ описан по-разному в разных входах.
+
+    Их рассудить может только человек (или его агент), поэтому печатаем id, чем
+    спорят и что случится САМО СОБОЙ — дефолт применится, если решения не
+    передать. Тела не показываем целиком: спор различают по сводке, а полный
+    текст сделал бы вывод инструмента дампом всех версий всех схем.
+    """
+    if not rows:
+        return []
+    out = ["", f"Споры содержимого ({len(rows)}) — один факт описан по-разному:"]
+    lines: list[str] = []
+    for c in rows:
+        family = FAMILY_WORD.get(str(c.get("family")), str(c.get("family")))
+        lines.append(f"  «{c.get('id')}» — {family} «{c.get('key')}» у «{c.get('node_path')}»")
+        for i, cand in enumerate(c.get("candidates") or []):
+            mark = " [текущий в проекте]" if cand.get("current") else ""
+            lines.append(
+                f"      cand:{i} — {cand.get('origin_label', '?')} · "
+                f"{cand.get('summary', '')}{mark}"
+            )
+        allow = ', «all» — взять все' if c.get("allow_all") else ""
+        lines.append(f"      по умолчанию: {c.get('default')}{allow}")
+    out.extend(_capped(lines, CONFLICT_CAP * 3, ("строка", "строки", "строк")))
+    out.append(
+        f'Чтобы решить иначе, передайте в {apply_tool} resolutions: '
+        '{"<id спора>": "cand:<номер кандидата>"}. Без этого применится дефолт.'
+    )
+    return out
+
+
+def unified_preview(data: dict[str, Any]) -> str:
+    """Сводка dry-run единого ввоза (UnifiedPreviewOut): N входов любого типа."""
+    if not data.get("ok"):
+        rows = [str(e) for e in (data.get("errors") or [])] or ["причина не названа"]
+        return "Импорт НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in rows)
+
+    out: list[str] = []
+    c4 = data.get("c4")
+    if isinstance(c4, dict):
+        out.extend(c4_preview(c4))
+    else:
+        out.append("C4-схемы во входах нет — приедет только содержимое архивов.")
+    out.append(family_counts(_dict(data.get("families"))))
+    out.extend(conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_apply"))
+
+    warnings = [str(w) for w in (data.get("warnings") or [])]
+    if warnings:
+        out.append("")
+        out.append(f"Предупреждения ({len(warnings)}):")
+        out.extend("  • " + w for w in warnings)
+
+    # Имя проекта: у одного архива оно приедет из манифеста, во всех остальных
+    # случаях его обязан задать вызывающий — иначе применение откажет.
+    if data.get("name_source") == "manifest":
+        out.append(
+            f"\nИмя проекта возьмётся из манифеста: «{data.get('manifest_name') or '—'}»"
+            " (передайте name, чтобы назвать иначе)."
+        )
+    else:
+        out.append("\nИмя проекта придётся задать самому: аргумент name у archmap_import_apply.")
+    out.append("Ничего не создано — для создания вызовите archmap_import_apply.")
+    return "\n".join(out)
+
+
+def unified_result(data: dict[str, Any]) -> str:
+    """Отчёт создания проекта (ArchiveImportResult): что именно легло в новый проект."""
+    out = [
+        f"Проект «{data.get('project_name')}» создан: объектов {data.get('nodes', 0)}, "
+        f"связей {data.get('edges', 0)}. id={data.get('project_id')}"
+    ]
+    out.append(
+        f"Схем логики: {data.get('docs_created', 0)}; спек OpenAPI: {data.get('specs_applied', 0)}."
+    )
+    out.extend(_family_reports(data))
+    out.extend(_processes_report(list(data.get("processes") or [])))
+    if data.get("resolved_conflicts"):
+        out.append(f"Разрешено споров содержимого: {data['resolved_conflicts']}.")
+    out.extend(problems(data))
+    return "\n".join(out)
+
+
+def into_preview(data: dict[str, Any]) -> str:
+    """Сводка dry-run ДОГРУЗКИ архивов к живому проекту (IntoPreviewOut).
+
+    Числа тут про ДИФФ: что появится, а не что лежит в архивах. Дефолт спора с
+    живым — «оставить моё», поэтому перезапись случается только явным выбором.
+    """
+    if not data.get("ok"):
+        rows = [str(e) for e in (data.get("errors") or [])] or ["причина не названа"]
+        return "Догрузка НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in rows)
+
+    out = [
+        f"Приедет нового: объектов {data.get('nodes_new', 0)}, связей {data.get('edges_new', 0)}."
+    ]
+    paths = [str(p) for p in (data.get("nodes_new_paths") or [])]
+    if paths:
+        out.append("Новые объекты: " + ", ".join(paths))
+    out.append(family_counts(_dict(data.get("families"))))
+    out.extend(
+        conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_into_apply")
+    )
+
+    warnings = [str(w) for w in (data.get("warnings") or [])]
+    if warnings:
+        out.append("")
+        out.append(f"Предупреждения ({len(warnings)}):")
+        out.extend("  • " + w for w in warnings)
+
+    out.append("")
+    out.append(
+        f"Для применения передайте base_graph_rev={data.get('base_graph_rev', 0)} и "
+        f"base_meta_rev={data.get('base_meta_rev', 0)} — они защищают от параллельной "
+        "правки проекта (при расхождении будет 409, тогда перечитайте превью)."
+    )
+    out.append("Ничего не записано — для записи вызовите archmap_import_into_apply.")
+    return "\n".join(out)
+
+
+def into_result(data: dict[str, Any]) -> str:
+    """Отчёт применения догрузки (IntoApplyOut): что тронуто в живом проекте."""
+    out = [
+        f"Догружено: объектов создано {data.get('nodes_created', 0)}, "
+        f"дополнено {data.get('nodes_filled', 0)}, связей создано {data.get('edges_created', 0)}."
+    ]
+    out.append(
+        f"Схем логики создано {data.get('docs_created', 0)}, "
+        f"заменено {data.get('docs_replaced', 0)}; спек применено "
+        f"{data.get('specs_applied', 0)}; параметров заменено {data.get('params_replaced', 0)}."
+    )
+    out.extend(_family_reports(data))
+    out.extend(_processes_report(list(data.get("processes") or [])))
+    if data.get("resolved_conflicts"):
+        out.append(f"Разрешено споров содержимого: {data['resolved_conflicts']}.")
+    out.extend(problems(data))
+    out.append(
+        f"\nНовые ревизии проекта: graph_rev={data.get('graph_rev', 0)}, "
+        f"meta_rev={data.get('meta_rev', 0)}."
+    )
+    return "\n".join(out)
+
+
+def _family_reports(data: dict[str, Any]) -> list[str]:
+    """Отчёты трёх семей фактов — РОДНЫЕ, те же, что у BYOA-дозаливки: вторых
+    форматов отчёта не заводим (норма эпика архива)."""
+    out: list[str] = []
+    for key in ("db", "channels", "config"):
+        report = data.get(key)
+        if not isinstance(report, dict):
+            continue
+        family = {"db": "tables", "channels": "channels", "config": "config"}[key]
+        out.append("")
+        out.append(facts_report(report, family, applied=True))
+    return out
+
+
+def _processes_report(items: list[dict[str, Any]]) -> list[str]:
+    """Процессы: сколько шагов встало на каналы схемы и сколько осталось висеть.
+
+    Повисшие и непривязанные к схемам шаги — не косметика: именно они попадают в
+    алерты полноты, и агенту чинить их.
+    """
+    if not items:
+        return []
+    out = ["", f"Процессы: {len(items)}"]
+    for p in items:
+        bits = [
+            f"шагов {p.get('messages', 0)}",
+            f"на каналах {p.get('attached', 0)}",
+        ]
+        if p.get("dangling"):
+            bits.append(f"повисло {p['dangling']} ⚠")
+        if p.get("unbound"):
+            bits.append(f"участников без объекта {p['unbound']}")
+        if p.get("doc_linked"):
+            bits.append(f"шагов со схемой {p['doc_linked']}")
+        if p.get("doc_unresolved"):
+            bits.append(f"схема не найдена у {p['doc_unresolved']} ⚠")
+        if p.get("unsupported"):
+            bits.append(f"не поддержано: {len(p['unsupported'])}")
+        out.append(f"  • {p.get('process_id')}: " + ", ".join(bits))
+    return out

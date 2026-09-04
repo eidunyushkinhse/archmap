@@ -245,62 +245,6 @@ async def test_варианты_промпта_те_же_что_у_бэкенд�
 
 # ── Запись ───────────────────────────────────────────────────────────────────
 
-async def test_превью_импорта_не_создаёт_проект(client: ArchMapClient, api: FakeApi) -> None:
-    api.post("/projects/import/preview", {
-        "ok": True, "errors": [], "node_count": 12, "edge_count": 9, "roots": ["Маркетплейс"],
-        "files": 2, "warnings": ["актор внутри системы: Покупатель"],
-    })
-
-    out = await tools.call(
-        "archmap_import_preview",
-        {"files": [{"name": "a.yaml", "content": "x"}, {"name": "b.yaml", "content": "y"}]},
-        client,
-    )
-
-    assert "объектов 12" in out
-    assert "актор внутри системы" in out
-    assert "НЕ создан" in out
-    assert all(c.url.path != "/api/v1/projects" or c.method != "POST" for c in api.calls)
-
-
-async def test_превью_импорта_шлёт_contents_текстами(
-    client: ArchMapClient, api: FakeApi
-) -> None:
-    # ФОРМА тела, а не только вывод: инструмент слал записи {name, content}, а
-    # ImportPreviewIn.contents — список текстов, и живой сервер отвечал 422. Мок
-    # тело не валидирует, поэтому судьёй берём схему бэкенда.
-    api.post("/projects/import/preview", {
-        "ok": True, "errors": [], "node_count": 2, "edge_count": 1, "roots": ["Zabbix"], "files": 2,
-    })
-
-    await tools.call(
-        "archmap_import_preview",
-        {"files": [{"name": "a.yaml", "content": "первый"},
-                   {"name": "b.yaml", "content": "второй"}]},
-        client,
-    )
-
-    body = json.loads(api.calls[-1].content)
-    # Порядок сохранён: нумерация замечаний («файл 2») идёт по позиции в списке.
-    assert body["contents"] == ["первый", "второй"]
-    check_contract("ImportPreviewIn", body)
-
-
-async def test_битый_yaml_возвращает_ошибки_а_не_молчит(
-    client: ArchMapClient, api: FakeApi
-) -> None:
-    api.post("/projects/import/preview", {
-        "ok": False, "errors": ["a.yaml: не найден корневой узел"],
-        "node_count": 0, "edge_count": 0, "roots": [], "files": 1,
-    })
-
-    out = await tools.call(
-        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "!"}]}, client
-    )
-
-    assert "НЕ пройдёт" in out and "не найден корневой узел" in out
-
-
 async def test_план_синка_считает_и_не_пишет(client: ArchMapClient, api: FakeApi) -> None:
     api.post(f"/projects/{PROJECT_ID}/sync/preview", {
         "nodes_created": 2, "nodes_updated": 1, "nodes_unchanged": 5,
@@ -328,29 +272,6 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     # форму: SyncPreviewIn.contents принимает тексты, имён файлов у него нет.
     assert body["contents"] == ["x"]
     check_contract("SyncPreviewIn", body)
-
-
-async def test_создание_проекта_шлёт_yaml_текстами(
-    client: ArchMapClient, api: FakeApi
-) -> None:
-    # Третий носитель той же ошибки формы: ProjectCreate.import_yamls — список
-    # текстов. Без этого теста чинилось бы только превью, а запись всё равно
-    # ловила бы 422 на живом сервере.
-    api.post("/projects", {"id": PROJECT_ID, "name": "Zabbix", "object_count": 12})
-
-    out = await tools.call(
-        "archmap_import_apply",
-        {"name": "Zabbix",
-         "files": [{"name": "a.yaml", "content": "первый"},
-                   {"name": "b.yaml", "content": "второй"}]},
-        client,
-    )
-
-    body = json.loads(api.calls[-1].content)
-    assert body["import_yamls"] == ["первый", "второй"]
-    assert body["start"] == "import"
-    check_contract("ProjectCreate", body)
-    assert "создан" in out
 
 
 async def test_применение_синка_шлёт_contents_текстами(

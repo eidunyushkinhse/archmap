@@ -27,6 +27,7 @@ uuid). «Текущего проекта» в сервере нет намере
 from __future__ import annotations
 
 import io
+import json as jsonlib
 import uuid as uuidlib
 import zipfile
 from pathlib import Path
@@ -319,46 +320,101 @@ def _docs(args: dict[str, Any]) -> list[dict[str, str]]:
     return [{"name": f["name"], "content": f["content"]} for f in args["files"]]
 
 
+YAML_MIME = "text/yaml"
+ZIP_MIME = "application/zip"
+INPUT_SUFFIXES = {".yaml": YAML_MIME, ".yml": YAML_MIME, ".zip": ZIP_MIME}
+
+
+def _inputs(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
+    """Входы единого ввоза → multipart-файлы В ПОРЯДКЕ: сначала files, потом paths.
+
+    Порядок значим: бэкенд адресует замечания и кандидатов спора номером входа
+    («вход 2», origin), и агент должен уметь сопоставить номер со своим списком.
+
+    Два входа не от богатства выбора: YAML агент только что построил сам — ему
+    естественно отдать текстом; архив лежит файлом и весит мегабайты — гнать его
+    через контекст модели base64-ом расточительно.
+    """
+    out: list[tuple[str, tuple[str, bytes, str]]] = []
+    for i, f in enumerate(args.get("files") or [], 1):
+        name = str(f.get("name") or f"вход-{i}.yaml")
+        out.append(("files", (name, str(f.get("content", "")).encode("utf-8"), YAML_MIME)))
+    for raw in args.get("paths") or []:
+        path = Path(str(raw)).expanduser()
+        if not path.is_file():
+            raise ArchMapError(f"Файл не найден: {path}")
+        mime = INPUT_SUFFIXES.get(path.suffix.lower())
+        if mime is None:
+            raise ArchMapError(
+                f"Файл {path}: ввозятся только .yaml/.yml (схема C4) и .zip (архив знания)."
+            )
+        out.append(("files", (path.name, path.read_bytes(), mime)))
+    if not out:
+        raise ArchMapError(
+            "Не передан ни один вход: files — YAML текстом, paths — файлы .yaml/.zip с диска."
+        )
+    return out
+
+
+def _resolutions(args: dict[str, Any]) -> str | None:
+    """Решения по спорам → поле формы. ⚠️ Именно СТРОКОЙ: multipart несёт файлы,
+    и словарь бэкенд разбирает из JSON-текста (_parse_resolutions)."""
+    chosen = args.get("resolutions")
+    if not chosen:
+        return None
+    if not isinstance(chosen, dict):
+        raise ArchMapError('resolutions — объект «id спора» → «cand:<N>» либо «all».')
+    return jsonlib.dumps(chosen, ensure_ascii=False)
+
+
 async def t_import_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
-    # ⚠️ Контракт ручки (ImportPreviewIn.contents) — СПИСОК ТЕКСТОВ, не записей
-    # {name, content}: имён файлов он не принимает вовсе, а нумерация замечаний
-    # («файл 2») идёт по порядку списка. Записи давали латентную 422 на живом
-    # сервере — тесты на подменённом транспорте формы не проверяли.
-    body = {"contents": [f["content"] for f in args["files"]]}
-    data = await client.request("POST", "/projects/import/preview", json=body)
-    if not data.get("ok"):
-        return "Импорт НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in data.get("errors", []))
-    out = [
-        f"Разбор прошёл: объектов {data['node_count']}, связей {data['edge_count']}, "
-        f"файлов {data['files']}."
-    ]
-    if data.get("roots"):
-        out.append("Корни: " + ", ".join(data["roots"]))
-    for key, title in (
-        ("warnings", "Предупреждения"),
-        ("conflicts", "Конфликты слияния"),
-        ("dropped_edges", "Отброшенные связи"),
-    ):
-        items = data.get(key) or []
-        if items:
-            out.append(f"{title} ({len(items)}):\n" + "\n".join("  • " + str(i) for i in items))
-    out.append("\nПроект ещё НЕ создан — для записи вызовите archmap_import_apply.")
-    return "\n".join(out)
+    data = await client.request(
+        "POST", "/projects/import/unified-preview", files=_inputs(args)
+    )
+    return render.unified_preview(data)
 
 
 async def t_import_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
-    body = {
-        "name": args["name"],
-        "description": args.get("description"),
-        "start": "import",
-        # ⚠️ То же, что у превью: ProjectCreate.import_yamls — список ТЕКСТОВ.
-        "import_yamls": [f["content"] for f in args["files"]],
-    }
-    data = await client.request("POST", "/projects", json=body)
-    return (
-        f"Проект «{data['name']}» создан: {data.get('object_count', '?')} объектов. "
-        f"id={data['id']}"
+    data = await client.request(
+        "POST",
+        "/projects/import-unified",
+        files=_inputs(args),
+        data={
+            "name": args.get("name"),
+            "description": args.get("description"),
+            "resolutions": _resolutions(args),
+        },
     )
+    return render.unified_result(data)
+
+
+async def t_import_into_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    data = await client.request(
+        "POST",
+        f"/projects/{pid}/import-archive/preview",
+        project_id=pid,
+        files=_inputs(args),
+    )
+    return f"Проект «{pname}» — план догрузки архивов\n\n" + render.into_preview(data)
+
+
+async def t_import_into_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    data = await client.request(
+        "POST",
+        f"/projects/{pid}/import-archive/apply",
+        project_id=pid,
+        files=_inputs(args),
+        data={
+            "resolutions": _resolutions(args),
+            # ⚠️ Обе ревизии инструмент требует, хотя на бэке они опциональны:
+            # без fence это слепая запись поверх чужой параллельной правки.
+            "base_graph_rev": str(args["base_graph_rev"]),
+            "base_meta_rev": str(args["base_meta_rev"]),
+        },
+    )
+    return f"Проект «{pname}» — архивы догружены\n\n" + render.into_result(data)
 
 
 async def t_sync_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -664,6 +720,18 @@ FILES_ARG = {
     },
 }
 
+PATHS_ARG = {
+    "type": "array",
+    "description": "Файлы С ДИСКА машины агента: .yaml/.yml (схема C4) и .zip (архив знания ArchMap) вперемешку. Идут ПОСЛЕ files в нумерации входов.",
+    "items": {"type": "string"},
+}
+
+RESOLUTIONS_ARG = {
+    "type": "object",
+    "description": "Решения по спорам содержимого из превью: «id спора» → «cand:<номер кандидата>» либо «all» (где превью разрешило). Без него применяется дефолт каждого спора.",
+    "additionalProperties": {"type": "string"},
+}
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_projects",
@@ -782,27 +850,54 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_import_preview",
-        "description": "Проверить YAML архитектуры БЕЗ записи: разбор, слияние нескольких репозиториев, конфликты и предупреждения. Проект не создаётся.",
+        "description": "Проверить входы будущего проекта БЕЗ записи: N входов вперемешку — YAML архитектуры (files, текстом) и zip-архивы знания (paths, файлы с диска). Показывает разбор и слияние C4, что приедет по семьям фактов, СПОРЫ содержимого (один факт описан по-разному) и откуда возьмётся имя проекта. Проект не создаётся. Порядок входов = порядок нумерации в замечаниях («вход 2»): сначала files, потом paths.",
         "schema": {
             "type": "object",
-            "properties": {"files": FILES_ARG},
-            "required": ["files"],
+            "properties": {"files": FILES_ARG, "paths": PATHS_ARG},
         },
         "handler": t_import_preview,
     },
     {
         "name": "archmap_import_apply",
-        "description": "СОЗДАЁТ НОВЫЙ ПРОЕКТ из YAML архитектуры. Вызывать после archmap_import_preview.",
+        "description": "СОЗДАЁТ НОВЫЙ ПРОЕКТ из тех же входов, что проверял archmap_import_preview (порядок входов тот же). name обязателен ВСЕГДА, кроме одного случая: единственный вход — zip-архив, тогда имя и описание приедут из его манифеста. resolutions — решения по спорам содержимого из превью: объект «id спора» → «cand:<номер кандидата>» либо «all» (взять все — только там, где превью пометило allow_all). Без resolutions применяется дефолт каждого спора.",
         "schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Имя нового проекта."},
+                "name": {"type": "string", "description": "Имя нового проекта. Можно опустить только при единственном входе-архиве."},
                 "description": {"type": "string"},
                 "files": FILES_ARG,
+                "paths": PATHS_ARG,
+                "resolutions": RESOLUTIONS_ARG,
             },
-            "required": ["name", "files"],
         },
         "handler": t_import_apply,
+    },
+    {
+        "name": "archmap_import_into_preview",
+        "description": "План ДОГРУЗКИ архивов знания к СУЩЕСТВУЮЩЕМУ проекту, без записи: что появится нового (объекты, связи, содержимое семей) и о чём придётся выбрать. Догрузка аддитивна: дефолт каждого спора с живым — «оставить моё», ничего не удаляется. Только .zip: YAML в живой проект заливается синком (archmap_sync_preview). Печатает base_graph_rev/base_meta_rev — их передают в применение.",
+        "schema": {
+            "type": "object",
+            "properties": {"project": PROJECT_ARG, "files": FILES_ARG, "paths": PATHS_ARG},
+            "required": ["project"],
+        },
+        "handler": t_import_into_preview,
+    },
+    {
+        "name": "archmap_import_into_apply",
+        "description": "ДОГРУЖАЕТ архивы к существующему проекту. Вызывать после archmap_import_into_preview с теми же входами. base_graph_rev и base_meta_rev — из превью: они защищают от параллельной правки проекта, при расхождении будет конфликт версий (тогда перечитайте превью). resolutions — как у archmap_import_apply; живое перетирается ТОЛЬКО там, где выбран кандидат из архива.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "files": FILES_ARG,
+                "paths": PATHS_ARG,
+                "resolutions": RESOLUTIONS_ARG,
+                "base_graph_rev": {"type": "integer", "description": "Из превью догрузки."},
+                "base_meta_rev": {"type": "integer", "description": "Из превью догрузки."},
+            },
+            "required": ["project", "base_graph_rev", "base_meta_rev"],
+        },
+        "handler": t_import_into_apply,
     },
     {
         "name": "archmap_sync_preview",
