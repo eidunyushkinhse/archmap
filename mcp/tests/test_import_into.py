@@ -145,3 +145,35 @@ async def test_догрузка_без_входов_не_ходит_на_сер�
         await tools.call("archmap_import_into_preview", {"project": "Ярмарка"}, client)
 
     assert all("import-archive" not in c.url.path for c in api.calls)
+
+
+async def test_yaml_к_живому_проекту_отправляют_синком(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    """Догрузка принимает только архивы. YAML в существующий проект — синк: у него
+    свои политики имён и пропаж, мердж архивов их не заменяет (бэкенд такой вход
+    и не примет). Отказ обязан НАЗВАТЬ верный инструмент, иначе агент упрётся."""
+    yaml_path = tmp_path / "схема.yaml"
+    yaml_path.write_text("nodes: []\n", encoding="utf-8")
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_import_into_preview",
+            {"project": "Ярмарка", "paths": [str(yaml_path)]},
+            client,
+        )
+
+    assert "archmap_sync" in str(exc.value)
+    assert all("import-archive" not in c.url.path for c in api.calls)
+
+
+def test_догрузка_не_обещает_агенту_текстовый_вход() -> None:
+    # Класс «инструмент рекламирует то, чего бэкенд не умеет»: files здесь давал бы
+    # 400 на живом сервере, а по схеме выглядел бы законным входом.
+    for name in ("archmap_import_into_preview", "archmap_import_into_apply"):
+        tool = next(t for t in tools.TOOLS if t["name"] == name)
+        props = tool["schema"]["properties"]
+        assert "files" not in props
+        assert "paths" in props
+        assert "paths" in tool["schema"]["required"]
+        assert "archmap_sync" in tool["description"]

@@ -363,6 +363,32 @@ def _inputs(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
     return out
 
 
+def _archives(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
+    """Входы ДОГРУЗКИ к живому проекту: только .zip и только путями с диска.
+
+    YAML сюда не берут намеренно. Заливка схемы C4 в СУЩЕСТВУЮЩИЙ проект — это
+    синк (archmap_sync_preview / archmap_sync_apply) со своими политиками имён,
+    пропаж и возвратов, а не мердж архивов; бэкенд такой вход и не примет.
+    """
+    out: list[tuple[str, tuple[str, bytes, str]]] = []
+    for raw in args.get("paths") or []:
+        path = Path(str(raw)).expanduser()
+        if not path.is_file():
+            raise ArchMapError(f"Файл не найден: {path}")
+        if path.suffix.lower() != ".zip":
+            raise ArchMapError(
+                f"Файл {path}: к живому проекту догружаются только .zip-архивы знания. "
+                "YAML схемы заливают синком — archmap_sync_preview / archmap_sync_apply."
+            )
+        out.append(("files", (path.name, path.read_bytes(), ZIP_MIME)))
+    if not out:
+        raise ArchMapError(
+            "Не передан ни один архив: paths — файлы .zip с диска. YAML к живому "
+            "проекту заливают синком (archmap_sync_preview)."
+        )
+    return out
+
+
 def _resolutions(args: dict[str, Any]) -> str | None:
     """Решения по спорам → поле формы. ⚠️ Именно СТРОКОЙ: multipart несёт файлы,
     и словарь бэкенд разбирает из JSON-текста (_parse_resolutions)."""
@@ -401,7 +427,7 @@ async def t_import_into_preview(client: ArchMapClient, args: dict[str, Any]) -> 
         "POST",
         f"/projects/{pid}/import-archive/preview",
         project_id=pid,
-        files=_inputs(args),
+        files=_archives(args),
     )
     return f"Проект «{pname}» — план догрузки архивов\n\n" + render.into_preview(data)
 
@@ -412,7 +438,7 @@ async def t_import_into_apply(client: ArchMapClient, args: dict[str, Any]) -> st
         "POST",
         f"/projects/{pid}/import-archive/apply",
         project_id=pid,
-        files=_inputs(args),
+        files=_archives(args),
         data={
             "resolutions": _resolutions(args),
             # ⚠️ Обе ревизии инструмент требует, хотя на бэке они опциональны:
@@ -733,6 +759,12 @@ PATHS_ARG = {
     "items": {"type": "string"},
 }
 
+ARCHIVE_PATHS_ARG = {
+    "type": "array",
+    "description": "Архивы знания ArchMap (.zip) файлами С ДИСКА машины агента. YAML сюда не подают: схему C4 в живой проект заливает синк.",
+    "items": {"type": "string"},
+}
+
 RESOLUTIONS_ARG = {
     "type": "object",
     "description": "Решения по спорам содержимого из превью: «id спора» → «cand:<номер кандидата>» либо «all» (где превью разрешило). Без него применяется дефолт каждого спора.",
@@ -881,28 +913,27 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_import_into_preview",
-        "description": "План ДОГРУЗКИ архивов знания к СУЩЕСТВУЮЩЕМУ проекту, без записи: что появится нового (объекты, связи, содержимое семей) и о чём придётся выбрать. Догрузка аддитивна: дефолт каждого спора с живым — «оставить моё», ничего не удаляется. Только .zip: YAML в живой проект заливается синком (archmap_sync_preview). Печатает base_graph_rev/base_meta_rev — их передают в применение.",
+        "description": "План ДОГРУЗКИ архивов знания к СУЩЕСТВУЮЩЕМУ проекту, без записи: что появится нового (объекты, связи, содержимое семей) и о чём придётся выбрать. Входы — ТОЛЬКО .zip-архивы путями с диска (paths); YAML схемы в живой проект заливают синком (archmap_sync_preview / archmap_sync_apply), это другая механика. Догрузка аддитивна: дефолт каждого спора с живым — «оставить моё», ничего не удаляется. Печатает base_graph_rev/base_meta_rev — их передают в применение.",
         "schema": {
             "type": "object",
-            "properties": {"project": PROJECT_ARG, "files": FILES_ARG, "paths": PATHS_ARG},
-            "required": ["project"],
+            "properties": {"project": PROJECT_ARG, "paths": ARCHIVE_PATHS_ARG},
+            "required": ["project", "paths"],
         },
         "handler": t_import_into_preview,
     },
     {
         "name": "archmap_import_into_apply",
-        "description": "ДОГРУЖАЕТ архивы к существующему проекту. Вызывать после archmap_import_into_preview с теми же входами. base_graph_rev и base_meta_rev — из превью: они защищают от параллельной правки проекта, при расхождении будет конфликт версий (тогда перечитайте превью). resolutions — как у archmap_import_apply; живое перетирается ТОЛЬКО там, где выбран кандидат из архива.",
+        "description": "ДОГРУЖАЕТ архивы (.zip путями с диска) к существующему проекту. Вызывать после archmap_import_into_preview с теми же входами. YAML схемы сюда не подают — для него archmap_sync_apply. base_graph_rev и base_meta_rev — из превью: они защищают от параллельной правки проекта, при расхождении будет конфликт версий (тогда перечитайте превью). resolutions — как у archmap_import_apply; живое перетирается ТОЛЬКО там, где выбран кандидат из архива.",
         "schema": {
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "files": FILES_ARG,
-                "paths": PATHS_ARG,
+                "paths": ARCHIVE_PATHS_ARG,
                 "resolutions": RESOLUTIONS_ARG,
                 "base_graph_rev": {"type": "integer", "description": "Из превью догрузки."},
                 "base_meta_rev": {"type": "integer", "description": "Из превью догрузки."},
             },
-            "required": ["project", "base_graph_rev", "base_meta_rev"],
+            "required": ["project", "paths", "base_graph_rev", "base_meta_rev"],
         },
         "handler": t_import_into_apply,
     },
