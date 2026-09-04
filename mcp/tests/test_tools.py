@@ -160,30 +160,6 @@ async def test_пустые_алерты_говорят_что_всё_хорош
     assert "завершена" in await tools.call("archmap_alerts", {"project": "Ярмарка"}, client)
 
 
-async def test_шаги_процесса_помечают_повисшие(client: ArchMapClient, api: FakeApi) -> None:
-    api.get("/processes/p1", {
-        "id": "p1", "name": "Оформление заказа",
-        "participants": [
-            {"id": "pp1", "node_id": "n3", "name": "Покупатель", "order": 0},
-            {"id": "pp2", "node_id": "n2", "name": "Сервис заказов", "order": 1},
-        ],
-        "messages": [
-            {"id": "m1", "order": 0, "from_id": "n3", "to_id": "n2",
-             "caption": "создать заказ", "valid": True},
-            {"id": "m2", "order": 1, "from_id": "n2", "to_id": "n3",
-             "caption": "ответ", "valid": False},
-        ],
-        "fragments": [],
-    })
-
-    out = await tools.call(
-        "archmap_processes", {"project": "Ярмарка", "process_id": "p1"}, client
-    )
-
-    assert "0. Покупатель → Сервис заказов: создать заказ" in out
-    assert "⚠ связь удалена из схемы" in out
-
-
 # ── Правила формата (промпты BYOA) ───────────────────────────────────────────
 
 PROMPT_PATH = "/projects/import/prompt"

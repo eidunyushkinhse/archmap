@@ -222,26 +222,11 @@ async def t_processes(client: ArchMapClient, args: dict[str, Any]) -> str:
         items = await client.request("GET", "/processes", project_id=pid)
         if not items:
             return f"В проекте «{pname}» бизнес-процессов нет."
-        lines = [
-            f"• {p['name']} — участников {p.get('participant_count', '?')}, "
-            f"сообщений {p.get('message_count', '?')}  id={p['id']}"
-            for p in items
-        ]
-        return f"Проект «{pname}» — бизнес-процессы:\n" + "\n".join(lines)
+        return f"Проект «{pname}» — бизнес-процессы:\n" + render.process_list(items)
 
     detail = await client.request("GET", f"/processes/{args['process_id']}", project_id=pid)
-    by_node = {str(p["node_id"]): str(p["name"]) for p in detail.get("participants", [])}
-    out = [f"Процесс «{detail['name']}» (проект «{pname}»)", "", "УЧАСТНИКИ:"]
-    for p in sorted(detail.get("participants", []), key=lambda p: p.get("order", 0)):
-        out.append(f"  {p.get('order', '?')}. {p['name']}")
-    out.append("")
-    out.append("ШАГИ:")
-    for m in sorted(detail.get("messages", []), key=lambda m: m.get("order", 0)):
-        broken = "" if m.get("valid", True) else "  ⚠ связь удалена из схемы"
-        src = by_node.get(str(m.get("from_id")), "?")
-        dst = by_node.get(str(m.get("to_id")), "?")
-        out.append(f"  {m.get('order', '?')}. {src} → {dst}: {m.get('caption') or '—'}{broken}")
-    return "\n".join(out)
+    head = f"Процесс «{detail['name']}» (проект «{pname}»)"
+    return f"{head}\n\n{render.process_detail(detail)}"
 
 
 async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:

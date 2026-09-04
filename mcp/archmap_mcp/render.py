@@ -350,6 +350,115 @@ def docs(
     return title, lines
 
 
+# ── Бизнес-процессы ──────────────────────────────────────────────────────────
+# Тип шага словами. kind — ПРОИЗВОДНЫЙ (schemas/process.py): forward — обычный
+# вызов, о нём говорить нечего, поэтому в словаре его нет.
+STEP_KIND_WORD = {
+    "return": "ответ",
+    "async": "асинхронно",
+    "self": "самосообщение",
+}
+# Чем сломан шаг — теми же словами, что чип на диаграмме (SequenceDiagram.tsx):
+# «связь удалили из схемы» и «канал стал асинхронным, ответа у него не бывает».
+STEP_BROKEN_WORD = {
+    "edge_deleted": "связь удалена",
+    "leg_gone": "канал без ответа",
+}
+
+
+def process_list(items: list[dict[str, Any]]) -> str:
+    """Список процессов. Поля — ровно те, что отдаёт ProcessListItem: имени
+    участников в нём НЕТ, и печатать «участников ?» вместо честного «шагов N»
+    значит выдавать пробел контракта за свойство процесса."""
+    lines: list[str] = []
+    for p in items:
+        scope = p.get("scope_name") or "весь проект"
+        n = int(p.get("message_count", 0) or 0)
+        lines.append(
+            f"• {p.get('name', '?')} — область: {scope}, "
+            f"шагов {n}  id={p.get('id', '?')}"
+        )
+    return "\n".join(lines)
+
+
+def _step_binding(m: dict[str, Any]) -> str:
+    """Хвост привязки шага к схеме логики — адрес его документации.
+
+    Путь узла обязателен рядом с именем: одноимённые схемы живут у разных
+    объектов, и «схема „POST /orders“» без адреса неразличима."""
+    if not m.get("doc_id"):
+        return " — схема не привязана"
+    where = f" ({m['doc_node_path']})" if m.get("doc_node_path") else ""
+    return f" → схема «{m.get('doc_name', '?')}»{where}"
+
+
+def process_detail(detail: dict[str, Any]) -> str:
+    """Процесс: участники, шаги с привязками, фрагменты одной строкой.
+
+    ⚠️ Концы шага — УЧАСТНИКИ (from_participant_id / to_participant_id), а не
+    узлы: у непривязанного участника узла нет вовсе. Ключевать участников по
+    node_id — тот самый класс «сводка читает поля, которых нет»: у половины
+    процессов концы печатались бы как «?».
+    """
+    parts = sorted(detail.get("participants", []), key=lambda p: p.get("order", 0))
+    by_part = {str(p["id"]): p for p in parts}
+
+    scope = detail.get("scope_name") or "весь проект"
+    out = [f"Область: {scope}", "", "УЧАСТНИКИ:"]
+    if not parts:
+        out.append("  (нет)")
+    for p in parts:
+        marks = [str(p[k]) for k in ("role",) if p.get(k)]
+        if p.get("is_external"):
+            marks.append("внешний")
+        if not p.get("node_id"):
+            marks.append("не привязан к объекту")
+        tail = f" — {', '.join(marks)}" if marks else ""
+        out.append(f"  {p.get('order', '?')}. {p.get('name', '?')}{tail}")
+
+    out.append("")
+    out.append("ШАГИ:")
+    messages = sorted(detail.get("messages", []), key=lambda m: m.get("order", 0))
+    if not messages:
+        out.append("  (нет)")
+    for m in messages:
+        src = by_part.get(str(m.get("from_participant_id")), {}).get("name", "?")
+        dst = by_part.get(str(m.get("to_participant_id")), {}).get("name", "?")
+        marks = []
+        word = STEP_KIND_WORD.get(str(m.get("kind")))
+        if word:
+            marks.append(word)
+        if m.get("technology"):
+            marks.append(str(m["technology"]))
+        if not m.get("valid", True):
+            marks.append(
+                "⚠ " + STEP_BROKEN_WORD.get(str(m.get("invalid_reason")), "шаг сломан")
+            )
+        tail = " · " + " · ".join(marks) if marks else ""
+        # id и version печатаются ВСЕГДА: это вход archmap_bind_step (CAS), и
+        # без версии агенту пришлось бы перечитывать процесс ради одного числа.
+        out.append(
+            f"  {m.get('order', '?')}. {src} → {dst}: {m.get('caption') or '—'}"
+            f"{tail}{_step_binding(m)}  id={m.get('id', '?')} version={m.get('version', '?')}"
+        )
+
+    fragments = sorted(detail.get("fragments", []), key=lambda f: f.get("from_order", 0))
+    if fragments:
+        out.append("")
+        out.append("ФРАГМЕНТЫ:")
+        for f in fragments:
+            guard = f" «{f['guard']}»" if f.get("guard") else ""
+            branches = f.get("branches") or []
+            extra = (
+                f", ветвей ещё {len(branches)}" if branches else ""
+            )
+            out.append(
+                f"  {f.get('kind', '?')} шаги {f.get('from_order', '?')}–"
+                f"{f.get('to_order', '?')}{guard}{extra}"
+            )
+    return "\n".join(out)
+
+
 def db_tables(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
     """Структура БД: таблица одной строкой, колонки — «имя тип» с флагами PK/NOT
     NULL (те же пометки, что в разделе «Структура» на странице объекта)."""
