@@ -100,3 +100,19 @@ async def test_сервис_не_поднят_говорит_куда_смотр
         await broken.request("GET", "/projects/")
 
     assert "ARCHMAP_URL" in str(exc.value)
+
+
+async def test_редирект_коллекции_со_слэшем_следуется(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """FastAPI отвечает на «/projects/» 307-редиректом на «/projects» с пустым
+    телом. Клиент обязан за ним пойти: иначе тело — None, и живой ArchMap
+    выглядит как «проектов нет» при полной базе (полевая находка Ф1)."""
+    api.routes[("GET", "/projects/")] = httpx.Response(
+        307, headers={"location": "/api/v1/projects"}
+    )
+    api.get("/projects", [{"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}])
+
+    assert await client.request("GET", "/projects/") == [
+        {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}
+    ]
