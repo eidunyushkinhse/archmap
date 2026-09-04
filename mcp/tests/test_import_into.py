@@ -177,3 +177,37 @@ def test_догрузка_не_обещает_агенту_текстовый_в
         assert "paths" in props
         assert "paths" in tool["schema"]["required"]
         assert "archmap_sync" in tool["description"]
+
+
+# ── Основание догрузки (Ф4 docs/plan-anchor-ux.md) ───────────────────────────
+
+async def test_превью_называет_найденные_объекты_и_якоря_новых(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    """Самое спорное решение догрузки — «это тот же объект». До Ф4 отчёт о нём
+    молчал, показывая только новое; теперь названы и находки, и их основание."""
+    api.post(PREVIEW_PATH, preview(
+        nodes_new=2,
+        nodes_matched=3,
+        matched_nodes=[
+            {"path": "Ярмарка / Заказы", "basis": "code"},
+            {"path": "Ярмарка / Kafka", "basis": "dependency"},
+        ],
+        new_nodes=[
+            {"path": "Ярмарка / Оплата", "source": {"repo": "github.com/y/pay", "path": "svc"}},
+            {"path": "Ярмарка / Ручной", "source": None},
+        ],
+    ))
+
+    out = await tools.call(
+        "archmap_import_into_preview",
+        {"project": "Ярмарка", "paths": [str(archive(tmp_path))]},
+        client,
+    )
+
+    assert "Найдено в проекте: 3 объекта" in out
+    assert "• Ярмарка / Заказы — по коду" in out
+    assert "• Ярмарка / Kafka — по имени зависимости" in out
+    assert "… и ещё 1" in out  # список короче счётчика — обрыв назван вслух
+    assert "• Ярмарка / Оплата — якорь: код github.com/y/pay, путь svc" in out
+    assert "• Ярмарка / Ручной (без якоря)" in out

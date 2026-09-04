@@ -247,3 +247,48 @@ async def test_отчёт_создания_печатает_семьи_и_про
     assert "шагов 12" in out and "повисло 1" in out and "схема не найдена у 2" in out
     assert "Разрешено споров содержимого: 3" in out
     assert "адрес схемы не разрешён" in out
+
+
+# ── Основание склейки (Ф4 docs/plan-anchor-ux.md) ────────────────────────────
+
+async def test_превью_называет_основание_каждой_склейки(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    """«Склеено 2» без «почему» — невидимая магия: ложная склейка хуже дубля
+    именно тем, что выглядит правильной схемой. Агент читает основание словами."""
+    api.post(PREVIEW_PATH, dump(
+        "unified_import", "UnifiedPreviewOut",
+        ok=True,
+        c4=c4(
+            merged_count=3,
+            merged=["Маркетплейс / Заказы", "Маркетплейс / Kafka", "Маркетплейс / Каталог"],
+            merged_nodes=[
+                {"path": "Маркетплейс / Заказы", "basis": "code"},
+                {"path": "Маркетплейс / Kafka", "basis": "dependency"},
+                {"path": "Маркетплейс / Каталог", "basis": "name"},
+            ],
+            nodes_without_anchor=5,
+        ),
+    ))
+
+    out = await tools.call(
+        "archmap_import_preview", {"paths": [str(zip_input(tmp_path))]}, client
+    )
+
+    assert "• Маркетплейс / Заказы — по коду" in out
+    assert "• Маркетплейс / Kafka — по имени зависимости" in out
+    # У матча по имени называем ГДЕ: имя решает только внутри своего контейнера.
+    assert "• Маркетплейс / Каталог — по имени внутри «Маркетплейс»" in out
+    assert "Без якоря: 5 объектов — будут опознаваться по имени" in out
+
+
+async def test_без_склеек_и_безъякорных_лишних_строк_нет(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    api.post(PREVIEW_PATH, dump("unified_import", "UnifiedPreviewOut", ok=True, c4=c4()))
+
+    out = await tools.call(
+        "archmap_import_preview", {"paths": [str(zip_input(tmp_path))]}, client
+    )
+
+    assert "Без якоря" not in out and "по коду" not in out

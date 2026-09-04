@@ -518,6 +518,19 @@ def _sync_body(args: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def _sync_basis(action: dict[str, Any]) -> str:
+    """Хвост строки плана: ЧЕМ узел опознан (update) либо КАКОЙ якорь он получит
+    (create). Синк — единственное место, где ошибка опознания сразу пишется в
+    живой проект: «нашли по имени» и «нашли по коду» — разной надёжности решения,
+    и агенту незачем угадывать, какое из них применилось (Ф2/Ф4 якорей)."""
+    kind = action.get("action")
+    if kind == "update" and action.get("matched_by"):
+        return " — " + render.basis_label(str(action["matched_by"]), str(action.get("path", "")))
+    if kind == "create":
+        return " — " + render.anchor_note(action.get("source"))
+    return ""
+
+
 def _sync_report(data: dict[str, Any], *, applied: bool) -> str:
     verb = "Сделано" if applied else "Будет сделано"
     counts = [
@@ -537,7 +550,7 @@ def _sync_report(data: dict[str, Any], *, applied: bool) -> str:
         out.append("ОБЪЕКТЫ:")
         for a in changed[:60]:
             fields = f" ({', '.join(a['fields'])})" if a.get("fields") else ""
-            out.append(f"  {a['action']}: {a['path']}{fields}")
+            out.append(f"  {a['action']}: {a['path']}{fields}{_sync_basis(a)}")
         if len(changed) > 60:
             out.append(f"  … и ещё {len(changed) - 60}")
     if not applied:

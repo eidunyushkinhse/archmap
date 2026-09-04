@@ -1063,6 +1063,20 @@ def c4_preview(c4: dict[str, Any]) -> list[str]:
     if c4.get("merged_count"):
         merged = ", ".join(str(m) for m in (c4.get("merged") or []))
         out.append(f"Склеено из нескольких входов: {c4['merged_count']}" + (f" ({merged})" if merged else ""))
+        # ОСНОВАНИЕ каждой склейки: «склеено 7» без «почему» — невидимая магия, а
+        # ложная склейка хуже дубля именно тем, что выглядит правильной схемой.
+        for m in c4.get("merged_nodes") or []:
+            path = str(m.get("path", ""))
+            out.append(f"  • {path} — {basis_label(str(m.get('basis')), path)}")
+    # Узлы без якоря следующий прогон опознает только по имени внутри контейнера:
+    # переименуют — получится дубль. Счётчиком, а не списком: при создании проекта
+    # новые ВСЕ узлы, и перечень был бы шумом, а не предупреждением.
+    without = int(c4.get("nodes_without_anchor") or 0)
+    if without:
+        out.append(
+            f"Без якоря: {without} {_plural(without, ('объект', 'объекта', 'объектов'))} — "
+            "будут опознаваться по имени"
+        )
     for key, title in (
         ("warnings", "Предупреждения"),
         ("conflicts", "Конфликты слияния"),
@@ -1186,9 +1200,35 @@ def into_preview(data: dict[str, Any]) -> str:
     out = [
         f"Приедет нового: объектов {data.get('nodes_new', 0)}, связей {data.get('edges_new', 0)}."
     ]
-    paths = [str(p) for p in (data.get("nodes_new_paths") or [])]
-    if paths:
-        out.append("Новые объекты: " + ", ".join(paths))
+    # Самое спорное решение догрузки — «это тот же объект»: до Ф2 она о нём
+    # молчала, показывая только новое. Называем и находки, и основание каждой.
+    matched = int(data.get("nodes_matched") or 0)
+    if matched:
+        out.append(
+            f"Найдено в проекте: {matched} "
+            f"{_plural(matched, ('объект', 'объекта', 'объектов'))}"
+        )
+        shown = list(data.get("matched_nodes") or [])
+        for m in shown:
+            path = str(m.get("path", ""))
+            out.append(f"  • {path} — {basis_label(str(m.get('basis')), path)}")
+        if matched > len(shown):
+            out.append(f"  … и ещё {matched - len(shown)}")
+    # Новые объекты — с их якорями: «(без якоря)» значит, что следующая догрузка
+    # найдёт объект только по имени внутри контейнера.
+    new_nodes = list(data.get("new_nodes") or [])
+    if new_nodes:
+        out.append("Новые объекты:")
+        for n in new_nodes:
+            source = n.get("source")
+            tail = f" — якорь: {anchor_value(source)}" if anchor_kind(source) else " (без якоря)"
+            out.append(f"  • {n.get('path', '?')}{tail}")
+    else:
+        # Старое поле — запасной путь: контракты превью только дополняются, и
+        # отчёт не должен онеметь, если новых узлов перечень пришёл прежним видом.
+        paths = [str(p) for p in (data.get("nodes_new_paths") or [])]
+        if paths:
+            out.append("Новые объекты: " + ", ".join(paths))
     out.append(family_counts(_dict(data.get("families"))))
     out.extend(
         conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_into_apply")

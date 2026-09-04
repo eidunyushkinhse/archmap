@@ -424,3 +424,36 @@ async def test_каталог_объявляет_якорь_обоим_инст�
         assert set(props["source"]["properties"]) == {"repo", "path", "host"}
         assert "снять якорь" in props["source"]["description"]
     assert "якорь" in by_name["archmap_node"]["description"].lower()
+
+
+async def test_план_синка_называет_основание_и_якоря(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Синк — единственное место, где ошибка опознания сразу пишется в живой
+    проект: «нашли по имени» и «нашли по коду» — решения разной надёжности."""
+    plan = backend("schemas.project").SyncPreviewOut(
+        ok=True,
+        nodes_created=2, nodes_updated=2, nodes_unchanged=0,
+        nodes_missing=0, nodes_returned=0, edges_created=0,
+        nodes=[
+            {"path": "М / Заказы", "action": "update", "fields": ["description"],
+             "matched_by": "code"},
+            {"path": "М / Kafka", "action": "update", "fields": [], "matched_by": "dependency"},
+            {"path": "М / Оплата", "action": "create",
+             "source": {"repo": "github.com/y/pay", "path": "svc"}},
+            {"path": "М / Ручной", "action": "create"},
+        ],
+        edges=[],
+    ).model_dump(mode="json")
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", plan)
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "x"}]},
+        client,
+    )
+
+    assert "update: М / Заказы (description) — по коду" in out
+    assert "update: М / Kafka — по имени зависимости" in out
+    assert "create: М / Оплата — якорь: код github.com/y/pay, путь svc" in out
+    assert "create: М / Ручной — якоря нет — будет опознаваться по имени" in out
