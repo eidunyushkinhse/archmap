@@ -8,15 +8,15 @@
 import uuid
 
 import pytest
-from conftest import ensure_architect
+from conftest import ensure_architect, seed_project_from_yaml
 from fastapi import HTTPException
 
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.view_layout import ViewLayoutItem
-from app.routers.projects import create_project, sync_apply, sync_preview
-from app.schemas.project import ProjectCreate, SyncApplyIn, SyncPreviewIn
+from app.routers.projects import sync_apply, sync_preview
+from app.schemas.project import SyncApplyIn, SyncPreviewIn
 
 RUN = """
 nodes:
@@ -59,11 +59,7 @@ edges:
 
 def _project(db, yaml_text: str = RUN):
     user = ensure_architect(db)
-    p = create_project(
-        ProjectCreate(name="Из репозитория", start="import", import_yaml=yaml_text),
-        db=db, user=user,
-    )
-    return p, user
+    return seed_project_from_yaml(db, [yaml_text]), user
 
 
 def _node(db, project_id, name: str) -> Node:

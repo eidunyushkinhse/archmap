@@ -1,4 +1,4 @@
-"""Тесты импорта YAML (app/import_yaml.py + ветка start="import" + dry-run).
+"""Тесты импорта YAML (app/import_yaml.py + слияние + dry-run превью).
 
 Главная гарантия — roundtrip с экспортом: вывод build_export импортируется без
 ошибок с той же семантикой (имя, форма, статус, роль, технология, external,
@@ -11,17 +11,29 @@ import uuid
 
 import pytest
 import yaml
-from conftest import ensure_architect
-from fastapi import HTTPException
-from pydantic import ValidationError
+from conftest import seed_project_from_yaml
 
 from app.export import build_export
+from app.import_merge import parse_and_merge
 from app.import_yaml import MAX_DEPTH, parse_import, seed_import
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
-from app.routers.projects import create_project, import_preview
-from app.schemas.project import MAX_IMPORT_FILES, ImportPreviewIn, ProjectCreate
+from app.schemas.project import ImportPreviewOut
+from app.unified_import import (
+    MAX_INPUTS,
+    UnifiedImportError,
+    build_unified_plan,
+    preview_from_plan,
+)
+
+
+def _preview(*texts: str) -> ImportPreviewOut:
+    """C4-сводка dry-run для N текстов — единым путём ввоза (build_unified_plan +
+    preview_from_plan). Старый POST /projects/import/preview снесён 2026-09-05,
+    но сборщик C4-части превью остался тем же, так что проверки не осиротели."""
+    plan = build_unified_plan([(f"f{i + 1}.yaml", t.encode()) for i, t in enumerate(texts)])
+    return preview_from_plan(plan).c4
 
 
 def _project(db, name="Проект") -> Project:
@@ -112,9 +124,8 @@ def test_roundtrip_export_import_same_semantics(db):
     assert db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == dst.id).count() == 0
 
 
-def test_import_via_create_project(db):
-    """Полный цикл через роутер: start="import" сидит схему из YAML."""
-    user = ensure_architect(db)
+def test_import_seeds_project_schema(db):
+    """Полный цикл: разбор YAML + сидинг заводят схему проекта целиком."""
     content = yaml.dump(
         {
             "nodes": [
@@ -126,31 +137,17 @@ def test_import_via_create_project(db):
         },
         allow_unicode=True,
     )
-    p = create_project(
-        ProjectCreate(name="Импортированный", start="import", import_yaml=content),
-        db=db, user=user,
-    )
-    assert (p.object_count, p.edge_count) == (3, 1)
+    p = seed_project_from_yaml(db, [content], name="Импортированный")
+    assert db.query(Node).filter(Node.project_id == p.id).count() == 3
+    assert db.query(Edge).filter(Edge.project_id == p.id).count() == 1
     ext = {n.name: n.is_external for n in db.query(Node).filter(Node.project_id == p.id)}
     assert ext == {"Ядро": False, "БД": False, "Клиент": True}
 
 
-def test_import_without_yaml_400(db):
-    user = ensure_architect(db)
-    with pytest.raises(HTTPException) as ei:
-        create_project(ProjectCreate(name="X", start="import"), db=db, user=user)
-    assert ei.value.status_code == 400
-
-
-def test_import_broken_yaml_400(db):
-    user = ensure_architect(db)
-    with pytest.raises(HTTPException) as ei:
-        create_project(
-            ProjectCreate(name="X", start="import", import_yaml="nodes:\n  - name: [оборвано"),
-            db=db, user=user,
-        )
-    assert ei.value.status_code == 400
-    assert "YAML" in ei.value.detail
+def test_import_broken_yaml_не_сидится():
+    """Битый YAML до сидинга не доходит: разбор возвращает ошибку с диагнозом."""
+    merged, _report, errors = parse_and_merge(["nodes:\n  - name: [оборвано"])
+    assert merged is None and any("YAML" in e for e in errors)
 
 
 def test_ошибка_yaml_подсказывает_лечение():
@@ -452,14 +449,10 @@ def test_parse_tolerates_agent_fenced_output():
 
 
 def test_preview_reports_and_writes_nothing(db):
-    user = ensure_architect(db)
-    ok = import_preview(
-        ImportPreviewIn(content="nodes:\n  - name: A\n  - name: B\nedges:\n  - from: A\n    to: B\n"),
-        _user=user,
-    )
+    ok = _preview("nodes:\n  - name: A\n  - name: B\nedges:\n  - from: A\n    to: B\n")
     assert (ok.ok, ok.node_count, ok.edge_count, ok.roots) == (True, 2, 1, ["A", "B"])
 
-    bad = import_preview(ImportPreviewIn(content="nodes:\n  - name: [x"), _user=user)
+    bad = _preview("nodes:\n  - name: [x")
     assert bad.ok is False and bad.errors and bad.node_count == 0
 
     # Dry-run ничего не пишет: ни проектов, ни узлов.
@@ -470,7 +463,6 @@ def test_preview_reports_and_writes_nothing(db):
 def test_preview_lists_all_node_names(db):
     """node_names — ВСЕ узлы слитого дерева, включая вложенные: по ним фронт
     сравнивает попытки агента и показывает, что исчезло между ними."""
-    user = ensure_architect(db)
     content = (
         "nodes:\n"
         "  - name: Система\n"
@@ -483,20 +475,19 @@ def test_preview_lists_all_node_names(db):
         "  - name: Покупатель\n"
         "    shape: person\n"
     )
-    out = import_preview(ImportPreviewIn(content=content), _user=user)
+    out = _preview(content)
     assert out.ok and out.node_count == 5
     # Порядок обхода дерева: родитель раньше детей (корни — в порядке документа).
     assert out.node_names == ["Система", "orders", "api", "orders-db", "Покупатель"]
 
     # Битый YAML — узлов нет вовсе, сравнивать не с чем.
-    bad = import_preview(ImportPreviewIn(content="nodes:\n  - name: [x"), _user=user)
+    bad = _preview("nodes:\n  - name: [x")
     assert bad.ok is False and bad.node_names == []
 
 
 def test_preview_roots_capped_at_8(db):
-    user = ensure_architect(db)
     content = yaml.dump({"nodes": [{"name": f"R{i}"} for i in range(10)]}, allow_unicode=True)
-    out = import_preview(ImportPreviewIn(content=content), _user=user)
+    out = _preview(content)
     assert out.ok and out.node_count == 10
     assert out.roots == [f"R{i}" for i in range(8)]
 
@@ -516,9 +507,8 @@ _MULTI_A = (
     "    label: REST\n"
 )
 def test_preview_multi_contents_merges(db):
-    user = ensure_architect(db)
     b = "nodes:\n  - name: Система\n    children:\n      - name: orders\n        technology: Go\n"
-    out = import_preview(ImportPreviewIn(contents=[_MULTI_A, b]), _user=user)
+    out = _preview(_MULTI_A, b)
     assert out.ok and out.files == 2
     assert out.node_count == 3  # Система + payments + orders (склеены)
     assert out.merged_count == 2 and "Система" in out.merged
@@ -527,7 +517,6 @@ def test_preview_multi_contents_merges(db):
 
 def test_preview_node_names_include_merged_children(db):
     """Мульти-репо: имена собираются из СЛИТОГО дерева (дети второго файла тоже)."""
-    user = ensure_architect(db)
     b = (
         "nodes:\n"
         "  - name: Система\n"
@@ -536,18 +525,16 @@ def test_preview_node_names_include_merged_children(db):
         "        children:\n"
         "          - name: worker\n"
     )
-    out = import_preview(ImportPreviewIn(contents=[_MULTI_A, b]), _user=user)
+    out = _preview(_MULTI_A, b)
     assert out.ok and out.node_names == ["Система", "payments", "orders", "worker"]
     assert len(out.node_names) == out.node_count
 
 
 def test_preview_multi_errors_prefixed_by_file(db):
-    user = ensure_architect(db)
-    out = import_preview(
-        ImportPreviewIn(contents=[_MULTI_A, "nodes:\n  - name: [оборвано"]), _user=user
-    )
+    out = _preview(_MULTI_A, "nodes:\n  - name: [оборвано")
     assert out.ok is False and out.files == 2
-    assert any(e.startswith("файл 2: ") for e in out.errors)
+    # Единый путь адресует бедой ВХОД (чип панели), а не «файл»: нумерация та же.
+    assert any(e.startswith("вход 2: ") for e in out.errors)
 
 
 def test_preview_splits_remarks_by_file_and_schema(db):
@@ -559,7 +546,6 @@ def test_preview_splits_remarks_by_file_and_schema(db):
     archmap_import_preview и нынешний фронт): новые поля лишь повторяют их разбивкой,
     объединение корзин обязано совпасть со списком.
     """
-    user = ensure_architect(db)
     b = (
         "nodes:\n"
         "  - name: Система\n"
@@ -569,7 +555,7 @@ def test_preview_splits_remarks_by_file_and_schema(db):
         "      - name: Оператор\n"
         "        shape: person\n"
     )
-    out = import_preview(ImportPreviewIn(contents=[_MULTI_A, b]), _user=user)
+    out = _preview(_MULTI_A, b)
 
     assert out.ok and out.files == 2
     assert [f.file for f in out.file_remarks] == [1, 2]
@@ -589,7 +575,6 @@ def test_preview_splits_remarks_by_file_and_schema(db):
 def test_preview_single_file_keeps_everything_in_one_bucket(db):
     """Одно-файловый режим не меняется ничем: агент видит всю систему и чинит всё,
     поэтому схемные корзины пусты, а замечания лежат единственным списком."""
-    user = ensure_architect(db)
     content = (
         "nodes:\n"
         "  - name: Система\n"
@@ -605,7 +590,7 @@ def test_preview_single_file_keeps_everything_in_one_bucket(db):
         "  - from: Оператор\n"
         "    to: Админка\n"
     )
-    out = import_preview(ImportPreviewIn(content=content), _user=user)
+    out = _preview(content)
 
     assert out.ok and out.files == 1
     assert (out.schema_errors, out.schema_warnings) == ([], [])
@@ -614,47 +599,44 @@ def test_preview_single_file_keeps_everything_in_one_bucket(db):
     # В том числе изоляция — при нескольких файлах она схемная, здесь чинит агент.
     assert any("не связана с остальной схемой" in w for w in out.file_remarks[0].warnings)
 
-    bad = import_preview(ImportPreviewIn(content="nodes:\n  - name: [x"), _user=user)
-    assert bad.ok is False and bad.file_remarks[0].errors == bad.errors
+    bad = _preview("nodes:\n  - name: [x")
+    # Те же ошибки: в корзине файла — как есть, в плоском списке — с адресом входа.
+    assert bad.ok is False and bad.file_remarks[0].errors
+    assert bad.errors == [f"вход 1: {e}" for e in bad.file_remarks[0].errors]
 
 
-def test_preview_requires_some_content(db):
-    user = ensure_architect(db)
-    with pytest.raises(HTTPException) as ei:
-        import_preview(ImportPreviewIn(), _user=user)
-    assert ei.value.status_code == 400
+def test_preview_requires_some_content():
+    """Ни одного входа — внятный отказ, а не пустая сводка «ноль узлов»."""
+    with pytest.raises(UnifiedImportError):
+        build_unified_plan([])
 
 
-def test_create_project_with_import_yamls(db):
+def test_seed_project_from_multiple_yamls(db):
     """Полный цикл мульти-репо: два YAML сливаются в одну схему проекта."""
-    user = ensure_architect(db)
     b = "nodes:\n  - name: Система\n    children:\n      - name: orders\n        technology: Go\n"
-    p = create_project(
-        ProjectCreate(name="Мульти", start="import", import_yamls=[_MULTI_A, b]),
-        db=db, user=user,
-    )
-    assert (p.object_count, p.edge_count) == (3, 1)
+    p = seed_project_from_yaml(db, [_MULTI_A, b], name="Мульти")
+    assert db.query(Node).filter(Node.project_id == p.id).count() == 3
+    assert db.query(Edge).filter(Edge.project_id == p.id).count() == 1
     tech = {n.name: n.technology for n in db.query(Node).filter(Node.project_id == p.id)}
     assert tech == {"Система": None, "payments": "Python", "orders": "Go"}
 
 
-# ── Лимит числа файлов (MAX_IMPORT_FILES) ─────────────────────────────────────
+# ── Лимит числа файлов (MAX_INPUTS единого пути) ──────────────────────────────
 def test_preview_many_files_merges(db):
     """Лимит поднят под крупные мульти-репо: десятки файлов (здесь 20) сливаются."""
-    user = ensure_architect(db)
     files = [
         f"nodes:\n  - name: Система\n    children:\n      - name: svc{i}\n"
         for i in range(20)
     ]
-    out = import_preview(ImportPreviewIn(contents=files), _user=user)
+    out = _preview(*files)
     assert out.ok and out.files == 20
     assert out.node_count == 21  # общий корень «Система» + 20 сервисов
 
 
 def test_import_over_file_limit_rejected():
-    """Больше MAX_IMPORT_FILES документов — ошибка валидации контракта."""
-    with pytest.raises(ValidationError):
-        ImportPreviewIn(contents=["nodes: []"] * (MAX_IMPORT_FILES + 1))
+    """Больше MAX_INPUTS документов за раз — отказ ещё до разбора."""
+    with pytest.raises(UnifiedImportError):
+        build_unified_plan([(f"f{i}.yaml", b"nodes: []") for i in range(MAX_INPUTS + 1)])
 
 
 def test_source_block_parsed_into_keys():
@@ -720,7 +702,6 @@ def test_source_unknown_subkeys_ignored():
 def test_source_ref_persisted_on_import(db):
     """Якорь доезжает до БД: в nodes.source_ref ложится сильнейший ключ прогона —
     по нему будущий синк узнает узел даже после переименования сервиса."""
-    user = ensure_architect(db)
     content = (
         "nodes:\n"
         "  - name: Система\n"
@@ -729,10 +710,7 @@ def test_source_ref_persisted_on_import(db):
         "        source: {repo: git@github.com:Org/Payments.git, host: payments}\n"
         "      - name: legacy\n"
     )
-    p = create_project(
-        ProjectCreate(name="Из репозитория", start="import", import_yaml=content),
-        db=db, user=user,
-    )
+    p = seed_project_from_yaml(db, [content])
     refs = {n.name: n.source_ref for n in db.query(Node).filter(Node.project_id == p.id)}
     assert refs == {
         "Система": None,  # у корня-системы якоря нет
@@ -876,7 +854,6 @@ def test_sync_не_булево_это_ошибка_разбора(db):
 def test_preview_называет_основание_каждой_склейки(db):
     """Три склейки трёх видов в одном пакете: по коду, по имени зависимости и по
     имени. До Ф2 превью говорило «склеено узлов: 3», не называя почему."""
-    user = ensure_architect(db)
     a = (
         "nodes:\n"
         "  - name: Система\n"
@@ -898,7 +875,7 @@ def test_preview_называет_основание_каждой_склейки
         "        source: {host: catalog-db}\n"
         "      - name: orders\n"
     )
-    out = import_preview(ImportPreviewIn(contents=[a, b]), _user=user)
+    out = _preview(a, b)
 
     assert out.ok and out.merged_count == 4
     assert {m.path: m.basis for m in out.merged_nodes} == {
@@ -913,7 +890,6 @@ def test_preview_называет_основание_каждой_склейки
 
 def test_preview_считает_узлы_без_якоря(db):
     """Счётчик «будут опознаваться по имени» — про СЛИТОЕ дерево, а не про файл."""
-    user = ensure_architect(db)
     один = (
         "nodes:\n"
         "  - name: Система\n"
@@ -922,7 +898,7 @@ def test_preview_считает_узлы_без_якоря(db):
         "        source: {repo: github.com/org/payments}\n"
         "      - name: orders\n"
     )
-    out = import_preview(ImportPreviewIn(content=один), _user=user)
+    out = _preview(один)
 
     assert out.ok and out.node_count == 3
     assert out.nodes_without_anchor == 2  # корень «Система» и «orders»

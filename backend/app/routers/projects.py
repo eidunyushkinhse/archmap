@@ -28,14 +28,8 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.identity import source_ref_dict
-from app.import_merge import (
-    count_without_anchor,
-    merged_with_basis,
-    parse_and_merge,
-    split_remarks,
-)
+from app.import_merge import parse_and_merge
 from app.import_prompt import build_import_prompt
-from app.import_yaml import seed_import
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
@@ -45,11 +39,7 @@ from app.projects import copy_project_schema
 from app.schemas.archive import ArchiveImportResult
 from app.schemas.node import NodeSource
 from app.schemas.project import (
-    FileRemarksOut,
-    ImportPreviewIn,
-    ImportPreviewOut,
     ImportPromptOut,
-    MergedNodeOut,
     ProjectCreate,
     ProjectPreview,
     ProjectPreviewEdge,
@@ -291,66 +281,6 @@ def import_prompt(
             ),
             system_name=system_name,
         )
-    )
-
-
-@router.post("/import/preview", response_model=ImportPreviewOut)
-def import_preview(
-    payload: ImportPreviewIn,
-    _user: User = Depends(require_architect),
-) -> ImportPreviewOut:
-    """Dry-run импорта YAML для живой сводки в модалке: парсинг/валидация каждого
-    документа + слияние (contents; один content — вырожденный случай), БД не
-    трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет."""
-    texts = payload.contents if payload.contents is not None else (
-        [payload.content] if payload.content is not None else []
-    )
-    if not texts:
-        raise HTTPException(status_code=400, detail="Не передан YAML для проверки")
-    merged, report, errors = parse_and_merge(texts)
-    # Те же замечания, разложенные по природе: пофайловые уносит агент своего
-    # репозитория, схемные читает человек (Ф6, docs/plan-skeptic-audit.md).
-    file_remarks, schema_errors, schema_warnings = split_remarks(report)
-    remarks_out = [
-        FileRemarksOut(file=f.file, errors=f.errors, warnings=f.warnings) for f in file_remarks
-    ]
-    if merged is None:
-        return ImportPreviewOut(
-            ok=False,
-            errors=errors,
-            node_count=0,
-            edge_count=0,
-            roots=[],
-            files=len(texts),
-            file_remarks=remarks_out,
-            schema_errors=schema_errors,
-            schema_warnings=schema_warnings,
-        )
-    return ImportPreviewOut(
-        ok=True,
-        errors=[],
-        node_count=len(merged.nodes),
-        edge_count=len(merged.edges),
-        roots=merged.roots[:8],
-        files=len(texts),
-        merged_count=len(report.merged_paths),
-        merged=report.merged_paths[:8],
-        # Ф2 якорей: у каждой склейки — ОСНОВАНИЕ словами, а у слитого дерева —
-        # счётчик узлов без якоря (их опознает только имя).
-        merged_nodes=[
-            MergedNodeOut(path=path, basis=basis)  # type: ignore[arg-type]  # словарь BASIS_ORDER
-            for path, basis in merged_with_basis(report)
-        ],
-        nodes_without_anchor=count_without_anchor(merged),
-        conflicts=report.conflicts,
-        warnings=report.warnings,
-        dropped_edges=report.dropped_edges,
-        # Порядок узлов слияния стабилен (родители раньше детей) — фронт сравнивает
-        # состав попыток агента, а не множества «на глаз».
-        node_names=[n.name for n in merged.nodes],
-        file_remarks=remarks_out,
-        schema_errors=schema_errors,
-        schema_warnings=schema_warnings,
     )
 
 
@@ -663,9 +593,10 @@ def create_project(
     user: User = Depends(require_architect),
 ) -> ProjectResponse:
     """Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
-    "copy:<projectId>" — глубокая копия схемы другого проекта; "import" — схема
-    из YAML в формате экспорта: import_yamls (N документов, сливаются
-    merge_imports) либо одиночный import_yaml."""
+    "copy:<projectId>" — глубокая копия схемы другого проекта.
+
+    Ввоз схемы из файлов сюда не ходит: у него единый путь /projects/import-unified
+    (multipart, YAML и архивы вперемешку)."""
     project = Project(
         id=uuid.uuid4(),
         name=payload.name,
@@ -691,16 +622,6 @@ def create_project(
         if src is None:
             raise HTTPException(status_code=404, detail="Исходный проект не найден")
         copy_project_schema(db, src_id, project.id)
-    elif start == "import":
-        texts = payload.import_yamls if payload.import_yamls is not None else (
-            [payload.import_yaml] if payload.import_yaml else []
-        )
-        if not texts:
-            raise HTTPException(status_code=400, detail="Не передан YAML для импорта")
-        merged, _report, errors = parse_and_merge(texts)
-        if merged is None:
-            raise HTTPException(status_code=400, detail="; ".join(errors[:10]))
-        seed_import(db, project.id, merged)
     else:
         raise HTTPException(status_code=400, detail="Неизвестный способ старта проекта")
 

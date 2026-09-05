@@ -267,16 +267,13 @@ class TestEdges:
 def test_sync_preview_endpoint(db):
     """Полный путь через роутер: проект создан импортом, тот же прогон синка даёт
     пустой план (фикспойнт), а изменённый — конкретные действия. Записи нет."""
-    from conftest import ensure_architect
+    from conftest import ensure_architect, seed_project_from_yaml
 
-    from app.routers.projects import create_project, sync_preview
-    from app.schemas.project import ProjectCreate, SyncPreviewIn
+    from app.routers.projects import sync_preview
+    from app.schemas.project import SyncPreviewIn
 
     user = ensure_architect(db)
-    p = create_project(
-        ProjectCreate(name="Из репозитория", start="import", import_yaml=RUN),
-        db=db, user=user,
-    )
+    p = seed_project_from_yaml(db, [RUN])
 
     same = sync_preview(p.id, SyncPreviewIn(contents=[RUN]), db=db, _user=user)
     assert same.ok and same.is_noop
@@ -306,15 +303,13 @@ def test_sync_preview_endpoint(db):
 
 
 def test_sync_preview_broken_yaml_and_404(db):
-    from conftest import ensure_architect
+    from conftest import ensure_architect, seed_project_from_yaml
 
-    from app.routers.projects import create_project, sync_preview
-    from app.schemas.project import ProjectCreate, SyncPreviewIn
+    from app.routers.projects import sync_preview
+    from app.schemas.project import SyncPreviewIn
 
     user = ensure_architect(db)
-    p = create_project(
-        ProjectCreate(name="Проект", start="import", import_yaml=RUN), db=db, user=user
-    )
+    p = seed_project_from_yaml(db, [RUN], name="Проект")
 
     bad = sync_preview(p.id, SyncPreviewIn(contents=["nodes: [oops"]), db=db, _user=user)
     assert not bad.ok and bad.errors and bad.nodes == []

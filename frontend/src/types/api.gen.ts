@@ -54,9 +54,10 @@ export interface paths {
         /**
          * Create Project
          * @description Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
-         *     "copy:<projectId>" — глубокая копия схемы другого проекта; "import" — схема
-         *     из YAML в формате экспорта: import_yamls (N документов, сливаются
-         *     merge_imports) либо одиночный import_yaml.
+         *     "copy:<projectId>" — глубокая копия схемы другого проекта.
+         *
+         *     Ввоз схемы из файлов сюда не ходит: у него единый путь /projects/import-unified
+         *     (multipart, YAML и архивы вперемешку).
          */
         post: operations["create_project_api_v1_projects_post"];
         delete?: never;
@@ -106,28 +107,6 @@ export interface paths {
         get: operations["import_prompt_api_v1_projects_import_prompt_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/import/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Import Preview
-         * @description Dry-run импорта YAML для живой сводки в модалке: парсинг/валидация каждого
-         *     документа + слияние (contents; один content — вырожденный случай), БД не
-         *     трогаем. Скоуп X-Project-Id не нужен — проекта ещё нет.
-         */
-        post: operations["import_preview_api_v1_projects_import_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4007,17 +3986,6 @@ export interface components {
             candidates: components["schemas"]["ImportNodeCandidate"][];
         };
         /**
-         * ImportPreviewIn
-         * @description YAML для dry-run проверки импорта (без записи в БД): один текст (content)
-         *     либо несколько (contents — мульти-репо, сливаются merge_imports).
-         */
-        ImportPreviewIn: {
-            /** Content */
-            content?: string | null;
-            /** Contents */
-            contents?: string[] | null;
-        };
-        /**
          * ImportPreviewOut
          * @description Сводка dry-run импорта для живой валидации в модалке создания.
          *     Поля слияния заполнены и при одном файле (нулями) — фронт не ветвится.
@@ -5087,10 +5055,6 @@ export interface components {
              * @default blank
              */
             start: string;
-            /** Import Yaml */
-            import_yaml?: string | null;
-            /** Import Yamls */
-            import_yamls?: string[] | null;
         };
         /**
          * ProjectPreview
@@ -6218,39 +6182,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportPromptOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    import_preview_api_v1_projects_import_preview_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImportPreviewIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImportPreviewOut"];
                 };
             };
             /** @description Validation Error */

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.node import NodeSource
 
-# Один YAML-документ импорта (текст файла). Лимит — защита от «бомбы» в textarea.
+# Один YAML-документ прогона агента (текст файла). Лимит — защита от «бомбы».
 _ImportDoc = Annotated[str, Field(max_length=2_000_000)]
 # Максимум документов за раз (мульти-репо «Из репозитория»). Щедрый предел: реальные
 # системы — десятки репозиториев (80+ сервисов, файл на репозиторий). Это лишь
@@ -19,26 +19,15 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     description: str | None = None
     # Старт схемы: "blank" — пусто; "template:<id>" — преднастроенный каркас;
-    # "copy:<projectId>" — глубокая копия другого проекта; "import" — схема из
-    # YAML в формате экспорта (import_yaml либо import_yamls). Парсится в роутере.
+    # "copy:<projectId>" — глубокая копия другого проекта. Парсится в роутере.
+    # Ввоз схемы из файлов — ТОЛЬКО единым путём (multipart /projects/import-unified);
+    # старый start="import" с YAML текстами снесён 2026-09-05 (потребителей не было).
     start: str = "blank"
-    # YAML схемы в формате экспорта — только при start="import".
-    import_yaml: str | None = Field(default=None, max_length=2_000_000)
-    # Несколько YAML (мульти-репо): сливаются merge_imports. Приоритетнее import_yaml.
-    import_yamls: list[_ImportDoc] | None = Field(default=None, max_length=MAX_IMPORT_FILES)
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=256)
     description: str | None = None
-
-
-class ImportPreviewIn(BaseModel):
-    """YAML для dry-run проверки импорта (без записи в БД): один текст (content)
-    либо несколько (contents — мульти-репо, сливаются merge_imports)."""
-
-    content: str | None = Field(default=None, max_length=2_000_000)
-    contents: list[_ImportDoc] | None = Field(default=None, max_length=MAX_IMPORT_FILES)
 
 
 class FileRemarksOut(BaseModel):

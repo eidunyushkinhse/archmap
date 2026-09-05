@@ -94,3 +94,23 @@ def ensure_architect(db) -> User:
         db.add(u)
         db.flush()
     return u
+
+
+def seed_project_from_yaml(db, texts: list[str], name: str = "Из репозитория") -> Project:
+    """Проект со схемой из YAML-текстов — ровно то, что делал снесённый 2026-09-05
+    путь start="import": parse_and_merge + seed_import (те же функции, что звал
+    роутер). Живой ввоз файлов идёт единым путём (/projects/import-unified), а
+    тестам синка/импорта нужна лишь дешёвая заготовка схемы без multipart."""
+    import uuid
+
+    from app.import_merge import parse_and_merge
+    from app.import_yaml import seed_import
+
+    merged, _report, errors = parse_and_merge(texts)
+    assert merged is not None, errors
+    p = Project(id=uuid.uuid4(), name=name)
+    db.add(p)
+    db.flush()
+    seed_import(db, p.id, merged)
+    db.commit()
+    return p
