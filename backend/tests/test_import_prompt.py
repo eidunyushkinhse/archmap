@@ -486,14 +486,24 @@ def test_ручка_пробрасывает_мультипродукт_в_ст�
 
 
 def test_example_carries_source_anchors():
-    """Пример учит конвенции якорей (Фаза 0 синка): свой сервис — repo + host,
-    чужой — только host. Тест держит пример и парсер синхронными: правило из
-    промпта обязано разбираться в ключи identity."""
+    """Пример учит конвенции якорей (Фаза 0 синка): свой сервис — repo + path
+    (+ host), чужой — только host. Тест держит пример и парсер синхронными:
+    правило из промпта обязано разбираться в ключи identity.
+
+    ⚠ Ф3 BYOA, правка №2: path стоит у КАЖДОГО своего узла — у обоих контейнеров
+    и (на depth=3) у компонентов. До правки пример нёс source у одного контейнера
+    и ни одного path, и Haiku оставлял компоненты без якоря."""
     for depth in (2, 3):
         parsed, errors = parse_import(example_yaml(depth))
         assert errors == [] and parsed is not None
         keys = {n.name: n.source_keys for n in parsed.nodes if n.source_keys}
-        assert keys["orders"] == ["git:github.com/org/orders", "host:orders"]
+        assert keys["orders"] == ["git:github.com/org/yarmarka#services/orders", "host:orders"]
+        assert keys["storefront"] == ["git:github.com/org/yarmarka#frontend"]
+        if depth == 3:
+            assert keys["api"] == ["git:github.com/org/yarmarka#services/orders/api"]
+            assert keys["billing-worker"] == ["git:github.com/org/yarmarka#services/orders/worker"]
+        else:
+            assert "api" not in keys and "billing-worker" not in keys
         # Сервис из чужого репозитория — только сетевое имя, ничего выдуманного.
         assert keys["payments"] == ["host:payments"]
         # Корню-системе и людям-акторам якорь не нужен.
@@ -510,6 +520,17 @@ def test_prompt_explains_source_field():
         assert field in text
     источник = text.split("## Поле source", 1)[1].split("## Формат YAML", 1)[0]
     assert "image" not in источник and "deployment" not in источник
+
+
+def test_path_каждому_своему_узлу_включая_компоненты():
+    """Ф3 BYOA, правка №2 (2026-09-05): класс «компоненты без якоря». Раздел source
+    и чек-лист требуют path у КАЖДОГО своего узла, компонентам тоже; текст обязан
+    держаться, пока держится пример (test_example_carries_source_anchors)."""
+    text = build_import_prompt("Ярмарка")
+    источник = text.split("## Поле source", 1)[1].split("## Формат YAML", 1)[0]
+    assert "Ставь КАЖДОМУ своему узлу — и контейнеру, и компоненту внутри него" in источник
+    assert "КАЖДОМУ своему узлу (описанному по этому репозиторию) — repo и path, компонентам внутри контейнеров тоже" in источник
+    assert "и у каждого такого узла (у компонентов тоже) свой path" in text
 
 
 def test_правило_path_называет_последствие_правдиво():
