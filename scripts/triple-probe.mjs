@@ -229,7 +229,7 @@ async function run() {
   const nodeName = new Map(allNodes.map((n) => [n.id, n.name]));
   const focus = allNodes.find((n) => n.name === FOCUS_NAME);
   if (MODE === "page" && !focus) throw new Error(`Узел «${FOCUS_NAME}» не найден в клоне`);
-  const allEdges = await api(arch, "/edges/", {}, clone.id);
+  const allEdges = await api(arch, "/edges", {}, clone.id);
   const edgeLabel = new Map(allEdges.map((e) => [e.id,
     `${e.label || "(без подписи)"} [${nodeName.get(e.source_id) ?? "?"} → ${nodeName.get(e.target_id) ?? "?"}]`]));
 

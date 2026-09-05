@@ -341,7 +341,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/nodes/": {
+    "/api/v1/nodes": {
         parameters: {
             query?: never;
             header?: never;
@@ -349,10 +349,10 @@ export interface paths {
             cookie?: never;
         };
         /** List Nodes */
-        get: operations["list_nodes_api_v1_nodes__get"];
+        get: operations["list_nodes_api_v1_nodes_get"];
         put?: never;
         /** Create Node */
-        post: operations["create_node_api_v1_nodes__post"];
+        post: operations["create_node_api_v1_nodes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1478,7 +1478,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/edges/": {
+    "/api/v1/edges": {
         parameters: {
             query?: never;
             header?: never;
@@ -1486,10 +1486,10 @@ export interface paths {
             cookie?: never;
         };
         /** List Edges */
-        get: operations["list_edges_api_v1_edges__get"];
+        get: operations["list_edges_api_v1_edges_get"];
         put?: never;
         /** Create Edge */
-        post: operations["create_edge_api_v1_edges__post"];
+        post: operations["create_edge_api_v1_edges_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6560,7 +6560,7 @@ export interface operations {
             };
         };
     };
-    list_nodes_api_v1_nodes__get: {
+    list_nodes_api_v1_nodes_get: {
         parameters: {
             query?: {
                 parent_id?: string | null;
@@ -6593,7 +6593,7 @@ export interface operations {
             };
         };
     };
-    create_node_api_v1_nodes__post: {
+    create_node_api_v1_nodes_post: {
         parameters: {
             query?: never;
             header?: {
@@ -8849,7 +8849,7 @@ export interface operations {
             };
         };
     };
-    list_edges_api_v1_edges__get: {
+    list_edges_api_v1_edges_get: {
         parameters: {
             query?: never;
             header?: {
@@ -8880,7 +8880,7 @@ export interface operations {
             };
         };
     };
-    create_edge_api_v1_edges__post: {
+    create_edge_api_v1_edges_post: {
         parameters: {
             query?: never;
             header?: {

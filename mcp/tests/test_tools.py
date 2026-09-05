@@ -78,7 +78,7 @@ async def test_схема_отдаёт_дерево_и_связи(client: ArchMa
         node("n2", "Сервис заказов", "n1", technology="Python"),
         node("n3", "Покупатель", shape="person"),
     ])
-    api.get("/edges/", [
+    api.get("/edges", [
         {"id": "e1", "source_id": "n3", "target_id": "n2", "label": "заказ", "technology": "REST"},
     ])
 
@@ -98,7 +98,7 @@ async def test_схема_поддерева_режет_и_узлы_и_связ�
         node("n3", "Order API", "n2"),
         node("n4", "Посторонний"),
     ])
-    api.get("/edges/", [
+    api.get("/edges", [
         {"id": "e1", "source_id": "n3", "target_id": "n4"},
         {"id": "e2", "source_id": "n4", "target_id": "n4"},
     ])
@@ -346,7 +346,7 @@ async def test_правка_узла_без_полей_отклоняется(cl
 
 
 async def test_создание_связи_шлёт_тип_канала(client: ArchMapClient, api: FakeApi) -> None:
-    api.post("/edges/", {"id": "e9"})
+    api.post("/edges", {"id": "e9"})
 
     await tools.call(
         "archmap_create_edge",
@@ -384,7 +384,7 @@ def check_node_contract(schema: str, body: dict[str, object]) -> None:
 async def test_создание_объекта_шлёт_якорь(client: ArchMapClient, api: FakeApi) -> None:
     # Объект рождается опознаваемым из кода: без source в POST агенту пришлось бы
     # делать второй вызов, а до него объект жил бы «безымянным» для синка.
-    api.post("/nodes/", node("n7", "Оркестратор", source={"repo": "github.com/org/repo",
+    api.post("/nodes", node("n7", "Оркестратор", source={"repo": "github.com/org/repo",
                                                          "path": "src/api", "host": None}))
 
     out = await tools.call(
@@ -404,7 +404,7 @@ async def test_создание_объекта_шлёт_якорь(client: ArchM
 async def test_создание_без_якоря_поля_source_не_шлёт(
     client: ArchMapClient, api: FakeApi
 ) -> None:
-    api.post("/nodes/", node("n8", "Ручной"))
+    api.post("/nodes", node("n8", "Ручной"))
 
     out = await tools.call(
         "archmap_create_node", {"project": "Ярмарка", "name": "Ручной"}, client

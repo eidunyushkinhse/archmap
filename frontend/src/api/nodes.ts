@@ -44,7 +44,7 @@ export const nodesApi = {
   // Глобальные алерты незавершённости схемы (только архитектор)
   getAlerts: (): Promise<SchemaAlerts> =>
     api.get<SchemaAlerts>(`/nodes/alerts`),
-  create: (data: NodeCreate): Promise<Node> => api.post<Node>("/nodes/", data),
+  create: (data: NodeCreate): Promise<Node> => api.post<Node>("/nodes", data),
   update: (id: string, data: NodeUpdate): Promise<Node> =>
     api.patch<Node>(`/nodes/${id}`, data),
   delete: (id: string): Promise<void> => api.delete(`/nodes/${id}`),
@@ -133,9 +133,9 @@ export const exportApi = {
 };
 
 export const edgesApi = {
-  list: (): Promise<Edge[]> => api.get<Edge[]>("/edges/"),
+  list: (): Promise<Edge[]> => api.get<Edge[]>("/edges"),
   get: (id: string): Promise<Edge> => api.get<Edge>(`/edges/${id}`),
-  create: (data: EdgeCreate): Promise<Edge> => api.post<Edge>("/edges/", data),
+  create: (data: EdgeCreate): Promise<Edge> => api.post<Edge>("/edges", data),
   update: (id: string, data: EdgeUpdate): Promise<Edge> =>
     api.patch<Edge>(`/edges/${id}`, data),
   delete: (id: string): Promise<void> => api.delete(`/edges/${id}`),

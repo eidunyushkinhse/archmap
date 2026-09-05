@@ -23,7 +23,7 @@ rows = []
 for pname in PROJECTS:
     pid = projects.get(pname)
     if not pid: continue
-    nodes = api('/nodes/all', pid); edges = api('/edges/', pid)
+    nodes = api('/nodes/all', pid); edges = api('/edges', pid)
     by_id = {n['id']: n for n in nodes}
     parent = {n['id']: n['parent_id'] for n in nodes}
     kids = {}

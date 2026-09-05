@@ -17,7 +17,7 @@ from app.view_state import bump_graph_rev
 router = APIRouter(prefix="/edges", tags=["edges"])
 
 
-@router.get("/", response_model=list[EdgeResponse])
+@router.get("", response_model=list[EdgeResponse])
 def list_edges(
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
@@ -26,7 +26,7 @@ def list_edges(
     return db.query(Edge).filter(Edge.project_id == project.id).all()
 
 
-@router.post("/", response_model=EdgeResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EdgeResponse, status_code=status.HTTP_201_CREATED)
 def create_edge(
     payload: EdgeCreate,
     db: Session = Depends(get_db),

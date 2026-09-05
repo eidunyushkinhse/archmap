@@ -92,9 +92,10 @@ def client(api: FakeApi) -> ArchMapClient:
     config = Config()
     config.username, config.password = "arch", "secret"
     config.base_url = "http://archmap.test"
-    # follow_redirects — как у настоящего клиента: без него стенд не увидел бы
-    # 307 на коллекциях («/projects/» → «/projects»), который ломал живой сервис.
-    http = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()), follow_redirects=True)
+    # Редиректы не следуем — как настоящий клиент (2026-09-05): коллекции без
+    # хвостового слэша, промах формы пути обязан быть виден отказом, а не тихо
+    # исправляться по дороге.
+    http = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()))
     return ArchMapClient(config, http=http)
 
 

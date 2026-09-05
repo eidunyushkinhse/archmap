@@ -71,7 +71,7 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
         n.has_children = n.child_count > 0
 
 
-@router.get("/", response_model=list[NodeResponse])
+@router.get("", response_model=list[NodeResponse])
 def list_nodes(
     parent_id: uuid.UUID | None = None,
     db: Session = Depends(get_db),
@@ -87,7 +87,7 @@ def list_nodes(
     return nodes
 
 
-@router.post("/", response_model=NodeResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=NodeResponse, status_code=status.HTTP_201_CREATED)
 def create_node(
     payload: NodeCreate,
     db: Session = Depends(get_db),

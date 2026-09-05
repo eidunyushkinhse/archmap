@@ -22,7 +22,14 @@ from app.routers import (
     views,
 )
 
-app = FastAPI(title="ArchMap API", version="1.0.0")
+# redirect_slashes=False намеренно: коллекции объявляются БЕЗ хвостового слэша
+# (/api/v1/nodes, /api/v1/projects — единообразно у всех девяти), и промах формы
+# пути обязан падать ГРОМКО. По умолчанию FastAPI отвечал на «неправильную» форму
+# редиректом 307 с ПУСТЫМ телом — клиент без follow_redirects молча получал
+# пустую выдачу: живой MCP так печатал «проектов нет» при 35 проектах (полевая
+# находка эпика MCP 2026-09-04). Внешних клиентов у API нет, совместимость со
+# старой формой не нужна: теперь это честный 404.
+app = FastAPI(title="ArchMap API", version="1.0.0", redirect_slashes=False)
 
 # CORS-источники задаются в Settings (cors_origins, через запятую) — не хардкод.
 allowed_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]

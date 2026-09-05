@@ -105,7 +105,7 @@ async def t_projects(client: ArchMapClient, args: dict[str, Any]) -> str:
 async def t_schema(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     nodes = await client.request("GET", "/nodes/all", project_id=pid)
-    edge_list = await client.request("GET", "/edges/", project_id=pid)
+    edge_list = await client.request("GET", "/edges", project_id=pid)
     by_id = {str(n["id"]): n for n in nodes}
 
     root = args.get("node_id")
@@ -781,7 +781,7 @@ async def t_create_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     # якоря» это просто не передать source.
     if args.get("source"):
         body["source"] = args["source"]
-    data = await client.request("POST", "/nodes/", project_id=pid, json=body)
+    data = await client.request("POST", "/nodes", project_id=pid, json=body)
     return (
         f"В проекте «{pname}» создан объект «{data['name']}». id={data['id']}\n"
         + render.anchor_line(data)
@@ -816,7 +816,7 @@ async def t_create_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
         "technology": args.get("technology"),
         "is_synchronous": args.get("is_synchronous"),
     }
-    data = await client.request("POST", "/edges/", project_id=pid, json=body)
+    data = await client.request("POST", "/edges", project_id=pid, json=body)
     return f"В проекте «{pname}» создана связь. id={data['id']}"
 
 

@@ -76,12 +76,12 @@ async def test_отказы_переводятся_в_понятный_текс�
 
 async def test_ошибка_валидации_называет_поле(client: ArchMapClient, api: FakeApi) -> None:
     # FastAPI кладёт в detail список — агенту нужна причина, а не «[object]».
-    api.routes[("POST", "/nodes/")] = httpx.Response(
+    api.routes[("POST", "/nodes")] = httpx.Response(
         422, json={"detail": [{"loc": ["body", "name"], "msg": "Field required"}]}
     )
 
     with pytest.raises(ArchMapError) as exc:
-        await client.request("POST", "/nodes/", project_id=PROJECT_ID, json={})
+        await client.request("POST", "/nodes", project_id=PROJECT_ID, json={})
 
     assert "name: Field required" in str(exc.value)
 
@@ -102,23 +102,22 @@ async def test_сервис_не_поднят_говорит_куда_смотр
     assert "ARCHMAP_URL" in str(exc.value)
 
 
-async def test_редирект_коллекции_со_слэшем_следуется(
-    client: ArchMapClient, api: FakeApi
-) -> None:
-    """FastAPI отвечает на «/projects/» 307-редиректом на «/projects» с пустым
-    телом. Клиент обязан за ним пойти: иначе тело — None, и живой ArchMap
-    выглядит как «проектов нет» при полной базе (полевая находка Ф1).
+async def test_промах_формы_пути_виден_отказом(client: ArchMapClient, api: FakeApi) -> None:
+    """Коллекции — без хвостового слэша, и промах формы обязан ПАДАТЬ.
 
-    Пути инструментов приведены к канону бэка, поэтому редиректа они больше не
-    вызывают — страховка остаётся: коллекции объявлены неоднородно («/projects»
-    без слэша, «/nodes/» со слэшем), и промах в новом инструменте не должен
-    выглядеть как пустой ответ."""
-    api.routes[("GET", "/projects/")] = httpx.Response(
-        307, headers={"location": "/api/v1/projects"}
-    )
+    Раньше бэк отвечал на «/projects/» 307-редиректом с пустым телом, клиент без
+    follow_redirects возвращал None, и живой ArchMap выглядел как «проектов нет»
+    при полной базе (полевая находка Ф1). Лечили следованием редиректу, но это
+    маскировка: с 2026-09-05 redirect_slashes на бэке выключен, лишний слэш —
+    честный 404, и клиент поднимает ArchMapError С ТЕКСТОМ, а не молчит."""
     api.get("/projects", [{"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}])
 
-    assert await client.request("GET", "/projects/") == [
+    with pytest.raises(ArchMapError) as exc:
+        await client.request("GET", "/projects/")
+    assert "/projects/" in str(exc.value)
+
+    # Канонический путь той же коллекции работает — промахнулась форма, не доступ.
+    assert await client.request("GET", "/projects") == [
         {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3}
     ]
 
