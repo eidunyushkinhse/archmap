@@ -3,8 +3,9 @@ import type { AnchorPreviewOut, NodeSource, TableUsage, ConfigParam, ConfigParam
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
+    // Коллекция — БЕЗ хвостового слэша (иначе 404: redirect_slashes выключен).
     const query = parentId ? `?parent_id=${parentId}` : "";
-    return api.get<Node[]>(`/nodes/${query}`);
+    return api.get<Node[]>(`/nodes${query}`);
   },
   get: (id: string): Promise<Node> => api.get<Node>(`/nodes/${id}`),
   getChildren: (id: string): Promise<Node[]> =>
