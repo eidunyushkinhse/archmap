@@ -169,6 +169,10 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
           <h3 className="np-card-title">Схема системы</h3>
           <div style={{ position: "relative" }}>
             {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+            {/* Пустой проект: над окном схемы кнопки «Редактировать» нет (onEdit не
+                передаём) — её место занимает «Начать наполнение» внутри пустого окна,
+                и ведёт она туда же, в редактор-карту (решение пользователя 2026-09-05;
+                прежняя «+ Объект» звала страницу объекта с пустым id и не делала ничего). */}
             <EmbeddedSchemaBlock
             nodes={graphNodes}
             endpoints={endpoints}
@@ -188,7 +192,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             height={height}
             toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} ${plural(graphNodes.length, ["объект", "объекта", "объектов"])}` : undefined}
             showViewFilter={hasStatusInfo}
-            onEdit={() => onNavigateMap?.(null)}
+            onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
             empty={
               hasNodes ? undefined : (
                 <span>
@@ -196,8 +200,8 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
                   {isArchitect && (
                     <>
                       <br />
-                      <button className="esb-edit" style={{ marginTop: 10 }} onClick={() => onNavigateNode("")}>
-                        + Объект
+                      <button className="esb-edit" style={{ marginTop: 10 }} onClick={() => onNavigateMap?.(null)}>
+                        Начать наполнение
                       </button>
                     </>
                   )}
