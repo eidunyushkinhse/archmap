@@ -343,9 +343,6 @@ async def t_import_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
         if args.get(key) is not None:
             params[key] = args[key]
     _variant(args, params)
-    # Ложь = серверный дефолт: не шлём её, чтобы одно-продуктовый вызов не менялся.
-    if args.get("multi_product"):
-        params["multi_product"] = True
     data = await client.request("GET", "/projects/import/prompt", params=params)
     return str(data["prompt"])
 
@@ -1033,7 +1030,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_import_prompt",
-        "description": "ПРАВИЛА ФОРМАТА: как построить YAML архитектуры по исходникам репозитория. Вызывать ДО построения YAML — промпт задаёт слои C4, правила связей и запреты. variant — какой промпт вернуть: строительный (по умолчанию), оркестраторный с аудитом скептика (для него нужны субагенты) или один аудит. multi_product — проект объединяет несколько самостоятельных продуктов (федерация репозиториев).",
+        "description": "ПРАВИЛА ФОРМАТА: как построить YAML архитектуры по исходникам репозитория. Вызывать ДО построения YAML — промпт задаёт слои C4, правила связей и запреты. variant — какой промпт вернуть: строительный (по умолчанию), оркестраторный с аудитом скептика (для него нужны субагенты) или один аудит.",
         "schema": {
             "type": "object",
             "properties": {
@@ -1041,10 +1038,6 @@ TOOLS: list[dict[str, Any]] = [
                 "depth": {"type": "integer", "description": "Глубина C4: 2 или 3 (по умолчанию 3)."},
                 "hints": {"type": "string", "description": "Подсказки про систему свободным текстом."},
                 "variant": VARIANT_ARG,
-                "multi_product": {
-                    "type": "boolean",
-                    "description": "Проект из нескольких продуктов: свой — контейнером, соседние — заглушками без детей. По умолчанию false.",
-                },
             },
             "required": ["system_name"],
         },

@@ -99,6 +99,6 @@ describe("окно создания проекта · выбор глубины 
   it("селектора глубины в интерфейсе нет, соседние параметры на месте", () => {
     expect(screen.queryByText("Глубина модели")).not.toBeInTheDocument();
     expect(screen.getByText("Язык описаний")).toBeInTheDocument();
-    expect(screen.getByText("Проект объединяет несколько продуктов")).toBeInTheDocument();
+    expect(screen.getByText(/Подсказки агенту/)).toBeInTheDocument();
   });
 });

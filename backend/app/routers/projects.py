@@ -258,7 +258,6 @@ def import_prompt(
     lang: Literal["ru", "en"] = "ru",
     hints: str | None = Query(default=None, max_length=2_000),
     variant: PromptVariant = "builder",
-    multi_product: bool = False,
     _user: User = Depends(require_architect),
 ) -> ImportPromptOut:
     """Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
@@ -267,18 +266,13 @@ def import_prompt(
 
     variant — что отдать кнопке: строительный промпт (дефолт, байт-в-байт прежний —
     на нём сидят MCP-тулзы), оркестраторную обёртку с аудитом или один промпт аудита
-    (docs/plan-skeptic-audit.md).
-
-    multi_product — проект объединяет несколько самостоятельных продуктов
-    (docs/plan-federation-tuning.md, П1). Флаг живёт в СТРОИТЕЛЬНОМ промпте, поэтому
-    доезжает и до блока А обёртки: он строится этим же вызовом."""
+    (docs/plan-skeptic-audit.md). Федеративного варианта нет: федерация — те же
+    одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06)."""
     return ImportPromptOut(
         prompt=prompt_for_variant(
             variant,
             "import",
-            build_import_prompt(
-                system_name, depth=depth, lang=lang, hints=hints, multi_product=multi_product
-            ),
+            build_import_prompt(system_name, depth=depth, lang=lang, hints=hints),
             system_name=system_name,
         )
     )

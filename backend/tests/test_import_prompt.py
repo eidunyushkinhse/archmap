@@ -127,7 +127,6 @@ def test_связь_требуется_только_от_узлов_без_де�
     for p in (
         build_import_prompt("Zabbix 7"),
         build_import_prompt("Zabbix 7", depth=2),
-        build_import_prompt("Zabbix 7", multi_product=True),
     ):
         # Раздел «Связи» и чек-лист говорят одно и то же, одними словами.
         assert "У КАЖДОГО УЗЛА БЕЗ ДЕТЕЙ ХОТЯ БЫ ОДНА СВЯЗЬ" in p
@@ -212,7 +211,6 @@ def test_technology_не_путает_библиотеку_с_фреймворк
     for p in (
         build_import_prompt("Zabbix 7"),
         build_import_prompt("Zabbix 7", depth=2),
-        build_import_prompt("Zabbix 7", multi_product=True),
     ):
         assert "называй ПАКЕТ дословно, как он записан в манифесте" in p
         assert (
@@ -220,140 +218,6 @@ def test_technology_не_путает_библиотеку_с_фреймворк
             "компонент: «symfony/yaml» — это библиотека разбора YAML, а не фреймворк "
             "Symfony." in p
         )
-
-
-# ── Федерация продуктов (П1) ──────────────────────────────────────────────────
-
-
-МУЛЬТИ_ЗАГОЛОВОК = "## Проект объединяет НЕСКОЛЬКО продуктов"
-
-
-def test_мультипродукт_учит_оборачивать_свой_продукт_контейнером():
-    """Инсайт 1 мультирепо-QA: конвенция «имя системы = название проекта» растворяет
-    продукт в корне — заглушки соседей не находят пары, продукт существует дважды."""
-    p = build_import_prompt("Zabbix+Grafana", multi_product=True)
-    assert МУЛЬТИ_ЗАГОЛОВОК in p
-    assert "Система «Zabbix+Grafana» состоит из нескольких самостоятельных продуктов" in p
-    assert "ВСЁ содержимое ЭТОГО репозитория оформи ОДНИМ контейнером под корнем системы" in p
-    assert "Контейнеры и компоненты клади ВНУТРЬ него, а не в корень" in p
-    assert "заглушками-контейнерами НА ТОМ ЖЕ уровне" in p
-    assert "external им НЕ ставь" in p
-    # ⚠ Полевой урок: плагин вписал в узел Grafana СВОЙ repo, и продукт едва не
-    # расщепился надвое — заглушке соседа положено только сетевое имя.
-    assert "В source заглушке соседа пиши ТОЛЬКО сетевое имя (host)" in p
-    assert "Свой repo ей НЕ приписывай" in p
-    # Раздел стоит рядом с конвенциями склейки — между именованием и полем source.
-    assert p.index("## Правила именования") < p.index(МУЛЬТИ_ЗАГОЛОВОК) < p.index("## Поле source")
-
-
-def test_мультипродукт_требует_host_у_заглушки_соседа():
-    """Бэклог матрицы федерации (2026-08-16): у одного агента заглушки СОСЕДНИХ
-    продуктов вышли с пустым source — прогону в репозитории соседа не за что
-    зацепиться, и продукт оказывается в проекте дважды (то же раздвоение, что и от
-    чужого repo, только с другой стороны). Прежняя формулировка была ЗАПРЕТОМ («пиши
-    только host, свой repo не приписывай»), а не требованием заполнить.
-
-    Пример говорит то же самое (заглушка соседа с source.host — тест
-    test_федеративный_пример_показывает_продукт_и_заглушку_соседа): для слабой модели
-    образец сильнее правила, и расходиться им нельзя."""
-    p = build_import_prompt("Zabbix+Grafana", multi_product=True)
-    assert "пиши его ВСЕГДА, когда оно видно из конфигов или URL" in p
-    assert "выдуманный host хуже пустого" in p
-    # Свой продукт — как обычно, но repo носит ОДИН узел: repo у нескольких узлов
-    # потребовал бы path каждому (пункт 12 чек-листа), и пример уложен ровно так.
-    assert "repo этого репозитория ставь ОДНОМУ узлу — контейнеру-продукту" in p
-
-    # ⚠ Усиление живёт ТОЛЬКО в федеративной ветке: одно-репо промпт этих слов не знает
-    # (байт-в-байт его сторожит test_без_мультипродукта_промпт_байт_в_байт).
-    без = build_import_prompt("Zabbix+Grafana")
-    assert "выдуманный host хуже пустого" not in без
-    assert "контейнеру-продукту" not in без
-
-
-
-def _пример(depth: int, multi_product: bool) -> dict:
-    """Пример промпта, разобранный обратно в структуру: тест проверяет УКЛАДКУ, а не
-    буквы дампа (иначе он ломался бы от любой правки _EXAMPLE_DOC)."""
-    doc = yaml.safe_load(example_yaml(depth, multi_product=multi_product))
-    assert isinstance(doc, dict)
-    return doc
-
-
-@pytest.mark.parametrize("depth", [2, 3])
-def test_федеративный_пример_показывает_продукт_и_заглушку_соседа(depth):
-    """К1 второй итерации (находка 1 матрицы docs/qa-federation-matrix.md): раздел П1
-    стоит ВЫШЕ примера, и Zabbix-агент, сохранивший раздел дословно, всё равно уложил
-    семь узлов прямо в корень — для слабой модели ОБРАЗЕЦ перевешивает правило.
-    Значит при multi_product образец обязан показывать федеративную укладку."""
-    doc = _пример(depth, True)
-    корень = doc["nodes"][0]
-    assert корень["name"] == "Ярмарка" and корень["role"] == "система"
-
-    # Под корнем ровно двое: свой контейнер-продукт и заглушка соседнего продукта.
-    продукт, сосед = корень["children"]
-    assert len(корень["children"]) == 2
-    assert продукт["name"] == "shop-backend"
-    # Всё прежнее содержимое примера уехало ВНУТРЬ продукта, а не осталось в корне.
-    assert [c["name"] for c in продукт["children"]] == [
-        "storefront",
-        "orders",
-        "orders-db",
-        "payments",
-        "events",
-    ]
-    # Заглушка соседа — ровно как учит раздел П1: только имя продукта и сетевое имя,
-    # без children, без description и без external.
-    assert сосед == {"name": "delivery", "source": {"host": "delivery"}}
-    # Образец межпродуктовой связи: хотя бы одна связь уходит в заглушку соседа.
-    assert any(e["to"] == "delivery" for e in doc["edges"])
-
-    # Люди и внешние SaaS остаются корневыми — федерация их уровня не касается.
-    assert [n["name"] for n in doc["nodes"]] == ["Ярмарка", "Покупатель", "Stripe"]
-
-
-@pytest.mark.parametrize("depth", [2, 3])
-def test_федеративный_пример_валиден_и_несёт_якоря(depth):
-    """Пример-данные не может протухнуть относительно формата: федеративный вариант
-    тоже кормится в parse_import. Якоря — по правилам source: repo носит контейнер-
-    продукт (он и есть этот репозиторий), внутренние узлы и заглушка — сетевые имена;
-    иначе пример нарушил бы собственный пункт 12 чек-листа (repo у нескольких узлов
-    требует path у каждого)."""
-    parsed, errors = parse_import(example_yaml(depth, multi_product=True))
-    assert errors == [], (depth, errors)
-    assert parsed is not None
-    keys = {n.name: n.source_keys for n in parsed.nodes if n.source_keys}
-    assert keys["shop-backend"] == ["git:github.com/org/shop-backend"]
-    assert keys["orders"] == ["host:orders"]
-    assert keys["delivery"] == ["host:delivery"]
-    assert "Ярмарка" not in keys
-
-
-def test_федеративный_пример_согласован_со_слоями_на_глубине_2():
-    """⚠ П1 велит отсчитывать слои ОТ контейнера-продукта, поэтому depth=2 под флагом —
-    это «система → продукт → контейнеры» и ни одного компонента. Инструкция слоёв под
-    флагом говорит ровно это: буквальное «children допустимы только у корня-системы»
-    запретило бы сам контейнер-продукт и разошлось бы с примером."""
-    продукт2 = _пример(2, True)["nodes"][0]["children"][0]
-    assert all("children" not in c for c in продукт2["children"])
-    продукт3 = _пример(3, True)["nodes"][0]["children"][0]
-    assert any(c.get("children") for c in продукт3["children"])
-
-    p2 = build_import_prompt("Zabbix+Grafana", depth=2, multi_product=True)
-    assert "контейнер-продукт и его контейнеры" in p2
-    assert "и у контейнера-продукта" in p2
-    # Без флага строка слоёв прежняя — про корень-систему.
-    assert "система и её контейнеры. children допустимы только у корня-системы." in (
-        build_import_prompt("Zabbix+Grafana", depth=2)
-    )
-
-
-def test_иллюстрация_пути_углубляется_на_слой_продукта():
-    """Путь из раздела формата обязан существовать В ПРИМЕРЕ: при федерации между
-    системой и контейнером стоит продукт, и «Ярмарка / orders / api» — уже не путь."""
-    assert "«Ярмарка / shop-backend / orders / api»" in build_import_prompt(
-        "Zabbix+Grafana", multi_product=True
-    )
-    assert "«Ярмарка / orders / api»" in build_import_prompt("Zabbix+Grafana")
 
 
 # ── Иллюстрации пути согласованы с глубиной ──────────────────────────────────
@@ -388,14 +252,13 @@ def _есть_путь(nodes: list[dict], путь: list[str]) -> bool:
     )
 
 
-@pytest.mark.parametrize("multi_product", [False, True])
 @pytest.mark.parametrize("depth", [2, 3])
-def test_иллюстрация_пути_есть_в_примере_на_обеих_глубинах(depth, multi_product):
+def test_иллюстрация_пути_есть_в_примере_на_обеих_глубинах(depth):
     """Инструкция про путь иллюстрировалась компонентом («Ярмарка / orders / api»),
     которого на глубине 2 в образце нет вовсе — слой компонентов там не строится.
     В проекте четырежды доказано «пример сильнее правила»: модель исполняет образец,
     поэтому ОБЕ иллюстрации обязаны быть путями в примере этого же промпта."""
-    p = build_import_prompt("Ярмарка", depth=depth, multi_product=multi_product)
+    p = build_import_prompt("Ярмарка", depth=depth)
     путь, хвост = _иллюстрации_пути(p)
     assert _есть_путь(_пример_из_промпта(p)["nodes"], путь), путь
     # Хвост — суффикс полного пути и короче него: иначе он не показывает, что писать
@@ -410,82 +273,12 @@ def test_на_глубине_3_иллюстрация_пути_прежняя():
     утечь в него."""
     строка = "например «{}»; достаточно однозначного хвоста пути: «orders / api»"
     assert строка.format("Ярмарка / orders / api") in build_import_prompt("Ярмарка")
-    assert строка.format("Ярмарка / shop-backend / orders / api") in build_import_prompt(
-        "Ярмарка", multi_product=True
-    )
-
-
-# Иллюстрации пути с федерацией и без неё, буквами: на глубине 2 компонентов в примере
-# нет, и путь указывает на контейнер. Перечислены явно, чтобы сентинел ниже ловил и
-# молчаливую правку генератора иллюстраций.
-_ПУТИ_ФЕДЕРАЦИИ = {
-    3: [("Ярмарка / shop-backend / orders / api", "Ярмарка / orders / api")],
-    2: [
-        ("Ярмарка / shop-backend / storefront", "Ярмарка / storefront"),
-        ("shop-backend / storefront", "storefront"),
-    ],
-}
-
-
-def _снять_федерацию(текст: str, depth: int) -> str:
-    """Снять с мультипродуктового промпта РОВНО то, что добавляет флаг: раздел П1,
-    федеративный пример, углублённые иллюстрации пути и (на depth=2) переанкоренную
-    строку слоёв. Остаток обязан совпасть с текстом без флага байт-в-байт."""
-    голова, хвост = текст.split(МУЛЬТИ_ЗАГОЛОВОК)
-    без_раздела = голова + "## Поле source" + хвост.split("## Поле source", 1)[1]
-    без_примера = без_раздела.replace(
-        example_yaml(depth, multi_product=True), example_yaml(depth)
-    )
-    for было, стало in _ПУТИ_ФЕДЕРАЦИИ[depth]:
-        без_примера = без_примера.replace(f"«{было}»", f"«{стало}»")
-    return без_примера.replace(
-        "контейнер-продукт и его контейнеры. children допустимы только у корня-системы\n"
-        "  и у контейнера-продукта.",
-        "система и её контейнеры. children допустимы только у корня-системы.",
-    )
-
-
-@pytest.mark.parametrize("depth", [2, 3])
-def test_без_мультипродукта_промпт_байт_в_байт(depth):
-    """⚠ Сентинел (ловушка №1 плана): одно-репо прогоны НЕ регрессируют. Флаг обязан
-    менять РОВНО три вещи (на depth=2 — четыре): раздел П1, пример, иллюстрацию пути и
-    строку слоёв. Сняли их с мультипродуктового текста — получили прежний байт-в-байт.
-    Тест падает и если генератор флаг игнорирует (снимать нечего), и если флаг заодно
-    правит что-то ещё."""
-    парам = {"depth": depth, "lang": "ru", "hints": "монорепо"}
-    без = build_import_prompt("Zabbix+Grafana", **парам)
-    assert без == build_import_prompt("Zabbix+Grafana", **парам, multi_product=False)
-    assert МУЛЬТИ_ЗАГОЛОВОК not in без
-    # Пример без флага — прежний: ни продукта, ни заглушки соседа в нём нет.
-    assert example_yaml(depth) in без
-    assert "shop-backend" not in без and "delivery" not in без
-
-    с_флагом = build_import_prompt("Zabbix+Grafana", **парам, multi_product=True)
-    assert _снять_федерацию(с_флагом, depth) == без
 
 
 def test_prompt_endpoint(db):
     user = ensure_architect(db)
     out = import_prompt(system_name="Ярмарка", depth=3, lang="ru", hints=None, _user=user)
     assert "«Ярмарка»" in out.prompt and "```yaml\nnodes:" in out.prompt
-
-
-def test_ручка_пробрасывает_мультипродукт_в_строительный_и_в_обёртку(db):
-    """Флаг живёт в строительном промпте, поэтому доезжает и до блока А обёртки —
-    отдельного пути у оркестраторного варианта нет и быть не должно."""
-    user = ensure_architect(db)
-    парам = {"system_name": "Zabbix+Grafana", "depth": 3, "lang": "ru", "hints": None}
-
-    выкл = import_prompt(**парам, _user=user)
-    вкл = import_prompt(**парам, multi_product=True, _user=user)
-    assert МУЛЬТИ_ЗАГОЛОВОК not in выкл.prompt
-    assert вкл.prompt == build_import_prompt("Zabbix+Grafana", multi_product=True)
-
-    обёртка = import_prompt(**парам, variant="orchestrated", multi_product=True, _user=user)
-    assert МУЛЬТИ_ЗАГОЛОВОК in обёртка.prompt
-    assert МУЛЬТИ_ЗАГОЛОВОК not in import_prompt(
-        **парам, variant="orchestrated", _user=user
-    ).prompt
 
 
 def test_example_carries_source_anchors():
@@ -556,12 +349,6 @@ def test_рёбра_примера_от_компонентов_не_от_кор�
     assert "перевешено на лежащий в нём узел, который делает вызов" in p3
     p2 = build_import_prompt("X", depth=2)
     assert "ОТ КОМПОНЕНТА, НЕ ОТ КОРОБКИ" not in p2 and "vote" not in p2
-    # Федерация: межпродуктовое ребро тоже от компонента на depth=3 и от контейнера на depth=2.
-    fed3 = parse_import(example_yaml(3, multi_product=True))[0]
-    fed2 = parse_import(example_yaml(2, multi_product=True))[0]
-    assert fed3 is not None and fed2 is not None
-    assert ("api", "delivery") in {(fed3.nodes[e.source_idx].name, fed3.nodes[e.target_idx].name) for e in fed3.edges}
-    assert ("orders", "delivery") in {(fed2.nodes[e.source_idx].name, fed2.nodes[e.target_idx].name) for e in fed2.edges}
 
 
 def test_состав_из_авторитативного_перечня_без_капов():

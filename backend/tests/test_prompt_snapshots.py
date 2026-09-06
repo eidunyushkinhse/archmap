@@ -108,9 +108,6 @@ CASES: list[Case] = [
     # ── импорт схемы ─────────────────────────────────────────────────────────
     _case("import--builder", "import", "builder",
           lambda: prompt_for_variant("builder", "import", build_import_prompt(SYSTEM))),
-    _case("import--builder-multi-product", "import", "builder",
-          lambda: prompt_for_variant(
-              "builder", "import", build_import_prompt(SYSTEM, multi_product=True))),
     _case("import--builder-en-hints-depth", "import", "builder",
           lambda: prompt_for_variant(
               "builder", "import",

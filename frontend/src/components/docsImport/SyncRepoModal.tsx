@@ -20,7 +20,7 @@ import { planSections, planSummary, applySummary } from "./syncPlanView";
 import { NoteList } from "./agentModalReport";
 import PromptTriple from "./PromptTriple";
 import {
-  head, sub, cols, leftCol, rightCol, radioRow, hintsArea, leftNote,
+  head, sub, cols, leftCol, rightCol, hintsArea, leftNote,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
 import Modal from "../../ui/Modal";
@@ -70,11 +70,6 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   const [projectName, setProjectName] = useState("");
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  // «Несколько продуктов»: null = пользователь галку не трогал, и она следует за
-  // именем проекта («Zabbix+Grafana» — почти всегда федерация). Тронул руками —
-  // значение перестаёт зависеть от имени навсегда (защёлка null → boolean), а
-  // производное считается в рендере, а не эффектом.
-  const [multiProduct, setMultiProduct] = useState<boolean | null>(null);
   const pkg = useDocsFiles();
   const [policies, setPolicies] = useState<SyncPolicies>({
     update_descriptions: false,
@@ -99,9 +94,6 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
 
   // Файлы убрали — план прячем ПРОИЗВОДНО, без зеркалящего эффекта.
   const preview = pkg.hasContent ? rawPreview : null;
-  // Имя проекта приезжает запросом: пока галку не трогали, она включается сама,
-  // как только приехало имя с «+».
-  const multiProductOn = multiProduct ?? projectName.includes("+");
 
   useEffect(() => {
     let alive = true;
@@ -150,7 +142,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
     projectsApi
       .importPrompt({
         systemName: projectName, depth: 2, lang,
-        hints: hints.trim() || undefined, variant, multiProduct: multiProductOn,
+        hints: hints.trim() || undefined, variant,
       })
       .then((r) => navigator.clipboard.writeText(r.prompt));
 
@@ -212,23 +204,6 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
               </button>
             ))}
           </div>
-          {/* Федерация продуктов: без этого сигнала каждый агент растворяет свой
-              продукт прямо в корне системы, заглушки соседей не находят пары и
-              продукт оказывается в проекте дважды (полевой мультирепо-QA). Синк
-              обязан просить то же, что создание: разойдутся — план обновления
-              придёт по другой укладке, чем построенная схема. */}
-          <label style={{ ...radioRow, marginBottom: 6 }}>
-            <input
-              type="checkbox"
-              checked={multiProductOn}
-              onChange={(e) => setMultiProduct(e.target.checked)}
-            />
-            Проект объединяет несколько продуктов
-          </label>
-          <p style={{ ...leftNote, margin: "0 0 12px" }}>
-            Каждый репозиторий станет контейнером-продуктом под корнем системы,
-            соседние продукты — заглушками рядом.
-          </p>
           <label style={labelStyle}>Подсказки агенту (необязательно)</label>
           <textarea
             style={hintsArea}

@@ -79,19 +79,14 @@ export const projectsApi = {
   // Универсальный промпт «Из репозитория» для ИИ-агента пользователя: один и тот
   // же промпт запускается в каждом репозитории системы, YAML-ответы импортируются.
   // variant выбирает, что вернёт ручка: строительный промпт (дефолт), обёртку с
-  // аудитом вторым агентом-скептиком или один только промпт аудита. multiProduct —
-  // проект объединяет несколько самостоятельных продуктов: промпт получает раздел
-  // «свой продукт — контейнером, соседи — заглушками» (иначе федерация раздваивается).
+  // аудитом вторым агентом-скептиком или один только промпт аудита.
   importPrompt: (p: {
     systemName: string; depth: 2 | 3; lang: "ru" | "en"; hints?: string;
-    variant?: PromptVariant; multiProduct?: boolean;
+    variant?: PromptVariant;
   }): Promise<ImportPromptOut> => {
     const q = new URLSearchParams({ system_name: p.systemName, depth: String(p.depth), lang: p.lang });
     if (p.hints) q.set("hints", p.hints);
     if (p.variant) q.set("variant", p.variant);
-    // Дефолт бэка — false, и на нём промпт байт-в-байт прежний: параметр ставим
-    // только включённым, чтобы одно-репо запросы остались прежними и в логах.
-    if (p.multiProduct) q.set("multi_product", "true");
     return api.get<ImportPromptOut>(`/projects/import/prompt?${q.toString()}`);
   },
   // Синхронизация ЖИВОГО проекта со свежим прогоном агента: превью считает, что

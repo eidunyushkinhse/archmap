@@ -98,11 +98,8 @@ export interface paths {
          *
          *     variant — что отдать кнопке: строительный промпт (дефолт, байт-в-байт прежний —
          *     на нём сидят MCP-тулзы), оркестраторную обёртку с аудитом или один промпт аудита
-         *     (docs/plan-skeptic-audit.md).
-         *
-         *     multi_product — проект объединяет несколько самостоятельных продуктов
-         *     (docs/plan-federation-tuning.md, П1). Флаг живёт в СТРОИТЕЛЬНОМ промпте, поэтому
-         *     доезжает и до блока А обёртки: он строится этим же вызовом.
+         *     (docs/plan-skeptic-audit.md). Федеративного варианта нет: федерация — те же
+         *     одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06).
          */
         get: operations["import_prompt_api_v1_projects_import_prompt_get"];
         put?: never;
@@ -6167,7 +6164,6 @@ export interface operations {
                 lang?: "ru" | "en";
                 hints?: string | null;
                 variant?: "builder" | "orchestrated" | "skeptic";
-                multi_product?: boolean;
             };
             header?: never;
             path?: never;

@@ -707,6 +707,19 @@ tests/test_tools.py, README; spec.md (одно упоминание). Мердж
 `UPDATE_PROMPT_SNAPSHOTS=1` + ревью диффа снапшотов (одиночный без изменений).
 Документация: spec.md, tasks.md, docs/archive/plan-federation-tuning.md — пометка
 «снесено 2026-09-xx, причина — [[feedback-federation-no-special-prompt]]».
+**Ф-C СДЕЛАНА 2026-09-06.** Снесено: флаг multi_product и раздел «Проект объединяет
+НЕСКОЛЬКО продуктов» в генераторе промпта вместе с федеративным примером
+(_federated, _drop_repo, _PRODUCT/_NEIGHBOUR) и федеративной строкой слоёв;
+query-параметр ручки GET /projects/import/prompt; чекбокс «Проект объединяет
+несколько продуктов» в окнах создания проекта и синка (и защёлка по «+» в имени);
+параметр multiProduct клиента API; параметр multi_product инструмента MCP
+archmap_import_prompt (MCP 0.4.0); тесты федеративной ветки (10 тестов бэка,
+11 тестов фронта, 1 MCP) и снапшот import--builder-multi-product. Сентинел:
+снапшот одиночного промпта import--builder.txt НЕ изменился — текст промпта
+байт-в-байт прежний. Мердж не тронут (П2, _substantial, склейка по имени корня).
+spec.md и docs/plan-federation-tuning.md — пометка о снятии. Гейты: бэк ruff/mypy
+нули, MCP ruff/mypy/pytest нули, фронт tsc/eslint/vitest нули, api.gen.ts
+перегенерирован.
 
 **Ф-D. Проверка потолка (после Ф-A…Ф-C).** Четыре одиночных репозитория, тот же
 одиночный промпт, сильная модель (предложение — Opus, чтобы не сравнивать Haiku с

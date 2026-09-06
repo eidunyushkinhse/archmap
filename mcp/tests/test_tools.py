@@ -172,7 +172,7 @@ async def test_промпт_импорта_без_вариантов_шлёт_п
 ) -> None:
     # Сентинел совместимости: строительный промпт — дефолт и ручки, и инструмента,
     # поэтому обычный вызов обязан остаться прежним ЗАПРОСОМ, а не только прежним
-    # результатом. Ложный multi_product — тоже серверный дефолт, в query не едет.
+    # результатом.
     api.get(PROMPT_PATH, {"prompt": "правила формата"})
 
     await tools.call("archmap_import_prompt", {"system_name": "Zabbix"}, client)
@@ -180,26 +180,26 @@ async def test_промпт_импорта_без_вариантов_шлёт_п
 
     await tools.call(
         "archmap_import_prompt",
-        {"system_name": "Zabbix", "variant": "builder", "multi_product": False},
+        {"system_name": "Zabbix", "variant": "builder"},
         client,
     )
     assert api.calls[-1].url.query == b"system_name=Zabbix&variant=builder"
 
 
-async def test_промпт_импорта_проносит_вариант_и_федерацию(
+async def test_промпт_импорта_проносит_вариант(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     api.get(PROMPT_PATH, {"prompt": "обёртка с аудитом"})
 
     out = await tools.call(
         "archmap_import_prompt",
-        {"system_name": "Zabbix", "depth": 3, "variant": "orchestrated", "multi_product": True},
+        {"system_name": "Zabbix", "depth": 3, "variant": "orchestrated"},
         client,
     )
 
     params = api.calls[-1].url.params
     assert params["variant"] == "orchestrated"
-    assert params["multi_product"] == "true"  # bool в query — строкой, как ждёт FastAPI
+    assert params["depth"] == "3"
     assert out == "обёртка с аудитом"
 
 
