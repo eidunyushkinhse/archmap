@@ -17,11 +17,12 @@
 изменений (порядок «родители раньше детей» сохраняется по построению).
 """
 
-from collections.abc import Hashable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
-from typing import TypeGuard, TypeVar
+from typing import TypeGuard
 
+from app.connectivity import connected_components
 from app.identity import (
     KEY_ORDER,
     compare_identity,
@@ -95,9 +96,6 @@ def _basis_of_key(k: str) -> str:
 def _strongest_basis(bases: list[str]) -> str | None:
     """Сильнейшее основание среди вкладов узла; пусто (узел из одного файла) → None."""
     return next((b for b in BASIS_ORDER if b in bases), None)
-
-
-T = TypeVar("T", bound=Hashable)
 
 
 def _substantial(node: _ImpNode, has_children: bool) -> bool:
@@ -191,45 +189,6 @@ def _least(files: set[int]) -> int | None:
     вкладов, П2), значит именно его правка доедет до слитой схемы и погасит
     замечание."""
     return min(files) if files else None
-
-
-def connected_components(edges: Iterable[tuple[T, T]]) -> list[list[T]]:
-    """Связные компоненты графа РЁБЕР; компоненты из одного узла не возвращаются.
-
-    Ядро, общее с алертом «изолированные группы» (app/alerts.compute_alerts, п.3), и
-    трактовка обязана совпадать с ним до буквы — иначе превью и алерты разойдутся в
-    вердиктах на одной и той же схеме:
-    - иерархия parent СВЯЗЬЮ НЕ СЧИТАЕТСЯ: через дерево связано вообще всё, и такой
-      критерий не отличал бы фрагментированную схему от целой;
-    - узлы без единой связи в компоненты не входят: о них говорит отдельная проверка
-      (в превью — «объектов без единой связи», в алертах — «подвисшие»), и дублировать
-      её замечанием про «группу из одного объекта» нельзя.
-
-    Порядок компонент и узлов внутри — от порядка рёбер: детерминирован при том же
-    входе, а показываем мы их всё равно отсортированными.
-    """
-    adjacency: dict[T, set[T]] = {}
-    for a, b in edges:
-        adjacency.setdefault(a, set()).add(b)
-        adjacency.setdefault(b, set()).add(a)
-    visited: set[T] = set()
-    out: list[list[T]] = []
-    for start in adjacency:
-        if start in visited:
-            continue
-        visited.add(start)
-        stack = [start]
-        comp: list[T] = []
-        while stack:
-            cur = stack.pop()
-            comp.append(cur)
-            for nxt in adjacency[cur]:
-                if nxt not in visited:
-                    visited.add(nxt)
-                    stack.append(nxt)
-        if len(comp) >= 2:
-            out.append(comp)
-    return out
 
 
 @dataclass
@@ -1415,7 +1374,9 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
     когда агент ушёл и дорисовать связь некому. Тот же урок Х5, что у связей в
     контейнер: предупреждаем ДО импорта и НАЗЫВАЕМ группу поимённо.
 
-    Ядро связности — общее с алертом (connected_components), поэтому вердикты сходятся.
+    Ядро связности — общее с алертом (app.connectivity), поэтому вердикты сходятся; там же
+    исключение «связь в коробку касается её поддерева» (AL7, 2026-09-06) — связь плагина в
+    контейнер продукта не делает внутренности продукта «отдельной группой».
     Крупнейшую компоненту не называем: она и есть схема, а замечание должно указывать,
     ЧТО прицепить, а не пересказывать проект.
 
@@ -1427,7 +1388,10 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
     в слитом графе не существует — замечания нет вовсе, и это правильно: подсистема
     вправе держаться за мир через чужой репозиторий.
     """
-    comps = connected_components([(e.source_idx, e.target_idx) for e in merged.edges])
+    comps = connected_components(
+        [(e.source_idx, e.target_idx) for e in merged.edges],
+        {i: n.parent_idx for i, n in enumerate(merged.nodes)},
+    )
     if len(comps) < 2:
         return  # один кластер (плюс, возможно, одиночки) — фрагментации нет
     # Ядро — самая крупная; при равных размерах порядок задаёт первое имя, иначе

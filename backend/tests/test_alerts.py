@@ -4,7 +4,8 @@
 1) подвисшие атомарные узлы без связей;
 2) связи в промежуточный (контейнерный) узел;
 3) изолированные группы — связные компоненты графа рёбер (иерархию
-   parent_id игнорируем; зажигается только при ≥2 группах размера ≥2).
+   parent_id игнорируем, кроме связи в контейнер — она касается его поддерева;
+   зажигается только при ≥2 группах размера ≥2).
 """
 
 import uuid
@@ -100,6 +101,47 @@ def test_single_cluster_plus_dangling_is_not_fragmented(db):
 
     assert res.isolated_groups == []
     assert len(res.disconnected_nodes) == 2
+
+
+def test_edge_into_container_connects_its_subtree(db):
+    # Связь в коробку = «кто-то говорит с чем-то внутри»: контейнер со своей связью
+    # соединяет для связности своих потомков ЛЮБОЙ глубины (AL7, исключение
+    # 2026-09-06). Внутренности лежат под промежуточной группой без своих связей —
+    # мостик всё равно дотягивается до листьев.
+    box = _node(db, "Продукт")
+    group = _node(db, "Группа", box)
+    leaf1 = _node(db, "Лист 1", group)
+    leaf2 = _node(db, "Лист 2", group)
+    x = _node(db, "X")
+    y = _node(db, "Y")
+    _edge(db, leaf1, leaf2)  # внутренности продукта
+    _edge(db, x, y)  # внешняя пара
+    _edge(db, x, box)  # связь в коробку продукта
+    db.commit()
+
+    res = get_alerts(db=db, project=ensure_project(db))
+
+    # Одна схема, а не «{X, Y, Продукт}» плюс «{Лист 1, Лист 2}».
+    assert res.isolated_groups == []
+    # Сама связь в коробку остаётся замечанием своего класса (AL6).
+    assert len(res.intermediate_edges) == 1
+
+
+def test_container_without_own_edge_does_not_connect_children(db):
+    # Дерево связностью не считается: контейнер БЕЗ собственной связи две пары
+    # внутри себя не соединяет — фрагментация видна, как и прежде.
+    box = _node(db, "Продукт")
+    a = _node(db, "A", box)
+    b = _node(db, "B", box)
+    v = _node(db, "В", box)
+    g = _node(db, "Г", box)
+    _edge(db, a, b)
+    _edge(db, v, g)
+    db.commit()
+
+    res = get_alerts(db=db, project=ensure_project(db))
+
+    assert len(res.isolated_groups) == 2
 
 
 # =================== 5) Люди внутри системы ===================

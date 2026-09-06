@@ -13,6 +13,7 @@ from typing import Literal
 from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 
+from app.connectivity import connected_components
 from app.data_refs import (
     CatalogChannel,
     RefStatus,
@@ -195,32 +196,16 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
             )
 
     # 3) Изолированные группы — связные компоненты графа РЁБЕР (иерархию
-    #    parent_id игнорируем: иначе всё связано через дерево). Узлы без
-    #    единой связи сюда не попадают (их ловит проверка 1). Алерт зажигаем,
-    #    только если связных групп (≥2 узла) больше одной — иначе это просто
-    #    единственный кластер плюс висячие узлы, и фрагментации нет.
-    adjacency: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for e in all_edges:
-        adjacency.setdefault(e.source_id, set()).add(e.target_id)
-        adjacency.setdefault(e.target_id, set()).add(e.source_id)
-
-    visited: set[uuid.UUID] = set()
-    components: list[list[uuid.UUID]] = []
-    for start in adjacency:
-        if start in visited:
-            continue
-        stack = [start]
-        visited.add(start)
-        comp: list[uuid.UUID] = []
-        while stack:
-            cur = stack.pop()
-            comp.append(cur)
-            for nxt in adjacency[cur]:
-                if nxt not in visited:
-                    visited.add(nxt)
-                    stack.append(nxt)
-        if len(comp) >= 2:
-            components.append(comp)
+    #    parent_id игнорируем: иначе всё связано через дерево; единственное
+    #    исключение — конец связи в контейнере касается его поддерева, см.
+    #    app.connectivity). Узлы без единой связи сюда не попадают (их ловит
+    #    проверка 1). Алерт зажигаем, только если связных групп (≥2 узла) больше
+    #    одной — иначе это просто единственный кластер плюс висячие узлы, и
+    #    фрагментации нет. Ядро общее с превью импорта — вердикты совпадают по
+    #    построению.
+    components = connected_components(
+        [(e.source_id, e.target_id) for e in all_edges], parent_by_id
+    )
 
     isolated_groups: list[IsolatedGroupAlert] = []
     if len(components) >= 2:

@@ -1177,6 +1177,51 @@ def _db_связь(db, src, tgt, **kw):
     )
 
 
+_КОРОБКА = (
+    "- name: Grafana\n"
+    "  children:\n"
+    "  - name: server\n"
+    "  - name: web\n"
+    "- name: Плагин\n"
+    "  children:\n"
+    "  - name: backend\n"
+    "  - name: frontend\n"
+)
+_КОРОБКА_РЁБРА = (
+    "edges:\n"
+    "- from: server\n  to: web\n"
+    "- from: backend\n  to: frontend\n"
+    "- from: backend\n  to: Grafana\n"
+)
+
+
+def test_паритет_связь_в_коробку_соединяет_поддерево(db):
+    """Связь в контейнер касается всего его поддерева (AL7, исключение 2026-09-06) — и в
+    превью, и в алерте одинаково. Полевой случай федерации: плагин ходит в коробку
+    «Grafana», внутренности Grafana связаны между собой — схема связна, ложной «группы»
+    нет; сама связь в коробку остаётся замечанием своего класса.
+    """
+    grafana = _db_узел(db, "Grafana")
+    server = _db_узел(db, "server", grafana)
+    web = _db_узел(db, "web", grafana)
+    plugin = _db_узел(db, "Плагин")
+    backend = _db_узел(db, "backend", plugin)
+    frontend = _db_узел(db, "frontend", plugin)
+    _db_связь(db, server, web)
+    _db_связь(db, backend, frontend)
+    _db_связь(db, backend, grafana)
+    db.commit()
+
+    алерт = get_alerts(db=db, project=ensure_project(db))
+    _merged, report, errors = parse_and_merge([_doc(_КОРОБКА, _КОРОБКА_РЁБРА)])
+
+    assert errors == []
+    assert алерт.isolated_groups == []
+    assert _группы(report) == []
+    assert len(алерт.intermediate_edges) == 1
+    assert any("конец в контейнере «Grafana»" in w for w in report.warnings)
+
+
 def test_паритет_с_алертом_изолированных_групп(db):
     """Превью и алерт обязаны смотреть на дерево ОДИНАКОВО.
 
