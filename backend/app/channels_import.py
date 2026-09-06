@@ -58,6 +58,19 @@ MAX_COVERAGE_WARNINGS = 8
 # Свой кап у каналов, описанных НЕСКОЛЬКИМИ файлами пакета. Считает КАНАЛЫ, а не
 # строки: к заметке о дубле может добавиться расхождение меты между файлами.
 MAX_DUPLICATE_WARNINGS = 8
+# ЗАГЛУШКА КАНАЛА ПО СВЯЗИ. Импорт C4 заводит брокеру запись на каждое имя канала,
+# названное связью (Edge.channel), — иначе честная схема сильной модели сразу после
+# ввоза тонула в «канал «X» не найден у брокера» (Ф-D эпика BYOA: 59 из 60 замечаний).
+# Текст — сразу и объяснение пользователю в карточке канала, и признак «не описан» для
+# машины: сверка покрытия (Ф8е) такие каналы описанием брокера НЕ считает, а пакет
+# каналов, описавший канал, заполняет заглушку целиком и без overwrite (это её
+# первое описание, а не спор с описанным раньше). Правит описание человек — маркер
+# уходит, канал считается описанным им. КОНСТАНТУ НЕ МЕНЯТЬ без миграции данных:
+# записи в БД узнаются по ней.
+EDGE_STUB_DESCRIPTION = (
+    "Заведён импортом по связи схемы: канал назван на стрелке, но структурой брокера "
+    "ещё не описан — дозалейте пакет каналов или заполните поля."
+)
 
 
 def split_channel_names(raw: str | None) -> list[str]:
@@ -75,6 +88,68 @@ def split_channel_names(raw: str | None) -> list[str]:
         if name and name not in out:
             out.append(name)
     return out
+
+
+def is_edge_stub(channel: BrokerChannel) -> bool:
+    """Заглушка по связи, а не описание брокера (см. EDGE_STUB_DESCRIPTION)."""
+    return channel.description == EDGE_STUB_DESCRIPTION
+
+
+def seed_edge_channel_stubs(
+    db: Session, project_id: uuid.UUID, edges: list[Edge] | None = None
+) -> int:
+    """Завести заглушки каналов по связям проекта; вернуть число заведённых.
+
+    Перечень — ТОТ ЖЕ минимум пакета, который просит промпт каналов и сверяет превью
+    (edge_channel_minimum): у моста «брокер → брокер» имя достаётся обоим концам,
+    перечень «a, b» в channel даёт заглушку на каждое имя (сама связь при этом
+    остаётся под AL31 — ей велено разделиться). Имя, которое брокер уже знает —
+    точно либо в форме «группа.канал» (_names_channel, послабления AL31), — не
+    дублируется. Зовётся ПОСЛЕ семей фактов: пакет каналов архива описывает канал
+    первым, заглушка закрывает только оставшиеся дыры.
+
+    edges — какие связи смотреть: единый импорт отдаёт все связи нового проекта,
+    догрузка — только созданные ею (живые связи без канала у брокера — состояние
+    проекта до догрузки, а она живого не трогает).
+    """
+    nodes = db.query(Node).filter(Node.project_id == project_id).all()
+    broker_ids = {n.id for n in nodes if n.shape == "broker"}
+    if not broker_ids:
+        return 0
+    if edges is None:
+        edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+    minimum = edge_channel_minimum(edges, broker_ids)
+    if not minimum:
+        return 0
+    known: dict[uuid.UUID, set[tuple[str, str]]] = defaultdict(set)
+    for ch in db.query(BrokerChannel).filter(BrokerChannel.node_id.in_(list(minimum))).all():
+        known[ch.node_id].add((ch.group_name, ch.name))
+    created = 0
+    # Порядок брокеров из словаря зависит от порядка связей в БД — сортируем, чтобы
+    # порядок записей (и их created_at) не скакал от прогона к прогону.
+    for broker_id in sorted(minimum, key=str):
+        for named in minimum[broker_id]:
+            if _names_channel(known[broker_id], named):
+                continue
+            db.add(BrokerChannel(node_id=broker_id, name=named, description=EDGE_STUB_DESCRIPTION))
+            known[broker_id].add(("", named))
+            created += 1
+    db.flush()
+    return created
+
+
+def _stub_by_name(db: Session, node_id: uuid.UUID, name: str) -> BrokerChannel | None:
+    """Заглушка по связи с таким именем (группа у заглушек всегда пустая)."""
+    return (
+        db.query(BrokerChannel)
+        .filter(
+            BrokerChannel.node_id == node_id,
+            BrokerChannel.group_name == "",
+            BrokerChannel.name == name,
+            BrokerChannel.description == EDGE_STUB_DESCRIPTION,
+        )
+        .first()
+    )
 
 
 def edge_channel_minimum(
@@ -359,8 +434,12 @@ def build_channels_plan(
     for key, m in merged.items():
         c, owner = m.channel, m.owner
         live = live_by_key.get(key)
-        action = "create" if live is None else ("overwrite" if overwrite else "unchanged")
-        if live is not None and not overwrite:
+        if live is None:
+            action = "create"
+        elif overwrite or is_edge_stub(live):
+            action = "overwrite"  # заглушку по связи пакет описывает и без overwrite
+        else:
+            action = "unchanged"
             # Сверяем СЛИТУЮ мету: после слияния пакет говорит одним голосом, и
             # спорить с ArchMap ему тоже положено один раз, а не по разу на файл.
             _warn_meta_conflicts(plan, m.source, live, c)
@@ -585,6 +664,9 @@ def _warn_uncovered_edge_channels(db: Session, plan: ChannelsPlan, flat: list[No
         .filter(Node.project_id == project_id)
         .all()
     ):
+        if is_edge_stub(ch):
+            continue  # заглушка по связи — не описание брокера: иначе после любого
+            # импорта C4 сверка ослепла бы (каждое имя со связи «значилось бы живым»)
         known[ch.node_id].add((ch.group_name, ch.name))
     targets: set[uuid.UUID] = set()
     for owner, c, _src in plan.channels:
@@ -662,6 +744,12 @@ def apply_channels_plan(db: Session, plan: ChannelsPlan, overwrite: bool) -> Non
             )
             .first()
         )
+        if channel is None and c.group_name:
+            # Заглушка по связи знает канал формы «группа.канал» одним именем без
+            # группы — пакет, описавший его с группой, описывает ТУ ЖЕ заглушку.
+            channel = _stub_by_name(db, owner.id, f"{c.group_name}.{c.name}")
+            if channel is not None:
+                channel.group_name, channel.name = c.group_name, c.name
         if channel is None:
             channel = BrokerChannel(
                 node_id=owner.id, name=c.name, group_name=c.group_name, kind=c.kind,
@@ -671,14 +759,19 @@ def apply_channels_plan(db: Session, plan: ChannelsPlan, overwrite: bool) -> Non
             db.add(channel)
             db.flush()
             r.channels_written += 1
-        elif overwrite:
+        elif overwrite or is_edge_stub(channel):
             # Перетираем ТОЛЬКО заполненное пакетом: пустое поле у агента значит «не
             # видно из моего репозитория», а не «этого нет» (см. промпт каналов).
+            # Заглушку по связи пакет заполняет и без overwrite: это её первое
+            # описание, а не спор с описанным раньше.
+            stub = is_edge_stub(channel)
             for key in META_KEYS:
                 if c.meta(key):
                     setattr(channel, key, c.meta(key))
             if c.description:
                 channel.description = c.description
+            elif stub:
+                channel.description = None  # маркер снят: канал описан пакетом
             channel.version += 1
             r.channels_written += 1
 

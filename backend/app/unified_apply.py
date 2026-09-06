@@ -31,7 +31,12 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.channels_import import ChannelIn, apply_channels_plan, build_channels_plan
+from app.channels_import import (
+    ChannelIn,
+    apply_channels_plan,
+    build_channels_plan,
+    seed_edge_channel_stubs,
+)
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
 from app.import_yaml import seed_import
@@ -276,6 +281,9 @@ def apply_unified_plan(
     channels_report: ChannelsImportReport | None = run_family(
         "channel", build_channels_plan, apply_channels_plan
     )
+    # Каналы, названные связями, но не описанные пакетом, — заглушками: схема знает,
+    # что канал у брокера ЕСТЬ, и без записи панель алертов после ввоза врала бы.
+    channel_stubs = seed_edge_channel_stubs(db, project.id)
     config_report: ConfigImportReport | None = run_family(
         "config", build_config_plan, apply_config_plan
     )
@@ -320,6 +328,7 @@ def apply_unified_plan(
         processes=process_results,
         warnings=warnings,
         resolved_conflicts=len(plan.conflicts),
+        channel_stubs=channel_stubs,
     )
 
 

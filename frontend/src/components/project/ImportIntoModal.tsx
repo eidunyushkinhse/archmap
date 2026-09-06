@@ -80,6 +80,7 @@ function applySummary(r: IntoApplyOut): string {
     r.specs_applied && `${r.specs_applied} ${plural(r.specs_applied, ["спека", "спеки", "спек"])}`,
     r.db?.tables_written && `${r.db.tables_written} ${plural(r.db.tables_written, ["таблица", "таблицы", "таблиц"])}`,
     r.channels?.channels_written && `${r.channels.channels_written} ${plural(r.channels.channels_written, ["канал", "канала", "каналов"])}`,
+    r.channel_stubs && `${r.channel_stubs} ${plural(r.channel_stubs, ["канал по связи", "канала по связям", "каналов по связям"])}`,
     r.config?.params_written && `${r.config.params_written} ${plural(r.config.params_written, ["параметр", "параметра", "параметров"])}`,
     r.processes.length && `${r.processes.length} ${plural(r.processes.length, ["процесс", "процесса", "процессов"])}`,
   ].filter((s): s is string => typeof s === "string");
@@ -400,6 +401,9 @@ function ApplyReport({ result }: { result: IntoApplyOut }) {
       </div>
       {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
       {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
+      {result.channel_stubs > 0 && (
+        <div>Каналов брокеров заведено по связям схемы: {result.channel_stubs} (без описания)</div>
+      )}
       {result.config && (
         <div>
           Параметров конфигурации: {result.config.params_written}

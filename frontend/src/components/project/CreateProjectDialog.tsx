@@ -540,6 +540,9 @@ function ImportReport({ result }: { result: ArchiveImportResult }) {
       <div>Схем логики: {result.docs_created} · спек: {result.specs_applied}</div>
       {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
       {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
+      {result.channel_stubs > 0 && (
+        <div>Каналов брокеров заведено по связям схемы: {result.channel_stubs} (без описания)</div>
+      )}
       {result.config && <div>Параметров конфигурации: {result.config.params_written}</div>}
       {result.processes.length > 0 && (
         <div>

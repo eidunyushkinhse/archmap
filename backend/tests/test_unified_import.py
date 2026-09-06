@@ -1198,3 +1198,47 @@ def test_эндпоинт_применения_отвергает_кривой_j
     пусто = клиент_с_бд.post(ПРИМЕНЕНИЕ)
     assert пусто.status_code == 400 and "ни один файл" in пусто.json()["detail"]
     assert db.query(Project).count() == было
+
+
+# ── Заглушки каналов по связям (решение пользователя 2026-09-06) ─────────────
+
+
+C4_С_КАНАЛОМ_НА_СВЯЗИ = C4_С_БРОКЕРОМ + """
+edges:
+  - from: orders
+    to: Kafka
+    channel: orders.created
+"""
+
+
+def test_импорт_c4_заводит_заглушки_каналов_по_связям_и_гасит_AL31(db):
+    from app.channels_import import is_edge_stub
+    from app.routers.nodes import get_alerts
+
+    план = build_unified_plan([("c4.yaml", C4_С_КАНАЛОМ_НА_СВЯЗИ.encode())])
+    проект, отчёт = apply_unified_plan(db, план, {}, "П", None, ensure_architect(db).id)
+    db.commit()
+
+    assert отчёт.channel_stubs == 1
+    kafka = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Kafka").one()
+    [канал] = db.query(BrokerChannel).filter(BrokerChannel.node_id == kafka.id).all()
+    assert канал.name == "orders.created" and is_edge_stub(канал)
+    assert get_alerts(db=db, project=проект, _=ensure_architect(db)).broker_edge_channels == []
+
+
+def test_канал_описанный_пакетом_архива_заглушкой_не_дублируется(db):
+    архив = _архив(
+        c4=C4_С_КАНАЛОМ_НА_СВЯЗИ,
+        channels=(("channels/kafka.yaml", _канал("Ярмарка / Kafka", "at-least-once")),),
+    )
+    план = build_unified_plan([("archive.zip", архив)])
+    проект, отчёт = apply_unified_plan(db, план, {}, "П", None, ensure_architect(db).id)
+    db.commit()
+
+    # Пакет описал канал первым (группа shop, имя orders.created — точное имя со связи);
+    # заглушке закрывать нечего.
+    assert отчёт.channels is not None and отчёт.channels.channels_written == 1
+    assert отчёт.channel_stubs == 0
+    kafka = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Kafka").one()
+    [канал] = db.query(BrokerChannel).filter(BrokerChannel.node_id == kafka.id).all()
+    assert (канал.group_name, канал.kind, канал.delivery) == ("shop", "topic", "at-least-once")

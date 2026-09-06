@@ -73,6 +73,7 @@ const ОТЧЁТ: ArchiveImportResult = {
   processes: [],
   warnings: ["docs/x.mmd: узел «Нет такого» не найден — файл пропущен"],
   resolved_conflicts: 0,
+  channel_stubs: 0,
 };
 
 const onCreated = vi.fn();

@@ -156,6 +156,7 @@ class IntoApplyOut(BaseModel):
     processes: list[ProcessImportResult] = []
     warnings: list[str] = []
     resolved_conflicts: int = 0
+    channel_stubs: int = 0  # заглушки каналов по НОВЫМ связям догрузки (см. archive.py)
     # Свежие курсоры: фронт кладёт их в поллинг, не дожидаясь следующего опроса.
     graph_rev: int = 0
     meta_rev: int = 0

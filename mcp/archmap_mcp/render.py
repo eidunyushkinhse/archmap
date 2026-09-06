@@ -1170,6 +1170,18 @@ def unified_preview(data: dict[str, Any]) -> str:
     return "\n".join(out)
 
 
+def _channel_stubs_line(data: dict[str, Any]) -> list[str]:
+    """Заглушки каналов по связям схемы — строка только когда они заведены."""
+    n = int(data.get("channel_stubs") or 0)
+    if not n:
+        return []
+    return [
+        f"Каналов брокеров заведено по связям схемы: {n} "
+        f"{_plural(n, ('заглушка', 'заглушки', 'заглушек'))} без описания — дозалейте "
+        "пакет каналов (archmap_facts_prompt family=channel)."
+    ]
+
+
 def unified_result(data: dict[str, Any]) -> str:
     """Отчёт создания проекта (ArchiveImportResult): что именно легло в новый проект."""
     out = [
@@ -1179,6 +1191,7 @@ def unified_result(data: dict[str, Any]) -> str:
     out.append(
         f"Схем логики: {data.get('docs_created', 0)}; спек OpenAPI: {data.get('specs_applied', 0)}."
     )
+    out.extend(_channel_stubs_line(data))
     out.extend(_family_reports(data))
     out.extend(_processes_report(list(data.get("processes") or [])))
     if data.get("resolved_conflicts"):
@@ -1261,6 +1274,7 @@ def into_result(data: dict[str, Any]) -> str:
         f"заменено {data.get('docs_replaced', 0)}; спек применено "
         f"{data.get('specs_applied', 0)}; параметров заменено {data.get('params_replaced', 0)}."
     )
+    out.extend(_channel_stubs_line(data))
     out.extend(_family_reports(data))
     out.extend(_processes_report(list(data.get("processes") or [])))
     if data.get("resolved_conflicts"):

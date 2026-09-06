@@ -15,10 +15,13 @@ import uuid
 from conftest import ensure_architect, ensure_project
 
 from app.channels_import import (
+    EDGE_STUB_DESCRIPTION,
     MAX_ADDRESS_WARNINGS,
     MAX_COVERAGE_WARNINGS,
     MAX_DUPLICATE_WARNINGS,
+    is_edge_stub,
     parse_channels_file,
+    seed_edge_channel_stubs,
 )
 from app.channels_prompt import build_channels_prompt
 from app.data_import import NODE_HEADER
@@ -31,6 +34,7 @@ from app.routers.channels_import import (
     channels_import_preview,
     channels_prompt,
 )
+from app.routers.nodes import get_alerts
 from app.schemas.channels_import import ChannelsImportIn
 
 ПАКЕТ = """# archmap-node: Шина
@@ -940,3 +944,144 @@ def test_эндпоинт_подставляет_брокеры_проекта(d
     assert "Ярмарка / events" in out.prompt
     assert "orders-db" not in out.prompt
     assert "сначала создайте" not in out.prompt
+
+
+# ── Заглушки каналов по связям схемы (импорт C4, решение пользователя 2026-09-06) ──
+# Схема сильной модели после ввоза тонула в «канал «X» не найден у брокера» (59 из 60
+# замечаний, Ф-D эпика BYOA), хотя канал назван на самой стрелке. Заглушка — запись
+# «канал есть», описание — за пакетом каналов; маркер в описании держит два свойства:
+# сверка покрытия заглушку описанием НЕ считает, пакет заполняет её без overwrite.
+
+
+
+def _каналы(db, брокер):
+    return sorted(
+        db.query(BrokerChannel).filter(BrokerChannel.node_id == брокер.id).all(),
+        key=lambda c: (c.group_name, c.name),
+    )
+
+
+def _al31(db):
+    return get_alerts(db=db, project=ensure_project(db), _=ensure_architect(db)).broker_edge_channels
+
+
+def test_заглушка_заводится_по_связи_и_гасит_AL31(db):
+    шина, сервис = _сцена(db)
+    _связь(db, сервис, шина, "orders.created")
+    assert len(_al31(db)) == 1  # до заглушки: «канал не найден у брокера»
+
+    assert seed_edge_channel_stubs(db, ensure_project(db).id) == 1
+
+    [канал] = _каналы(db, шина)
+    assert (канал.name, канал.group_name, канал.kind) == ("orders.created", "", "")
+    assert is_edge_stub(канал) and канал.description == EDGE_STUB_DESCRIPTION
+    assert _al31(db) == []
+    # Повтор ничего не задваивает: заглушка уже «известна» брокеру.
+    assert seed_edge_channel_stubs(db, ensure_project(db).id) == 0
+
+
+def test_заглушки_не_дублируют_описанное_точно_и_в_форме_группа_канал(db):
+    шина, сервис = _сцена(db)
+    db.add(BrokerChannel(node_id=шина.id, name="orders", group_name="shop", kind="queue"))
+    db.add(BrokerChannel(node_id=шина.id, name="plain"))
+    db.flush()
+    _связь(db, сервис, шина, "shop.orders")  # послабление AL31: «группа.канал»
+    _связь(db, шина, сервис, "plain")  # направление не участвует
+    _связь(db, сервис, шина, "new.one")
+
+    assert seed_edge_channel_stubs(db, ensure_project(db).id) == 1
+    assert [(c.group_name, c.name) for c in _каналы(db, шина)] == [
+        ("", "new.one"), ("", "plain"), ("shop", "orders"),
+    ]
+
+
+def test_перечень_в_channel_даёт_заглушку_на_каждое_имя_а_связь_остаётся_под_AL31(db):
+    шина, сервис = _сцена(db)
+    _связь(db, сервис, шина, "email, notify_orders")
+
+    assert seed_edge_channel_stubs(db, ensure_project(db).id) == 2
+    assert [c.name for c in _каналы(db, шина)] == ["email", "notify_orders"]
+    # Связи с перечнем велено разделиться (Ф8г) — заглушки по именам её не оправдывают.
+    [алерт] = _al31(db)
+    assert алерт.reason == "unknown"
+
+
+def test_мост_брокер_брокер_получает_заглушку_у_обоих_концов(db):
+    шина, _сервис = _сцена(db)
+    шина2 = _node(db, "Шина 2")
+    _связь(db, шина, шина2, "bridge")
+
+    assert seed_edge_channel_stubs(db, ensure_project(db).id) == 2
+    assert [c.name for c in _каналы(db, шина)] == ["bridge"]
+    assert [c.name for c in _каналы(db, шина2)] == ["bridge"]
+
+
+def test_только_переданные_связи_смотрятся_когда_они_заданы(db):
+    шина, сервис = _сцена(db)
+    старая = _связь(db, сервис, шина, "legacy")
+    новая = _связь(db, сервис, шина, "fresh")
+
+    assert seed_edge_channel_stubs(db, ensure_project(db).id, [новая]) == 1
+    assert [c.name for c in _каналы(db, шина)] == ["fresh"]
+    assert старая.channel == "legacy"  # связь не тронута, её заглушки нет
+
+
+def test_пакет_описывает_заглушку_без_overwrite_и_снимает_маркер(db):
+    шина, сервис = _сцена(db)
+    _связь(db, сервис, шина, "orders.created")
+    seed_edge_channel_stubs(db, ensure_project(db).id)
+
+    превью = _превью(db, ПАКЕТ)
+    # Превью честно говорит, что заглушку перепишут, хотя overwrite не просили.
+    assert [(i.name, i.action) for i in превью.channels] == [
+        ("orders.created", "overwrite"), ("orders.paid", "create"),
+    ]
+    r = _применить(db, ПАКЕТ)
+    assert r.applied and r.channels_written == 2
+
+    заглушка, второй = _каналы(db, шина)
+    assert (заглушка.name, заглушка.kind, заглушка.delivery) == (
+        "orders.created", "topic", "at-least-once")
+    assert заглушка.description == "заказ создан" and not is_edge_stub(заглушка)
+    assert sorted(f.name for f in заглушка.fields) == ["order_id", "status"]
+    assert второй.name == "orders.paid"
+
+
+def test_пакет_без_описания_снимает_маркер_заглушки(db):
+    шина, сервис = _сцена(db)
+    _связь(db, сервис, шина, "tasks")
+    seed_edge_channel_stubs(db, ensure_project(db).id)
+
+    _применить(db, "# archmap-node: Шина\nchannels:\n  - name: tasks\n    kind: queue\n")
+
+    [канал] = _каналы(db, шина)
+    assert (канал.kind, канал.description, is_edge_stub(канал)) == ("queue", None, False)
+
+
+def test_пакет_с_группой_описывает_заглушку_формы_группа_канал(db):
+    шина, сервис = _сцена(db)
+    _связь(db, сервис, шина, "shop.orders")
+    seed_edge_channel_stubs(db, ensure_project(db).id)
+
+    r = _применить(
+        db, "# archmap-node: Шина\nchannels:\n  - name: orders\n    group: shop\n    kind: queue\n"
+    )
+
+    assert r.channels_written == 1
+    [канал] = _каналы(db, шина)  # один канал, а не заглушка плюс описанный
+    assert (канал.group_name, канал.name, канал.kind, канал.description) == (
+        "shop", "orders", "queue", None)
+    assert _al31(db) == []  # «shop.orders» на связи по-прежнему находит канал
+
+
+def test_сверка_покрытия_не_считает_заглушку_описанием_брокера(db):
+    шина, сервис = _сцена(db)
+    _связь(db, сервис, шина, "task-worker")
+    seed_edge_channel_stubs(db, ensure_project(db).id)  # после импорта C4 заглушка уже есть
+
+    r = _превью(db, _пакет("taskworker", адрес="Шина"))
+
+    # Та же находка Ф8, что и без заглушки: имя на связи и имя в коде расходятся.
+    [w] = _покрытие(r)
+    assert w.startswith("связь «Заказы → Шина» называет канал «task-worker», но его нет ни в пакете")
+    assert "похоже на «taskworker»" in w

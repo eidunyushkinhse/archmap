@@ -292,3 +292,24 @@ async def test_без_склеек_и_безъякорных_лишних_стр
     )
 
     assert "Без якоря" not in out and "по коду" not in out
+
+
+async def test_заглушки_каналов_по_связям_названы_отдельной_строкой(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Импорт C4 заводит брокерам заглушки каналов по channel связей (2026-09-06):
+    агент должен увидеть, сколько их и чем закрыть — пакетом каналов."""
+    api.post(APPLY_PATH, result(channel_stubs=3))
+
+    out = await tools.call(
+        "archmap_import_apply", {"files": [{"name": "a.yaml", "content": "x"}], "name": "Z"}, client
+    )
+
+    assert "заведено по связям схемы: 3 заглушки без описания" in out
+    assert "family=channel" in out
+
+    api.post(APPLY_PATH, result())
+    out = await tools.call(
+        "archmap_import_apply", {"files": [{"name": "a.yaml", "content": "x"}], "name": "Z"}, client
+    )
+    assert "заглуш" not in out

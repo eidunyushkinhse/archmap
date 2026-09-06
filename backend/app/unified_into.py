@@ -34,7 +34,12 @@ from typing import Any
 from sqlalchemy.orm import Session, undefer
 
 from app.archive_export import build_archive_ordered
-from app.channels_import import ChannelIn, apply_channels_plan, build_channels_plan
+from app.channels_import import (
+    ChannelIn,
+    apply_channels_plan,
+    build_channels_plan,
+    seed_edge_channel_stubs,
+)
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
 from app.identity import known_key, source_ref_dict
@@ -539,20 +544,21 @@ def apply_into_plan(
         node_of.append(node)
     db.flush()
 
+    new_edges: list[Edge] = []
     for i in into.new_edges:
         e = merged.edges[i]
-        db.add(
-            Edge(
-                id=uuid.uuid4(),
-                project_id=project.id,
-                source_id=node_of[e.source_idx].id,
-                target_id=node_of[e.target_idx].id,
-                label=e.label,
-                technology=e.technology,
-                channel=e.channel,
-                is_synchronous=e.is_synchronous,
-            )
+        edge = Edge(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            source_id=node_of[e.source_idx].id,
+            target_id=node_of[e.target_idx].id,
+            label=e.label,
+            technology=e.technology,
+            channel=e.channel,
+            is_synchronous=e.is_synchronous,
         )
+        db.add(edge)
+        new_edges.append(edge)
     db.flush()
 
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
@@ -580,6 +586,9 @@ def apply_into_plan(
                             db, nodes, winners, lost, path_of)
     channels_report = _run_family("channel", build_channels_plan, apply_channels_plan,
                                   db, nodes, winners, lost, path_of)
+    # Заглушки каналов — только по СВЯЗЯМ ЭТОЙ ДОГРУЗКИ: живые связи без канала у
+    # брокера — состояние проекта до неё, а догрузка живого не трогает.
+    channel_stubs = seed_edge_channel_stubs(db, project.id, new_edges)
     config_report = _run_family("config", build_config_plan, apply_config_plan,
                                 db, nodes, winners, lost, path_of, policies=(False,))
 
@@ -606,6 +615,7 @@ def apply_into_plan(
         processes=process_results,
         warnings=warnings,
         resolved_conflicts=len(plan.conflicts),
+        channel_stubs=channel_stubs,
         graph_rev=project.graph_rev,
         meta_rev=project.meta_rev,
     )

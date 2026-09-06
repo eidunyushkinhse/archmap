@@ -843,3 +843,26 @@ def test_превью_догрузки_не_числит_несопоставл�
 
     assert превью.ok
     assert превью.nodes_matched == 0 and превью.matched_nodes == []
+
+
+# ── Заглушки каналов по связям догрузки (решение пользователя 2026-09-06) ────
+
+
+def test_догрузка_заводит_заглушки_только_для_своих_новых_связей(db):
+    from app.channels_import import is_edge_stub
+
+    проект, узлы = _ярмарка(db)
+    # Живая связь с неописанным каналом — состояние проекта ДО догрузки: её алерт AL31
+    # остаётся, догрузка живого не трогает и заглушек ему не заводит.
+    _ребро(db, проект, узлы["orders"], узлы["kafka"], label="старая", channel="legacy.topic")
+    донор, д = _донор_ярмарки(db)
+    _ребро(db, донор, д["orders"], д["kafka"], label="публикует", channel="orders.paid")
+    db.commit()
+
+    _, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert (отчёт.edges_created, отчёт.channel_stubs) == (1, 1)
+    каналы = {c.name: c for c in db.query(BrokerChannel).filter(
+        BrokerChannel.node_id == узлы["kafka"].id).all()}
+    assert set(каналы) == {"orders.created", "orders.paid"}  # legacy.topic не заведён
+    assert is_edge_stub(каналы["orders.paid"]) and not is_edge_stub(каналы["orders.created"])

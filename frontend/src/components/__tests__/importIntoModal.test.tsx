@@ -96,6 +96,7 @@ const ОТЧЁТ: IntoApplyOut = {
   processes: [],
   warnings: ["docs/x.mmd: узел «Нет такого» не найден — файл пропущен"],
   resolved_conflicts: 1,
+  channel_stubs: 0,
   graph_rev: 8,
   meta_rev: 12,
 };

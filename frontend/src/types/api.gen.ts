@@ -2212,6 +2212,11 @@ export interface components {
              * @default 0
              */
             resolved_conflicts: number;
+            /**
+             * Channel Stubs
+             * @default 0
+             */
+            channel_stubs: number;
         };
         /**
          * BindResult
@@ -4166,6 +4171,11 @@ export interface components {
              * @default 0
              */
             resolved_conflicts: number;
+            /**
+             * Channel Stubs
+             * @default 0
+             */
+            channel_stubs: number;
             /**
              * Graph Rev
              * @default 0
