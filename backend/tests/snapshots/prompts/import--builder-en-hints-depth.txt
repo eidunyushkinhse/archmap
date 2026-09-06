@@ -75,6 +75,14 @@ nodes:
     technology: Go
     source:
       host: payments
+  - name: catalog
+    role: сервис
+    technology: Python + FastAPI
+    description: Каталог товаров и цены.
+    source:
+      repo: github.com/org/yarmarka
+      path: services/catalog
+      host: catalog
   - name: events
     shape: broker
     role: шина событий
@@ -93,6 +101,10 @@ edges:
   label: пользуется
 - from: storefront
   to: orders
+  label: REST
+  technology: HTTP
+- from: storefront
+  to: catalog
   label: REST
   technology: HTTP
 - from: orders

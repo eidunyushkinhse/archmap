@@ -85,6 +85,35 @@ _EXAMPLE_DOC: dict = {
                 # и сетевое имя, по которому мы к нему ходим, — по нему прогон в
                 # ЕГО репозитории и опознает этот узел.
                 {"name": "payments", "technology": "Go", "source": {"host": "payments"}},
+                # ⚠ Ф3 BYOA, формат-микроправка «тёзки» (2026-09-06): второй свой контейнер
+                # с компонентом «api» — ТЁЗКОЙ orders/api. В Zabbix «poller»/«trapper» живут
+                # и в server, и в proxy, а Haiku писал рёбра от них голым именем — импорт
+                # такие ссылки отклоняет (4 прогона из 5, 23 ребра выброшено). Правило
+                # «неуникальные имена — путём» в промпте было, но пример его не показывал;
+                # пример сильнее правила, поэтому теперь КАЖДОЕ ребро к любому «api» в
+                # примере написано путём «контейнер / api» — и в from, и в to.
+                {
+                    "name": "catalog",
+                    "role": "сервис",
+                    "technology": "Python + FastAPI",
+                    "description": "Каталог товаров и цены.",
+                    "source": {
+                        "repo": "github.com/org/yarmarka",
+                        "path": "services/catalog",
+                        "host": "catalog",
+                    },
+                    "children": [
+                        {
+                            "name": "api",
+                            "role": "компонент",
+                            "description": "HTTP-эндпоинты каталога.",
+                            "source": {
+                                "repo": "github.com/org/yarmarka",
+                                "path": "services/catalog/api",
+                            },
+                        },
+                    ],
+                },
                 {
                     "name": "events",
                     "shape": "broker",
@@ -113,12 +142,13 @@ _EXAMPLE_DOC: dict = {
     # сворачивает концы рёбер на контейнер — пример остаётся валидным на обеих глубинах.
     "edges": [
         {"from": "Покупатель", "to": "storefront", "label": "пользуется"},
-        {"from": "storefront", "to": "api", "label": "REST", "technology": "HTTP"},
-        {"from": "api", "to": "orders-db", "label": "читает и пишет заказы"},
+        {"from": "storefront", "to": "orders / api", "label": "REST", "technology": "HTTP"},
+        {"from": "storefront", "to": "catalog / api", "label": "REST", "technology": "HTTP"},
+        {"from": "orders / api", "to": "orders-db", "label": "читает и пишет заказы"},
         # Связь с брокером НАЗЫВАЕТ канал: без имени топика стрелка «в шину» не
         # отвечает ни на один вопрос сопровождения (что именно там едет).
         {
-            "from": "api",
+            "from": "orders / api",
             "to": "events",
             "label": "публикует события",
             "technology": "Kafka",
@@ -139,11 +169,20 @@ def _example_doc(depth: int = 3) -> dict:
         # Компоненты вырезаются — концы рёбер, висевшие на них, сворачиваются на
         # контейнер-родитель (правка №4: рёбра примера идут от компонентов). Дубли
         # после свёртки схлопываются по (from, to, channel).
+        # Ключ — ссылка, как она написана в ребре: путь «контейнер / компонент» (у тёзок
+        # одно имя на два контейнера, по голому имени сворачивать нельзя) и голое имя
+        # для компонентов, чьё имя в примере единственное.
         parent_of: dict[str, str] = {}
+        names: dict[str, int] = {}
         for root in doc["nodes"]:
             for container in root.get("children", []):
                 for component in container.pop("children", []) or []:
-                    parent_of[component["name"]] = container["name"]
+                    parent_of[f"{container['name']} / {component['name']}"] = container["name"]
+                    names[component["name"]] = names.get(component["name"], 0) + 1
+                    parent_of.setdefault(component["name"], container["name"])
+        for name, count in names.items():
+            if count > 1:
+                parent_of.pop(name, None)
         folded: list[dict] = []
         seen: set[tuple[str, str, str | None]] = set()
         for edge in doc["edges"]:
@@ -191,6 +230,26 @@ def _path_examples(depth: int = 3) -> tuple[str, str]:
     path = _deepest_path(_example_doc(depth)["nodes"])
     tail = path[-2:] if len(path) > 2 else path[-1:]
     return " / ".join(path), " / ".join(tail)
+
+
+def _namesake_examples(depth: int = 3) -> list[str]:
+    """Пути-тёзки примера: узлы с одним именем в разных контейнерах, хвостом
+    «контейнер / имя» — ровно так они и написаны в edges примера. На depth=2 компонентов
+    нет, и тёзок нет — иллюстрация пропадает вместе с ними (пример сильнее правила,
+    поэтому иллюстрация обязана быть в примере, а не выдумана текстом)."""
+    paths: list[tuple[str, ...]] = []
+
+    def walk(nodes: list[dict], prefix: tuple[str, ...]) -> None:
+        for node in nodes:
+            path = (*prefix, node["name"])
+            paths.append(path)
+            walk(node.get("children", []), path)
+
+    walk(_example_doc(depth)["nodes"], ())
+    counts: dict[str, int] = {}
+    for path in paths:
+        counts[path[-1]] = counts.get(path[-1], 0) + 1
+    return [" / ".join(path[-2:]) for path in paths if counts[path[-1]] > 1]
 
 
 _LANG_LINE = {"ru": "русский", "en": "английский (English)"}
@@ -248,9 +307,9 @@ def build_import_prompt(
     # разошлась бы с примером (сентинел «компоненты вырезаны и из примера»).
     edge_from_component = (
         "- ОТ КОМПОНЕНТА, НЕ ОТ КОРОБКИ. Если у контейнера есть children, ребро несёт тот компонент, "
-        "который делает вызов: в примере «api → orders-db» и «billing-worker → payments», "
+        "который делает вызов: в примере «orders / api → orders-db» и «billing-worker → payments», "
         "а не «orders → …». Ни одно ребро примера не выходит из контейнера с children. "
-        "Конец-цель — компонент, принимающий вызов, если он известен («storefront → api»), "
+        "Конец-цель — компонент, принимающий вызов, если он известен («storefront → orders / api»), "
         "иначе сам контейнер.\n"
         if depth >= 3
         else ""
@@ -275,6 +334,14 @@ def build_import_prompt(
     # импорта принимает только ХВОСТ пути, и прогон Haiku отклонялся целиком.
     # Иллюстрация промаха — тоже по примеру, как и сами пути; есть только там, где
     # уровень можно пропустить (depth ≥ 3): на глубине 2 путь примера двухзвенный.
+    namesakes = _namesake_examples(depth)
+    namesake_rule = (
+        "; ТЁЗКИ — одно имя в разных контейнерах — ВСЕГДА путём, и в from, и в to: в примере "
+        f"два «{namesakes[0].split(' / ')[-1]}» — «{namesakes[0]}» и «{namesakes[1]}», и ни одно "
+        "ребро примера не пишет это имя голым"
+        if len(namesakes) >= 2
+        else ""
+    )
     _parts = path_example.split(" / ")
     path_skip_rule = (
         f"; уровни в пути пропускать НЕЛЬЗЯ — «{_parts[0]} / {_parts[-1]}» не найдётся, "
@@ -320,7 +387,7 @@ def build_import_prompt(
 
 ## Формат YAML
 Поля узла: name (обязательное), shape (service | database | broker | person; по умолчанию service), status (existing | planned | deprecated; по умолчанию existing), role (короткая роль: «сервис», «БД», «очередь», «воркер»...), technology («Python + FastAPI», «PostgreSQL»...), external (true только у чужих продуктов), description (1–3 предложения о назначении, не пересказ кода), source (приметы узла, см. раздел выше: repo/path/host), children (вложенные узлы — список ТАКИХ ЖЕ объектов, у каждого своё поле name; список строк вида «children: [api, worker]» невалиден и отклоняется импортом).
-Связи — список edges: from/to (имя узла; если имя в документе встречается не один раз — путь от корня с разделителем « / », например «{path_example}»; достаточно однозначного хвоста пути: «{path_tail}»{path_skip_rule}), label (коротко: «читает», «REST», «публикует события»), technology («HTTP», «Kafka», «gRPC»...).
+Связи — список edges: from/to (имя узла; если имя в документе встречается не один раз — путь от корня с разделителем « / », например «{path_example}»; достаточно однозначного хвоста пути: «{path_tail}»{namesake_rule}{path_skip_rule}), label (коротко: «читает», «REST», «публикует события»), technology («HTTP», «Kafka», «gRPC»...).
 СВЯЗЬ С БРОКЕРОМ НАЗЫВАЕТ КАНАЛ: у ребра, один конец которого shape: broker, добавь поле channel с именем топика/очереди ДОСЛОВНО из кода или конфига — «channel: orders.created» (см. пример). Стрелка «сервис → брокер» — публикация, «брокер → сервис» — доставка подписчику. Одна пара ходит по нескольким топикам — это несколько рёбер, по ребру на канал. Имени канала в коде не нашёл — оставь channel пустым, но связь сохрани.
 shape подбирай по сути: database — всё, что хранит данные (включая поисковые индексы вроде Elasticsearch); broker — только очереди и шины сообщений; прокси, шлюзы и утилиты — service.
 ВАЖНО: ЛЮБОЕ значение, внутри которого есть двоеточие с пробелом («описание: детали»), ОБЯЗАТЕЛЬНО бери в двойные кавычки — это самая частая причина битого YAML. Решётка и кавычки внутри значения — так же в двойные кавычки.

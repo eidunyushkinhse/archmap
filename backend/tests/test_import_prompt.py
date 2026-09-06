@@ -296,7 +296,11 @@ def test_example_carries_source_anchors():
         assert keys["orders"] == ["git:github.com/org/yarmarka#services/orders", "host:orders"]
         assert keys["storefront"] == ["git:github.com/org/yarmarka#frontend"]
         if depth == 3:
-            assert keys["api"] == ["git:github.com/org/yarmarka#services/orders/api"]
+            # «api» в примере два (тёзки orders/api и catalog/api) — у каждого свой path.
+            assert sorted(n.source_keys for n in parsed.nodes if n.name == "api") == [
+                ["git:github.com/org/yarmarka#services/catalog/api"],
+                ["git:github.com/org/yarmarka#services/orders/api"],
+            ]
             assert keys["billing-worker"] == ["git:github.com/org/yarmarka#services/orders/worker"]
         else:
             assert "api" not in keys and "billing-worker" not in keys
@@ -337,7 +341,7 @@ def test_рёбра_примера_от_компонентов_не_от_кор�
                 собрать(n["children"])
 
     собрать(yaml.safe_load(example_yaml(3))["nodes"])
-    assert с_детьми == {"Ярмарка", "orders"}
+    assert с_детьми == {"Ярмарка", "orders", "catalog"}
     assert not any(parsed.nodes[e.source_idx].name in с_детьми for e in parsed.edges)
     parsed2, errors2 = parse_import(example_yaml(2))
     assert errors2 == [] and parsed2 is not None
@@ -394,3 +398,40 @@ def test_правило_path_называет_последствие_правд�
     )
     # Сторож на возвращение прежней (неправдивой) формулировки.
     assert "потеряется вместе со своими детьми" not in text
+
+
+def test_тёзки_примера_всегда_путём_и_правило_иллюстрировано_примером():
+    """Ф3 BYOA, формат-микроправка «тёзки» (2026-09-06): Zabbix держит «poller»/«trapper»
+    и в server, и в proxy, а Haiku писал рёбра от них голым именем — импорт отклонял
+    (4 прогона из 5, 23 ребра). Правило «неуникальные имена — путём» в промпте было, но
+    пример его не показывал. Теперь в примере два «api» в разных контейнерах, ни одно
+    ребро не пишет «api» голым, а строка формата называет обоих тёзок из примера."""
+    doc = yaml.safe_load(example_yaml(3))
+    пути: list[str] = []
+
+    def обойти(nodes: list[dict], prefix: str) -> None:
+        for n in nodes:
+            path = f"{prefix} / {n['name']}" if prefix else n["name"]
+            пути.append(path)
+            обойти(n.get("children", []), path)
+
+    обойти(doc["nodes"], "")
+    assert [p for p in пути if p.endswith(" / api")] == ["Ярмарка / orders / api", "Ярмарка / catalog / api"]
+    ссылки = [e["from"] for e in doc["edges"]] + [e["to"] for e in doc["edges"]]
+    assert "api" not in ссылки
+    assert {"orders / api", "catalog / api"} <= set(ссылки)
+    parsed, errors = parse_import(example_yaml(3))
+    assert errors == [] and parsed is not None  # хвосты путей резолвятся однозначно
+
+    p3 = build_import_prompt("X", depth=3)
+    assert ("ТЁЗКИ — одно имя в разных контейнерах — ВСЕГДА путём, и в from, и в to: в примере "
+            "два «api» — «orders / api» и «catalog / api», и ни одно ребро примера не пишет "
+            "это имя голым") in p3
+    assert "«orders / api → orders-db»" in p3 and "«storefront → orders / api»" in p3
+    # На depth=2 компонентов нет — тёзок нет, и иллюстрация не выдумывается текстом;
+    # рёбра обоих api свёрнуты на СВОИ контейнеры, а не на один.
+    p2 = build_import_prompt("X", depth=2)
+    assert "ТЁЗКИ" not in p2
+    doc2 = yaml.safe_load(example_yaml(2))
+    пары2 = {(e["from"], e["to"]) for e in doc2["edges"]}
+    assert {("storefront", "orders"), ("storefront", "catalog"), ("orders", "orders-db")} <= пары2
