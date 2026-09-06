@@ -92,7 +92,10 @@ def test_связь_с_брокером_называет_канал():
             for e in parsed.edges
             if e.channel
         }
-        assert каналы == {("orders", "events"): "orders.created"}
+        # Правка №4: на depth=3 публикует компонент api, на depth=2 (компоненты
+        # вырезаны) конец ребра свёрнут на контейнер orders.
+        ожидаемый_источник = "api" if depth == 3 else "orders"
+        assert каналы == {(ожидаемый_источник, "events"): "orders.created"}
 
 
 def test_висячие_лечатся_связями_а_не_удалением():
@@ -520,6 +523,45 @@ def test_prompt_explains_source_field():
         assert field in text
     источник = text.split("## Поле source", 1)[1].split("## Формат YAML", 1)[0]
     assert "image" not in источник and "deployment" not in источник
+
+
+def test_рёбра_примера_от_компонентов_не_от_коробки():
+    """Ф3 BYOA, правка №4 (2026-09-05): класс «ребро от коробки» — Haiku вешал до
+    половины концов рёбер на контейнеры с children, потому что так делал пример.
+    На depth=3 ни одно ребро примера не выходит из узла с children; на depth=2
+    концы свёрнуты на контейнеры и пример остаётся валидным. Текст правила —
+    именами примера, чужой иллюстрации «vote» больше нет."""
+    parsed, errors = parse_import(example_yaml(3))
+    assert errors == [] and parsed is not None
+    пары = {(parsed.nodes[e.source_idx].name, parsed.nodes[e.target_idx].name) for e in parsed.edges}
+    assert {("storefront", "api"), ("api", "orders-db"), ("api", "events"), ("billing-worker", "payments")} <= пары
+    с_детьми: set[str] = set()
+
+    def собрать(nodes: list[dict]) -> None:
+        for n in nodes:
+            if n.get("children"):
+                с_детьми.add(n["name"])
+                собрать(n["children"])
+
+    собрать(yaml.safe_load(example_yaml(3))["nodes"])
+    assert с_детьми == {"Ярмарка", "orders"}
+    assert not any(parsed.nodes[e.source_idx].name in с_детьми for e in parsed.edges)
+    parsed2, errors2 = parse_import(example_yaml(2))
+    assert errors2 == [] and parsed2 is not None
+    пары2 = {(parsed2.nodes[e.source_idx].name, parsed2.nodes[e.target_idx].name) for e in parsed2.edges}
+    assert {("storefront", "orders"), ("orders", "orders-db"), ("orders", "events"), ("orders", "payments")} <= пары2
+    p3 = build_import_prompt("X", depth=3)
+    assert "ОТ КОМПОНЕНТА, НЕ ОТ КОРОБКИ" in p3 and "vote" not in p3
+    assert "не «orders → orders-db», а «orders / api → orders-db»" in p3
+    assert "перевешено на лежащий в нём узел, который делает вызов" in p3
+    p2 = build_import_prompt("X", depth=2)
+    assert "ОТ КОМПОНЕНТА, НЕ ОТ КОРОБКИ" not in p2 and "vote" not in p2
+    # Федерация: межпродуктовое ребро тоже от компонента на depth=3 и от контейнера на depth=2.
+    fed3 = parse_import(example_yaml(3, multi_product=True))[0]
+    fed2 = parse_import(example_yaml(2, multi_product=True))[0]
+    assert fed3 is not None and fed2 is not None
+    assert ("api", "delivery") in {(fed3.nodes[e.source_idx].name, fed3.nodes[e.target_idx].name) for e in fed3.edges}
+    assert ("orders", "delivery") in {(fed2.nodes[e.source_idx].name, fed2.nodes[e.target_idx].name) for e in fed2.edges}
 
 
 def test_состав_из_авторитативного_перечня_без_капов():
