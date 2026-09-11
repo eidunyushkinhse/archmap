@@ -325,6 +325,8 @@ def test_пустые_каталоги_не_оставляют_в_промпте
     base = build_docs_prompt(SLICE, include="logic")
 
     assert build_docs_prompt(SLICE, include="logic", table_catalog={}, channel_catalog={}) == base
+    assert build_docs_prompt(SLICE, include="logic", param_catalog={}) == base
+    assert build_docs_prompt(SLICE, include="logic", param_catalog={"Ярмарка / orders": []}) == base
     # Узлы в каталоге есть, а имён у них нет — тот же случай «описывать нечего».
     assert (
         build_docs_prompt(
@@ -543,3 +545,35 @@ def test_промпт_не_путает_семьи_пометок_между_с�
         "Пометки конфигурации: зависит от:",
     ):
         assert заголовок in p, заголовок
+
+
+def test_перечень_параметров_подставлен_в_конвенцию_зависит_от():
+    """Правка №1 замера промпта доков (docs/plan-docs-quality.md, класс K1): базлайн дал
+    0 пометок «зависит от:» у четырёх эталонов из пяти при полном каталоге параметров в
+    проекте. Перечни таблиц и каналов работали (точность 100 %) — у третьей семьи перечня
+    не было. Теперь есть, по тому же образцу, и только по узлам среза."""
+    p = build_docs_prompt(
+        SLICE,
+        include="logic",
+        param_catalog={"Ярмарка / orders": ["RATE_LIMITING", "MAX_MESSAGE_LENGTH"]},
+    )
+    assert "Параметры конфигурации, уже описанные у объектов этого среза" in p
+    assert "- Ярмарка / orders: MAX_MESSAGE_LENGTH, RATE_LIMITING" in p
+    # Перечень — карта развилок, а не только словарь: агенту велено пройти по нему.
+    assert "пройди по перечню и найди, где она срабатывает" in p
+    # Имя вне перечня — ответ дан: ключ конфига дословно, не поле структуры, и сказать вслух.
+    assert "не поле структуры и не переменная кода" in p
+    assert "конфигурация объекта неполна" in p
+    # В окне спеки перечню не место.
+    assert "Параметры конфигурации, уже описанные" not in build_docs_prompt(
+        SLICE, include="api", param_catalog={"Ярмарка / orders": ["RATE_LIMITING"]}
+    )
+
+
+def test_чек_лист_требует_пометку_конфигурации():
+    """Пункты чек-листа про таблицы и каналы соблюдались, про конфигурацию пункта не было —
+    и семья молчала. Пункт добавлен в логический чек-лист; в окне спеки его нет."""
+    p = build_docs_prompt(SLICE, include="logic")
+    assert "есть строка «зависит от:» с именем ДОСЛОВНО из конфига/env" in p
+    assert "пометка стоит в подписи вершины, а не на ребре" in p
+    assert "есть строка «зависит от:»" not in build_docs_prompt(SLICE, include="api")

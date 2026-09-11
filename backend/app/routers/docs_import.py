@@ -56,16 +56,18 @@ router = APIRouter(prefix="/docs-import", tags=["docs-import"])
 
 
 def _name_catalogs(
-    db: Session, project_id: uuid.UUID
-) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Каталоги имён для промпта: «путь узла → таблицы» и «путь узла → каналы».
+    db: Session, project_id: uuid.UUID, slice_ids: set[uuid.UUID] | None = None
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]]:
+    """Каталоги имён для промпта: «путь узла → таблицы», «путь узла → каналы» и «путь
+    узла → параметры конфигурации» (последний — ТОЛЬКО по узлам среза slice_ids: резолв
+    «зависит от:» смотрит на владельца схемы, чужие ручки в перечне были бы ловушкой).
 
     Имя пишется так, как его видит РЕЗОЛВЕР пометок: у таблицы с разделом и у канала
     с группой — «группа.имя». Каталог по всему проекту (а не по срезу node_id):
     пометка адресует любую базу и любой брокер проекта, и урезанный перечень отправил
     бы агента чинить верные имена (находка №1 docs/qa-zulip-brokers.md).
     """
-    tables, channels, _params, node_paths = catalog_for_project(db, project_id)
+    tables, channels, params, node_paths = catalog_for_project(db, project_id)
     table_catalog: dict[str, list[str]] = {}
     for t in tables:
         path = node_paths.get(t.node_id)
@@ -80,7 +82,14 @@ def _name_catalogs(
             channel_catalog.setdefault(path, []).append(
                 f"{c.group_name}.{c.name}" if c.group_name else c.name
             )
-    return table_catalog, channel_catalog
+    param_catalog: dict[str, list[str]] = {}
+    for node_id, names in params.items():
+        if slice_ids is not None and node_id not in slice_ids:
+            continue
+        path = node_paths.get(node_id)
+        if path is not None and names:
+            param_catalog[path] = sorted(names)
+    return table_catalog, channel_catalog, param_catalog
 
 
 def _entry_point_catalogs(
@@ -144,7 +153,7 @@ def docs_prompt(
         nodes = [by_id[i] for i in sub_ids]
         edges = [e for e in edges if e.source_id in sub_ids and e.target_id in sub_ids]
     export_slice = build_export(nodes, edges, root_id=node_id)
-    tables, channels = _name_catalogs(db, project.id)
+    tables, channels, params = _name_catalogs(db, project.id, {n.id for n in nodes})
     described, pending = _entry_point_catalogs(db, nodes)
     return DocsPromptOut(
         prompt=prompt_for_variant(
@@ -152,7 +161,7 @@ def docs_prompt(
             "docs",
             build_docs_prompt(
                 export_slice, include, lang, hints, target, tables, channels,
-                described, pending,
+                described, pending, param_catalog=params,
             ),
         )
     )

@@ -78,6 +78,7 @@ BROKER_PATHS = ["Ярмарка / Шина событий"]
 SERVICE_PATHS = ["Ярмарка / orders", "Ярмарка / billing"]
 TABLE_CATALOG = {"Ярмарка / Каталог-БД": ["orders", "order_items", "catalog.items"]}
 CHANNEL_CATALOG = {"Ярмарка / Шина событий": ["orders.created", "billing.paid"]}
+PARAM_CATALOG = {"Ярмарка / orders": ["ORDERS_TTL", "FEATURE_NEW_CHECKOUT"]}
 EDGE_CHANNELS = {"Ярмарка / Шина событий": ["orders.created"]}
 DESCRIBED = {"Ярмарка / orders": ["GET /orders", "Создание заказа (POST /orders)"]}
 PENDING = {"Ярмарка / orders": ["DELETE /orders/{id}", "email_senders"]}
@@ -138,7 +139,8 @@ CASES: list[Case] = [
           lambda: prompt_for_variant(
               "builder", "docs",
               build_docs_prompt(
-                  SLICE, table_catalog=TABLE_CATALOG, channel_catalog=CHANNEL_CATALOG))),
+                  SLICE, table_catalog=TABLE_CATALOG, channel_catalog=CHANNEL_CATALOG,
+                  param_catalog=PARAM_CATALOG))),
     _case("docs--builder-entry-points", "docs", "builder",
           lambda: prompt_for_variant(
               "builder", "docs",

@@ -146,9 +146,10 @@ def _прямой_доковый(db, project) -> str:
     """Тот же промпт, что собирает ручка: срез схемы + каталоги имён проекта."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    tables, channels = _name_catalogs(db, project.id)
+    tables, channels, params = _name_catalogs(db, project.id, {n.id for n in nodes})
     return build_docs_prompt(
-        build_export(nodes, edges, root_id=None), "both", "ru", None, None, tables, channels
+        build_export(nodes, edges, root_id=None), "both", "ru", None, None, tables, channels,
+        param_catalog=params,
     )
 
 
