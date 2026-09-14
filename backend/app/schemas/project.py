@@ -178,7 +178,11 @@ class ImportPromptOut(BaseModel):
 
 class TemplateNodeOut(BaseModel):
     """Узел стартового шаблона для витрины выбора (GET /projects/templates).
-    x/y всегда заданы — превью в модалке совпадает с раскладкой на холсте."""
+
+    x/y заданы у КАРКАСОВ (их раскладка запечена) — превью в модалке совпадает с
+    раскладкой на холсте. У ПАКЕТНОГО шаблона координат нет: раскладку он не везёт
+    вовсе, её строит движок, и превью считает ту же раскладку тем же ELK
+    (docs/plan-demo-template.md, решение Р3)."""
 
     key: str
     name: str
@@ -186,8 +190,11 @@ class TemplateNodeOut(BaseModel):
     role: str | None = None
     technology: str | None = None
     is_external: bool
-    x: float
-    y: float
+    # Nullable, но ОБЯЗАТЕЛЬНЫЕ: ключи в ответе есть всегда, значение null говорит
+    # «координат нет». С дефолтом генерат делал их optional (x?: number | null), и
+    # фронт получал третий случай undefined, которого в контракте нет.
+    x: float | None
+    y: float | None
 
 
 class TemplateEdgeOut(BaseModel):

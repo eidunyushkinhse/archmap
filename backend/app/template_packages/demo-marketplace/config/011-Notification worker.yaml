@@ -1,0 +1,31 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис уведомлений / Notification worker
+config:
+- name: DATABASE_URL
+  type: string
+  required: true
+  description: Строка подключения к БД уведомлений.
+- name: KAFKA_BROKERS
+  type: string
+  required: true
+  description: Адреса брокеров Kafka через запятую.
+- name: KAFKA_GROUP_ID
+  type: string
+  default: notifications
+  description: Группа консьюмера топика orders.events.
+- name: PROVIDER_API_KEY
+  type: string
+  required: true
+  description: Ключ API провайдера рассылок. Только из секретов.
+- name: RETRY_INTERVAL
+  type: duration
+  default: 5m
+  description: Интервал воркера повторной отправки неудавшихся уведомлений.
+- name: SEND_RETRY_LIMIT
+  type: int
+  default: '3'
+  description: Сколько раз повторять отправку уведомления, прежде чем пометить его
+    проваленным.
+- name: SMS_ENABLED
+  type: bool
+  default: 'true'
+  description: Слать ли SMS вдобавок к письму. Выключается при исчерпании SMS-бюджета.

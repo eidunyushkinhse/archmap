@@ -1,0 +1,126 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис каталога / Catalog API
+openapi: 3.0.3
+info:
+  title: Catalog API
+  version: 2.1.0
+  description: Карточки товаров и категории маркетплейса «Ярмарка».
+paths:
+  /products:
+    post:
+      summary: Опубликовать товар
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+      responses:
+        '201':
+          description: Товар создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '422':
+          description: Ошибки полей карточки
+  /products/{product_id}:
+    get:
+      summary: Карточка товара
+      operationId: getProduct
+      parameters:
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Собранная карточка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Товар не найден или снят с продажи
+    patch:
+      summary: Изменить товар
+      operationId: updateProduct
+      parameters:
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdate'
+      responses:
+        '200':
+          description: Обновлённая карточка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Товар не найден или чужой
+components:
+  schemas:
+    ProductCreate:
+      type: object
+      required: [name, price, stock, category_ids]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          minimum: 0.01
+        stock:
+          type: integer
+          minimum: 0
+        category_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        stock:
+          type: integer
+        is_active:
+          type: boolean
+    Product:
+      type: object
+      required: [id, name, price, stock, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        stock:
+          type: integer
+        is_active:
+          type: boolean
+        categories:
+          type: array
+          items:
+            type: string

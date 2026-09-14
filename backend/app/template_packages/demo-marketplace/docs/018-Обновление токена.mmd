@@ -1,0 +1,11 @@
+%% archmap-name: Обновление токена
+%% archmap-kind: operation
+%% archmap-operation: POST /auth/refresh
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Auth API
+graph TD
+  A["Принять refresh-токен"] --> B["Найти токен по хэшу<br>читает: refresh_tokens"]
+  B --> C{"Токен жив и не отозван?"}
+  C -->|Нет| D["401: пройдите вход заново"]
+  C -->|Да| E["Ротировать refresh-токен<br>пишет: refresh_tokens"]
+  E --> F["Выпустить новый access-токен"]
+  F --> G["200: свежая пара токенов"]

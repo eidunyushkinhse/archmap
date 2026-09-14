@@ -1,0 +1,23 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Auth API
+config:
+- name: ACCESS_TOKEN_TTL
+  type: duration
+  default: 15m
+  description: Время жизни access-токена.
+- name: DATABASE_URL
+  type: string
+  required: true
+  description: Строка подключения к БД пользователей.
+- name: JWT_PRIVATE_KEY
+  type: string
+  required: true
+  description: Приватный ключ подписи JWT. Пара к публичному ключу на API Gateway.
+    Только из секретов.
+- name: REFRESH_TOKEN_TTL
+  type: duration
+  default: 30d
+  description: Время жизни refresh-токена.
+- name: TOKEN_CLEANUP_INTERVAL
+  type: duration
+  default: 1h
+  description: Интервал воркера очистки истёкших refresh-токенов.

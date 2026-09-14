@@ -1,0 +1,59 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис каталога / БД каталога
+tables:
+- name: categories
+  description: Дерево категорий каталога.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: parent_id
+    type: uuid
+    references: categories.id
+    description: Родительская категория. NULL — корень дерева.
+  - name: name
+    type: text
+    required: true
+- name: product_categories
+  description: Привязки товаров к категориям, многие-ко-многим.
+  columns:
+  - name: product_id
+    type: uuid
+    pk: true
+    references: products.id
+  - name: category_id
+    type: uuid
+    pk: true
+    references: categories.id
+- name: products
+  description: Карточки товаров продавцов.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: seller_id
+    type: uuid
+    required: true
+    description: Продавец-владелец карточки (учётная запись живёт в БД пользователей).
+  - name: name
+    type: text
+    required: true
+  - name: description
+    type: text
+  - name: price
+    type: numeric(12,2)
+    required: true
+    description: Текущая цена. В заказ копируется на момент оформления.
+  - name: stock
+    type: integer
+    required: true
+    description: Остаток на складе продавца.
+  - name: is_active
+    type: boolean
+    required: true
+    description: Снятый с продажи товар остаётся в БД, но уходит из выдачи и индекса.
+  - name: created_at
+    type: timestamptz
+    required: true
+  - name: updated_at
+    type: timestamptz
+    required: true

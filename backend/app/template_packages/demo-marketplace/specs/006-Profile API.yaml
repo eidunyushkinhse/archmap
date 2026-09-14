@@ -1,0 +1,62 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Profile API
+openapi: 3.0.3
+info:
+  title: Profile API
+  version: 1.0.3
+  description: Профиль покупателя и адреса доставки маркетплейса «Ярмарка».
+paths:
+  /profile:
+    get:
+      summary: Профиль покупателя
+      operationId: getProfile
+      responses:
+        '200':
+          description: Профиль с адресами
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+  /profile/addresses:
+    put:
+      summary: Сохранить адреса доставки
+      operationId: putAddresses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/Address'
+      responses:
+        '200':
+          description: Сохранённые адреса
+        '422':
+          description: Ошибки полей адреса
+components:
+  schemas:
+    Profile:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/Address'
+    Address:
+      type: object
+      required: [city, street]
+      properties:
+        city:
+          type: string
+        street:
+          type: string
+        postal_code:
+          type: string
+        is_default:
+          type: boolean

@@ -1,0 +1,84 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Auth API
+openapi: 3.0.3
+info:
+  title: Auth API
+  version: 1.2.0
+  description: Регистрация, вход и обслуживание токенов маркетплейса «Ярмарка».
+paths:
+  /auth/register:
+    post:
+      summary: Регистрация
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '201':
+          description: Учётная запись создана
+        '409':
+          description: Email уже занят
+  /auth/login:
+    post:
+      summary: Вход
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: Пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          description: Неверная пара логин-пароль
+  /auth/refresh:
+    post:
+      summary: Обновление токена
+      operationId: refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Свежая пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          description: Токен истёк или отозван
+components:
+  schemas:
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string

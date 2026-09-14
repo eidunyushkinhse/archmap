@@ -1,0 +1,65 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / БД пользователей
+tables:
+- name: addresses
+  description: Адреса доставки покупателя.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: user_id
+    type: uuid
+    required: true
+    references: users.id
+  - name: city
+    type: text
+    required: true
+  - name: street
+    type: text
+    required: true
+  - name: postal_code
+    type: text
+  - name: is_default
+    type: boolean
+    required: true
+    description: Дефолтный адрес подставляется в оформление заказа. У пользователя
+      он ровно один.
+- name: refresh_tokens
+  description: Живые refresh-токены. Истёкшие вычищает воркер Auth API.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: user_id
+    type: uuid
+    required: true
+    references: users.id
+  - name: token_hash
+    type: text
+    required: true
+    description: Хэш токена — сам токен в БД не хранится.
+  - name: expires_at
+    type: timestamptz
+    required: true
+  - name: created_at
+    type: timestamptz
+    required: true
+- name: users
+  description: Учётные записи покупателей и продавцов.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: email
+    type: text
+    required: true
+    description: Уникальный. Логин при входе.
+  - name: password_hash
+    type: text
+    required: true
+    description: bcrypt-хэш пароля.
+  - name: phone
+    type: text
+    description: Телефон для SMS-уведомлений.
+  - name: created_at
+    type: timestamptz
+    required: true

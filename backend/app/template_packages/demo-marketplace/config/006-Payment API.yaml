@@ -1,0 +1,27 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис оплаты / Payment API
+config:
+- name: ANTIFRAUD_URL
+  type: string
+  required: true
+  description: Адрес gRPC-сервиса антифрода.
+- name: DATABASE_URL
+  type: string
+  required: true
+  description: Строка подключения к БД платежей.
+- name: KAFKA_BROKERS
+  type: string
+  required: true
+  description: Адреса брокеров Kafka через запятую.
+- name: PAYMENT_CONFIRM_TIMEOUT
+  type: duration
+  default: 15m
+  description: Срок жизни счёта в ЮKassa — сколько ждём оплату, прежде чем счёт истечёт.
+- name: YOOKASSA_SECRET_KEY
+  type: string
+  required: true
+  description: Секретный ключ магазина в ЮKassa. Только из секретов, в код и логи
+    не попадает.
+- name: YOOKASSA_SHOP_ID
+  type: string
+  required: true
+  description: Идентификатор магазина в ЮKassa.

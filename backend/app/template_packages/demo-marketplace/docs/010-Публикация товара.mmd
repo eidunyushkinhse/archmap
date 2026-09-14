@@ -1,0 +1,11 @@
+%% archmap-name: Публикация товара
+%% archmap-kind: operation
+%% archmap-operation: POST /products
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис каталога / Catalog API
+graph TD
+  A["Принять карточку от продавца"] --> B["Провалидировать поля<br>цена и остаток неотрицательные"]
+  B --> C{"Карточка валидна?"}
+  C -->|Нет| D["422: ошибки полей"]
+  C -->|Да| E["Сохранить товар и привязки категорий<br>пишет: products, product_categories"]
+  E --> F["Опубликовать событие изменения<br>публикует: catalog.product-events"]
+  F --> G["201: id товара"]

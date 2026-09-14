@@ -1,0 +1,23 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис каталога / Индексатор товаров
+config:
+- name: BULK_BATCH_SIZE
+  type: int
+  default: '500'
+  description: Размер батча документов для Bulk API — при накоплении батч уходит в
+    индекс.
+- name: BULK_FLUSH_INTERVAL
+  type: duration
+  default: 5s
+  description: Максимум ожидания перед отправкой неполного батча.
+- name: ELASTIC_URL
+  type: string
+  required: true
+  description: Адрес кластера Elasticsearch.
+- name: KAFKA_BROKERS
+  type: string
+  required: true
+  description: Адреса брокеров Kafka через запятую.
+- name: KAFKA_GROUP_ID
+  type: string
+  default: catalog-indexer
+  description: Группа консьюмера топика catalog.product-events.

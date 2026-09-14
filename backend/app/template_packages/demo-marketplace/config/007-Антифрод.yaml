@@ -1,0 +1,15 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис оплаты / Антифрод
+config:
+- name: MODEL_PATH
+  type: string
+  default: /models/fraud-v3.onnx
+  description: Путь к ONNX-модели скоринга. Модель обновляется выкаткой нового образа.
+- name: RULES_PATH
+  type: string
+  default: /etc/antifraud/rules.yaml
+  description: Путь к файлу жёстких правил. Сработавшее жёсткое правило даёт вердикт
+    без модели.
+- name: SCORE_THRESHOLD
+  type: float
+  default: '0.85'
+  description: Порог скора модели — выше порога транзакция считается подозрительной.

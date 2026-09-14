@@ -1,0 +1,12 @@
+%% archmap-name: Изменение товара
+%% archmap-kind: operation
+%% archmap-operation: PATCH /products/{product_id}
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис каталога / Catalog API
+graph TD
+  A["Принять правку карточки"] --> B["Найти товар продавца<br>читает: products"]
+  B --> C{"Товар найден<br>и принадлежит продавцу?"}
+  C -->|Нет| D["404 Not Found"]
+  C -->|Да| E["Применить изменённые поля<br>пишет: products"]
+  E --> F["Сбросить кэш карточки"]
+  F --> G["Опубликовать событие изменения<br>публикует: catalog.product-events"]
+  G --> H["200: обновлённая карточка"]

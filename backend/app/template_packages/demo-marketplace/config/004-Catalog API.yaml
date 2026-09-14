@@ -1,0 +1,18 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис каталога / Catalog API
+config:
+- name: CACHE_TTL
+  type: duration
+  default: 15m
+  description: Время жизни карточки товара в кэше Redis.
+- name: DATABASE_URL
+  type: string
+  required: true
+  description: Строка подключения к БД каталога.
+- name: KAFKA_BROKERS
+  type: string
+  required: true
+  description: Адреса брокеров Kafka через запятую.
+- name: REDIS_URL
+  type: string
+  required: true
+  description: Адрес кэша каталога.

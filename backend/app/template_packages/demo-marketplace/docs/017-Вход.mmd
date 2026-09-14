@@ -1,0 +1,11 @@
+%% archmap-name: Вход
+%% archmap-kind: operation
+%% archmap-operation: POST /auth/login
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Auth API
+graph TD
+  A["Принять email и пароль"] --> B["Найти учётную запись<br>читает: users"]
+  B --> C{"Пароль сходится с хэшем?"}
+  C -->|Нет| D["401: неверная пара логин-пароль"]
+  C -->|Да| E["Выпустить access-токен<br>зависит от: ACCESS_TOKEN_TTL"]
+  E --> F["Выпустить и сохранить refresh-токен<br>пишет: refresh_tokens<br>зависит от: REFRESH_TOKEN_TTL"]
+  F --> G["200: пара токенов"]

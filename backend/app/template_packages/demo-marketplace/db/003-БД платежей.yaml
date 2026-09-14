@@ -1,0 +1,57 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис оплаты / БД платежей
+tables:
+- name: fraud_checks
+  description: Вердикты антифрод-проверок. Пишутся при обработке вебхука, сам антифрод
+    состояния не хранит.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: payment_id
+    type: uuid
+    required: true
+    references: payments.id
+  - name: verdict
+    type: text
+    required: true
+    description: чистая | подозрительная.
+  - name: score
+    type: numeric(4,3)
+    description: Скор ML-модели от 0 до 1. NULL, если вердикт дало жёсткое правило.
+  - name: rules_fired
+    type: jsonb
+    description: Список сработавших правил.
+  - name: checked_at
+    type: timestamptz
+    required: true
+- name: payments
+  description: Платежи по заказам. Один заказ может иметь несколько попыток оплаты.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: order_id
+    type: uuid
+    required: true
+    description: Заказ из БД заказов. Межсервисная ссылка, FK нет намеренно.
+  - name: amount
+    type: numeric(12,2)
+    required: true
+  - name: status
+    type: text
+    required: true
+    description: 'Жизненный цикл: ожидает | оплачен | на ручной проверке | ошибка
+      | возвращён.'
+  - name: provider_payment_id
+    type: text
+    description: Идентификатор платежа на стороне ЮKassa. По нему находится платёж
+      при вебхуке.
+  - name: confirmation_url
+    type: text
+    description: Ссылка на страницу оплаты шлюза, по которой уходит покупатель.
+  - name: created_at
+    type: timestamptz
+    required: true
+  - name: updated_at
+    type: timestamptz
+    required: true

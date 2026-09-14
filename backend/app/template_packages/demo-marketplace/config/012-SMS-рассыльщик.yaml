@@ -1,0 +1,20 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис уведомлений / SMS-рассыльщик
+config:
+- name: PROVIDER_API_KEY
+  type: string
+  required: true
+  description: 'Ключ API провайдера рассылок для legacy-отправки. Отдельная запись
+    у воркера: ключ свой, не тот, которым пользуется Notification worker.'
+- name: SMS_BATCH_SIZE
+  type: int
+  default: '100'
+  description: Сколько уведомлений воркер берёт из журнала за один цикл.
+- name: SMS_DRY_RUN
+  type: bool
+  default: 'false'
+  description: 'Прогон без отправки: воркер только помечает журнал, провайдера не
+    зовёт. Оставлен на время вывода из эксплуатации.'
+- name: SMS_POLL_INTERVAL
+  type: duration
+  default: 1m
+  description: Как часто воркер просыпается и вычитывает очередь SMS из журнала.

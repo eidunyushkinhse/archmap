@@ -1,0 +1,10 @@
+%% archmap-name: Получение заказа
+%% archmap-kind: operation
+%% archmap-operation: GET /orders/{order_id}
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Order API
+graph TD
+  A["Принять номер заказа"] --> B["Найти заказ владельца<br>читает: orders"]
+  B --> C{"Заказ найден<br>и принадлежит покупателю?"}
+  C -->|Нет| D["404 Not Found"]
+  C -->|Да| E["Собрать позиции заказа<br>читает: order_items"]
+  E --> F["200: заказ со статусом и позициями"]

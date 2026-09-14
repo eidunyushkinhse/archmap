@@ -1,0 +1,6 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Profile API
+config:
+- name: DATABASE_URL
+  type: string
+  required: true
+  description: Строка подключения к БД пользователей.

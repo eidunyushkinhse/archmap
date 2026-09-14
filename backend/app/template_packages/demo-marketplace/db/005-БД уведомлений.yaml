@@ -1,0 +1,52 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис уведомлений / БД уведомлений
+tables:
+- name: notifications
+  description: Журнал отправки уведомлений. По нему воркер повторяет неудавшиеся отправки.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: user_id
+    type: uuid
+    required: true
+    description: Получатель (учётная запись живёт в БД пользователей).
+  - name: template_code
+    type: text
+    required: true
+    description: Код использованного шаблона.
+  - name: status
+    type: text
+    required: true
+    description: в очереди | отправлено | провалено.
+  - name: attempts
+    type: integer
+    required: true
+    description: Число попыток отправки.
+  - name: sent_at
+    type: timestamptz
+    description: Момент успешной отправки. NULL, пока уведомление не ушло.
+- name: templates
+  description: Шаблоны писем и SMS по типам событий.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: code
+    type: text
+    required: true
+    description: 'Код шаблона, совпадает с типом события: order.paid, order.cancelled
+      и т.д. Уникальный.'
+  - name: channel
+    type: text
+    required: true
+    description: email | sms.
+  - name: subject
+    type: text
+    description: Тема письма. Для SMS не используется.
+  - name: body
+    type: text
+    required: true
+    description: Тело с плейсхолдерами данных заказа.
+  - name: updated_at
+    type: timestamptz
+    required: true

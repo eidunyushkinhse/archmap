@@ -1,0 +1,69 @@
+archmap-archive: 1
+project:
+  name: Маркетплейс «Ярмарка» v2
+  description: 'Эталонный демо-проект: полное C4 с якорями источников, схемы логики
+    операций и воркеров, структура БД, каналы брокера, конфигурация, спеки OpenAPI
+    и бизнес-процессы с привязками шагов.'
+contents:
+  c4: c4.yaml
+  docs:
+  - docs/001-Маршрутизация запроса.mmd
+  - docs/002-Кабинет продавца_ публикация товара.mmd
+  - docs/003-Оформление заказа на витрине.mmd
+  - docs/004-Автоотмена неоплаченных заказов.mmd
+  - docs/005-Получение заказа.mmd
+  - docs/006-Создание заказа.mmd
+  - docs/007-Сага заказа.mmd
+  - docs/008-Изменение товара.mmd
+  - docs/009-Карточка товара.mmd
+  - docs/010-Публикация товара.mmd
+  - docs/011-Индексация товаров.mmd
+  - docs/012-Вебхук статуса платежа.mmd
+  - docs/013-Выставление счёта.mmd
+  - docs/014-Статус платежа.mmd
+  - docs/015-Скоринг транзакции.mmd
+  - docs/016-Поиск товаров.mmd
+  - docs/017-Вход.mmd
+  - docs/018-Обновление токена.mmd
+  - docs/019-Очистка истёкших токенов.mmd
+  - docs/020-Регистрация.mmd
+  - docs/021-Адреса доставки.mmd
+  - docs/022-Профиль покупателя.mmd
+  - docs/023-Отправка уведомлений.mmd
+  - docs/024-Повторная отправка.mmd
+  - docs/025-Разбор очереди SMS.mmd
+  db:
+  - db/001-БД заказов.yaml
+  - db/002-БД каталога.yaml
+  - db/003-БД платежей.yaml
+  - db/004-БД пользователей.yaml
+  - db/005-БД уведомлений.yaml
+  channels:
+  - channels/001-Kafka.yaml
+  config:
+  - config/001-API Gateway.yaml
+  - config/002-Order API.yaml
+  - config/003-Оркестратор заказа.yaml
+  - config/004-Catalog API.yaml
+  - config/005-Индексатор товаров.yaml
+  - config/006-Payment API.yaml
+  - config/007-Антифрод.yaml
+  - config/008-Search API.yaml
+  - config/009-Auth API.yaml
+  - config/010-Profile API.yaml
+  - config/011-Notification worker.yaml
+  - config/012-SMS-рассыльщик.yaml
+  specs:
+  - specs/001-Order API.yaml
+  - specs/002-Catalog API.yaml
+  - specs/003-Payment API.yaml
+  - specs/004-Search API.yaml
+  - specs/005-Auth API.yaml
+  - specs/006-Profile API.yaml
+  processes:
+  - file: processes/001-Исполнение оплаченного заказа.mmd
+    name: Исполнение оплаченного заказа
+  - file: processes/002-Оплата заказа.mmd
+    name: Оплата заказа
+  - file: processes/003-Оформление заказа.mmd
+    name: Оформление заказа

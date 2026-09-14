@@ -1,0 +1,89 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Order API
+openapi: 3.0.3
+info:
+  title: Order API
+  version: 1.4.0
+  description: Приём и хранение заказов маркетплейса «Ярмарка».
+paths:
+  /orders:
+    post:
+      summary: Создать заказ
+      operationId: createOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreate'
+      responses:
+        '201':
+          description: Заказ создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '422':
+          description: Ошибки валидации (в т.ч. превышен лимит позиций)
+  /orders/{order_id}:
+    get:
+      summary: Получить заказ
+      operationId: getOrder
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Заказ со статусом и позициями
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: Заказ не найден или чужой
+components:
+  schemas:
+    OrderCreate:
+      type: object
+      required: [items, delivery_address]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemCreate'
+        delivery_address:
+          type: string
+    OrderItemCreate:
+      type: object
+      required: [product_id, quantity, price]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+        price:
+          type: number
+    Order:
+      type: object
+      required: [id, status, total_amount, items]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [новый, оплачен, в доставке, доставлен, отменён]
+        total_amount:
+          type: number
+        tracking_number:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemCreate'

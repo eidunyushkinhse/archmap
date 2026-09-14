@@ -113,19 +113,24 @@ def test_all_templates_seed_and_match_catalog(db):
 
 
 def test_templates_catalog_serializes():
-    """Каталог витрины проходит контракт TemplateOut: 6 шаблонов, у каждого узла
-    валидная форма и обязательные координаты (превью = раскладка холста)."""
+    """Каталог витрины проходит контракт TemplateOut: 6 каркасов с обязательными
+    координатами (превью = раскладка холста) и пакетные шаблоны ЗА ними — у тех
+    координат нет, раскладку они не везут (docs/plan-demo-template.md, Р3).
+    Содержание пакетных шаблонов сторожит tests/test_template_package.py."""
     from app.schemas.project import TemplateOut
-    from app.templates import list_templates
+    from app.templates import list_templates, package_ids
 
     catalog = [TemplateOut.model_validate(t) for t in list_templates()]
     assert [t.id for t in catalog] == [
         "monolith", "webapp", "microservices", "eventdriven", "serverless", "cqrs",
+        *package_ids(),
     ]
     for t in catalog:
         keys = {n.key for n in t.nodes}
         assert t.tagline and t.blurb and t.techs
         assert all(e.source in keys and e.target in keys for e in t.edges)
+        координаты_заданы = all(n.x is not None and n.y is not None for n in t.nodes)
+        assert координаты_заданы is (t.id not in package_ids()), t.id
 
 
 def test_create_unknown_template_404(db):

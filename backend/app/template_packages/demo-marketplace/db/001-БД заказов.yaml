@@ -1,0 +1,83 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / БД заказов
+tables:
+- name: order_items
+  description: Позиции заказа с ценой, зафиксированной на момент оформления.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: order_id
+    type: uuid
+    required: true
+    references: orders.id
+  - name: product_id
+    type: uuid
+    required: true
+    description: Товар из БД каталога. Межсервисная ссылка, FK нет намеренно.
+  - name: quantity
+    type: integer
+    required: true
+  - name: price
+    type: numeric(12,2)
+    required: true
+    description: Цена за единицу на момент оформления — от последующих правок каталога
+      не меняется.
+- name: order_saga
+  description: Журнал шагов саги исполнения заказа. Пишет только оркестратор.
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: order_id
+    type: uuid
+    required: true
+    references: orders.id
+  - name: step
+    type: text
+    required: true
+    description: 'Шаг саги: ожидает оплату | счёт выставлен | отправление создано
+      | закрыта.'
+  - name: status
+    type: text
+    required: true
+    description: 'Итог шага: выполнен | повтор | провален.'
+  - name: attempts
+    type: integer
+    required: true
+    description: Сколько раз шаг выполнялся. Растёт при ретраях.
+  - name: updated_at
+    type: timestamptz
+    required: true
+- name: orders
+  description: Заказы покупателей. Статус ведёт жизненный цикл от «новый» до «доставлен»
+    или «отменён».
+  columns:
+  - name: id
+    type: uuid
+    pk: true
+  - name: user_id
+    type: uuid
+    required: true
+    description: Покупатель, оформивший заказ (учётная запись живёт в БД пользователей).
+  - name: status
+    type: text
+    required: true
+    description: 'Жизненный цикл: новый | оплачен | в доставке | доставлен | отменён.'
+  - name: total_amount
+    type: numeric(12,2)
+    required: true
+    description: Итоговая сумма заказа в рублях, зафиксированная на момент оформления.
+  - name: delivery_address
+    type: text
+    required: true
+    description: Адрес доставки, скопированный из профиля при оформлении.
+  - name: tracking_number
+    type: text
+    description: Трек-номер отправления. Появляется после создания отправления в службе
+      доставки.
+  - name: created_at
+    type: timestamptz
+    required: true
+  - name: updated_at
+    type: timestamptz
+    required: true

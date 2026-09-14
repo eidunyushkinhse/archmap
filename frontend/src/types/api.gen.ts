@@ -53,7 +53,8 @@ export interface paths {
         put?: never;
         /**
          * Create Project
-         * @description Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
+         * @description Создать проект. start: "blank" — пусто; "template:<id>" — шаблон (каркас
+         *     либо ПАКЕТНЫЙ шаблон — готовый проект с процессами, логикой, спеками и фактами);
          *     "copy:<projectId>" — глубокая копия схемы другого проекта.
          *
          *     Ввоз схемы из файлов сюда не ходит: у него единый путь /projects/import-unified
@@ -5503,7 +5504,11 @@ export interface components {
         /**
          * TemplateNodeOut
          * @description Узел стартового шаблона для витрины выбора (GET /projects/templates).
-         *     x/y всегда заданы — превью в модалке совпадает с раскладкой на холсте.
+         *
+         *     x/y заданы у КАРКАСОВ (их раскладка запечена) — превью в модалке совпадает с
+         *     раскладкой на холсте. У ПАКЕТНОГО шаблона координат нет: раскладку он не везёт
+         *     вовсе, её строит движок, и превью считает ту же раскладку тем же ELK
+         *     (docs/plan-demo-template.md, решение Р3).
          */
         TemplateNodeOut: {
             /** Key */
@@ -5522,9 +5527,9 @@ export interface components {
             /** Is External */
             is_external: boolean;
             /** X */
-            x: number;
+            x: number | null;
             /** Y */
-            y: number;
+            y: number | null;
         };
         /**
          * TemplateOut

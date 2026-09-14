@@ -1,0 +1,53 @@
+# archmap-node: Маркетплейс «Ярмарка» / Kafka
+channels:
+- name: catalog.product-events
+  kind: topic
+  partition_key: product_id
+  delivery: at-least-once
+  retention: 3 дня
+  description: События изменения карточек товаров. Публикует Catalog API, потребляет
+    индексатор поиска.
+  fields:
+  - name: event_id
+    type: uuid
+    required: true
+  - name: event_type
+    type: string
+    required: true
+    description: product.created | product.updated | product.deactivated.
+  - name: product_id
+    type: uuid
+    required: true
+  - name: occurred_at
+    type: timestamp
+    required: true
+  - name: payload
+    type: json
+    description: Карточка товара целиком — индексатор строит документ индекса без
+      похода в БД каталога.
+- name: orders.events
+  kind: topic
+  partition_key: order_id
+  delivery: at-least-once
+  retention: 7 дней
+  description: События жизненного цикла заказа единым конвертом. Публикуют Order API
+    и Payment API, потребляют оркестратор саги и воркер уведомлений.
+  fields:
+  - name: event_id
+    type: uuid
+    required: true
+    description: Идентификатор события для дедупликации у консьюмеров.
+  - name: event_type
+    type: string
+    required: true
+    description: order.created | order.paid | order.cancelled.
+  - name: order_id
+    type: uuid
+    required: true
+  - name: occurred_at
+    type: timestamp
+    required: true
+  - name: payload
+    type: json
+    description: 'Данные события: сумма, покупатель, позиции — чтобы консьюмеры не
+      ходили в чужие БД.'

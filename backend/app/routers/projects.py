@@ -58,7 +58,12 @@ from app.schemas.unified_import import IntoApplyOut, IntoPreviewOut, UnifiedPrev
 from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, build_sync_plan
-from app.templates import list_templates, seed_template
+from app.templates import (
+    is_package_template,
+    list_templates,
+    seed_package_template,
+    seed_template,
+)
 from app.unified_apply import apply_unified_plan
 from app.unified_import import UnifiedImportError, build_unified_plan, preview_from_plan
 from app.unified_into import apply_into_plan, build_into_plan, into_preview
@@ -586,11 +591,27 @@ def create_project(
     db: Session = Depends(get_db),
     user: User = Depends(require_architect),
 ) -> ProjectResponse:
-    """Создать проект. start: "blank" — пусто; "template:<id>" — каркас из шаблона;
+    """Создать проект. start: "blank" — пусто; "template:<id>" — шаблон (каркас
+    либо ПАКЕТНЫЙ шаблон — готовый проект с процессами, логикой, спеками и фактами);
     "copy:<projectId>" — глубокая копия схемы другого проекта.
 
     Ввоз схемы из файлов сюда не ходит: у него единый путь /projects/import-unified
     (multipart, YAML и архивы вперемешку)."""
+    start = payload.start or "blank"
+    template_id = start.split(":", 1)[1] if start.startswith("template:") else None
+
+    # ПАКЕТНЫЙ шаблон создаёт проект САМ — его сеет единый импорт (тот же приёмник,
+    # что у ввоза архива пользователем). Пустой Project заранее не заводим: при
+    # отказе ввоза он остался бы сиротой в списке проектов.
+    if template_id is not None and is_package_template(template_id):
+        seeded = seed_package_template(db, template_id, payload.name, payload.description, user.id)
+        if seeded is None:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+        db.commit()
+        db.refresh(seeded)
+        nc, ec = _counts(db, [seeded.id])
+        return _to_response(seeded, nc, ec, _users_map(db, [seeded]), _previews(db, [seeded.id]))
+
     project = Project(
         id=uuid.uuid4(),
         name=payload.name,
@@ -601,11 +622,10 @@ def create_project(
     db.add(project)
     db.flush()  # нужен project.id для сидинга/копии
 
-    start = payload.start or "blank"
     if start == "blank":
         pass
-    elif start.startswith("template:"):
-        if not seed_template(db, project.id, start.split(":", 1)[1]):
+    elif template_id is not None:
+        if not seed_template(db, project.id, template_id):
             raise HTTPException(status_code=404, detail="Шаблон не найден")
     elif start.startswith("copy:"):
         try:

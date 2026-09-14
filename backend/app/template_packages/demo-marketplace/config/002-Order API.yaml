@@ -1,0 +1,18 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Order API
+config:
+- name: DATABASE_URL
+  type: string
+  required: true
+  description: Строка подключения к БД заказов.
+- name: KAFKA_BROKERS
+  type: string
+  required: true
+  description: Адреса брокеров Kafka через запятую.
+- name: MAX_ITEMS_PER_ORDER
+  type: int
+  default: '100'
+  description: Предел числа позиций в одном заказе. Сверх предела — 422 при создании.
+- name: ORDER_PENDING_TTL
+  type: duration
+  default: 30m
+  description: Сколько заказ в статусе «новый» ждёт оплаты до автоотмены воркером.

@@ -1,0 +1,388 @@
+nodes:
+- name: Маркетплейс «Ярмарка»
+  shape: service
+  role: система
+  description: 'Онлайн-маркетплейс: витрина, каталог товаров, заказы, оплата, поиск и уведомления. Продавцы публикуют товары, покупатели оформляют и оплачивают заказы.'
+  children:
+  - name: API Gateway
+    shape: service
+    role: шлюз
+    technology: Kong
+    description: 'Единая точка входа: маршрутизация к сервисам, проверка JWT, ограничение частоты запросов.'
+  - name: Kafka
+    shape: broker
+    role: шина событий
+    technology: Apache Kafka
+    description: Асинхронный обмен событиями между сервисами. Несёт события жизненного цикла заказа и изменения каталога.
+  - name: Веб-витрина
+    shape: service
+    role: SPA
+    technology: React
+    description: 'Витрина маркетплейса в браузере: каталог, корзина, оформление заказа, кабинет продавца.'
+    source:
+      repo: github.com/yarmarka/storefront-web
+  - name: Мобильное приложение
+    shape: service
+    role: клиент
+    technology: iOS/Android
+    description: Мобильный клиент покупателя. Ходит в тот же API Gateway, что и веб-витрина.
+    source:
+      repo: github.com/yarmarka/mobile-app
+  - name: Сервис заказов
+    shape: service
+    role: сервис
+    description: 'Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.'
+    children:
+    - name: Order API
+      shape: service
+      role: сервис
+      technology: Python/FastAPI
+      description: Принимает и хранит заказы, отдаёт их состав и статус, публикует события жизненного цикла заказа.
+      source:
+        repo: github.com/yarmarka/orders
+        path: services/order-api
+    - name: БД заказов
+      shape: database
+      role: база данных
+      technology: PostgreSQL
+      description: Заказы, их позиции и журнал саги исполнения.
+    - name: Оркестратор заказа
+      shape: service
+      role: воркер (сага)
+      technology: Python
+      description: 'Ведёт сагу заказа по событиям: выставляет счёт после создания, создаёт отправление после оплаты, ретраит упавшие шаги.'
+      source:
+        repo: github.com/yarmarka/orders
+        path: services/order-saga
+  - name: Сервис каталога
+    shape: service
+    role: сервис
+    description: 'Домен товара: карточки, категории, кэш и поток событий изменений для поискового индекса.'
+    children:
+    - name: Catalog API
+      shape: service
+      role: сервис
+      technology: Python/FastAPI
+      description: Карточки товаров и категории. Пишет изменения в БД, кэширует карточки, публикует события изменений.
+      source:
+        repo: github.com/yarmarka/catalog
+        path: services/catalog-api
+    - name: БД каталога
+      shape: database
+      role: база данных
+      technology: PostgreSQL
+      description: Товары, категории и их привязки.
+    - name: Индексатор товаров
+      shape: service
+      role: воркер
+      technology: Python
+      description: Слушает события изменения товаров и пакетно обновляет поисковый индекс.
+      source:
+        repo: github.com/yarmarka/catalog
+        path: services/product-indexer
+    - name: Кэш каталога
+      shape: database
+      role: кэш
+      technology: Redis
+      description: Кэш собранных карточек товара. Сбрасывается при изменении товара.
+  - name: Сервис оплаты
+    shape: service
+    role: сервис
+    description: 'Домен оплаты: счета, проведение платежей через внешний шлюз, антифрод-скоринг.'
+    children:
+    - name: Payment API
+      shape: service
+      role: сервис
+      technology: Java/Spring
+      description: Выставляет счета, проводит платежи через ЮKassa, принимает вебхуки статуса, хранит платежи и вердикты антифрода.
+      source:
+        repo: github.com/yarmarka/payments
+        path: services/payment-api
+    - name: Антифрод
+      shape: service
+      role: сервис
+      technology: Python
+      description: Скоринг транзакций по правилам и ML-модели. Без своего состояния — правила и модель приезжают конфигурацией.
+      source:
+        repo: github.com/yarmarka/payments
+        path: services/antifraud
+    - name: БД платежей
+      shape: database
+      role: база данных
+      technology: PostgreSQL
+      description: Платежи и результаты антифрод-проверок.
+  - name: Сервис поиска
+    shape: service
+    role: сервис
+    description: 'Домен поиска: полнотекстовый индекс товаров и API поисковых запросов.'
+    children:
+    - name: Elasticsearch
+      shape: database
+      role: поисковый индекс
+      technology: Elasticsearch
+      description: Полнотекстовый индекс карточек товаров. Наполняется индексатором, читается Search API.
+    - name: Search API
+      shape: service
+      role: сервис
+      technology: Go
+      description: Поиск товаров по индексу с фильтрами и ранжированием.
+      source:
+        repo: github.com/yarmarka/search
+        path: services/search-api
+  - name: Сервис пользователей
+    shape: service
+    role: сервис
+    description: 'Домен пользователя: учётные записи, вход и токены, профиль и адреса доставки.'
+    children:
+    - name: Auth API
+      shape: service
+      role: сервис
+      technology: Python/FastAPI
+      description: Регистрация, вход, выпуск и обновление JWT, обслуживание refresh-токенов.
+      source:
+        repo: github.com/yarmarka/users
+        path: services/auth-api
+    - name: Profile API
+      shape: service
+      role: сервис
+      technology: Python/FastAPI
+      description: Профиль покупателя и адреса доставки.
+      source:
+        repo: github.com/yarmarka/users
+        path: services/profile-api
+    - name: БД пользователей
+      shape: database
+      role: база данных
+      technology: PostgreSQL
+      description: Учётные записи, refresh-токены и адреса доставки.
+  - name: Сервис рекомендаций
+    shape: service
+    status: planned
+    role: сервис
+    technology: Python
+    description: Планируемый сервис персональных подборок на главной. Пока отдаёт популярные товары, ML-ранжирование — в планах.
+  - name: Сервис уведомлений
+    shape: service
+    role: сервис
+    description: 'Домен уведомлений: шаблоны, журнал отправки, доставка писем и SMS через внешнего провайдера.'
+    children:
+    - name: Notification worker
+      shape: service
+      role: воркер
+      technology: Python
+      description: Слушает события заказов, собирает письма по шаблонам и отправляет их через провайдера рассылок.
+      source:
+        repo: github.com/yarmarka/notifications
+        path: services/notification-worker
+    - name: SMS-рассыльщик
+      shape: service
+      status: deprecated
+      role: воркер
+      technology: Python
+      description: 'Legacy-путь отправки SMS: раз в интервал вычитывает из журнала уведомления, которым SMS не ушла, и шлёт их напрямую через провайдера рассылок. Выводится — отправку SMS перенял Notification worker (параметр SMS_ENABLED); воркер удалят, когда на журнале не останется старых записей.'
+      source:
+        repo: github.com/yarmarka/notifications
+        path: services/sms-sender
+    - name: БД уведомлений
+      shape: database
+      role: база данных
+      technology: PostgreSQL
+      description: Шаблоны сообщений и журнал отправленных уведомлений.
+- name: Платёжный шлюз ЮKassa
+  shape: service
+  role: внешний сервис
+  technology: REST API
+  external: true
+  description: Принимает оплату картами на своей странице и шлёт вебхуки о статусе платежа.
+- name: Покупатель
+  shape: person
+  role: клиент
+  external: true
+  description: Выбирает товары, оформляет и оплачивает заказы, получает уведомления и доставку.
+- name: Провайдер рассылок
+  shape: service
+  role: внешний сервис
+  technology: Email/SMS
+  external: true
+  description: Внешний шлюз доставки писем и SMS покупателям.
+- name: Продавец
+  shape: person
+  role: партнёр
+  external: true
+  description: Публикует товары, управляет ценами и остатками через кабинет на витрине.
+- name: Служба доставки
+  shape: service
+  role: внешний сервис
+  technology: REST API
+  external: true
+  description: Принимает отправления, возвращает трек-номер и везёт заказ покупателю.
+edges:
+- from: API Gateway
+  to: Auth API
+  label: Аутентификация и токены
+  technology: REST
+- from: API Gateway
+  to: Catalog API
+  label: Каталог и карточки товаров
+  technology: REST
+- from: API Gateway
+  to: Order API
+  label: Оформление и статусы заказов
+  technology: REST
+  sync: true
+- from: API Gateway
+  to: Payment API
+  label: Статус оплаты заказа
+  technology: REST
+- from: API Gateway
+  to: Profile API
+  label: Профиль и адреса
+  technology: REST
+- from: API Gateway
+  to: Search API
+  label: Поисковые запросы
+  technology: REST
+- from: API Gateway
+  to: Сервис рекомендаций
+  label: Персональные подборки
+  technology: REST
+- from: Auth API
+  to: БД пользователей
+  label: Учётные записи и токены
+  technology: SQL
+- from: Catalog API
+  to: Kafka
+  label: События изменения товаров
+  technology: Kafka
+  channel: catalog.product-events
+  sync: false
+- from: Catalog API
+  to: БД каталога
+  label: Чтение и запись товаров
+  technology: SQL
+- from: Catalog API
+  to: Кэш каталога
+  label: Кэш карточек товара
+  technology: Redis
+- from: Kafka
+  to: Notification worker
+  label: События для уведомлений
+  technology: Kafka
+  channel: orders.events
+  sync: false
+- from: Kafka
+  to: Индексатор товаров
+  label: Поток событий товаров
+  technology: Kafka
+  channel: catalog.product-events
+  sync: false
+- from: Kafka
+  to: Оркестратор заказа
+  label: События заказов для саги
+  technology: Kafka
+  channel: orders.events
+  sync: false
+- from: Notification worker
+  to: БД уведомлений
+  label: Шаблоны и журнал отправки
+  technology: SQL
+- from: Notification worker
+  to: Провайдер рассылок
+  label: Отправка email и SMS
+  technology: SMTP/API
+- from: Order API
+  to: Kafka
+  label: События жизненного цикла заказа
+  technology: Kafka
+  channel: orders.events
+  sync: false
+- from: Order API
+  to: БД заказов
+  label: Хранение заказов
+  technology: SQL
+- from: Payment API
+  to: Kafka
+  label: Событие «заказ оплачен»
+  technology: Kafka
+  channel: orders.events
+  sync: false
+- from: Payment API
+  to: Антифрод
+  label: Проверка транзакции
+  technology: gRPC
+- from: Payment API
+  to: БД платежей
+  label: Хранение платежей
+  technology: SQL
+- from: Payment API
+  to: Платёжный шлюз ЮKassa
+  label: Проведение платежа
+  technology: REST
+- from: Profile API
+  to: БД пользователей
+  label: Профили и адреса
+  technology: SQL
+- from: SMS-рассыльщик
+  to: БД уведомлений
+  label: Очередь SMS в журнале
+  technology: SQL
+- from: SMS-рассыльщик
+  to: Провайдер рассылок
+  label: Прямая отправка SMS
+  technology: API
+- from: Search API
+  to: Elasticsearch
+  label: Полнотекстовый поиск
+  technology: Query DSL
+- from: Веб-витрина
+  to: API Gateway
+  label: REST-запросы
+  technology: JSON/HTTPS
+- from: Индексатор товаров
+  to: Elasticsearch
+  label: Обновление поискового индекса
+  technology: Bulk API
+- from: Мобильное приложение
+  to: API Gateway
+  label: REST-запросы
+  technology: JSON/HTTPS
+- from: Оркестратор заказа
+  to: Payment API
+  label: Выставление счёта
+  technology: REST
+- from: Оркестратор заказа
+  to: БД заказов
+  label: Журнал саги и статусы заказа
+  technology: SQL
+- from: Оркестратор заказа
+  to: Служба доставки
+  label: Создание отправления
+  technology: REST
+- from: Платёжный шлюз ЮKassa
+  to: Payment API
+  label: Webhook о статусе платежа
+  technology: HTTPS
+- from: Покупатель
+  to: Веб-витрина
+  label: Просматривает и покупает
+  technology: HTTPS
+- from: Покупатель
+  to: Мобильное приложение
+  label: Покупает с телефона
+  technology: HTTPS
+- from: Покупатель
+  to: Платёжный шлюз ЮKassa
+  label: Оплачивает на странице шлюза
+  technology: HTTPS
+- from: Провайдер рассылок
+  to: Покупатель
+  label: Письма и SMS покупателю
+  technology: Email/SMS
+- from: Продавец
+  to: Веб-витрина
+  label: Управляет товарами и ценами
+  technology: HTTPS
+- from: Служба доставки
+  to: Покупатель
+  label: Доставляет заказы
+  technology: Курьерская сеть

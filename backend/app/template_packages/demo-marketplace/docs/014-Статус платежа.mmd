@@ -1,0 +1,9 @@
+%% archmap-name: Статус платежа
+%% archmap-kind: operation
+%% archmap-operation: GET /payments/{payment_id}
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис оплаты / Payment API
+graph TD
+  A["Принять id платежа"] --> B["Прочитать платёж<br>читает: payments"]
+  B --> C{"Платёж найден?"}
+  C -->|Нет| D["404 Not Found"]
+  C -->|Да| E["200: статус и сумма платежа"]

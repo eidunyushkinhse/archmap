@@ -56,6 +56,8 @@ function TemplateGlyph({ id, size = 18 }: { id: string; size?: number }) {
       return (<svg {...p}><path d="M13 2.5 4.5 13.5H11l-1.5 8L20 9.5h-7z" /></svg>);
     case "cqrs": // две встречные стрелки
       return (<svg {...p}><path d="M4 8h11l-3-3M4 8l3 3M20 16H9l3-3M20 16l-3 3" /></svg>);
+    case "demo-marketplace": // стопка слоёв — заполненный проект, а не каркас
+      return (<svg {...p}><path d="M12 3 3 7.5 12 12l9-4.5z" /><path d="M3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5" /></svg>);
     default:
       return (<svg {...p}><rect x="4" y="4" width="16" height="16" rx="2" /></svg>);
   }

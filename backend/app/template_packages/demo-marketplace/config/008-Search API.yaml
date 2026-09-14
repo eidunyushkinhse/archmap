@@ -1,0 +1,14 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис поиска / Search API
+config:
+- name: ELASTIC_URL
+  type: string
+  required: true
+  description: Адрес кластера Elasticsearch.
+- name: QUERY_TIMEOUT
+  type: duration
+  default: 2s
+  description: Таймаут поискового запроса к индексу — дольше держать выдачу нельзя.
+- name: SEARCH_RESULTS_LIMIT
+  type: int
+  default: '50'
+  description: Максимум товаров в одной странице выдачи.

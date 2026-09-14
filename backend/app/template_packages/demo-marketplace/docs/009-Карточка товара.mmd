@@ -1,0 +1,13 @@
+%% archmap-name: Карточка товара
+%% archmap-kind: operation
+%% archmap-operation: GET /products/{product_id}
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис каталога / Catalog API
+graph TD
+  A["Принять id товара"] --> B["Заглянуть в кэш карточки<br>зависит от: CACHE_TTL"]
+  B --> C{"Карточка в кэше?"}
+  C -->|Да| D["200: карточка из кэша"]
+  C -->|Нет| E["Прочитать товар и категории<br>читает: products, product_categories"]
+  E --> F{"Товар найден и активен?"}
+  F -->|Нет| G["404 Not Found"]
+  F -->|Да| H["Собрать карточку и положить в кэш"]
+  H --> I["200: собранная карточка"]

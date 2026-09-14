@@ -1,0 +1,99 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис оплаты / Payment API
+openapi: 3.0.3
+info:
+  title: Payment API
+  version: 1.7.2
+  description: Счета и платежи маркетплейса «Ярмарка» через шлюз ЮKassa.
+paths:
+  /payments:
+    post:
+      summary: Выставить счёт
+      operationId: createPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentCreate'
+      responses:
+        '201':
+          description: Платёж создан, есть ссылка на страницу оплаты
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '502':
+          description: Платёжный шлюз недоступен — повторите позже
+  /payments/{payment_id}:
+    get:
+      summary: Статус платежа
+      operationId: getPayment
+      parameters:
+      - name: payment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Платёж
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '404':
+          description: Платёж не найден
+  /payments/webhook:
+    post:
+      summary: Вебхук статуса платежа от ЮKassa
+      operationId: paymentWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEvent'
+      responses:
+        '200':
+          description: Вебхук принят
+components:
+  schemas:
+    PaymentCreate:
+      type: object
+      required: [order_id, amount]
+      properties:
+        order_id:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          minimum: 0.01
+    Payment:
+      type: object
+      required: [id, order_id, amount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        status:
+          type: string
+          enum: [ожидает, оплачен, на ручной проверке, ошибка, возвращён]
+        confirmation_url:
+          type: string
+          nullable: true
+    WebhookEvent:
+      type: object
+      required: [event, object]
+      properties:
+        event:
+          type: string
+          description: Тип события шлюза, например payment.succeeded
+        object:
+          type: object
+          description: Платёж в формате ЮKassa

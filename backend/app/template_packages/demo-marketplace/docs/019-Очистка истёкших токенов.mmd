@@ -1,0 +1,7 @@
+%% archmap-name: Очистка истёкших токенов
+%% archmap-kind: worker
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Auth API
+graph TD
+  A["Проснуться по интервалу<br>зависит от: TOKEN_CLEANUP_INTERVAL"] --> B["Удалить истёкшие refresh-токены<br>пишет: refresh_tokens"]
+  B --> C["Записать число удалённых в метрики"]
+  C --> D["Спать до следующего цикла"]

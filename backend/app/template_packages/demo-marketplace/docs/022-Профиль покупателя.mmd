@@ -1,0 +1,8 @@
+%% archmap-name: Профиль покупателя
+%% archmap-kind: operation
+%% archmap-operation: GET /profile
+%% archmap-node: Маркетплейс «Ярмарка» / Сервис пользователей / Profile API
+graph TD
+  A["Определить пользователя по JWT"] --> B["Прочитать учётную запись<br>читает: users"]
+  B --> C["Прочитать адреса доставки<br>читает: addresses"]
+  C --> D["200: профиль с адресами"]

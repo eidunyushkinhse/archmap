@@ -1,0 +1,30 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Оркестратор заказа
+config:
+- name: DATABASE_URL
+  type: string
+  required: true
+  description: Строка подключения к БД заказов — журнал саги живёт там же, где заказы.
+- name: DELIVERY_API_URL
+  type: string
+  required: true
+  description: Адрес API службы доставки для создания отправлений.
+- name: KAFKA_BROKERS
+  type: string
+  required: true
+  description: Адреса брокеров Kafka через запятую.
+- name: KAFKA_GROUP_ID
+  type: string
+  default: order-saga
+  description: Группа консьюмера топика orders.events.
+- name: PAYMENT_API_URL
+  type: string
+  required: true
+  description: Адрес Payment API для выставления счетов.
+- name: SAGA_RETRY_BACKOFF
+  type: duration
+  default: 10s
+  description: Начальная пауза между повторами упавшего шага саги, растёт экспоненциально.
+- name: SAGA_RETRY_LIMIT
+  type: int
+  default: '5'
+  description: Сколько раз повторять упавший шаг саги, прежде чем пометить его проваленным.

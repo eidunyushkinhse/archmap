@@ -1,0 +1,62 @@
+# archmap-node: Маркетплейс «Ярмарка» / Сервис поиска / Search API
+openapi: 3.0.3
+info:
+  title: Search API
+  version: 0.9.0
+  description: Полнотекстовый поиск товаров маркетплейса «Ярмарка».
+paths:
+  /search:
+    get:
+      summary: Поиск товаров
+      operationId: searchProducts
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+        description: Строка запроса
+      - name: category_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: price_from
+        in: query
+        schema:
+          type: number
+      - name: price_to
+        in: query
+        schema:
+          type: number
+      responses:
+        '200':
+          description: Найденные товары с подсветкой совпадений
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+        '504':
+          description: Индекс не ответил вовремя
+components:
+  schemas:
+    SearchResult:
+      type: object
+      required: [total, items]
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              price:
+                type: number
+              highlight:
+                type: string

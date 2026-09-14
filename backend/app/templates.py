@@ -11,16 +11,33 @@ savedPos на холсте (перетирают авто-ELK), а главно�
 превью гадало бы раскладку).
 Сетка: узел 190×100, шаг колонок 310 (NODE_W+120 межрангового зазора ELK),
 шаг рядов 160 (NODE_H+60), слои слева направо.
+
+ВТОРОЙ ВИД ШАБЛОНА — ПАКЕТНЫЙ (demo-marketplace): не каркас, а готовый проект
+целиком (процессы, схемы логики, спеки, три семьи фактов). Его содержание НЕ
+объявляется здесь декларацией — оно лежит распакованным архивом знания в
+template_packages/<id>/, а сеется существующими приёмниками единого импорта.
+Своего сидера у него нет СОЗНАТЕЛЬНО: ручной перечень копируемых полей трижды
+отставал от модели (см. app/copy_plan.py), и шаблон отстал бы так же.
+Раскладку пакетный шаблон не везёт вовсе (решение Р3, docs/plan-demo-template.md):
+ведёт себя ровно как импорт — всё раскладывает движок, x/y каталога пустые.
 """
 
+import io
 import uuid
+import zipfile
 from dataclasses import dataclass, field
+from functools import cache
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app.import_yaml import parse_import
 from app.models.edge import Edge
 from app.models.node import Node
+from app.models.project import Project
 from app.models.view_layout import ViewLayoutItem
+from app.unified_apply import apply_unified_plan
+from app.unified_import import build_unified_plan
 
 
 @dataclass
@@ -213,9 +230,12 @@ def template_ids() -> list[str]:
 
 
 def list_templates() -> list[dict]:
-    """Каталог для витрины выбора (GET /projects/templates). x/y у шаблонных узлов
-    всегда заданы, поэтому превью в модалке совпадает с раскладкой на холсте."""
-    return [
+    """Каталог для витрины выбора (GET /projects/templates).
+
+    У КАРКАСОВ x/y заданы всегда — превью в модалке совпадает с раскладкой на
+    холсте. У ПАКЕТНОГО шаблона координат нет (раскладку он не везёт): превью
+    считает их тем же ELK, что и холст, и снова показывает будущую раскладку."""
+    frames: list[dict] = [
         {
             "id": t.id,
             "name": t.name,
@@ -247,6 +267,7 @@ def list_templates() -> list[dict]:
         }
         for t in _TEMPLATES.values()
     ]
+    return frames + [_package_entry(pkg) for pkg in _PACKAGES.values()]
 
 
 def seed_template(db: Session, project_id: uuid.UUID, template_id: str) -> bool:
@@ -297,3 +318,152 @@ def seed_template(db: Session, project_id: uuid.UUID, template_id: str) -> bool:
             )
         )
     return True
+
+
+# ── Пакетные шаблоны ──────────────────────────────────────────────────────────
+# Содержание пакетного шаблона — распакованный архив знания эталонного проекта в
+# template_packages/<id>/ (обновляется scripts/refresh-demo-template.py). Здесь —
+# только подписи витрины: перечни узлов/связей превью читаются из самого пакета,
+# поэтому разойтись с содержанием они не могут.
+
+_PACKAGES_DIR = Path(__file__).resolve().parent / "template_packages"
+
+
+@dataclass(frozen=True)
+class _Package:
+    id: str
+    name: str
+    tagline: str
+    blurb: str
+    techs: tuple[str, ...]
+
+
+_PACKAGES: dict[str, _Package] = {
+    "demo-marketplace": _Package(
+        id="demo-marketplace",
+        name="Маркетплейс «Ярмарка»",
+        tagline="Заполненный демо-проект: процессы, логика, спеки и факты.",
+        blurb="Не каркас, а готовый проект целиком: многоуровневое C4 с внешними "
+        "системами, бизнес-процессы со схемой логики на каждом шаге, спеки OpenAPI, "
+        "структура БД, каналы брокера и параметры конфигурации. Видно, как выглядит "
+        "доведённая до конца документация, и есть что покрутить, не заполняя схему руками.",
+        techs=("Python/FastAPI", "React", "Kafka", "PostgreSQL", "Elasticsearch"),
+    ),
+}
+
+
+def package_ids() -> list[str]:
+    return list(_PACKAGES.keys())
+
+
+def is_package_template(template_id: str) -> bool:
+    """Пакетный ли это шаблон. Роутер создания проекта спрашивает ДО создания
+    пустого Project: пакет создаёт проект сам (его делает единый импорт)."""
+    return template_id in _PACKAGES
+
+
+@cache
+def _package_zip(template_id: str) -> bytes:
+    """Пакет шаблона → zip в памяти: ровно тот формат, который читает ввоз архива.
+
+    Пакет лежит в репозитории РОССЫПЬЮ (правку шаблона надо уметь прочитать в
+    git-diff), а приёмник ждёт архив — поэтому упаковка на лету. Штампы времени
+    фиксированы, порядок файлов детерминирован: одинаковый пакет даёт одинаковые
+    байты. Кэш — на процесс: пакет статичен, читать его с диска каждый раз незачем."""
+    root = _PACKAGES_DIR / template_id
+    names = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+    # Манифест первым — как в build_archive (читается он всё равно по имени).
+    names.sort(key=lambda n: (n != "manifest.yaml", n))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in names:
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, (root / name).read_bytes())
+    return buf.getvalue()
+
+
+@cache
+def _package_preview(template_id: str) -> tuple[tuple[dict, ...], tuple[dict, ...]]:
+    """Узлы и связи КОРНЕВОГО уровня пакета для превью витрины — из его же c4.yaml.
+
+    Топология как у мини-превью карточки проекта (_previews в роутере): узлы —
+    корни дерева, связи — все рёбра с концами, поднятыми до корневого предка,
+    петли отброшены. Подпись и технология остаются только у связи, которая и в
+    пакете идёт корень-в-корень: у поднятой стрелки подпись говорила бы о другой
+    паре объектов. Битый пакет роняет каталог громко — это ошибка сборки, её
+    ловит сторож tests/test_template_package.py, а не пользователь."""
+    text = (_PACKAGES_DIR / template_id / "c4.yaml").read_text(encoding="utf-8")
+    parsed, errors = parse_import(text)
+    if parsed is None:
+        raise RuntimeError(f"Пакет шаблона «{template_id}» не разбирается: {'; '.join(errors[:3])}")
+
+    def root_of(idx: int) -> int:
+        cur = idx
+        while parsed.nodes[cur].parent_idx is not None:
+            nxt = parsed.nodes[cur].parent_idx
+            assert nxt is not None  # цикл while гарантирует
+            cur = nxt
+        return cur
+
+    nodes = tuple(
+        {
+            "key": f"n{i}",
+            "name": n.name,
+            "shape": n.shape,
+            "role": n.role,
+            "technology": n.technology,
+            "is_external": n.is_external,
+            "x": None,
+            "y": None,
+        }
+        for i, n in enumerate(parsed.nodes)
+        if n.parent_idx is None
+    )
+    seen: dict[tuple[int, int], dict] = {}
+    for e in parsed.edges:
+        s, t = root_of(e.source_idx), root_of(e.target_idx)
+        if s == t or (s, t) in seen:
+            continue
+        direct = e.source_idx == s and e.target_idx == t
+        seen[(s, t)] = {
+            "source": f"n{s}",
+            "target": f"n{t}",
+            "label": e.label if direct else None,
+            "technology": e.technology if direct else None,
+        }
+    return nodes, tuple(seen.values())
+
+
+def _package_entry(pkg: _Package) -> dict:
+    """Запись пакетного шаблона для витрины — в той же форме, что у каркасов."""
+    nodes, edges = _package_preview(pkg.id)
+    return {
+        "id": pkg.id,
+        "name": pkg.name,
+        "tagline": pkg.tagline,
+        "blurb": pkg.blurb,
+        "techs": list(pkg.techs),
+        "nodes": [dict(n) for n in nodes],
+        "edges": [dict(e) for e in edges],
+    }
+
+
+def seed_package_template(
+    db: Session,
+    template_id: str,
+    name: str,
+    description: str | None,
+    user_id: uuid.UUID,
+) -> Project | None:
+    """Создать проект из ПАКЕТНОГО шаблона. None — шаблон неизвестен (роутер вернёт
+    404). Коммит — на вызывающей стороне, как у seed_template.
+
+    Проект создаёт единый импорт: пакет едет ему одним входом-архивом, и все семьи
+    ложатся РОДНЫМИ приёмниками — теми же, что у ввоза архива пользователем. Споров
+    у одного входа не бывает по построению, поэтому резолюции пустые."""
+    if template_id not in _PACKAGES:
+        return None
+    plan = build_unified_plan([(f"{template_id}.zip", _package_zip(template_id))])
+    project, _result = apply_unified_plan(db, plan, {}, name, description, user_id)
+    return project

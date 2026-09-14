@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { NODE_W, NODE_H } from "../graph/constants";
 import { NodeShapeSvg, contentPadding } from "../graph/shapes";
 import { getNodeColors, STATUS_META } from "../graph/colors";
+import { resolvePointsElk } from "./schemaPreviewLayout";
 import type { TemplateOut, TemplateNode } from "../../types";
 
 /**
@@ -11,6 +12,12 @@ import type { TemplateOut, TemplateNode } from "../../types";
  * transform: scale. Формы (NodeShapeSvg/contentPadding) и палитра (getNodeColors)
  * переиспользуются с холста — узел выглядит 1:1 как на канве, а координаты
  * каталога совпадают с сидом, поэтому превью = будущая раскладка проекта.
+ *
+ * У ПАКЕТНОГО шаблона координат в каталоге нет: раскладку он не везёт вовсе, её
+ * строит движок при первом открытии (docs/plan-demo-template.md, решение Р3).
+ * Тогда превью считает ту же раскладку ТЕМ ЖЕ ELK (resolvePointsElk, как у
+ * мини-превью карточки проекта) — обещание «превью = будущая раскладка» держится
+ * в обоих случаях. ELK асинхронный (ленивый чанк): пока считает, рисуем пустую рамку.
  */
 
 const EDGE = STATUS_META.existing.edge; // #94a3b8
@@ -91,18 +98,54 @@ export default function C4Preview({ template, height, width, showLabels = false,
   }, [width]);
 
   const ns = template.nodes;
-  const minX = Math.min(...ns.map((n) => n.x));
-  const minY = Math.min(...ns.map((n) => n.y));
-  const spanX = Math.max(...ns.map((n) => n.x + NODE_W)) - minX;
-  const spanY = Math.max(...ns.map((n) => n.y + NODE_H)) - minY;
+  // Каркас везёт запечённые координаты; пакетный шаблон — нет (Р3).
+  const baked = ns.every((n) => n.x !== null && n.y !== null);
+  // null = ELK ещё считает (только для шаблонов без координат).
+  const [elkPoints, setElkPoints] = useState<{ x: number; y: number }[] | null>(null);
+  useEffect(() => {
+    if (baked) return;
+    let cancelled = false;
+    void resolvePointsElk(
+      ns.map((n) => ({ id: n.key, is_external: n.is_external, x: n.x, y: n.y })),
+      template.edges.map((e) => ({ source: e.source, target: e.target })),
+    ).then((pts) => {
+      if (!cancelled) setElkPoints(pts);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [template, ns, baked]);
+
+  const points: { x: number; y: number }[] | null = baked
+    ? ns.map((n) => ({ x: n.x ?? 0, y: n.y ?? 0 }))
+    : elkPoints;
+  const box = points && points.length > 0
+    ? (() => {
+        const minX = Math.min(...points.map((p) => p.x));
+        const minY = Math.min(...points.map((p) => p.y));
+        return {
+          minX,
+          minY,
+          spanX: Math.max(...points.map((p) => p.x + NODE_W)) - minX,
+          spanY: Math.max(...points.map((p) => p.y + NODE_H)) - minY,
+        };
+      })()
+    : null;
+  const spanX = box?.spanX ?? 0;
+  const spanY = box?.spanY ?? 0;
   const W = typeof width === "number" ? width : measW;
-  const scale = W > 0 ? Math.min((W - pad * 2) / spanX, (height - pad * 2) / spanY) : 0;
+  const scale = box && W > 0 ? Math.min((W - pad * 2) / spanX, (height - pad * 2) / spanY) : 0;
   const offX = (W - spanX * scale) / 2;
   const offY = (height - spanY * scale) / 2;
 
-  const placed: Placed[] = ns.map((n) => ({ ...n, _x: n.x - minX, _y: n.y - minY }));
+  const placed: Placed[] =
+    box && points
+      ? ns.map((n, i) => ({ ...n, _x: points[i].x - box.minX, _y: points[i].y - box.minY }))
+      : [];
   const byKey = Object.fromEntries(placed.map((n) => [n.key, n]));
-  const routes = template.edges.map((e) => ({ e, r: routeEdge(byKey[e.source], byKey[e.target]) }));
+  const routes = placed.length
+    ? template.edges.map((e) => ({ e, r: routeEdge(byKey[e.source], byKey[e.target]) }))
+    : [];
 
   return (
     <div ref={ref} style={{ ...frame, width: width ?? "100%", height }}>

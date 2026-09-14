@@ -1,0 +1,14 @@
+# archmap-node: Маркетплейс «Ярмарка» / API Gateway
+config:
+- name: JWT_PUBLIC_KEY
+  type: string
+  required: true
+  description: Публичный ключ проверки подписи JWT. Пара к приватному ключу Auth API.
+- name: RATE_LIMIT_PER_MINUTE
+  type: int
+  default: '300'
+  description: Лимит запросов в минуту с одного клиента. Сверх лимита — 429.
+- name: UPSTREAM_TIMEOUT
+  type: duration
+  default: 30s
+  description: Таймаут ожидания ответа сервиса при проксировании.
