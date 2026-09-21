@@ -208,6 +208,33 @@ describe("тексты жестов (§4.3–4.5)", () => {
     expect(начало.title).toContain("начинается на контейнере «Zabbix» целиком. Из какого его компонента?");
   });
 
+  it("сноска связи называет момент своего окна: создание или догрузка", () => {
+    const создание = buildQuestions({
+      family_conflicts: [], remainder: остаток({ container_edges: [связь()] }),
+    })[0]!;
+    expect(создание.ifLeft).toBe(
+      "Если не отвечать: связь останется на контейнере и после создания проекта"
+      + " будет ждать в панели незавершённости — перевесить можно там.");
+    const догрузка = buildQuestions({
+      family_conflicts: [], remainder: остаток({ container_edges: [связь()] }), mode: "into",
+    })[0]!;
+    expect(догрузка.ifLeft).toBe(
+      "Если не отвечать: связь останется на контейнере и после догрузки"
+      + " будет ждать в панели незавершённости — перевесить можно там.");
+    // Остальные слова вопроса от окна не зависят: разбор один и тот же.
+    expect(догрузка.title).toBe(создание.title);
+    expect(догрузка.why).toBe(создание.why);
+  });
+
+  it("прочие сноски в догрузке не меняются", () => {
+    const общие = (mode: "create" | "into") => buildQuestions({
+      family_conflicts: [семья()],
+      remainder: остаток({ isolated_groups: [группа()], fuzzy_pairs: [пара()] }),
+      mode,
+    }).map((q) => q.ifLeft);
+    expect(общие("into")).toEqual(общие("create"));
+  });
+
   it("изолированная группа перечисляет три имени и остаток", () => {
     const q = buildQuestions({ family_conflicts: [], remainder: остаток({ isolated_groups: [группа()] }) })[0]!;
     expect(q.title).toBe("4 объекта приехали без связей с остальной схемой. Дорисовать связь?");

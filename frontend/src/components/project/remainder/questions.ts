@@ -14,6 +14,7 @@ import type {
   ComponentOut, ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
   IsolatedGroupOut, RemainderOut,
 } from "../../../types";
+import type { QuestionMode } from "./questionText";
 import {
   edgeTexts, familyTexts, fieldTexts, groupTexts, humanValue, lastSegment, pairTexts,
 } from "./questionText";
@@ -80,8 +81,11 @@ export interface DecisionsPayload {
 export function buildQuestions(input: {
   family_conflicts: FamilyConflictOut[];
   remainder: RemainderOut;
+  /** Окно разбора: меняет одну сноску (4.3), см. edgeTexts. По умолчанию — создание. */
+  mode?: QuestionMode;
 }): Question[] {
   const { family_conflicts: семьи, remainder: r } = input;
+  const mode = input.mode ?? "create";
   const out: Question[] = [];
   for (const c of семьи) {
     const t = familyTexts(c);
@@ -92,7 +96,7 @@ export function buildQuestions(input: {
     out.push({ kind: "field", id: d.id, source: d, context: null, ...t });
   }
   for (const e of r.container_edges) {
-    out.push({ kind: "edge", id: e.id, source: e, ...edgeTexts(e) });
+    out.push({ kind: "edge", id: e.id, source: e, ...edgeTexts(e, mode) });
   }
   // Дерево для пикера концов новой связи собираем ОДИН раз на все группы: списки
   // node_paths и node_has_children приезжают строка в строку.

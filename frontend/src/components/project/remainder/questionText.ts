@@ -66,6 +66,11 @@ const FAMILY: Record<FamilyConflictOut["family"], FamilyForms> = {
 // Номер строки в начале текста ошибки: «Строка 84: у объекта два родителя».
 // Регистр любой, разделитель — двоеточие, запятая, тире или ничего.
 const ERROR_LINE_RE = /^\s*строка\s+(\d+)\s*[:.,–—-]?\s*/i;
+// …и вторая, более частая форма: номер строки в СКОБКАХ посреди текста —
+// «Некорректный YAML: ошибка разметки (строка 29). Частая причина …» именно так
+// его кладёт бэк (app/import_yaml.py::_yaml_error). Без этой ветки статус
+// говорил бы «Проблема в файле 2 · a.yaml: …», пряча самое полезное.
+const ERROR_LINE_PAREN_RE = /\s*\(строка\s+(\d+)\)/i;
 
 /**
  * Разбор первой ошибки для строки статуса (§2, Р7): номер строки выносится в
@@ -74,8 +79,17 @@ const ERROR_LINE_RE = /^\s*строка\s+(\d+)\s*[:.,–—-]?\s*/i;
  */
 export function splitErrorLine(text: string): { line: number | null; text: string } {
   const m = ERROR_LINE_RE.exec(text);
-  const rest = (m === null ? text : text.slice(m[0].length)).trim().replace(/\.$/, "");
-  return { line: m === null ? null : Number(m[1]), text: rest };
+  if (m !== null) {
+    return { line: Number(m[1]), text: text.slice(m[0].length).trim().replace(/\.$/, "") };
+  }
+  const p = ERROR_LINE_PAREN_RE.exec(text);
+  if (p !== null) {
+    // Скобки уходят из текста вместе с предшествующим пробелом: иначе на их
+    // месте остаётся «разметки . Частая причина».
+    const rest = text.replace(ERROR_LINE_PAREN_RE, "").trim().replace(/\.$/, "");
+    return { line: Number(p[1]), text: rest };
+  }
+  return { line: null, text: text.trim().replace(/\.$/, "") };
 }
 
 /**
@@ -136,7 +150,10 @@ export function fieldTexts(d: FieldDisputeOut): { title: string; why: string; if
   };
 }
 
-export function edgeTexts(e: ContainerEdgeOut): {
+/** Окно, в котором идёт разбор: от него зависит одна сноска (4.3). */
+export type QuestionMode = "create" | "into";
+
+export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
   title: string; context: string; why: string; ifLeft: string;
 } {
   const пара = `«${lastSegment(e.from_path)} → ${lastSegment(e.to_path)}»`;
@@ -148,8 +165,11 @@ export function edgeTexts(e: ContainerEdgeOut): {
     context: `внутри ${n} ${plural(n, ["компонент", "компонента", "компонентов"])}, считая вложенные`,
     why: "Источник описывал свой репозиторий, а соседний продукт видел коробкой:"
       + " его компоненты ему не видны. Поэтому конец связи лёг на контейнер.",
-    ifLeft: "Если не отвечать: связь останется на контейнере и после создания проекта"
-      + " будет ждать в панели незавершённости — перевесить можно там.",
+    // Единственная фраза разбора, зависящая от окна: в догрузке проект уже
+    // создан, и обещать «после создания проекта» было бы ложью о моменте.
+    ifLeft: `Если не отвечать: связь останется на контейнере и после ${
+      mode === "into" ? "догрузки" : "создания проекта"
+    } будет ждать в панели незавершённости — перевесить можно там.`,
   };
 }
 

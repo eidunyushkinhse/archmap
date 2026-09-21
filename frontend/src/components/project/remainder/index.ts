@@ -18,3 +18,4 @@ export type {
   Question, QuestionKind, Resolutions, Summary,
 } from "./questions";
 export { humanValue, splitErrorLine } from "./questionText";
+export type { QuestionMode } from "./questionText";
