@@ -228,7 +228,10 @@
 .rq-ov-x { margin-left: auto; border: none; background: none; color: #94a3b8; padding: 2px 4px; display: inline-flex; }
 .rq-ov-x:hover { color: #1e293b; }
 .rq-ov-bd { padding: 14px 16px; overflow: auto; flex: 1; min-height: 0; }
-.rq-ov-bd svg { max-width: 100%; height: auto; }
+/* Сцена пан/зума (схема логики): своя высота, а не «по содержимому» — иначе у
+   короткой диаграммы не остаётся места, чтобы её подвинуть или приблизить.
+   Остальное — классы docOverlay.css: жесты общие с превью доков. */
+.rq-ov-stage { flex: 1; min-height: 0; height: min(62vh, 520px); }
 .rq-ov-pre {
   margin: 0; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #0f172a; white-space: pre-wrap;

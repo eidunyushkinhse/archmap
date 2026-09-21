@@ -287,6 +287,26 @@ describe("DocViewer (§5.5, Р8)", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  it("колёсико над сценой зумит, а окно под ним не прокручивает (П9)", () => {
+    вьюер();
+    const сцена = document.querySelector(".doc-pvstage");
+    expect(сцена).not.toBeNull();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    // fireEvent возвращает false, когда обработчик погасил дефолт: окно под
+    // вьюером не прокручивается (хук вешает wheel с passive:false).
+    const дефолтЖив = fireEvent.wheel(сцена as Element, { deltaY: -100 });
+    expect(дефолтЖив).toBe(false);
+    expect(screen.getByText("115%")).toBeInTheDocument();
+    // Кнопки пилюли — те же, что у превью доков.
+    expect(screen.getByLabelText("Уменьшить")).toBeInTheDocument();
+    expect(screen.getByLabelText("Вписать")).toBeInTheDocument();
+  });
+
+  it("текстовое тело сцены не заводит — зумить нечего", () => {
+    вьюер({ diagram: false, body: "PGHOST=localhost", tag: "параметр" });
+    expect(document.querySelector(".doc-pvstage")).toBeNull();
+  });
+
   it("Escape закрывает вьюер и НЕ уходит в окно под ним", () => {
     const { onClose } = вьюер();
     const выше = vi.fn();
