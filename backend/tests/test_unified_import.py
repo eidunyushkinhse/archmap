@@ -1738,3 +1738,79 @@ def test_остаток_называет_и_хвост_счётчик():
 
     assert len(остаток.container_edges) == n  # вопрос задан каждой связи
     assert "…ещё 3 таких связей" in остаток.converted_warnings
+
+
+# Пара похожих имён, у которых знание разложено по-разному: у первого (он выживет)
+# пусто описание и нет якоря, у второго — и то, и другое; технология занята у обоих.
+_ЗНАНИЕ_A = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Сервер
+  - name: Плагин Zabbix
+    technology: Go
+edges:
+  - from: Плагин Zabbix
+    to: Сервер
+    label: gRPC
+"""
+
+_ЗНАНИЕ_B = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Веб
+  - name: Плагин
+    technology: TypeScript
+    description: Датасорс и панели Zabbix
+    role: плагин
+    source: {repo: 'github.com/alexanderzobnin/grafana-zabbix'}
+"""
+
+
+def test_склейка_доливает_знание_поглощённого(db):
+    """Ничего не удаляется: пустые поля выжившего доливаются значениями
+    поглощённого, заполненные не трогаются, якорь переезжает — иначе следующий
+    синк того репозитория не узнает объект и привезёт дубль."""
+    план = build_unified_plan(
+        [("a.yaml", _ЗНАНИЕ_A.encode()), ("b.yaml", _ЗНАНИЕ_B.encode())]
+    )
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    решения = parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин Zabbix"}}}))
+
+    проект, _ = apply_unified_plan(
+        db, план, {}, "Федерация", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    выживший = db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Плагин Zabbix"
+    ).one()
+    assert выживший.description == "Датасорс и панели Zabbix"  # пустое долито
+    assert выживший.role == "плагин"
+    assert выживший.technology == "Go"  # заполненное не тронуто
+    assert выживший.source_ref == "git:github.com/alexanderzobnin/grafana-zabbix"
+
+
+def test_склейка_не_перевешивает_занятый_якорь(db):
+    """Якорь у выжившего есть — своим и остаётся (второго места под якорь нет,
+    множественные якоря за рамками MVP)."""
+    a = _ЗНАНИЕ_A.replace(
+        "  - name: Плагин Zabbix\n    technology: Go\n",
+        "  - name: Плагин Zabbix\n    technology: Go\n"
+        "    source: {repo: 'github.com/org/plugin-fork'}\n",
+    )
+    план = build_unified_plan([("a.yaml", a.encode()), ("b.yaml", _ЗНАНИЕ_B.encode())])
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    решения = parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин"}}}))
+
+    проект, _ = apply_unified_plan(
+        db, план, {}, "Федерация", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    выживший = db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Плагин"
+    ).one()
+    assert выживший.source_ref == "git:github.com/org/plugin-fork"
+    assert выживший.description == "Датасорс и панели Zabbix"  # поля долиты как всегда

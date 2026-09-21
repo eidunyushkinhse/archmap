@@ -1137,3 +1137,40 @@ def test_остаток_догрузки_прячет_только_свои_ст
     assert not any("Оператор → orders" in w for w in скрыть)
     assert not any("не связана с остальной схемой" in w for w in скрыть)
     assert set(скрыть) <= set(превью.warnings)
+
+
+def test_склейка_догрузки_доливает_знание_поглощённого(db):
+    """Привозной объект не создаётся, но и не пропадает: его пустующие у живого
+    поля и его якорь переезжают к живому выжившему, занятое не трогается."""
+    проект, узлы = _живой_с_остатком(db)
+    оператор = узлы["оператор"]
+    оператор.role = "человек"  # занятое поле — сторож fill-only
+    db.commit()
+    оператор_id = оператор.id
+
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    _узел(db, донор, "orders", корень)
+    _узел(db, донор, "Оператор смены", shape="person", role="дежурный",
+          description="Следит за очередью заказов",
+          source_ref="git:github.com/org/ops#operator")
+    db.commit()
+    архив = build_archive(db, донор)
+
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [пара] = into_preview(план).remainder.fuzzy_pairs
+    отчёт = apply_into_plan(
+        db, проект, план, {},
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Оператор"}}})),
+    )
+    db.commit()
+
+    живой = db.get(Node, оператор_id)
+    assert живой is not None and живой.name == "Оператор"  # выбрано имя живого
+    assert живой.description == "Следит за очередью заказов"  # пустое долито
+    assert живой.role == "человек"  # заполненное не тронуто
+    assert живой.source_ref == "git:github.com/org/ops#operator"  # якорь переехал
+    assert db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Оператор смены"
+    ).count() == 0
+    assert any("залито из склеенного объекта" in w for w in отчёт.warnings)

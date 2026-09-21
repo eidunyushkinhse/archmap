@@ -72,6 +72,7 @@ from app.schemas.unified_import import (
 # выбора победителей, свободного имени и переписывания адресов у создания и
 # догрузки обязана быть ОДНОЙ И ТОЙ ЖЕ, иначе два сценария разъедутся в поведении.
 from app.unified_apply import (
+    ABSORB_FIELDS,
     Decisions,
     ResolvedDecisions,
     _address_map,
@@ -498,6 +499,37 @@ def _fill_node(
     return changed
 
 
+def _absorb_into_live(
+    live: Node, донор: _ImpNode, имя: str, path: str, warnings: list[str]
+) -> bool:
+    """Знание поглощённого склейкой узла — живому выжившему: пустое долить,
+    заполненное не трогать, имя — выбранное человеком.
+
+    Якорь по тому же правилу и по той же причине, что при создании: без якоря
+    второго источника следующий синк ТОГО репозитория не узнает склеенный объект и
+    привезёт дубль. Занятый якорь не перевешиваем (множественные — за рамками MVP)."""
+    changed = False
+    for fld in ABSORB_FIELDS:
+        новое = getattr(донор, fld)
+        if (новое or "").strip() and not (getattr(live, fld) or "").strip():
+            setattr(live, fld, новое)
+            warnings.append(
+                f"узел «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из склеенного объекта"
+            )
+            changed = True
+    if not live.source_ref and донор.source_keys:
+        ключ = known_key(донор.source_keys[0])
+        if ключ:
+            live.source_ref = ключ
+            changed = True
+    if live.name != имя:
+        live.name = имя
+        changed = True
+    if changed:
+        live.version += 1
+    return changed
+
+
 def _merge_report(a: Any, b: Any) -> Any:
     """Два прогона родного приёмника (новое + наложение) — один отчёт семьи.
 
@@ -548,9 +580,18 @@ def apply_into_plan(
     # незавершённости), а живой в паре всегда выживает — значит догрузка по-прежнему
     # ничего не удаляет, просто не создаёт второй объект.
     поглощены = {absorbed: surv for surv, absorbed, _имя in склейки}
-    for surv, _absorbed, имя in склейки:
+    выжившие = {surv: (absorbed, имя) for surv, absorbed, имя in склейки}
+    for surv, (absorbed, имя) in выжившие.items():
         if surv not in into.live_of:
-            merged.nodes[surv].name = имя  # выживший ещё не создан — имя прямо в дерево
+            # Выживший ещё не создан — правим прямо в дереве: имя и знание
+            # поглощённого (пустое долить, заполненное не трогать).
+            узел, донор = merged.nodes[surv], merged.nodes[absorbed]
+            узел.name = имя
+            for fld in ABSORB_FIELDS:
+                if (getattr(донор, fld) or "").strip() and not (getattr(узел, fld) or "").strip():
+                    setattr(узел, fld, getattr(донор, fld))
+            if not узел.source_keys and донор.source_keys:
+                узел.source_keys = list(донор.source_keys)
     тронутые = _apply_edge_decisions(merged, into, решения, поглощены)
     warnings: list[str] = list(into.warnings)
 
@@ -564,15 +605,18 @@ def apply_into_plan(
             # Смешанные поля тёзок не доливаем НИКОМУ: значение в merged-узле собрано
             # из нескольких живых записей, и записать его — значит переписать одну
             # чужими данными (замечание об этом уже в плане).
-            if m not in into.ambiguous and _fill_node(
+            изменён = m not in into.ambiguous and _fill_node(
                 live, imp, plan.node_paths[m], warnings, forced.get(m, set())
-            ):
+            )
+            пара = выжившие.get(m)
+            if пара is not None:
+                # Живой выживший склейки: имя по выбору, знание поглощённого —
+                # fill-only. Поглощённый не создаётся, и потерять его нельзя.
+                изменён = _absorb_into_live(
+                    live, merged.nodes[пара[0]], пара[1], plan.node_paths[m], warnings
+                ) or изменён
+            if изменён:
                 nodes_filled += 1
-            if m in {surv for surv, _a, _n in склейки}:
-                имя = next(n for s, _a, n in склейки if s == m)
-                if live.name != имя:
-                    live.name = имя
-                    live.version += 1
             continue
         # Поглощённый склейкой узел не создаётся вовсе: его связи, компоненты и
         # знание адресуются выжившим (node_of ниже по индексу — живые узлы всегда
