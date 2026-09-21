@@ -233,7 +233,7 @@ describe("единый ввоз · создание проекта", () => {
     // Второй вопрос — о связи в контейнер; «как сейчас» в применение не едет.
     await userEvent.click(screen.getByRole("button", { name: "Дальше →" }));
     expect(screen.getByRole("heading", { level: 4 }).textContent).toContain(
-      "приходит в контейнер «Ярмарка» целиком");
+      "приходит в контейнер «Ярмарка».");
     await userEvent.click(screen.getByRole("button", { name: /Оставить на контейнере/ }));
 
     await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Федерация");

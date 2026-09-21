@@ -152,7 +152,7 @@ describe("навигация по вопросам", () => {
     expect(точки).toHaveLength(5);
     await userEvent.click(точки[3]!);
     expect(счётчик()).toBe("вопрос 4 из 5");
-    expect(screen.getByText(/приехали без связей/)).toBeInTheDocument();
+    expect(screen.getByText(/нет связей с остальной схемой/)).toBeInTheDocument();
     await userEvent.click(screen.getByText("Оставить как есть"));
     // «Как сейчас» — серая точка, а не синяя (у текущего вопроса точка своя,
     // поэтому смотрим на неё, отойдя дальше).
