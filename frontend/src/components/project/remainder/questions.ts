@@ -46,24 +46,28 @@ export type Question =
 // Ответы на всё, кроме споров содержимого (те живут в resolutions).
 export interface FieldAnswer { kind: "field"; index: number }
 export interface EdgeAnswer { kind: "edge"; toPath: string }
-export interface NewEdgeAnswer {
-  kind: "new_edge"; fromPath: string; toPath: string;
-  label: string; tech: string; channel: "sync" | "async";
+/**
+ * Проведённые связи изолированной группы: по одной на объект группы, которому
+ * пользователь указал соседа. Тип канала не спрашиваем вовсе — его задают в
+ * «Процессах», а здесь он был бы обязательным ответом на незаданный вопрос.
+ */
+export interface NewEdgesAnswer {
+  kind: "new_edges";
+  edges: { fromPath: string; toPath: string; label: string; tech: string }[];
 }
 export interface MergeAnswer { kind: "merge"; name: string }
 /** «Оставить как есть» у связи в контейнер и у изолированной группы. */
 export interface KeepAnswer { kind: "keep" }
 /** «Разные объекты» у похожих имён. */
 export interface DiffAnswer { kind: "diff" }
-export type Answer = FieldAnswer | EdgeAnswer | NewEdgeAnswer | MergeAnswer | KeepAnswer | DiffAnswer;
+export type Answer = FieldAnswer | EdgeAnswer | NewEdgesAnswer | MergeAnswer | KeepAnswer | DiffAnswer;
 export type Answers = Record<string, Answer>;
 /** Выбор по спорам содержимого: id → «cand:<i>» либо «all». */
 export type Resolutions = Record<string, string>;
 
 /** Форма поля `decisions` применения (контракт Ф1, backend/app/unified_apply.py). */
 export interface NewEdgeDecision {
-  group_id: string; from_path: string; to_path: string;
-  label: string; tech: string; channel: "sync" | "async";
+  group_id: string; from_path: string; to_path: string; label: string; tech: string;
 }
 export interface DecisionsPayload {
   fields?: Record<string, number>;
@@ -187,7 +191,7 @@ export function summarize(
     if (st === "keep") s.kept += 1;
     const a = answers[q.id];
     if (a?.kind === "edge") s.rewired += 1;
-    if (a?.kind === "new_edge") s.added += 1;
+    if (a?.kind === "new_edges") s.added += a.edges.length;
     if (a?.kind === "merge") s.merged += 1;
     if (a?.kind === "field") s.fields += 1;
   }
@@ -209,11 +213,15 @@ export function toDecisions(questions: Question[], answers: Answers): DecisionsP
     if (a === undefined) continue;
     if (a.kind === "field") fields[q.id] = a.index;
     else if (a.kind === "edge") edges[q.id] = { to_path: a.toPath };
-    else if (a.kind === "new_edge") {
-      new_edges.push({
-        group_id: q.id, from_path: a.fromPath, to_path: a.toPath,
-        label: a.label, tech: a.tech, channel: a.channel,
-      });
+    else if (a.kind === "new_edges") {
+      // По записи на строку формы: группу из пяти объектов человек связывает
+      // пятью связями, и все они относятся к одному вопросу (group_id).
+      for (const e of a.edges) {
+        new_edges.push({
+          group_id: q.id, from_path: e.fromPath, to_path: e.toPath,
+          label: e.label, tech: e.tech,
+        });
+      }
     } else if (a.kind === "merge") merges[q.id] = { name: a.name };
   }
   const payload: DecisionsPayload = {};
@@ -305,10 +313,14 @@ export function answerLabel(
   }
   const a = answers[q.id];
   if (a === undefined) return null;
-  if (a.kind === "keep") return "как сейчас";
-  if (a.kind === "diff") return "разные";
+  // «Как сейчас» — такой же ответ, как остальные (П8 приёмки): называем его
+  // словами вида вопроса, а не общим «как сейчас».
+  if (a.kind === "keep") return q.kind === "edge" ? "на контейнере" : "как есть";
+  if (a.kind === "diff") return "разные объекты";
   if (a.kind === "edge") return lastSegment(a.toPath);
-  if (a.kind === "new_edge") return "связь добавлена";
+  if (a.kind === "new_edges") {
+    return `проведено связей ${a.edges.length}`;
+  }
   if (a.kind === "merge") return a.name;
   // Ответ о поле — само выбранное значение человеческими словами (форма/статус).
   return q.kind === "field"

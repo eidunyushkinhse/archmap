@@ -11,9 +11,9 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import type { ComponentOut, FuzzyPairOut } from "../../types";
-import type { NewEdgeAnswer } from "../project/remainder/questions";
-import { EMPTY_EDGE_DRAFT, mergeDraftFor } from "../project/remainder/drafts";
-import type { EdgeDraft, MergeDraft } from "../project/remainder/drafts";
+import type { NewEdgesAnswer } from "../project/remainder/questions";
+import { draftFromAnswer, emptyEdgesDraft, mergeDraftFor } from "../project/remainder/drafts";
+import type { EdgesDraft, MergeDraft } from "../project/remainder/drafts";
 import ObjectList from "../project/remainder/ObjectList";
 import NewEdgeForm from "../project/remainder/NewEdgeForm";
 import MergeNameStep from "../project/remainder/MergeNameStep";
@@ -85,8 +85,12 @@ describe("ObjectList (§5.3)", () => {
 // Стенды с черновиком в состоянии вызывающего — ровно так формы держит блок
 // (§4.6). Имена латиницей: правило react-hooks/rules-of-hooks узнаёт компонент
 // по заглавной ЛАТИНСКОЙ букве и на кириллице ругается.
-function EdgeFormStand({ onAdd, onBack }: { onAdd: (a: NewEdgeAnswer) => void; onBack: () => void }) {
-  const [draft, setDraft] = useState<EdgeDraft>(EMPTY_EDGE_DRAFT);
+const ГРУППА = ["Плагин", "Плагин / Датасорс"];
+
+function EdgeFormStand({ onAdd, onBack, start }: {
+  onAdd: (a: NewEdgesAnswer) => void; onBack: () => void; start?: EdgesDraft;
+}) {
+  const [draft, setDraft] = useState<EdgesDraft>(start ?? emptyEdgesDraft(ГРУППА));
   return (
     <NewEdgeForm
       nodes={[...дерево(3), { path: "Плагин", has_children: false }]}
@@ -98,33 +102,78 @@ function EdgeFormStand({ onAdd, onBack }: { onAdd: (a: NewEdgeAnswer) => void; o
   );
 }
 
-describe("NewEdgeForm (§5.4)", () => {
-  it("«Добавить связь» неактивна, пока нет обоих концов", async () => {
+describe("NewEdgeForm (§5.4, переделана по приёмке)", () => {
+  it("строка на каждый объект группы: видно, у кого связей нет", () => {
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
-    const кнопка = screen.getByRole("button", { name: "Добавить связь" });
-    expect(кнопка).toBeDisabled();
-    // Пикер открыт на «Начале», после выбора сам переходит на «Конец».
-    await userEvent.click(screen.getByText("Компонент 1"));
-    expect(кнопка).toBeDisabled();
-    expect(screen.getByText("выбираете")).toBeInTheDocument();
-    await userEvent.click(screen.getByText("Плагин"));
-    expect(кнопка).toBeEnabled();
-    // Оба конца выбраны — пикер закрылся, список объектов больше не висит.
-    expect(screen.queryByText("Компонент 2")).toBeNull();
+    // Левые поля — сами объекты группы, они не редактируются.
+    expect(screen.getByText("Плагин")).toBeInTheDocument();
+    expect(screen.getByText("Датасорс")).toBeInTheDocument();
+    expect(screen.getAllByText("Выберите объект")).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Описание связи/)).toHaveLength(2);
+    // Типа канала в форме нет вовсе — его задают в «Процессах».
+    expect(screen.queryByText("Синхронный")).toBeNull();
+    expect(screen.queryByText("Асинхронный")).toBeNull();
   });
 
-  it("отдаёт связь с подписью, технологией и типом канала", async () => {
+  it("«Провести связь» неактивна, пока не выбран ни один сосед", async () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    const кнопка = () => screen.getByRole("button", { name: /^Провести связ/ });
+    expect(кнопка()).toBeDisabled();
+    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
+    // Дропдаун соседа открыт сразу с полем поиска и без капа.
+    expect(screen.getByLabelText("Фильтр по имени")).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Компонент 1"));
+    expect(кнопка()).toBeEnabled();
+    expect(кнопка().textContent).toBe("Провести связь");
+    // После выбора список свернулся, в поле — выбранный объект.
+    expect(screen.queryByLabelText("Фильтр по имени")).toBeNull();
+  });
+
+  it("сам объект в соседи не предлагается, а поиск сужает список", async () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
+    // Строка «Плагина» — своего же пути в списке нет.
+    expect(screen.queryByRole("button", { name: /^Плагин$/ })).toBeNull();
+    await userEvent.type(screen.getByLabelText("Фильтр по имени"), "компонент 2");
+    expect(screen.getByText("Компонент 2")).toBeInTheDocument();
+    expect(screen.queryByText("Компонент 1")).toBeNull();
+  });
+
+  it("направление переворачивается кнопкой между полями", async () => {
     const onAdd = vi.fn();
     render(<EdgeFormStand onAdd={onAdd} onBack={vi.fn()} />);
+    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
     await userEvent.click(screen.getByText("Компонент 1"));
-    await userEvent.click(screen.getByText("Плагин"));
-    await userEvent.type(screen.getByLabelText("Подпись"), "метрики");
-    await userEvent.type(screen.getByLabelText("Технология"), "HTTP");
-    await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
-    await userEvent.click(screen.getByRole("button", { name: "Добавить связь" }));
+    const стрелки = screen.getAllByRole("button", { name: "Поменять направление" });
+    expect(стрелки[0]!.textContent).toBe("→");
+    await userEvent.click(стрелки[0]!);
+    expect(screen.getAllByRole("button", { name: "Поменять направление" })[0]!.textContent).toBe("←");
+    await userEvent.click(screen.getByRole("button", { name: /^Провести связ/ }));
     expect(onAdd).toHaveBeenCalledWith({
-      kind: "new_edge", fromPath: "Zabbix / Компонент 1", toPath: "Плагин",
-      label: "метрики", tech: "HTTP", channel: "async",
+      kind: "new_edges",
+      edges: [{ fromPath: "Zabbix / Компонент 1", toPath: "Плагин", label: "", tech: "" }],
+    });
+  });
+
+  it("отдаёт по связи на заполненную строку, пустые пропускает", async () => {
+    const onAdd = vi.fn();
+    render(<EdgeFormStand onAdd={onAdd} onBack={vi.fn()} />);
+    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
+    await userEvent.click(screen.getByText("Компонент 1"));
+    await userEvent.type(screen.getByLabelText("Описание связи — Плагин"), "метрики");
+    await userEvent.type(screen.getByLabelText("Технология связи — Плагин"), "HTTP");
+    await userEvent.click(screen.getByText("Выберите объект"));
+    await userEvent.click(screen.getByText("Компонент 2"));
+    const кнопка = screen.getByRole("button", { name: /^Провести связ/ });
+    // Заполнены две строки — кнопка во множественном числе.
+    expect(кнопка.textContent).toBe("Провести связи");
+    await userEvent.click(кнопка);
+    expect(onAdd).toHaveBeenCalledWith({
+      kind: "new_edges",
+      edges: [
+        { fromPath: "Плагин", toPath: "Zabbix / Компонент 1", label: "метрики", tech: "HTTP" },
+        { fromPath: "Плагин / Датасорс", toPath: "Zabbix / Компонент 2", label: "", tech: "" },
+      ],
     });
   });
 
@@ -135,6 +184,20 @@ describe("NewEdgeForm (§5.4)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
     expect(onBack).toHaveBeenCalled();
     expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it("черновик из ответа открывает форму заполненной, включая переворот", () => {
+    const из = draftFromAnswer(
+      { kind: "new_edges", edges: [{ fromPath: "Zabbix / Компонент 3", toPath: "Плагин", label: "чтение", tech: "SQL" }] },
+      ГРУППА,
+    );
+    expect(из).toEqual([
+      { nodePath: "Плагин", toPath: "Zabbix / Компонент 3", reversed: true, label: "чтение", tech: "SQL" },
+      { nodePath: "Плагин / Датасорс", toPath: null, reversed: false, label: "", tech: "" },
+    ]);
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} start={из} />);
+    expect(screen.getAllByRole("button", { name: "Поменять направление" })[0]!.textContent).toBe("←");
+    expect(screen.getByLabelText("Описание связи — Плагин")).toHaveValue("чтение");
   });
 });
 

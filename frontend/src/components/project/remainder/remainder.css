@@ -41,7 +41,6 @@
 .rq-dot { width: 9px; height: 9px; border-radius: 50%; border: none; background: #e2e8f0; padding: 0; }
 .rq-dot:hover { background: #cbd5e1; }
 .rq-dot--done { background: #2563eb; }
-.rq-dot--kept { background: #cbd5e1; }
 .rq-dot--on { width: 20px; border-radius: 5px; background: #2563eb; }
 .rq-bar { display: flex; gap: 3px; width: 100%; }
 .rq-bar-g {
@@ -50,7 +49,6 @@
 }
 .rq-bar-t { height: 5px; border-radius: 3px; background: #e9edf3; overflow: hidden; display: flex; }
 .rq-bar-f { background: #2563eb; }
-.rq-bar-k { background: #cbd5e1; }
 .rq-bar-l {
   font-size: 11.5px; color: #64748b;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -116,7 +114,29 @@
 .rq-scroll .rq-opts { margin-top: 0; }
 .rq-empty { font-size: 12.5px; color: #94a3b8; margin-top: 9px; }
 
-/* ── форма новой связи и шаг имени (§5.4) ─────────────────────── */
+/* ── форма проведения связей: строка на объект группы (§5.4, П4) ── */
+.rq-erow {
+  margin-top: 9px; padding: 9px 10px 10px;
+  border: 1px solid #eef2f7; border-radius: 10px; background: #fbfdff;
+}
+.rq-erow + .rq-erow { margin-top: 8px; }
+.rq-epair { display: flex; align-items: center; gap: 7px; }
+.rq-eend { flex: 1; min-width: 0; }
+/* Левое поле — сам объект группы: он не выбирается, поэтому это не кнопка, а
+   плашка той же геометрии, что и вариант рядом. */
+.rq-eend--fixed {
+  border: 1px solid #e2e8f0; border-radius: 9px; background: #f8fafc;
+  padding: 9px 11px; font-size: 13.5px; line-height: 1.35; color: #0f172a;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rq-eswap {
+  flex: none; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff;
+  color: #475569; font-family: inherit; font-size: 14px; line-height: 1;
+  padding: 7px 9px;
+}
+.rq-eswap:hover { background: #f1f5f9; color: #1d4ed8; border-color: #cbd5e1; }
+
+/* ── поля формы и шаг имени (§5.4) ────────────────────────────── */
 .rq-frow { display: flex; gap: 9px; margin-top: 9px; }
 .rq-frow > div { flex: 1; min-width: 0; }
 .rq-flbl { font-size: 11.5px; font-weight: 600; color: #64748b; margin-bottom: 4px; }
@@ -169,7 +189,9 @@
   flex: none; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: #1d4ed8; font-weight: 600;
 }
-.rq-ql-a--kept { color: #94a3b8; font-weight: 400; }
+/* Подпись «ответа нет» — третичным серым; выбранное «как сейчас» подписывается
+   синим наравне с прочими ответами: пользователь его ВЫБРАЛ (П8 приёмки). */
+.rq-ql-a--none { color: #94a3b8; font-weight: 400; }
 
 /* ── итог разбора (§8) ────────────────────────────────────────── */
 .rq-done { display: flex; align-items: flex-start; gap: 11px; }

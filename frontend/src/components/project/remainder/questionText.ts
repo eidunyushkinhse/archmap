@@ -219,9 +219,9 @@ export const pairEdges = (p: FuzzyPairOut): number => p.a_edges + p.b_edges;
 
 // Заголовки и контекст ВТОРЫХ шагов (§4.4/§4.5): счётчик «вопрос N из M» они не
 // меняют, поэтому живут тем же текстом, что и первый шаг.
-export const NEW_EDGE_TITLE = "Новая связь между группой и остальной схемой";
+export const NEW_EDGE_TITLE = "Связи объектов с остальной схемой";
 export const NEW_EDGE_CONTEXT =
-  "оба конца выбираются по слитому дереву; ArchMap кандидатов не предлагает";
+  "для каждого объекта укажите, с чем он связан; строку можно оставить пустой";
 export const MERGE_TITLE = "Как назвать склеенный объект?";
 export const mergeContext = (p: FuzzyPairOut): string =>
   `связи обоих (${pairEdges(p)}) перейдут на склеенный, второе имя перестанет использоваться`;

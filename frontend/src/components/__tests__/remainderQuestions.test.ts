@@ -307,7 +307,16 @@ describe("состояние ответа и подпись в списке", ()
     expect(answerLabel(field_!, answers, {})).toBe("Ядро Zabbix");
     expect(answerLabel(edge!, answers, {})).toBe("Поллер");
     expect(answerLabel(pair!, answers, {})).toBe("Оператор");
-    expect(answerLabel(group!, { "group|Плагин": { kind: "keep" } }, {})).toBe("как сейчас");
+    // «Как сейчас» — такой же ответ: называется словами своего вида (П8).
+    expect(answerLabel(group!, { "group|Плагин": { kind: "keep" } }, {})).toBe("как есть");
+    expect(answerLabel(edge!, { [edge!.id]: { kind: "keep" } }, {})).toBe("на контейнере");
+    expect(answerLabel(pair!, { [pair!.id]: { kind: "diff" } }, {})).toBe("разные объекты");
+    expect(answerLabel(group!, {
+      "group|Плагин": { kind: "new_edges", edges: [
+        { fromPath: "Плагин", toPath: "Zabbix", label: "", tech: "" },
+        { fromPath: "Плагин / Датасорс", toPath: "Zabbix", label: "", tech: "" },
+      ] },
+    }, {})).toBe("проведено связей 2");
   });
 });
 
@@ -317,11 +326,15 @@ describe("итог разбора (§8)", () => {
     const answers: Answers = {
       "field|Zabbix/server|description": { kind: "field", index: 1 },
       "edge|Плагин/Датасорс|Zabbix||target": { kind: "edge", toPath: "Zabbix / server" },
-      "group|Плагин": { kind: "new_edge", fromPath: "Плагин", toPath: "Zabbix", label: "", tech: "", channel: "sync" },
+      "group|Плагин": { kind: "new_edges", edges: [
+        { fromPath: "Плагин", toPath: "Zabbix", label: "", tech: "" },
+        { fromPath: "Плагин / Датасорс", toPath: "Zabbix / server", label: "", tech: "" },
+      ] },
       "pair|Пользователь Zabbix|Пользователь": { kind: "diff" },
     };
+    // added считает СВЯЗИ, а не отвеченные вопросы: одна группа — несколько связей.
     expect(summarize(qs, answers, { "doc|Zabbix/server|Опрос": "cand:0" })).toEqual({
-      rewired: 1, added: 1, merged: 0, fields: 1, kept: 1, unanswered: 0,
+      rewired: 1, added: 2, merged: 0, fields: 1, kept: 1, unanswered: 0,
     });
   });
 
@@ -339,8 +352,8 @@ describe("payload применения", () => {
       "field|Zabbix/server|description": { kind: "field", index: 1 },
       "edge|Плагин/Датасорс|Zabbix||target": { kind: "edge", toPath: "Zabbix / server / Поллер" },
       "group|Плагин": {
-        kind: "new_edge", fromPath: "Плагин / Датасорс", toPath: "Zabbix / server",
-        label: "метрики", tech: "HTTP", channel: "async",
+        kind: "new_edges",
+        edges: [{ fromPath: "Плагин / Датасорс", toPath: "Zabbix / server", label: "метрики", tech: "HTTP" }],
       },
       "pair|Пользователь Zabbix|Пользователь": { kind: "merge", name: "Оператор" },
     };
@@ -349,7 +362,7 @@ describe("payload применения", () => {
       edges: { "edge|Плагин/Датасорс|Zabbix||target": { to_path: "Zabbix / server / Поллер" } },
       new_edges: [{
         group_id: "group|Плагин", from_path: "Плагин / Датасорс", to_path: "Zabbix / server",
-        label: "метрики", tech: "HTTP", channel: "async",
+        label: "метрики", tech: "HTTP",
       }],
       merges: { "pair|Пользователь Zabbix|Пользователь": { name: "Оператор" } },
     });

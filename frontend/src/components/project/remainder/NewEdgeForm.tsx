@@ -1,122 +1,110 @@
-// Форма новой связи — второй шаг вопроса об изолированной группе (§4.4, §5.4 ТЗ).
-// Оба конца выбираются по СЛИТОМУ дереву, кандидатов ArchMap не предлагает:
-// связь между группой и ядром — факт совместного развёртывания, и знает его
-// только человек. После выбора начала пикер сам переходит на конец — иначе жест
-// требует лишнего клика ровно там, где мысль уже ушла к следующему полю.
+// Форма проведения связей — второй шаг вопроса об изолированной группе (§4.4,
+// §5.4 ТЗ; переделана по приёмке 2026-09-21, П4).
+//
+// Прежняя форма спрашивала ОДНУ связь двумя пикерами — и, открыв её,
+// пользователь переставал видеть, у каких объектов связей нет. Теперь строка на
+// КАЖДЫЙ объект группы: слева он сам, справа сосед из слитого дерева, между ними
+// переключатель направления. Пустая строка законна: объект, у которого связи
+// действительно нет, так и останется без неё.
+//
+// Типа канала здесь нет вовсе: синхронность связи — предмет «Процессов», а не
+// разбора остатка, и спрашивать её значило бы требовать ответа на незаданный
+// вопрос (бэк без поля channel ставит дефолт движка).
 import { useState } from "react";
 import type { ComponentOut } from "../../../types";
-import type { NewEdgeAnswer } from "./questions";
-import type { EdgeDraft } from "./drafts";
+import type { NewEdgesAnswer } from "./questions";
+import type { EdgesDraft } from "./drafts";
+import { answerFromDraft } from "./drafts";
 import ObjectList from "./ObjectList";
 import Option, { PathLabel } from "./Option";
 
-type End = "fromPath" | "toPath";
-
 interface Props {
-  /** Всё слитое дерево: remainder.node_paths + node_has_children. */
+  /** Всё слитое дерево: сосед выбирается по нему. */
   nodes: ComponentOut[];
-  draft: EdgeDraft;
-  onDraft: (next: EdgeDraft) => void;
-  onAdd: (answer: NewEdgeAnswer) => void;
+  draft: EdgesDraft;
+  onDraft: (next: EdgesDraft) => void;
+  onAdd: (answer: NewEdgesAnswer) => void;
   onBack: () => void;
 }
 
 export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Props) {
-  // Какой конец выбирают прямо сейчас. Форма открывается на «Начале»: это первый
-  // шаг жеста, и лишний клик по кнопке был бы пустым.
-  const [picking, setPicking] = useState<End | null>("fromPath");
+  // У какой строки раскрыт дропдаун соседа; null — все свёрнуты.
+  const [picking, setPicking] = useState<number | null>(null);
 
-  function pick(path: string) {
-    if (picking === null) return;
-    onDraft({ ...draft, [picking]: path });
-    // Автопереход на конец — только пока конца нет: правка уже выбранного не
-    // должна утаскивать пикер дальше.
-    setPicking(picking === "fromPath" && draft.toPath === null ? "toPath" : null);
-  }
+  const правка = (i: number, patch: Partial<EdgesDraft[number]>) =>
+    onDraft(draft.map((r, k) => (k === i ? { ...r, ...patch } : r)));
 
-  const endButton = (end: End, label: string) => {
-    const path = draft[end];
-    return (
-      <div>
-        <div className="rq-flbl">{label}</div>
-        <Option
-          main={path === null ? <span className="rq-opt-m">Выберите объект</span> : <PathLabel path={path} />}
-          tag={picking === end ? "выбираете" : undefined}
-          selected={picking === end}
-          onClick={() => setPicking(picking === end ? null : end)}
-        />
-      </div>
-    );
-  };
-
-  const ready = draft.fromPath !== null && draft.toPath !== null;
+  const готово = draft.filter((r) => r.toPath !== null).length;
 
   return (
     <>
-      <div className="rq-frow">
-        {endButton("fromPath", "Начало")}
-        {endButton("toPath", "Конец")}
-      </div>
-      {picking !== null && (
-        <ObjectList key={picking} items={nodes} value={draft[picking]} onPick={pick} />
-      )}
-      <div className="rq-frow">
-        <div>
-          <div className="rq-flbl">Подпись</div>
-          <input
-            className="rq-inp"
-            value={draft.label}
-            aria-label="Подпись"
-            placeholder="что ходит по связи"
-            onChange={(e) => onDraft({ ...draft, label: e.target.value })}
-          />
-        </div>
-      </div>
-      <div className="rq-frow">
-        <div>
-          <div className="rq-flbl">Технология</div>
-          <input
-            className="rq-inp"
-            value={draft.tech}
-            aria-label="Технология"
-            placeholder="SQL, HTTP/JSON, gRPC…"
-            onChange={(e) => onDraft({ ...draft, tech: e.target.value })}
-          />
-        </div>
-        <div>
-          <div className="rq-flbl">Тип канала</div>
-          <div className="rq-seg2">
+      {draft.map((row, i) => (
+        <div key={row.nodePath} className="rq-erow">
+          <div className="rq-epair">
+            <div className="rq-eend rq-eend--fixed" title={row.nodePath}>
+              <PathLabel path={row.nodePath} />
+            </div>
             <button
               type="button"
-              className={draft.channel === "sync" ? "rq-on" : undefined}
-              onClick={() => onDraft({ ...draft, channel: "sync" })}
+              className="rq-eswap"
+              title="Поменять направление"
+              aria-label="Поменять направление"
+              onClick={() => правка(i, { reversed: !row.reversed })}
             >
-              Синхронный
+              {row.reversed ? "←" : "→"}
             </button>
-            <button
-              type="button"
-              className={draft.channel === "async" ? "rq-on" : undefined}
-              onClick={() => onDraft({ ...draft, channel: "async" })}
-            >
-              Асинхронный
-            </button>
+            <div className="rq-eend">
+              <Option
+                main={row.toPath === null
+                  ? <span className="rq-opt-m">Выберите объект</span>
+                  : <PathLabel path={row.toPath} />}
+                tag={picking === i ? "выбираете" : undefined}
+                selected={picking === i}
+                onClick={() => setPicking(picking === i ? null : i)}
+              />
+            </div>
+          </div>
+          {picking === i && (
+            <ObjectList
+              key={`pick-${i}`}
+              items={nodes.filter((n) => n.path !== row.nodePath)}
+              value={row.toPath}
+              search
+              onPick={(path) => { правка(i, { toPath: path }); setPicking(null); }}
+            />
+          )}
+          <div className="rq-frow">
+            <div>
+              <div className="rq-flbl">Описание</div>
+              <input
+                className="rq-inp"
+                value={row.label}
+                aria-label={`Описание связи — ${row.nodePath}`}
+                placeholder="что ходит по связи"
+                onChange={(e) => правка(i, { label: e.target.value })}
+              />
+            </div>
+            <div>
+              <div className="rq-flbl">Технология</div>
+              <input
+                className="rq-inp"
+                value={row.tech}
+                aria-label={`Технология связи — ${row.nodePath}`}
+                placeholder="SQL, HTTP/JSON, gRPC…"
+                onChange={(e) => правка(i, { tech: e.target.value })}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      ))}
       <div className="rq-more">
         <button
           type="button"
           className="rq-pri"
-          disabled={!ready}
-          onClick={() => {
-            if (draft.fromPath === null || draft.toPath === null) return;
-            onAdd({
-              kind: "new_edge", fromPath: draft.fromPath, toPath: draft.toPath,
-              label: draft.label, tech: draft.tech, channel: draft.channel,
-            });
-          }}
+          disabled={готово === 0}
+          onClick={() => onAdd(answerFromDraft(draft))}
         >
-          Добавить связь
+          {готово > 1 ? "Провести связи" : "Провести связь"}
         </button>
         <button type="button" className="rq-link rq-link--mut" onClick={onBack}>
           Назад к вопросу

@@ -154,11 +154,12 @@ describe("навигация по вопросам", () => {
     expect(счётчик()).toBe("вопрос 4 из 5");
     expect(screen.getByText(/нет связей с остальной схемой/)).toBeInTheDocument();
     await userEvent.click(screen.getByText("Оставить как есть"));
-    // «Как сейчас» — серая точка, а не синяя (у текущего вопроса точка своя,
-    // поэтому смотрим на неё, отойдя дальше).
+    // «Как сейчас» пользователь ВЫБРАЛ — точка синяя, как у любого ответа (П8);
+    // у текущего вопроса точка своя, поэтому смотрим на неё, отойдя дальше.
     await userEvent.click(дальше());
-    expect(screen.getAllByRole("button", { name: /^вопрос \d+$/ })[3]!.className)
-      .toContain("rq-dot--kept");
+    const точка = screen.getAllByRole("button", { name: /^вопрос \d+$/ })[3]!;
+    expect(точка.className).toContain("rq-dot--done");
+    expect(точка.className).not.toContain("kept");
   });
 });
 
@@ -174,6 +175,31 @@ describe("список всех вопросов и итог (§3, §8)", () => 
     await userEvent.click(строки[4]!);
     expect(счётчик()).toBe("вопрос 5 из 5");
     expect(screen.getByText(/похожие имена/)).toBeInTheDocument();
+  });
+
+  it("«как сейчас» — полноценный ответ и в списке, и в итоге (П8)", async () => {
+    render(<Stand />);
+    const точки = () => screen.getAllByRole("button", { name: /^вопрос \d+$/ });
+    await userEvent.click(точки()[2]!);
+    await userEvent.click(screen.getByText(/Оставить на контейнере/));
+    await userEvent.click(точки()[4]!);
+    await userEvent.click(screen.getByText("Разные объекты"));
+    await userEvent.click(screen.getByRole("button", { name: "Все вопросы" }));
+    const строки = screen.getAllByRole("button").filter((b) => b.className.includes("rq-ql-r"));
+    const подпись = (i: number) => строки[i]!.querySelector(".rq-ql-a");
+    expect(подпись(2)?.textContent).toBe("на контейнере");
+    expect(подпись(4)?.textContent).toBe("разные объекты");
+    // Синие 600, как у прочих ответов: серым остаётся только «—».
+    expect(подпись(2)?.className).not.toContain("--none");
+    expect(подпись(4)?.className).not.toContain("--none");
+    expect(подпись(0)?.className).toContain("--none");
+    // И в итоге они не «без ответа».
+    await userEvent.click(screen.getByRole("button", { name: "К вопросу" }));
+    await userEvent.click(точки()[4]!);
+    await userEvent.click(screen.getByRole("button", { name: "Завершить →" }));
+    expect(screen.getByText(/Осталось 3 вопроса без ответа/)).toBeInTheDocument();
+    expect(screen.getByText(/оставлено как есть/).parentElement?.textContent)
+      .toContain("оставлено как есть 2");
   });
 
   it("«Завершить» показывает итог с верными числами", async () => {
@@ -210,39 +236,43 @@ describe("список всех вопросов и итог (§3, §8)", () => 
 });
 
 describe("двухшаговые вопросы (§4.6)", () => {
-  it("4.4: форма → «Добавить связь» → карточка с тегом «изменить»", async () => {
+  it("4.4: форма строкой на объект → «Провести связи» → карточка «изменить»", async () => {
     let состояние: { answers: Answers; resolutions: Resolutions } = { answers: {}, resolutions: {} };
     render(<Stand onState={(s) => { состояние = s; }} />);
     await userEvent.click(screen.getAllByRole("button", { name: /^вопрос \d+$/ })[3]!);
-    await userEvent.click(screen.getByText("Дорисовать связь"));
+    await userEvent.click(screen.getByText("Провести связь"));
     // Второй шаг: свой заголовок, «почему» и сноска не повторяются.
-    expect(screen.getByText("Новая связь между группой и остальной схемой")).toBeInTheDocument();
+    expect(screen.getByText("Связи объектов с остальной схемой")).toBeInTheDocument();
+    expect(screen.getByText(/строку можно оставить пустой/)).toBeInTheDocument();
     expect(screen.queryByText("почему возник вопрос")).toBeNull();
     expect(screen.queryByText(/Если не отвечать/)).toBeNull();
-    await userEvent.click(screen.getByText("Датасорс"));
-    await userEvent.click(screen.getByText("Zabbix", { selector: "b" }));
-    await userEvent.type(screen.getByLabelText("Технология"), "SQL");
-    await userEvent.click(screen.getByRole("button", { name: "Добавить связь" }));
+    // Строка на каждый объект группы — видно, у кого связей нет.
+    expect(screen.getAllByText("Выберите объект")).toHaveLength(2);
+    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
+    await userEvent.click(screen.getByText("server"));
+    await userEvent.type(screen.getByLabelText("Технология связи — Плагин"), "SQL");
+    await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
     expect(screen.getByText("изменить")).toBeInTheDocument();
-    expect(screen.getByText(/Датасорс → Zabbix/)).toBeInTheDocument();
+    expect(screen.getByText(/Плагин → server/)).toBeInTheDocument();
     expect(состояние.answers["group|Плагин"]).toEqual({
-      kind: "new_edge", fromPath: "Плагин / Датасорс", toPath: "Zabbix",
-      label: "", tech: "SQL", channel: "sync",
+      kind: "new_edges",
+      edges: [{ fromPath: "Плагин", toPath: "Zabbix / server", label: "", tech: "SQL" }],
     });
   });
 
-  it("4.4: «Назад к вопросу» не стирает уже данный ответ", async () => {
+  it("4.4: «Назад к вопросу» не стирает уже проведённые связи", async () => {
     let состояние: { answers: Answers; resolutions: Resolutions } = { answers: {}, resolutions: {} };
     render(<Stand onState={(s) => { состояние = s; }} />);
     await userEvent.click(screen.getAllByRole("button", { name: /^вопрос \d+$/ })[3]!);
-    await userEvent.click(screen.getByText("Дорисовать связь"));
-    await userEvent.click(screen.getByText("Датасорс"));
-    await userEvent.click(screen.getByText("Zabbix", { selector: "b" }));
-    await userEvent.click(screen.getByRole("button", { name: "Добавить связь" }));
-    // Возвращаемся в форму и уходим из неё без «Добавить связь».
+    await userEvent.click(screen.getByText("Провести связь"));
+    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
+    await userEvent.click(screen.getByText("server"));
+    await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
+    // Возвращаемся в форму и уходим из неё без «Провести связь».
     await userEvent.click(screen.getByText("изменить"));
+    expect(screen.queryByText("Выберите объект")).not.toBeNull(); // вторая строка пуста
     await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
-    expect(состояние.answers["group|Плагин"]).toMatchObject({ kind: "new_edge", toPath: "Zabbix" });
+    expect(состояние.answers["group|Плагин"]).toMatchObject({ kind: "new_edges" });
     expect(screen.getByText("изменить")).toBeInTheDocument();
   });
 

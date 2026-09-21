@@ -35,7 +35,7 @@ describe("decisions в применении ввоза", () => {
         edges: { "edge|e1|target": { to_path: "Ярмарка / orders / api" } },
         new_edges: [{
           group_id: "group|g1", from_path: "Ярмарка / orders", to_path: "Ярмарка / billing",
-          label: "оплата", tech: "HTTP/JSON", channel: "sync",
+          label: "оплата", tech: "HTTP/JSON",
         }],
         merges: { "pair|a|b": { name: "Оператор" } },
       },
@@ -48,7 +48,7 @@ describe("decisions в применении ввоза", () => {
       edges: { "edge|e1|target": { to_path: "Ярмарка / orders / api" } },
       new_edges: [{
         group_id: "group|g1", from_path: "Ярмарка / orders", to_path: "Ярмарка / billing",
-        label: "оплата", tech: "HTTP/JSON", channel: "sync",
+        label: "оплата", tech: "HTTP/JSON",
       }],
       merges: { "pair|a|b": { name: "Оператор" } },
     });

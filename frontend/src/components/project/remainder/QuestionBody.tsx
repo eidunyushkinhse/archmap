@@ -3,8 +3,8 @@
 //
 // Ничего не предвыбрано — в том числе дефолт бэка: он назван сноской «Если не
 // отвечать», а предвыбор превратил бы вопрос в согласие с уже сделанным выбором.
-import type { Answer, Answers, NewEdgeAnswer, Question, Resolutions } from "./questions";
-import type { EdgeDraft, MergeDraft } from "./drafts";
+import type { Answer, Answers, NewEdgesAnswer, Question, Resolutions } from "./questions";
+import type { EdgesDraft, MergeDraft } from "./drafts";
 import { draftFromAnswer, mergeDraftFor } from "./drafts";
 import { humanValue, lastSegment, pairEdges, VIEWER_TAG } from "./questionText";
 import DocViewer from "./DocViewer";
@@ -23,8 +23,8 @@ interface Props {
   /** Второй шаг двухшагового вопроса (форма связи / имя склейки). */
   stage2: boolean;
   onStage2: (on: boolean) => void;
-  edgeDraft: EdgeDraft;
-  onEdgeDraft: (next: EdgeDraft) => void;
+  edgeDraft: EdgesDraft;
+  onEdgeDraft: (next: EdgesDraft) => void;
   mergeDraft: MergeDraft;
   onMergeDraft: (next: MergeDraft) => void;
   /** Индекс кандидата, чьё тело открыто вьюером; null — вьюер закрыт. */
@@ -124,7 +124,7 @@ export default function QuestionBody(p: Props) {
 
   if (q.kind === "group") {
     const a = p.answers[q.id];
-    const готовая: NewEdgeAnswer | null = a?.kind === "new_edge" ? a : null;
+    const готовые: NewEdgesAnswer | null = a?.kind === "new_edges" ? a : null;
     if (p.stage2) {
       return (
         <NewEdgeForm
@@ -136,23 +136,30 @@ export default function QuestionBody(p: Props) {
         />
       );
     }
-    if (готовая !== null) {
-      // Ответ виден одной карточкой: «изменить» открывает ту же форму заполненной,
-      // и ответ переписывается только кнопкой «Добавить связь».
+    if (готовые !== null && готовые.edges.length > 0) {
+      // Ответ виден одной карточкой: «изменить» открывает ту же форму
+      // заполненной, и ответ переписывается только кнопкой «Провести связи».
+      const видимые = готовые.edges.slice(0, 3);
+      const ещё = готовые.edges.length - видимые.length;
       return (
         <div className="rq-opts">
           <Option
-            main={<b>{lastSegment(готовая.fromPath)} → {lastSegment(готовая.toPath)}</b>}
-            sub={
+            main={
               <>
-                {готовая.tech !== "" && `${готовая.tech} · `}
-                {готовая.channel === "async" ? "асинхронный" : "синхронный"}
-                {готовая.label !== "" && <><br />{готовая.label}</>}
+                {видимые.map((e, i) => (
+                  <span key={i} style={{ display: "block" }}>
+                    <b>{lastSegment(e.fromPath)} → {lastSegment(e.toPath)}</b>
+                  </span>
+                ))}
+                {ещё > 0 && <span className="rq-opt-m">и ещё {ещё}</span>}
               </>
             }
             tag="изменить"
             selected
-            onClick={() => { p.onEdgeDraft(draftFromAnswer(готовая)); p.onStage2(true); }}
+            onClick={() => {
+              p.onEdgeDraft(draftFromAnswer(готовые, q.source.node_paths));
+              p.onStage2(true);
+            }}
           />
         </div>
       );
@@ -160,8 +167,8 @@ export default function QuestionBody(p: Props) {
     return (
       <div className="rq-opts">
         <Option
-          main={<b>Дорисовать связь</b>}
-          sub="выбрать начало, конец и подпись"
+          main={<b>Провести связь</b>}
+          sub="указать, с чем связан каждый объект"
           onClick={() => p.onStage2(true)}
         />
         <Option

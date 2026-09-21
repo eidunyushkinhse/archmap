@@ -15,8 +15,8 @@ import type { Answer, Answers, Question, Resolutions } from "./questions";
 import {
   answerLabel, answerState, progressMode, segments, summarize,
 } from "./questions";
-import { EMPTY_EDGE_DRAFT, mergeDraftFor } from "./drafts";
-import type { EdgeDraft, MergeDraft } from "./drafts";
+import { emptyEdgesDraft, mergeDraftFor } from "./drafts";
+import type { EdgesDraft, MergeDraft } from "./drafts";
 import { MERGE_TITLE, mergeContext, NEW_EDGE_CONTEXT, NEW_EDGE_TITLE } from "./questionText";
 import QuestionBody from "./QuestionBody";
 import "./remainder.css";
@@ -43,7 +43,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   // На каком вопросе открыт второй шаг; черновики форм — по id вопроса, чтобы
   // хождение «Назад/Дальше» их не стирало (§4.6).
   const [stage2, setStage2] = useState<Record<string, boolean>>({});
-  const [edgeDrafts, setEdgeDrafts] = useState<Record<string, EdgeDraft>>({});
+  const [edgeDrafts, setEdgeDrafts] = useState<Record<string, EdgesDraft>>({});
   const [mergeDrafts, setMergeDrafts] = useState<Record<string, MergeDraft>>({});
   const [viewer, setViewer] = useState<{ id: string; candidate: number } | null>(null);
 
@@ -78,6 +78,9 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
   const шаг2 = (q.kind === "group" && stage2[q.id] === true)
     || (q.kind === "pair" && (stage2[q.id] === true || answers[q.id]?.kind === "merge"));
   const title = !шаг2 ? q.title : q.kind === "pair" ? MERGE_TITLE : NEW_EDGE_TITLE;
+  // Черновик формы связей: нет своего — строка на каждый объект группы (П4).
+  const edgeDraft: EdgesDraft = edgeDrafts[q.id]
+    ?? (q.kind === "group" ? emptyEdgesDraft(q.source.node_paths) : []);
   // Черновик шага 2 склейки: нет своего — открываем на уже выбранном имени.
   const mergeDraft: MergeDraft = mergeDrafts[q.id]
     ?? (q.kind === "pair" ? mergeDraftFor(q.source, currentName(q, answers)) : { pick: "a", own: "" });
@@ -167,7 +170,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
           <div className="rq-ql">
             {questions.map((x, i) => {
               const ответ = answerLabel(x, answers, resolutions);
-              const серый = ответ === null || answerState(x, answers, resolutions) === "keep";
+              const серый = ответ === null;
               return (
                 <button
                   key={x.id}
@@ -177,7 +180,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
                 >
                   <span className="rq-ql-n">{i + 1}</span>
                   <span className="rq-ql-q">{x.title}</span>
-                  <span className={"rq-ql-a" + (серый ? " rq-ql-a--kept" : "")}>{ответ ?? "—"}</span>
+                  <span className={"rq-ql-a" + (серый ? " rq-ql-a--none" : "")}>{ответ ?? "—"}</span>
                 </button>
               );
             })}
@@ -213,7 +216,7 @@ export default function RemainderBlock({ questions, answers, resolutions, onAnsw
           onResolve={onResolve}
           stage2={шаг2}
           onStage2={(on) => setStage2((cur) => ({ ...cur, [q.id]: on }))}
-          edgeDraft={edgeDrafts[q.id] ?? EMPTY_EDGE_DRAFT}
+          edgeDraft={edgeDraft}
           onEdgeDraft={(next) => setEdgeDrafts((cur) => ({ ...cur, [q.id]: next }))}
           mergeDraft={mergeDraft}
           onMergeDraft={(next) => setMergeDrafts((cur) => ({ ...cur, [q.id]: next }))}
@@ -260,10 +263,10 @@ function Progress({ questions, answers, resolutions, index, onGo }: {
     return (
       <div className="rq-prog">
         {questions.map((q, i) => {
+          // «Как сейчас» — такой же ответ, как остальные (П8 приёмки): точка
+          // синяя. Серым остаётся только НЕОТВЕЧЕННОЕ.
           const st = answerState(q, answers, resolutions);
-          const cls = i === index ? " rq-dot--on"
-            : st === "answered" ? " rq-dot--done"
-            : st === "keep" ? " rq-dot--kept" : "";
+          const cls = i === index ? " rq-dot--on" : st === "none" ? "" : " rq-dot--done";
           return (
             <button
               key={q.id}
@@ -284,8 +287,7 @@ function Progress({ questions, answers, resolutions, index, onGo }: {
         {segments(questions, answers, resolutions).map((s) => (
           <button key={s.kind} type="button" className="rq-bar-g" onClick={() => onGo(s.first)}>
             <span className="rq-bar-t">
-              <span className="rq-bar-f" style={{ width: `${(s.done - s.kept) / s.total * 100}%` }} />
-              <span className="rq-bar-k" style={{ width: `${s.kept / s.total * 100}%` }} />
+              <span className="rq-bar-f" style={{ width: `${s.done / s.total * 100}%` }} />
             </span>
             <span className="rq-bar-l">{s.caption}</span>
           </button>

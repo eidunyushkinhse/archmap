@@ -14,7 +14,7 @@ export {
   progressMode, pruneAnswers, segments, summarize, toDecisions,
 } from "./questions";
 export type {
-  Answer, Answers, DecisionsPayload, NewEdgeDecision, ProgressSegment,
+  Answer, Answers, DecisionsPayload, NewEdgeDecision, NewEdgesAnswer, ProgressSegment,
   Question, QuestionKind, Resolutions, Summary,
 } from "./questions";
 export { humanValue, splitErrorLine } from "./questionText";
