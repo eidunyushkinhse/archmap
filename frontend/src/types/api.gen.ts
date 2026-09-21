@@ -2706,6 +2706,16 @@ export interface components {
             /** Prompt */
             prompt: string;
         };
+        /**
+         * ComponentOut
+         * @description Компонент контейнера — возможная цель конца связи.
+         */
+        ComponentOut: {
+            /** Path */
+            path: string;
+            /** Has Children */
+            has_children: boolean;
+        };
         /** ConfigImportIn */
         ConfigImportIn: {
             /** Files */
@@ -2899,6 +2909,32 @@ export interface components {
         ConfigPromptOut: {
             /** Prompt */
             prompt: string;
+        };
+        /**
+         * ContainerEdgeOut
+         * @description Конец связи, легший на контейнер целиком (§4.3 ТЗ). Оба конца в
+         *     контейнерах — ДВА элемента: у каждого свой ответ.
+         */
+        ContainerEdgeOut: {
+            /** Id */
+            id: string;
+            /** From Path */
+            from_path: string;
+            /** To Path */
+            to_path: string;
+            /** Label */
+            label?: string | null;
+            /** Technology */
+            technology?: string | null;
+            /**
+             * End
+             * @enum {string}
+             */
+            end: "source" | "target";
+            /** Container Path */
+            container_path: string;
+            /** Components */
+            components: components["schemas"]["ComponentOut"][];
         };
         /**
          * ContainerOwnDocsAlert
@@ -3720,6 +3756,11 @@ export interface components {
             origin: number;
             /** Origin Label */
             origin_label: string;
+            /**
+             * Source Label
+             * @default
+             */
+            source_label: string;
             /** Summary */
             summary: string;
             /** Body */
@@ -3757,6 +3798,28 @@ export interface components {
             default: string;
             /** Allow All */
             allow_all: boolean;
+        };
+        /**
+         * FieldDisputeOut
+         * @description Спор о поле узла между РАВНО содержательными вкладами (§4.2 ТЗ).
+         *
+         *     Спора нет там, где один из вкладов видел узел изнутри: правило мерджа (П2)
+         *     знает ответ, и вопрос был бы вопросом о том, что уже решено.
+         */
+        FieldDisputeOut: {
+            /** Id */
+            id: string;
+            /** Node Path */
+            node_path: string;
+            /**
+             * Field
+             * @enum {string}
+             */
+            field: "description" | "technology" | "role" | "shape" | "status";
+            /** Candidates */
+            candidates: components["schemas"]["RemainderCandidateOut"][];
+            /** Default */
+            default: number;
         };
         /**
          * FileRemarksOut
@@ -3830,6 +3893,39 @@ export interface components {
             guard?: string | null;
             /** Branches */
             branches?: components["schemas"]["BranchIn"][] | null;
+        };
+        /**
+         * FuzzyPairOut
+         * @description Похожие имена из разных входов (§4.5 ТЗ). Мердж не склеивает их никогда —
+         *     ложная склейка хуже дубля, — поэтому решает человек.
+         */
+        FuzzyPairOut: {
+            /** Id */
+            id: string;
+            /** A Path */
+            a_path: string;
+            /** B Path */
+            b_path: string;
+            /** A Source */
+            a_source: string;
+            /** B Source */
+            b_source: string;
+            /** A Edges */
+            a_edges: number;
+            /** B Edges */
+            b_edges: number;
+            /** Where */
+            where: string;
+            /**
+             * A Current
+             * @default false
+             */
+            a_current: boolean;
+            /**
+             * B Current
+             * @default false
+             */
+            b_current: boolean;
         };
         /** GhostNodeResponse */
         GhostNodeResponse: {
@@ -4253,6 +4349,18 @@ export interface components {
              */
             family_conflicts: components["schemas"]["FamilyConflictOut"][];
             /**
+             * @default {
+             *       "field_conflicts": [],
+             *       "container_edges": [],
+             *       "isolated_groups": [],
+             *       "fuzzy_pairs": [],
+             *       "unfixable": [],
+             *       "node_paths": [],
+             *       "node_has_children": []
+             *     }
+             */
+            remainder: components["schemas"]["RemainderOut"];
+            /**
              * Warnings
              * @default []
              */
@@ -4279,6 +4387,17 @@ export interface components {
             node_ids: string[];
             /** Node Names */
             node_names: string[];
+        };
+        /**
+         * IsolatedGroupOut
+         * @description Группа объектов, не связанная с остальной схемой (§4.4 ТЗ): факт
+         *     совместного развёртывания не виден ни из одного репозитория по отдельности.
+         */
+        IsolatedGroupOut: {
+            /** Id */
+            id: string;
+            /** Node Paths */
+            node_paths: string[];
         };
         /** LegOut */
         LegOut: {
@@ -5238,6 +5357,67 @@ export interface components {
             /** Prompt */
             prompt: string;
         };
+        /**
+         * RemainderCandidateOut
+         * @description Один вариант ответа, пришедший из конкретного входа.
+         */
+        RemainderCandidateOut: {
+            /** Origin */
+            origin: number;
+            /** Origin Label */
+            origin_label: string;
+            /** Source Label */
+            source_label: string;
+            /** Value */
+            value: string;
+            /**
+             * Current
+             * @default false
+             */
+            current: boolean;
+        };
+        /**
+         * RemainderOut
+         * @description Остаток слияния целиком. Пустой — разбирать нечего (и это нормальный
+         *     результат: спрашивать не о чем).
+         */
+        RemainderOut: {
+            /**
+             * Field Conflicts
+             * @default []
+             */
+            field_conflicts: components["schemas"]["FieldDisputeOut"][];
+            /**
+             * Container Edges
+             * @default []
+             */
+            container_edges: components["schemas"]["ContainerEdgeOut"][];
+            /**
+             * Isolated Groups
+             * @default []
+             */
+            isolated_groups: components["schemas"]["IsolatedGroupOut"][];
+            /**
+             * Fuzzy Pairs
+             * @default []
+             */
+            fuzzy_pairs: components["schemas"]["FuzzyPairOut"][];
+            /**
+             * Unfixable
+             * @default []
+             */
+            unfixable: components["schemas"]["UnfixableOut"][];
+            /**
+             * Node Paths
+             * @default []
+             */
+            node_paths: string[];
+            /**
+             * Node Has Children
+             * @default []
+             */
+            node_has_children: boolean[];
+        };
         /** ReorderPayload */
         ReorderPayload: {
             /** Ids */
@@ -5685,6 +5865,25 @@ export interface components {
             count: number;
         };
         /**
+         * UnfixableOut
+         * @description Замечание, которое выбором не закрыть (§6 ТЗ): его чинит только новый
+         *     прогон агента. Структурой, а не строкой, — чтобы фронту не парсить тексты.
+         */
+        UnfixableOut: {
+            /** Id */
+            id: string;
+            /** Text */
+            text: string;
+            /** How */
+            how: string;
+            /** Agent */
+            agent?: string | null;
+            /** If Left */
+            if_left: string;
+            /** File */
+            file?: number | null;
+        };
+        /**
          * UnifiedFamilyCountsOut
          * @description Что приедет при ДЕФОЛТНЫХ резолюциях: доки спора едут все, скаляры — первый.
          */
@@ -5749,6 +5948,18 @@ export interface components {
              * @default []
              */
             family_conflicts: components["schemas"]["FamilyConflictOut"][];
+            /**
+             * @default {
+             *       "field_conflicts": [],
+             *       "container_edges": [],
+             *       "isolated_groups": [],
+             *       "fuzzy_pairs": [],
+             *       "unfixable": [],
+             *       "node_paths": [],
+             *       "node_has_children": []
+             *     }
+             */
+            remainder: components["schemas"]["RemainderOut"];
             /**
              * Warnings
              * @default []

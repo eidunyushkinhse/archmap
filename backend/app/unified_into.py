@@ -60,11 +60,11 @@ from app.schemas.node import NodeSource
 from app.schemas.process_import import ProcessImportResult
 from app.schemas.project import MergedNodeOut
 from app.schemas.unified_import import (
-    FamilyCandidateOut,
     FamilyConflictOut,
     IntoApplyOut,
     IntoPreviewOut,
     NewNodeOut,
+    RemainderOut,
     UnifiedFamilyCountsOut,
 )
 
@@ -89,12 +89,18 @@ from app.unified_import import (
     UnifiedPlan,
     _bump,
     build_unified_plan,
+    family_candidate_out,
+    remainder_from_plan,
 )
 from app.view_state import bump_graph_rev, bump_meta_rev
 
 # Как зовётся вход №0 в замечаниях и кандидатах спора. Пользователь видит его
 # наравне с чипами архивов — «моё» должно называться человеческим словом.
 SELF_LABEL = "Текущий проект"
+
+# Он же — индекс входа №0 в плане: его вклад и есть «моё» (подпись кандидата «Из
+# проекта», дефолты споров, Р3/Р4 остатка).
+SELF_ORIGIN = 0
 
 # Сколько путей новых узлов кладём в превью: список нужен для понимания «что
 # приедет», а не для чтения целиком (полное число рядом, в nodes_new).
@@ -358,7 +364,28 @@ def into_preview(into: IntoPlan) -> IntoPreviewOut:
     """План догрузки → ответ превью (то же самое человеку и фронту)."""
     plan = into.plan
     paths = [plan.node_paths[m] for m in into.new_nodes] if plan else []
-    conflicts = plan.conflicts if (plan and into.ok) else []
+    # Споры и остаток — только когда план состоялся: у непригодного показывать
+    # нечего, кроме ошибок (и mypy тем же условием сужает plan до не-None).
+    family_conflicts: list[FamilyConflictOut] = []
+    remainder = RemainderOut()
+    if plan is not None and into.ok:
+        family_conflicts = [
+            FamilyConflictOut(
+                id=c.id,
+                family=c.family,
+                node_path=c.node_path,
+                key=c.key,
+                candidates=[
+                    family_candidate_out(plan, k, SELF_ORIGIN) for k in c.candidates
+                ],
+                default=c.default,
+                allow_all=c.allow_all,
+            )
+            for c in plan.conflicts
+        ]
+        # Остаток — только с участием архива (Р3): чисто живой остаток это дело
+        # панели незавершённости, а не догрузки.
+        remainder = remainder_from_plan(plan, SELF_ORIGIN)
     # Живые узлы, К КОТОРЫМ ЧТО-ТО ЕДЕТ: у них вклад не только свой (вход №0), но и
     # хотя бы одного архива. Узел, который нашёл сам себя и больше ничей, — это не
     # находка догрузки, а вся остальная схема: перечислять её значит топить дифф.
@@ -394,28 +421,8 @@ def into_preview(into: IntoPlan) -> IntoPreviewOut:
             params=into.counts.params,
             processes=into.counts.processes,
         ),
-        family_conflicts=[
-            FamilyConflictOut(
-                id=c.id,
-                family=c.family,
-                node_path=c.node_path,
-                key=c.key,
-                candidates=[
-                    FamilyCandidateOut(
-                        origin=k.origin,
-                        origin_label=k.origin_label,
-                        summary=k.summary,
-                        body=k.body,
-                        truncated=k.truncated,
-                        current=k.current,
-                    )
-                    for k in c.candidates
-                ],
-                default=c.default,
-                allow_all=c.allow_all,
-            )
-            for c in conflicts
-        ],
+        family_conflicts=family_conflicts,
+        remainder=remainder,
         warnings=into.warnings,
         base_graph_rev=into.base_graph_rev,
         base_meta_rev=into.base_meta_rev,

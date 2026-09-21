@@ -34,11 +34,11 @@ const СПОР: FamilyConflictOut = {
   key: "Оформление заказа",
   candidates: [
     {
-      origin: 0, origin_label: "Текущий проект", summary: "12 строк",
+      origin: 0, origin_label: "Текущий проект", source_label: "Из проекта", summary: "12 строк",
       body: "flowchart TD\n  A-->B", truncated: false, current: true,
     },
     {
-      origin: 1, origin_label: "b.zip", summary: "20 строк",
+      origin: 1, origin_label: "b.zip", source_label: "Из архива Ярмарка", summary: "20 строк",
       body: "flowchart TD\n  A-->C", truncated: false, current: false,
     },
   ],
@@ -54,8 +54,8 @@ const СПОР_БЕЗ_МОЕГО: FamilyConflictOut = {
   family: "spec",
   key: "openapi",
   candidates: [
-    { origin: 1, origin_label: "b.zip", summary: "3 операции", body: "openapi: 3", truncated: false, current: false },
-    { origin: 2, origin_label: "c.zip", summary: "5 операций", body: "openapi: 3.1", truncated: false, current: false },
+    { origin: 1, origin_label: "b.zip", source_label: "Из архива Ярмарка", summary: "3 операции", body: "openapi: 3", truncated: false, current: false },
+    { origin: 2, origin_label: "c.zip", source_label: "Из архива Склад", summary: "5 операций", body: "openapi: 3.1", truncated: false, current: false },
   ],
   default: "cand:0",
   allow_all: false,
@@ -75,6 +75,11 @@ const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({
   edges_new: 2,
   families: { docs: 4, specs: 1, tables: 0, channels: 0, params: 0, processes: 1 },
   family_conflicts: [СПОР],
+  // Остаток слияния (Ф-E) в этих сценариях пуст: модалка проверяется по спорам.
+  remainder: {
+    field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+    unfixable: [], node_paths: [], node_has_children: [],
+  },
   warnings: ["процесс «Оплата» — тёзка уже имеющегося: приедет с суффиксом « (2)»"],
   base_graph_rev: 7,
   base_meta_rev: 11,

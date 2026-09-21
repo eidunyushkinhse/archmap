@@ -41,6 +41,9 @@ from app.unified_import import (
     DocIn,
     UnifiedImportError,
     build_unified_plan,
+    preview_from_plan,
+    remainder_from_plan,
+    source_label,
 )
 
 РУЧКА = "/api/v1/projects/import/unified-preview"
@@ -1242,3 +1245,207 @@ def test_канал_описанный_пакетом_архива_заглуш�
     kafka = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Kafka").one()
     [канал] = db.query(BrokerChannel).filter(BrokerChannel.node_id == kafka.id).all()
     assert (канал.group_name, канал.kind, канал.delivery) == ("shop", "topic", "at-least-once")
+
+
+# ── Ф-E: структурный остаток слияния в превью ────────────────────────────────
+#
+# Остаток (что мердж решить не может) приезжает не только строками, но и
+# структурой: фронт задаёт по ней вопросы, применение меняет дерево до записи в
+# БД. Проверяем состав остатка, подписи источников (§4.7 ТЗ), детерминизм id —
+# на них стоит применение, считающее план заново, — и тексты «что исправит только
+# новый прогон агента».
+
+# Два «репозитория» одного магазина: оба описали Ярмарку изнутри (равная
+# содержательность → спор описания), сосед видит orders коробкой (связь в
+# контейнер), биллинг приехал островом, актор назван по-разному (fuzzy-пара).
+_ОСТАТОК_1 = """
+nodes:
+  - name: Ярмарка
+    description: Торговая площадка
+    children:
+      - name: orders
+        children:
+          - name: api
+      - name: Каталог-БД
+        shape: database
+  - name: Оператор
+    shape: person
+edges:
+  - from: Оператор
+    to: orders
+    label: смотрит
+  - from: orders
+    to: Каталог-БД
+    label: пишет
+"""
+
+_ОСТАТОК_2 = """
+nodes:
+  - name: Ярмарка
+    description: Магазин
+    children:
+      - name: orders
+  - name: Оператор смены
+    shape: person
+  - name: Биллинг
+    children:
+      - name: счета
+      - name: Биллинг-БД
+        shape: database
+edges:
+  - from: счета
+    to: Биллинг-БД
+    label: пишет
+"""
+
+
+def _план_остатка():
+    return build_unified_plan(
+        [("shop.yaml", _ОСТАТОК_1.encode()), ("billing.yaml", _ОСТАТОК_2.encode())]
+    )
+
+
+def test_остаток_все_четыре_вопроса_в_превью():
+    """Полевой набор одним планом: спор поля, связь в контейнер, остров, похожие
+    имена — каждый со своим адресом в слитом дереве."""
+    план = _план_остатка()
+    остаток = preview_from_plan(план).remainder
+
+    [спор] = остаток.field_conflicts
+    assert спор.id == "field|Ярмарка|description"
+    assert (спор.node_path, спор.field, спор.default) == ("Ярмарка", "description", 0)
+    assert [(c.origin, c.value) for c in спор.candidates] == [
+        (0, "Торговая площадка"), (1, "Магазин")
+    ]
+    assert [c.source_label for c in спор.candidates] == [
+        "От агента · shop.yaml", "От агента · billing.yaml"
+    ]
+
+    # Обе связи упираются в один контейнер, но разными концами — это два вопроса.
+    вход, выход = остаток.container_edges
+    assert вход.id == "edge|Оператор|Ярмарка / orders|смотрит|target"
+    assert (вход.end, вход.container_path) == ("target", "Ярмарка / orders")
+    assert [c.path for c in вход.components] == ["Ярмарка / orders / api"]
+    assert [c.has_children for c in вход.components] == [False]
+    assert выход.id == "edge|Ярмарка / orders|Ярмарка / Каталог-БД|пишет|source"
+    assert (выход.end, выход.label, выход.technology) == ("source", "пишет", None)
+
+    [остров] = остаток.isolated_groups
+    assert остров.id == "group|Биллинг / счета"
+    assert остров.node_paths == ["Биллинг / счета", "Биллинг / Биллинг-БД"]
+
+    [пара] = остаток.fuzzy_pairs
+    assert пара.id == "pair|Оператор|Оператор смены"
+    assert (пара.a_path, пара.b_path) == ("Оператор", "Оператор смены")
+    assert (пара.a_edges, пара.b_edges) == (1, 0)
+    assert пара.where == "на верхнем уровне"
+    assert (пара.a_current, пара.b_current) == (False, False)
+
+    # Пикер концов новой связи: всё слитое дерево и признак «контейнер».
+    assert остаток.node_paths == план.node_paths
+    контейнер = dict(zip(остаток.node_paths, остаток.node_has_children, strict=True))
+    assert контейнер["Ярмарка / orders"] and not контейнер["Ярмарка / Каталог-БД"]
+
+
+def test_остаток_строки_остаются_на_месте():
+    """Р1: структура ДОПОЛНЯЕТ отчёт, а не заменяет его — строки читает MCP."""
+    превью = preview_from_plan(_план_остатка())
+
+    assert превью.c4 is not None
+    assert any("description" in c for c in превью.c4.conflicts)
+    assert any("похожи" in w for w in превью.c4.warnings)
+    assert any("конец в контейнере" in w for w in превью.c4.warnings)
+
+
+def test_остаток_id_детерминированы_между_сборками():
+    """Применение считает план ЗАНОВО по тем же файлам — id обязаны совпасть."""
+    первый = remainder_from_plan(_план_остатка(), None)
+    второй = remainder_from_plan(_план_остатка(), None)
+
+    assert первый.model_dump() == второй.model_dump()
+
+
+def test_остаток_подписи_источников():
+    """§4.7: один корень — именем корня, несколько — именем файла; архив своим
+    словом. Кандидат спора семьи подписан тем же."""
+    два_корня = "nodes:\n  - name: Ярмарка\n  - name: Склад\n"
+    план = build_unified_plan([
+        ("shop.yaml", C4_ЯРМАРКА.encode()),
+        ("wide.yaml", два_корня.encode()),
+        ("arch.zip", _архив(name="Архив", c4=C4_ЯРМАРКА_2)),
+    ])
+
+    assert source_label(план, 0) == "От агента Ярмарка"
+    assert source_label(план, 1) == "От агента · wide.yaml"
+    assert source_label(план, 2) == "Из архива Ярмарка"
+    # Тот же вход в догрузке (вход №0 — живой проект) называется «Из проекта».
+    assert source_label(план, 0, current=0) == "Из проекта"
+    assert source_label(план, 2, current=0) == "Из архива Ярмарка"
+
+
+def test_остаток_подпись_источника_у_кандидата_семьи():
+    a = _архив(name="A", docs=(("docs/a.mmd", _док("Ярмарка / orders", "POST /orders",
+                                                   "graph TD\n  A\n")),))
+    b = _архив(name="B", c4=C4_ЯРМАРКА_2,
+               docs=(("docs/b.mmd", _док("Ярмарка / orders", "POST /orders",
+                                         "graph TD\n  B\n")),))
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+
+    [спор] = preview_from_plan(план).family_conflicts
+    assert [c.source_label for c in спор.candidates] == [
+        "Из архива Ярмарка", "Из архива Ярмарка"
+    ]
+    assert [c.origin_label for c in спор.candidates] == ["a.zip", "b.zip"]
+
+
+def test_остаток_незакрываемое_замечание_с_путём_починки():
+    """§6: замечание, которое выбором не закрыть, приезжает структурой — текст,
+    путь починки и цена бездействия, чтобы фронту не парсить строки."""
+    a = "nodes:\n  - name: Система A\n"
+    b = "nodes:\n  - name: Система B\n"
+    план = build_unified_plan([("a.yaml", a.encode()), ("b.yaml", b.encode())])
+
+    [замечание] = remainder_from_plan(план, None).unfixable
+    assert "не имеют общих корневых узлов" in замечание.text
+    assert замечание.how.startswith("Можно доработать прогоном агента.")
+    assert "назовут корень одинаково" in замечание.how
+    assert замечание.if_left.startswith("Если оставить: проект создастся с несколькими")
+    # Замечание о ВЗАИМНОМ устройстве файлов адресата не имеет (правило Ф7).
+    assert (замечание.agent, замечание.file) == (None, None)
+
+
+def test_остаток_хвост_счётчик_приклеен_к_последнему_своего_класса():
+    """«…ещё N таких …» — не самостоятельное замечание: он о тех же объектах,
+    что строки перед ним, и едет второй строкой последнего из них."""
+    n = 11  # на один больше капа перечня склеек по общему источнику
+    a = "nodes:\n" + "".join(
+        f"  - name: s{i}\n    source: {{repo: 'github.com/org/r{i}'}}\n" for i in range(n)
+    )
+    b = "nodes:\n" + "".join(
+        f"  - name: t{i}\n    source: {{repo: 'github.com/org/r{i}'}}\n" for i in range(n)
+    )
+    план = build_unified_plan([("a.yaml", a.encode()), ("b.yaml", b.encode())])
+
+    замечания = remainder_from_plan(план, None).unfixable
+    assert len(замечания) == 10  # хвост отдельным элементом не стал
+    assert замечания[-1].text.endswith("\n…ещё 1 таких склеек по общему источнику")
+    assert "свой source.path" in замечания[-1].how
+    assert замечания[-1].if_left.startswith("Если оставить: вместо нескольких объектов")
+
+
+def test_остаток_вопросы_не_дублируют_строки_замечаний():
+    """Строка, ставшая вопросом, в «только новым прогоном агента» не едет:
+    иначе пользователь увидел бы одно и то же дважды."""
+    остаток = remainder_from_plan(_план_остатка(), None)
+
+    assert остаток.fuzzy_pairs and остаток.unfixable == []
+
+
+def test_остаток_пуст_когда_спрашивать_не_о_чем():
+    план = build_unified_plan([("a.yaml", C4_ЯРМАРКА.encode())])
+    остаток = preview_from_plan(план).remainder
+
+    assert остаток.field_conflicts == [] and остаток.container_edges == []
+    assert остаток.isolated_groups == [] and остаток.fuzzy_pairs == []
+    assert остаток.unfixable == []
+    assert остаток.node_paths == план.node_paths  # пикер работает и без вопросов

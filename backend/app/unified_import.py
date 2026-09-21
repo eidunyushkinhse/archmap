@@ -52,8 +52,16 @@ from app.import_yaml import ParsedImport, parse_import
 from app.mmd_header import parse_mmd_header, strip_header
 from app.schemas.project import FileRemarksOut, ImportPreviewOut, MergedNodeOut
 from app.schemas.unified_import import (
+    ComponentOut,
+    ContainerEdgeOut,
     FamilyCandidateOut,
     FamilyConflictOut,
+    FieldDisputeOut,
+    FuzzyPairOut,
+    IsolatedGroupOut,
+    RemainderCandidateOut,
+    RemainderOut,
+    UnfixableOut,
     UnifiedFamilyCountsOut,
     UnifiedPreviewOut,
 )
@@ -760,7 +768,387 @@ def _bump(counts: FamilyCounts, family: Family, n: int) -> None:
     setattr(counts, attr, getattr(counts, attr) + n)
 
 
+# ── Остаток слияния структурой (Ф-E, docs/plan-byoa-quality.md) ─────────────
+#
+# Мердж докладывает СТРОКАМИ всё, чего не решил сам, и до Ф-E пользователь правил
+# это руками уже на холсте. Теперь тот же остаток приезжает в превью структурой:
+# фронт задаёт по нему вопросы, ответы уезжают применению (decisions). Строки
+# остаются нетронутыми (Р1): их читает MCP, и на них стоит инвариант корзин.
+
+
+def _roots_of(plan: UnifiedPlan, origin: int) -> list[str]:
+    """Корневые объекты входа в ЕГО СОБСТВЕННОЙ системе координат."""
+    paths = plan.origin_paths[origin] if origin < len(plan.origin_paths) else []
+    return [p for p in paths if SEP not in p]
+
+
+def source_label(plan: UnifiedPlan, origin: int, current: int | None = None) -> str:
+    """ИСТОЧНИК ЗНАНИЯ словами (§4.7 ТЗ Ф-E): «От агента Grafana», «Из архива
+    плагина», «Из проекта».
+
+    Кандидат подписывается тем, ОТКУДА знание, а не метаданными файла: номер входа
+    и имя файла у пользователя и так перед глазами в чипе. Имя корня годится в
+    подпись только когда он ОДИН: у пакета на три системы «От агента Zabbix» соврало
+    бы про две трети файла, поэтому там форма с именем файла."""
+    if current is not None and origin == current:
+        return "Из проекта"
+    label = plan.labels[origin] if origin < len(plan.labels) else f"вход {origin + 1}"
+    kind = plan.kinds[origin] if origin < len(plan.kinds) else "yaml"
+    слово = "Из архива" if kind == "archive" else "От агента"
+    roots = _roots_of(plan, origin)
+    return f"{слово} {roots[0]}" if len(roots) == 1 else f"{слово} · {label}"
+
+
+def _agent_name(plan: UnifiedPlan, origin: int | None) -> str | None:
+    """Имя, которым зовут агента файла в кнопке «Скопировать замечание для агента»:
+    единственный корень его документа. Корней несколько — общего имени у файла нет."""
+    if origin is None:
+        return None
+    roots = _roots_of(plan, origin)
+    return roots[0] if len(roots) == 1 else None
+
+
+# Класс замечания узнаётся по устойчивой подстроке текста. Порядок значим: сначала
+# самые узкие формулировки (тексты соседних классов делят общие слова).
+_REMARK_CLASSES: tuple[tuple[str, str], ...] = (
+    ("слиты в ОДИН объект", "absorbed"),
+    ("указывают один источник", "shared_source"),
+    ("встречается в файлах как РАЗНЫЕ объекты", "namesakes"),
+    ("разные подписи из разных файлов", "edge_labels"),
+    ("не имеют общих корневых узлов", "roots"),
+    ("внутри системы оказались люди", "actors"),
+    ("объектов без единой связи", "lonely"),
+    ("иерархия уже выражает вложенность", "descendant"),
+    ("в channel перечень", "channel_list"),
+    ("канал не указан", "broker"),
+)
+# Хвосты-счётчики («…ещё N таких …») своего вопроса не образуют: они приклеиваются
+# второй строкой к последнему замечанию СВОЕГО класса. Порядок значим по той же
+# причине — «таких связей» есть подстрока «таких связей с брокером».
+_REMARK_TAILS: tuple[tuple[str, str], ...] = (
+    ("таких склеек по общему источнику", "absorbed"),
+    ("таких источников", "shared_source"),
+    ("таких связей с собственным потомком", "descendant"),
+    ("таких связей с брокером", "broker"),
+    ("таких связей с перечнем в channel", "channel_list"),
+    ("таких групп", "isolated"),
+    ("таких связей", "container"),
+)
+_HOW_AGENT = "Можно доработать прогоном агента. "
+# Путь починки и цена бездействия — по классу замечания (§6 ТЗ, тексты финальные).
+_REMARK_TEXTS: dict[str, tuple[str, str]] = {
+    "shared_source": (
+        _HOW_AGENT + "Пусть он задаст каждому объекту свой source.path — путь внутри "
+        "репозитория — и выдаст файл заново. Чип файла подмените здесь же, без "
+        "закрытия окна.",
+        "Если оставить: следующий прогон агента опознает по этому источнику только "
+        "один из объектов. Второй при обновлении из кода станет дублем.",
+    ),
+    "absorbed": (
+        _HOW_AGENT + "Пусть он задаст каждому объекту свой source.path — путь внутри "
+        "репозитория — и выдаст файл заново. Чип файла подмените здесь же, без "
+        "закрытия окна.",
+        "Если оставить: вместо нескольких объектов в проекте будет один, а их "
+        "компоненты окажутся внутри него. Разделить их потом придётся руками.",
+    ),
+    "namesakes": (
+        _HOW_AGENT + "Если это один объект, пусть агенты укажут ему один и тот же "
+        "источник; если разные — дайте им разные имена. Файлы подмените здесь же.",
+        "Если оставить: в проекте будут два объекта с одним именем в одном "
+        "контейнере. Различить их можно будет только по якорю в карточке.",
+    ),
+    "edge_labels": (
+        _HOW_AGENT + "Пусть агент того файла, где подпись неточная, назовёт связь так "
+        "же, как сосед, или уберёт дубль. Файл подмените здесь же.",
+        "Если оставить: между теми же объектами будут две связи с разными подписями. "
+        "Лишнюю можно удалить на холсте.",
+    ),
+    "roots": (
+        _HOW_AGENT + "Если это одна система, пусть все агенты назовут корень одинаково "
+        "и выдадут файлы заново. Файлы подмените здесь же.",
+        "Если оставить: проект создастся с несколькими корнями, по одному на файл. "
+        "Связи между ними можно дорисовать на холсте.",
+    ),
+    "actors": (
+        _HOW_AGENT + "Пусть он вынесет людей из системы в корень схемы: по C4 человек "
+        "пользуется системой, а не входит в неё. Файл подмените здесь же.",
+        "Если оставить: проект создастся, а панель незавершённости покажет этих людей "
+        "внутри системы. Перенести их в корень можно перетаскиванием в дереве.",
+    ),
+    "lonely": (
+        _HOW_AGENT + "Пусть он проверит по коду, с чем взаимодействуют эти объекты, и "
+        "дорисует связи. Файл подмените здесь же.",
+        "Если оставить: проект создастся, а объекты без связей будут ждать в панели "
+        "незавершённости. Связи можно дорисовать на холсте.",
+    ),
+    "descendant": (
+        _HOW_AGENT + "Пусть он уберёт связь между объектом и его собственной частью или "
+        "перевесит её на компонент, с которым часть на самом деле взаимодействует. "
+        "Файл подмените здесь же.",
+        "Если оставить: проект создастся, а такие связи будут ждать в панели "
+        "незавершённости. Там же их можно удалить или перевесить.",
+    ),
+    "broker": (
+        _HOW_AGENT + "Пусть он укажет у связи с брокером канал: имя топика или очереди "
+        "из кода. Файл подмените здесь же.",
+        "Если оставить: проект создастся, а связь с брокером без канала будет ждать в "
+        "панели незавершённости. Канал можно вписать в карточке связи.",
+    ),
+    "channel_list": (
+        _HOW_AGENT + "Пусть он разведёт перечень каналов на отдельные связи, по одной на "
+        "топик или очередь. Файл подмените здесь же.",
+        "Если оставить: проект создастся с одной связью, у которой в канале перечень. "
+        "Панель незавершённости попросит разделить её.",
+    ),
+}
+# Запасной вариант: класс незнаком (новая проверка мерджа появится раньше своего
+# текста) — говорим правду общими словами, а не молчим.
+_REMARK_FALLBACK = (
+    _HOW_AGENT + "Унесите замечание агенту того файла, к которому оно относится, и "
+    "подмените файл здесь же.",
+    "Если оставить: проект создастся, а замечание останется в отчёте импорта.",
+)
+
+
+def _remark_class(text: str) -> tuple[str, bool]:
+    """(класс замечания, хвост ли это). Пустой класс — незнакомое замечание."""
+    if text.startswith("…ещё"):
+        for marker, cls in _REMARK_TAILS:
+            if marker in text:
+                return cls, True
+        return "", True
+    for marker, cls in _REMARK_CLASSES:
+        if marker in text:
+            return cls, False
+    return "", False
+
+
+class _Tree:
+    """Слитое дерево под вопросы: потомки контейнера, признак «контейнер», связи узла."""
+
+    def __init__(self, plan: UnifiedPlan) -> None:
+        merged = plan.merged
+        nodes = merged.nodes if merged else []
+        self.paths = plan.node_paths
+        self.parent = [n.parent_idx for n in nodes]
+        self.has_children = [False] * len(nodes)
+        for pi in self.parent:
+            if pi is not None:
+                self.has_children[pi] = True
+        self.edges = [0] * len(nodes)
+        for e in merged.edges if merged else []:
+            self.edges[e.source_idx] += 1
+            if e.target_idx != e.source_idx:
+                self.edges[e.target_idx] += 1
+
+    def descends(self, child: int, ancestor: int) -> bool:
+        pi = self.parent[child]
+        while pi is not None:
+            if pi == ancestor:
+                return True
+            pi = self.parent[pi]
+        return False
+
+    def components(self, container: int) -> list[ComponentOut]:
+        """ВСЁ поддерево контейнера в порядке обхода дерева (индексы слитого
+        дерева идут «родители раньше детей»), без капа: кап — дело фронта."""
+        return [
+            ComponentOut(path=self.paths[i], has_children=self.has_children[i])
+            for i in range(len(self.paths))
+            if self.descends(i, container)
+        ]
+
+    def where(self, parent: int | None) -> str:
+        return f"внутри «{self.paths[parent]}»" if parent is not None else "на верхнем уровне"
+
+
+def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> RemainderOut:
+    """Остаток слияния структурой. current — индекс входа ЖИВОГО проекта (0 у
+    догрузки, None при создании).
+
+    Р3 догрузки: элемент, все сущности которого пришли из живого проекта, в остаток
+    НЕ попадает — это дело панели незавершённости, а не догрузки. Догрузка отвечает
+    за то, что привезли архивы."""
+    merged = plan.merged
+    if not plan.ok or merged is None:
+        return RemainderOut()
+    report = plan.report
+    tree = _Tree(plan)
+    paths = plan.node_paths
+
+    def свой(node_idx: int) -> bool:
+        """Узел УЖЕ ЕСТЬ в живом проекте (догрузка). Именно «есть», а не «пришёл
+        только оттуда»: архив, повторяющий живой узел, нового объекта не привозит,
+        и остаток вокруг таких узлов — дело панели незавершённости, а не догрузки
+        (иначе свой же архив, догруженный к себе, задал бы вопросы обо всём)."""
+        return current is not None and current in report.node_files[node_idx]
+
+    def кандидат(origin: int, value: str) -> RemainderCandidateOut:
+        return RemainderCandidateOut(
+            origin=origin,
+            origin_label=plan.labels[origin] if origin < len(plan.labels) else "",
+            source_label=source_label(plan, origin, current),
+            value=value,
+            current=origin == current,
+        )
+
+    seen: set[str] = set()
+
+    def свежий(eid: str) -> bool:
+        """Id адресует ОДИН элемент: столкнувшиеся (узлы-тёзки, разведённые якорем)
+        вопросом не становятся — применить ответ было бы некуда."""
+        if eid in seen:
+            return False
+        seen.add(eid)
+        return True
+
+    # ── Споры полей: вопрос только там, где вклады равно содержательны (П2).
+    fields: list[FieldDisputeOut] = []
+    for d in report.field_disputes:
+        if all(fi == current for fi, _v in d.contributions):
+            continue  # Р3 (по построению недостижимо: спор — это всегда два входа)
+        eid = f"field|{paths[d.node_idx]}|{d.field}"
+        if not свежий(eid):
+            continue
+        cands = [кандидат(fi, v) for fi, v in d.contributions]
+        # Дефолт — то, что применится без ответа: живой кандидат у догрузки
+        # («оставить моё»), первый по порядку файлов при создании.
+        default = next((i for i, c in enumerate(cands) if c.current), 0)
+        fields.append(FieldDisputeOut(
+            id=eid,
+            node_path=paths[d.node_idx],
+            field=d.field,  # type: ignore[arg-type]  # ровно поля _decide
+            candidates=cands,
+            default=default,
+        ))
+
+    # ── Связи в контейнер. В догрузке — только НОВЫЕ связи: перевесить живую
+    #    значило бы тронуть то, о чём не спрашивали (Р3).
+    container: list[ContainerEdgeOut] = []
+    converted: set[int] = set()
+    for rec in report.container_edges:
+        if current is not None and current in report.edge_files[rec.edge_idx]:
+            continue
+        e = merged.edges[rec.edge_idx]
+        eid = (
+            f"edge|{paths[e.source_idx]}|{paths[e.target_idx]}|{e.label or ''}|{rec.end}"
+        )
+        if not свежий(eid):
+            continue
+        container.append(ContainerEdgeOut(
+            id=eid,
+            from_path=paths[e.source_idx],
+            to_path=paths[e.target_idx],
+            label=e.label,
+            technology=e.technology,
+            end=rec.end,  # type: ignore[arg-type]  # «source» | «target» по построению
+            container_path=paths[rec.container_idx],
+            components=tree.components(rec.container_idx),
+        ))
+        if rec.warning_idx is not None:
+            converted.add(rec.warning_idx)
+
+    # ── Изолированные группы.
+    groups: list[IsolatedGroupOut] = []
+    for g in report.isolated_groups:
+        if all(свой(i) for i in g.node_idxs):
+            continue  # Р3: группа целиком живая — не дело догрузки
+        eid = f"group|{paths[g.node_idxs[0]]}"
+        if not свежий(eid):
+            continue
+        groups.append(IsolatedGroupOut(id=eid, node_paths=[paths[i] for i in g.node_idxs]))
+        if g.warning_idx is not None:
+            converted.add(g.warning_idx)
+
+    # ── Похожие имена. Пара заведомо из РАЗНЫХ входов (мердж не сравнивает узлы
+    #    одного файла), поэтому «обе стороны живые» тут невозможно.
+    pairs: list[FuzzyPairOut] = []
+    for f in report.fuzzy_pairs:
+        if свой(f.a_idx) and свой(f.b_idx):
+            continue
+        eid = f"pair|{paths[f.a_idx]}|{paths[f.b_idx]}"
+        if not свежий(eid):
+            continue
+        pairs.append(FuzzyPairOut(
+            id=eid,
+            a_path=paths[f.a_idx],
+            b_path=paths[f.b_idx],
+            a_source=source_label(plan, min(report.node_files[f.a_idx]), current),
+            b_source=source_label(plan, min(report.node_files[f.b_idx]), current),
+            a_edges=tree.edges[f.a_idx],
+            b_edges=tree.edges[f.b_idx],
+            where=tree.where(f.parent_idx),
+            a_current=свой(f.a_idx),
+            b_current=свой(f.b_idx),
+        ))
+        if f.warning_idx is not None:
+            converted.add(f.warning_idx)
+
+    return RemainderOut(
+        field_conflicts=fields,
+        container_edges=container,
+        isolated_groups=groups,
+        fuzzy_pairs=pairs,
+        unfixable=_unfixable(plan, converted),
+        node_paths=list(paths),
+        node_has_children=list(tree.has_children),
+    )
+
+
+def _unfixable(plan: UnifiedPlan, converted: set[int]) -> list[UnfixableOut]:
+    """Замечания СХЕМНОЙ корзины, не ставшие вопросами: их не закрыть выбором —
+    только новым прогоном агента (§6 ТЗ).
+
+    Пофайловые замечания сюда не едут: фронт показывает их как есть, рядом с чипом
+    их файла (и кнопкой «Скопировать замечания для агента»). Конфликты полей — тоже:
+    расхождение, решённое правилом мерджа, это чтение, а не действие."""
+    report = plan.report
+    out: list[UnfixableOut] = []
+    last: dict[str, UnfixableOut] = {}
+    for i, (text, owner) in enumerate(
+        zip(report.warnings, report.warning_files, strict=True)
+    ):
+        if owner is not None or i in converted:
+            continue
+        cls, tail = _remark_class(text)
+        if tail:
+            # Хвост-счётчик не самостоятелен: он о тех же объектах, что строка
+            # перед ним. Класс весь ушёл в вопросы — хвост уходит с ним.
+            цель = last.get(cls) or (out[-1] if cls == "" and out else None)
+            if цель is not None:
+                цель.text = f"{цель.text}\n{text}"
+            continue
+        how, if_left = _REMARK_TEXTS.get(cls, _REMARK_FALLBACK)
+        item = UnfixableOut(
+            id=f"remark|{i}",
+            text=text,
+            how=how,
+            agent=_agent_name(plan, owner),
+            if_left=if_left,
+            file=owner,
+        )
+        out.append(item)
+        last[cls] = item
+    return out
+
+
 # ── Превью (то же самое человеку и фронту) ───────────────────────────────────
+
+
+def family_candidate_out(
+    plan: UnifiedPlan, k: FamilyCandidate, current: int | None = None
+) -> FamilyCandidateOut:
+    """Кандидат спора семьи наружу. Один сборщик на создание и догрузку: подпись
+    источника (§4.7) у них обязана быть одной и той же."""
+    return FamilyCandidateOut(
+        origin=k.origin,
+        origin_label=k.origin_label,
+        source_label=source_label(plan, k.origin, current),
+        summary=k.summary,
+        body=k.body,
+        truncated=k.truncated,
+        current=k.current,
+    )
 
 
 def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
@@ -813,22 +1201,13 @@ def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
                 family=c.family,
                 node_path=c.node_path,
                 key=c.key,
-                candidates=[
-                    FamilyCandidateOut(
-                        origin=k.origin,
-                        origin_label=k.origin_label,
-                        summary=k.summary,
-                        body=k.body,
-                        truncated=k.truncated,
-                        current=k.current,
-                    )
-                    for k in c.candidates
-                ],
+                candidates=[family_candidate_out(plan, k) for k in c.candidates],
                 default=c.default,
                 allow_all=c.allow_all,
             )
             for c in plan.conflicts
         ],
+        remainder=remainder_from_plan(plan, None),
         warnings=plan.warnings,
         name_source=plan.name_source,
         manifest_name=plan.manifest_name,
@@ -848,5 +1227,8 @@ __all__ = [
     "UnifiedImportError",
     "UnifiedPlan",
     "build_unified_plan",
+    "family_candidate_out",
     "preview_from_plan",
+    "remainder_from_plan",
+    "source_label",
 ]

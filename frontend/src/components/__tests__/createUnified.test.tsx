@@ -40,7 +40,13 @@ const c4 = (over: Partial<ImportPreviewOut> = {}): ImportPreviewOut => ({
 const превью = (over: Partial<UnifiedPreviewOut> = {}): UnifiedPreviewOut => ({
   ok: true, errors: [], c4: c4(),
   families: { docs: 2, specs: 1, tables: 0, channels: 0, params: 0, processes: 0 },
-  family_conflicts: [], warnings: [], name_source: "fields", ...over,
+  family_conflicts: [],
+  // Остаток слияния (Ф-E) в этих сценариях пуст: панель проверяется по сводке.
+  remainder: {
+    field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+    unfixable: [], node_paths: [], node_has_children: [],
+  },
+  warnings: [], name_source: "fields", ...over,
 });
 
 const ИЗ_МАНИФЕСТА = превью({
@@ -53,8 +59,8 @@ const СПОР: FamilyConflictOut = {
   node_path: "Ярмарка / orders",
   key: "Оформление заказа",
   candidates: [
-    { origin: 0, origin_label: "a.zip", summary: "12 строк", body: "flowchart TD\n  A-->B", truncated: false, current: false },
-    { origin: 1, origin_label: "b.zip", summary: "20 строк", body: "flowchart TD\n  A-->C", truncated: true, current: false },
+    { origin: 0, origin_label: "a.zip", source_label: "Из архива Ярмарка", summary: "12 строк", body: "flowchart TD\n  A-->B", truncated: false, current: false },
+    { origin: 1, origin_label: "b.zip", source_label: "Из архива Ярмарка", summary: "20 строк", body: "flowchart TD\n  A-->C", truncated: true, current: false },
   ],
   default: "all",
   allow_all: true,

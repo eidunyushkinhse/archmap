@@ -517,6 +517,11 @@ function failedPreview(msg: string, files: number): UnifiedPreviewOut {
     errors: [msg],
     families: NO_FAMILIES,
     family_conflicts: [],
+    // Остаток слияния (Ф-E): разбирать нечего — превью не состоялось.
+    remainder: {
+      field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+      unfixable: [], node_paths: [], node_has_children: [],
+    },
     warnings: [],
     name_source: "fields",
     c4: {

@@ -52,6 +52,11 @@ function failedPreview(msg: string): IntoPreviewOut {
     edges_new: 0,
     families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
     family_conflicts: [],
+    // Остаток слияния (Ф-E): разбирать нечего — превью не состоялось.
+    remainder: {
+      field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+      unfixable: [], node_paths: [], node_has_children: [],
+    },
     warnings: [],
     base_graph_rev: 0,
     base_meta_rev: 0,

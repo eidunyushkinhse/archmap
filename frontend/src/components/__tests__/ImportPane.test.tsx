@@ -378,8 +378,8 @@ const СПЕКА_СПОР: FamilyConflictOut = {
   node_path: "Ярмарка / orders",
   key: "openapi",
   candidates: [
-    { origin: 0, origin_label: "a.zip", summary: "12 строк, 400 Б", body: "openapi: 3.0.0", truncated: false, current: false },
-    { origin: 1, origin_label: "b.zip", summary: "20 строк, 800 Б", body: "openapi: 3.1.0", truncated: true, current: false },
+    { origin: 0, origin_label: "a.zip", source_label: "Из архива Ярмарка", summary: "12 строк, 400 Б", body: "openapi: 3.0.0", truncated: false, current: false },
+    { origin: 1, origin_label: "b.zip", source_label: "Из архива Ярмарка", summary: "20 строк, 800 Б", body: "openapi: 3.1.0", truncated: true, current: false },
   ],
   default: "cand:0",
   allow_all: false,
