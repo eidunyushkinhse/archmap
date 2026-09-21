@@ -27,7 +27,7 @@ docs/plan-unified-import.md).
 """
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,7 +43,7 @@ from app.channels_import import (
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
 from app.identity import known_key, source_ref_dict
-from app.import_yaml import _ImpNode
+from app.import_yaml import _ImpEdge, _ImpNode
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
 from app.models.edge import Edge
@@ -72,6 +72,8 @@ from app.schemas.unified_import import (
 # выбора победителей, свободного имени и переписывания адресов у создания и
 # догрузки обязана быть ОДНОЙ И ТОЙ ЖЕ, иначе два сценария разъедутся в поведении.
 from app.unified_apply import (
+    Decisions,
+    ResolvedDecisions,
     _address_map,
     _choice_index,
     _free_name,
@@ -79,6 +81,9 @@ from app.unified_apply import (
     _synthetic_files,
     _Winner,
     _winners,
+    decisions_note,
+    merge_chain,
+    resolve_decisions,
 )
 from app.unified_import import (
     MAX_ARCHIVES,
@@ -446,20 +451,33 @@ def _live_lost(plan: UnifiedPlan, resolutions: dict[str, str]) -> set[tuple[Fami
     return out
 
 
-def _fill_node(live: Node, imp: _ImpNode, path: str, warnings: list[str]) -> bool:
+def _fill_node(
+    live: Node, imp: _ImpNode, path: str, warnings: list[str], forced: Collection[str] = ()
+) -> bool:
     """FILL-ONLY: пустое живое поле долить, заполненное не трогать, расхождение — в
-    отчёт. Догрузка не спорит с человеком о том, что он написал сам."""
+    отчёт. Догрузка не спорит с человеком о том, что он написал сам.
+
+    forced — поля, по которым человек ЯВНО выбрал архивного кандидата (Ф-E): там
+    fill-only не действует, иначе выбор был бы вопросом без ответа. Поля, где
+    выбран «мой» кандидат, сюда не попадают — значение уже живое, писать нечего."""
     changed = False
     for fld in _FILLABLE:
         new_raw: str | None = getattr(imp, fld)
         new, cur = (new_raw or "").strip(), (getattr(live, fld) or "").strip()
         if not new or new == cur:
             continue
-        if not cur:
+        if fld in forced:
+            setattr(live, fld, new_raw)
+            changed = True
+            warnings.append(
+                f"узел «{path}»: поле «{_FIELD_RU[fld]}» заменено по вашему решению "
+                f"(«{_cut(cur)}» → «{_cut(new)}»)"
+            )
+        elif not cur:
             setattr(live, fld, new_raw)
             changed = True
             warnings.append(f"узел «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из архива")
-        else:
+        else:  # noqa: PLR5501 — ветка forced выше читается ровно как «исключение»
             warnings.append(
                 f"узел «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое («{_cut(new)}») — "
                 f"оставлено живое («{_cut(cur)}»)"
@@ -502,7 +520,11 @@ def _merge_report(a: Any, b: Any) -> Any:
 
 
 def apply_into_plan(
-    db: Session, project: Project, into: IntoPlan, resolutions: dict[str, str]
+    db: Session,
+    project: Project,
+    into: IntoPlan,
+    resolutions: dict[str, str],
+    decisions: Decisions | None = None,
 ) -> IntoApplyOut:
     """Применить план догрузки к живому проекту. Коммит — на вызывающей стороне.
 
@@ -517,11 +539,24 @@ def apply_into_plan(
         )
     winners = _winners(plan, resolutions)  # валидация резолюций — ДО любой записи
     lost = _live_lost(plan, resolutions)
+    # Ответы на вопросы остатка (Ф-E) — той же сверкой с планом, тоже до записи.
+    решения = resolve_decisions(plan, decisions, SELF_ORIGIN)
+    forced = _forced_fields(merged, решения)
+    склейки = merge_chain(решения.merges, lambda i: i in into.live_of)
+    # merged-узел → узел, в который он склеен решением пользователя. Поглощённый
+    # здесь ВСЕГДА новый: пара живых узлов вопросом не становится (их видит панель
+    # незавершённости), а живой в паре всегда выживает — значит догрузка по-прежнему
+    # ничего не удаляет, просто не создаёт второй объект.
+    поглощены = {absorbed: surv for surv, absorbed, _имя in склейки}
+    for surv, _absorbed, имя in склейки:
+        if surv not in into.live_of:
+            merged.nodes[surv].name = имя  # выживший ещё не создан — имя прямо в дерево
+    тронутые = _apply_edge_decisions(merged, into, решения, поглощены)
     warnings: list[str] = list(into.warnings)
 
     # ── C4: живому узлу — пустые поля, новому — рождение. Ничего не удаляем.
     node_of: list[Node] = []
-    nodes_filled = 0
+    nodes_filled = nodes_created = 0
     for m, imp in enumerate(merged.nodes):
         live = into.live_of.get(m)
         if live is not None:
@@ -529,11 +564,26 @@ def apply_into_plan(
             # Смешанные поля тёзок не доливаем НИКОМУ: значение в merged-узле собрано
             # из нескольких живых записей, и записать его — значит переписать одну
             # чужими данными (замечание об этом уже в плане).
-            if m not in into.ambiguous and _fill_node(live, imp, plan.node_paths[m], warnings):
+            if m not in into.ambiguous and _fill_node(
+                live, imp, plan.node_paths[m], warnings, forced.get(m, set())
+            ):
                 nodes_filled += 1
+            if m in {surv for surv, _a, _n in склейки}:
+                имя = next(n for s, _a, n in склейки if s == m)
+                if live.name != имя:
+                    live.name = имя
+                    live.version += 1
+            continue
+        # Поглощённый склейкой узел не создаётся вовсе: его связи, компоненты и
+        # знание адресуются выжившим (node_of ниже по индексу — живые узлы всегда
+        # раньше новых, а из двух новых выживает первый).
+        выживший = поглощены.get(m)
+        if выживший is not None and выживший < m:
+            node_of.append(node_of[выживший])
             continue
         # Родитель уже в списке: merged-узлы идут «родители раньше детей».
         parent = node_of[imp.parent_idx] if imp.parent_idx is not None else None
+        nodes_created += 1
         node = Node(
             id=uuid.uuid4(),
             project_id=project.id,
@@ -552,8 +602,28 @@ def apply_into_plan(
     db.flush()
 
     new_edges: list[Edge] = []
+    # Подписи живых связей нужны только там, где решение изменило концы: без
+    # решений поведение прежнее (что приехало — то и создаётся).
+    живые_подписи = (
+        {
+            (e.source_id, e.target_id, e.label or "", e.technology or "")
+            for e in db.query(Edge).filter(Edge.project_id == project.id).all()
+        }
+        if тронутые
+        else set()
+    )
+    edges_created = 0
     for i in into.new_edges:
         e = merged.edges[i]
+        if i in тронутые:
+            подпись = (
+                node_of[e.source_idx].id, node_of[e.target_idx].id,
+                e.label or "", e.technology or "",
+            )
+            if подпись in живые_подписи:
+                continue  # перевес (или склейка) свёл связь с уже существующей
+            живые_подписи.add(подпись)
+        edges_created += 1
         edge = Edge(
             id=uuid.uuid4(),
             project_id=project.id,
@@ -607,11 +677,16 @@ def apply_into_plan(
     # факты, спеки) — догрузка трогает обе половины.
     bump_graph_rev(db, project)
     bump_meta_rev(db, project)
+    заметка = decisions_note(решения, len(склейки))
+    if заметка:
+        warnings.append(заметка)
     return IntoApplyOut(
         project_id=project.id,
-        nodes_created=len(into.new_nodes),
+        # Числа честные: поглощённый склейкой узел не рождался, а связь, сведённая
+        # решением с уже существующей, не создавалась.
+        nodes_created=nodes_created,
         nodes_filled=nodes_filled,
-        edges_created=len(into.new_edges),
+        edges_created=edges_created,
         docs_created=docs_created,
         docs_replaced=docs_replaced,
         specs_applied=specs_applied,
@@ -626,6 +701,47 @@ def apply_into_plan(
         graph_rev=project.graph_rev,
         meta_rev=project.meta_rev,
     )
+
+
+def _forced_fields(
+    merged: Any, res: ResolvedDecisions
+) -> dict[int, set[str]]:
+    """Поля, значение которых выбрал человек: пишем их в дерево (это адресует и
+    НОВЫЕ узлы) и помечаем — живым записям fill-only на них не действует."""
+    out: dict[int, set[str]] = {}
+    for node_idx, fld, value in res.fields:
+        setattr(merged.nodes[node_idx], fld, value)
+        out.setdefault(node_idx, set()).add(fld)
+    return out
+
+
+def _apply_edge_decisions(
+    merged: Any, into: IntoPlan, res: ResolvedDecisions, поглощены: dict[int, int]
+) -> set[int]:
+    """Перевешенные концы и дорисованные связи — в дерево ДО создания записей.
+
+    Возвращает индексы связей, которых решения коснулись: только у них проверяется
+    совпадение с живой связью (без решений догрузка ведёт себя ровно как прежде).
+    Живых связей решения не касаются: остаток догрузки их не показывает (Р3)."""
+    тронутые = {edge_idx for edge_idx, _end, _comp in res.edges}
+    for edge_idx, end, comp_idx in res.edges:
+        e = merged.edges[edge_idx]
+        if end == "source":
+            e.source_idx = comp_idx
+        else:
+            e.target_idx = comp_idx
+    for начало, конец, label, tech, sync in res.new_edges:
+        тронутые.add(len(merged.edges))
+        into.new_edges.append(len(merged.edges))
+        merged.edges.append(_ImpEdge(начало, конец, label, tech, None, sync))
+    if поглощены:
+        тронутые.update(
+            i
+            for i in into.new_edges
+            if merged.edges[i].source_idx in поглощены
+            or merged.edges[i].target_idx in поглощены
+        )
+    return тронутые
 
 
 def _apply_docs(

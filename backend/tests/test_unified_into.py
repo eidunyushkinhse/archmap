@@ -43,7 +43,8 @@ from app.models.view_layout import ViewLayoutItem
 from app.process_import import apply_import as apply_process_import
 from app.process_import import build_preview as build_process_preview
 from app.processes import node_path
-from app.unified_import import UnifiedImportError
+from app.unified_apply import parse_decisions
+from app.unified_import import UnifiedImportError, remainder_from_plan
 from app.unified_into import apply_into_plan, build_into_plan, into_preview
 
 ПРЕВЬЮ = "/api/v1/projects/{}/import-archive/preview"
@@ -232,10 +233,10 @@ def _цело(было: dict, стало: dict) -> None:
         assert not пропало, f"{семья}: изменилось или пропало {пропало}"
 
 
-def _догрузить(db, проект, *архивы, резолюции=None):
+def _догрузить(db, проект, *архивы, резолюции=None, решения=None):
     план = build_into_plan(db, проект, [(f"a{i}.zip", a) for i, a in enumerate(архивы, 1)])
     превью = into_preview(план)
-    отчёт = apply_into_plan(db, проект, план, резолюции or {})
+    отчёт = apply_into_plan(db, проект, план, резолюции or {}, decisions=решения)
     db.commit()  # как роут: коммит обновляет загруженные коллекции (expire_on_commit)
     return превью, отчёт
 
@@ -975,3 +976,148 @@ def test_остаток_догрузки_своего_архива_пуст(db):
     assert превью.remainder.container_edges == []
     assert превью.remainder.isolated_groups == []
     assert превью.remainder.fuzzy_pairs == []
+
+
+# ── Ф-E: решения по остатку в применении догрузки ───────────────────────────
+
+
+def _пути_и_связи(db, project_id) -> tuple[set[str], set[tuple]]:
+    узлы = db.query(Node).filter(Node.project_id == project_id).all()
+    все = {n.id: n for n in узлы}
+    пути = {n.id: node_path(все, n.id) for n in узлы}
+    связи = {
+        (пути[e.source_id], пути[e.target_id], e.label, e.is_synchronous)
+        for e in db.query(Edge).filter(Edge.project_id == project_id).all()
+    }
+    return set(пути.values()), связи
+
+
+def test_решение_склейка_догрузки_сохраняет_живой_узел(db):
+    """Р4: из пары «живой + привозной» выживает ЖИВОЙ (его id, его карточка), а
+    привозной не создаётся вовсе — его связи и компоненты идут к живому."""
+    проект, узлы = _живой_с_остатком(db)
+    оператор_id = узлы["оператор"].id
+    архив = _донор_витрины(db)
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [пара] = into_preview(план).remainder.fuzzy_pairs
+    решения = parse_decisions(
+        json.dumps({"merges": {пара.id: {"name": "Оператор мониторинга"}}})
+    )
+
+    отчёт = apply_into_plan(db, проект, план, {}, decisions=решения)
+    db.commit()
+
+    пути, _ = _пути_и_связи(db, проект.id)
+    assert "Оператор смены" not in пути  # привозной тёзка не родился
+    assert "Оператор мониторинга" in пути
+    живой = db.get(Node, оператор_id)
+    assert живой is not None and живой.name == "Оператор мониторинга"  # тот же объект
+    assert отчёт.nodes_created == 1  # только «Витрина»; склеенный не создавался
+    assert "Ваши решения: склеено объектов 1" in отчёт.warnings
+
+
+def test_решение_перевес_и_новая_связь_догрузки(db):
+    """Перевес касается только ПРИВОЗНОЙ связи, новая связь соединяет живое с
+    новым, и обе видны в проекте."""
+    проект, _ = _живой_с_остатком(db)
+    архив = _донор_витрины(db)
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    остаток = into_preview(план).remainder
+    [связь] = остаток.container_edges
+    решения = parse_decisions(json.dumps({
+        "edges": {связь.id: {"to_path": "Ярмарка / orders / api"}},
+        # Группы у догрузки нет (живой остров — не её дело, Р3), и связь всё равно
+        # можно дорисовать: вопрос был крючком, а не единственным входом.
+        "new_edges": [{
+            "group_id": "",
+            "from_path": "Витрина",
+            "to_path": "Ярмарка / Каталог-БД",
+            "label": "читает витрину",
+            "tech": "SQL",
+            "channel": "sync",
+        }],
+    }))
+
+    отчёт = apply_into_plan(db, проект, план, {}, decisions=решения)
+    db.commit()
+
+    _, связи = _пути_и_связи(db, проект.id)
+    assert ("Витрина", "Ярмарка / orders / api", "оформляет", None) in связи
+    assert ("Витрина", "Ярмарка / orders", "оформляет", None) not in связи
+    assert ("Витрина", "Ярмарка / Каталог-БД", "читает витрину", True) in связи
+    # Живые связи целы: решения их не касаются (Р3).
+    assert ("Оператор", "Ярмарка / orders", "смотрит", None) in связи
+    assert отчёт.edges_created == 2
+    assert "Ваши решения: перевешено связей 1 · добавлено связей 1" in отчёт.warnings
+
+
+def test_решение_поля_перезаписывает_живое_только_явным_выбором(db):
+    """Спор поля живого узла с архивным: без ответа — «моё» (fill-only), с
+    выбором архивного кандидата — запись поверх."""
+    проект, узлы = _ярмарка(db)
+    orders_id = узлы["orders"].id
+    донор, _ = _донор_ярмарки(db, description="Описание донора")
+    db.commit()
+    архив = build_archive(db, донор)
+
+    # 1. Без решения живое описание остаётся (сторож аддитивности).
+    _догрузить(db, проект, архив)
+    assert db.get(Node, orders_id).description == "Живое описание"
+
+    # 2. Тот же архив с явным выбором архивного кандидата.
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [спор] = into_preview(план).remainder.field_conflicts
+    архивный = next(i for i, c in enumerate(спор.candidates) if not c.current)
+    отчёт = apply_into_plan(
+        db, проект, план, {},
+        decisions=parse_decisions(json.dumps({"fields": {спор.id: архивный}})),
+    )
+    db.commit()
+
+    assert db.get(Node, orders_id).description == "Описание донора"
+    assert any("заменено по вашему решению" in w for w in отчёт.warnings)
+    assert "Ваши решения: выбрано значений полей 1" in отчёт.warnings
+
+    # 3. Выбор СВОЕГО кандидата живую запись не трогает вовсе.
+    план3 = build_into_plan(db, проект, [("a.zip", архив)])
+    споры = into_preview(план3).remainder.field_conflicts
+    assert споры == []  # спорить больше не о чем: значения сошлись
+
+
+def test_решение_догрузки_не_из_плана_отвергается(db):
+    проект, _ = _живой_с_остатком(db)
+    план = build_into_plan(db, проект, [("a.zip", _донор_витрины(db))])
+    было = _снимок(db, проект.id)
+
+    with pytest.raises(UnifiedImportError, match="Превью устарело"):
+        apply_into_plan(
+            db, проект, план, {},
+            decisions=parse_decisions(json.dumps({"merges": {"pair|Нет|Пары": {"name": "Х"}}})),
+        )
+    db.rollback()
+    assert _снимок(db, проект.id) == было
+
+
+def test_эндпоинт_догрузки_принимает_decisions(db):
+    проект, _ = _живой_с_остатком(db)
+    архив = _донор_витрины(db)
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [связь] = remainder_from_plan(план.plan, 0).container_edges
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[require_architect] = lambda: ensure_architect(db)
+    try:
+        клиент = TestClient(app)
+        r = клиент.post(
+            ПРИМЕНЕНИЕ.format(проект.id),
+            files=[("files", ("a.zip", архив, "application/zip"))],
+            data={"decisions": json.dumps(
+                {"edges": {связь.id: {"to_path": "Ярмарка / orders / api"}}}
+            )},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200, r.text
+    assert any("Ваши решения: перевешено связей 1" in w for w in r.json()["warnings"])
+    _, связи = _пути_и_связи(db, проект.id)
+    assert ("Витрина", "Ярмарка / orders / api", "оформляет", None) in связи

@@ -402,6 +402,7 @@ async def import_archive_apply(
     project_id: uuid.UUID,
     files: list[UploadFile] = File(default=[]),
     resolutions: str | None = Form(default=None),
+    decisions: str | None = Form(default=None),
     base_graph_rev: int | None = Form(default=None),
     base_meta_rev: int | None = Form(default=None),
     db: Session = Depends(get_db),
@@ -414,6 +415,10 @@ async def import_archive_apply(
     увиденным в превью, клиент возвращает base_graph_rev и base_meta_rev —
     разошлись хоть один, 409 «обновите превью». Курсоров два: догрузка меняет и
     схему (узлы, связи), и мету (схемы логики, факты, спеки).
+
+    Ответы на вопросы ОСТАТКА слияния (Ф-E) приезжают тем же протоколом, полем
+    decisions: перевес концов привозных связей, дорисованные связи, склейка
+    привозного объекта с живым (живой при этом выживает) и выбор значения поля.
 
     Аддитивность: живая запись перетирается ТОЛЬКО там, где пользователь явно
     выбрал архивного кандидата; ничего никогда не удаляется."""
@@ -432,8 +437,9 @@ async def import_archive_apply(
     chosen = _parse_resolutions(resolutions)
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
     try:
+        ответы = parse_decisions(decisions)
         into = build_into_plan(db, project, inputs)
-        result = apply_into_plan(db, project, into, chosen)
+        result = apply_into_plan(db, project, into, chosen, decisions=ответы)
     except UnifiedImportError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
