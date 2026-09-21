@@ -34,7 +34,12 @@ from app.models.process_message import ProcessMessage
 from app.models.project import Project
 from app.models.user import User
 from app.processes import node_path
-from app.unified_apply import _synthetic_files, _winners, apply_unified_plan
+from app.unified_apply import (
+    _synthetic_files,
+    _winners,
+    apply_unified_plan,
+    parse_decisions,
+)
 from app.unified_import import (
     MAX_ARCHIVES,
     MAX_INPUTS,
@@ -1449,3 +1454,240 @@ def test_остаток_пуст_когда_спрашивать_не_о_чем(
     assert остаток.isolated_groups == [] and остаток.fuzzy_pairs == []
     assert остаток.unfixable == []
     assert остаток.node_paths == план.node_paths  # пикер работает и без вопросов
+
+
+# ── Ф-E: решения пользователя по остатку в применении ───────────────────────
+#
+# Ответы приезжают JSON-полем decisions и правят слитое дерево ДО записи в БД.
+# Главные гарантии: ни один ответ не обязателен (без них проект прежний), ответ,
+# не нашедший своего вопроса, — отказ, а не тихое «применим похожее».
+
+
+def _состав(db, проект) -> tuple[set[str], set[tuple]]:
+    """Что в проекте: пути узлов и связи путями (имя проекта и id несравнимы)."""
+    узлы = db.query(Node).filter(Node.project_id == проект.id).all()
+    все = {n.id: n for n in узлы}
+    пути = {n.id: node_path(все, n.id) for n in узлы}
+    связи = {
+        (пути[e.source_id], пути[e.target_id], e.label, e.technology, e.is_synchronous)
+        for e in db.query(Edge).filter(Edge.project_id == проект.id).all()
+    }
+    return set(пути.values()), связи
+
+
+def test_решения_поле_конец_связи_и_новая_связь(db):
+    """Три вида ответа разом: выбранное значение поля, перевешенный конец связи и
+    дорисованная человеком связь между островом и ядром."""
+    план = _план_остатка()
+    решения = parse_decisions(json.dumps({
+        "fields": {"field|Ярмарка|description": 1},
+        "edges": {
+            "edge|Оператор|Ярмарка / orders|смотрит|target": {"to_path": "Ярмарка / orders / api"},
+            "edge|Ярмарка / orders|Ярмарка / Каталог-БД|пишет|source": "keep",
+        },
+        "new_edges": [{
+            "group_id": "group|Биллинг / счета",
+            "from_path": "Биллинг / счета",
+            "to_path": "Ярмарка / Каталог-БД",
+            "label": "сверяет остатки",
+            "tech": "SQL",
+            "channel": "async",
+        }],
+    }))
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Ярмарка", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    ярмарка = db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Ярмарка", Node.parent_id.is_(None)
+    ).one()
+    assert ярмарка.description == "Магазин"  # выбран второй кандидат
+    _, связи = _состав(db, проект)
+    assert ("Оператор", "Ярмарка / orders / api", "смотрит", None, None) in связи
+    assert not any(c[:2] == ("Оператор", "Ярмарка / orders") for c in связи)
+    # «keep» — это сегодняшнее поведение: связь осталась на контейнере.
+    assert ("Ярмарка / orders", "Ярмарка / Каталог-БД", "пишет", None, None) in связи
+    новая = ("Биллинг / счета", "Ярмарка / Каталог-БД", "сверяет остатки", "SQL", False)
+    assert новая in связи
+    assert отчёт.edges == len(связи)
+    assert "Ваши решения: перевешено связей 1 · добавлено связей 1 · выбрано значений полей 1" \
+        in отчёт.warnings
+
+
+_СКЛЕЙКА_A = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Сервер
+  - name: Плагин Zabbix
+    children:
+      - name: backend
+edges:
+  - from: backend
+    to: Сервер
+    label: gRPC
+"""
+
+_СКЛЕЙКА_B = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Веб
+  - name: Плагин
+    children:
+      - name: frontend
+edges:
+  - from: frontend
+    to: Веб
+    label: module.js
+  - from: Плагин
+    to: Grafana
+    label: ставится
+"""
+
+
+def test_решение_склейка_переносит_связи_детей_и_имя(db):
+    """«Это один объект» + своё имя: выживает первый по порядку файлов, к нему
+    переезжают связи и компоненты второго, второго в проекте нет."""
+    план = build_unified_plan(
+        [("a.yaml", _СКЛЕЙКА_A.encode()), ("b.yaml", _СКЛЕЙКА_B.encode())]
+    )
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    assert пара.id == "pair|Плагин Zabbix|Плагин"
+    решения = parse_decisions(json.dumps(
+        {"merges": {пара.id: {"name": "Плагин Zabbix для Grafana"}}}
+    ))
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Федерация", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    пути, связи = _состав(db, проект)
+    assert "Плагин" not in пути  # поглощённого узла нет
+    assert "Плагин Zabbix для Grafana" in пути  # выживший назван выбранным именем
+    # Компоненты обоих — под выжившим.
+    assert {"Плагин Zabbix для Grafana / backend", "Плагин Zabbix для Grafana / frontend"} <= пути
+    # Связь поглощённого переехала на выжившего.
+    assert ("Плагин Zabbix для Grafana", "Grafana", "ставится", None, None) in связи
+    assert отчёт.nodes == len(пути) and отчёт.nodes == len(план.merged.nodes) - 1
+    assert "Ваши решения: склеено объектов 1" in отчёт.warnings
+
+
+def test_решения_keep_diff_и_пустое_поле_дают_прежний_проект(db):
+    """Ни один вопрос не обязателен: отказы и пустое поле — это дефолт."""
+    юзер = ensure_architect(db).id
+    без, _ = apply_unified_plan(db, _план_остатка(), {}, "Без ответов", None, юзер)
+    отказы = parse_decisions(json.dumps({
+        "fields": {},
+        "edges": {"edge|Оператор|Ярмарка / orders|смотрит|target": "keep"},
+        "merges": {"pair|Оператор|Оператор смены": "diff"},
+        "new_edges": [],
+    }))
+    с_отказами, отчёт = apply_unified_plan(
+        db, _план_остатка(), {}, "С отказами", None, юзер, decisions=отказы
+    )
+    db.commit()
+
+    assert _состав(db, без) == _состав(db, с_отказами)
+    assert not any(w.startswith("Ваши решения") for w in отчёт.warnings)
+
+
+def test_перевес_на_компонент_выбрасывает_точный_дубль(db):
+    """Связь, уточнённая до компонента, может совпасть с уже существующей —
+    остаётся одна (ключ дубля тот же, что у мерджа)."""
+    текст = """
+nodes:
+  - name: Zabbix
+    children:
+      - name: web
+  - name: Датасорс
+edges:
+  - from: Датасорс
+    to: Zabbix
+    label: HTTP
+  - from: Датасорс
+    to: web
+    label: HTTP
+"""
+    план = build_unified_plan([("a.yaml", текст.encode())])
+    решения = parse_decisions(json.dumps({
+        "edges": {"edge|Датасорс|Zabbix|HTTP|target": {"to_path": "Zabbix / web"}}
+    }))
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Zabbix", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    _, связи = _состав(db, проект)
+    assert связи == {("Датасорс", "Zabbix / web", "HTTP", None, None)}
+    assert отчёт.edges == 1
+
+
+def test_решения_не_из_плана_отвергаются(db):
+    план = _план_остатка()
+    юзер = ensure_architect(db).id
+    было = db.query(Project).count()
+
+    for кривое in (
+        {"fields": {"field|Нет узла|description": 0}},
+        {"fields": {"field|Ярмарка|description": 9}},  # кандидата с таким номером нет
+        {"edges": {"edge|Оператор|Ярмарка / orders|смотрит|target": {"to_path": "Ярмарка"}}},
+        {"merges": {"pair|Нет|Пары": {"name": "Х"}}},
+        {"new_edges": [{"group_id": "group|Биллинг / счета",
+                        "from_path": "Биллинг / счета", "to_path": "Нет такого"}]},
+    ):
+        with pytest.raises(UnifiedImportError, match="Превью устарело"):
+            apply_unified_plan(
+                db, _план_остатка(), {}, "П", None, юзер,
+                decisions=parse_decisions(json.dumps(кривое)),
+            )
+    # Форма поля проверяется отдельно от плана — там свой человеческий текст.
+    with pytest.raises(UnifiedImportError, match="не разбирается как JSON"):
+        parse_decisions("{это не json")
+    with pytest.raises(UnifiedImportError, match="неизвестный раздел"):
+        parse_decisions(json.dumps({"fields": {}, "лишнее": 1}))
+    with pytest.raises(UnifiedImportError, match="номером кандидата"):
+        parse_decisions(json.dumps({"fields": {"x": "cand:1"}}))
+    with pytest.raises(UnifiedImportError, match="«keep» либо объект с to_path"):
+        parse_decisions(json.dumps({"edges": {"x": "все равно"}}))
+    with pytest.raises(UnifiedImportError, match="«sync» либо «async»"):
+        parse_decisions(json.dumps({"new_edges": [
+            {"from_path": "a", "to_path": "b", "channel": "быстрый"}]}))
+    with pytest.raises(UnifiedImportError, match="«diff» либо объект с name"):
+        parse_decisions(json.dumps({"merges": {"x": {"name": "  "}}}))
+    assert план.ok and db.query(Project).count() == было  # ни один отказ не создал проекта
+
+
+def test_эндпоинт_применения_принимает_decisions(клиент_с_бд, db):
+    """Ответы приезжают тем же multipart, что и файлы; ответ не из плана — 400."""
+    файлы = [
+        ("files", ("shop.yaml", _ОСТАТОК_1.encode(), "text/yaml")),
+        ("files", ("billing.yaml", _ОСТАТОК_2.encode(), "text/yaml")),
+    ]
+
+    r = клиент_с_бд.post(ПРИМЕНЕНИЕ, files=файлы, data={
+        "name": "Ярмарка",
+        "decisions": json.dumps({"fields": {"field|Ярмарка|description": 1}}),
+    })
+
+    assert r.status_code == 201, r.text
+    assert any("Ваши решения: выбрано значений полей 1" in w for w in r.json()["warnings"])
+    проект = db.get(Project, uuid.UUID(r.json()["project_id"]))
+    корень = db.query(Node).filter(
+        Node.project_id == проект.id, Node.parent_id.is_(None), Node.name == "Ярмарка"
+    ).one()
+    assert корень.description == "Магазин"
+
+    устарело = клиент_с_бд.post(ПРИМЕНЕНИЕ, files=файлы, data={
+        "name": "Ярмарка", "decisions": json.dumps({"fields": {"field|Нет|роль": 0}}),
+    })
+    assert устарело.status_code == 400 and "Превью устарело" in устарело.json()["detail"]
+
+    кривое = клиент_с_бд.post(ПРИМЕНЕНИЕ, files=файлы, data={
+        "name": "Ярмарка", "decisions": "{не json",
+    })
+    assert кривое.status_code == 400 and "decisions" in кривое.json()["detail"]

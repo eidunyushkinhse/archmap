@@ -64,7 +64,7 @@ from app.templates import (
     seed_package_template,
     seed_template,
 )
-from app.unified_apply import apply_unified_plan
+from app.unified_apply import apply_unified_plan, parse_decisions
 from app.unified_import import UnifiedImportError, build_unified_plan, preview_from_plan
 from app.unified_into import apply_into_plan, build_into_plan, into_preview
 
@@ -335,6 +335,7 @@ async def import_project_unified(
     name: str | None = Form(default=None),
     description: str | None = Form(default=None),
     resolutions: str | None = Form(default=None),
+    decisions: str | None = Form(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(require_architect),
 ) -> ArchiveImportResult:
@@ -345,6 +346,11 @@ async def import_project_unified(
     JSON-объектом в поле resolutions. Резолюция не из плана — 400 «превью
     устарело»: молча применить «не то» хуже, чем попросить пересобрать превью.
 
+    Вторым словарём (decisions, JSON) приезжают ответы на вопросы ОСТАТКА слияния
+    (Ф-E): выбранные значения полей, перевешенные концы связей, дорисованные связи
+    и склейки похожих имён. Ни один ответ не обязателен — без них создаётся ровно
+    тот же проект, что и раньше.
+
     Имя и описание берутся из полей; при ЕДИНСТВЕННОМ входе-архиве их можно не
     передавать — тогда они приедут из манифеста (П3)."""
     if not files:
@@ -352,8 +358,11 @@ async def import_project_unified(
     chosen = _parse_resolutions(resolutions)
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
     try:
+        ответы = parse_decisions(decisions)
         plan = build_unified_plan(inputs)
-        _, result = apply_unified_plan(db, plan, chosen, name, description, user.id)
+        _, result = apply_unified_plan(
+            db, plan, chosen, name, description, user.id, decisions=ответы
+        )
     except UnifiedImportError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e

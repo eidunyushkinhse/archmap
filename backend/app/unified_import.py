@@ -949,32 +949,56 @@ class _Tree:
             pi = self.parent[pi]
         return False
 
-    def components(self, container: int) -> list[ComponentOut]:
+    def components(self, container: int) -> list[int]:
         """ВСЁ поддерево контейнера в порядке обхода дерева (индексы слитого
         дерева идут «родители раньше детей»), без капа: кап — дело фронта."""
-        return [
-            ComponentOut(path=self.paths[i], has_children=self.has_children[i])
-            for i in range(len(self.paths))
-            if self.descends(i, container)
-        ]
+        return [i for i in range(len(self.paths)) if self.descends(i, container)]
 
     def where(self, parent: int | None) -> str:
         return f"внутри «{self.paths[parent]}»" if parent is not None else "на верхнем уровне"
 
 
-def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> RemainderOut:
-    """Остаток слияния структурой. current — индекс входа ЖИВОГО проекта (0 у
-    догрузки, None при создании).
+@dataclass
+class RemainderIndex:
+    """АДРЕСА элементов остатка в слитом дереве: id вопроса → индексы, которыми
+    применение правит дерево.
 
-    Р3 догрузки: элемент, все сущности которого пришли из живого проекта, в остаток
-    НЕ попадает — это дело панели незавершённости, а не догрузки. Догрузка отвечает
+    Строится ТЕМ ЖЕ проходом, что и RemainderOut (remainder_with_index): разойдись
+    они — и ответ пользователя применился бы не к тому, о чём его спросили."""
+
+    fields: dict[str, tuple[int, str, list[str]]] = field(default_factory=dict)
+    # id → (индекс связи, конец, «путь компонента → его индекс»)
+    edges: dict[str, tuple[int, str, dict[str, int]]] = field(default_factory=dict)
+    groups: dict[str, list[int]] = field(default_factory=dict)
+    pairs: dict[str, tuple[int, int]] = field(default_factory=dict)
+    # Путь узла → индекс: концы новой связи пользователь называет путями. Тёзки
+    # (якорь разводит их законно) адресуются первым — как и везде в превью.
+    nodes: dict[str, int] = field(default_factory=dict)
+
+
+def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> RemainderOut:
+    """Остаток слияния структурой (без адресов — они нужны только применению)."""
+    return remainder_with_index(plan, current)[0]
+
+
+def remainder_with_index(
+    plan: UnifiedPlan, current: int | None = None
+) -> tuple[RemainderOut, RemainderIndex]:
+    """Остаток слияния структурой и его адреса. current — индекс входа ЖИВОГО
+    проекта (0 у догрузки, None при создании).
+
+    Р3 догрузки: элемент, в котором не участвует ничего нового, в остаток НЕ
+    попадает — это дело панели незавершённости, а не догрузки. Догрузка отвечает
     за то, что привезли архивы."""
     merged = plan.merged
     if not plan.ok or merged is None:
-        return RemainderOut()
+        return RemainderOut(), RemainderIndex()
     report = plan.report
     tree = _Tree(plan)
     paths = plan.node_paths
+    index = RemainderIndex()
+    for i, p in enumerate(paths):
+        index.nodes.setdefault(p, i)
 
     def свой(node_idx: int) -> bool:
         """Узел УЖЕ ЕСТЬ в живом проекте (догрузка). Именно «есть», а не «пришёл
@@ -1021,6 +1045,7 @@ def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> Remain
             candidates=cands,
             default=default,
         ))
+        index.fields[eid] = (d.node_idx, d.field, [c.value for c in cands])
 
     # ── Связи в контейнер. В догрузке — только НОВЫЕ связи: перевесить живую
     #    значило бы тронуть то, о чём не спрашивали (Р3).
@@ -1035,6 +1060,7 @@ def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> Remain
         )
         if not свежий(eid):
             continue
+        comps = tree.components(rec.container_idx)
         container.append(ContainerEdgeOut(
             id=eid,
             from_path=paths[e.source_idx],
@@ -1043,8 +1069,11 @@ def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> Remain
             technology=e.technology,
             end=rec.end,  # type: ignore[arg-type]  # «source» | «target» по построению
             container_path=paths[rec.container_idx],
-            components=tree.components(rec.container_idx),
+            components=[
+                ComponentOut(path=paths[i], has_children=tree.has_children[i]) for i in comps
+            ],
         ))
+        index.edges[eid] = (rec.edge_idx, rec.end, {paths[i]: i for i in comps})
         if rec.warning_idx is not None:
             converted.add(rec.warning_idx)
 
@@ -1057,6 +1086,7 @@ def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> Remain
         if not свежий(eid):
             continue
         groups.append(IsolatedGroupOut(id=eid, node_paths=[paths[i] for i in g.node_idxs]))
+        index.groups[eid] = list(g.node_idxs)
         if g.warning_idx is not None:
             converted.add(g.warning_idx)
 
@@ -1081,6 +1111,7 @@ def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> Remain
             a_current=свой(f.a_idx),
             b_current=свой(f.b_idx),
         ))
+        index.pairs[eid] = (f.a_idx, f.b_idx)
         if f.warning_idx is not None:
             converted.add(f.warning_idx)
 
@@ -1092,7 +1123,7 @@ def remainder_from_plan(plan: UnifiedPlan, current: int | None = None) -> Remain
         unfixable=_unfixable(plan, converted),
         node_paths=list(paths),
         node_has_children=list(tree.has_children),
-    )
+    ), index
 
 
 def _unfixable(plan: UnifiedPlan, converted: set[int]) -> list[UnfixableOut]:
@@ -1229,6 +1260,8 @@ __all__ = [
     "build_unified_plan",
     "family_candidate_out",
     "preview_from_plan",
+    "RemainderIndex",
     "remainder_from_plan",
+    "remainder_with_index",
     "source_label",
 ]
