@@ -119,7 +119,11 @@ export function buildQuestions(input: {
 /** Точки или полоса по видам: на полутора десятках точек ряд перестаёт читаться. */
 export const progressMode = (n: number): "dots" | "segments" => (n <= 14 ? "dots" : "segments");
 
-/** Состояние ответа: «как сейчас» (keep/diff) отмечается серым, а не синим. */
+/**
+ * Состояние ответа. «Как сейчас» (keep/diff) — отдельное значение ДЛЯ СЧЁТА
+ * (строка итога «оставлено как есть N»), но на экране это такой же ответ, как
+ * прочие: пользователь его выбрал (П8 приёмки).
+ */
 export function answerState(
   q: Question, answers: Answers, resolutions: Resolutions,
 ): "none" | "answered" | "keep" {
@@ -145,7 +149,7 @@ export interface ProgressSegment {
   first: number;
   total: number;
   done: number;
-  /** Сколько из отвеченных — «как сейчас» (серая доля заливки). */
+  /** Сколько из отвеченных — «как сейчас»; полоса их не выделяет (П8). */
   kept: number;
 }
 
