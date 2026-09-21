@@ -4,13 +4,19 @@
 // Закрепляем два обещания: замечания для агента звучат по-разному при ошибках
 // разбора и при зелёной сводке с предупреждениями (во втором случае — «дополняй,
 // не удаляй»), а пропавшие между попытками объекты названы поимённо, а не молчат.
+//
+// С Ф-E панель говорит о ввозе одной СТРОКОЙ СТАТУСА вместо сводки счётчиков, а
+// остаток слияния показывает вопросами: строки «Готово к импорту: … объектов»,
+// «Корневые», «Склеено узлов», «Без якоря», «Из архивов», секции «Замечания к
+// слитой схеме» и «Споры содержимого» с экрана ушли.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ImportPane from "../project/ImportPane";
-import type { ArchiveInputs } from "../project/ImportPane";
-import type { FamilyConflictOut, ImportPreviewOut } from "../../types";
+import type { ArchiveInputs, RemainderInputs } from "../project/ImportPane";
+import { buildQuestions } from "../project/remainder";
+import type { FamilyConflictOut, ImportPreviewOut, RemainderOut } from "../../types";
 
 const writeText = vi.fn((_text: string) => Promise.resolve());
 
@@ -33,6 +39,31 @@ const red = (errors: string[], over: Partial<ImportPreviewOut> = {}): ImportPrev
   conflicts: [], warnings: [], dropped_edges: 0, node_names: [],
   file_remarks: [], schema_errors: [], schema_warnings: [], ...over,
 });
+
+// Пустой остаток: превью без вопросов. Точечные тесты доливают в него своё.
+const ОСТАТОК: RemainderOut = {
+  field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
+};
+const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({ ...ОСТАТОК, ...over });
+
+// Бандл разбора, как его собирает родитель: вопросы считаются из превью.
+function разбор(over: {
+  conflicts?: FamilyConflictOut[]; remainder?: RemainderOut;
+  onAnswer?: RemainderInputs["onAnswer"]; onResolve?: RemainderInputs["onResolve"];
+  resolutions?: Record<string, string>;
+} = {}): RemainderInputs {
+  const r = over.remainder ?? ОСТАТОК;
+  return {
+    questions: buildQuestions({ family_conflicts: over.conflicts ?? [], remainder: r }),
+    answers: {},
+    onAnswer: over.onAnswer ?? vi.fn(),
+    resolutions: over.resolutions ?? {},
+    onResolve: over.onResolve ?? vi.fn(),
+    unfixable: r.unfixable,
+    converted: r.converted_warnings,
+  };
+}
 
 // Сводку приносит родитель (дебаунс dry-run живёт в CreateProjectDialog) — здесь
 // попытки агента моделируются перерисовкой с новой сводкой.
@@ -180,8 +211,9 @@ const двухфайловая = (over: Partial<ImportPreviewOut> = {}): ImportP
 
 // Документами и их именами владеет родитель (CreateProjectDialog) — в тестах его
 // роль играет эта обёртка: без неё чипы не переключались бы и файлы не добавлялись.
-function Harness({ initial, summary, archives }: {
+function Harness({ initial, summary, archives, remainder }: {
   initial: string[]; summary: ImportPreviewOut | null; archives?: ArchiveInputs;
+  remainder?: RemainderInputs;
 }) {
   const [docs, setDocs] = useState(initial);
   const [names, setNames] = useState<(string | null)[]>([]);
@@ -193,6 +225,7 @@ function Harness({ initial, summary, archives }: {
       onNames={setNames}
       summary={summary}
       archives={archives}
+      remainder={remainder}
     />
   );
 }
@@ -242,17 +275,39 @@ describe("мульти-файловый импорт: пофайловые за�
     expect(text).toContain("СВОЙ YAML-документ");
   });
 
-  it("замечания слитой схемы показаны отдельной секцией и агенту не уезжают", async () => {
+  it("замечания слитой схемы агенту файла не уезжают и секции больше не имеют", async () => {
     render(<Harness initial={["nodes: a", "nodes: b"]} summary={двухфайловая()} />);
 
-    expect(screen.getByText("Замечания к слитой схеме:")).toBeInTheDocument();
-    expect(screen.getByText(СХЕМА)).toBeInTheDocument();
-    expect(screen.getByText(/о взаимном устройстве файлов/)).toHaveTextContent(
-      "добавьте файлы остальных репозиториев",
-    );
-    // У секции нет своей кнопки: копирование в панели ровно одно — пофайловое.
+    // Ф-E: секция «Замечания к слитой схеме» с серым абзацем убрана — что можно
+    // закрыть решением, стало вопросом, остальное живёт в свёртке §6.
+    expect(screen.queryByText("Замечания к слитой схеме:")).toBeNull();
+    expect(screen.queryByText(СХЕМА)).toBeNull();
+    expect(screen.queryByText(/о взаимном устройстве файлов/)).toBeNull();
+    // Копирование в панели ровно одно — пофайловое, и схемное в него не попадает.
     expect(screen.getAllByRole("button", { name: /Скопировать замечания/ })).toHaveLength(1);
     expect(await copyRemarks()).not.toContain(СХЕМА);
+  });
+
+  it("строка, ставшая вопросом, уходит и с экрана, и из копии для агента", async () => {
+    const ВОПРОС = "связь «Датасорс → Zabbix»: конец в контейнере «Zabbix»";
+    render(
+      <Harness
+        initial={["nodes: a", "nodes: b"]}
+        summary={двухфайловая({
+          file_remarks: [
+            { file: 1, errors: [], warnings: [Ф1, ВОПРОС] },
+            { file: 2, errors: [], warnings: [Ф2] },
+          ],
+        })}
+        remainder={разбор({ remainder: остаток({ converted_warnings: [ВОПРОС] }) })}
+      />,
+    );
+
+    expect(screen.getByText(Ф1)).toBeInTheDocument();
+    expect(screen.queryByText(ВОПРОС)).toBeNull();
+    const text = await copyRemarks();
+    expect(text).toContain(`- ${Ф1}`);
+    expect(text).not.toContain(ВОПРОС);
   });
 
   it("файл без замечаний говорит об этом, кнопки у него нет", async () => {
@@ -284,8 +339,11 @@ describe("мульти-файловый импорт: пофайловые за�
     });
     render(<Harness initial={["nodes: a", "nodes: b"]} summary={битый} />);
 
-    expect(screen.getByText(/Замечания к файлу 2 —/)).toBeInTheDocument();
-    await userEvent.click(chip("Файл 2"));
+    // Виновника называет статус, а не красный список: «Замечания к файлам 2 —
+    // выберите файл» заменено ссылкой, которая сама делает вход активным.
+    expect(screen.getByText(/Проблема в файле/).textContent).toBe(
+      "Проблема в файле 2: nodes[0]: name — обязательная непустая строка.");
+    await userEvent.click(screen.getByRole("button", { name: "Открыть файл 2" }));
     const text = await copyRemarks();
     expect(text).toContain("- nodes[0]: name — обязательная непустая строка");
     expect(text).not.toContain("файл 2:");
@@ -365,10 +423,6 @@ const ЗАМ_АРХИВА = "docs/orders.mmd: узел «Нет такого» �
 const архивы = (over: Partial<ArchiveInputs> = {}): ArchiveInputs => ({
   files: [new File(["zip"], "archmap.zip", { type: "application/zip" })],
   onFiles: vi.fn(),
-  counts: { docs: 3, specs: 1, tables: 0, channels: 0, params: 0, processes: 0 },
-  conflicts: [],
-  resolutions: {},
-  onResolve: vi.fn(),
   ...over,
 });
 
@@ -379,7 +433,7 @@ const СПЕКА_СПОР: FamilyConflictOut = {
   key: "openapi",
   candidates: [
     { origin: 0, origin_label: "a.zip", source_label: "Из архива Ярмарка", summary: "12 строк, 400 Б", body: "openapi: 3.0.0", truncated: false, current: false },
-    { origin: 1, origin_label: "b.zip", source_label: "Из архива Ярмарка", summary: "20 строк, 800 Б", body: "openapi: 3.1.0", truncated: true, current: false },
+    { origin: 1, origin_label: "b.zip", source_label: "Из архива Склад", summary: "20 строк, 800 Б", body: "openapi: 3.1.0", truncated: true, current: false },
   ],
   default: "cand:0",
   allow_all: false,
@@ -391,8 +445,10 @@ describe("архивные входы единой панели", () => {
 
     // Один непустой YAML — архив занимает вход 2 (им же подписаны его замечания).
     expect(chip("zip 2 · archmap.zip")).toBeInTheDocument();
-    // Знание архива в C4-счётчиках не видно — его называет отдельная строка.
-    expect(screen.getByText(/Из архивов:/)).toHaveTextContent("3 схемы логики · 1 спека");
+    // Счётчиков приезжающего знания в панели больше нет (Ф-E): статус говорит о
+    // вопросах, а «3 схемы логики · 1 спека» решению не помогали.
+    expect(screen.queryByText(/Из архивов:/)).toBeNull();
+    expect(screen.queryByText(/Готово к импорту: /)).toBeNull();
   });
 
   it("клик по чипу архива открывает карточку с замечаниями ЕГО входа", async () => {
@@ -433,71 +489,118 @@ describe("архивные входы единой панели", () => {
     expect(screen.getByText("К архиву замечаний нет.")).toBeInTheDocument();
   });
 
-  it("спор содержимого: предвыбран дефолт, выбор уходит наверх", async () => {
+  it("спор содержимого стал вопросом разбора, выбор уходит наверх", async () => {
     const onResolve = vi.fn();
     render(
       <Harness
         initial={["nodes: a"]}
         summary={двухфайловая()}
-        archives={архивы({ conflicts: [СПЕКА_СПОР], onResolve })}
+        archives={архивы()}
+        remainder={разбор({ conflicts: [СПЕКА_СПОР], onResolve })}
       />,
     );
 
-    expect(screen.getByText("Споры содержимого (1)")).toBeInTheDocument();
-    expect(screen.getByText("Спека API · openapi")).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /a\.zip · 12 строк/ })).toBeChecked();
-    // Скаляру брать всё некуда — вариант «взять все» есть только у доков.
-    expect(screen.queryByRole("radio", { name: /Взять все/ })).toBeNull();
-    // Обрезанное тело честно говорит, что показано начало.
-    expect(screen.getByText("…показано начало")).toBeInTheDocument();
+    // Прежней секции «Споры содержимого (1)» с радиокнопками нет: спор задан
+    // вопросом, кандидаты подписаны источником знания, а не именем файла.
+    expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
+    expect(screen.getByText(/Без ваших решений не объединить/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
+      "У объекта «openapi» в разных источниках разные спеки с одинаковым названием."
+      + " Какую считаем правильной?");
+    // Ничего не предвыбрано — дефолт бэка назван сноской, а не галкой.
+    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+      "в проект попадёт вариант «Из архива Ярмарка»");
+    expect(document.querySelectorAll(".rq-opt--on")).toHaveLength(0);
 
-    await userEvent.click(screen.getByRole("radio", { name: /b\.zip · 20 строк/ }));
+    await userEvent.click(screen.getAllByRole("button", { name: /Из архива Склад/ })[0]);
     expect(onResolve).toHaveBeenCalledWith(СПЕКА_СПОР.id, "cand:1");
   });
 });
 
-describe("основание склейки и якоря (Ф2 docs/plan-anchor-ux.md)", () => {
-  // «Склеено узлов: 7» без «почему» — это невидимая магия: ложная склейка хуже
-  // дубля именно тем, что выглядит правильной схемой.
-  it("каждая склейка названа своим основанием", () => {
-    paint(green(["Система", "payments", "Каталог-БД", "orders"], {
-      files: 2,
-      merged_count: 3,
-      merged: ["Система / payments", "Система / Каталог-БД", "Система / orders"],
-      merged_nodes: [
-        { path: "Система / payments", basis: "code" },
-        { path: "Система / Каталог-БД", basis: "dependency" },
-        { path: "Система / orders", basis: "name" },
-      ],
-    }));
+describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", () => {
+  it("зелёная сводка без вопросов — «Готово к импорту», счётчиков нет", () => {
+    render(<Harness initial={["nodes: a"]} summary={green(["Ярмарка", "orders"])} />);
 
-    expect(screen.getByText(/Склеено узлов: 3/)).toBeTruthy();
-    expect(screen.getByText("Система / payments — по коду")).toBeTruthy();
-    expect(screen.getByText("Система / Каталог-БД — по имени зависимости")).toBeTruthy();
-    expect(screen.getByText("Система / orders — по имени внутри «Система»")).toBeTruthy();
+    expect(screen.getByText("Готово к импорту")).toBeInTheDocument();
+    expect(screen.queryByText(/Готово к импорту: /)).toBeNull();
+    expect(screen.queryByText(/Корневые:/)).toBeNull();
+    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
   });
 
-  it("перечень склеек обрезан — остаток назван счётчиком", () => {
-    paint(green(["Система"], {
-      files: 2,
-      merged_count: 10,
-      merged_nodes: [{ path: "Система / a", basis: "code" }],
-    }));
-
-    expect(screen.getByText("…ещё 9")).toBeTruthy();
-  });
-
-  it("объекты без якоря названы счётчиком с последствием", () => {
-    paint(green(["Система", "orders"], { nodes_without_anchor: 2 }));
-
-    expect(screen.getByText(/Без якоря: 2 объекта/)).toHaveTextContent(
-      "будут опознаваться по имени",
+  it("есть вопросы — статус зовёт их разобрать, блок показывает первый", () => {
+    render(
+      <Harness
+        initial={["nodes: a"]}
+        summary={green(["Ярмарка", "orders"])}
+        remainder={разбор({ conflicts: [СПЕКА_СПОР] })}
+      />,
     );
+
+    expect(screen.getByText("Есть вопросы")).toBeInTheDocument();
+    expect(screen.getByText("вопрос 1 из 1")).toBeInTheDocument();
   });
 
-  it("якорь есть у всех — строки нет вовсе", () => {
-    paint(green(["Система"], { nodes_without_anchor: 0 }));
+  it("незакрываемое замечание тоже переводит статус в «Есть вопросы»", () => {
+    render(
+      <Harness
+        initial={["nodes: a"]}
+        summary={green(["Ярмарка"])}
+        remainder={разбор({
+          remainder: остаток({
+            unfixable: [{
+              id: "u1", text: "«Поллер» встречается в файлах как РАЗНЫЕ объекты",
+              how: "Можно доработать прогоном агента.", agent: null,
+              if_left: "Если оставить: в проекте будут два объекта с одним именем.",
+              file: null,
+            }],
+          }),
+        })}
+      />,
+    );
 
-    expect(screen.queryByText(/Без якоря/)).toBeNull();
+    expect(screen.getByText("Есть вопросы")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Что исправит только новый прогон агента \(1\)/ }))
+      .toBeInTheDocument();
+  });
+
+  it("отказ разбора: статус красный, строка ошибки, блока вопросов нет", () => {
+    // Одно-файловый режим не особый: бэк кладёт ошибку в корзину файла 1
+    // (import_merge.split_remarks), и статус называет вход с номером строки.
+    const плохой = "Некорректный YAML: ошибка разметки (строка 29). Частая причина — двоеточие";
+    paint(red([плохой], { file_remarks: [{ file: 1, errors: [плохой], warnings: [] }] }));
+
+    expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();
+    expect(screen.getByText(/Проблема в файле/).textContent).toBe(
+      "Проблема в файле 1. Строка 29: Некорректный YAML: ошибка разметки."
+      + " Частая причина — двоеточие.");
+    expect(screen.queryByText("Не получается разобрать YAML:")).toBeNull();
+    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
+  });
+
+  it("ошибка без файла-виновника — без чипа и без ссылки", () => {
+    paint(red(["входы не имеют общих корневых узлов"], {
+      files: 2, schema_errors: ["входы не имеют общих корневых узлов"],
+    }));
+
+    expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();
+    expect(screen.getByText("входы не имеют общих корневых узлов.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Открыть файл/ })).toBeNull();
+  });
+
+  it("ссылка статуса делает виновника активным входом", async () => {
+    const битый = red(["файл 2: nodes[0]: name — обязательная непустая строка"], {
+      files: 2,
+      file_remarks: [
+        { file: 1, errors: [], warnings: [] },
+        { file: 2, errors: ["Строка 3: name — обязательная непустая строка"], warnings: [] },
+      ],
+    });
+    render(<Harness initial={["nodes: a", "nodes: b"]} summary={битый} />);
+
+    expect(screen.getByText(/Проблема в файле/).textContent).toBe(
+      "Проблема в файле 2. Строка 3: name — обязательная непустая строка.");
+    await userEvent.click(screen.getByRole("button", { name: "Открыть файл 2" }));
+    // Активен второй чип — его замечания и его кнопка копирования.
+    expect(screen.getByText(/Замечания к файлу 2/)).toBeInTheDocument();
   });
 });

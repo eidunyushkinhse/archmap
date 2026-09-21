@@ -1,28 +1,34 @@
 import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { FamilyConflictOut, ImportPreviewOut, UnifiedFamilyCountsOut } from "../../types";
+import type { ImportPreviewOut, UnfixableOut } from "../../types";
 import { plural } from "../../ui/plural";
 import { useFileDrop } from "../docsImport/useFileDrop";
 import { inputFingerprint, useRepeatedInput } from "../docsImport/agentModalShared";
 import { StaleFilesConfirm, UnchangedInputNote } from "../docsImport/agentModalReport";
-import ConflictSection from "./ConflictSection";
-import { basisLabel } from "../anchor/anchorText";
+import { introFor } from "./importIntros";
+import { firstError, statusState, withoutConverted } from "./importRemarks";
+import { ArchiveCard, ReportList } from "./ImportPaneParts";
+import { RemainderBlock, StatusLine, UnfixableFold } from "./remainder";
+import type { Answer, Answers, Question, Resolutions } from "./remainder";
 
 /**
  * Единая панель ввоза в модалке создания проекта: N входов ЛЮБОГО типа — YAML
  * (чипы «Файл N» — мульти-репо сценарий «Из репозитория») и полные архивы знания
- * .zip (чипы «zip»), вперемешку. Внизу — сводка dry-run с отчётом слияния, споры
- * содержимого (ConflictSection) и кнопка «Скопировать замечания» (уносится
+ * .zip (чипы «zip»), вперемешку. Внизу — строка статуса, разбор остатка слияния
+ * вопросами (RemainderBlock) и кнопка «Скопировать замечания» (уносится
  * ИИ-агенту на починку). Данные (docs, archives) и сводка живут у родителя —
  * здесь представление и локальный выбор активного входа.
  *
+ * Счётчиков «Готово к импорту: 158 объектов · 271 связь» здесь больше нет (Ф-E):
+ * решению они не помогают, а место занимают. Вместо них — статус («Готово к
+ * импорту» / «Есть вопросы» / «Что-то пошло не так») и сами вопросы.
+ *
  * Мульти-режим (входов больше одного) адресует замечания: пакет собирают N агентов,
  * каждый видит ТОЛЬКО свой репозиторий и переписывает только свой документ. Поэтому
- * под панелью показываются замечания АКТИВНОГО файла со своей кнопкой копирования, а
- * замечания слитой схемы (конфликты файлов, оторванные группы) вынесены отдельной
- * секцией без кнопки — их чинит человек, видящий весь ландшафт (Ф6 плана
- * docs/plan-skeptic-audit.md). Одно-файловый режим не меняется ничем: там агент
- * видит всю систему и чинит всё.
+ * под панелью показываются замечания АКТИВНОГО файла со своей кнопкой копирования
+ * (Ф6 плана docs/plan-skeptic-audit.md). Замечаний СЛИТОЙ схемы отдельной секцией
+ * больше нет: что человек может закрыть решением — стало вопросом разбора, что не
+ * может — свёрткой «Что исправит только новый прогон агента».
  *
  * У АРХИВНОГО входа кнопки «для агента» нет вовсе: архив собирал экспорт, а не
  * агент, и переписывать его некому — замечания архива только читают.
@@ -31,29 +37,6 @@ import { basisLabel } from "../anchor/anchorText";
 // Зеркало MAX_IMPORT_FILES бэка (schemas/project.py) — клиентский предохранитель.
 // 256 — с запасом под крупные мульти-репо системы (80+ сервисов, файл на репозиторий).
 export const MAX_IMPORT_FILES = 256;
-
-// Вступления к замечаниям. Разные по случаям, и это НЕ косметика: полевой QA
-// (docs/qa-zabbix-7.md, раунд 2) показал, что на «исправь» слабая модель отвечает
-// ампутацией — вырезает объекты вместо поиска связей (31→27, затем 30→14 узлов).
-// Ошибки разбора чинятся правкой; предупреждения зелёной сводки — ДОПОЛНЕНИЕМ.
-// Мульти-варианты добавляют к тому же уроку контекст «твой файл — один из многих»:
-// иначе агент правит чужие куски вслепую или переписывает всю систему.
-const INTRO_ONE_OK =
-  "Валидатор импорта ArchMap принял YAML, но оставил предупреждения. Устрани их, " +
-  "ДОПОЛНЯЯ схему — находи и дописывай недостающие связи, а НЕ удаляй объекты: " +
-  "удаление хуже недостающей связи. Выведи весь YAML-документ целиком заново:";
-const INTRO_ONE_BAD =
-  "Валидатор импорта ArchMap нашёл замечания к YAML. Исправь их и выведи весь " +
-  "YAML-документ целиком заново:";
-const INTRO_MANY_OK =
-  "Валидатор импорта ArchMap принял ваш YAML — один из нескольких файлов системы, — " +
-  "но оставил предупреждения. Устрани их, ДОПОЛНЯЯ схему — находи и дописывай " +
-  "недостающие связи, а НЕ удаляй объекты: удаление хуже недостающей связи. " +
-  "Выведи весь СВОЙ YAML-документ целиком заново:";
-const INTRO_MANY_BAD =
-  "Валидатор импорта ArchMap нашёл замечания к вашему YAML-файлу — одному из " +
-  "нескольких файлов системы. Исправь их и выведи весь СВОЙ YAML-документ целиком " +
-  "заново:";
 
 // Память попыток агента: состав узлов последней зелёной сводки и предыдущей.
 // from — сводка, которой соответствует cur (сравнение по ссылке: родитель на
@@ -66,21 +49,39 @@ interface Attempts {
 const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: [] };
 
 /**
- * Архивная половина панели: сами zip-входы, счётчики того, что они привезут, и
- * споры содержимого с выбором пользователя. Бандл, а не россыпь пропсов: всё это
+ * Архивная половина панели: сами zip-входы. Бандл, а не россыпь пропсов: это
  * одна ответственность («архивы»), и точка вызова собирает её одним useMemo.
  * Не передан — панель принимает только YAML (так её зовут тесты BYOA-механики).
+ * Споры содержимого архивов сюда больше не приходят: они стали вопросами
+ * разбора остатка и живут в бандле remainder.
  */
 export interface ArchiveInputs {
   files: File[];
   onFiles: (next: File[]) => void;
-  /** Что приедет из архивов при текущих (дефолтных) резолюциях. */
-  counts: UnifiedFamilyCountsOut;
-  conflicts: FamilyConflictOut[];
-  /** Выбор пользователя по спорам: id → «cand:<i>» либо «all». */
-  resolutions: Record<string, string>;
-  onResolve: (id: string, choice: string) => void;
 }
+
+/**
+ * Остаток слияния (Ф-E): вопросы разбора, состояние ответов и незакрываемые
+ * замечания. Считает и хранит их РОДИТЕЛЬ (ответы переживают перезапрос превью),
+ * панель показывает. Не передан — разбора нет вовсе (панель без остатка).
+ */
+export interface RemainderInputs {
+  questions: Question[];
+  answers: Answers;
+  onAnswer: (id: string, answer: Answer) => void;
+  /** Выбор по спорам содержимого: id → «cand:<i>» либо «all». */
+  resolutions: Resolutions;
+  onResolve: (id: string, choice: string) => void;
+  /** Замечания, которые выбором не закрыть (§6 ТЗ). */
+  unfixable: UnfixableOut[];
+  /** Тексты строк, ставших вопросами: с экрана они уходят (Р3). */
+  converted: string[];
+}
+
+const NO_REMAINDER: RemainderInputs = {
+  questions: [], answers: {}, onAnswer: () => {}, resolutions: {}, onResolve: () => {},
+  unfixable: [], converted: [],
+};
 
 interface Props {
   docs: string[];
@@ -93,12 +94,13 @@ interface Props {
   // Актуальная C4-сводка по ТЕКУЩИМ входам (устаревшие родитель уже отбросил); null — нет/грузится.
   summary: ImportPreviewOut | null;
   archives?: ArchiveInputs;
+  remainder?: RemainderInputs;
 }
 
 const isZip = (f: File): boolean => f.name.toLowerCase().endsWith(".zip");
 
 export default function ImportPane({
-  docs, onDocs, names = [], onNames, summary, archives,
+  docs, onDocs, names = [], onNames, summary, archives, remainder = NO_REMAINDER,
 }: Props) {
   // Индекс активного документа — чисто вьюшное состояние; при удалении чипов
   // может выйти за границы, поэтому в рендере всегда клампится.
@@ -215,15 +217,23 @@ export default function ImportPane({
   // Мульти-режим — по числу РАЗОБРАННЫХ входов, а не чипов: пустой чип в dry-run
   // не уезжает, и бэк в таком случае кладёт всё в единственный файл.
   const multi = (summary?.files ?? 1) > 1;
+  // Строки, ставшие вопросами разбора, с экрана уходят: их закрывает ответ, а не
+  // правка файла (Р3). Фильтр один на показ и на копию — копируется то, что видно.
+  const видимые = (items: string[]): string[] => withoutConverted(items, remainder.converted);
   // Замечания активного файла: их и только их уносит его агент.
   const activeFile = activeZip === null && docs[active]?.trim()
     ? summary?.file_remarks[fileNo[active] - 1]
     : undefined;
-  const activeRemarks = activeFile ? [...activeFile.errors, ...activeFile.warnings] : [];
+  const activeRemarks = activeFile
+    ? [...activeFile.errors, ...видимые(activeFile.warnings)]
+    : [];
   // Замечания активного архива. Корзина может быть короче номера (сводка отказа
   // пофайловых корзин не несёт) — индексируемся защищённо.
   const zipFile = activeZip !== null ? summary?.file_remarks[zipNo(activeZip) - 1] : undefined;
-  const zipRemarks = zipFile ? [...zipFile.errors, ...zipFile.warnings] : [];
+  const zipRemarks = zipFile ? [...zipFile.errors, ...видимые(zipFile.warnings)] : [];
+  // Одно-файловый режим: конфликты слияния — чтение, они как были (споров полей
+  // там не бывает), предупреждения — за вычетом ставших вопросами.
+  const плоские = summary?.ok ? видимые(summary.warnings) : [];
 
   // Замечания для агента: при ошибках — они; при зелёной сводке — конфликты и
   // предупреждения слияния (промпт учит агента чинить по такому списку).
@@ -232,16 +242,36 @@ export default function ImportPane({
     : multi
       ? activeRemarks
       : summary.ok
-        ? [...summary.conflicts, ...summary.warnings]
+        ? [...summary.conflicts, ...плоские]
         : summary.errors;
 
-  const remarksIntro = multi
-    ? (summary?.ok ? INTRO_MANY_OK : INTRO_MANY_BAD)
-    : (summary?.ok ? INTRO_ONE_OK : INTRO_ONE_BAD);
+  const remarksIntro = introFor(multi, summary?.ok === true);
 
   // Кнопка «для агента» уместна только у yaml-чипа с содержимым: архив собирал
   // экспорт, и переписывать его некому.
   const canCopy = activeZip === null && Boolean(docs[active]?.trim());
+
+  // Вход по его НОМЕРУ в сводке (нумерация сплошная: непустые YAML в порядке
+  // чипов, затем архивы) — им подписан виновник ошибки в статусе, и по нему же
+  // ссылка «Открыть файл …» делает этот вход активным.
+  const docOfInput = (no: number): number =>
+    docs.findIndex((d, k) => d.trim() !== "" && fileNo[k] === no);
+  function chipLabel(no: number): string | null {
+    const i = docOfInput(no);
+    // Подпись встаёт в шаблоны «Проблема в файле …» и «Открыть файл …», поэтому
+    // у вставленного текстом входа она — просто номер: «Открыть файл Файл 2»
+    // читалось бы заиканием, а чип с номером узнаётся и так.
+    if (i >= 0) return nameOf(i) !== null ? `${no} · ${nameOf(i)}` : `${no}`;
+    const f = zips[no - yamlCount - 1];
+    return f ? `${no} · ${f.name}` : null;
+  }
+  function openInput(index: number) {
+    const no = index + 1;
+    const i = docOfInput(no);
+    if (i >= 0) { selectDoc(i); return; }
+    const j = no - yamlCount - 1;
+    if (j >= 0 && j < zips.length) setActiveZipRaw(j);
+  }
 
   // Что исчезло между попытками (prev − cur, по именам). Рост не показываем — норма.
   const vanished = useMemo(() => {
@@ -405,105 +435,52 @@ export default function ImportPane({
             {vanished.length > 8 ? ` и ещё ${vanished.length - 8}` : ""}
           </div>
         )}
-        {summary?.ok && (
-          <>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-              Готово к импорту: {summary.node_count} {plural(summary.node_count, ["объект", "объекта", "объектов"])} · {summary.edge_count} {plural(summary.edge_count, ["связь", "связи", "связей"])}
-              {summary.files > 1 && ` · из ${summary.files} ${plural(summary.files, ["файла", "файлов", "файлов"])}`}
-            </div>
-            {/* Знание архивов не видно в C4-счётчиках — называем его отдельной строкой,
-                иначе неясно, что вместе со схемой едут доки, спеки и структуры. */}
-            {archives && <FamilyCounts counts={archives.counts} />}
-            {summary.roots.length > 0 && (
-              <div style={grayLine}>Корневые: {summary.roots.join(", ")}</div>
-            )}
-            {summary.merged_count > 0 && (
-              <div style={grayLine}>
-                Склеено узлов: {summary.merged_count}
-                {summary.dropped_edges > 0 && ` · дублей связей выброшено: ${summary.dropped_edges}`}
-                {/* Каждая склейка называет ОСНОВАНИЕ (Ф2 docs/plan-anchor-ux.md):
-                    «склеено 7» без «почему» — это невидимая магия, а ложная
-                    склейка хуже дубля именно тем, что выглядит правильной. */}
-                {summary.merged_nodes.map((m) => (
-                  <div key={m.path} style={basisRow}>
-                    {m.path} — {basisLabel(m.basis, m.path)}
-                  </div>
-                ))}
-                {summary.merged_count > summary.merged_nodes.length && (
-                  <div style={basisRow}>…ещё {summary.merged_count - summary.merged_nodes.length}</div>
-                )}
-              </div>
-            )}
-            {/* Узлы без якоря опознаются только по имени внутри контейнера:
-                переименуют — следующий прогон сделает дубль. Счётчиком, не
-                списком: при создании проекта новые ВСЕ объекты. */}
-            {summary.nodes_without_anchor > 0 && (
-              <div style={grayLine}>
-                Без якоря: {summary.nodes_without_anchor}{" "}
-                {plural(summary.nodes_without_anchor, ["объект", "объекта", "объектов"])} —
-                {" "}будут опознаваться по имени
-              </div>
-            )}
-            {/* Один файл — плоский отчёт слияния, как было до Ф6. */}
-            {!multi && summary.conflicts.length > 0 && (
-              <ReportList title="Конфликты слияния (оставлено первое значение):" items={summary.conflicts} />
-            )}
-            {!multi && summary.warnings.length > 0 && (
-              <ReportList title="Проверьте:" items={summary.warnings} />
-            )}
-          </>
+        {/* Одна строка вместо прежней сводки: «есть ли вопросы» помогает решению,
+            «сколько объектов приедет» — нет (§2 ТЗ). Красное живёт только здесь. */}
+        {summary !== null && (
+          <StatusLine
+            state={statusState(summary, remainder.questions.length + remainder.unfixable.length)}
+            error={summary.ok ? undefined : firstError(summary, chipLabel)}
+            onOpenFile={openInput}
+          />
         )}
-        {summary && !summary.ok && (
-          <div style={{ fontSize: 13, color: "#dc2626" }}>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Не получается разобрать YAML:</div>
-            {multi ? (
-              <MultiErrorHint summary={summary} />
-            ) : (
-              <>
-                {summary.errors.slice(0, 5).map((e, i) => (
-                  <div key={i} style={{ marginTop: 2 }}>{e}</div>
-                ))}
-                {summary.errors.length > 5 && (
-                  <div style={{ marginTop: 2 }}>…ещё {summary.errors.length - 5}</div>
-                )}
-              </>
-            )}
-          </div>
+        {/* Разбор остатка: то, что мердж решить не может, — вопросами. Отказ
+            разбора вопросов не рождает: спрашивать не о чем, пока входы не приняты. */}
+        {summary?.ok && remainder.questions.length > 0 && (
+          <RemainderBlock
+            questions={remainder.questions}
+            answers={remainder.answers}
+            resolutions={remainder.resolutions}
+            onAnswer={remainder.onAnswer}
+            onResolve={remainder.onResolve}
+            mode="create"
+          />
+        )}
+        {summary?.ok && (
+          <UnfixableFold items={remainder.unfixable} intro={remarksIntro} />
+        )}
+        {/* Один файл — плоский отчёт слияния, как было до Ф6. */}
+        {summary?.ok && !multi && summary.conflicts.length > 0 && (
+          <ReportList title="Конфликты слияния (оставлено первое значение):" items={summary.conflicts} />
+        )}
+        {summary?.ok && !multi && плоские.length > 0 && (
+          <ReportList title="Проверьте:" items={плоские} />
         )}
         {!multi && canCopy && remarks.length > 0 && copyBtn}
-        {multi && summary !== null && (
-          <>
-            {activeZip === null && (activeRemarks.length > 0 ? (
-              <>
-                <ReportList
-                  title={`Замечания к файлу ${fileNo[active]}${nameOf(active) ? ` · ${nameOf(active)}` : ""}:`}
-                  items={activeRemarks}
-                />
-                {copyBtn}
-              </>
-            ) : docs[active].trim() !== "" ? (
-              <div style={grayLine}>К файлу {fileNo[active]} замечаний нет.</div>
-            ) : null)}
-            {summary.schema_warnings.length > 0 && (
-              <>
-                <ReportList title="Замечания к слитой схеме:" items={summary.schema_warnings} />
-                <div style={grayLine}>
-                  Эти замечания — о взаимном устройстве файлов, поэтому агенту одного
-                  репозитория их не починить. Их чинят там, где виден весь ландшафт:
-                  добавьте файлы остальных репозиториев, попросите нужного агента
-                  дорисовать связь или поправьте схему после импорта вручную.
-                </div>
-              </>
-            )}
-          </>
-        )}
-        {/* Споры содержимого — под сводкой: сначала «что приедет», потом «чьё». */}
-        {archives && (
-          <ConflictSection
-            conflicts={archives.conflicts}
-            resolutions={archives.resolutions}
-            onResolve={archives.onResolve}
-          />
+        {/* Замечания АКТИВНОГО файла — про YAML одного агента, а не про остаток:
+            они остаются пофайловыми со своей кнопкой копирования. */}
+        {multi && summary !== null && activeZip === null && (
+          activeRemarks.length > 0 ? (
+            <>
+              <ReportList
+                title={`Замечания к файлу ${fileNo[active]}${nameOf(active) ? ` · ${nameOf(active)}` : ""}:`}
+                items={activeRemarks}
+              />
+              {copyBtn}
+            </>
+          ) : docs[active].trim() !== "" ? (
+            <div style={grayLine}>К файлу {fileNo[active]} замечаний нет.</div>
+          ) : null
         )}
         {askedFor === docs && (
           <StaleFilesConfirm
@@ -517,78 +494,6 @@ export default function ImportPane({
         )}
       </div>
     </>
-  );
-}
-
-// Карточка активного архива вместо textarea: тело архива не правят — его читают.
-// Кнопки «для агента» здесь нет принципиально (архив собирал экспорт).
-function ArchiveCard({ file, no, remarks }: { file: File; no: number; remarks: string[] }) {
-  return (
-    <div style={archiveCard}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{file.name}</div>
-      <div style={grayLine}>
-        Вход {no} · {(file.size / 1024).toFixed(0)} КБ · полный архив знания
-      </div>
-      {remarks.length > 0 ? (
-        <ReportList title="Замечания к архиву:" items={remarks} />
-      ) : (
-        <div style={grayLine}>К архиву замечаний нет.</div>
-      )}
-      <div style={{ ...grayLine, marginTop: 10 }}>
-        Из архива приедут схемы логики, спеки, структуры БД и брокеров,
-        конфигурация и процессы. Раскладка пересчитается заново.
-      </div>
-    </div>
-  );
-}
-
-// Что привезут архивы при текущих резолюциях: C4-счётчики про это молчат.
-function FamilyCounts({ counts }: { counts: UnifiedFamilyCountsOut }) {
-  const parts = [
-    counts.docs && `${counts.docs} ${plural(counts.docs, ["схема логики", "схемы логики", "схем логики"])}`,
-    counts.specs && `${counts.specs} ${plural(counts.specs, ["спека", "спеки", "спек"])}`,
-    counts.tables && `${counts.tables} ${plural(counts.tables, ["таблица", "таблицы", "таблиц"])}`,
-    counts.channels && `${counts.channels} ${plural(counts.channels, ["канал", "канала", "каналов"])}`,
-    counts.params && `${counts.params} ${plural(counts.params, ["параметр", "параметра", "параметров"])}`,
-    counts.processes && `${counts.processes} ${plural(counts.processes, ["процесс", "процесса", "процессов"])}`,
-  ].filter((s): s is string => typeof s === "string");
-  if (!parts.length) return null;
-  return <div style={grayLine}>Из архивов: {parts.join(" · ")}</div>;
-}
-
-// Красная шапка мульти-режима: сами ошибки лежат в списке своего файла (их уносит
-// его агент), здесь — куда смотреть. Ошибки слитой схемы (лимиты слияния, отказ
-// проверки) файла-виновника не имеют и показываются прямо тут.
-function MultiErrorHint({ summary }: { summary: ImportPreviewOut }) {
-  const bad = summary.file_remarks.filter((f) => f.errors.length > 0).map((f) => f.file);
-  return (
-    <>
-      {bad.length > 0 && (
-        <div style={{ marginTop: 2 }}>
-          {bad.length === 1 ? "Замечания к файлу" : "Замечания к файлам"} {bad.join(", ")} —
-          {" "}выберите файл, чтобы прочитать и скопировать их
-        </div>
-      )}
-      {summary.schema_errors.map((e, i) => (
-        <div key={i} style={{ marginTop: 2 }}>{e}</div>
-      ))}
-      {bad.length === 0 && summary.schema_errors.length === 0 &&
-        summary.errors.slice(0, 5).map((e, i) => (
-          <div key={i} style={{ marginTop: 2 }}>{e}</div>
-        ))}
-    </>
-  );
-}
-
-function ReportList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div style={{ marginTop: 6, fontSize: 12.5, color: "#b45309" }}>
-      <div style={{ fontWeight: 600 }}>{title}</div>
-      {items.slice(0, 6).map((s, i) => (
-        <div key={i} style={{ marginTop: 2, color: "#475569" }}>{s}</div>
-      ))}
-      {items.length > 6 && <div style={{ marginTop: 2, color: "#475569" }}>…ещё {items.length - 6}</div>}
-    </div>
   );
 }
 
@@ -615,8 +520,6 @@ const zipTag: CSSProperties = {
   fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3,
 };
 const grayLine: CSSProperties = { fontSize: 12.5, color: "#94a3b8", marginTop: 3 };
-// Строка перечня внутри серой сводки: отступом влево показывает подчинённость.
-const basisRow: CSSProperties = { marginLeft: 10 };
 // Тот же amber, что у заголовков отчёта слияния (ReportList) и ошибки перетаскивания.
 const vanishedLine: CSSProperties = {
   fontSize: 12.5, fontWeight: 600, color: "#b45309", marginBottom: 6,
@@ -626,9 +529,4 @@ const importArea: CSSProperties = {
   padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 10,
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   fontSize: 12.5, lineHeight: 1.5, color: "#0f172a", background: "#fff",
-};
-// Карточка архива занимает место textarea — панель не должна прыгать при смене чипа.
-const archiveCard: CSSProperties = {
-  height: 246, boxSizing: "border-box", overflowY: "auto",
-  padding: "12px 14px", border: "1px solid #e2e8f0", borderRadius: 10, background: "#fff",
 };

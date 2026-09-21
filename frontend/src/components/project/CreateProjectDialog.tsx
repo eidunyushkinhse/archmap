@@ -11,6 +11,8 @@ import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import PromptTriple from "../docsImport/PromptTriple";
 import C4Preview from "./C4Preview";
 import ImportPane from "./ImportPane";
+import { buildQuestions, pruneAnswers, toDecisions } from "./remainder";
+import type { Answer, Answers } from "./remainder";
 import "./createProject.css";
 
 /**
@@ -79,6 +81,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [archives, setArchives] = useState<File[]>([]);
   // Решения пользователя по спорам содержимого: id спора → «cand:<i>» | «all».
   const [resolutions, setResolutions] = useState<Record<string, string>>({});
+  // Ответы на остальные вопросы разбора остатка (Ф-E): поля, концы связей,
+  // дорисованные связи, склейки. Живут рядом с резолюциями и так же переживают
+  // перезапрос превью — id вопроса детерминирован между превью и применением.
+  const [answers, setAnswers] = useState<Answers>({});
   // Сводка dry-run привязана к входам, для которых получена: устаревший ответ не
   // показываем и не засчитываем в готовность кнопки.
   const [preview, setPreview] = useState<
@@ -167,6 +173,21 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
       Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
     ));
   }
+  // Вопросы разбора остатка — производное от свежего превью, а не состояние.
+  const questions = useMemo(
+    () => (fresh === null ? [] : buildQuestions({
+      family_conflicts: fresh.family_conflicts, remainder: fresh.remainder,
+    })),
+    [fresh],
+  );
+  // Ответы протухают тем же правилом, что и резолюции: правка YAML пересчитывает
+  // превью, и вопроса с этим id может больше не быть. Чистка ПРИ РЕНДЕРЕ (та же
+  // «adjusting state when props change»); без протухших pruneAnswers возвращает
+  // ту же ссылку, поэтому цикла setState нет.
+  if (fresh !== null) {
+    const живые = pruneAnswers(answers, questions);
+    if (живые !== answers) setAnswers(живые);
+  }
   // П3: единственный вход и он архив — «копия одного архива», имя и описание берутся
   // из манифеста, поля не рендерятся вовсе.
   const fromManifest = fresh?.name_source === "manifest";
@@ -174,12 +195,20 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const archiveInputs = useMemo(() => ({
     files: archives,
     onFiles: setArchives,
-    counts: fresh?.families ?? NO_FAMILIES,
-    conflicts,
+  }), [archives]);
+
+  // Бандл разбора: собирается одним мемо, чтобы панель не перерисовывалась на
+  // каждый чужой рендер диалога (как и archiveInputs).
+  const remainderInputs = useMemo(() => ({
+    questions,
+    answers,
+    onAnswer: (id: string, answer: Answer) => setAnswers((cur) => ({ ...cur, [id]: answer })),
     resolutions,
     onResolve: (id: string, choice: string) =>
       setResolutions((cur) => ({ ...cur, [id]: choice })),
-  }), [archives, fresh, conflicts, resolutions]);
+    unfixable: fresh?.remainder.unfixable ?? [],
+    converted: fresh?.remainder.converted_warnings ?? [],
+  }), [questions, answers, resolutions, fresh]);
 
   const canSubmit =
     importish
@@ -234,6 +263,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
           name: fromManifest ? undefined : name.trim(),
           description: fromManifest ? undefined : description.trim() || undefined,
           resolutions,
+          // Ответы разбора остатка: «как сейчас» и молчание в форму не едут —
+          // результат у них тот же, что сегодня (toDecisions вернёт null).
+          decisions: toDecisions(questions, answers),
         }));
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Не удалось выполнить импорт");
@@ -357,16 +389,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   </button>
                 ))}
 
-              {mode === "import" && (
-                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
-                  Принимаются и .yaml-файлы (тот же формат, что выдаёт «Экспорт»), и
-                  полные архивы знания .zip из «Экспорт проекта (zip)» — можно
-                  вперемешку. Схемы сольются автоматически, сводка справа покажет
-                  склейку, конфликты и подозрения; архивы привезут ещё и
-                  документацию — схемы логики, спеки, структуры БД и брокеров,
-                  конфигурацию, процессы. Раскладка пересчитается заново.
-                </p>
-              )}
+              {/* Серого абзаца «что принимается» в левой колонке ввоза больше нет
+                  (ТЗ §1.1): он обещал сводку со склейкой и подозрениями, которой
+                  теперь нет, а форматы входов называет плейсхолдер самой панели. */}
 
               {mode === "repo" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -474,6 +499,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   onNames={setDocNames}
                   summary={fresh?.c4 ?? null}
                   archives={archiveInputs}
+                  remainder={remainderInputs}
                 />
               </>
             ) : (
@@ -503,8 +529,8 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   );
 }
 
-// Счётчики семей, пока сводки нет: панель показывает строку «Из архивов: …»
-// только по непустым числам, поэтому нули её просто не рисуют.
+// Нулевые счётчики семей для отказа превью: считать нечего, но форма ответа
+// обязана быть полной — панель читает её без проверок на undefined.
 const NO_FAMILIES: UnifiedFamilyCountsOut = {
   docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0,
 };
