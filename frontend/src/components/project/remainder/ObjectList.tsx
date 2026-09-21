@@ -29,9 +29,13 @@ export default function ObjectList({ items, base = null, value = null, onPick }:
   const hit = q === "" ? items : items.filter((x) => x.path.toLowerCase().includes(q));
   const shown = expanded ? hit : hit.slice(0, CAP);
 
-  const rows = shown.map((x) => (
+  // Ключ — путь И позиция: одинаковый путь в списке ЗАКОНЕН. Тёзки с
+  // противоречащими якорями мердж оставляет раздельно («Ярмарка / Каталог-БД»
+  // дважды), и по одному пути React ругался на дубль ключей, а строки могли
+  // схлопнуться. Позиция в наборе стабильна на время показа списка.
+  const rows = shown.map((x, i) => (
     <Option
-      key={x.path}
+      key={`${x.path}#${i}`}
       main={<PathLabel path={x.path} base={base} />}
       title={x.path}
       tag={x.has_children ? "контейнер" : undefined}

@@ -63,6 +63,23 @@ describe("ObjectList (§5.3)", () => {
     await userEvent.click(screen.getByText("Компонент 2"));
     expect(onPick).toHaveBeenCalledWith("Zabbix / Компонент 2");
   });
+
+  it("два объекта с ОДНИМ путём — обе строки и без спора ключей", () => {
+    // Полевой случай: тёзки с противоречащими якорями мердж оставляет
+    // раздельно, и в пикере честно два «Ярмарка / Каталог-БД». По одному пути
+    // React ругался на дубль ключей, а строки могли схлопнуться в одну.
+    const ошибки = vi.spyOn(console, "error").mockImplementation(() => {});
+    const тёзки: ComponentOut[] = [
+      { path: "Ярмарка / Каталог-БД", has_children: false },
+      { path: "Ярмарка / Каталог-БД", has_children: false },
+    ];
+    render(<ObjectList items={тёзки} base="Ярмарка" onPick={vi.fn()} />);
+
+    expect(screen.getAllByText("Каталог-БД")).toHaveLength(2);
+    expect(ошибки.mock.calls.map((c) => String(c[0])).join("\n"))
+      .not.toMatch(/same key|unique/i);
+    ошибки.mockRestore();
+  });
 });
 
 // Стенды с черновиком в состоянии вызывающего — ровно так формы держит блок
