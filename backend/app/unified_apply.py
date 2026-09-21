@@ -322,17 +322,25 @@ def apply_tree_decisions(merged: ParsedImport, res: ResolvedDecisions) -> int:
             e.source_idx = comp_idx
         else:
             e.target_idx = comp_idx
+    тронутые = {edge_idx for edge_idx, _end, _comp in res.edges}
     for начало, конец, label, tech, sync in res.new_edges:
+        тронутые.add(len(merged.edges))
         merged.edges.append(_ImpEdge(начало, конец, label, tech, None, sync))
-    if not (res.edges or res.new_edges):
+    if not тронутые:
         return 0
-    seen: set[tuple[int, int, str, str]] = set()
+
+    def подпись(e: _ImpEdge) -> tuple[int, int, str, str]:
+        return (e.source_idx, e.target_idx, e.label or "", e.technology or "")
+
+    # Выбрасываем ТОЛЬКО тронутые решением связи: чего не касались, того и не
+    # трогаем (два одинаковых ребра в одном документе — дело его автора).
+    seen = {подпись(e) for i, e in enumerate(merged.edges) if i not in тронутые}
     kept: list[_ImpEdge] = []
-    for e in merged.edges:
-        key = (e.source_idx, e.target_idx, e.label or "", e.technology or "")
-        if key in seen:
-            continue
-        seen.add(key)
+    for i, e in enumerate(merged.edges):
+        if i in тронутые:
+            if подпись(e) in seen:
+                continue
+            seen.add(подпись(e))
         kept.append(e)
     dropped = len(merged.edges) - len(kept)
     merged.edges[:] = kept

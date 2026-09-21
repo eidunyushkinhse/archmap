@@ -1625,6 +1625,12 @@ edges:
     _, связи = _состав(db, проект)
     assert связи == {("Датасорс", "Zabbix / web", "HTTP", None, None)}
     assert отчёт.edges == 1
+    # Выброшена ИМЕННО перевешенная: связей, которых решение не касалось, дедуп
+    # не трогает (два одинаковых ребра в одном документе — дело его автора).
+    план2 = build_unified_plan([("a.yaml", текст.encode())])
+    apply_unified_plan(db, план2, {}, "Без решений", None, ensure_architect(db).id)
+    db.commit()
+    assert len(план2.merged.edges) == 2
 
 
 def test_решения_не_из_плана_отвергаются(db):
