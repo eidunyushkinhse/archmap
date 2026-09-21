@@ -11,7 +11,7 @@
 // ответа» = сегодняшнее поведение бэка. Поэтому keep/diff в payload НЕ едут — их
 // отправка ничего бы не изменила, а лишний ключ пришлось бы валидировать.
 import type {
-  ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
+  ComponentOut, ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
   IsolatedGroupOut, RemainderOut,
 } from "../../../types";
 import {
@@ -32,7 +32,12 @@ interface QuestionBase {
 export interface FamilyQuestion extends QuestionBase { kind: "family"; source: FamilyConflictOut }
 export interface FieldQuestion extends QuestionBase { kind: "field"; source: FieldDisputeOut }
 export interface EdgeQuestion extends QuestionBase { kind: "edge"; source: ContainerEdgeOut }
-export interface GroupQuestion extends QuestionBase { kind: "group"; source: IsolatedGroupOut }
+export interface GroupQuestion extends QuestionBase {
+  kind: "group";
+  source: IsolatedGroupOut;
+  /** Всё слитое дерево: оба конца новой связи выбираются по нему (§5.4). */
+  nodes: ComponentOut[];
+}
 export interface PairQuestion extends QuestionBase { kind: "pair"; source: FuzzyPairOut }
 export type Question =
   FamilyQuestion | FieldQuestion | EdgeQuestion | GroupQuestion | PairQuestion;
@@ -89,8 +94,13 @@ export function buildQuestions(input: {
   for (const e of r.container_edges) {
     out.push({ kind: "edge", id: e.id, source: e, ...edgeTexts(e) });
   }
+  // Дерево для пикера концов новой связи собираем ОДИН раз на все группы: списки
+  // node_paths и node_has_children приезжают строка в строку.
+  const дерево: ComponentOut[] = r.isolated_groups.length === 0 ? [] : r.node_paths.map(
+    (path, i) => ({ path, has_children: r.node_has_children[i] ?? false }),
+  );
   for (const g of r.isolated_groups) {
-    out.push({ kind: "group", id: g.id, source: g, ...groupTexts(g) });
+    out.push({ kind: "group", id: g.id, source: g, nodes: дерево, ...groupTexts(g) });
   }
   for (const p of r.fuzzy_pairs) {
     out.push({ kind: "pair", id: p.id, source: p, ...pairTexts(p) });
