@@ -44,7 +44,7 @@ const превью = (over: Partial<UnifiedPreviewOut> = {}): UnifiedPreviewOut 
   // Остаток слияния (Ф-E) в этих сценариях пуст: панель проверяется по сводке.
   remainder: {
     field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-    unfixable: [], node_paths: [], node_has_children: [],
+    unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
   },
   warnings: [], name_source: "fields", ...over,
 });

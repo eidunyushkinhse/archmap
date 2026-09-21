@@ -78,7 +78,7 @@ const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({
   // Остаток слияния (Ф-E) в этих сценариях пуст: модалка проверяется по спорам.
   remainder: {
     field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-    unfixable: [], node_paths: [], node_has_children: [],
+    unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
   },
   warnings: ["процесс «Оплата» — тёзка уже имеющегося: приедет с суффиксом « (2)»"],
   base_graph_rev: 7,

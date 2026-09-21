@@ -4368,6 +4368,7 @@ export interface components {
              *       "isolated_groups": [],
              *       "fuzzy_pairs": [],
              *       "unfixable": [],
+             *       "converted_warnings": [],
              *       "node_paths": [],
              *       "node_has_children": []
              *     }
@@ -5421,6 +5422,11 @@ export interface components {
              */
             unfixable: components["schemas"]["UnfixableOut"][];
             /**
+             * Converted Warnings
+             * @default []
+             */
+            converted_warnings: string[];
+            /**
              * Node Paths
              * @default []
              */
@@ -5968,6 +5974,7 @@ export interface components {
              *       "isolated_groups": [],
              *       "fuzzy_pairs": [],
              *       "unfixable": [],
+             *       "converted_warnings": [],
              *       "node_paths": [],
              *       "node_has_children": []
              *     }

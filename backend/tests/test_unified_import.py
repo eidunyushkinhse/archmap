@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from app.auth import require_architect
 from app.data_import import parse_data_file
 from app.database import get_db
+from app.import_merge import _MAX_CONTAINER_EDGES
 from app.main import app
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -1697,3 +1698,43 @@ def test_эндпоинт_применения_принимает_decisions(кл
         "name": "Ярмарка", "decisions": "{не json",
     })
     assert кривое.status_code == 400 and "decisions" in кривое.json()["detail"]
+
+
+def test_остаток_называет_строки_ставшие_вопросами():
+    """Строка, превращённая в вопрос, приезжает текстом в converted_warnings —
+    им фронт прячет её из списков замечаний. Сами списки бэк не режет (Р1)."""
+    план = _план_остатка()
+    превью = preview_from_plan(план)
+    остаток = превью.remainder
+    assert превью.c4 is not None
+
+    скрыть = остаток.converted_warnings
+    # Ровно четыре вопроса-из-строк: две связи в контейнер, группа, похожие имена.
+    assert len(скрыть) == 4
+    assert any("похожи" in w for w in скрыть)
+    assert sum(1 for w in скрыть if "конец в контейнере" in w) == 2
+    assert any("не связана с остальной схемой" in w for w in скрыть)
+    # Замечание, вопросом не ставшее, прятать нельзя.
+    assert not any("без единой связи" in w for w in скрыть)
+    # Тексты — БАЙТ-В-БАЙТ те же, что в корзинах: фронт сверяет строкой.
+    корзины = set(превью.c4.warnings)
+    пофайловые = {w for f in превью.c4.file_remarks for w in f.warnings}
+    assert set(скрыть) <= корзины
+    assert set(скрыть) <= (set(превью.c4.schema_warnings) | пофайловые)
+    # Строки на месте: их читает MCP, и объединение корзин по-прежнему плоские списки.
+    assert len(превью.c4.warnings) == 5
+
+
+def test_остаток_называет_и_хвост_счётчик():
+    """Связи, скрытые за «…ещё N таких связей», — тоже вопросы: их общая строка
+    прячется вместе с ними."""
+    n = _MAX_CONTAINER_EDGES + 3
+    текст = "nodes:\n  - name: box\n    children:\n      - name: inner\n"
+    текст += "".join(f"  - name: s{i}\n" for i in range(n))
+    текст += "edges:\n" + "".join(f"  - from: s{i}\n    to: box\n" for i in range(n))
+    план = build_unified_plan([("a.yaml", текст.encode())])
+
+    остаток = remainder_from_plan(план, None)
+
+    assert len(остаток.container_edges) == n  # вопрос задан каждой связи
+    assert "…ещё 3 таких связей" in остаток.converted_warnings

@@ -55,7 +55,7 @@ function failedPreview(msg: string): IntoPreviewOut {
     // Остаток слияния (Ф-E): разбирать нечего — превью не состоялось.
     remainder: {
       field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-      unfixable: [], node_paths: [], node_has_children: [],
+      unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
     },
     warnings: [],
     base_graph_rev: 0,

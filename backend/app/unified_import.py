@@ -1121,9 +1121,27 @@ def remainder_with_index(
         isolated_groups=groups,
         fuzzy_pairs=pairs,
         unfixable=_unfixable(plan, converted),
+        converted_warnings=_converted_texts(report.warnings, converted),
         node_paths=list(paths),
         node_has_children=list(tree.has_children),
     ), index
+
+
+def _converted_texts(warnings: list[str], converted: set[int]) -> list[str]:
+    """Тексты строк, ставших вопросами, — в порядке строк и без повторов.
+
+    Текстом, а не индексом: строка живёт в трёх местах отчёта (общий список,
+    схемная корзина, корзина своего файла) с разной нумерацией, а текст там один и
+    тот же. Повторы гасим: два класса могут сойтись в одной формулировке, а фронту
+    нужен набор «что прятать»."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for i in sorted(converted):
+        text = warnings[i]
+        if text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
 
 
 def _unfixable(plan: UnifiedPlan, converted: set[int]) -> list[UnfixableOut]:
