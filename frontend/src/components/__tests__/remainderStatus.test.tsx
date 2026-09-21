@@ -54,6 +54,20 @@ describe("StatusLine (§2, Р7)", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("без файла, но со строкой — номер остаётся в сообщении", () => {
+    // Адресовать нечему (ошибка слитой схемы), но «где именно» — единственное,
+    // что у такого сообщения есть: терять номер строки нельзя.
+    render(
+      <StatusLine
+        state="bad"
+        error={{ chipLabel: null, chipIndex: null, line: 42, text: "узел «api» объявлен дважды" }}
+      />,
+    );
+    expect(screen.getByText(/узел «api»/).textContent).toBe(
+      "Строка 42: узел «api» объявлен дважды.");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("номер строки вынимается из текста ошибки — из начала и из скобок", () => {
     expect(splitErrorLine("Строка 84: у объекта два родителя"))
       .toEqual({ line: 84, text: "у объекта два родителя" });

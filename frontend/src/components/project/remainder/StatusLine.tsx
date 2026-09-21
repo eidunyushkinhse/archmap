@@ -46,7 +46,9 @@ export default function StatusLine({ state, error, onOpenFile }: Props) {
           {чип !== null ? (
             <>Проблема в файле <b>{чип}</b>{error.line !== null ? `. Строка ${error.line}: ` : ": "}{error.text}.</>
           ) : (
-            <>{error.text}.</>
+            // Виновника нет (ошибка слитой схемы), но номер строки, если он в
+            // тексте был, не теряем: без него сообщение адресует в пустоту.
+            <>{error.line !== null && `Строка ${error.line}: `}{error.text}.</>
           )}
         </div>
       )}
