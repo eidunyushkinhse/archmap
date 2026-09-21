@@ -111,7 +111,7 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     expect(screen.getByText("Плагин")).toBeInTheDocument();
     expect(screen.getByText("Датасорс")).toBeInTheDocument();
     expect(screen.getAllByRole("combobox")).toHaveLength(2);
-    expect(поле()).toHaveAttribute("placeholder", "Начните вводить имя объекта");
+    expect(поле()).toHaveAttribute("placeholder", "Имя объекта");
     expect(screen.getAllByLabelText(/^Описание связи/)).toHaveLength(2);
     expect(screen.getAllByLabelText(/^Технология связи/)).toHaveLength(2);
     // Типа канала в форме нет вовсе — его задают в «Процессах».

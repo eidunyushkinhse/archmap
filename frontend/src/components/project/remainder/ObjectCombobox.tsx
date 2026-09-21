@@ -96,7 +96,7 @@ export default function ObjectCombobox({ items, value, onChange, label }: Props)
         aria-label={label}
         // Путь длиннее поля обрезается визуально — title отдаёт его целиком.
         title={value ?? undefined}
-        placeholder="Начните вводить имя объекта"
+        placeholder="Имя объекта"
         value={query ?? value ?? ""}
         onChange={(e) => { setQuery(e.target.value); setActive(0); setOpen(true); }}
         onFocus={() => setOpen(true)}
