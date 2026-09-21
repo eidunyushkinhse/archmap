@@ -1,22 +1,21 @@
 // Форма проведения связей — второй шаг вопроса об изолированной группе (§4.4,
-// §5.4 ТЗ; переделана по приёмке 2026-09-21, П4).
+// §5.4 ТЗ; П4 v2 после приёмки 2026-09-21).
 //
-// Прежняя форма спрашивала ОДНУ связь двумя пикерами — и, открыв её,
-// пользователь переставал видеть, у каких объектов связей нет. Теперь строка на
-// КАЖДЫЙ объект группы: слева он сам, справа сосед из слитого дерева, между ними
-// переключатель направления. Пустая строка законна: объект, у которого связи
-// действительно нет, так и останется без неё.
+// Строка на КАЖДЫЙ объект группы: слева он сам, справа сосед из слитого дерева,
+// между ними стрелка-соединитель с переключателем направления. Так видно, у
+// каких объектов связей ещё нет, — прежняя форма про один конец это скрывала.
+// Пустая строка законна: объект, у которого связи действительно нет, так и
+// останется без неё.
 //
 // Типа канала здесь нет вовсе: синхронность связи — предмет «Процессов», а не
-// разбора остатка, и спрашивать её значило бы требовать ответа на незаданный
-// вопрос (бэк без поля channel ставит дефолт движка).
-import { useState } from "react";
+// разбора остатка (бэк без поля channel ставит дефолт движка).
 import type { ComponentOut } from "../../../types";
 import type { NewEdgesAnswer } from "./questions";
 import type { EdgesDraft } from "./drafts";
 import { answerFromDraft } from "./drafts";
-import ObjectList from "./ObjectList";
-import Option, { PathLabel } from "./Option";
+import { SwapIcon } from "../../../ui/icons";
+import ObjectCombobox from "./ObjectCombobox";
+import { PathLabel } from "./Option";
 
 interface Props {
   /** Всё слитое дерево: сосед выбирается по нему. */
@@ -28,9 +27,6 @@ interface Props {
 }
 
 export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Props) {
-  // У какой строки раскрыт дропдаун соседа; null — все свёрнуты.
-  const [picking, setPicking] = useState<number | null>(null);
-
   const правка = (i: number, patch: Partial<EdgesDraft[number]>) =>
     onDraft(draft.map((r, k) => (k === i ? { ...r, ...patch } : r)));
 
@@ -41,38 +37,32 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
       {draft.map((row, i) => (
         <div key={row.nodePath} className="rq-erow">
           <div className="rq-epair">
-            <div className="rq-eend rq-eend--fixed" title={row.nodePath}>
+            <div className="rq-eend--fixed" title={row.nodePath}>
               <PathLabel path={row.nodePath} />
             </div>
-            <button
-              type="button"
-              className="rq-eswap"
-              title="Поменять направление"
-              aria-label="Поменять направление"
-              onClick={() => правка(i, { reversed: !row.reversed })}
-            >
-              {row.reversed ? "←" : "→"}
-            </button>
-            <div className="rq-eend">
-              <Option
-                main={row.toPath === null
-                  ? <span className="rq-opt-m">Выберите объект</span>
-                  : <PathLabel path={row.toPath} />}
-                tag={picking === i ? "выбираете" : undefined}
-                selected={picking === i}
-                onClick={() => setPicking(picking === i ? null : i)}
-              />
+            {/* Соединитель: линия от поля к полю, наконечник у ЦЕЛИ связи,
+                переключатель посередине. Направление видно, не читая подписей. */}
+            <div className="rq-econn">
+              {row.reversed && <Head dir="left" />}
+              <span className="rq-econn-line" />
+              {!row.reversed && <Head dir="right" />}
+              <button
+                type="button"
+                className="rq-econn-btn"
+                title="Поменять направление"
+                aria-label="Поменять направление"
+                onClick={() => правка(i, { reversed: !row.reversed })}
+              >
+                <SwapIcon size={12} />
+              </button>
             </div>
-          </div>
-          {picking === i && (
-            <ObjectList
-              key={`pick-${i}`}
+            <ObjectCombobox
               items={nodes.filter((n) => n.path !== row.nodePath)}
               value={row.toPath}
-              search
-              onPick={(path) => { правка(i, { toPath: path }); setPicking(null); }}
+              label={`С чем связан объект «${lastName(row.nodePath)}»`}
+              onChange={(path) => правка(i, { toPath: path })}
             />
-          )}
+          </div>
           <div className="rq-frow">
             <div>
               <div className="rq-flbl">Описание</div>
@@ -111,5 +101,22 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
         </button>
       </div>
     </>
+  );
+}
+
+const lastName = (path: string): string => path.split(" / ").pop() ?? path;
+
+// Наконечник соединителя. Живёт здесь, а не в ui/icons: это часть линии между
+// полями, а не иконка хрома, и её сторона зависит от направления связи.
+function Head({ dir }: { dir: "left" | "right" }) {
+  return (
+    <svg
+      className="rq-econn-head"
+      width="7" height="10" viewBox="0 0 7 10" aria-hidden
+      fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round"
+    >
+      {dir === "right" ? <path d="M1.5 1.5 L5.5 5 L1.5 8.5" /> : <path d="M5.5 1.5 L1.5 5 L5.5 8.5" />}
+    </svg>
   );
 }

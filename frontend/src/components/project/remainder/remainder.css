@@ -8,6 +8,12 @@
    наследуют шрифт явно (font-family: inherit) — иначе браузер подставит им свой,
    и кнопка перестанет быть частью текста. */
 
+/* Приложение НЕ задаёт box-sizing глобально, а поля блока тянутся на всю ширину
+   колонки: в content-box padding и рамка добавлялись сверху 100%, и «Описание» с
+   «Технологией» налезали друг на друга (находка приёмки). Чиним в границах
+   блока — трогать глобальный сброс ради одного окна нельзя. */
+.rq-root, .rq-root * { box-sizing: border-box; }
+
 .rq-root {
   font-family: system-ui, "Segoe UI", Roboto, sans-serif;
   font-size: 13.5px;
@@ -120,25 +126,31 @@
   border: 1px solid #eef2f7; border-radius: 10px; background: #fbfdff;
 }
 .rq-erow + .rq-erow { margin-top: 8px; }
-.rq-epair { display: flex; align-items: center; gap: 7px; }
-.rq-eend { flex: 1; min-width: 0; }
+/* Ряд 1: [объект группы] [соединитель] [комбобокс] — сетка, а не flex с
+   процентами: колонки равны при любой ширине правой панели окна. */
+.rq-epair { display: grid; grid-template-columns: 1fr 74px 1fr; align-items: center; }
 /* Левое поле — сам объект группы: он не выбирается, поэтому это не кнопка, а
-   плашка той же геометрии, что и вариант рядом. */
+   плашка той же геометрии, что поле рядом. */
 .rq-eend--fixed {
-  border: 1px solid #e2e8f0; border-radius: 9px; background: #f8fafc;
+  min-width: 0; border: 1px solid #e2e8f0; border-radius: 9px; background: #f8fafc;
   padding: 9px 11px; font-size: 13.5px; line-height: 1.35; color: #0f172a;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rq-eswap {
-  flex: none; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff;
-  color: #475569; font-family: inherit; font-size: 14px; line-height: 1;
-  padding: 7px 9px;
+
+/* Соединитель: линия от поля к полю, наконечник у цели, переключатель посередине. */
+.rq-econn { position: relative; display: flex; align-items: center; height: 22px; padding: 0 5px; }
+.rq-econn-line { flex: 1; height: 1.5px; background: #cbd5e1; }
+.rq-econn-head { flex: none; color: #64748b; }
+.rq-econn-btn {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 22px; height: 22px; border-radius: 50%; border: 1px solid #e2e8f0;
+  background: #fff; color: #64748b; display: grid; place-items: center; padding: 0;
 }
-.rq-eswap:hover { background: #f1f5f9; color: #1d4ed8; border-color: #cbd5e1; }
+.rq-econn-btn:hover { color: #1d4ed8; border-color: #cbd5e1; background: #f8fafc; }
 
 /* ── поля формы и шаг имени (§5.4) ────────────────────────────── */
-.rq-frow { display: flex; gap: 9px; margin-top: 9px; }
-.rq-frow > div { flex: 1; min-width: 0; }
+.rq-frow { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 9px; }
+.rq-frow > div { min-width: 0; }
 .rq-flbl { font-size: 11.5px; font-weight: 600; color: #64748b; margin-bottom: 4px; }
 .rq-inp {
   width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px;
@@ -152,6 +164,30 @@
 }
 .rq-seg2 button:hover { background: #f1f5f9; }
 .rq-seg2 button.rq-on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+
+/* ── комбобокс выбора объекта (П4 v2) ─────────────────────────── */
+.rq-cbo { position: relative; min-width: 0; }
+.rq-cbo-inp { padding-right: 26px; }
+.rq-cbo-x {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  border: none; background: none; color: #94a3b8; font-family: inherit;
+  font-size: 15px; line-height: 1; padding: 2px 4px;
+}
+.rq-cbo-x:hover { color: #1e293b; }
+.rq-cbo-list {
+  position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 214px; overflow-y: auto; padding: 4px;
+  border: 1px solid #e2e8f0; border-radius: 9px; background: #fff;
+  box-shadow: 0 10px 24px -12px rgb(15 23 42 / 35%);
+}
+.rq-cbo-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: none; border-radius: 7px; background: none; padding: 6px 8px;
+  font-family: inherit; font-size: 13px; line-height: 1.35; color: #0f172a;
+}
+.rq-cbo-row--on { background: #eff6ff; color: #1d4ed8; }
+.rq-cbo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rq-cbo-empty { margin: 0; padding: 6px 8px; }
 
 /* ── кнопки (§9) ──────────────────────────────────────────────── */
 .rq-nav, .rq-link {

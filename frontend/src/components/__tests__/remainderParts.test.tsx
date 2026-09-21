@@ -102,52 +102,85 @@ function EdgeFormStand({ onAdd, onBack, start }: {
   );
 }
 
-describe("NewEdgeForm (§5.4, переделана по приёмке)", () => {
+describe("NewEdgeForm (§5.4, П4 v2)", () => {
+  const поле = (n = 0) => screen.getAllByRole("combobox")[n]!;
+
   it("строка на каждый объект группы: видно, у кого связей нет", () => {
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
     // Левые поля — сами объекты группы, они не редактируются.
     expect(screen.getByText("Плагин")).toBeInTheDocument();
     expect(screen.getByText("Датасорс")).toBeInTheDocument();
-    expect(screen.getAllByText("Выберите объект")).toHaveLength(2);
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    expect(поле()).toHaveAttribute("placeholder", "Начните вводить имя объекта");
     expect(screen.getAllByLabelText(/^Описание связи/)).toHaveLength(2);
+    expect(screen.getAllByLabelText(/^Технология связи/)).toHaveLength(2);
     // Типа канала в форме нет вовсе — его задают в «Процессах».
     expect(screen.queryByText("Синхронный")).toBeNull();
     expect(screen.queryByText("Асинхронный")).toBeNull();
   });
 
-  it("«Провести связь» неактивна, пока не выбран ни один сосед", async () => {
+  it("поле само фильтрует список под собой, свой объект в нём не предлагается", async () => {
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    await userEvent.click(поле());
+    // Фокус раскрывает список целиком; отдельной панели с поиском нет.
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    expect(поле()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByLabelText("Фильтр по имени")).toBeNull();
+    const строки = () => screen.getAllByRole("option").map((o) => o.textContent);
+    expect(строки().some((t) => t?.includes("Компонент 1"))).toBe(true);
+    // Левый объект строки в соседи не годится.
+    expect(строки().some((t) => t === "Плагин")).toBe(false);
+    await userEvent.type(поле(), "компонент 2");
+    expect(строки()).toEqual(["Zabbix / Компонент 2"]);
+    await userEvent.clear(поле());
+    await userEvent.type(поле(), "нетути");
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(screen.getByText("Ничего не нашлось")).toBeInTheDocument();
+  });
+
+  it("клавиатура: ↓ подсвечивает, Enter выбирает, Escape гасит только список", async () => {
+    const onClose = vi.fn();
+    // Родительское окно слушает Escape так же, как ui/Modal через <dialog>.
+    document.addEventListener("keydown", onClose);
+    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
+    await userEvent.click(поле());
+    // Подсвечена первая строка, ↓ уводит на вторую, Enter её выбирает.
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    expect(поле()).toHaveValue("Zabbix / Компонент 2");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    // ↓ на закрытом списке снова его раскрывает.
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    onClose.mockClear();
+    await userEvent.keyboard("{Escape}");
+    // Список закрылся, а до окна ввоза клавиша не дошла — иначе Escape закрыл бы
+    // заодно и его (ui/Modal слушает cancel нативного <dialog>).
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", onClose);
+  });
+
+  it("«×» очищает выбор, «Провести связь» гаснет без соседей", async () => {
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
     const кнопка = () => screen.getByRole("button", { name: /^Провести связ/ });
     expect(кнопка()).toBeDisabled();
-    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
-    // Дропдаун соседа открыт сразу с полем поиска и без капа.
-    expect(screen.getByLabelText("Фильтр по имени")).toBeInTheDocument();
-    await userEvent.click(screen.getByText("Компонент 1"));
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
+    expect(поле()).toHaveValue("Zabbix / Компонент 1");
     expect(кнопка()).toBeEnabled();
     expect(кнопка().textContent).toBe("Провести связь");
-    // После выбора список свернулся, в поле — выбранный объект.
-    expect(screen.queryByLabelText("Фильтр по имени")).toBeNull();
+    await userEvent.click(screen.getByLabelText("Очистить выбор"));
+    expect(поле()).toHaveValue("");
+    expect(кнопка()).toBeDisabled();
   });
 
-  it("сам объект в соседи не предлагается, а поиск сужает список", async () => {
-    render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} />);
-    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
-    // Строка «Плагина» — своего же пути в списке нет.
-    expect(screen.queryByRole("button", { name: /^Плагин$/ })).toBeNull();
-    await userEvent.type(screen.getByLabelText("Фильтр по имени"), "компонент 2");
-    expect(screen.getByText("Компонент 2")).toBeInTheDocument();
-    expect(screen.queryByText("Компонент 1")).toBeNull();
-  });
-
-  it("направление переворачивается кнопкой между полями", async () => {
+  it("соединитель переворачивает направление кнопкой посередине", async () => {
     const onAdd = vi.fn();
     render(<EdgeFormStand onAdd={onAdd} onBack={vi.fn()} />);
-    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
-    await userEvent.click(screen.getByText("Компонент 1"));
-    const стрелки = screen.getAllByRole("button", { name: "Поменять направление" });
-    expect(стрелки[0]!.textContent).toBe("→");
-    await userEvent.click(стрелки[0]!);
-    expect(screen.getAllByRole("button", { name: "Поменять направление" })[0]!.textContent).toBe("←");
+    await userEvent.click(поле());
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Поменять направление" })[0]!);
     await userEvent.click(screen.getByRole("button", { name: /^Провести связ/ }));
     expect(onAdd).toHaveBeenCalledWith({
       kind: "new_edges",
@@ -158,12 +191,12 @@ describe("NewEdgeForm (§5.4, переделана по приёмке)", () => 
   it("отдаёт по связи на заполненную строку, пустые пропускает", async () => {
     const onAdd = vi.fn();
     render(<EdgeFormStand onAdd={onAdd} onBack={vi.fn()} />);
-    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
-    await userEvent.click(screen.getByText("Компонент 1"));
+    await userEvent.click(поле(0));
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
     await userEvent.type(screen.getByLabelText("Описание связи — Плагин"), "метрики");
     await userEvent.type(screen.getByLabelText("Технология связи — Плагин"), "HTTP");
-    await userEvent.click(screen.getByText("Выберите объект"));
-    await userEvent.click(screen.getByText("Компонент 2"));
+    await userEvent.click(поле(1));
+    await userEvent.click(screen.getByRole("option", { name: /Компонент 2/ }));
     const кнопка = screen.getByRole("button", { name: /^Провести связ/ });
     // Заполнены две строки — кнопка во множественном числе.
     expect(кнопка.textContent).toBe("Провести связи");
@@ -196,7 +229,7 @@ describe("NewEdgeForm (§5.4, переделана по приёмке)", () => 
       { nodePath: "Плагин / Датасорс", toPath: null, reversed: false, label: "", tech: "" },
     ]);
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} start={из} />);
-    expect(screen.getAllByRole("button", { name: "Поменять направление" })[0]!.textContent).toBe("←");
+    expect(screen.getAllByRole("combobox")[0]!).toHaveValue("Zabbix / Компонент 3");
     expect(screen.getByLabelText("Описание связи — Плагин")).toHaveValue("чтение");
   });
 });

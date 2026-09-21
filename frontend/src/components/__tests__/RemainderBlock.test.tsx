@@ -247,9 +247,9 @@ describe("двухшаговые вопросы (§4.6)", () => {
     expect(screen.queryByText("почему возник вопрос")).toBeNull();
     expect(screen.queryByText(/Если не отвечать/)).toBeNull();
     // Строка на каждый объект группы — видно, у кого связей нет.
-    expect(screen.getAllByText("Выберите объект")).toHaveLength(2);
-    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
-    await userEvent.click(screen.getByText("server"));
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    await userEvent.type(screen.getAllByRole("combobox")[0]!, "server");
+    await userEvent.click(screen.getByRole("option", { name: /server/ }));
     await userEvent.type(screen.getByLabelText("Технология связи — Плагин"), "SQL");
     await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
     expect(screen.getByText("изменить")).toBeInTheDocument();
@@ -265,12 +265,13 @@ describe("двухшаговые вопросы (§4.6)", () => {
     render(<Stand onState={(s) => { состояние = s; }} />);
     await userEvent.click(screen.getAllByRole("button", { name: /^вопрос \d+$/ })[3]!);
     await userEvent.click(screen.getByText("Провести связь"));
-    await userEvent.click(screen.getAllByText("Выберите объект")[0]!);
-    await userEvent.click(screen.getByText("server"));
+    await userEvent.type(screen.getAllByRole("combobox")[0]!, "server");
+    await userEvent.click(screen.getByRole("option", { name: /server/ }));
     await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
     // Возвращаемся в форму и уходим из неё без «Провести связь».
     await userEvent.click(screen.getByText("изменить"));
-    expect(screen.queryByText("Выберите объект")).not.toBeNull(); // вторая строка пуста
+    expect(screen.getAllByRole("combobox")[0]!).toHaveValue("Zabbix / server");
+    expect(screen.getAllByRole("combobox")[1]!).toHaveValue(""); // вторая строка пуста
     await userEvent.click(screen.getByRole("button", { name: "Назад к вопросу" }));
     expect(состояние.answers["group|Плагин"]).toMatchObject({ kind: "new_edges" });
     expect(screen.getByText("изменить")).toBeInTheDocument();

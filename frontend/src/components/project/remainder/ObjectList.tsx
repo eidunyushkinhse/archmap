@@ -1,5 +1,5 @@
-// Список объектов (§5.3 ТЗ): компоненты контейнера в вопросе о связи и пикер
-// концов новой связи. Первые четыре видны сразу, остальные — по ссылке «Показать
+// Список объектов (§5.3 ТЗ): компоненты контейнера в вопросе о связи. Первые
+// четыре видны сразу, остальные — по ссылке «Показать
 // остальные N», и только там появляется фильтр: крупные системы дают сотни путей,
 // а решение почти всегда принимается по первым строкам.
 //
@@ -16,20 +16,14 @@ interface Props {
   /** Путь контейнера: его префикс у подписей отбрасывается. */
   base?: string | null;
   value?: string | null;
-  /**
-   * Режим дропдауна-поиска (форма проведения связей): список раскрыт сразу, с
-   * полем фильтра и без капа. Там выбирают из ВСЕГО дерева, и четыре первых
-   * пути — не подсказка, а случайность порядка обхода.
-   */
-  search?: boolean;
   onPick: (path: string) => void;
 }
 
 // Кап показа (§5.3): четыре варианта — предел, за которым список читают, а не видят.
 const CAP = 4;
 
-export default function ObjectList({ items, base = null, value = null, search = false, onPick }: Props) {
-  const [expanded, setExpanded] = useState(search);
+export default function ObjectList({ items, base = null, value = null, onPick }: Props) {
+  const [expanded, setExpanded] = useState(false);
   const [filter, setFilter] = useState("");
   const q = filter.trim().toLowerCase();
   const hit = q === "" ? items : items.filter((x) => x.path.toLowerCase().includes(q));
