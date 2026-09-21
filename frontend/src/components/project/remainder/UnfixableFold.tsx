@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { UnfixableOut } from "../../../types";
 import { ChevronIcon } from "../../../ui/icons";
+import "./remainder.css";
 
 interface Props {
   items: UnfixableOut[];
