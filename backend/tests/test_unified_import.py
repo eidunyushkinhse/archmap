@@ -39,6 +39,7 @@ from app.unified_apply import (
     _synthetic_files,
     _winners,
     apply_unified_plan,
+    dedup_edges,
     parse_decisions,
 )
 from app.unified_import import (
@@ -1814,3 +1815,33 @@ def test_склейка_не_перевешивает_занятый_якорь(
     ).one()
     assert выживший.source_ref == "git:github.com/org/plugin-fork"
     assert выживший.description == "Датасорс и панели Zabbix"  # поля долиты как всегда
+
+
+def test_дедуп_после_склейки_смотрит_только_на_перевешенные(db):
+    """Дедуп в БД трогает только связи, которым склейка сменила конец.
+
+    Пары одинаковых рёбер в слитом дереве не бывает — мердж схлопывает их сам
+    (add_edge), поэтому сквозного сценария у этого сторожа нет: проверяем сам
+    dedup_edges. Одинаковая пара, написанная автором в стороне от склейки (так
+    бывает в одно-файловом passthrough), решение о другом объекте переживает."""
+    проект = Project(id=uuid.uuid4(), name="Дубли")
+    db.add(проект)
+    db.flush()
+    a = Node(id=uuid.uuid4(), project_id=проект.id, name="a")
+    b = Node(id=uuid.uuid4(), project_id=проект.id, name="b")
+    db.add_all([a, b])
+    db.flush()
+    первое = Edge(id=uuid.uuid4(), project_id=проект.id, source_id=a.id,
+                  target_id=b.id, label="держит")
+    второе = Edge(id=uuid.uuid4(), project_id=проект.id, source_id=a.id,
+                  target_id=b.id, label="держит")
+    db.add_all([первое, второе])
+    db.flush()
+
+    assert dedup_edges(db, проект.id, set()) == 0  # склеек не было — молчит
+    assert db.query(Edge).filter(Edge.project_id == проект.id).count() == 2
+
+    # Ту же пару, но одну связь перевесила склейка — она и уходит как дубль.
+    assert dedup_edges(db, проект.id, {первое.id}) == 1
+    оставшиеся = db.query(Edge).filter(Edge.project_id == проект.id).all()
+    assert [e.id for e in оставшиеся] == [второе.id]

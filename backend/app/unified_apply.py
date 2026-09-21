@@ -529,10 +529,10 @@ def apply_unified_plan(
     # ── Склейки по ответу пользователя: поглощённый узел отдаёт выжившему связи,
     #    детей и знание (node_of[поглощённый] = выживший) и исчезает. Пути после
     #    этого другие — ими адресуются семьи и привязки шагов, поэтому пересчёт.
-    склеено = _apply_merges(db, project, решения, node_of)
+    склеено, перевешены = _apply_merges(db, project, решения, node_of)
     склеены_дубли = 0
     if склеено:
-        склеены_дубли = dedup_edges(db, project.id)
+        склеены_дубли = dedup_edges(db, project.id, перевешены)
         nodes = db.query(Node).filter(Node.project_id == project.id).all()
         path_of = [node_path({n.id: n for n in nodes}, n.id) for n in node_of]
 
@@ -637,7 +637,7 @@ def apply_unified_plan(
 
 def _apply_merges(
     db: Session, project: Project, res: ResolvedDecisions, node_of: list[Node]
-) -> int:
+) -> tuple[int, set[uuid.UUID]]:
     """Склейки «это один объект» — уже в БД: узлы созданы посевом, семьи ещё нет.
 
     Выживший (первый по порядку файлов) получает выбранное имя, связи и детей
@@ -648,10 +648,11 @@ def _apply_merges(
 
     Знание поглощённого не пропадает вместе с ним (Ф1.1): пустые поля выжившего
     доливаются его значениями, заполненные не трогаются — то же правило, каким
-    сливает поля сам мердж."""
+    сливает поля сам мердж. Возвращает (сколько склеек, id перевешенных связей)."""
     if not res.merges:
-        return 0
+        return 0, set()
     сделано = 0
+    перевешены: set[uuid.UUID] = set()
     for survivor, absorbed, имя in merge_chain(res.merges):
         живёт, уходит = node_of[survivor], node_of[absorbed]
         if живёт.id == уходит.id:
@@ -664,6 +665,7 @@ def _apply_merges(
                 edge.source_id = живёт.id
             if edge.target_id == уходит.id:
                 edge.target_id = живёт.id
+            перевешены.add(edge.id)
         for ребёнок in db.query(Node).filter(Node.parent_id == уходит.id).all():
             ребёнок.parent_id = живёт.id
         absorb_knowledge(живёт, уходит)
@@ -672,7 +674,7 @@ def _apply_merges(
         db.flush()
         node_of[absorbed] = живёт
         сделано += 1
-    return сделано
+    return сделано, перевешены
 
 
 # Поля узла, которые склейка ДОЛИВАЕТ выжившему из поглощённого. Те же, что
@@ -701,20 +703,31 @@ def absorb_knowledge(живёт: Node, уходит: Node) -> bool:
     return changed
 
 
-def dedup_edges(db: Session, project_id: uuid.UUID) -> int:
-    """Точные дубли связей проекта (пара концов, подпись, технология) — по одной.
+def dedup_edges(db: Session, project_id: uuid.UUID, moved: set[uuid.UUID]) -> int:
+    """Точные дубли (пара концов, подпись, технология) среди ПЕРЕВЕШЕННЫХ склейкой
+    связей — по одной.
 
-    Нужен после склейки: две связи к разным объектам, ставшим одним, — это одна
-    связь. Ключ тот же, что у дедупа мерджа, поэтому вердикты сходятся."""
-    seen: set[tuple[uuid.UUID, uuid.UUID, str, str]] = set()
+    Смотрим только на те связи, которым склейка сменила конец: пара одинаковых
+    рёбер, написанная автором документа в стороне от склейки, — его дело, и решение
+    пользователя о другом объекте её трогать не должно (то же правило, что у дедупа
+    в дереве, apply_tree_decisions). Ключ тот же, что у мерджа, — вердикты сходятся."""
+    if not moved:
+        return 0
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+
+    def подпись(e: Edge) -> tuple[uuid.UUID, uuid.UUID, str, str]:
+        return (e.source_id, e.target_id, e.label or "", e.technology or "")
+
+    seen = {подпись(e) for e in edges if e.id not in moved}
     dropped = 0
-    for edge in db.query(Edge).filter(Edge.project_id == project_id).all():
-        key = (edge.source_id, edge.target_id, edge.label or "", edge.technology or "")
-        if key in seen:
+    for edge in edges:
+        if edge.id not in moved:
+            continue
+        if подпись(edge) in seen:
             db.delete(edge)
             dropped += 1
             continue
-        seen.add(key)
+        seen.add(подпись(edge))
     if dropped:
         db.flush()
     return dropped
