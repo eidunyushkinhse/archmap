@@ -439,7 +439,7 @@ export default function ImportPane({
             «сколько объектов приедет» — нет (§2 ТЗ). Красное живёт только здесь. */}
         {summary !== null && (
           <StatusLine
-            state={statusState(summary, remainder.questions.length + remainder.unfixable.length)}
+            state={statusState(summary.ok, remainder.questions.length + remainder.unfixable.length)}
             error={summary.ok ? undefined : firstError(summary, chipLabel)}
             onOpenFile={openInput}
           />

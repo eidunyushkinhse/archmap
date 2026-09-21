@@ -11,9 +11,11 @@ import type { StatusError } from "./remainder";
 /**
  * Состояние статуса. «Есть вопросы» — не беда, а работа: разбор не обязателен, и
  * кнопка окна активна в обоих зелёных состояниях. Красное — только отказ разбора.
+ * Принимает сам флаг, а не сводку: у догрузки к живому проекту форма превью своя,
+ * а правило статуса общее для обоих окон ввоза.
  */
-export function statusState(summary: ImportPreviewOut, asks: number): "ok" | "ask" | "bad" {
-  if (!summary.ok) return "bad";
+export function statusState(ok: boolean, asks: number): "ok" | "ask" | "bad" {
+  if (!ok) return "bad";
   return asks > 0 ? "ask" : "ok";
 }
 

@@ -1,22 +1,25 @@
 // Догрузка архивов к ЖИВОМУ проекту (Ф4, docs/plan-unified-import.md).
 //
-// Что закрепляем: превью считает ДИФФ и показывает споры, у спора с живым
-// кандидатом предвыбран «мой» (дефолт ставит бэк — фронт его не перебивает);
-// массовое «везде взять из архивов» уезжает резолюциями на НЕ-текущих кандидатов;
-// 409 применения — не тупик, а перезапрос превью с сохранением ручного выбора;
-// отчёт применения виден в окне, и «Готово» уносит его строкой в тост.
+// Что закрепляем: превью считает ДИФФ, а споры и остальной остаток задаются
+// ВОПРОСАМИ (Ф-E) — живой кандидат подписан «Из проекта», дефолт бэка назван
+// сноской, но не предвыбран; массовое «Взять из новых архивов» уезжает
+// резолюциями на НЕ-текущих кандидатов и не трогает жесты; 409 применения — не
+// тупик, а перезапрос превью с сохранением ручного выбора; отчёт применения
+// виден в окне, и «Готово» уносит его строкой в тост.
 //
 // Фикстуры типизированы схемами контракта (не any): разъедется контракт — поймает
 // tsc, а не глаз в проде. Поле current у кандидатов обязательно — по нему модалка
 // отличает «моё» от привозного.
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ImportIntoModal from "../project/ImportIntoModal";
 import SchemaActions from "../SchemaActions";
 import { projectsApi } from "../../api/projects";
 import { ApiError } from "../../api/client";
-import type { FamilyConflictOut, IntoApplyOut, IntoPreviewOut } from "../../types";
+import type {
+  ContainerEdgeOut, FamilyConflictOut, IntoApplyOut, IntoPreviewOut, RemainderOut,
+} from "../../types";
 
 vi.mock("../../api/projects", () => ({
   projectsApi: {
@@ -61,6 +64,19 @@ const СПОР_БЕЗ_МОЕГО: FamilyConflictOut = {
   allow_all: false,
 };
 
+// Связь в контейнер (вопрос 4.3) — жест, а не спор: массовые кнопки его не трогают.
+const В_КОНТЕЙНЕР: ContainerEdgeOut = {
+  id: "edge|Склад / Синхронизатор|Ярмарка||target",
+  from_path: "Склад / Синхронизатор", to_path: "Ярмарка",
+  label: "заказы", technology: "HTTP", end: "target", container_path: "Ярмарка",
+  components: [{ path: "Ярмарка / orders", has_children: false }],
+};
+
+const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
+  field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], ...over,
+});
+
 const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({
   ok: true,
   errors: [],
@@ -75,11 +91,8 @@ const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({
   edges_new: 2,
   families: { docs: 4, specs: 1, tables: 0, channels: 0, params: 0, processes: 1 },
   family_conflicts: [СПОР],
-  // Остаток слияния (Ф-E) в этих сценариях пуст: модалка проверяется по спорам.
-  remainder: {
-    field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-    unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
-  },
+  // Остаток слияния (Ф-E) по умолчанию пуст — тесты разбора доливают своё.
+  remainder: остаток(),
   warnings: ["процесс «Оплата» — тёзка уже имеющегося: приедет с суффиксом « (2)»"],
   base_graph_rev: 7,
   base_meta_rev: 11,
@@ -135,7 +148,7 @@ beforeEach(() => {
 });
 
 describe("догрузка архива · превью и споры", () => {
-  it("архив положен: дифф, семьи и спор с предвыбранным «моим»", async () => {
+  it("архив положен: дифф, семьи и спор вопросом с живым кандидатом «Из проекта»", async () => {
     await открыть(zip("b.zip"));
 
     expect(await screen.findByText(/Нового: 3 объекта · 2 связи/)).toBeInTheDocument();
@@ -143,19 +156,21 @@ describe("догрузка архива · превью и споры", () => {
     expect(screen.getByText("Ярмарка / billing")).toBeInTheDocument();
     expect(screen.getByText(/тёзка уже имеющегося/)).toBeInTheDocument();
 
-    // Спор виден, кандидат текущего проекта различим НАЧЕРТАНИЕМ: лейбл входа №0
-    // бэк фиксирует говорящим («Текущий проект»), текстовой приписки к нему нет.
-    expect(screen.getByText("Споры содержимого (1)")).toBeInTheDocument();
-    const моё = screen.getByRole("radio", { name: /Текущий проект · 12 строк/ });
-    const изАрхива = screen.getByRole("radio", { name: /b\.zip · 20 строк/ });
-    expect(within(моё.closest("label")!).getByText("Текущий проект"))
-      .toHaveStyle({ fontWeight: "700" });
-    expect(within(изАрхива.closest("label")!).getByText("b.zip"))
-      .toHaveStyle({ fontWeight: "600" });
-    expect(screen.queryByText(/— текущий проект/i)).not.toBeInTheDocument();
-    // …и выбран по умолчанию: перетереть своё знание можно только руками.
-    expect(моё).toBeChecked();
-    expect(изАрхива).not.toBeChecked();
+    // Спор задан ВОПРОСОМ: прежней секции с радиокнопками нет, кандидаты
+    // подписаны источником знания, живой — «Из проекта» (§4.7).
+    expect(screen.getByText("Есть вопросы")).toBeInTheDocument();
+    expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
+    expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
+      "У объекта «Оформление заказа» в разных источниках разные схемы с одинаковым"
+      + " названием. Какую считаем правильной?");
+    const моё = screen.getByRole("button", { name: "Из проекта" });
+    const изАрхива = screen.getByRole("button", { name: "Из архива Ярмарка" });
+    // Ничего не предвыбрано: дефолт бэка («оставить моё») назван сноской, а не
+    // галкой — перетереть живое знание можно только явным выбором.
+    expect(моё).toHaveAttribute("aria-pressed", "false");
+    expect(изАрхива).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+      "в проект попадёт вариант «Из проекта»");
 
     // Файлы уехали в превью в том порядке, в каком их видит пользователь.
     const [id, files] = vi.mocked(projectsApi.importIntoPreview).mock.calls[0];
@@ -164,18 +179,21 @@ describe("догрузка архива · превью и споры", () => {
   });
 
   it("«везде взять из архивов» уводит выбор на НЕ-текущих кандидатов", async () => {
-    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(
-      превью({ family_conflicts: [СПОР, СПОР_БЕЗ_МОЕГО] }),
-    );
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
+      family_conflicts: [СПОР, СПОР_БЕЗ_МОЕГО],
+      remainder: остаток({ container_edges: [В_КОНТЕЙНЕР] }),
+    }));
     await открыть(zip("b.zip"), zip("c.zip"));
-    await screen.findByText("Споры содержимого (2)");
+    await screen.findByText("вопрос 1 из 3");
 
-    await userEvent.click(screen.getByRole("button", { name: "Везде взять из архивов" }));
-    expect(screen.getByRole("radio", { name: /b\.zip · 20 строк/ })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Взять из новых архивов" }));
+    expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
+      .toHaveAttribute("aria-pressed", "true");
     // Обратное массовое действие снимает выбор — дефолт бэка и есть «моё».
-    await userEvent.click(screen.getByRole("button", { name: "Везде оставить моё" }));
-    expect(screen.getByRole("radio", { name: /Текущий проект/ })).toBeChecked();
-    await userEvent.click(screen.getByRole("button", { name: "Везде взять из архивов" }));
+    await userEvent.click(screen.getByRole("button", { name: "Оставить, как было в проекте" }));
+    expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
+      .toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(screen.getByRole("button", { name: "Взять из новых архивов" }));
 
     await userEvent.click(применить());
     await waitFor(() => expect(projectsApi.importIntoApply).toHaveBeenCalled());
@@ -183,17 +201,49 @@ describe("догрузка архива · превью и споры", () => {
     expect(files?.map((f) => f.name)).toEqual(["b.zip", "c.zip"]);
     // Спор с живым переведён на архивного кандидата; спор двух архивов не тронут.
     expect(opts?.resolutions).toEqual({ [СПОР.id]: "cand:1" });
+    // Жест (связь в контейнер) массовой кнопкой не закрывается — он остался без
+    // ответа, и в применение не уехало ничего лишнего.
+    expect(opts?.decisions).toBeNull();
     // Fence — из ТЕКУЩЕГО превью.
     expect(opts?.baseGraphRev).toBe(7);
     expect(opts?.baseMetaRev).toBe(11);
   });
 
+  it("жест разбора уезжает решением, и ради одних вопросов кнопка жива", async () => {
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
+      nodes_new: 0, new_nodes: [], nodes_new_paths: [], edges_new: 0,
+      families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+      family_conflicts: [],
+      remainder: остаток({ container_edges: [В_КОНТЕЙНЕР] }),
+    }));
+    await открыть(zip("b.zip"));
+    await screen.findByText("вопрос 1 из 1");
+
+    // Сноска в догрузке говорит о ДОГРУЗКЕ: проект уже создан.
+    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+      "после догрузки будет ждать в панели незавершённости");
+    // Массовых кнопок нет: спорить не с чем, а жест закрывает только человек.
+    expect(screen.queryByRole("button", { name: "Взять из новых архивов" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /orders/ }));
+    // Нового архив не везёт, но разобрать вопрос — уже повод применить.
+    expect(применить()).toBeEnabled();
+    await userEvent.click(применить());
+
+    await waitFor(() => expect(projectsApi.importIntoApply).toHaveBeenCalled());
+    const [, , opts] = применение() ?? [];
+    expect(opts?.decisions).toEqual({
+      edges: { [В_КОНТЕЙНЕР.id]: { to_path: "Ярмарка / orders" } },
+    });
+  });
+
   it("409 применения: превью перезапрошено, ручной выбор уцелел", async () => {
     await открыть(zip("b.zip"));
-    await screen.findByText("Споры содержимого (1)");
+    await screen.findByText("вопрос 1 из 1");
 
-    await userEvent.click(screen.getByRole("radio", { name: /b\.zip · 20 строк/ }));
-    expect(screen.getByRole("radio", { name: /b\.zip · 20 строк/ })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Из архива Ярмарка" }));
+    expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
+      .toHaveAttribute("aria-pressed", "true");
 
     vi.mocked(projectsApi.importIntoApply).mockRejectedValueOnce(
       new ApiError(409, "Проект изменился после расчёта — обновите превью и повторите"),
@@ -207,8 +257,9 @@ describe("догрузка архива · превью и споры", () => {
 
     expect(await screen.findByText(/превью обновлено, проверьте и повторите/)).toBeInTheDocument();
     await waitFor(() => expect(projectsApi.importIntoPreview).toHaveBeenCalledTimes(2));
-    // Выбор пережил перезапрос: id спора тот же, галка на месте.
-    expect(screen.getByRole("radio", { name: /b\.zip · 20 строк/ })).toBeChecked();
+    // Выбор пережил перезапрос: id спора тот же, вариант остался выбранным.
+    expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
+      .toHaveAttribute("aria-pressed", "true");
 
     await userEvent.click(применить());
     await waitFor(() => expect(projectsApi.importIntoApply).toHaveBeenCalledTimes(2));

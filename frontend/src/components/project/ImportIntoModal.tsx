@@ -13,7 +13,7 @@
 // («Импорт схемы» в том же меню) — там своя механика якорей и политик.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { FamilyConflictOut, IntoApplyOut, IntoPreviewOut } from "../../types";
+import type { IntoApplyOut, IntoPreviewOut } from "../../types";
 import { projectsApi } from "../../api/projects";
 import { isConflict } from "../../api/client";
 import { plural } from "../../ui/plural";
@@ -22,7 +22,13 @@ import { NoteList } from "../docsImport/agentModalReport";
 import {
   head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
 } from "../docsImport/agentModalShared";
-import ConflictSection from "./ConflictSection";
+import { introFor } from "./importIntros";
+import { statusState, withoutConverted } from "./importRemarks";
+import {
+  BulkBox, RemainderBlock, StatusLine, UnfixableFold, buildQuestions, bulkAnswers,
+  hasMineDisputes, pruneAnswers, splitErrorLine, toDecisions,
+} from "./remainder";
+import type { Answer, Answers } from "./remainder";
 import { anchorKind, basisLabel } from "../anchor/anchorText";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
@@ -92,15 +98,11 @@ function applySummary(r: IntoApplyOut): string {
   return parts.length ? `Догружено: ${parts.join(", ")}` : "Догрузка завершена: нового не появилось";
 }
 
-/** Есть ли ради чего применять: хоть что-то новое или хоть один спор. */
-function brings(p: IntoPreviewOut): boolean {
+/** Есть ли ради чего применять: новое, спор или хоть один вопрос разбора. */
+function brings(p: IntoPreviewOut, questions: number): boolean {
   return p.nodes_new > 0 || p.edges_new > 0
-    || familyLine(p.families) !== null || p.family_conflicts.length > 0;
+    || familyLine(p.families) !== null || p.family_conflicts.length > 0 || questions > 0;
 }
-
-/** Первый кандидат НЕ из текущего проекта — то, что берут массовым «из архивов». */
-const fromArchive = (c: FamilyConflictOut): number =>
-  c.candidates.findIndex((k) => !k.current);
 
 export default function ImportIntoModal({ projectId, onClose, onApplied }: Props) {
   const [files, setFiles] = useState<File[]>([]);
@@ -111,6 +113,9 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
   >(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [resolutions, setResolutions] = useState<Record<string, string>>({});
+  // Ответы на остальные вопросы разбора остатка (Ф-E) — рядом с резолюциями и по
+  // тем же правилам: переживают перезапрос превью, протухшие отбрасываются.
+  const [answers, setAnswers] = useState<Answers>({});
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   // Отчёт применения показываем В ОКНЕ: замечания догрузки (промахи адресов,
@@ -156,24 +161,32 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
       Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
     ));
   }
+  // Вопросы разбора — производное от свежего превью. Сноска о связи в контейнер
+  // здесь говорит «после догрузки»: проект уже создан (mode).
+  const questions = useMemo(
+    () => (fresh === null ? [] : buildQuestions({
+      family_conflicts: fresh.family_conflicts, remainder: fresh.remainder, mode: "into",
+    })),
+    [fresh],
+  );
+  if (fresh !== null) {
+    const живые = pruneAnswers(answers, questions);
+    if (живые !== answers) setAnswers(живые);
+  }
   // Массовые действия имеют смысл только там, где спорят С ЖИВЫМ: спор двух архивов
   // между собой «моим» не разрешить.
-  const withMine = useMemo(() => conflicts.filter((c) => c.candidates.some((k) => k.current)), [conflicts]);
+  const withMine = hasMineDisputes(questions);
 
+  /**
+   * «Оставить, как было в проекте» / «Взять из новых архивов» (§7): закрывают
+   * ТОЛЬКО споры — содержимого и полей. Обе карты переписываются целиком:
+   * «оставить моё» у спора содержимого — это СНЯТИЕ записи (дефолт бэка и так
+   * «моё», а явный выбор после перезапроса мог бы уехать вместе с планом).
+   */
   function resolveAll(mine: boolean) {
-    setResolutions((cur) => {
-      // «Везде оставить моё» — это дефолты бэка, и явные записи только мешают
-      // (после перезапроса дефолт может сместиться вместе с планом).
-      const next = Object.fromEntries(
-        Object.entries(cur).filter(([id]) => !withMine.some((c) => c.id === id)),
-      );
-      if (mine) return next;
-      for (const c of withMine) {
-        const i = fromArchive(c);
-        if (i >= 0) next[c.id] = `cand:${i}`;
-      }
-      return next;
-    });
+    const next = bulkAnswers(questions, mine, { answers, resolutions });
+    setAnswers(next.answers);
+    setResolutions(next.resolutions);
   }
 
   function apply() {
@@ -183,6 +196,8 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
     projectsApi
       .importIntoApply(projectId, files, {
         resolutions,
+        // «Как сейчас» и молчание в форму не едут: их результат — сегодняшний.
+        decisions: toDecisions(questions, answers),
         baseGraphRev: fresh.base_graph_rev,
         baseMetaRev: fresh.base_meta_rev,
       })
@@ -202,7 +217,7 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
 
   // Применять нечего, когда архив ничего не добавляет и ни о чём не спорит (типовой
   // случай: догрузили архив ЭТОГО же проекта) — кнопка гаснет, а дифф это объясняет.
-  const canApply = !!fresh?.ok && !applying && brings(fresh);
+  const canApply = !!fresh?.ok && !applying && brings(fresh, questions.length);
 
   return (
     <Modal
@@ -270,39 +285,40 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
           {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
 
           {checking && <p style={{ ...grayLine, marginTop: 8 }}>Считаем, что приедет…</p>}
-          {fresh && !fresh.ok && (
-            <div style={errorBox}>
-              <div style={{ fontWeight: 600, marginBottom: 3 }}>Не получается прочитать архив:</div>
-              {fresh.errors.slice(0, 5).map((e, i) => (
-                <div key={i} style={{ marginTop: 2 }}>{e}</div>
-              ))}
-              {fresh.errors.length > 5 && (
-                <div style={{ marginTop: 2 }}>…ещё {fresh.errors.length - 5}</div>
-              )}
-            </div>
+          {/* Та же строка статуса, что в окне создания (§1.2): отказ разбора
+              архива — её красное состояние с первой ошибкой. */}
+          {fresh && (
+            <StatusLine
+              state={statusState(fresh.ok, questions.length + fresh.remainder.unfixable.length)}
+              error={fresh.ok ? undefined : {
+                // Виновника-чипа здесь нет: архивы не переключаются, их читают.
+                chipLabel: null, chipIndex: null,
+                ...splitErrorLine(fresh.errors[0] ?? "Не удалось прочитать архив"),
+              }}
+            />
           )}
           {fresh?.ok && <Diff preview={fresh} />}
 
-          {conflicts.length > 0 && (
-            <>
-              <ConflictSection
-                conflicts={conflicts}
-                resolutions={resolutions}
-                onResolve={(id, choice) => setResolutions((cur) => ({ ...cur, [id]: choice }))}
-              />
-              {/* Массовые действия — под списком: сначала видно, о чём спор, потом
-                  «а можно всё разом». Спорам без живого кандидата они не касаются. */}
-              {withMine.length > 0 && (
-                <div style={bulkRow}>
-                  <button type="button" className="btn-soft" onClick={() => resolveAll(true)}>
-                    Везде оставить моё
-                  </button>
-                  <button type="button" className="btn-soft" onClick={() => resolveAll(false)}>
-                    Везде взять из архивов
-                  </button>
-                </div>
-              )}
-            </>
+          {fresh?.ok && questions.length > 0 && (
+            <RemainderBlock
+              questions={questions}
+              answers={answers}
+              resolutions={resolutions}
+              onAnswer={(id: string, answer: Answer) => setAnswers((cur) => ({ ...cur, [id]: answer }))}
+              onResolve={(id, choice) => setResolutions((cur) => ({ ...cur, [id]: choice }))}
+              mode="into"
+            />
+          )}
+          {/* Массовые действия — под вопросами: сначала видно, о чём спор, потом
+              «а можно всё разом». Жестов и споров без живого они не касаются. */}
+          {fresh?.ok && withMine && (
+            <BulkBox onKeepMine={() => resolveAll(true)} onTakeArchives={() => resolveAll(false)} />
+          )}
+          {fresh?.ok && (
+            <UnfixableFold
+              items={fresh.remainder.unfixable}
+              intro={introFor(files.length > 1, true)}
+            />
           )}
           {applyError && (
             <p style={{ ...grayLine, color: "#b45309", marginTop: 8 }}>{applyError}</p>
@@ -336,6 +352,9 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
 
 // Дифф превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов.
 function Diff({ preview }: { preview: IntoPreviewOut }) {
+  // Строки, ставшие вопросами разбора, из «Проверьте» уходят (Р3): их закрывает
+  // ответ, а не правка архива — читать одно и то же дважды незачем.
+  const проверьте = withoutConverted(preview.warnings, preview.remainder.converted_warnings);
   const families = familyLine(preview.families);
   const появятся = preview.new_nodes;
   const найдены = preview.matched_nodes;
@@ -380,7 +399,7 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
           )}
         </div>
       )}
-      {preview.warnings.length > 0 && <NoteList title="Проверьте" items={preview.warnings} />}
+      {проверьте.length > 0 && <NoteList title="Проверьте" items={проверьте} />}
     </div>
   );
 }
@@ -439,5 +458,3 @@ const subRow: CSSProperties = { marginLeft: 10 };
 const chipName: CSSProperties = {
   ...chipBtn, cursor: "default", display: "inline-block", maxWidth: 200,
 };
-const errorBox: CSSProperties = { marginTop: 8, fontSize: 13, color: "#dc2626" };
-const bulkRow: CSSProperties = { display: "flex", gap: 8, marginTop: 8 };
