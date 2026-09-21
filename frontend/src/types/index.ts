@@ -67,6 +67,17 @@ export type UnifiedPreviewOut = Schemas["UnifiedPreviewOut"];
 export type FamilyConflictOut = Schemas["FamilyConflictOut"];
 export type FamilyCandidateOut = Schemas["FamilyCandidateOut"];
 export type UnifiedFamilyCountsOut = Schemas["UnifiedFamilyCountsOut"];
+// Остаток слияния (Ф-E, docs/plan-byoa-quality.md): то, что мердж решить не может,
+// приезжает в обоих превью СТРУКТУРОЙ — по ней фронт задаёт вопросы («Без ваших
+// решений не объединить»), а ответы уезжают применению полем decisions.
+export type RemainderOut = Schemas["RemainderOut"];
+export type RemainderCandidateOut = Schemas["RemainderCandidateOut"];
+export type FieldDisputeOut = Schemas["FieldDisputeOut"];
+export type ContainerEdgeOut = Schemas["ContainerEdgeOut"];
+export type ComponentOut = Schemas["ComponentOut"];
+export type IsolatedGroupOut = Schemas["IsolatedGroupOut"];
+export type FuzzyPairOut = Schemas["FuzzyPairOut"];
+export type UnfixableOut = Schemas["UnfixableOut"];
 // Догрузка архивов к ЖИВОМУ проекту (Ф3/Ф4 того же плана): дифф-превью («что
 // появится, о чём спор» + пара базовых курсоров-fence) и отчёт применения
 // («сколько записей тронуто» + родные отчёты семей).
