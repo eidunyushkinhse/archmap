@@ -156,6 +156,11 @@ export interface paths {
          *     JSON-объектом в поле resolutions. Резолюция не из плана — 400 «превью
          *     устарело»: молча применить «не то» хуже, чем попросить пересобрать превью.
          *
+         *     Вторым словарём (decisions, JSON) приезжают ответы на вопросы ОСТАТКА слияния
+         *     (Ф-E): выбранные значения полей, перевешенные концы связей, дорисованные связи
+         *     и склейки похожих имён. Ни один ответ не обязателен — без них создаётся ровно
+         *     тот же проект, что и раньше.
+         *
          *     Имя и описание берутся из полей; при ЕДИНСТВЕННОМ входе-архиве их можно не
          *     передавать — тогда они приедут из манифеста (П3).
          */
@@ -210,6 +215,10 @@ export interface paths {
          *     увиденным в превью, клиент возвращает base_graph_rev и base_meta_rev —
          *     разошлись хоть один, 409 «обновите превью». Курсоров два: догрузка меняет и
          *     схему (узлы, связи), и мету (схемы логики, факты, спеки).
+         *
+         *     Ответы на вопросы ОСТАТКА слияния (Ф-E) приезжают тем же протоколом, полем
+         *     decisions: перевес концов привозных связей, дорисованные связи, склейка
+         *     привозного объекта с живым (живой при этом выживает) и выбор значения поля.
          *
          *     Аддитивность: живая запись перетирается ТОЛЬКО там, где пользователь явно
          *     выбрал архивного кандидата; ничего никогда не удаляется.
@@ -2241,6 +2250,8 @@ export interface components {
             files: string[];
             /** Resolutions */
             resolutions?: string | null;
+            /** Decisions */
+            decisions?: string | null;
             /** Base Graph Rev */
             base_graph_rev?: number | null;
             /** Base Meta Rev */
@@ -2267,6 +2278,8 @@ export interface components {
             description?: string | null;
             /** Resolutions */
             resolutions?: string | null;
+            /** Decisions */
+            decisions?: string | null;
         };
         /** Body_import_unified_preview_api_v1_projects_import_unified_preview_post */
         Body_import_unified_preview_api_v1_projects_import_unified_preview_post: {
