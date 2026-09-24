@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 import yaml
 from sqlalchemy.orm import Session
 
-from app.mmd_header import parse_mmd_header
+from app.mmd_header import fix_broken_diamonds, parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 
@@ -144,6 +144,9 @@ def pkg_from_mmd(
     """
     header = parse_mmd_header(content)
     notes = [f"{fname}: {p}" for p in header.problems]
+    content, fixed = fix_broken_diamonds(content)
+    if fixed:
+        notes.append(f"{fname}: исправлено ромбов с непарной скобкой «{{…]»: {fixed}")
     name = (override.name if override and override.name else None) or header.name or _name_from_file(fname)
     kind = (override.kind if override and override.kind else None) or header.kind or "operation"
     node_ref = (override.node if override and override.node else None) or header.node
