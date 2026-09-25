@@ -1392,3 +1392,22 @@ def test_pkg_from_mmd_чинит_ромб_и_говорит_об_этом():
 
     assert 'B{"Оплачено?"}' in pkg.entries[0].logic[0].mermaid
     assert notes == ["a.mmd: исправлено ромбов с непарной скобкой «{…]»: 1"]
+
+
+def test_части_одного_сценария_ложатся_рядом_с_общим_operation(db):
+    """Режим «по одной схеме» делит крупный сценарий на части (правка №4): у частей
+    разные имена и одно operation — обе должны создаться, без конфликта слотов."""
+    _, orders, *_ = _tree(db)
+    plan = _plan(
+        db,
+        [
+            ("a.mmd", _mmd("POST /orders", kind="operation", operation="POST /orders")),
+            ("b.mmd", _mmd("POST /orders — часть 2: оплата", kind="operation", operation="POST /orders")),
+        ],
+        window=orders,
+    )
+
+    assert plan.errors == [] and plan.conflicts == []
+    assert sorted((a.name, a.action) for a in plan.logic) == [
+        ("POST /orders", "create"), ("POST /orders — часть 2: оплата", "create"),
+    ]
