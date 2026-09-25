@@ -504,13 +504,10 @@ def test_prompt_lang_and_hints():
     assert "Дополнительные указания" not in ru
 
 
-def test_режим_по_одной_схеме_делит_крупный_сценарий_на_части():
+def test_режим_по_одной_схеме_требует_ровно_один_файл():
     one = build_docs_prompt(SLICE, include="logic", target="Крон: счета")
     assert "Крон: счета" in one
-    assert "ровно один .mmd-файл" not in one
-    assert "раздели ЕГО на несколько .mmd-файлов по этапам потока" in one
-    assert "«— часть N: этап»" in one
-    assert "Других сценариев НЕ описывай" in one
+    assert "ровно один .mmd-файл" in one
 
 
 def test_фокус_прогона_называет_воркера_очередью_а_не_классом():
