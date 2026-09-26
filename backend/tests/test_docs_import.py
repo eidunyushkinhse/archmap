@@ -1391,4 +1391,4 @@ def test_pkg_from_mmd_чинит_ромб_и_говорит_об_этом():
     pkg, notes = pkg_from_mmd("a.mmd", content)
 
     assert 'B{"Оплачено?"}' in pkg.entries[0].logic[0].mermaid
-    assert notes == ["a.mmd: исправлено ромбов с непарной скобкой «{…]»: 1"]
+    assert notes == ["a.mmd: исправлено фигур с непарной скобкой («{…]» или «[…}»): 1"]
