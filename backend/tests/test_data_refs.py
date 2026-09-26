@@ -441,6 +441,43 @@ def test_резолв_битые_сегменты_у_каналов_не_гад�
     assert _ch(".orders.created", [ch]).status == "unknown_channel"
 
 
+def test_разбор_пометка_в_подписи_ребра_без_хвоста_стрелки():
+    # Находка P4 замеров docs-quality: у подписи ребра без кавычек нет терминатора,
+    # и в ссылку уезжал хвост стрелки («MaxAttempts.->J», «orders --> B»).
+    def refs(text: str) -> list[tuple[str, str]]:
+        return [(r.ref, r.mode) for r in parse_data_refs(text)]
+
+    assert refs("J -.зависит от: MaxAttempts.->J") == [("MaxAttempts", "config")]
+    assert refs("A -- читает: orders.status, users --> B") == [
+        ("orders.status", "read"),
+        ("users", "read"),
+    ]
+    assert refs("A -->|пишет: orders| B") == [("orders", "write")]
+    assert refs("A == публикует: orders.created ==> B") == [("orders.created", "publish")]
+    # Одиночные дефис и точка в имени — не стрелка.
+    assert refs('X["Отправить<br>публикует: orders.created-v2"]') == [
+        ("orders.created-v2", "publish")
+    ]
+
+
+def test_резолв_имя_канала_с_двоеточием():
+    # Ключи Redis Pub/Sub (потоковый API Mastodon): двоеточие — часть имени, как
+    # точка у Kafka (находка P2 замеров docs-quality: такие пометки не резолвились).
+    public = _c(N_RABBIT, "timeline:public")
+    tag = _c(N_RABBIT, "timeline:hashtag:rails", fields=("payload",))
+    got = _ch("timeline:public", [public, tag])
+    assert (got.status, got.channel_id) == ("ok", public.id)
+    assert _ch("timeline:hashtag:rails", [public, tag]).channel_id == tag.id
+    # Точка после двоеточий по-прежнему может отделять поле.
+    got2 = _ch("timeline:hashtag:rails.payload", [public, tag], mode="consume")
+    assert (got2.status, got2.field_name) == ("ok", "payload")
+
+
+def test_резолв_двоеточие_таблицам_не_положено():
+    # У таблиц «x:y» не бывает: такая пометка — опечатка, её надо видеть.
+    assert _resolve("orders:archive", [_t(N_STORE, "orders:archive")]).status == "unknown_table"
+
+
 def test_резолв_смешанного_дока_каждая_пометка_идёт_в_свой_каталог():
     # Обычный док сервиса: данные, события и конфигурация рядом. Порядок ответа =
     # порядок пометок, и каждая резолвится СВОИМ каталогом — три семьи не мешают
