@@ -1,10 +1,10 @@
 // Мелкие части панели ввоза: карточка активного архива вместо textarea и список
-// замечаний. Вынесены из ImportPane, чтобы там остались только вход, статус и
-// разбор остатка (Ф-E): панель и без того держит чипы, драг-н-дроп, память
-// попыток агента и копирование замечаний.
+// отчёта (одно-файловые конфликты слияния). Вынесены из ImportPane, чтобы там
+// остались только вход, статус и разбор остатка (Ф-E): панель и без того держит
+// чипы, драг-н-дроп и память попыток.
 import type { CSSProperties } from "react";
 
-/** Список замечаний под панелью: первые шесть, остаток — счётчиком. */
+/** Список строк отчёта под панелью: первые шесть, остаток — счётчиком. */
 export function ReportList({ title, items }: { title: string; items: string[] }) {
   return (
     <div style={{ marginTop: 6, fontSize: 12.5, color: "#b45309" }}>
@@ -18,19 +18,15 @@ export function ReportList({ title, items }: { title: string; items: string[] })
 }
 
 // Карточка активного архива вместо textarea: тело архива не правят — его читают.
-// Кнопки «для агента» здесь нет принципиально (архив собирал экспорт).
-export function ArchiveCard({ file, no, remarks }: { file: File; no: number; remarks: string[] }) {
+// Замечаний к архиву здесь нет (правка Ф2г): пофайловые замечания живут в свёртке
+// «Придется подправить вручную», а ошибки разбора — только в красном статусе.
+export function ArchiveCard({ file, no }: { file: File; no: number }) {
   return (
     <div style={archiveCard}>
       <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{file.name}</div>
       <div style={grayLine}>
         Вход {no} · {(file.size / 1024).toFixed(0)} КБ · полный архив знания
       </div>
-      {remarks.length > 0 ? (
-        <ReportList title="Замечания к архиву:" items={remarks} />
-      ) : (
-        <div style={grayLine}>К архиву замечаний нет.</div>
-      )}
       <div style={{ ...grayLine, marginTop: 10 }}>
         Из архива приедут схемы логики, спеки, структуры БД и брокеров,
         конфигурация и процессы. Раскладка пересчитается заново.

@@ -207,7 +207,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     onResolve: (id: string, choice: string) =>
       setResolutions((cur) => ({ ...cur, [id]: choice })),
     unfixable: fresh?.remainder.unfixable ?? [],
-    converted: fresh?.remainder.converted_warnings ?? [],
   }), [questions, answers, resolutions, fresh]);
 
   const canSubmit =

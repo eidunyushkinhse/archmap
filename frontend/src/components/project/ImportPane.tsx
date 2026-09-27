@@ -3,10 +3,7 @@ import type { CSSProperties } from "react";
 import type { ImportPreviewOut, UnfixableOut } from "../../types";
 import { plural } from "../../ui/plural";
 import { useFileDrop } from "../docsImport/useFileDrop";
-import { inputFingerprint, useRepeatedInput } from "../docsImport/agentModalShared";
-import { StaleFilesConfirm, UnchangedInputNote } from "../docsImport/agentModalReport";
-import { introFor } from "./importIntros";
-import { firstError, statusState, withoutConverted } from "./importRemarks";
+import { firstError, statusState } from "./importRemarks";
 import { ArchiveCard, ReportList } from "./ImportPaneParts";
 import { RemainderBlock, StatusLine, UnfixableFold } from "./remainder";
 import type { Answer, Answers, Question, Resolutions } from "./remainder";
@@ -15,30 +12,28 @@ import type { Answer, Answers, Question, Resolutions } from "./remainder";
  * Единая панель ввоза в модалке создания проекта: N входов ЛЮБОГО типа — YAML
  * (чипы «Файл N» — мульти-репо сценарий «Из репозитория») и полные архивы знания
  * .zip (чипы «zip»), вперемешку. Внизу — строка статуса, разбор остатка слияния
- * вопросами (RemainderBlock) и кнопка «Скопировать замечания» (уносится
- * ИИ-агенту на починку). Данные (docs, archives) и сводка живут у родителя —
- * здесь представление и локальный выбор активного входа.
+ * вопросами (RemainderBlock) и свёртка «Придется подправить вручную». Данные
+ * (docs, archives) и сводка живут у родителя — здесь представление и локальный
+ * выбор активного входа.
  *
  * Счётчиков «Готово к импорту: 158 объектов · 271 связь» здесь больше нет (Ф-E):
  * решению они не помогают, а место занимают. Вместо них — статус («Готово к
  * импорту» / «Есть вопросы» / «Что-то пошло не так») и сами вопросы.
  *
- * Мульти-режим (входов больше одного) адресует замечания: пакет собирают N агентов,
- * каждый видит ТОЛЬКО свой репозиторий и переписывает только свой документ. Поэтому
- * под панелью показываются замечания АКТИВНОГО файла со своей кнопкой копирования
- * (Ф6 плана docs/plan-skeptic-audit.md). Замечаний СЛИТОЙ схемы отдельной секцией
- * больше нет: что человек может закрыть решением — стало вопросом разбора, что не
- * может — свёрткой «Что исправит только новый прогон агента».
- *
- * У АРХИВНОГО входа кнопки «для агента» нет вовсе: архив собирал экспорт, а не
- * агент, и переписывать его некому — замечания архива только читают.
+ * Панель НЕ ЗНАЕТ, откуда пользователь взял файлы (правка Ф2г): это может быть
+ * перенос доков между проектами или давно закрытая сессия с агентом. Поэтому в ней
+ * нет ни карточки «Замечания к файлу N», ни кнопки «Скопировать замечания для
+ * агента», ни заметки «агент мог отчитаться об исправлении»: что человек может
+ * закрыть решением — вопрос разбора, что не может — пункт свёртки «Придется
+ * подправить вручную» (туда же уехали и пофайловые замечания), ошибки разбора —
+ * только в красном статусе.
  */
 
 // Зеркало MAX_IMPORT_FILES бэка (schemas/project.py) — клиентский предохранитель.
 // 256 — с запасом под крупные мульти-репо системы (80+ сервисов, файл на репозиторий).
 export const MAX_IMPORT_FILES = 256;
 
-// Память попыток агента: состав узлов последней зелёной сводки и предыдущей.
+// Память попыток: состав узлов последней зелёной сводки и предыдущей.
 // from — сводка, которой соответствует cur (сравнение по ссылке: родитель на
 // каждый ответ dry-run кладёт новый объект). prev = null — попытка первая.
 interface Attempts {
@@ -72,15 +67,13 @@ export interface RemainderInputs {
   /** Выбор по спорам содержимого: id → «cand:<i>» либо «all». */
   resolutions: Resolutions;
   onResolve: (id: string, choice: string) => void;
-  /** Замечания, которые выбором не закрыть (§6 ТЗ). */
+  /** Замечания, которые выбором не закрыть (§6 ТЗ): все пофайловые и схемные. */
   unfixable: UnfixableOut[];
-  /** Тексты строк, ставших вопросами: с экрана они уходят (Р3). */
-  converted: string[];
 }
 
 const NO_REMAINDER: RemainderInputs = {
   questions: [], answers: {}, onAnswer: () => {}, resolutions: {}, onResolve: () => {},
-  unfixable: [], converted: [],
+  unfixable: [],
 };
 
 interface Props {
@@ -112,7 +105,6 @@ export default function ImportPane({
   const zips = archives?.files ?? [];
   const activeZip = activeZipRaw !== null && activeZipRaw < zips.length ? activeZipRaw : null;
   const fileRef = useRef<HTMLInputElement>(null);
-  const [copied, setCopied] = useState(false);
   // Дифф попыток. Переставляем ПРИ РЕНДЕРЕ по смене ссылки сводки (React-паттерн
   // «adjusting state when props change»), а не зеркалящим эффектом: setState в
   // useEffect линтом запрещён и даёт лишний кадр со старым составом.
@@ -120,14 +112,6 @@ export default function ImportPane({
   if (summary?.ok && seen.from !== summary) {
     setSeen({ from: summary, prev: seen.cur, cur: summary.node_names });
   }
-  // Гвард «вход не изменился»: тот же байт-в-байт документ, что в прошлый заход, —
-  // повод посмотреть на файл, а не на замечание (находка полевой приёмки). Считаем
-  // по YAML-текстам: архивы правит не агент, и «переспросить» их незачем.
-  const fingerprint = useMemo(() => inputFingerprint(docs), [docs]);
-  const repeatedInput = useRepeatedInput(docs, fingerprint);
-  // Набор документов, к которому задан вопрос об устаревании (после копирования
-  // замечаний). Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
-  const [askedFor, setAskedFor] = useState<string[] | null>(null);
 
   // Номер файла в сводке для каждого чипа: dry-run уезжает только с НЕПУСТЫМИ
   // документами (родитель их фильтрует), поэтому нумерация сводки — по непустым.
@@ -217,39 +201,6 @@ export default function ImportPane({
   // Мульти-режим — по числу РАЗОБРАННЫХ входов, а не чипов: пустой чип в dry-run
   // не уезжает, и бэк в таком случае кладёт всё в единственный файл.
   const multi = (summary?.files ?? 1) > 1;
-  // Строки, ставшие вопросами разбора, с экрана уходят: их закрывает ответ, а не
-  // правка файла (Р3). Фильтр один на показ и на копию — копируется то, что видно.
-  const видимые = (items: string[]): string[] => withoutConverted(items, remainder.converted);
-  // Замечания активного файла: их и только их уносит его агент.
-  const activeFile = activeZip === null && docs[active]?.trim()
-    ? summary?.file_remarks[fileNo[active] - 1]
-    : undefined;
-  const activeRemarks = activeFile
-    ? [...activeFile.errors, ...видимые(activeFile.warnings)]
-    : [];
-  // Замечания активного архива. Корзина может быть короче номера (сводка отказа
-  // пофайловых корзин не несёт) — индексируемся защищённо.
-  const zipFile = activeZip !== null ? summary?.file_remarks[zipNo(activeZip) - 1] : undefined;
-  const zipRemarks = zipFile ? [...zipFile.errors, ...видимые(zipFile.warnings)] : [];
-  // Одно-файловый режим: конфликты слияния — чтение, они как были (споров полей
-  // там не бывает), предупреждения — за вычетом ставших вопросами.
-  const плоские = summary?.ok ? видимые(summary.warnings) : [];
-
-  // Замечания для агента: при ошибках — они; при зелёной сводке — конфликты и
-  // предупреждения слияния (промпт учит агента чинить по такому списку).
-  const remarks = summary === null
-    ? []
-    : multi
-      ? activeRemarks
-      : summary.ok
-        ? [...summary.conflicts, ...плоские]
-        : summary.errors;
-
-  const remarksIntro = introFor(multi, summary?.ok === true);
-
-  // Кнопка «для агента» уместна только у yaml-чипа с содержимым: архив собирал
-  // экспорт, и переписывать его некому.
-  const canCopy = activeZip === null && Boolean(docs[active]?.trim());
 
   // Вход по его НОМЕРУ в сводке (нумерация сплошная: непустые YAML в порядке
   // чипов, затем архивы) — им подписан виновник ошибки в статусе, и по нему же
@@ -279,41 +230,6 @@ export default function ImportPane({
     const now = new Set(seen.cur);
     return [...new Set(seen.prev.filter((n) => !now.has(n)))];
   }, [seen]);
-
-  function copyRemarks() {
-    const text =
-      remarksIntro + "\n" +
-      remarks.map((r) => `- ${r}`).join("\n");
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
-      // панели документ устареет. Спрашиваем сразу, пока пользователь здесь.
-      setAskedFor(docs);
-    });
-  }
-
-  // «Убрать из панели»: в одно-файловом режиме — весь вход (то же, что снятие
-  // последнего файла крестиком: пустой документ и история попыток с чистого листа).
-  // В мульти-режиме устарел ТОЛЬКО активный файл: остальные пришли от других агентов,
-  // их никто не переделывает.
-  function dropStale() {
-    setAskedFor(null);
-    if (multi) {
-      removeDoc(active);
-      return;
-    }
-    setSeen(NO_ATTEMPTS);
-    onDocs([""]);
-    onNames?.([]);
-    selectDoc(0);
-  }
-
-  const copyBtn = (
-    <button type="button" className="btn-soft" style={{ marginTop: 8 }} onClick={copyRemarks}>
-      {copied ? "Скопировано ✓" : "Скопировать замечания для агента"}
-    </button>
-  );
 
   return (
     <>
@@ -401,7 +317,7 @@ export default function ImportPane({
 
       <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
         {activeZip !== null ? (
-          <ArchiveCard file={zips[activeZip]} no={zipNo(activeZip)} remarks={zipRemarks} />
+          <ArchiveCard file={zips[activeZip]} no={zipNo(activeZip)} />
         ) : (
           <textarea
             style={importArea}
@@ -423,9 +339,6 @@ export default function ImportPane({
       )}
 
       <div style={{ marginTop: 10 }}>
-        {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
-            повторится, и чинить надо не его, а разговор с агентом. */}
-        {repeatedInput && <UnchangedInputNote />}
         {/* Ампутация не должна быть молчаливой: пропавшие между попытками объекты —
             над сводкой, до зелёного «Готово к импорту». */}
         {summary?.ok && vanished.length > 0 && (
@@ -459,38 +372,10 @@ export default function ImportPane({
         {summary?.ok && (
           <UnfixableFold items={remainder.unfixable} />
         )}
-        {/* Один файл — плоский отчёт слияния, как было до Ф6. */}
+        {/* Один файл — конфликты слияния, как было до Ф6: это чтение (правило
+            мерджа уже решило), а не действие. */}
         {summary?.ok && !multi && summary.conflicts.length > 0 && (
           <ReportList title="Конфликты слияния (оставлено первое значение):" items={summary.conflicts} />
-        )}
-        {summary?.ok && !multi && плоские.length > 0 && (
-          <ReportList title="Проверьте:" items={плоские} />
-        )}
-        {!multi && canCopy && remarks.length > 0 && copyBtn}
-        {/* Замечания АКТИВНОГО файла — про YAML одного агента, а не про остаток:
-            они остаются пофайловыми со своей кнопкой копирования. */}
-        {multi && summary !== null && activeZip === null && (
-          activeRemarks.length > 0 ? (
-            <>
-              <ReportList
-                title={`Замечания к файлу ${fileNo[active]}${nameOf(active) ? ` · ${nameOf(active)}` : ""}:`}
-                items={activeRemarks}
-              />
-              {copyBtn}
-            </>
-          ) : docs[active].trim() !== "" ? (
-            <div style={grayLine}>К файлу {fileNo[active]} замечаний нет.</div>
-          ) : null
-        )}
-        {askedFor === docs && (
-          <StaleFilesConfirm
-            onKeep={() => setAskedFor(null)}
-            onClear={dropStale}
-            text={multi
-              ? "Агент вернёт исправленную версию — этот файл в панели устареет. Оставить его?"
-              : undefined}
-            clearLabel={multi ? "Убрать этот файл из панели" : undefined}
-          />
         )}
       </div>
     </>
