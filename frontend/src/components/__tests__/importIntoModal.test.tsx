@@ -10,7 +10,7 @@
 // Фикстуры типизированы схемами контракта (не any): разъедется контракт — поймает
 // tsc, а не глаз в проде. Поле current у кандидатов обязательно — по нему модалка
 // отличает «моё» от привозного.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ImportIntoModal from "../project/ImportIntoModal";
@@ -286,6 +286,40 @@ describe("догрузка архива · превью и споры", () => {
       expect.stringMatching(/^Догружено: 3 объекта, 2 связи, 4 схемы логики/),
     );
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe("догрузка архива · отказ и свёртка (правка Ф2г)", () => {
+  it("два битых архива — список ошибок под красным статусом", async () => {
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
+      ok: false,
+      errors: ["a.zip: Файл не читается как zip-архив", "c.zip: В архиве нет файла C4 (contents.c4)"],
+    }));
+    await открыть(zip("a.zip"), zip("c.zip"));
+
+    expect(await screen.findByText("Что-то пошло не так")).toBeInTheDocument();
+    const пункты = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(пункты.map((li) => li.textContent)).toEqual([
+      "a.zip: Файл не читается как zip-архив.",
+      "c.zip: В архиве нет файла C4 (contents.c4).",
+    ]);
+    expect(применить()).toBeDisabled();
+  });
+
+  it("незакрываемое — свёрткой «Придется подправить вручную» без кнопок для агента", async () => {
+    vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
+      remainder: остаток({
+        unfixable: [{
+          id: "remark|3", file: null,
+          text: "У файлов разные корневые объекты («Ярмарка», «Склад»), поэтому в проекте будет несколько корней.",
+        }],
+      }),
+    }));
+    await открыть(zip("b.zip"));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Придется подправить вручную (1)" }));
+    expect(screen.getByText(/У файлов разные корневые объекты/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Скопировать замечани/ })).toBeNull();
   });
 });
 

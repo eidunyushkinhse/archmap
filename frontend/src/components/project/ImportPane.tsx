@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { ImportPreviewOut, UnfixableOut } from "../../types";
 import { plural } from "../../ui/plural";
 import { useFileDrop } from "../docsImport/useFileDrop";
-import { firstError, statusState } from "./importRemarks";
+import { allErrors, statusState } from "./importRemarks";
 import { ArchiveCard, ReportList } from "./ImportPaneParts";
 import { RemainderBlock, StatusLine, UnfixableFold } from "./remainder";
 import type { Answer, Answers, Question, Resolutions } from "./remainder";
@@ -353,7 +353,7 @@ export default function ImportPane({
         {summary !== null && (
           <StatusLine
             state={statusState(summary.ok, remainder.questions.length + remainder.unfixable.length)}
-            error={summary.ok ? undefined : firstError(summary, chipLabel)}
+            errors={summary.ok ? undefined : allErrors(summary, chipLabel)}
             onOpenFile={openInput}
           />
         )}

@@ -2,8 +2,11 @@
 // «сколько объектов приедет» решению не помогает, а «есть ли вопросы» помогает.
 //
 // Красное состояние живёт ТОЛЬКО здесь: внутри блока вопросов красного и
-// янтарного нет вовсе. Под ним — первая ошибка и ссылка на её файл: чтобы
-// починить, надо открыть тот вход, а не искать его глазами по чипам.
+// янтарного нет вовсе, карточки ошибок у файла тоже нет (правка Ф2г). Под ним —
+// ошибка и ссылка на её файл: чтобы починить, надо открыть тот вход, а не искать
+// его глазами по чипам. Ошибок несколько (два битых файла, несколько ошибок в
+// одном, ошибки слитой схемы) — маркированным списком, пункт на ошибку, в том же
+// виде, что свёртка «Придется подправить вручную».
 import { CheckIcon } from "../../../ui/icons";
 import "./remainder.css";
 
@@ -20,11 +23,16 @@ export interface StatusError {
 
 interface Props {
   state: "ok" | "ask" | "bad";
-  error?: StatusError;
+  /** Все ошибки отказа — в порядке входов, затем ошибки слитой схемы. */
+  errors?: StatusError[];
   onOpenFile?: (index: number) => void;
 }
 
-export default function StatusLine({ state, error, onOpenFile }: Props) {
+/** «Строка 3: текст.» / «текст.» — хвост сообщения после адреса файла. */
+const lineAndText = (e: StatusError): string =>
+  `${e.line !== null ? `Строка ${e.line}: ` : ""}${e.text}.`;
+
+export default function StatusLine({ state, errors = [], onOpenFile }: Props) {
   if (state === "ok") {
     return (
       <div className="rq-root rq-st rq-st--ok"><CheckIcon size={14} />Готово к импорту</div>
@@ -37,22 +45,55 @@ export default function StatusLine({ state, error, onOpenFile }: Props) {
       </div>
     );
   }
-  const чип = error?.chipLabel ?? null;
   return (
     <div className="rq-root">
       <div className="rq-st rq-st--bad"><span className="rq-st-mk">!</span>Что-то пошло не так</div>
-      {error !== undefined && (
+      {errors.length === 1 && <OneError error={errors[0]} onOpenFile={onOpenFile} />}
+      {errors.length > 1 && (
         <div className="rq-st-sub">
-          {чип !== null ? (
-            <>Проблема в файле <b>{чип}</b>{error.line !== null ? `. Строка ${error.line}: ` : ": "}{error.text}.</>
-          ) : (
-            // Виновника нет (ошибка слитой схемы), но номер строки, если он в
-            // тексте был, не теряем: без него сообщение адресует в пустоту.
-            <>{error.line !== null && `Строка ${error.line}: `}{error.text}.</>
-          )}
+          <ul className="rq-ul">
+            {errors.map((e, i) => (
+              <li key={i}>
+                {e.chipLabel !== null ? (
+                  <>
+                    {e.chipIndex !== null && onOpenFile !== undefined ? (
+                      <button
+                        type="button"
+                        className="rq-link rq-link--in"
+                        onClick={() => { if (e.chipIndex !== null) onOpenFile(e.chipIndex); }}
+                      >
+                        Файл {e.chipLabel}
+                      </button>
+                    ) : (
+                      <b>Файл {e.chipLabel}</b>
+                    )}
+                    {". "}{lineAndText(e)}
+                  </>
+                ) : lineAndText(e)}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
-      {чип !== null && error?.chipIndex !== null && error?.chipIndex !== undefined && (
+    </div>
+  );
+}
+
+/** Одна ошибка — как было до списка: предложение и отдельная ссылка на файл. */
+function OneError({ error, onOpenFile }: { error: StatusError; onOpenFile?: (index: number) => void }) {
+  const чип = error.chipLabel;
+  return (
+    <>
+      <div className="rq-st-sub">
+        {чип !== null ? (
+          <>Проблема в файле <b>{чип}</b>{error.line !== null ? `. Строка ${error.line}: ` : ": "}{error.text}.</>
+        ) : (
+          // Виновника нет (ошибка слитой схемы), но номер строки, если он в
+          // тексте был, не теряем: без него сообщение адресует в пустоту.
+          lineAndText(error)
+        )}
+      </div>
+      {чип !== null && error.chipIndex !== null && (
         <div className="rq-st-sub">
           <button
             type="button"
@@ -63,6 +104,6 @@ export default function StatusLine({ state, error, onOpenFile }: Props) {
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }

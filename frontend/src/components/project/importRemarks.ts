@@ -1,9 +1,8 @@
 // Что панель ввоза говорит о замечаниях: состояние строки статуса (§2 ТЗ, Р7),
-// первая ошибка с её входом-виновником и отбор ПОКАЗЫВАЕМЫХ строк (Р3).
+// ошибки отказа с их входами-виновниками и отбор ПОКАЗЫВАЕМЫХ строк (Р3).
 //
 // Чистые функции без React: правила здесь ровно те, что видит пользователь, и
-// проверяются они без рендера. Одно правило на экран и на копию для агента —
-// копируется то, что показано.
+// проверяются они без рендера.
 import type { ImportPreviewOut } from "../../types";
 import { splitErrorLine } from "./remainder";
 import type { StatusError } from "./remainder";
@@ -20,31 +19,34 @@ export function statusState(ok: boolean, asks: number): "ok" | "ask" | "bad" {
 }
 
 /**
- * Первая ошибка для строки под красным статусом. Виновник — первый вход с
- * непустой корзиной ошибок: чинить надо его, а искать глазами по чипам
- * пользователю незачем. Ошибки слитой схемы («входы не имеют общих корней»)
- * файла-виновника не имеют — они показываются без чипа и без ссылки.
+ * ВСЕ ошибки отказа для красного статуса (правка Ф2г: карточки ошибок у файла
+ * больше нет — статус единственное место, где их видно). Порядок: входы по
+ * номеру, внутри входа — порядок бэка; затем ошибки слитой схемы («входы не
+ * имеют общих корней»), у которых файла-виновника нет — они без чипа и ссылки.
+ * Пусто в корзинах (сводка отказа без разметки, например отказ самой проверки) —
+ * плоский список ошибок сводки.
  *
  * chip отдаёт подпись входа по его НОМЕРУ в сводке (нумерация сплошная: сначала
  * непустые YAML в порядке чипов, затем архивы) либо null, если такого чипа нет.
  */
-export function firstError(
+export function allErrors(
   summary: ImportPreviewOut,
   chip: (inputNo: number) => string | null,
-): StatusError | undefined {
-  const плохой = summary.file_remarks.find((f) => f.errors.length > 0);
-  if (плохой !== undefined) {
-    const label = chip(плохой.file);
-    return {
+): StatusError[] {
+  const пофайловые = summary.file_remarks.flatMap((f) => {
+    const label = chip(f.file);
+    return f.errors.map((e) => ({
       chipLabel: label,
       // Индекс входа 0-based: обратно в номер его переводит сама панель.
-      chipIndex: label === null ? null : плохой.file - 1,
-      ...splitErrorLine(плохой.errors[0]),
-    };
-  }
-  const общая = summary.schema_errors[0] ?? summary.errors[0];
-  if (общая === undefined) return undefined;
-  return { chipLabel: null, chipIndex: null, ...splitErrorLine(общая) };
+      chipIndex: label === null ? null : f.file - 1,
+      ...splitErrorLine(e),
+    }));
+  });
+  const общие = (summary.schema_errors.length > 0 || пофайловые.length > 0
+    ? summary.schema_errors
+    : summary.errors
+  ).map((e) => ({ chipLabel: null, chipIndex: null, ...splitErrorLine(e) }));
+  return [...пофайловые, ...общие];
 }
 
 /**

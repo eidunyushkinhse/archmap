@@ -197,6 +197,9 @@
 .rq-nav:hover, .rq-link:hover { text-decoration: underline; }
 .rq-nav:disabled, .rq-link:disabled { color: #cbd5e1; text-decoration: none; }
 .rq-link--mut { color: #64748b; font-weight: 500; }
+/* Ссылка внутри строки текста (адрес файла в пункте списка ошибок): кегль и
+   высота строки — от абзаца, чтобы пункт не «прыгал» по базовой линии. */
+.rq-link--in { font-size: inherit; line-height: inherit; }
 .rq-soft {
   border: 1px solid #e2e8f0; background: #fff; color: #1e293b; border-radius: 8px;
   padding: 6px 11px; font-family: inherit; font-size: 12.5px; font-weight: 600;

@@ -10,7 +10,7 @@
 // остаток слияния показывает вопросами: строки «Готово к импорту: … объектов»,
 // «Корневые», «Склеено узлов», «Без якоря», «Из архивов», секции «Замечания к
 // слитой схеме» и «Споры содержимого» с экрана ушли.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -373,6 +373,32 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();
     expect(screen.getByText("входы не имеют общих корневых узлов.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Открыть файл/ })).toBeNull();
+  });
+
+  it("два битых файла — список под статусом, пункт на ошибку со ссылкой на вход", async () => {
+    const битые = red([
+      "вход 1: Некорректный YAML: ошибка разметки (строка 3)",
+      "вход 3: nodes[0]: name — обязательная непустая строка",
+    ], {
+      files: 3,
+      file_remarks: [
+        { file: 1, errors: ["Некорректный YAML: ошибка разметки (строка 3)"], warnings: [] },
+        { file: 2, errors: [], warnings: [] },
+        { file: 3, errors: ["nodes[0]: name — обязательная непустая строка"], warnings: [] },
+      ],
+    });
+    render(<Harness initial={["nodes: a", "nodes: b", "nodes: c"]} summary={битые} />);
+
+    expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();
+    const пункты = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(пункты.map((li) => li.textContent)).toEqual([
+      "Файл 1. Строка 3: Некорректный YAML: ошибка разметки.",
+      "Файл 3. nodes[0]: name — обязательная непустая строка.",
+    ]);
+    // Префиксы «вход N:» плоского списка сводки на экран не попадают.
+    expect(screen.queryByText(/вход 1:/)).toBeNull();
+    await userEvent.click(within(пункты[1]!).getByRole("button", { name: "Файл 3" }));
+    expect(screen.getByDisplayValue("nodes: c")).toBeInTheDocument();
   });
 
   it("ссылка статуса делает виновника активным входом", async () => {

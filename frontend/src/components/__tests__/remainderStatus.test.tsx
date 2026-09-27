@@ -31,7 +31,7 @@ describe("StatusLine (§2, Р7)", () => {
     render(
       <StatusLine
         state="bad"
-        error={{ chipLabel: "2 · grafana.yaml", chipIndex: 1, line: 84, text: "у объекта «Сервер Grafana» два родителя" }}
+        errors={[{ chipLabel: "2 · grafana.yaml", chipIndex: 1, line: 84, text: "у объекта «Сервер Grafana» два родителя" }]}
         onOpenFile={onOpenFile}
       />,
     );
@@ -43,12 +43,12 @@ describe("StatusLine (§2, Р7)", () => {
 
   it("без строки — двоеточие, без файла — ни чипа, ни ссылки", () => {
     const { rerender } = render(
-      <StatusLine state="bad" error={{ chipLabel: "1 · zabbix.yaml", chipIndex: 0, line: null, text: "связь ведёт в никуда" }} />,
+      <StatusLine state="bad" errors={[{ chipLabel: "1 · zabbix.yaml", chipIndex: 0, line: null, text: "связь ведёт в никуда" }]} />,
     );
     expect(screen.getByText(/Проблема в файле/).textContent).toBe(
       "Проблема в файле 1 · zabbix.yaml: связь ведёт в никуда.");
     rerender(
-      <StatusLine state="bad" error={{ chipLabel: null, chipIndex: null, line: null, text: "входы не имеют общих корневых узлов" }} />,
+      <StatusLine state="bad" errors={[{ chipLabel: null, chipIndex: null, line: null, text: "входы не имеют общих корневых узлов" }]} />,
     );
     expect(screen.getByText("входы не имеют общих корневых узлов.")).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
@@ -60,12 +60,38 @@ describe("StatusLine (§2, Р7)", () => {
     render(
       <StatusLine
         state="bad"
-        error={{ chipLabel: null, chipIndex: null, line: 42, text: "узел «api» объявлен дважды" }}
+        errors={[{ chipLabel: null, chipIndex: null, line: 42, text: "узел «api» объявлен дважды" }]}
       />,
     );
     expect(screen.getByText(/узел «api»/).textContent).toBe(
       "Строка 42: узел «api» объявлен дважды.");
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("несколько ошибок — маркированным списком, адрес файла — ссылкой на вход", async () => {
+    const onOpenFile = vi.fn();
+    render(
+      <StatusLine
+        state="bad"
+        errors={[
+          { chipLabel: "2 · a.yaml", chipIndex: 1, line: 3, text: "Некорректный YAML: ошибка разметки" },
+          { chipLabel: "4 · broken.yaml", chipIndex: 3, line: null, text: "nodes[0]: name — обязательная непустая строка" },
+          { chipLabel: null, chipIndex: null, line: null, text: "После слияния слишком много узлов" },
+        ]}
+        onOpenFile={onOpenFile}
+      />,
+    );
+    const пункты = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(пункты.map((li) => li.textContent)).toEqual([
+      "Файл 2 · a.yaml. Строка 3: Некорректный YAML: ошибка разметки.",
+      "Файл 4 · broken.yaml. nodes[0]: name — обязательная непустая строка.",
+      "После слияния слишком много узлов.",
+    ]);
+    // Одиночной строки «Проблема в файле» и отдельной ссылки при списке нет.
+    expect(screen.queryByText(/Проблема в файле/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Открыть файл/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Файл 4 · broken.yaml" }));
+    expect(onOpenFile).toHaveBeenCalledWith(3);
   });
 
   it("номер строки вынимается из текста ошибки — из начала и из скобок", () => {

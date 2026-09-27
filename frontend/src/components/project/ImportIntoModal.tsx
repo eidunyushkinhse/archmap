@@ -285,15 +285,15 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
 
           {checking && <p style={{ ...grayLine, marginTop: 8 }}>Считаем, что приедет…</p>}
           {/* Та же строка статуса, что в окне создания (§1.2): отказ разбора
-              архива — её красное состояние с первой ошибкой. */}
+              архива — её красное состояние со ВСЕМИ ошибками (несколько —
+              списком, правка Ф2г). Виновника-чипа здесь нет: архивы не
+              переключаются, их читают; имя архива — в начале текста ошибки. */}
           {fresh && (
             <StatusLine
               state={statusState(fresh.ok, questions.length + fresh.remainder.unfixable.length)}
-              error={fresh.ok ? undefined : {
-                // Виновника-чипа здесь нет: архивы не переключаются, их читают.
-                chipLabel: null, chipIndex: null,
-                ...splitErrorLine(fresh.errors[0] ?? "Не удалось прочитать архив"),
-              }}
+              errors={fresh.ok ? undefined : (
+                fresh.errors.length > 0 ? fresh.errors : ["Не удалось прочитать архив"]
+              ).map((e) => ({ chipLabel: null, chipIndex: null, ...splitErrorLine(e) }))}
             />
           )}
           {fresh?.ok && <Diff preview={fresh} />}
