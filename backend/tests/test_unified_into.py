@@ -558,6 +558,10 @@ def test_процесс_тёзка_приезжает_с_суффиксом_а_�
         BusinessProcess.project_id == проект.id).all())
     assert имена == ["Оформление", "Оформление (2)"]
     assert any("тёзка уже имеющегося" in w for w in превью.warnings)
+    # Ф2г: сырого «Проверьте» в окне нет — тёзка показан пунктом свёртки.
+    assert any(
+        "приедет под именем «Оформление (2)»" in u.text for u in превью.remainder.unfixable
+    )
     assert any("приехал под именем «Оформление (2)»" in w for w in отчёт.warnings)
 
 
@@ -632,6 +636,10 @@ def test_узлы_тёзки_не_путают_карту(db):
 
     assert превью.ok and превью.nodes_new == 0
     assert any("узлы-тёзки" in w for w in превью.warnings)
+    assert any(
+        u.text.startswith("В проекте несколько объектов «Ярмарка / orders»")
+        for u in превью.remainder.unfixable
+    )
     assert _снимок(db, проект.id) == было
     assert db.get(Node, первый.id).technology == "Python"
     assert db.get(Node, второй.id).technology == "Go"

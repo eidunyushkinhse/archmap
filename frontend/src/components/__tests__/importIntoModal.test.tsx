@@ -154,7 +154,9 @@ describe("догрузка архива · превью и споры", () => {
     expect(await screen.findByText(/Нового: 3 объекта · 2 связи/)).toBeInTheDocument();
     expect(screen.getByText(/Приедет:.*4 схемы логики/)).toBeInTheDocument();
     expect(screen.getByText("Ярмарка / billing")).toBeInTheDocument();
-    expect(screen.getByText(/тёзка уже имеющегося/)).toBeInTheDocument();
+    // Ф2г: сырых строк «Проверьте» в окне нет — тёзку показывает свёртка
+    // «Придется подправить вручную» пунктом с бэка (remainder.unfixable).
+    expect(screen.queryByText(/тёзка уже имеющегося/)).toBeNull();
 
     // Спор задан ВОПРОСОМ: прежней секции с радиокнопками нет, кандидаты
     // подписаны источником знания, живой — «Из проекта» (§4.7).

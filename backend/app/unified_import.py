@@ -911,6 +911,34 @@ _FRIENDLY: dict[str, tuple[re.Pattern[str], Callable[[re.Match[str]], str]]] = {
 _TAIL_RE = re.compile(r"^…ещё (?P<n>\d+) таких")
 
 
+_PROCESS_MANY = re.compile(r"^процесс «(?P<name>.+?)» есть в нескольких входах \((?P<labels>.+?)\) — ")
+_PROCESS_LIVE = re.compile(r"^процесс «(?P<name>.+?)» из входа «(?P<label>.+?)» — тёзка уже имеющегося")
+_LIVE_NAMESAKES = re.compile(r"^узлы-тёзки «(?P<path>.+?)» слились в один")
+
+
+def friendly_process_note(text: str) -> str:
+    """Пункт свёртки из замечаний о тёзках процессов (создание и догрузка) и о
+    тёзках среди живых узлов (догрузка). Незнакомая строка — как есть."""
+    if (m := _PROCESS_MANY.search(text)) is not None:
+        return (
+            f"Процесс «{m['name']}» есть в нескольких файлах ({m['labels']}). Процессы не "
+            f"объединяются, поэтому второй приедет под именем «{m['name']} (2)». Если это "
+            "один и тот же процесс, лишний нужно будет удалить вручную."
+        )
+    if (m := _PROCESS_LIVE.search(text)) is not None:
+        return (
+            f"Процесс «{m['name']}» из «{m['label']}» совпадает по имени с уже имеющимся в "
+            f"проекте и приедет под именем «{m['name']} (2)». Если это один и тот же "
+            "процесс, лишний нужно будет удалить вручную."
+        )
+    if (m := _LIVE_NAMESAKES.search(text)) is not None:
+        return (
+            f"В проекте несколько объектов «{m['path']}», и знание из архива приедет "
+            "только к первому из них. Остальные останутся как были."
+        )
+    return text
+
+
 def friendly_remark(text: str) -> str:
     """Пункт свёртки из сырой строки замечания (не хвоста); незнакомый класс или
     неразобранная строка — сама строка как есть."""
@@ -1196,6 +1224,15 @@ def _unfixable(
         item = UnfixableOut(id=f"remark|{i}", text=friendly_remark(text), file=owner)
         out.append(item)
         last[cls] = item
+    # Верхнеуровневые замечания плана (тёзки процессов разных входов) адресовать
+    # входу нельзя, и раньше при создании они не показывались нигде. В догрузке
+    # тёзок считает она сама (unified_into._process_notes: знает копии живых) —
+    # там этот пункт не нужен.
+    if current is None:
+        out.extend(
+            UnfixableOut(id=f"plan|{j}", text=friendly_process_note(w))
+            for j, w in enumerate(plan.warnings)
+        )
     for k, remarks in enumerate(plan.input_remarks):
         if k == current:
             continue

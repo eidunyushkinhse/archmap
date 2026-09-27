@@ -48,11 +48,3 @@ export function allErrors(
   ).map((e) => ({ chipLabel: null, chipIndex: null, ...splitErrorLine(e) }));
   return [...пофайловые, ...общие];
 }
-
-/**
- * Строки, ставшие вопросами разбора, с экрана уходят (Р3): иначе одно и то же
- * пользователь читает дважды — вопросом и замечанием, причём замечание советует
- * «поправьте после импорта вручную», хотя вопрос закрывает это здесь же.
- */
-export const withoutConverted = (items: string[], converted: string[]): string[] =>
-  converted.length === 0 ? items : items.filter((s) => !converted.includes(s));

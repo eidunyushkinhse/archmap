@@ -22,7 +22,7 @@ import { NoteList } from "../docsImport/agentModalReport";
 import {
   head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
 } from "../docsImport/agentModalShared";
-import { statusState, withoutConverted } from "./importRemarks";
+import { statusState } from "./importRemarks";
 import {
   BulkBox, RemainderBlock, StatusLine, UnfixableFold, buildQuestions, bulkAnswers,
   hasMineDisputes, pruneAnswers, splitErrorLine, toDecisions,
@@ -346,9 +346,6 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
 
 // Дифф превью: числа тут про то, что ПОЯВИТСЯ, а не про содержимое архивов.
 function Diff({ preview }: { preview: IntoPreviewOut }) {
-  // Строки, ставшие вопросами разбора, из «Проверьте» уходят (Р3): их закрывает
-  // ответ, а не правка архива — читать одно и то же дважды незачем.
-  const проверьте = withoutConverted(preview.warnings, preview.remainder.converted_warnings);
   const families = familyLine(preview.families);
   const появятся = preview.new_nodes;
   const найдены = preview.matched_nodes;
@@ -393,7 +390,8 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
           )}
         </div>
       )}
-      {проверьте.length > 0 && <NoteList title="Проверьте" items={проверьте} />}
+      {/* Сырых строк «Проверьте» здесь больше нет (Ф2г): всё, что не стало вопросом,
+          показывает свёртка «Придется подправить вручную» дружелюбными пунктами. */}
     </div>
   );
 }

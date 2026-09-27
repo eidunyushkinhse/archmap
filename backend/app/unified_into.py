@@ -65,6 +65,7 @@ from app.schemas.unified_import import (
     IntoPreviewOut,
     NewNodeOut,
     RemainderOut,
+    UnfixableOut,
     UnifiedFamilyCountsOut,
 )
 
@@ -96,6 +97,7 @@ from app.unified_import import (
     _bump,
     build_unified_plan,
     family_candidate_out,
+    friendly_process_note,
     remainder_from_plan,
 )
 from app.view_state import bump_graph_rev, bump_meta_rev
@@ -392,6 +394,13 @@ def into_preview(into: IntoPlan) -> IntoPreviewOut:
         # Остаток — только с участием архива (Р3): чисто живой остаток это дело
         # панели незавершённости, а не догрузки.
         remainder = remainder_from_plan(plan, SELF_ORIGIN)
+        # Замечания самой догрузки (тёзки живых узлов и процессов) — в ту же
+        # свёртку: сырого списка «Проверьте» в окне больше нет (Ф2г).
+        remainder.unfixable.extend(
+            UnfixableOut(id=f"into|{j}", text=friendly_process_note(w))
+            for j, w in enumerate(into.warnings)
+            if w.startswith(("процесс «", "узлы-тёзки «"))
+        )
     # Живые узлы, К КОТОРЫМ ЧТО-ТО ЕДЕТ: у них вклад не только свой (вход №0), но и
     # хотя бы одного архива. Узел, который нашёл сам себя и больше ничей, — это не
     # находка догрузки, а вся остальная схема: перечислять её значит топить дифф.
