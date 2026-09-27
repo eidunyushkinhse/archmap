@@ -165,7 +165,7 @@ describe("догрузка архива · превью и споры", () => {
 
     // Спор задан ВОПРОСОМ: прежней секции с радиокнопками нет, кандидаты
     // подписаны источником знания, живой — «Из проекта» (§4.7).
-    expect(screen.getByText("Есть вопросы")).toBeInTheDocument();
+    expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
       "У объекта «Оформление заказа» в разных источниках разные схемы с одинаковым"

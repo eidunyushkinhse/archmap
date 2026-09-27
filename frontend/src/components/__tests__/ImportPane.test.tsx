@@ -316,7 +316,7 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
     expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
   });
 
-  it("есть вопросы — статус зовёт их разобрать, блок показывает первый", () => {
+  it("есть вопросы — статус «не всё сошлось», блок показывает первый", () => {
     render(
       <Harness
         initial={["nodes: a"]}
@@ -325,11 +325,11 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
       />,
     );
 
-    expect(screen.getByText("Есть вопросы")).toBeInTheDocument();
+    expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     expect(screen.getByText("вопрос 1 из 1")).toBeInTheDocument();
   });
 
-  it("незакрываемое замечание тоже переводит статус в «Есть вопросы»", () => {
+  it("незакрываемое замечание без вопросов — тоже «Не всё сошлось идеально»", () => {
     render(
       <Harness
         initial={["nodes: a"]}
@@ -346,7 +346,10 @@ describe("статус ввоза вместо сводки (§2 ТЗ, Ф-E)", (
       />,
     );
 
-    expect(screen.getByText("Есть вопросы")).toBeInTheDocument();
+    expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
+    // Ф2г-2: состояние бывает и без вопросов — прежнее «Есть вопросы» тут врало бы.
+    expect(screen.queryByText("Есть вопросы")).toBeNull();
+    expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull();
     expect(screen.getByRole("button", { name: "Придется подправить вручную (1)" }))
       .toBeInTheDocument();
   });

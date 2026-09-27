@@ -19,7 +19,7 @@ describe("StatusLine (§2, Р7)", () => {
     const { rerender } = render(<StatusLine state="ok" />);
     expect(screen.getByText("Готово к импорту")).toBeInTheDocument();
     rerender(<StatusLine state="ask" />);
-    expect(screen.getByText("Есть вопросы")).toBeInTheDocument();
+    expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     expect(screen.getByText("?")).toBeInTheDocument();
     rerender(<StatusLine state="bad" />);
     expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();

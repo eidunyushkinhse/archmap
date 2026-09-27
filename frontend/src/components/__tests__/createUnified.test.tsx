@@ -231,7 +231,7 @@ describe("единый ввоз · создание проекта", () => {
       new File(["b"], "b.yaml", { type: "application/yaml" }),
     );
 
-    expect(await screen.findByText("Есть вопросы", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("вопрос 1 из 2")).toBeInTheDocument();
     // Вопрос о поле: значения вариантами, источник — подписью.
     await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
@@ -259,7 +259,7 @@ describe("единый ввоз · создание проекта", () => {
       new File(["a"], "a.yaml", { type: "application/yaml" }),
       new File(["b"], "b.yaml", { type: "application/yaml" }),
     );
-    await screen.findByText("Есть вопросы", {}, { timeout: 3000 });
+    await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 });
     await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
 
     // Правка YAML пересчитывает превью: тот же вопрос — ответ на месте.
