@@ -49,7 +49,7 @@ from app.import_merge import (
     warn_content,
 )
 from app.import_yaml import ParsedImport, parse_import
-from app.mmd_header import parse_mmd_header, strip_header
+from app.mmd_header import fix_unpaired_brackets, parse_mmd_header, strip_header
 from app.schemas.project import FileRemarksOut, ImportPreviewOut, MergedNodeOut
 from app.schemas.unified_import import (
     ComponentOut,
@@ -341,7 +341,9 @@ def _collect(inp: _Input, origin: int, res: _Resolver, remarks: list[str]) -> li
             name=name,
             kind=header.kind or "operation",
             operation=header.operation,
-            body=strip_header(content).lstrip("\n"),
+            # Фигуру с непарной скобкой чиним молча: архив — наш формат, вклад семьи не
+            # несёт замечаний, а схема без починки не рендерится вовсе.
+            body=fix_unpaired_brackets(strip_header(content).lstrip("\n"))[0],
         ))
 
     # ── Структура БД / каналы / конфигурация: родные парсеры, адрес — в файле.

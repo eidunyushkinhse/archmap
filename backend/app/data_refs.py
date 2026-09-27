@@ -92,8 +92,15 @@ _MARKER_WORDS = "|".join(w.replace(" ", r"\s+") for w in _MARKER_MODE)
 # пометки. Смешанные слитные формы («пишет/публикует:») грамматика не запрещает —
 # каждая половина просто резолвится по своему каталогу.
 _MENTION = re.compile(
-    rf"(?i)\b({_MARKER_WORDS})((?:\s*/\s*(?:{_MARKER_WORDS}))*)\s*:\s*([^\n\"\]\)\}}<]*)"
+    rf"(?i)\b({_MARKER_WORDS})((?:\s*/\s*(?:{_MARKER_WORDS}))*)\s*:\s*([^\n\"\]\)\}}<|]*)"
 )
+# Пометка в подписи РЕБРА без кавычек не имеет своего терминатора: за ней сразу идёт
+# стрелка mermaid («A -- читает: orders --> B», петля «J -.зависит от: X.->J»), и
+# хвост уезжал в ссылку («orders --> B», «X.->J» — находка P4 замеров docs-quality).
+# Режем по началу стрелки: «--», «==», «.-»/«-.» (пунктир) или пробел перед
+# стрелочным символом. Подпись «-->|пишет: x|» закрывает «|» — он в терминаторах выше.
+# В именах таблиц и каналов эти пары не встречаются: одиночные точка и дефис — да.
+_EDGE_TAIL = re.compile(r"\s*(?:-{2,}|={2,}|\.-|-\.)|\s+[-=.>]")
 
 
 @dataclass(frozen=True)
@@ -122,7 +129,7 @@ def parse_data_refs(content: str) -> list[DataRefIn]:
     seen: set[tuple[str, str]] = set()
     for m in _MENTION.finditer(content):
         modes = _modes_of(m.group(1) + m.group(2))
-        for raw in m.group(3).split(","):
+        for raw in _EDGE_TAIL.split(m.group(3), maxsplit=1)[0].split(","):
             ref = " ".join(raw.split())  # схлопнуть переносы/двойные пробелы
             if not ref:
                 continue
@@ -187,6 +194,10 @@ class ResolvedRef:
 # маркера («читает: договор из архива») токеном не является и резолв не пройдёт —
 # осознанно: маркер обещает факт, невыполненное обещание должно быть видно.
 _TOKEN = re.compile(r"^[\w.\-]+$")
+# У каналов в имени законно и двоеточие: ключи Redis Pub/Sub («timeline:public»,
+# «timeline:hashtag:rails») — норма именования, как точка у Kafka. Таблицам его не
+# даём: там «x:y» не бывает, и лишняя гибкость только маскировала бы опечатки.
+_CHANNEL_TOKEN = re.compile(r"^[\w.\-:]+$")
 
 
 def _node_matches(path: str, qualifier: str) -> bool:
@@ -233,13 +244,15 @@ def _pick(
 
     dotted_name — «точка может быть ЧАСТЬЮ ИМЕНИ» (каналы: «orders.created» —
     норма именования Kafka). Асимметрия осознанная: у таблиц точки в именах редки,
-    и лишние гипотезы там только плодили бы неоднозначность на ровном месте.
+    и лишние гипотезы там только плодили бы неоднозначность на ровном месте. Тот же
+    флаг пускает в имя двоеточие (_CHANNEL_TOKEN) — оно делителем не служит никогда.
     """
     qualifier, _, bare = ref.rpartition(" / ")
     parts = bare.split(".")
+    token = _CHANNEL_TOKEN if dotted_name else _TOKEN
     # Пустой сегмент («orders.», «.status», «a..b») — битая ссылка, а не «таблица
     # с неизвестной колонкой»: гадать о намерении не берёмся.
-    if not _TOKEN.match(bare) or any(not p for p in parts):
+    if not token.match(bare) or any(not p for p in parts):
         return _Pick(entry=None, member=None)
 
     scope = (

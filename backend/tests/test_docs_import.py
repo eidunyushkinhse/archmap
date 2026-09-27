@@ -1384,3 +1384,11 @@ def test_перечень_адресов_в_замечании_ограниче�
     [ошибка] = plan.errors
     assert ошибка.count("«") == MAX_NODES_HINT
     assert "и ещё" in ошибка
+
+
+def test_pkg_from_mmd_чинит_ромб_и_говорит_об_этом():
+    content = _mmd("POST /orders", body='graph TD\n  A --> B{"Оплачено?"]\n  B -- да --> C["Отгрузить"]\n')
+    pkg, notes = pkg_from_mmd("a.mmd", content)
+
+    assert 'B{"Оплачено?"}' in pkg.entries[0].logic[0].mermaid
+    assert notes == ["a.mmd: исправлено фигур с непарной скобкой («{…]» или «[…}»): 1"]

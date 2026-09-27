@@ -5,7 +5,12 @@
 бы, что агент честно пишет шапку, а мы её молча не читаем.
 """
 
-from app.mmd_header import MmdHeader, example_mmd, parse_mmd_header
+from app.mmd_header import (
+    MmdHeader,
+    example_mmd,
+    fix_unpaired_brackets,
+    parse_mmd_header,
+)
 
 
 def test_пример_для_промпта_разбирается_обратно() -> None:
@@ -112,3 +117,42 @@ def test_шапка_с_замечанием_не_считается_пустой
     h = parse_mmd_header("%% archmap-namee: Опечатка\ngraph TD\n A-->B\n")
 
     assert not h.is_empty
+
+
+def test_ромб_с_непарной_скобкой_чинится() -> None:
+    # Полевые формы из замеров docs-quality (k3 zulip/a, k2b zabbix/a).
+    text = (
+        'graph TD\n'
+        '  G --> H{"Клиент зеркалирует<br>сообщения?"]\n'
+        '  H -- да --> I["Сохранить"]\n'
+        '  AX{"Сигнал<br>shutdown?"]\n'
+    )
+    fixed, n = fix_unpaired_brackets(text)
+
+    assert n == 2
+    assert 'H{"Клиент зеркалирует<br>сообщения?"}' in fixed
+    assert 'AX{"Сигнал<br>shutdown?"}' in fixed
+    assert 'I["Сохранить"]' in fixed
+
+
+def test_прямоугольник_с_непарной_скобкой_чинится() -> None:
+    # Зеркальная форма из замера k5 (grafana/e): прямоугольник закрыт фигурной скобкой.
+    text = (
+        'graph TD\n'
+        '  AH -- нет --> AJ["Обновить метрику<br>зависит от: evaluation_timeout"}\n'
+        '  AJ --> AK{"Повторить?"]\n'
+    )
+    fixed, n = fix_unpaired_brackets(text)
+
+    assert n == 2
+    assert 'AJ["Обновить метрику<br>зависит от: evaluation_timeout"]' in fixed
+    assert 'AK{"Повторить?"}' in fixed
+
+
+def test_валидная_схема_не_меняется() -> None:
+    text = example_mmd() + (
+        '  X{{"шестиугольник"}}\n  Y[("цилиндр")]\n  Z{"ромб"} --> W["шаг"]\n'
+        '  V[["подпрограмма"]]\n  U[/"параллелограмм"/]\n'
+    )
+
+    assert fix_unpaired_brackets(text) == (text, 0)
