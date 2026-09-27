@@ -269,8 +269,16 @@
 .rq-ov-bd { padding: 14px 16px; overflow: auto; flex: 1; min-height: 0; }
 /* Сцена пан/зума (схема логики): своя высота, а не «по содержимому» — иначе у
    короткой диаграммы не остаётся места, чтобы её подвинуть или приблизить.
-   Остальное — классы docOverlay.css: жесты общие с превью доков. */
-.rq-ov-stage { flex: 1; min-height: 0; height: min(62vh, 520px); }
+   Остальное — классы docOverlay.css: жесты общие с превью доков.
+   ⚠️ БАГ Ф2г («Открыть» показывал шапку и подвал без диаграммы): сцена — это
+   ещё и .doc-pv, а там flex: 1, то есть flex-basis 0%. В колонке окна без
+   заданной высоты (только max-height) такой basis считается от содержимого, а
+   содержимое сцены — абсолютная обёртка пан/зума (.doc-pz), ноль. height при
+   этом игнорируется, сцена схлопывалась в 0, а fitInitial мерил пустую коробку.
+   Поэтому basis — auto (берёт height; сжаться под max-height окна можно), а
+   селектор сильнее одиночного .doc-pv: исход не зависит от порядка подключения
+   CSS. Сторож — docViewerStage.test.ts. */
+.rq-ov-w .rq-ov-stage { flex: 0 1 auto; min-height: 0; height: min(62vh, 520px); }
 .rq-ov-pre {
   margin: 0; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #0f172a; white-space: pre-wrap;
