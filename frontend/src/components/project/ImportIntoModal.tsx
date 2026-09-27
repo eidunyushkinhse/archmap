@@ -18,7 +18,6 @@ import { projectsApi } from "../../api/projects";
 import { isConflict } from "../../api/client";
 import { plural } from "../../ui/plural";
 import { useFileDrop } from "../docsImport/useFileDrop";
-import { NoteList } from "../docsImport/agentModalReport";
 import {
   head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
 } from "../docsImport/agentModalShared";
@@ -397,7 +396,7 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
 }
 
 // Отчёт применения: «сколько записей тронуто» (форма догрузки), отчёты семей —
-// родные. Замечания видны до закрытия окна.
+// родные. То, что придётся поправить руками, — свёрткой до закрытия окна.
 function ApplyReport({ result }: { result: IntoApplyOut }) {
   const linked = result.processes.reduce((s, p) => s + p.doc_linked, 0);
   const unresolved = result.processes.reduce((s, p) => s + p.doc_unresolved, 0);
@@ -438,7 +437,10 @@ function ApplyReport({ result }: { result: IntoApplyOut }) {
       {result.resolved_conflicts > 0 && (
         <div>Разрешено споров содержимого: {result.resolved_conflicts}</div>
       )}
-      {result.warnings.length > 0 && <NoteList title="Замечания" items={result.warnings} />}
+      {/* Сырого списка «Замечания» нет (Ф2г-2): информация о сделанном видна по
+          счётчикам выше, а то, что требует рук, — пунктами той же свёртки, что в
+          превью. Сырые строки (result.warnings) остаются в ответе для MCP. */}
+      <UnfixableFold items={result.unfixable} />
     </div>
   );
 }

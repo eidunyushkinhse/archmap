@@ -172,9 +172,13 @@ describe("единый ввоз · создание проекта", () => {
     // Имя из манифеста — переопределения не подсовываем.
     expect(опции?.name).toBeUndefined();
 
-    // Сводка и замечания видны ДО перехода — молча провалиться нельзя.
+    // Сводка и замечания видны ДО перехода — молча провалиться нельзя; замечания —
+    // свёрткой «Придется подправить вручную», а не сырым списком (Ф2г-2).
     expect(await screen.findByText("«Ярмарка» создан")).toBeInTheDocument();
-    expect(screen.getByText(/Нет такого/)).toBeInTheDocument();
+    expect(screen.queryByText("Замечания")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Придется подправить вручную (1)" }));
+    expect(screen.getByRole("listitem")).toHaveTextContent(
+      "b.zip: docs/x.mmd: узел «Нет такого» не найден — файл пропущен");
     expect(onCreated).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Открыть проект" }));

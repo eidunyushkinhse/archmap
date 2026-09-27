@@ -283,8 +283,14 @@ describe("догрузка архива · превью и споры", () => {
 
     expect(await screen.findByText("Архивы догружены")).toBeInTheDocument();
     expect(screen.getByText(/Создано объектов: 3 · связей: 2/)).toBeInTheDocument();
-    // Замечания видны ДО закрытия — молча их проглотить нельзя.
-    expect(screen.getByText(/Нет такого/)).toBeInTheDocument();
+    // Замечания видны ДО закрытия — свёрткой «Придется подправить вручную», а не
+    // сырым списком «Замечания» (Ф2г-2): сырые строки ответа на экран не попадают.
+    expect(screen.queryByText("Замечания")).toBeNull();
+    expect(screen.queryByText("docs/x.mmd: узел «Нет такого» не найден — файл пропущен"))
+      .toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Придется подправить вручную (1)" }));
+    expect(screen.getByRole("listitem")).toHaveTextContent(
+      "b.zip: docs/x.mmd: узел «Нет такого» не найден — файл пропущен");
     expect(screen.getByText("Разрешено споров содержимого: 1")).toBeInTheDocument();
     expect(onApplied).not.toHaveBeenCalled();
 
@@ -311,6 +317,20 @@ describe("догрузка архива · отказ и свёртка (пра�
       "c.zip: В архиве нет файла C4 (contents.c4).",
     ]);
     expect(применить()).toBeDisabled();
+  });
+
+  it("отчёт без замечаний — ни свёртки, ни пустого списка", async () => {
+    vi.mocked(projectsApi.importIntoApply).mockResolvedValue({
+      ...ОТЧЁТ, warnings: ["узел «Ярмарка / orders»: поле «роль» пустовало — залито из архива"],
+      unfixable: [],
+    });
+    await открыть(zip("b.zip"));
+    await screen.findByText(/Нового: 3 объекта/);
+    await userEvent.click(применить());
+
+    expect(await screen.findByText("Архивы догружены")).toBeInTheDocument();
+    expect(screen.queryByText(/Придется подправить вручную/)).toBeNull();
+    expect(screen.queryByText(/пустовало/)).toBeNull();
   });
 
   it("незакрываемое — свёрткой «Придется подправить вручную» без кнопок для агента", async () => {

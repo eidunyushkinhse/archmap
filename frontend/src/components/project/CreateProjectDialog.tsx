@@ -11,7 +11,7 @@ import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import PromptTriple from "../docsImport/PromptTriple";
 import C4Preview from "./C4Preview";
 import ImportPane from "./ImportPane";
-import { buildQuestions, pruneAnswers, toDecisions } from "./remainder";
+import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
 import type { Answer, Answers } from "./remainder";
 import "./createProject.css";
 
@@ -593,14 +593,10 @@ function ImportReport({ result }: { result: ArchiveImportResult }) {
           Разрешено споров содержимого: {result.resolved_conflicts}
         </div>
       )}
-      {result.warnings.length > 0 && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontWeight: 600, color: "#b45309" }}>Замечания</div>
-          <ul style={{ margin: "4px 0 0", paddingLeft: 18, color: "#64748b", fontSize: 12.5 }}>
-            {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
-          </ul>
-        </div>
-      )}
+      {/* Сырого списка «Замечания» нет (Ф2г-2): то, что требует рук, — той же
+          свёрткой, что в превью; информация о сделанном видна по счётчикам. Сырые
+          строки (result.warnings) остаются в ответе для MCP. */}
+      <UnfixableFold items={result.unfixable} />
     </div>
   );
 }
