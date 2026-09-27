@@ -60,7 +60,6 @@ export default function QuestionBody(p: Props) {
           {c.allow_all && (
             <Option
               main={<b>Добавить все</b>}
-              sub="будут пронумерованы"
               selected={choice === "all"}
               onClick={() => p.onResolve(q.id, "all")}
             />

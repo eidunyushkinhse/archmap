@@ -237,7 +237,7 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
 const пара: FuzzyPairOut = {
   id: "pair|Пользователь Zabbix|Пользователь",
   a_path: "Пользователь Zabbix", b_path: "Пользователь",
-  a_source: "От агента Zabbix", b_source: "Из проекта",
+  a_source: "Из файла zabbix.yaml", b_source: "Из проекта",
   a_edges: 2, b_edges: 1, where: "на верхнем уровне", a_current: false, b_current: true,
 };
 
@@ -249,7 +249,7 @@ function MergeStepStand({ onApply }: { onApply: (name: string) => void }) {
 describe("MergeNameStep (§4.5, шаг 2)", () => {
   it("подписывает варианты источником и числом связей", () => {
     render(<MergeStepStand onApply={vi.fn()} />);
-    expect(screen.getByText("От агента Zabbix · 2 связи")).toBeInTheDocument();
+    expect(screen.getByText("Из файла zabbix.yaml · 2 связи")).toBeInTheDocument();
     expect(screen.getByText("Из проекта · 1 связь")).toBeInTheDocument();
   });
 
@@ -284,7 +284,7 @@ describe("DocViewer (§5.5, Р8)", () => {
     const onPick = vi.fn();
     const { unmount } = render(
       <DocViewer
-        title="Оформление заказа" source="От агента Zabbix" tag="mermaid · flowchart"
+        title="Оформление заказа" source="Из файла zabbix.yaml" tag="mermaid · flowchart"
         body="flowchart TD" diagram onPick={onPick} onClose={onClose} {...props}
       />,
     );
@@ -295,7 +295,7 @@ describe("DocViewer (§5.5, Р8)", () => {
     вьюер();
     expect(screen.getByTestId("mmd")).toHaveTextContent("flowchart TD");
     expect(screen.getByText(/Оформление заказа/)).toBeInTheDocument();
-    expect(screen.getByText(/От агента Zabbix/)).toBeInTheDocument();
+    expect(screen.getByText(/Из файла zabbix.yaml/)).toBeInTheDocument();
     expect(screen.getByText("mermaid · flowchart")).toBeInTheDocument();
   });
 

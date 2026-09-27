@@ -21,22 +21,22 @@ import type { Answers, Resolutions } from "../project/remainder/questions";
 import { humanValue, sourcesPhrase } from "../project/remainder/questionText";
 
 const кандидат = (over: Partial<RemainderCandidateOut> = {}): RemainderCandidateOut => ({
-  origin: 0, origin_label: "1 · zabbix.yaml", source_label: "От агента Zabbix",
+  origin: 0, origin_label: "1 · zabbix.yaml", source_label: "Из файла zabbix.yaml",
   value: "Сервер мониторинга", current: false, ...over,
 });
 
 const семья = (over: Partial<FamilyConflictOut> = {}): FamilyConflictOut => ({
   id: "doc|Zabbix/server|Опрос", family: "doc", node_path: "Zabbix / server", key: "Опрос",
   candidates: [
-    { origin: 0, origin_label: "1 · zabbix.yaml", source_label: "От агента Zabbix", summary: "12 строк", body: "flowchart TD", truncated: false, current: false },
-    { origin: 1, origin_label: "2 · plugin.zip", source_label: "Из архива плагина", summary: "20 строк", body: "flowchart LR", truncated: false, current: false },
+    { origin: 0, origin_label: "1 · zabbix.yaml", source_label: "Из файла zabbix.yaml", summary: "12 строк", body: "flowchart TD", truncated: false, current: false },
+    { origin: 1, origin_label: "2 · plugin.zip", source_label: "Из архива plugin.zip", summary: "20 строк", body: "flowchart LR", truncated: false, current: false },
   ],
   default: "all", allow_all: true, ...over,
 });
 
 const поле = (over: Partial<FieldDisputeOut> = {}): FieldDisputeOut => ({
   id: "field|Zabbix/server|description", node_path: "Zabbix / server", field: "description",
-  candidates: [кандидат(), кандидат({ origin: 1, source_label: "Из архива плагина", value: "Ядро Zabbix" })],
+  candidates: [кандидат(), кандидат({ origin: 1, source_label: "Из архива plugin.zip", value: "Ядро Zabbix" })],
   default: 0, ...over,
 });
 
@@ -57,7 +57,7 @@ const группа = (over: Partial<IsolatedGroupOut> = {}): IsolatedGroupOut =>
 
 const пара = (over: Partial<FuzzyPairOut> = {}): FuzzyPairOut => ({
   id: "pair|Пользователь Zabbix|Пользователь", a_path: "Пользователь Zabbix", b_path: "Пользователь",
-  a_source: "От агента Zabbix", b_source: "Из архива плагина", a_edges: 2, b_edges: 1,
+  a_source: "Из файла zabbix.yaml", b_source: "Из архива plugin.zip", a_edges: 2, b_edges: 1,
   where: "на верхнем уровне", a_current: false, b_current: false, ...over,
 });
 
@@ -119,19 +119,19 @@ describe("тексты спора содержимого (§4.1)", () => {
 
   it("дефолт «все» обещает нумерацию, дефолт-кандидат — имя источника", () => {
     expect(текст("doc").ifLeft).toBe(
-      "Если не отвечать: будут добавлены все схемы, при добавлении им будут назначены номера.");
+      "Если не отвечать, то будут добавлены все схемы, и при добавлении им будут назначены номера.");
     const один = buildQuestions({
       family_conflicts: [семья({ default: "cand:1", allow_all: false })], remainder: остаток(),
     })[0]!;
     expect(один.ifLeft).toBe(
-      "Если не отвечать: в проект попадёт вариант «Из архива плагина», второй будет отброшен.");
+      "Если не отвечать, то в проект попадёт вариант «Из архива plugin.zip», а второй будет отброшен.");
   });
 
   it("трое спорщиков — «остальные будут отброшены»", () => {
     const трое = семья({
       default: "cand:0", allow_all: false,
       candidates: [...семья().candidates, {
-        origin: 2, origin_label: "3 · grafana.yaml", source_label: "От агента Grafana",
+        origin: 2, origin_label: "3 · grafana.yaml", source_label: "Из файла grafana.yaml",
         summary: "8 строк", body: "flowchart TD", truncated: false, current: false,
       }],
     });
@@ -178,13 +178,13 @@ describe("тексты спора полей (§4.2)", () => {
       candidates: [кандидат(), кандидат({ origin: 1 }), кандидат({ origin: 2 })],
     });
     expect(трое.title).toContain("по-разному в трёх источниках");
-    expect(трое.ifLeft).toContain("остальные будут отброшены");
+    expect(трое.ifLeft).toContain(", а остальные будут отброшены.");
   });
 
   it("сноска называет значение, источник и судьбу второго", () => {
     expect(текст({}).ifLeft).toBe(
-      "Если не отвечать: в проект попадёт значение «Сервер мониторинга» (От агента Zabbix),"
-      + " второе будет отброшено.");
+      "Если не отвечать, то в проект попадёт значение «Сервер мониторинга» (Из файла zabbix.yaml),"
+      + " а второе будет отброшено.");
   });
 
   it("дефолт догрузки — кандидат живого проекта", () => {
@@ -216,14 +216,14 @@ describe("тексты жестов (§4.3–4.5)", () => {
       family_conflicts: [], remainder: остаток({ container_edges: [связь()] }),
     })[0]!;
     expect(создание.ifLeft).toBe(
-      "Если не отвечать: связь останется на контейнере и после создания проекта"
-      + " будет ждать в панели незавершённости — перевесить можно там.");
+      "Если не отвечать, то связь останется на контейнере и после создания проекта"
+      + " будет ждать в панели незавершённости. Перевесить её можно будет там.");
     const догрузка = buildQuestions({
       family_conflicts: [], remainder: остаток({ container_edges: [связь()] }), mode: "into",
     })[0]!;
     expect(догрузка.ifLeft).toBe(
-      "Если не отвечать: связь останется на контейнере и после догрузки"
-      + " будет ждать в панели незавершённости — перевесить можно там.");
+      "Если не отвечать, то связь останется на контейнере и после догрузки"
+      + " будет ждать в панели незавершённости. Перевесить её можно будет там.");
     // Остальные слова вопроса от окна не зависят: разбор один и тот же.
     expect(догрузка.title).toBe(создание.title);
     expect(догрузка.why).toBe(создание.why);
@@ -243,6 +243,9 @@ describe("тексты жестов (§4.3–4.5)", () => {
     expect(q.title).toBe("У 4 объектов нет связей с остальной схемой. Проведёте связь?");
     expect(q.why).toBe("По источникам невозможно установить, как эти объекты связаны с остальной схемой.");
     expect(q.context).toBe("«Плагин», «Датасорс», «Панель» и ещё 1");
+    expect(q.ifLeft).toBe(
+      "Если не отвечать, то группа останется без связей, и панель незавершённости"
+      + " покажет её как изолированную.");
   });
 
   it("похожие имена называют оба источника и место", () => {
@@ -250,8 +253,21 @@ describe("тексты жестов (§4.3–4.5)", () => {
     expect(q.title).toBe(
       "«Пользователь Zabbix» и «Пользователь» — похожие имена из разных источников."
       + " Это один объект или разные?");
-    expect(q.context).toBe("От агента Zabbix и Из архива плагина, оба на верхнем уровне");
-    expect(q.ifLeft).toContain("при следующем импорте вопрос повторится");
+    expect(q.context).toBe("Из файла zabbix.yaml и Из архива plugin.zip, оба на верхнем уровне");
+    expect(q.ifLeft).toBe(
+      "Если не отвечать, то останутся два объекта, и при следующем импорте вопрос повторится.");
+  });
+
+  it("ни одна сноска не опускает союз: «Если не отвечать, то …»", () => {
+    const все = buildQuestions({
+      family_conflicts: [семья(), семья({ id: "doc|b|x", default: "cand:0", allow_all: false })],
+      remainder: остаток({
+        field_conflicts: [поле()], container_edges: [связь()],
+        isolated_groups: [группа()], fuzzy_pairs: [пара()],
+      }),
+    });
+    expect(все.length).toBe(6);
+    for (const q of все) expect(q.ifLeft).toMatch(/^Если не отвечать, то /);
   });
 });
 
@@ -302,7 +318,7 @@ describe("состояние ответа и подпись в списке", ()
       "pair|Пользователь Zabbix|Пользователь": { kind: "merge", name: "Оператор" },
     };
     expect(answerLabel(content!, {}, { "doc|Zabbix/server|Опрос": "all" })).toBe("добавить все");
-    expect(answerLabel(content!, {}, { "doc|Zabbix/server|Опрос": "cand:1" })).toBe("Из архива плагина");
+    expect(answerLabel(content!, {}, { "doc|Zabbix/server|Опрос": "cand:1" })).toBe("Из архива plugin.zip");
     expect(answerLabel(content!, {}, {})).toBeNull();
     expect(answerLabel(field_!, answers, {})).toBe("Ядро Zabbix");
     expect(answerLabel(edge!, answers, {})).toBe("Поллер");
@@ -402,7 +418,7 @@ describe("массовые ответы догрузки (§7, Р10)", () => {
       default: "cand:0", allow_all: false,
       candidates: [
         { origin: 0, origin_label: "Текущий проект", source_label: "Из проекта", summary: "12 строк", body: "", truncated: false, current: true },
-        { origin: 1, origin_label: "1 · plugin.zip", source_label: "Из архива плагина", summary: "20 строк", body: "", truncated: false, current: false },
+        { origin: 1, origin_label: "1 · plugin.zip", source_label: "Из архива plugin.zip", summary: "20 строк", body: "", truncated: false, current: false },
       ],
     })],
     remainder: остаток({

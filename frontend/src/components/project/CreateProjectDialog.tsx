@@ -123,13 +123,16 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // от него же зависят tie-break C4-мерджа и дефолты споров, поэтому один и тот же
   // список уезжает и в превью, и в применение. Взаимный порядок yaml/zip на споры
   // не влияет: семьи фактов возят только архивы.
+  //
+  // Вставленный текстом YAML уезжает с ПУСТЫМ именем: выдуманное «Файл 2.yaml»
+  // бэк принял бы за имя файла, а у такого входа подпись источника — номер его
+  // чипа («Из файла 2», правка Ф2г). Роутер зовёт безымянный вход «вход N».
   const inputFiles = useMemo(() => {
     const texts = docs
       .map((text, i) => ({ text, name: docNames[i] ?? null }))
       .filter((d) => d.text.trim());
     return [
-      ...texts.map((d, i) =>
-        new File([d.text], d.name ?? `Файл ${i + 1}.yaml`, { type: "application/yaml" })),
+      ...texts.map((d) => new File([d.text], d.name ?? "", { type: "application/yaml" })),
       ...archives,
     ];
   }, [docs, docNames, archives]);

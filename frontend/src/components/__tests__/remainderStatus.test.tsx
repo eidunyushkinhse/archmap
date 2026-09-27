@@ -160,7 +160,7 @@ describe("BulkBox (§7, Р10)", () => {
     id: "field|Ярмарка/orders|description", node_path: "Ярмарка / orders", field: "description",
     candidates: [
       { origin: 0, origin_label: "Текущий проект", source_label: "Из проекта", value: "Моё", current: true },
-      { origin: 1, origin_label: "1 · plugin.zip", source_label: "Из архива плагина", value: "Из архива", current: false },
+      { origin: 1, origin_label: "1 · plugin.zip", source_label: "Из архива plugin.zip", value: "Из архива", current: false },
     ],
     default: 0, ...over,
   });

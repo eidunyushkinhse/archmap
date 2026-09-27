@@ -27,8 +27,8 @@ vi.mock("../MermaidRenderer", () => ({
 const семья: FamilyConflictOut = {
   id: "doc|Zabbix/server|Опрос", family: "doc", node_path: "Zabbix / server", key: "Опрос",
   candidates: [
-    { origin: 0, origin_label: "1 · zabbix.yaml", source_label: "От агента Zabbix", summary: "12 строк", body: "flowchart TD\n A-->B", truncated: false, current: false },
-    { origin: 1, origin_label: "2 · plugin.zip", source_label: "Из архива плагина", summary: "20 строк", body: "flowchart LR\n A-->C", truncated: false, current: false },
+    { origin: 0, origin_label: "1 · zabbix.yaml", source_label: "Из файла zabbix.yaml", summary: "12 строк", body: "flowchart TD\n A-->B", truncated: false, current: false },
+    { origin: 1, origin_label: "2 · plugin.zip", source_label: "Из архива plugin.zip", summary: "20 строк", body: "flowchart LR\n A-->C", truncated: false, current: false },
   ],
   default: "all", allow_all: true,
 };
@@ -36,8 +36,8 @@ const семья: FamilyConflictOut = {
 const поле: FieldDisputeOut = {
   id: "field|Zabbix/server|description", node_path: "Zabbix / server", field: "description",
   candidates: [
-    { origin: 0, origin_label: "1 · zabbix.yaml", source_label: "От агента Zabbix", value: "Ядро", current: false },
-    { origin: 1, origin_label: "2 · plugin.zip", source_label: "Из архива плагина", value: "Сервер опроса", current: false },
+    { origin: 0, origin_label: "1 · zabbix.yaml", source_label: "Из файла zabbix.yaml", value: "Ядро", current: false },
+    { origin: 1, origin_label: "2 · plugin.zip", source_label: "Из архива plugin.zip", value: "Сервер опроса", current: false },
   ],
   default: 0,
 };
@@ -55,7 +55,7 @@ const группа: IsolatedGroupOut = { id: "group|Плагин", node_paths: [
 
 const пара: FuzzyPairOut = {
   id: "pair|Пользователь Zabbix|Пользователь", a_path: "Пользователь Zabbix", b_path: "Пользователь",
-  a_source: "От агента Zabbix", b_source: "Из архива плагина",
+  a_source: "Из файла zabbix.yaml", b_source: "Из архива plugin.zip",
   a_edges: 2, b_edges: 1, where: "на верхнем уровне", a_current: false, b_current: false,
 };
 
@@ -104,11 +104,19 @@ describe("навигация по вопросам", () => {
     expect(screen.queryByRole("button", { pressed: true })).toBeNull();
   });
 
+  it("«Добавить все» — без подписи, сноска «Если не отвечать, то …» (правка Ф2г)", () => {
+    render(<Stand />);
+    expect(screen.getByRole("button", { name: "Добавить все" })).toHaveTextContent(/^Добавить все$/);
+    expect(screen.queryByText(/будут пронумерованы/)).toBeNull();
+    expect(screen.getByText(/^Если не отвечать, то /)).toHaveTextContent(
+      "Если не отвечать, то будут добавлены все схемы, и при добавлении им будут назначены номера.");
+  });
+
   it("ВЫБОР ВАРИАНТА НЕ ПЕРЕВОДИТ ДАЛЬШЕ", async () => {
     render(<Stand />);
-    await userEvent.click(screen.getByText("Из архива плагина"));
+    await userEvent.click(screen.getByText("Из архива plugin.zip"));
     expect(счётчик()).toBe("вопрос 1 из 5");
-    expect(screen.getByRole("button", { name: /Из архива плагина/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Из архива plugin.zip/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("«Назад» на первом вопросе выключена, «Дальше» на последнем — «Завершить»", async () => {
@@ -166,11 +174,11 @@ describe("навигация по вопросам", () => {
 describe("список всех вопросов и итог (§3, §8)", () => {
   it("список показывает ответы и открывает любой вопрос", async () => {
     render(<Stand />);
-    await userEvent.click(screen.getByText("Из архива плагина"));
+    await userEvent.click(screen.getByText("Из архива plugin.zip"));
     await userEvent.click(screen.getByRole("button", { name: "Все вопросы" }));
     const строки = screen.getAllByRole("button").filter((b) => b.className.includes("rq-ql-r"));
     expect(строки).toHaveLength(5);
-    expect(within(строки[0]!).getByText("Из архива плагина")).toBeInTheDocument();
+    expect(within(строки[0]!).getByText("Из архива plugin.zip")).toBeInTheDocument();
     expect(within(строки[1]!).getByText("—")).toBeInTheDocument();
     await userEvent.click(строки[4]!);
     expect(счётчик()).toBe("вопрос 5 из 5");
@@ -289,7 +297,7 @@ describe("двухшаговые вопросы (§4.6)", () => {
     // Ответ виден и правится: шаг 2 остаётся на экране с выбранным именем,
     // возвращаться уже некуда — «Назад к вопросу» нет.
     expect(screen.getByText("Как назвать склеенный объект?")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Пользователь.*Из архива плагина/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Пользователь.*Из архива plugin.zip/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("button", { name: "Назад к вопросу" })).toBeNull();
   });
 });

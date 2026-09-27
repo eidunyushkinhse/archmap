@@ -31,7 +31,7 @@ import "./remainder.css";
 interface Props {
   /** Ключ тела: имя схемы, путь спеки, имя канала или параметра. */
   title: string;
-  /** Источник кандидата: «От агента Grafana», «Из архива плагина», «Из проекта». */
+  /** Источник кандидата: «Из файла grafana.yaml», «Из архива plugin-a.zip», «Из проекта». */
   source: string;
   /** Тег справа от заголовка: «mermaid · flowchart», «openapi», «канал»… */
   tag: string;

@@ -76,8 +76,8 @@ const ПОЛЕ: FieldDisputeOut = {
   node_path: "Ярмарка / orders",
   field: "technology",
   candidates: [
-    { origin: 0, origin_label: "1 · a.yaml", source_label: "От агента Ярмарка", value: "Go", current: false },
-    { origin: 1, origin_label: "2 · b.yaml", source_label: "От агента Склад", value: "Rust", current: false },
+    { origin: 0, origin_label: "1 · a.yaml", source_label: "Из файла a.yaml", value: "Go", current: false },
+    { origin: 1, origin_label: "2 · b.yaml", source_label: "Из файла b.yaml", value: "Rust", current: false },
   ],
   default: 0,
 };
@@ -291,8 +291,10 @@ describe("единый ввоз · создание проекта", () => {
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));
 
     await waitFor(() => expect(projectsApi.unifiedPreview).toHaveBeenCalled(), { timeout: 3000 });
-    // Норматив порядка: непустые YAML в порядке чипов, затем архивы.
-    await waitFor(() => expect(входы()).toEqual(["Файл 1.yaml", "archmap.zip"]));
+    // Норматив порядка: непустые YAML в порядке чипов, затем архивы. Вставленный
+    // текстом YAML едет БЕЗ имени — подпись его источника бэк строит номером чипа
+    // («Из файла 1»), а не выдуманным «Файл 1.yaml» (правка Ф2г).
+    await waitFor(() => expect(входы()).toEqual(["", "archmap.zip"]));
 
     // name_source = "fields" — поля на месте, без имени создавать нечего.
     expect(await screen.findByPlaceholderText(ИМЯ)).toBeInTheDocument();
