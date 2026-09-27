@@ -2218,6 +2218,11 @@ export interface components {
              */
             warnings: string[];
             /**
+             * Unfixable
+             * @default []
+             */
+            unfixable: components["schemas"]["UnfixableOut"][];
+            /**
              * Resolved Conflicts
              * @default 0
              */
@@ -4276,6 +4281,11 @@ export interface components {
              * @default []
              */
             warnings: string[];
+            /**
+             * Unfixable
+             * @default []
+             */
+            unfixable: components["schemas"]["UnfixableOut"][];
             /**
              * Resolved Conflicts
              * @default 0

@@ -69,6 +69,8 @@ from app.unified_import import (
     _param_doc,
     _table_doc,
     _yaml,
+    apply_unfixable,
+    remainder_from_plan,
     remainder_with_index,
 )
 
@@ -484,6 +486,13 @@ def apply_unified_plan(
         raise UnifiedImportError(
             "План непригоден к применению: " + ("; ".join(plan.errors[:5]) or "неизвестно почему")
         )
+    # Свёртка отчёта (Ф2г-2) — тот же остаток, что был в превью, и ДО правок дерева
+    # решениями (перевес меняет пути — столкнувшийся id выпустил бы закрытую строку).
+    # Плановые тёзки процессов (id «plan|…») не берём: фактическое имя тёзки назовёт
+    # строка применения «приехал под именем …».
+    unfixable = [
+        u for u in remainder_from_plan(plan, None).unfixable if not u.id.startswith("plan|")
+    ]
     winners = _winners(plan, resolutions)
     # Сверка решений с планом — ДО любой записи, как и у резолюций.
     решения = resolve_decisions(plan, decisions, None)
@@ -525,6 +534,9 @@ def apply_unified_plan(
     for i, remarks in enumerate(plan.input_remarks):
         label = plan.labels[i] if i < len(plan.labels) else f"вход {i + 1}"
         warnings.extend(f"{label}: {r}" for r in remarks)
+    # Отсюда начинаются строки самого применения — они и пойдут в свёртку отчёта
+    # (плановые уже в ней: остаток и замечания входов — пунктами выше).
+    плановые = len(warnings)
 
     # ── Склейки по ответу пользователя: поглощённый узел отдаёт выжившему связи,
     #    детей и знание (node_of[поглощённый] = выживший) и исчезает. Пути после
@@ -616,6 +628,7 @@ def apply_unified_plan(
     заметка = decisions_note(решения, склеено)
     if заметка:
         warnings.append(заметка)
+    unfixable.extend(apply_unfixable(warnings[плановые:]))
     return project, ArchiveImportResult(
         project_id=project.id,
         project_name=project.name,
@@ -630,6 +643,7 @@ def apply_unified_plan(
         config=config_report,
         processes=process_results,
         warnings=warnings,
+        unfixable=unfixable,
         resolved_conflicts=len(plan.conflicts),
         channel_stubs=channel_stubs,
     )

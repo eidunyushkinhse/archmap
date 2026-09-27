@@ -95,6 +95,7 @@ from app.unified_import import (
     UnifiedImportError,
     UnifiedPlan,
     _bump,
+    apply_unfixable,
     build_unified_plan,
     family_candidate_out,
     friendly_process_note,
@@ -355,6 +356,19 @@ def _process_notes(plan: UnifiedPlan, kept: list[int]) -> list[str]:
     return out
 
 
+def _own_notes(warnings: list[str], processes: bool = True) -> list[UnfixableOut]:
+    """Замечания САМОЙ догрузки (не мерджа) пунктами свёртки: тёзки живых узлов и
+    тёзки процессов. processes=False — у отчёта применения: там тёзку процесса
+    называет строка применения с фактическим именем («приехал под именем …»), и
+    плановая строка («приедет под именем … (2)») была бы вторым пунктом о том же."""
+    prefixes = ("процесс «", "узлы-тёзки «") if processes else ("узлы-тёзки «",)
+    return [
+        UnfixableOut(id=f"into|{j}", text=friendly_process_note(w))
+        for j, w in enumerate(warnings)
+        if w.startswith(prefixes)
+    ]
+
+
 def _anchor_of(plan: UnifiedPlan, m: int) -> NodeSource | None:
     """Якорь merged-узла в виде контракта — «будет ли он у нового объекта».
 
@@ -396,11 +410,7 @@ def into_preview(into: IntoPlan) -> IntoPreviewOut:
         remainder = remainder_from_plan(plan, SELF_ORIGIN)
         # Замечания самой догрузки (тёзки живых узлов и процессов) — в ту же
         # свёртку: сырого списка «Проверьте» в окне больше нет (Ф2г).
-        remainder.unfixable.extend(
-            UnfixableOut(id=f"into|{j}", text=friendly_process_note(w))
-            for j, w in enumerate(into.warnings)
-            if w.startswith(("процесс «", "узлы-тёзки «"))
-        )
+        remainder.unfixable.extend(_own_notes(into.warnings))
     # Живые узлы, К КОТОРЫМ ЧТО-ТО ЕДЕТ: у них вклад не только свой (вход №0), но и
     # хотя бы одного архива. Узел, который нашёл сам себя и больше ничей, — это не
     # находка догрузки, а вся остальная схема: перечислять её значит топить дифф.
@@ -578,6 +588,13 @@ def apply_into_plan(
         raise UnifiedImportError(
             "План непригоден к применению: " + ("; ".join(into.errors[:5]) or "неизвестно почему")
         )
+    # Свёртка отчёта (Ф2г-2) — тот же остаток, что пользователь видел в превью, и
+    # считается ДО правок дерева решениями: перевес концов меняет пути, и столкнувшийся
+    # id вопроса выпустил бы уже закрытую строку обратно в свёртку.
+    unfixable = [
+        *remainder_from_plan(plan, SELF_ORIGIN).unfixable,
+        *_own_notes(into.warnings, processes=False),
+    ]
     winners = _winners(plan, resolutions)  # валидация резолюций — ДО любой записи
     lost = _live_lost(plan, resolutions)
     # Ответы на вопросы остатка (Ф-E) — той же сверкой с планом, тоже до записи.
@@ -733,6 +750,9 @@ def apply_into_plan(
     заметка = decisions_note(решения, len(склейки))
     if заметка:
         warnings.append(заметка)
+    # Строки, которые добавило само применение (после плановых into.warnings), —
+    # пунктами свёртки; информация о сделанном в неё не едет (friendly_apply_note).
+    unfixable.extend(apply_unfixable(warnings[len(into.warnings):]))
     return IntoApplyOut(
         project_id=project.id,
         # Числа честные: поглощённый склейкой узел не рождался, а связь, сведённая
@@ -749,6 +769,7 @@ def apply_into_plan(
         config=config_report,
         processes=process_results,
         warnings=warnings,
+        unfixable=unfixable,
         resolved_conflicts=len(plan.conflicts),
         channel_stubs=channel_stubs,
         graph_rev=project.graph_rev,

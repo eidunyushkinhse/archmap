@@ -912,6 +912,11 @@ _TAIL_RE = re.compile(r"^…ещё (?P<n>\d+) таких")
 
 
 _PROCESS_MANY = re.compile(r"^процесс «(?P<name>.+?)» есть в нескольких входах \((?P<labels>.+?)\) — ")
+# Строка ПРИМЕНЕНИЯ (создание и догрузка): тёзка уже приехал, имя известно точно.
+_PROCESS_RENAMED = re.compile(
+    r"^процесс «(?P<name>.+?)» из входа «(?P<label>.+?)» приехал под именем «(?P<new>.+)»: "
+    r"процессы не сливаются"
+)
 _PROCESS_LIVE = re.compile(r"^процесс «(?P<name>.+?)» из входа «(?P<label>.+?)» — тёзка уже имеющегося")
 _LIVE_NAMESAKES = re.compile(r"^узлы-тёзки «(?P<path>.+?)» слились в один")
 
@@ -936,7 +941,103 @@ def friendly_process_note(text: str) -> str:
             f"В проекте несколько объектов «{m['path']}», и знание из архива приедет "
             "только к первому из них. Остальные останутся как были."
         )
+    if (m := _PROCESS_RENAMED.search(text)) is not None:
+        return (
+            f"Процесс «{m['name']}» из «{m['label']}» совпал по имени с другим процессом и "
+            f"приехал под именем «{m['new']}». Если это один и тот же процесс, лишний нужно "
+            "будет удалить вручную."
+        )
     return text
+
+
+# ── Строки отчёта ПРИМЕНЕНИЯ (правка Ф2г-2) ──────────────────────────────────
+#
+# Отчёт применения («Проект создан» / «Архивы догружены») показывает не сырой
+# список warnings (его читает MCP), а ту же свёртку «Придется подправить вручную».
+# Строка применения — одно из двух:
+#   (а) ИНФОРМАЦИЯ о сделанном, уже видном по счётчикам или по выбору человека
+#       («пустовало — залито», «заменено по вашему решению», «Ваши решения: …»,
+#       легенда нумерации файлов) — в свёртку не едет;
+#   (б) ТРЕБУЕТ ВНИМАНИЯ (в архиве другое значение, а живое оставлено; параметр не
+#       догружен; части записи не слились; процесс приехал с суффиксом) — пункт
+#       свёртки дружелюбным текстом. Незнакомая строка — сырой как есть.
+
+_APPLY_INFO: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^узел «.+?»: поле «[^»]+» пустовало — залито из "),
+    re.compile(r"^узел «.+?»: поле «[^»]+» заменено по вашему решению"),
+    re.compile(r"^нумерация файлов в замечаниях слияния: "),
+    re.compile(r"^Ваши решения: "),
+)
+_FIELD_KEPT = re.compile(
+    r"^узел «(?P<path>.+?)»: поле «(?P<field>[^»]+)» в архиве другое \(«(?P<new>.*)»\) — "
+    r"оставлено живое \(«(?P<cur>.*)»\)$"
+)
+_PARAM_GONE = re.compile(r"^параметр «(?P<name>.+?)»: живой записи уже нет — пропущен")
+_EXTRA_PARTS = re.compile(
+    r"^(?P<kind>таблица|канал) «(?P<key>.+?)» узла «(?P<path>.+?)»: (?P<part>колонок|полей) "
+    r"(?P<names>.+) в архиве нет — оставлены"
+)
+# Форма и статус едут в строку кодами контракта — человеку их называем словами.
+# Зеркало SHAPE_LABEL (questionText.ts) и STATUS_META (graph/colors.ts) фронта.
+_CODE_RU: dict[str, dict[str, str]] = {
+    "форма": {"service": "Сервис", "database": "База данных", "broker": "Брокер",
+              "person": "Пользователь"},
+    "статус": {"existing": "Существует", "planned": "Проектируется", "deprecated": "Выводится"},
+}
+
+
+def _human(field_ru: str, value: str) -> str:
+    return _CODE_RU.get(field_ru, {}).get(value, value)
+
+
+def _extra_parts_text(m: re.Match[str]) -> str:
+    """«Остались колонки …» с согласованием по числу: одна часть — «осталась
+    колонка … которой», несколько — «остались колонки … которых»."""
+    one = m["names"].count("«") == 1
+    where = (f"В таблице «{m['key']}»" if m["kind"] == "таблица" else f"В канале «{m['key']}»")
+    if m["part"] == "колонок":
+        what = "осталась колонка" if one else "остались колонки"
+        rel, it = ("которой", "она больше не нужна, её") if one else ("которых", "они больше не нужны, их")
+    else:
+        what = "осталось поле" if one else "остались поля"
+        rel, it = ("которого", "оно больше не нужно, его") if one else ("которых", "они больше не нужны, их")
+    return (
+        f"{where} объекта «{m['path']}» {what} {m['names']}, {rel} нет в архиве: догрузка "
+        f"ничего не удаляет. Если {it} нужно будет удалить вручную."
+    )
+
+
+def friendly_apply_note(text: str) -> str | None:
+    """Строка отчёта применения → пункт свёртки; None — информация (не показывать).
+
+    Строки процессов и живых тёзок разбирает friendly_process_note; незнакомая
+    строка — как есть (правда общими словами лучше молчания)."""
+    if any(p.search(text) for p in _APPLY_INFO):
+        return None
+    if (m := _FIELD_KEPT.search(text)) is not None:
+        return (
+            f"У объекта «{m['path']}» в архиве другое значение поля «{m['field']}» "
+            f"(«{_human(m['field'], m['new'])}»), а в проекте осталось прежнее "
+            f"(«{_human(m['field'], m['cur'])}»). Если верно значение из архива, поле нужно "
+            "будет поправить в карточке объекта вручную."
+        )
+    if (m := _PARAM_GONE.search(text)) is not None:
+        return (
+            f"Параметр «{m['name']}» не догружен: в проекте его уже нет. Если он нужен, его "
+            "нужно будет добавить вручную."
+        )
+    if (m := _EXTRA_PARTS.search(text)) is not None:
+        return _extra_parts_text(m)
+    return friendly_process_note(text)
+
+
+def apply_unfixable(lines: list[str]) -> list[UnfixableOut]:
+    """Строки, добавленные ПРИМЕНЕНИЕМ, — пунктами свёртки отчёта (без информации)."""
+    return [
+        UnfixableOut(id=f"apply|{j}", text=t)
+        for j, raw in enumerate(lines)
+        if (t := friendly_apply_note(raw)) is not None
+    ]
 
 
 def friendly_remark(text: str) -> str:
@@ -1341,7 +1442,10 @@ __all__ = [
     "UnifiedImportError",
     "UnifiedPlan",
     "build_unified_plan",
+    "apply_unfixable",
     "family_candidate_out",
+    "friendly_apply_note",
+    "friendly_process_note",
     "friendly_remark",
     "preview_from_plan",
     "RemainderIndex",

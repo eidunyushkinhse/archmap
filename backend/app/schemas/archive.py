@@ -14,6 +14,7 @@ from app.schemas.channels_import import ChannelsImportReport
 from app.schemas.config_import import ConfigImportReport
 from app.schemas.data_import import DataImportReport
 from app.schemas.process_import import ProcessImportResult
+from app.schemas.unified_import import UnfixableOut
 
 
 class ArchiveImportResult(BaseModel):
@@ -28,7 +29,11 @@ class ArchiveImportResult(BaseModel):
     channels: ChannelsImportReport | None = None
     config: ConfigImportReport | None = None
     processes: list[ProcessImportResult] = []
-    warnings: list[str] = []
+    warnings: list[str] = []  # сырые строки: их читают MCP и журналы
+    # Замечания человеку (правка Ф2г-2): свёртка «Придется подправить вручную»
+    # экрана «Проект создан» — остаток плана, не ставший вопросом, и строки
+    # применения, требующие внимания (информация о сделанном сюда не едет).
+    unfixable: list[UnfixableOut] = []
     # Споров о телах фактов, разрешённых при ввозе (единый импорт, Ф2а): дефолтом
     # плана или явным выбором пользователя. У одноархивного импорта споров нет по
     # построению — там всегда 0, поэтому поле с дефолтом, а не второй формат отчёта.

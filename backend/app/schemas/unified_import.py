@@ -282,7 +282,12 @@ class IntoApplyOut(BaseModel):
     channels: ChannelsImportReport | None = None
     config: ConfigImportReport | None = None
     processes: list[ProcessImportResult] = []
-    warnings: list[str] = []
+    warnings: list[str] = []  # сырые строки: их читают MCP и журналы
+    # Те же замечания человеку (правка Ф2г-2): свёртка «Придется подправить вручную»
+    # экрана «Архивы догружены» — остаток плана, не ставший вопросом, и строки
+    # применения, требующие внимания. Информация о сделанном («пустовало — залито»,
+    # «Ваши решения: …») сюда не едет: её и так видно по счётчикам.
+    unfixable: list[UnfixableOut] = []
     resolved_conflicts: int = 0
     channel_stubs: int = 0  # заглушки каналов по НОВЫМ связям догрузки (см. archive.py)
     # Свежие курсоры: фронт кладёт их в поллинг, не дожидаясь следующего опроса.

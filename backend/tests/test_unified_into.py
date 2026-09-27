@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 
 from app.archive_export import build_archive
 from app.auth import require_architect
+from app.config_import import ParamIn
 from app.database import get_db
 from app.main import app
 from app.models.broker_channel import BrokerChannel
@@ -43,9 +44,14 @@ from app.models.view_layout import ViewLayoutItem
 from app.process_import import apply_import as apply_process_import
 from app.process_import import build_preview as build_process_preview
 from app.processes import node_path
-from app.unified_apply import parse_decisions
-from app.unified_import import UnifiedImportError, remainder_from_plan
-from app.unified_into import apply_into_plan, build_into_plan, into_preview
+from app.unified_apply import _Winner, parse_decisions
+from app.unified_import import UnifiedImportError, apply_unfixable, remainder_from_plan
+from app.unified_into import (
+    _replace_params,
+    apply_into_plan,
+    build_into_plan,
+    into_preview,
+)
 
 ПРЕВЬЮ = "/api/v1/projects/{}/import-archive/preview"
 ПРИМЕНЕНИЕ = "/api/v1/projects/{}/import-archive/apply"
@@ -370,6 +376,9 @@ def test_пересечение_узла_доливает_пустое_и_не_�
     assert отчёт.nodes_created == 0 and отчёт.nodes_filled == 1
     assert orders.version == 2  # запись изменилась ровно один раз
     assert any("«роль» пустовало" in w for w in отчёт.warnings)
+    # Долитое — информация, её видно по счётчику «дополнено объектов»: в свёртку
+    # отчёта не едет (Ф2г-2).
+    assert not any("пустовало" in u.text or "залито" in u.text for u in отчёт.unfixable)
     # Расхождение занятого поля называет слияние — там видно оба значения разом
     # (тексты слияния зовут поля по-английски: это его формат, не наш).
     assert any("description: оставлено «Живое описание»" in w and "Описание донора" in w
@@ -563,6 +572,13 @@ def test_процесс_тёзка_приезжает_с_суффиксом_а_�
         "приедет под именем «Оформление (2)»" in u.text for u in превью.remainder.unfixable
     )
     assert any("приехал под именем «Оформление (2)»" in w for w in отчёт.warnings)
+    # Ф2г-2: в свёртке отчёта — ОДИН пункт о тёзке, с фактическим именем; плановое
+    # «приедет под именем» его не дублирует.
+    assert [u.text for u in отчёт.unfixable if "Процесс" in u.text] == [
+        "Процесс «Оформление» из «a1.zip» совпал по имени с другим процессом и приехал под "
+        "именем «Оформление (2)». Если это один и тот же процесс, лишний нужно будет удалить "
+        "вручную."
+    ]
 
 
 # ── 7. Отказы: не архив, кап, непригодный план ───────────────────────────────
@@ -1085,6 +1101,8 @@ def test_решение_поля_перезаписывает_живое_тол�
     assert db.get(Node, orders_id).description == "Описание донора"
     assert any("заменено по вашему решению" in w for w in отчёт.warnings)
     assert "Ваши решения: выбрано значений полей 1" in отчёт.warnings
+    # Сделанное по выбору человека — информация: в свёртку отчёта не едет (Ф2г-2).
+    assert not any("решени" in u.text for u in отчёт.unfixable)
 
     # 3. Выбор СВОЕГО кандидата живую запись не трогает вовсе.
     план3 = build_into_plan(db, проект, [("a.zip", архив)])
@@ -1230,3 +1248,73 @@ def test_незакрываемые_догрузки_без_замечаний_�
     ]
     assert живые, "сторож теста: у живого проекта есть свои замечания"
     assert all(u.file != 0 for u in превью.remainder.unfixable)
+
+# ── Ф2г-2: экран «Архивы догружены» — свёртка вместо сырых замечаний ─────────
+
+
+def test_отчёт_догрузки_свёртка_вместо_сырых_замечаний(db):
+    """Строки применения — пунктами «Придется подправить вручную» (что требует рук),
+    информация о сделанном («пустовало — залито», легенда нумерации, «оставлено …
+    (файл N)» мерджа) — нет. Сырые warnings остаются на месте: их читает MCP."""
+    проект, _ = _ярмарка(db)
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    orders = _узел(db, донор, "orders", корень, technology="Go", description="Описание донора")
+    _узел(db, донор, "api", orders)  # донор видит orders изнутри: его поля побеждают в мердже
+    каталог = _узел(db, донор, "Каталог-БД", корень, shape="database", status="planned")
+    kafka = _узел(db, донор, "Kafka", корень, shape="broker")
+    _таблица(db, каталог, "orders", [("id", "uuid")], описание="заказы донора")
+    _канал(db, kafka, "orders.created", [("total", "numeric")], описание="донор")
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор), резолюции={
+        "table|Ярмарка / Каталог-БД|public.orders": "cand:1",
+        "channel|Ярмарка / Kafka|orders.created": "cand:1",
+    })
+
+    assert [u.text for u in отчёт.unfixable] == [
+        # остаток плана — тот же, что был в превью
+        *[u.text for u in превью.remainder.unfixable],
+        "У объекта «Ярмарка / orders» в архиве другое значение поля «описание» («Описание "
+        "донора»), а в проекте осталось прежнее («Живое описание»). Если верно значение из "
+        "архива, поле нужно будет поправить в карточке объекта вручную.",
+        "У объекта «Ярмарка / orders» в архиве другое значение поля «технология» («Go»), а в "
+        "проекте осталось прежнее («Python»). Если верно значение из архива, поле нужно будет "
+        "поправить в карточке объекта вручную.",
+        "У объекта «Ярмарка / Каталог-БД» в архиве другое значение поля «статус» "
+        "(«Проектируется»), а в проекте осталось прежнее («Существует»). Если верно значение "
+        "из архива, поле нужно будет поправить в карточке объекта вручную.",
+        "В таблице «public.orders» объекта «Ярмарка / Каталог-БД» осталась колонка «comment», "
+        "которой нет в архиве: догрузка ничего не удаляет. Если она больше не нужна, её нужно "
+        "будет удалить вручную.",
+        "В канале «orders.created» объекта «Ярмарка / Kafka» осталось поле «id», которого нет "
+        "в архиве: догрузка ничего не удаляет. Если оно больше не нужно, его нужно будет "
+        "удалить вручную.",
+    ]
+    assert превью.remainder.unfixable, "сторож теста: у плана есть свой остаток"
+    # Сырые строки на месте (MCP), включая информацию и строки мерджа.
+    assert any(w.startswith("нумерация файлов") for w in отчёт.warnings)
+    assert any("в архиве нет — оставлены" in w for w in отчёт.warnings)
+    for u in отчёт.unfixable:
+        for ложь in ("агент", "(файл ", "нумерация", "оставлено «"):
+            assert ложь not in u.text
+
+
+def test_отчёт_догрузки_пропавший_параметр_пунктом(db):
+    """Параметр, чья живая запись исчезла к применению, — пункт свёртки (генератор
+    настоящий: _replace_params)."""
+    проект, узлы = _ярмарка(db)
+    строки: list[str] = []
+    победитель = _Winner(
+        family="config", node_idx=0, key="GONE", origin=1, fname="config/x.yaml",
+        value=ParamIn(name="GONE"),
+        from_conflict=True,
+    )
+
+    заменено = _replace_params(db, [победитель], {("config", 0, "GONE")}, [узлы["orders"]], строки)
+
+    assert заменено == 0
+    assert [u.text for u in apply_unfixable(строки)] == [
+        "Параметр «GONE» не догружен: в проекте его уже нет. Если он нужен, его нужно будет "
+        "добавить вручную."
+    ]
