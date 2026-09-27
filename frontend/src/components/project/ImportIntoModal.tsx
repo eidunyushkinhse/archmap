@@ -22,7 +22,6 @@ import { NoteList } from "../docsImport/agentModalReport";
 import {
   head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
 } from "../docsImport/agentModalShared";
-import { introFor } from "./importIntros";
 import { statusState, withoutConverted } from "./importRemarks";
 import {
   BulkBox, RemainderBlock, StatusLine, UnfixableFold, buildQuestions, bulkAnswers,
@@ -314,12 +313,7 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
           {fresh?.ok && withMine && (
             <BulkBox onKeepMine={() => resolveAll(true)} onTakeArchives={() => resolveAll(false)} />
           )}
-          {fresh?.ok && (
-            <UnfixableFold
-              items={fresh.remainder.unfixable}
-              intro={introFor(files.length > 1, true)}
-            />
-          )}
+          {fresh?.ok && <UnfixableFold items={fresh.remainder.unfixable} />}
           {applyError && (
             <p style={{ ...grayLine, color: "#b45309", marginTop: 8 }}>{applyError}</p>
           )}

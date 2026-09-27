@@ -3,9 +3,9 @@
 //
 // Что закрепляем: три состояния статуса вместо прежней сводки счётчиков, ссылка
 // «Открыть файл …» переключает вход (иначе виновника ищут глазами по чипам),
-// копия замечания уносится агенту тем же вступлением, что и раньше, а массовые
-// кнопки закрывают ТОЛЬКО споры — жесты остаются работой человека.
-import { render, screen, waitFor } from "@testing-library/react";
+// свёртка — маркированный список готовых пунктов без «агента» (правка Ф2г), а
+// массовые кнопки закрывают ТОЛЬКО споры — жесты остаются работой человека.
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import type { FieldDisputeOut, RemainderOut, UnfixableOut } from "../../types";
@@ -90,41 +90,41 @@ describe("StatusLine (§2, Р7)", () => {
 });
 
 const замечание = (over: Partial<UnfixableOut> = {}): UnfixableOut => ({
-  id: "u1", text: "«Поллер» встречается в файлах как РАЗНЫЕ объекты",
-  how: "Можно доработать прогоном агента. Пусть он задаст каждому объекту свой source.path.",
-  agent: "Zabbix", if_left: "Если оставить: в проекте будут два объекта с одним именем.",
-  file: 1, ...over,
+  id: "u1",
+  text: "«Поллер» (внутри «Zabbix») в разных файлах имеет разные метаданные. ArchMap не знает, "
+    + "это один и тот же объект или нет. Если это дубль, его нужно будет удалить вручную.",
+  file: null, ...over,
 });
 
-const ВСТУПЛЕНИЕ = "Валидатор импорта ArchMap принял ваш YAML — один из нескольких файлов системы.";
-
-describe("UnfixableFold (§6, Р6)", () => {
-  it("свёрнута по умолчанию, раскрывается с вводкой и карточками", async () => {
-    render(<UnfixableFold items={[замечание(), замечание({ id: "u2", agent: null })]} intro={ВСТУПЛЕНИЕ} />);
-    const заголовок = screen.getByRole("button", { name: /Что исправит только новый прогон агента \(2\)/ });
-    expect(screen.queryByText(/Это замечания о том, как написаны сами файлы/)).toBeNull();
+describe("UnfixableFold (§6, правка Ф2г)", () => {
+  it("свёрнута по умолчанию, раскрывается вводкой и маркированным списком", async () => {
+    render(<UnfixableFold items={[
+      замечание(),
+      замечание({ id: "u2", text: "У 1 объекта («api») нет ни одной связи.", file: 1 }),
+    ]} />);
+    const заголовок = screen.getByRole("button", { name: "Придется подправить вручную (2)" });
+    expect(заголовок).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("list")).toBeNull();
     await userEvent.click(заголовок);
-    expect(screen.getByText(/Это замечания о том, как написаны сами файлы/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Скопировать замечание для агента Zabbix" })).toBeInTheDocument();
-    // Владельца нет — кнопка без имени (Р6).
-    expect(screen.getByRole("button", { name: "Скопировать замечание для агента" })).toBeInTheDocument();
-    expect(screen.getAllByText(/Если оставить:/)).toHaveLength(2);
+    expect(screen.getByText(
+      "В файлах есть нестыковки, которые ArchMap не сможет закрыть одним вопросом. Вот их список:",
+    )).toBeInTheDocument();
+    const пункты = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(пункты.map((li) => li.textContent)).toEqual([
+      замечание().text, "У 1 объекта («api») нет ни одной связи.",
+    ]);
   });
 
-  it("копирует замечание с тем же вступлением и отзывается «Скопировано»", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    // jsdom не даёт navigator.clipboard — подменяем целиком.
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    render(<UnfixableFold items={[замечание()]} intro={ВСТУПЛЕНИЕ} />);
-    await userEvent.click(screen.getByRole("button", { name: /Что исправит/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Скопировать замечание/ }));
-    expect(writeText).toHaveBeenCalledWith(
-      `${ВСТУПЛЕНИЕ}\n- «Поллер» встречается в файлах как РАЗНЫЕ объекты`);
-    await waitFor(() => expect(screen.getByText("Скопировано ✓")).toBeInTheDocument());
+  it("только текст пункта: ни кнопок копирования, ни «Можно доработать», ни «Если оставить»", async () => {
+    render(<UnfixableFold items={[замечание()]} />);
+    await userEvent.click(screen.getByRole("button", { name: /Придется подправить вручную/ }));
+    expect(screen.getAllByRole("button")).toHaveLength(1); // только сам заголовок свёртки
+    expect(screen.queryByText(/агент/)).toBeNull();
+    expect(screen.queryByText(/Можно доработать|Если оставить/)).toBeNull();
   });
 
   it("без замечаний не показывается вовсе", () => {
-    const { container } = render(<UnfixableFold items={[]} intro={ВСТУПЛЕНИЕ} />);
+    const { container } = render(<UnfixableFold items={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 });

@@ -298,11 +298,11 @@
 .rq-uf--open .rq-uf-car { transform: rotate(90deg); }
 .rq-uf-bd { margin-top: 7px; padding-left: 19px; }
 .rq-uf-lead { font-size: 12px; line-height: 1.5; color: #64748b; max-width: 470px; }
-.rq-uf-r { margin-top: 11px; padding-left: 11px; border-left: 2px solid #e2e8f0; }
-.rq-uf-t { font-size: 12.5px; line-height: 1.45; color: #334155; }
-.rq-uf-how { font-size: 12.5px; line-height: 1.45; color: #0f172a; margin-top: 4px; }
-.rq-uf-acts { margin-top: 6px; }
-.rq-uf-if { font-size: 12px; line-height: 1.45; color: #64748b; margin-top: 6px; }
+/* Маркированный список пунктов (правка Ф2г) — один вид у свёртки «Придется
+   подправить вручную» и у ошибок под красным статусом. */
+.rq-ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.45; color: #334155; }
+.rq-ul li { margin-top: 5px; }
+.rq-ul li:first-child { margin-top: 0; }
 
 .rq-bulk {
   margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;

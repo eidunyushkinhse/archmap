@@ -457,7 +457,7 @@ export default function ImportPane({
           />
         )}
         {summary?.ok && (
-          <UnfixableFold items={remainder.unfixable} intro={remarksIntro} />
+          <UnfixableFold items={remainder.unfixable} />
         )}
         {/* Один файл — плоский отчёт слияния, как было до Ф6. */}
         {summary?.ok && !multi && summary.conflicts.length > 0 && (
