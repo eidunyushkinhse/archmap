@@ -43,6 +43,7 @@ from app.config_import import ParamIn, parse_config_file
 from app.data_import import LOOKS_LIKE_DATA, NODE_HEADER, TableIn, parse_data_file
 from app.import_merge import (
     MergeReport,
+    _norm,
     carry_parse_warnings,
     count_without_anchor,
     merge_imports,
@@ -1304,6 +1305,39 @@ def _converted_texts(warnings: list[str], converted: set[int]) -> list[str]:
     return out
 
 
+# Сырая строка мерджа о законных тёзках («оставлены раздельно»): имя и родитель.
+# Родитель — путь слитого дерева, «на верхнем уровне» — без родителя.
+_NAMESAKES = re.compile(
+    r"^«(?P<name>.+?)» \((?:внутри «(?P<parent>.+)»|на верхнем уровне)\) "
+    r"встречается в файлах как РАЗНЫЕ объекты"
+)
+
+
+def _live_namesakes(plan: UnifiedPlan, text: str, current: int) -> bool:
+    """Замечание о тёзках, которые ВСЕ уже живут в проекте (догрузка): Р3 — элемент
+    без участия нового в остаток не попадает.
+
+    Строку мердж пишет без владельца (это «отношение файлов»), поэтому общий фильтр
+    по владельцу её не гасит, а догрузка своего архива давала бы пункт «разные
+    метаданные» о живой паре законных тёзок — той самой, что уже стоит в проекте.
+    Узлов строка не несёт — группа восстанавливается по имени и родителю тем же
+    сравнением, каким мердж их сопоставлял. Хоть один тёзка новый (архив привёз
+    третьего) или строка не разобралась — пункт остаётся: вопрос «дубль ли это»
+    тогда законен."""
+    m = _NAMESAKES.search(text)
+    merged = plan.merged
+    if m is None or merged is None:
+        return False
+    name, parent, paths = _norm(m["name"]), m["parent"], plan.node_paths
+    group = [
+        i
+        for i, n in enumerate(merged.nodes)
+        if _norm(n.name) == name
+        and (paths[n.parent_idx] if n.parent_idx is not None else None) == parent
+    ]
+    return bool(group) and all(current in plan.report.node_files[i] for i in group)
+
+
 def _unfixable(
     plan: UnifiedPlan, converted: set[int], current: int | None = None
 ) -> list[UnfixableOut]:
@@ -1330,6 +1364,8 @@ def _unfixable(
         if i in converted or (current is not None and owner == current):
             continue
         cls, tail = _remark_class(text)
+        if cls == "namesakes" and current is not None and _live_namesakes(plan, text, current):
+            continue
         if tail:
             # Хвост о тех же объектах, что строки перед ним. Класс весь ушёл в
             # вопросы — хвост уходит с ним.
