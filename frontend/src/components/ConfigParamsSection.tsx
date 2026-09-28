@@ -112,14 +112,14 @@ export default function ConfigParamsSection({ nodeId, nodeName, isArchitect, all
 
   return (
     <div className="np-card">
-      <h3 className="np-card-title">
+      <h3 className="np-card-title" style={{ display: "flex", alignItems: "center" }}>
         Конфигурация
         {/* Откуда берётся «зависит от:». Говорим это ОДИН раз на секцию, а не строкой у
             каждого параметра, и прячем за «?» (решение пользователя 2026-09-28):
             пояснение нужно раз, а видимый абзац под списком занимал место всегда. */}
         {!empty && (
-          <span style={{ marginLeft: 6, fontWeight: 400 }}>
-            <InfoPopover label="Откуда берётся «Зависит от»" width={340}>
+          <span style={{ display: "inline-flex", marginLeft: 6, fontWeight: 400 }}>
+            <InfoPopover label="Откуда берётся «Зависит от»" width={340} iconSize={17}>
               <p>
                 «Зависит от» собирается из пометок «зависит от: ИМЯ» в схемах логики этого
                 объекта. Своей формы ввода у зависимости нет.

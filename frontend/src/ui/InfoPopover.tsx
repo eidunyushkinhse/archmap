@@ -30,6 +30,8 @@ interface Props {
   label: string;
   children: ReactNode;
   width?: number;
+  /** Размер значка «?» (по умолчанию 15 — рядом с полем; у заголовков крупнее). */
+  iconSize?: number;
 }
 
 // Кнопка в момент открытия: панель живёт fixed-слоем и считает своё место от неё.
@@ -38,7 +40,7 @@ type Anchor = { top: number; bottom: number; left: number };
 // Зазор от кнопки и от края экрана.
 const GAP = 6;
 
-export default function InfoPopover({ label, children, width = 420 }: Props) {
+export default function InfoPopover({ label, children, width = 420, iconSize }: Props) {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const wrapRef = useRef<HTMLSpanElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -122,7 +124,7 @@ export default function InfoPopover({ label, children, width = 420 }: Props) {
         title={label}
         aria-expanded={open}
       >
-        <QuestionCircleIcon />
+        <QuestionCircleIcon size={iconSize} />
       </button>
       {anchor && (
         <div
