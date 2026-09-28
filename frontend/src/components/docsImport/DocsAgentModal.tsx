@@ -28,7 +28,7 @@ import {
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
 import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
-import PromptTriple from "./PromptTriple";
+import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -186,7 +186,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
   }, [report]);
 
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА (промежуточных await между
-  // кликом и writeText не добавляем). «Скопировано» показывает PromptTriple по
+  // кликом и writeText не добавляем). «Скопировано» показывает PromptCopyButton по
   // разрешению этого обещания — своё у каждого из трёх вариантов.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     // include зафиксирован на схемах логики (OpenAPI-спека — окно SpecAgentModal);
@@ -370,7 +370,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
             placeholder={"Например: документируй только сервис billing;\nкаждый воркер опиши отдельной схемой."}
           />
 
-          <PromptTriple
+          <PromptCopyButton
             label="Скопировать промпт"
             copiedLabel="Скопировано ✓"
             kind="primary"

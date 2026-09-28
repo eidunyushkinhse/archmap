@@ -8,9 +8,11 @@ import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
-import PromptTriple from "../docsImport/PromptTriple";
+import PromptCopyButton from "../docsImport/PromptCopyButton";
 import C4Preview from "./C4Preview";
 import ImportPane from "./ImportPane";
+import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
+import type { Answer, Answers } from "./remainder";
 import "./createProject.css";
 
 /**
@@ -79,6 +81,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [archives, setArchives] = useState<File[]>([]);
   // Решения пользователя по спорам содержимого: id спора → «cand:<i>» | «all».
   const [resolutions, setResolutions] = useState<Record<string, string>>({});
+  // Ответы на остальные вопросы разбора остатка (Ф-E): поля, концы связей,
+  // дорисованные связи, склейки. Живут рядом с резолюциями и так же переживают
+  // перезапрос превью — id вопроса детерминирован между превью и применением.
+  const [answers, setAnswers] = useState<Answers>({});
   // Сводка dry-run привязана к входам, для которых получена: устаревший ответ не
   // показываем и не засчитываем в готовность кнопки.
   const [preview, setPreview] = useState<
@@ -117,13 +123,16 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // от него же зависят tie-break C4-мерджа и дефолты споров, поэтому один и тот же
   // список уезжает и в превью, и в применение. Взаимный порядок yaml/zip на споры
   // не влияет: семьи фактов возят только архивы.
+  //
+  // Вставленный текстом YAML уезжает с ПУСТЫМ именем: выдуманное «Файл 2.yaml»
+  // бэк принял бы за имя файла, а у такого входа подпись источника — номер его
+  // чипа («Из файла 2», правка Ф2г). Роутер зовёт безымянный вход «вход N».
   const inputFiles = useMemo(() => {
     const texts = docs
       .map((text, i) => ({ text, name: docNames[i] ?? null }))
       .filter((d) => d.text.trim());
     return [
-      ...texts.map((d, i) =>
-        new File([d.text], d.name ?? `Файл ${i + 1}.yaml`, { type: "application/yaml" })),
+      ...texts.map((d) => new File([d.text], d.name ?? "", { type: "application/yaml" })),
       ...archives,
     ];
   }, [docs, docNames, archives]);
@@ -167,6 +176,21 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
       Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
     ));
   }
+  // Вопросы разбора остатка — производное от свежего превью, а не состояние.
+  const questions = useMemo(
+    () => (fresh === null ? [] : buildQuestions({
+      family_conflicts: fresh.family_conflicts, remainder: fresh.remainder,
+    })),
+    [fresh],
+  );
+  // Ответы протухают тем же правилом, что и резолюции: правка YAML пересчитывает
+  // превью, и вопроса с этим id может больше не быть. Чистка ПРИ РЕНДЕРЕ (та же
+  // «adjusting state when props change»); без протухших pruneAnswers возвращает
+  // ту же ссылку, поэтому цикла setState нет.
+  if (fresh !== null) {
+    const живые = pruneAnswers(answers, questions);
+    if (живые !== answers) setAnswers(живые);
+  }
   // П3: единственный вход и он архив — «копия одного архива», имя и описание берутся
   // из манифеста, поля не рендерятся вовсе.
   const fromManifest = fresh?.name_source === "manifest";
@@ -174,12 +198,19 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const archiveInputs = useMemo(() => ({
     files: archives,
     onFiles: setArchives,
-    counts: fresh?.families ?? NO_FAMILIES,
-    conflicts,
+  }), [archives]);
+
+  // Бандл разбора: собирается одним мемо, чтобы панель не перерисовывалась на
+  // каждый чужой рендер диалога (как и archiveInputs).
+  const remainderInputs = useMemo(() => ({
+    questions,
+    answers,
+    onAnswer: (id: string, answer: Answer) => setAnswers((cur) => ({ ...cur, [id]: answer })),
     resolutions,
     onResolve: (id: string, choice: string) =>
       setResolutions((cur) => ({ ...cur, [id]: choice })),
-  }), [archives, fresh, conflicts, resolutions]);
+    unfixable: fresh?.remainder.unfixable ?? [],
+  }), [questions, answers, resolutions, fresh]);
 
   const canSubmit =
     importish
@@ -195,7 +226,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // Промпт собирает бэкенд (истина формата — рядом с валидатором импорта);
   // копирование после fetch — в пределах жеста, Chrome это допускает. Имя системы
   // вшито в промпт ЛЮБОГО варианта (в том числе аудитного), поэтому вся тройка
-  // неактивна, пока проект без имени. «Скопировано» показывает PromptTriple по
+  // неактивна, пока проект без имени. «Скопировано» показывает PromptCopyButton по
   // разрешению обещания — ошибку пробрасываем, чтобы её не показал.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     setPromptBusy(true);
@@ -234,6 +265,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
           name: fromManifest ? undefined : name.trim(),
           description: fromManifest ? undefined : description.trim() || undefined,
           resolutions,
+          // Ответы разбора остатка: «как сейчас» и молчание в форму не едут —
+          // результат у них тот же, что сегодня (toDecisions вернёт null).
+          decisions: toDecisions(questions, answers),
         }));
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Не удалось выполнить импорт");
@@ -357,25 +391,23 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   </button>
                 ))}
 
-              {mode === "import" && (
-                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
-                  Принимаются и .yaml-файлы (тот же формат, что выдаёт «Экспорт»), и
-                  полные архивы знания .zip из «Экспорт проекта (zip)» — можно
-                  вперемешку. Схемы сольются автоматически, сводка справа покажет
-                  склейку, конфликты и подозрения; архивы привезут ещё и
-                  документацию — схемы логики, спеки, структуры БД и брокеров,
-                  конфигурацию, процессы. Раскладка пересчитается заново.
-                </p>
-              )}
+              {/* Серого абзаца «что принимается» в левой колонке ввоза больше нет
+                  (ТЗ §1.1): он обещал сводку со склейкой и подозрениями, которой
+                  теперь нет, а форматы входов называет плейсхолдер самой панели. */}
 
               {mode === "repo" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
-                    Схему построит ваш ИИ-агент (Claude Code, Cursor…): скопируйте
-                    промпт и запустите его в корне каждого репозитория системы.
-                    Каждый прогон вернёт YAML. Вставьте их все справа, файлы
-                    сольются автоматически.
-                  </p>
+                  <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
+                    <li>Дайте название новому проекту.</li>
+                    <li>Скопируйте промпт.</li>
+                    <li>
+                      Запустите своего ИИ-агента (Claude Code, Cursor, Qwen Code и т.д.) в
+                      репозитории вашей системы. Если репозиториев несколько, запустите по
+                      агенту в каждом из них.
+                    </li>
+                    <li>Дождитесь, пока все агенты вернут YAML.</li>
+                    <li>Перетащите все YAML в поле справа.</li>
+                  </ol>
                   <div>
                     <label style={labelStyle}>Язык описаний</label>
                     <select
@@ -398,7 +430,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                       placeholder="например: монорепо, сервисы в services/*"
                     />
                   </div>
-                  <PromptTriple
+                  <PromptCopyButton
                     label="Скопировать промпт"
                     copiedLabel="Промпт скопирован ✓"
                     kind="secondary"
@@ -474,6 +506,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   onNames={setDocNames}
                   summary={fresh?.c4 ?? null}
                   archives={archiveInputs}
+                  remainder={remainderInputs}
                 />
               </>
             ) : (
@@ -503,8 +536,8 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   );
 }
 
-// Счётчики семей, пока сводки нет: панель показывает строку «Из архивов: …»
-// только по непустым числам, поэтому нули её просто не рисуют.
+// Нулевые счётчики семей для отказа превью: считать нечего, но форма ответа
+// обязана быть полной — панель читает её без проверок на undefined.
 const NO_FAMILIES: UnifiedFamilyCountsOut = {
   docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0,
 };
@@ -517,6 +550,11 @@ function failedPreview(msg: string, files: number): UnifiedPreviewOut {
     errors: [msg],
     families: NO_FAMILIES,
     family_conflicts: [],
+    // Остаток слияния (Ф-E): разбирать нечего — превью не состоялось.
+    remainder: {
+      field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+      unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
+    },
     warnings: [],
     name_source: "fields",
     c4: {
@@ -560,14 +598,10 @@ function ImportReport({ result }: { result: ArchiveImportResult }) {
           Разрешено споров содержимого: {result.resolved_conflicts}
         </div>
       )}
-      {result.warnings.length > 0 && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontWeight: 600, color: "#b45309" }}>Замечания</div>
-          <ul style={{ margin: "4px 0 0", paddingLeft: 18, color: "#64748b", fontSize: 12.5 }}>
-            {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
-          </ul>
-        </div>
-      )}
+      {/* Сырого списка «Замечания» нет (Ф2г-2): то, что требует рук, — той же
+          свёрткой, что в превью; информация о сделанном видна по счётчикам. Сырые
+          строки (result.warnings) остаются в ответе для MCP. */}
+      <UnfixableFold items={result.unfixable} after />
     </div>
   );
 }

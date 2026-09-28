@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from app.auth import require_architect
 from app.data_import import parse_data_file
 from app.database import get_db
+from app.import_merge import _MAX_CONTAINER_EDGES
 from app.main import app
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -34,13 +35,25 @@ from app.models.process_message import ProcessMessage
 from app.models.project import Project
 from app.models.user import User
 from app.processes import node_path
-from app.unified_apply import _synthetic_files, _winners, apply_unified_plan
+from app.unified_apply import (
+    _synthetic_files,
+    _winners,
+    apply_unified_plan,
+    dedup_edges,
+    parse_decisions,
+)
 from app.unified_import import (
     MAX_ARCHIVES,
     MAX_INPUTS,
     DocIn,
     UnifiedImportError,
     build_unified_plan,
+    friendly_apply_note,
+    friendly_process_note,
+    friendly_remark,
+    preview_from_plan,
+    remainder_from_plan,
+    source_label,
 )
 
 РУЧКА = "/api/v1/projects/import/unified-preview"
@@ -1088,6 +1101,13 @@ def test_тёзки_процессов_разводятся_суффиксом_�
         BusinessProcess.project_id == проект.id))
     assert имена == ["Оформление", "Оформление (2)"]
     assert any("«Оформление (2)»" in w for w in отчёт.warnings)
+    # Ф2г-2: экрану — пункт свёртки с фактическим именем, а плановое «приедет под
+    # именем» не дублирует его вторым пунктом о том же.
+    assert [u.text for u in отчёт.unfixable if "Процесс" in u.text] == [
+        "Процесс «Оформление» из «b.zip» совпал по имени с другим процессом и приехал под "
+        "именем «Оформление (2)». Если это один и тот же процесс, лишний нужно будет удалить "
+        "вручную."
+    ]
 
 
 def test_имя_из_манифеста_у_одиночного_архива(db):
@@ -1252,3 +1272,902 @@ def test_канал_описанный_пакетом_архива_заглуш�
     kafka = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Kafka").one()
     [канал] = db.query(BrokerChannel).filter(BrokerChannel.node_id == kafka.id).all()
     assert (канал.group_name, канал.kind, канал.delivery) == ("shop", "topic", "at-least-once")
+
+
+# ── Ф-E: структурный остаток слияния в превью ────────────────────────────────
+#
+# Остаток (что мердж решить не может) приезжает не только строками, но и
+# структурой: фронт задаёт по ней вопросы, применение меняет дерево до записи в
+# БД. Проверяем состав остатка, подписи источников (§4.7 ТЗ), детерминизм id —
+# на них стоит применение, считающее план заново, — и тексты «что исправит только
+# новый прогон агента».
+
+# Два «репозитория» одного магазина: оба описали Ярмарку изнутри (равная
+# содержательность → спор описания), сосед видит orders коробкой (связь в
+# контейнер), биллинг приехал островом, актор назван по-разному (fuzzy-пара).
+_ОСТАТОК_1 = """
+nodes:
+  - name: Ярмарка
+    description: Торговая площадка
+    children:
+      - name: orders
+        children:
+          - name: api
+      - name: Каталог-БД
+        shape: database
+  - name: Оператор
+    shape: person
+edges:
+  - from: Оператор
+    to: orders
+    label: смотрит
+  - from: orders
+    to: Каталог-БД
+    label: пишет
+"""
+
+_ОСТАТОК_2 = """
+nodes:
+  - name: Ярмарка
+    description: Магазин
+    children:
+      - name: orders
+  - name: Оператор смены
+    shape: person
+  - name: Биллинг
+    children:
+      - name: счета
+      - name: Биллинг-БД
+        shape: database
+edges:
+  - from: счета
+    to: Биллинг-БД
+    label: пишет
+"""
+
+
+def _план_остатка():
+    return build_unified_plan(
+        [("shop.yaml", _ОСТАТОК_1.encode()), ("billing.yaml", _ОСТАТОК_2.encode())]
+    )
+
+
+def test_остаток_все_четыре_вопроса_в_превью():
+    """Полевой набор одним планом: спор поля, связь в контейнер, остров, похожие
+    имена — каждый со своим адресом в слитом дереве."""
+    план = _план_остатка()
+    остаток = preview_from_plan(план).remainder
+
+    [спор] = остаток.field_conflicts
+    assert спор.id == "field|Ярмарка|description"
+    assert (спор.node_path, спор.field, спор.default) == ("Ярмарка", "description", 0)
+    assert [(c.origin, c.value) for c in спор.candidates] == [
+        (0, "Торговая площадка"), (1, "Магазин")
+    ]
+    assert [c.source_label for c in спор.candidates] == [
+        "Из файла shop.yaml", "Из файла billing.yaml"
+    ]
+
+    # Обе связи упираются в один контейнер, но разными концами — это два вопроса.
+    вход, выход = остаток.container_edges
+    assert вход.id == "edge|Оператор|Ярмарка / orders|смотрит|target"
+    assert (вход.end, вход.container_path) == ("target", "Ярмарка / orders")
+    assert [c.path for c in вход.components] == ["Ярмарка / orders / api"]
+    assert [c.has_children for c in вход.components] == [False]
+    assert выход.id == "edge|Ярмарка / orders|Ярмарка / Каталог-БД|пишет|source"
+    assert (выход.end, выход.label, выход.technology) == ("source", "пишет", None)
+
+    [остров] = остаток.isolated_groups
+    assert остров.id == "group|Биллинг / счета"
+    assert остров.node_paths == ["Биллинг / счета", "Биллинг / Биллинг-БД"]
+
+    [пара] = остаток.fuzzy_pairs
+    assert пара.id == "pair|Оператор|Оператор смены"
+    assert (пара.a_path, пара.b_path) == ("Оператор", "Оператор смены")
+    assert (пара.a_edges, пара.b_edges) == (1, 0)
+    assert пара.where == "на верхнем уровне"
+    assert (пара.a_current, пара.b_current) == (False, False)
+
+    # Пикер концов новой связи: всё слитое дерево и признак «контейнер».
+    assert остаток.node_paths == план.node_paths
+    контейнер = dict(zip(остаток.node_paths, остаток.node_has_children, strict=True))
+    assert контейнер["Ярмарка / orders"] and not контейнер["Ярмарка / Каталог-БД"]
+
+
+def test_остаток_строки_остаются_на_месте():
+    """Р1: структура ДОПОЛНЯЕТ отчёт, а не заменяет его — строки читает MCP."""
+    превью = preview_from_plan(_план_остатка())
+
+    assert превью.c4 is not None
+    assert any("description" in c for c in превью.c4.conflicts)
+    assert any("похожи" in w for w in превью.c4.warnings)
+    assert any("конец в контейнере" in w for w in превью.c4.warnings)
+
+
+def test_остаток_id_детерминированы_между_сборками():
+    """Применение считает план ЗАНОВО по тем же файлам — id обязаны совпасть."""
+    первый = remainder_from_plan(_план_остатка(), None)
+    второй = remainder_from_plan(_план_остатка(), None)
+
+    assert первый.model_dump() == второй.model_dump()
+
+
+def test_остаток_подписи_источников():
+    """§4.7 (правка Ф2г): панель не знает, откуда файл, — подпись называет только
+    то, что пользователь положил сам: архив — «Из архива {имя}», YAML — «Из файла
+    {имя}», вставленный текстом — «Из файла {номер чипа}». Ни агента, ни корня."""
+    два_корня = "nodes:\n  - name: Ярмарка\n  - name: Склад\n"
+    план = build_unified_plan([
+        ("shop.yaml", C4_ЯРМАРКА.encode()),
+        ("wide.yaml", два_корня.encode()),
+        ("", C4_ЯРМАРКА_2.encode()),  # вставлен текстом: фронт шлёт пустое имя
+        ("вход 4", C4_ЯРМАРКА_2.encode()),  # так роутер зовёт вход без filename
+        ("plugin-a.zip", _архив(name="Архив", c4=C4_ЯРМАРКА_2)),
+    ])
+
+    assert source_label(план, 0) == "Из файла shop.yaml"
+    assert source_label(план, 1) == "Из файла wide.yaml"
+    assert source_label(план, 2) == "Из файла 3"
+    assert source_label(план, 3) == "Из файла 4"
+    assert source_label(план, 4) == "Из архива plugin-a.zip"
+    # Тот же вход в догрузке (вход №0 — живой проект) называется «Из проекта».
+    assert source_label(план, 0, current=0) == "Из проекта"
+    assert source_label(план, 4, current=0) == "Из архива plugin-a.zip"
+
+
+def test_остаток_подпись_источника_у_кандидата_семьи():
+    a = _архив(name="A", docs=(("docs/a.mmd", _док("Ярмарка / orders", "POST /orders",
+                                                   "graph TD\n  A\n")),))
+    b = _архив(name="B", c4=C4_ЯРМАРКА_2,
+               docs=(("docs/b.mmd", _док("Ярмарка / orders", "POST /orders",
+                                         "graph TD\n  B\n")),))
+    план = build_unified_plan([("a.zip", a), ("b.zip", b)])
+
+    [спор] = preview_from_plan(план).family_conflicts
+    assert [c.source_label for c in спор.candidates] == ["Из архива a.zip", "Из архива b.zip"]
+    assert [c.origin_label for c in спор.candidates] == ["a.zip", "b.zip"]
+
+
+# ── Свёртка «Придется подправить вручную» (правка Ф2г) ──────────────────────
+#
+# Сырая строка мерджа → пункт свёртки. Строки порождают НАСТОЯЩИЕ генераторы
+# import_merge (не копии текстов): разъедется формат строки — разбор упадёт в
+# запасной вариант, и тест это покажет.
+
+_ВРУЧНУЮ: list[tuple[str, list[str], str, str]] = [
+    (
+        "namesakes",
+        [
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: Каталог-БД\n"
+            "        source: {repo: github.com/org/a}\n",
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: Каталог-БД\n"
+            "        source: {repo: github.com/org/b}\n",
+        ],
+        "встречается в файлах как РАЗНЫЕ объекты",
+        "«Каталог-БД» (внутри «Ярмарка») в разных файлах имеет разные метаданные. ArchMap "
+        "не знает, это один и тот же объект или нет. Если это дубль, его нужно будет "
+        "удалить вручную.",
+    ),
+    (
+        "absorbed",
+        [
+            "nodes:\n  - name: s0\n    source: {repo: github.com/org/r0}\n",
+            "nodes:\n  - name: t0\n    source: {repo: github.com/org/r0}\n",
+        ],
+        "слиты в ОДИН объект",
+        "«s0» и «t0» указывают на один и тот же источник, поэтому ArchMap объединил их в "
+        "один объект. Если это разные объекты, их нужно будет разделить вручную.",
+    ),
+    (
+        "shared_source",  # repo без path у нескольких узлов одного файла
+        [
+            "nodes:\n  - name: A\n    source: {repo: github.com/org/mono}\n"
+            "  - name: B\n    source: {repo: github.com/org/mono}\n",
+        ],
+        "указывают один источник",
+        "«A» и «B» указывают на один и тот же источник. При следующем обновлении из кода "
+        "ArchMap узнает только один из них, а второй станет дублем. Чтобы этого не "
+        "случилось, поправьте якорь в карточке одного из объектов.",
+    ),
+    (
+        "shared_source",  # общий host у двух узлов одного файла (_register, нужен мердж)
+        [
+            "nodes:\n  - name: A\n    source: {host: db.local}\n"
+            "  - name: B\n    source: {host: db.local}\n",
+            "nodes:\n  - name: C\n",
+        ],
+        "указывают один источник",
+        "«A» и «B» указывают на один и тот же источник. При следующем обновлении из кода "
+        "ArchMap узнает только один из них, а второй станет дублем. Чтобы этого не "
+        "случилось, поправьте якорь в карточке одного из объектов.",
+    ),
+    (
+        "edge_labels",
+        [
+            "nodes:\n  - name: A\n  - name: B\nedges:\n  - {from: A, to: B, label: пишет}\n",
+            "nodes:\n  - name: A\n  - name: B\nedges:\n  - {from: A, to: B, label: читает}\n",
+        ],
+        "разные подписи из разных файлов",
+        "У связи «A → B» в разных файлах разные подписи («пишет», «читает»). Если это одна "
+        "и та же связь, лишнюю нужно будет удалить вручную.",
+    ),
+    (
+        "roots",
+        ["nodes:\n  - name: Система A\n", "nodes:\n  - name: Система B\n"],
+        "не имеют общих корневых узлов",
+        "У файлов разные корневые объекты («Система A», «Система B»), поэтому в проекте "
+        "будет несколько корней. Если это одна система, их содержимое нужно будет "
+        "перенести в один корень вручную.",
+    ),
+    (
+        "actors",
+        [
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+            "        shape: person\n      - name: orders\n"
+            "edges:\n  - {from: Покупатель, to: orders}\n",
+        ],
+        "внутри системы оказались люди",
+        "Внутри системы оказались люди («Покупатель»). Человек пользуется системой, а не "
+        "входит в неё, поэтому их нужно будет перенести в корень схемы вручную.",
+    ),
+    (
+        "lonely",  # один объект — «У 1 объекта»
+        [
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+            "      - name: Каталог-БД\n      - name: Одинокий\n"
+            "edges:\n  - {from: orders, to: Каталог-БД}\n",
+        ],
+        "объектов без единой связи",
+        "У 1 объекта («Одинокий») нет ни одной связи. Проверьте, не потерялись ли связи, и "
+        "при необходимости проведите их вручную.",
+    ),
+    (
+        "lonely",  # больше капа имён — «и ещё K» внутри скобок
+        [
+            "nodes:\n  - name: Ярмарка\n    children:\n"
+            + "".join(f"      - name: o{i}\n" for i in range(7)),
+        ],
+        "объектов без единой связи",
+        "У 7 объектов («o0», «o1», «o2», «o3», «o4», «o5» и ещё 1) нет ни одной связи. "
+        "Проверьте, не потерялись ли связи, и при необходимости проведите их вручную.",
+    ),
+    (
+        "descendant",
+        [
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+            "        children:\n          - name: api\n"
+            "edges:\n  - {from: orders, to: api}\n",
+        ],
+        "иерархия уже выражает вложенность",
+        "Связь «orders → api» ведёт от объекта к его собственной части. Её нужно будет "
+        "удалить или перевесить вручную.",
+    ),
+    (
+        "channel_list",
+        [
+            "nodes:\n  - name: A\n  - name: Kafka\n    shape: broker\n"
+            "edges:\n  - {from: A, to: Kafka, channel: 'orders, payments'}\n",
+        ],
+        "в channel перечень",
+        "У связи «A → Kafka» указано сразу несколько каналов («orders, payments»). Её нужно "
+        "будет разделить на отдельные связи вручную.",
+    ),
+    (
+        "broker",
+        [
+            "nodes:\n  - name: A\n  - name: Kafka\n    shape: broker\n"
+            "edges:\n  - {from: A, to: Kafka}\n",
+        ],
+        "канал не указан",
+        "У связи «A → Kafka» с брокером «Kafka» не указан канал. Его нужно будет вписать в "
+        "карточке связи вручную.",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("класс", "входы", "маркер", "пункт"), _ВРУЧНУЮ, ids=[c[0] for c in _ВРУЧНУЮ]
+)
+def test_вручную_сырая_строка_становится_пунктом(класс, входы, маркер, пункт):
+    план = build_unified_plan([(f"f{i}.yaml", t.encode()) for i, t in enumerate(входы, 1)])
+    [сырая] = [w for w in план.report.warnings if маркер in w]
+
+    assert friendly_remark(сырая) == пункт
+    # Пункт доехал до свёртки — и схемный, и пофайловый (Ф2г).
+    assert пункт in [u.text for u in remainder_from_plan(план, None).unfixable]
+
+
+def test_вручную_незнакомая_строка_как_есть():
+    """Класс незнаком (или строка не разобралась) — пункт сырой строкой: правда
+    общими словами лучше молчания. Здесь — замечание РАЗБОРА файла (пофайловое)."""
+    c4 = "nodes:\n  - name: A\n    source: {image: org/a:1}\n"
+    план = build_unified_plan([("a.yaml", c4.encode())])
+
+    [пункт] = remainder_from_plan(план, None).unfixable
+    assert пункт.text == "nodes[0].source: образ и деплоймент больше не якорь — поле проигнорировано"
+    assert пункт.file == 0
+    assert friendly_remark("связь «A → B»: канал не указан, но строка другая") == (
+        "связь «A → B»: канал не указан, но строка другая"
+    )
+
+
+def test_вручную_пофайловые_замечания_и_замечания_архива():
+    """Карточки «Замечания к файлу N» больше нет — пофайловые замечания и
+    промахи семей архива едут в свёртку, с номером входа-владельца."""
+    архив = _архив(docs=(("docs/001-x.mmd", _док("Нет такого", "X", "graph TD\n  A\n")),))
+    план = build_unified_plan([("a.yaml", C4_ЯРМАРКА.encode()), ("plugin-a.zip", архив)])
+
+    пункты = remainder_from_plan(план, None).unfixable
+    assert [(u.file, u.text) for u in пункты if u.id.startswith("input|")] == [
+        (1, "plugin-a.zip: docs/001-x.mmd: узел «Нет такого» не найден — файл пропущен")
+    ]
+    assert any(u.file is not None and "нет ни одной связи" in u.text for u in пункты)
+    for u in пункты:
+        for ложь in ("агент", "прогон", "подмените"):
+            assert ложь not in u.text
+
+
+# ── Отчёт применения: строка → пункт свёртки или информация (Ф2г-2) ─────────
+#
+# Литералы ниже — ровно форматы генераторов применения (unified_into._fill_node,
+# _absorb_into_live, _replace_params, _extra_kept, _apply_processes, _merge_notes,
+# unified_apply.decisions_note). Настоящими генераторами те же строки порождают
+# интеграционные тесты test_unified_into.py (отчёт догрузки) и тест тёзок процессов
+# выше (отчёт создания).
+
+_ПРИМЕНЕНИЕ: list[tuple[str, str | None]] = [
+    # (а) информация о сделанном — не показывается
+    ("узел «Ярмарка / orders»: поле «роль» пустовало — залито из архива", None),
+    ("узел «Ярмарка / orders»: поле «описание» пустовало — залито из склеенного объекта", None),
+    ("узел «Ярмарка / orders»: поле «технология» заменено по вашему решению "
+     "(«Python» → «Go»)", None),
+    ("нумерация файлов в замечаниях слияния: файл 1 — Текущий проект, файл 2 — a1.zip", None),
+    ("Ваши решения: перевешено связей 1 · склеено объектов 1", None),
+    # (б) требует внимания — пункт свёртки
+    (
+        "узел «Ярмарка / orders»: поле «описание» в архиве другое («Описание донора») — "
+        "оставлено живое («Живое описание»)",
+        "У объекта «Ярмарка / orders» в архиве другое значение поля «описание» («Описание "
+        "донора»), а в проекте осталось прежнее («Живое описание»). Если верно значение из "
+        "архива, поле нужно будет поправить в карточке объекта вручную.",
+    ),
+    (
+        "узел «Ярмарка / Каталог-БД»: поле «форма» в архиве другое («service») — оставлено "
+        "живое («database»)",
+        "У объекта «Ярмарка / Каталог-БД» в архиве другое значение поля «форма» («Сервис»), а в "
+        "проекте осталось прежнее («База данных»). Если верно значение из архива, поле нужно "
+        "будет поправить в карточке объекта вручную.",
+    ),
+    (
+        "узел «Ярмарка / Каталог-БД»: поле «статус» в архиве другое («planned») — оставлено "
+        "живое («existing»)",
+        "У объекта «Ярмарка / Каталог-БД» в архиве другое значение поля «статус» "
+        "(«Проектируется»), а в проекте осталось прежнее («Существует»). Если верно значение "
+        "из архива, поле нужно будет поправить в карточке объекта вручную.",
+    ),
+    (
+        "параметр «TIMEOUT_MS»: живой записи уже нет — пропущен",
+        "Параметр «TIMEOUT_MS» не догружен: в проекте его уже нет. Если он нужен, его нужно "
+        "будет добавить вручную.",
+    ),
+    (
+        "таблица «public.orders» узла «Ярмарка / Каталог-БД»: колонок «comment» в архиве нет — "
+        "оставлены (догрузка не удаляет данные)",
+        "В таблице «public.orders» объекта «Ярмарка / Каталог-БД» осталась колонка «comment», "
+        "которой нет в архиве: догрузка ничего не удаляет. Если она больше не нужна, её нужно "
+        "будет удалить вручную.",
+    ),
+    (
+        "таблица «public.orders» узла «Ярмарка / Каталог-БД»: колонок «comment», «legacy» в "
+        "архиве нет — оставлены (догрузка не удаляет данные)",
+        "В таблице «public.orders» объекта «Ярмарка / Каталог-БД» остались колонки «comment», "
+        "«legacy», которых нет в архиве: догрузка ничего не удаляет. Если они больше не нужны, "
+        "их нужно будет удалить вручную.",
+    ),
+    (
+        "канал «orders.created» узла «Ярмарка / Kafka»: полей «id» в архиве нет — оставлены "
+        "(догрузка не удаляет данные)",
+        "В канале «orders.created» объекта «Ярмарка / Kafka» осталось поле «id», которого нет "
+        "в архиве: догрузка ничего не удаляет. Если оно больше не нужно, его нужно будет "
+        "удалить вручную.",
+    ),
+    (
+        "канал «orders.created» узла «Ярмарка / Kafka»: полей «id», «ts» в архиве нет — "
+        "оставлены (догрузка не удаляет данные)",
+        "В канале «orders.created» объекта «Ярмарка / Kafka» остались поля «id», «ts», которых "
+        "нет в архиве: догрузка ничего не удаляет. Если они больше не нужны, их нужно будет "
+        "удалить вручную.",
+    ),
+    (
+        "процесс «Оформление» из входа «a1.zip» приехал под именем «Оформление (2)»: "
+        "процессы не сливаются",
+        "Процесс «Оформление» из «a1.zip» совпал по имени с другим процессом и приехал под "
+        "именем «Оформление (2)». Если это один и тот же процесс, лишний нужно будет удалить "
+        "вручную.",
+    ),
+    (
+        "узлы-тёзки «Ярмарка / orders» слились в один — знание приедет к первому из них, "
+        "второй (orders) остался как был",
+        "В проекте несколько объектов «Ярмарка / orders», и знание из архива приедет только к "
+        "первому из них. Остальные останутся как были.",
+    ),
+    # незнакомая строка — как есть
+    ("что-то новое, чего правила ещё не знают", "что-то новое, чего правила ещё не знают"),
+]
+
+
+@pytest.mark.parametrize(("сырая", "пункт"), _ПРИМЕНЕНИЕ, ids=[c[0][:40] for c in _ПРИМЕНЕНИЕ])
+def test_применение_сырая_строка_становится_пунктом_или_молчит(сырая, пункт):
+    assert friendly_apply_note(сырая) == пункт
+    if пункт is not None:
+        for ложь in ("агент", "прогон", "подмените"):
+            assert ложь not in пункт
+
+
+def test_отчёт_создания_повторяет_свёртку_превью_без_информации(db):
+    """Экран «Проект создан»: та же свёртка, что была в превью (остаток плана), и ни
+    одной информационной строки — «Ваши решения» видны по счётчикам и выбору."""
+    план = _план_остатка()
+    в_превью = [u.text for u in remainder_from_plan(план, None).unfixable]
+
+    _, отчёт = apply_unified_plan(
+        db, план, {}, "Остаток", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {"field|Ярмарка|description": 1}})),
+    )
+
+    assert в_превью and [u.text for u in отчёт.unfixable] == в_превью
+    assert "Ваши решения: выбрано значений полей 1" in отчёт.warnings  # MCP видит
+    assert not any("Ваши решения" in u.text for u in отчёт.unfixable)
+
+
+def test_вручную_хвост_счётчик_приклеен_к_последнему_своего_класса():
+    """«…ещё N таких …» — не самостоятельный пункт: он о тех же объектах, что
+    строки перед ним, и едет предложением «И ещё N таких же.» последнего из них."""
+    n = 11  # на один больше капа перечня склеек по общему источнику
+    a = "nodes:\n" + "".join(
+        f"  - name: s{i}\n    source: {{repo: 'github.com/org/r{i}'}}\n" for i in range(n)
+    )
+    b = "nodes:\n" + "".join(
+        f"  - name: t{i}\n    source: {{repo: 'github.com/org/r{i}'}}\n" for i in range(n)
+    )
+    план = build_unified_plan([("a.yaml", a.encode()), ("b.yaml", b.encode())])
+
+    замечания = remainder_from_plan(план, None).unfixable
+    assert len(замечания) == 10  # хвост отдельным пунктом не стал
+    assert "указывают на один и тот же источник, поэтому ArchMap" in замечания[-1].text
+    assert замечания[-1].text.endswith("разделить вручную. И ещё 1 таких же.")
+    assert all("таких же" not in u.text for u in замечания[:-1])
+
+
+def test_остаток_вопросы_не_дублируют_строки_замечаний():
+    """Строка, ставшая вопросом, в свёртку не едет: иначе пользователь увидел бы
+    одно и то же дважды. Остаётся только то, о чём вопроса нет."""
+    остаток = remainder_from_plan(_план_остатка(), None)
+
+    assert остаток.fuzzy_pairs
+    assert [u.text for u in остаток.unfixable] == [
+        "У 1 объекта («api») нет ни одной связи. Проверьте, не потерялись ли связи, и при "
+        "необходимости проведите их вручную."
+    ]
+
+
+def test_остаток_пуст_когда_спрашивать_не_о_чем():
+    c4 = C4_ЯРМАРКА + "edges:\n  - {from: orders, to: Каталог-БД}\n"
+    план = build_unified_plan([("a.yaml", c4.encode())])
+    остаток = preview_from_plan(план).remainder
+
+    assert остаток.field_conflicts == [] and остаток.container_edges == []
+    assert остаток.isolated_groups == [] and остаток.fuzzy_pairs == []
+    assert остаток.unfixable == []
+    assert остаток.node_paths == план.node_paths  # пикер работает и без вопросов
+
+
+# ── Ф-E: решения пользователя по остатку в применении ───────────────────────
+#
+# Ответы приезжают JSON-полем decisions и правят слитое дерево ДО записи в БД.
+# Главные гарантии: ни один ответ не обязателен (без них проект прежний), ответ,
+# не нашедший своего вопроса, — отказ, а не тихое «применим похожее».
+
+
+def _состав(db, проект) -> tuple[set[str], set[tuple]]:
+    """Что в проекте: пути узлов и связи путями (имя проекта и id несравнимы)."""
+    узлы = db.query(Node).filter(Node.project_id == проект.id).all()
+    все = {n.id: n for n in узлы}
+    пути = {n.id: node_path(все, n.id) for n in узлы}
+    связи = {
+        (пути[e.source_id], пути[e.target_id], e.label, e.technology, e.is_synchronous)
+        for e in db.query(Edge).filter(Edge.project_id == проект.id).all()
+    }
+    return set(пути.values()), связи
+
+
+def test_решения_поле_конец_связи_и_новая_связь(db):
+    """Три вида ответа разом: выбранное значение поля, перевешенный конец связи и
+    дорисованная человеком связь между островом и ядром."""
+    план = _план_остатка()
+    решения = parse_decisions(json.dumps({
+        "fields": {"field|Ярмарка|description": 1},
+        "edges": {
+            "edge|Оператор|Ярмарка / orders|смотрит|target": {"to_path": "Ярмарка / orders / api"},
+            "edge|Ярмарка / orders|Ярмарка / Каталог-БД|пишет|source": "keep",
+        },
+        "new_edges": [{
+            "group_id": "group|Биллинг / счета",
+            "from_path": "Биллинг / счета",
+            "to_path": "Ярмарка / Каталог-БД",
+            "label": "сверяет остатки",
+            "tech": "SQL",
+            "channel": "async",
+        }],
+    }))
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Ярмарка", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    ярмарка = db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Ярмарка", Node.parent_id.is_(None)
+    ).one()
+    assert ярмарка.description == "Магазин"  # выбран второй кандидат
+    _, связи = _состав(db, проект)
+    assert ("Оператор", "Ярмарка / orders / api", "смотрит", None, None) in связи
+    assert not any(c[:2] == ("Оператор", "Ярмарка / orders") for c in связи)
+    # «keep» — это сегодняшнее поведение: связь осталась на контейнере.
+    assert ("Ярмарка / orders", "Ярмарка / Каталог-БД", "пишет", None, None) in связи
+    новая = ("Биллинг / счета", "Ярмарка / Каталог-БД", "сверяет остатки", "SQL", False)
+    assert новая in связи
+    assert отчёт.edges == len(связи)
+    assert "Ваши решения: перевешено связей 1 · добавлено связей 1 · выбрано значений полей 1" \
+        in отчёт.warnings
+
+
+_СКЛЕЙКА_A = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Сервер
+  - name: Плагин Zabbix
+    children:
+      - name: backend
+edges:
+  - from: backend
+    to: Сервер
+    label: gRPC
+"""
+
+_СКЛЕЙКА_B = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Веб
+  - name: Плагин
+    children:
+      - name: frontend
+edges:
+  - from: frontend
+    to: Веб
+    label: module.js
+  - from: Плагин
+    to: Grafana
+    label: ставится
+"""
+
+
+def test_решение_склейка_переносит_связи_детей_и_имя(db):
+    """«Это один объект» + своё имя: выживает первый по порядку файлов, к нему
+    переезжают связи и компоненты второго, второго в проекте нет."""
+    план = build_unified_plan(
+        [("a.yaml", _СКЛЕЙКА_A.encode()), ("b.yaml", _СКЛЕЙКА_B.encode())]
+    )
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    assert пара.id == "pair|Плагин Zabbix|Плагин"
+    решения = parse_decisions(json.dumps(
+        {"merges": {пара.id: {"name": "Плагин Zabbix для Grafana"}}}
+    ))
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Федерация", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    пути, связи = _состав(db, проект)
+    assert "Плагин" not in пути  # поглощённого узла нет
+    assert "Плагин Zabbix для Grafana" in пути  # выживший назван выбранным именем
+    # Компоненты обоих — под выжившим.
+    assert {"Плагин Zabbix для Grafana / backend", "Плагин Zabbix для Grafana / frontend"} <= пути
+    # Связь поглощённого переехала на выжившего.
+    assert ("Плагин Zabbix для Grafana", "Grafana", "ставится", None, None) in связи
+    assert отчёт.nodes == len(пути) and отчёт.nodes == len(план.merged.nodes) - 1
+    assert "Ваши решения: склеено объектов 1" in отчёт.warnings
+
+
+def test_решения_keep_diff_и_пустое_поле_дают_прежний_проект(db):
+    """Ни один вопрос не обязателен: отказы и пустое поле — это дефолт."""
+    юзер = ensure_architect(db).id
+    без, _ = apply_unified_plan(db, _план_остатка(), {}, "Без ответов", None, юзер)
+    отказы = parse_decisions(json.dumps({
+        "fields": {},
+        "edges": {"edge|Оператор|Ярмарка / orders|смотрит|target": "keep"},
+        "merges": {"pair|Оператор|Оператор смены": "diff"},
+        "new_edges": [],
+    }))
+    с_отказами, отчёт = apply_unified_plan(
+        db, _план_остатка(), {}, "С отказами", None, юзер, decisions=отказы
+    )
+    db.commit()
+
+    assert _состав(db, без) == _состав(db, с_отказами)
+    assert not any(w.startswith("Ваши решения") for w in отчёт.warnings)
+
+
+def test_перевес_на_компонент_выбрасывает_точный_дубль(db):
+    """Связь, уточнённая до компонента, может совпасть с уже существующей —
+    остаётся одна (ключ дубля тот же, что у мерджа)."""
+    текст = """
+nodes:
+  - name: Zabbix
+    children:
+      - name: web
+  - name: Датасорс
+edges:
+  - from: Датасорс
+    to: Zabbix
+    label: HTTP
+  - from: Датасорс
+    to: web
+    label: HTTP
+"""
+    план = build_unified_plan([("a.yaml", текст.encode())])
+    решения = parse_decisions(json.dumps({
+        "edges": {"edge|Датасорс|Zabbix|HTTP|target": {"to_path": "Zabbix / web"}}
+    }))
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Zabbix", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    _, связи = _состав(db, проект)
+    assert связи == {("Датасорс", "Zabbix / web", "HTTP", None, None)}
+    assert отчёт.edges == 1
+    # Выброшена ИМЕННО перевешенная: связей, которых решение не касалось, дедуп
+    # не трогает (два одинаковых ребра в одном документе — дело его автора).
+    план2 = build_unified_plan([("a.yaml", текст.encode())])
+    apply_unified_plan(db, план2, {}, "Без решений", None, ensure_architect(db).id)
+    db.commit()
+    assert len(план2.merged.edges) == 2
+
+
+def test_решения_не_из_плана_отвергаются(db):
+    план = _план_остатка()
+    юзер = ensure_architect(db).id
+    было = db.query(Project).count()
+
+    for кривое in (
+        {"fields": {"field|Нет узла|description": 0}},
+        {"fields": {"field|Ярмарка|description": 9}},  # кандидата с таким номером нет
+        {"edges": {"edge|Оператор|Ярмарка / orders|смотрит|target": {"to_path": "Ярмарка"}}},
+        {"merges": {"pair|Нет|Пары": {"name": "Х"}}},
+        {"new_edges": [{"group_id": "group|Биллинг / счета",
+                        "from_path": "Биллинг / счета", "to_path": "Нет такого"}]},
+    ):
+        with pytest.raises(UnifiedImportError, match="Превью устарело"):
+            apply_unified_plan(
+                db, _план_остатка(), {}, "П", None, юзер,
+                decisions=parse_decisions(json.dumps(кривое)),
+            )
+    # Форма поля проверяется отдельно от плана — там свой человеческий текст.
+    with pytest.raises(UnifiedImportError, match="не разбирается как JSON"):
+        parse_decisions("{это не json")
+    with pytest.raises(UnifiedImportError, match="неизвестный раздел"):
+        parse_decisions(json.dumps({"fields": {}, "лишнее": 1}))
+    with pytest.raises(UnifiedImportError, match="номером кандидата"):
+        parse_decisions(json.dumps({"fields": {"x": "cand:1"}}))
+    with pytest.raises(UnifiedImportError, match="«keep» либо объект с to_path"):
+        parse_decisions(json.dumps({"edges": {"x": "все равно"}}))
+    with pytest.raises(UnifiedImportError, match="«sync» либо «async»"):
+        parse_decisions(json.dumps({"new_edges": [
+            {"from_path": "a", "to_path": "b", "channel": "быстрый"}]}))
+    with pytest.raises(UnifiedImportError, match="«diff» либо объект с name"):
+        parse_decisions(json.dumps({"merges": {"x": {"name": "  "}}}))
+    assert план.ok and db.query(Project).count() == было  # ни один отказ не создал проекта
+
+
+def test_эндпоинт_применения_принимает_decisions(клиент_с_бд, db):
+    """Ответы приезжают тем же multipart, что и файлы; ответ не из плана — 400."""
+    файлы = [
+        ("files", ("shop.yaml", _ОСТАТОК_1.encode(), "text/yaml")),
+        ("files", ("billing.yaml", _ОСТАТОК_2.encode(), "text/yaml")),
+    ]
+
+    r = клиент_с_бд.post(ПРИМЕНЕНИЕ, files=файлы, data={
+        "name": "Ярмарка",
+        "decisions": json.dumps({"fields": {"field|Ярмарка|description": 1}}),
+    })
+
+    assert r.status_code == 201, r.text
+    assert any("Ваши решения: выбрано значений полей 1" in w for w in r.json()["warnings"])
+    проект = db.get(Project, uuid.UUID(r.json()["project_id"]))
+    корень = db.query(Node).filter(
+        Node.project_id == проект.id, Node.parent_id.is_(None), Node.name == "Ярмарка"
+    ).one()
+    assert корень.description == "Магазин"
+
+    устарело = клиент_с_бд.post(ПРИМЕНЕНИЕ, files=файлы, data={
+        "name": "Ярмарка", "decisions": json.dumps({"fields": {"field|Нет|роль": 0}}),
+    })
+    assert устарело.status_code == 400 and "Превью устарело" in устарело.json()["detail"]
+
+    кривое = клиент_с_бд.post(ПРИМЕНЕНИЕ, files=файлы, data={
+        "name": "Ярмарка", "decisions": "{не json",
+    })
+    assert кривое.status_code == 400 and "decisions" in кривое.json()["detail"]
+
+
+def test_остаток_называет_строки_ставшие_вопросами():
+    """Строка, превращённая в вопрос, приезжает текстом в converted_warnings —
+    им фронт прячет её из списков замечаний. Сами списки бэк не режет (Р1)."""
+    план = _план_остатка()
+    превью = preview_from_plan(план)
+    остаток = превью.remainder
+    assert превью.c4 is not None
+
+    скрыть = остаток.converted_warnings
+    # Ровно четыре вопроса-из-строк: две связи в контейнер, группа, похожие имена.
+    assert len(скрыть) == 4
+    assert any("похожи" in w for w in скрыть)
+    assert sum(1 for w in скрыть if "конец в контейнере" in w) == 2
+    assert any("не связана с остальной схемой" in w for w in скрыть)
+    # Замечание, вопросом не ставшее, прятать нельзя.
+    assert not any("без единой связи" in w for w in скрыть)
+    # Тексты — БАЙТ-В-БАЙТ те же, что в корзинах: фронт сверяет строкой.
+    корзины = set(превью.c4.warnings)
+    пофайловые = {w for f in превью.c4.file_remarks for w in f.warnings}
+    assert set(скрыть) <= корзины
+    assert set(скрыть) <= (set(превью.c4.schema_warnings) | пофайловые)
+    # Строки на месте: их читает MCP, и объединение корзин по-прежнему плоские списки.
+    assert len(превью.c4.warnings) == 5
+
+
+def test_остаток_называет_и_хвост_счётчик():
+    """Связи, скрытые за «…ещё N таких связей», — тоже вопросы: их общая строка
+    прячется вместе с ними."""
+    n = _MAX_CONTAINER_EDGES + 3
+    текст = "nodes:\n  - name: box\n    children:\n      - name: inner\n"
+    текст += "".join(f"  - name: s{i}\n" for i in range(n))
+    текст += "edges:\n" + "".join(f"  - from: s{i}\n    to: box\n" for i in range(n))
+    план = build_unified_plan([("a.yaml", текст.encode())])
+
+    остаток = remainder_from_plan(план, None)
+
+    assert len(остаток.container_edges) == n  # вопрос задан каждой связи
+    assert "…ещё 3 таких связей" in остаток.converted_warnings
+
+
+# Пара похожих имён, у которых знание разложено по-разному: у первого (он выживет)
+# пусто описание и нет якоря, у второго — и то, и другое; технология занята у обоих.
+_ЗНАНИЕ_A = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Сервер
+  - name: Плагин Zabbix
+    technology: Go
+edges:
+  - from: Плагин Zabbix
+    to: Сервер
+    label: gRPC
+"""
+
+_ЗНАНИЕ_B = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Веб
+  - name: Плагин
+    technology: TypeScript
+    description: Датасорс и панели Zabbix
+    role: плагин
+    source: {repo: 'github.com/alexanderzobnin/grafana-zabbix'}
+"""
+
+
+def test_склейка_доливает_знание_поглощённого(db):
+    """Ничего не удаляется: пустые поля выжившего доливаются значениями
+    поглощённого, заполненные не трогаются, якорь переезжает — иначе следующий
+    синк того репозитория не узнает объект и привезёт дубль."""
+    план = build_unified_plan(
+        [("a.yaml", _ЗНАНИЕ_A.encode()), ("b.yaml", _ЗНАНИЕ_B.encode())]
+    )
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    решения = parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин Zabbix"}}}))
+
+    проект, _ = apply_unified_plan(
+        db, план, {}, "Федерация", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    выживший = db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Плагин Zabbix"
+    ).one()
+    assert выживший.description == "Датасорс и панели Zabbix"  # пустое долито
+    assert выживший.role == "плагин"
+    assert выживший.technology == "Go"  # заполненное не тронуто
+    assert выживший.source_ref == "git:github.com/alexanderzobnin/grafana-zabbix"
+
+
+def test_склейка_не_перевешивает_занятый_якорь(db):
+    """Якорь у выжившего есть — своим и остаётся (второго места под якорь нет,
+    множественные якоря за рамками MVP)."""
+    a = _ЗНАНИЕ_A.replace(
+        "  - name: Плагин Zabbix\n    technology: Go\n",
+        "  - name: Плагин Zabbix\n    technology: Go\n"
+        "    source: {repo: 'github.com/org/plugin-fork'}\n",
+    )
+    план = build_unified_plan([("a.yaml", a.encode()), ("b.yaml", _ЗНАНИЕ_B.encode())])
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    решения = parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин"}}}))
+
+    проект, _ = apply_unified_plan(
+        db, план, {}, "Федерация", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    выживший = db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Плагин"
+    ).one()
+    assert выживший.source_ref == "git:github.com/org/plugin-fork"
+    assert выживший.description == "Датасорс и панели Zabbix"  # поля долиты как всегда
+
+
+def test_дедуп_после_склейки_смотрит_только_на_перевешенные(db):
+    """Дедуп в БД трогает только связи, которым склейка сменила конец.
+
+    Пары одинаковых рёбер в слитом дереве не бывает — мердж схлопывает их сам
+    (add_edge), поэтому сквозного сценария у этого сторожа нет: проверяем сам
+    dedup_edges. Одинаковая пара, написанная автором в стороне от склейки (так
+    бывает в одно-файловом passthrough), решение о другом объекте переживает."""
+    проект = Project(id=uuid.uuid4(), name="Дубли")
+    db.add(проект)
+    db.flush()
+    a = Node(id=uuid.uuid4(), project_id=проект.id, name="a")
+    b = Node(id=uuid.uuid4(), project_id=проект.id, name="b")
+    db.add_all([a, b])
+    db.flush()
+    первое = Edge(id=uuid.uuid4(), project_id=проект.id, source_id=a.id,
+                  target_id=b.id, label="держит")
+    второе = Edge(id=uuid.uuid4(), project_id=проект.id, source_id=a.id,
+                  target_id=b.id, label="держит")
+    db.add_all([первое, второе])
+    db.flush()
+
+    assert dedup_edges(db, проект.id, set()) == 0  # склеек не было — молчит
+    assert db.query(Edge).filter(Edge.project_id == проект.id).count() == 2
+
+    # Ту же пару, но одну связь перевесила склейка — она и уходит как дубль.
+    assert dedup_edges(db, проект.id, {первое.id}) == 1
+    оставшиеся = db.query(Edge).filter(Edge.project_id == проект.id).all()
+    assert [e.id for e in оставшиеся] == [второе.id]
+
+
+def test_тёзки_процессов_и_живых_узлов_пунктами_свёртки():
+    """Ф2г: замечания о тёзках процессов (создание и догрузка) и живых узлов
+    (догрузка) идут в свёртку «Придется подправить вручную» дружелюбным пунктом."""
+    assert friendly_process_note(
+        "процесс «Оплата» есть в нескольких входах (a.zip, b.zip) — процессы не "
+        "сливаются, тёзка приедет с суффиксом « (2)»"
+    ) == (
+        "Процесс «Оплата» есть в нескольких файлах (a.zip, b.zip). Процессы не "
+        "объединяются, поэтому второй приедет под именем «Оплата (2)». Если это один "
+        "и тот же процесс, лишний нужно будет удалить вручную."
+    )
+    assert friendly_process_note(
+        "процесс «Оплата» из входа «a.zip» — тёзка уже имеющегося: процессы не "
+        "сливаются, приедет с суффиксом « (2)»"
+    ).startswith("Процесс «Оплата» из «a.zip» совпадает по имени с уже имеющимся")
+    assert friendly_process_note(
+        "узлы-тёзки «Ярмарка / orders» слились в один — знание приедет к первому из "
+        "них, второй (orders) остался как был"
+    ).startswith("В проекте несколько объектов «Ярмарка / orders»")
+    assert friendly_process_note("незнакомая строка") == "незнакомая строка"

@@ -81,6 +81,19 @@ export const PlusIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M12 5 V19 M5 12 H19" /></svg>);
 
+// Галка «сделано»: статус «Готово к импорту» и кружок итога разбора остатка
+// (Ф-E). Линия толще соседей — знак мелкий (12–14 px) и обязан читаться.
+export const CheckIcon = ({ size = 13 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={2.4} aria-hidden>
+    <path d="M4 12.5 L9 17.5 L20 6.5" /></svg>);
+
+// Переключатель направления («⇄»): две встречные стрелки. Заведён для строки
+// формы проведения связей — там он сидит в кружке 22 px посреди соединителя.
+export const SwapIcon = ({ size = 12 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={2} aria-hidden>
+    <path d="M4 8 H20 M16 4 L20 8 L16 12" />
+    <path d="M20 16 H4 M8 12 L4 16 L8 20" /></svg>);
+
 // Знак вопроса в круге — ⓘ-кнопка пояснения у поля с неинтуитивной механикой
 // (ui/InfoPopover.tsx; заведена под поле «Якорь»). Круг тонкий, глиф внутри —
 // того же линейного семейства, что и остальные иконки хрома.

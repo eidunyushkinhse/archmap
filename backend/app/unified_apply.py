@@ -26,8 +26,10 @@ C4 (узлы и связи) → схемы логики → семьи факт�
      без привязки (видимая деградация, как везде).
 """
 
+import json
 import uuid
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
@@ -39,7 +41,8 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
-from app.import_yaml import seed_import
+from app.import_yaml import ParsedImport, _ImpEdge, seed_import
+from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.project import Project
@@ -66,7 +69,14 @@ from app.unified_import import (
     _param_doc,
     _table_doc,
     _yaml,
+    apply_unfixable,
+    remainder_from_plan,
+    remainder_with_index,
 )
+
+# Превью, по которому пользователь отвечал, устарело: план считается заново по тем
+# же файлам, и если ответ не находит своего вопроса — применять «похожее» нельзя.
+STALE = "Превью устарело — обновите его и повторите"
 
 
 @dataclass
@@ -82,6 +92,275 @@ class _Winner:
     # Пришёл из спора. Для схем логики это значит «имя может получить суффикс», а
     # адрес привязки переписывается только своему входу (у проигравшего тела нет).
     from_conflict: bool
+
+
+# ── Решения пользователя по остатку слияния (Ф-E) ───────────────────────────
+#
+# Ответы на вопросы превью приезжают JSON-полем формы decisions и правят СЛИТОЕ
+# ДЕРЕВО до записи в БД (склейки — сразу после неё: поглощённый узел уже создан, и
+# семьи фактов адресованы индексами плана). Ни один ответ не обязателен: пустые
+# decisions дают ровно тот же проект, что и раньше.
+
+
+@dataclass
+class NewEdgeIn:
+    """Связь, которую дорисовал человек (ответ на вопрос об изолированной группе).
+    ArchMap кандидатов не предлагает — концы, подпись и канал называет он сам."""
+
+    group_id: str
+    from_path: str
+    to_path: str
+    label: str | None = None
+    technology: str | None = None
+    channel: str | None = None  # «sync» | «async» | None (дефолт движка)
+
+
+@dataclass
+class Decisions:
+    """Разобранное поле decisions. Отказы («оставить как есть», «разные объекты»)
+    здесь не хранятся: они и есть дефолт, применять по ним нечего."""
+
+    fields: dict[str, int] = field(default_factory=dict)  # id спора → индекс кандидата
+    edges: dict[str, str] = field(default_factory=dict)  # id связи → путь компонента
+    new_edges: list[NewEdgeIn] = field(default_factory=list)
+    merges: dict[str, str] = field(default_factory=dict)  # id пары → имя склеенного
+
+    def empty(self) -> bool:
+        return not (self.fields or self.edges or self.new_edges or self.merges)
+
+
+_SECTIONS = ("fields", "edges", "new_edges", "merges")
+
+
+def _text(value: object, что: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise UnifiedImportError(f"Поле decisions: {что} должно быть строкой")
+    return value.strip() or None
+
+
+def parse_decisions(raw: str | None) -> Decisions:
+    """Решения пользователя по остатку: JSON-объект в поле формы (multipart несёт
+    файлы, поэтому словарь едет текстом).
+
+    Разбор и валидация ФОРМЫ здесь, одинаково для создания и догрузки: кривое поле
+    это 400 с человеческим текстом, а не 500 внутри применения. Сверка с ПЛАНОМ —
+    отдельно (resolve_decisions): для неё нужен сам план."""
+    try:
+        data = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as e:
+        raise UnifiedImportError("Поле decisions не разбирается как JSON") from e
+    if not isinstance(data, dict):
+        raise UnifiedImportError(
+            "Поле decisions должно быть объектом с разделами "
+            + ", ".join(_SECTIONS)
+        )
+    неизвестные = [k for k in data if k not in _SECTIONS]
+    if неизвестные:
+        raise UnifiedImportError(
+            f"Поле decisions: неизвестный раздел «{неизвестные[0]}»"
+        )
+    out = Decisions()
+
+    for cid, choice in (data.get("fields") or {}).items():
+        # bool — подкласс int: «true» вместо номера кандидата это опечатка клиента.
+        if not isinstance(choice, int) or isinstance(choice, bool) or choice < 0:
+            raise UnifiedImportError(
+                f"Поле decisions: выбор значения «{cid}» должен быть номером кандидата"
+            )
+        out.fields[str(cid)] = choice
+
+    for eid, choice in (data.get("edges") or {}).items():
+        if choice == "keep":
+            continue  # «оставить на контейнере» — это и есть сегодняшнее поведение
+        if not isinstance(choice, dict) or not _text(choice.get("to_path"), "to_path"):
+            raise UnifiedImportError(
+                f"Поле decisions: ответ о связи «{eid}» — «keep» либо объект с to_path"
+            )
+        out.edges[str(eid)] = str(choice["to_path"]).strip()
+
+    for item in data.get("new_edges") or []:
+        if not isinstance(item, dict):
+            raise UnifiedImportError("Поле decisions: new_edges — список объектов")
+        начало, конец = _text(item.get("from_path"), "from_path"), _text(item.get("to_path"), "to_path")
+        if not начало or not конец:
+            raise UnifiedImportError(
+                "Поле decisions: у новой связи должны быть начало и конец"
+            )
+        канал = _text(item.get("channel"), "channel")
+        if канал is not None and канал not in ("sync", "async"):
+            raise UnifiedImportError(
+                "Поле decisions: тип канала новой связи — «sync» либо «async»"
+            )
+        out.new_edges.append(NewEdgeIn(
+            group_id=_text(item.get("group_id"), "group_id") or "",
+            from_path=начало,
+            to_path=конец,
+            label=_text(item.get("label"), "label"),
+            technology=_text(item.get("tech"), "tech") or _text(item.get("technology"), "technology"),
+            channel=канал,
+        ))
+
+    for pid, choice in (data.get("merges") or {}).items():
+        if choice == "diff":
+            continue  # «разные объекты» — тоже сегодняшнее поведение
+        имя = _text(choice.get("name"), "name") if isinstance(choice, dict) else None
+        if имя is None:
+            raise UnifiedImportError(
+                f"Поле decisions: ответ о паре «{pid}» — «diff» либо объект с name"
+            )
+        out.merges[str(pid)] = имя
+    return out
+
+
+@dataclass
+class ResolvedDecisions:
+    """Решения, переведённые в ИНДЕКСЫ слитого дерева. Сверка с планом сделана —
+    дальше только запись."""
+
+    fields: list[tuple[int, str, str]] = field(default_factory=list)  # узел, поле, значение
+    edges: list[tuple[int, str, int]] = field(default_factory=list)  # связь, конец, компонент
+    # начало, конец, подпись, технология, синхронность
+    new_edges: list[tuple[int, int, str | None, str | None, bool | None]] = field(
+        default_factory=list
+    )
+    merges: list[tuple[int, int, str]] = field(default_factory=list)  # A, B, имя склеенного
+
+    def empty(self) -> bool:
+        return not (self.fields or self.edges or self.new_edges or self.merges)
+
+
+def resolve_decisions(
+    plan: UnifiedPlan, decisions: Decisions | None, current: int | None = None
+) -> ResolvedDecisions:
+    """Сверить решения с планом и перевести их в индексы. ДО любой записи.
+
+    Ответ, не нашедший своего вопроса (или путь не из плана), — отказ, а не тихий
+    пропуск: молча применить «не то» пользователь обнаружит уже в проекте."""
+    out = ResolvedDecisions()
+    if decisions is None or decisions.empty():
+        return out
+    _, index = remainder_with_index(plan, current)
+
+    for cid, choice in decisions.fields.items():
+        адрес = index.fields.get(cid)
+        if адрес is None or choice >= len(адрес[2]):
+            raise UnifiedImportError(STALE)
+        node_idx, fld, values = адрес
+        out.fields.append((node_idx, fld, values[choice]))
+
+    for eid, path in decisions.edges.items():
+        связь = index.edges.get(eid)
+        if связь is None or path not in связь[2]:
+            raise UnifiedImportError(STALE)
+        edge_idx, end, components = связь
+        out.edges.append((edge_idx, end, components[path]))
+
+    for новая in decisions.new_edges:
+        if новая.group_id and новая.group_id not in index.groups:
+            raise UnifiedImportError(STALE)
+        начало, конец = index.nodes.get(новая.from_path), index.nodes.get(новая.to_path)
+        if начало is None or конец is None:
+            raise UnifiedImportError(STALE)
+        if начало == конец:
+            raise UnifiedImportError("Начало и конец новой связи — один и тот же объект")
+        out.new_edges.append((
+            начало, конец, новая.label, новая.technology,
+            None if новая.channel is None else новая.channel == "sync",
+        ))
+
+    for pid, имя in decisions.merges.items():
+        пара = index.pairs.get(pid)
+        if пара is None:
+            raise UnifiedImportError(STALE)
+        out.merges.append((пара[0], пара[1], имя))
+    return out
+
+
+def merge_chain(
+    pairs: list[tuple[int, int, str]], live: Callable[[int], bool] | None = None
+) -> list[tuple[int, int, str]]:
+    """Пары склеек → (выживший, поглощённый, имя) в порядке применения.
+
+    Разыменование до неподвижной точки: если обе стороны пары уже участвовали в
+    другой склейке, склеиваем их НЫНЕШНИХ выживших, а не исчезнувшие узлы.
+    Выживает живой узел (Р4 догрузки), иначе первый по порядку файлов — то есть с
+    меньшим индексом слитого дерева (мердж создаёт узлы в порядке входов)."""
+    alias: dict[int, int] = {}
+
+    def deref(i: int) -> int:
+        while i in alias:
+            i = alias[i]
+        return i
+
+    out: list[tuple[int, int, str]] = []
+    for a, b, имя in pairs:
+        x, y = deref(a), deref(b)
+        if x == y:
+            continue  # уже один объект — второй раз клеить нечего
+        if live is not None and live(y) and not live(x):
+            x, y = y, x
+        elif not (live is not None and live(x) and not live(y)):
+            x, y = min(x, y), max(x, y)
+        alias[y] = x
+        out.append((x, y, имя))
+    return out
+
+
+def apply_tree_decisions(merged: ParsedImport, res: ResolvedDecisions) -> int:
+    """Правки СЛИТОГО ДЕРЕВА до записи в БД: значения полей, перевешенные концы,
+    дорисованные связи. Возвращает число выброшенных дублей.
+
+    Дубль возникает от перевеса: связь в контейнер, уточнённая до компонента, может
+    совпасть с уже существующей связью к тому же компоненту. Ключ дубля — тот же,
+    что у мерджа (пара концов, подпись, технология), поэтому «выброшено» здесь
+    значит ровно то же, что и в его отчёте."""
+    for node_idx, fld, value in res.fields:
+        setattr(merged.nodes[node_idx], fld, value)
+    for edge_idx, end, comp_idx in res.edges:
+        e = merged.edges[edge_idx]
+        if end == "source":
+            e.source_idx = comp_idx
+        else:
+            e.target_idx = comp_idx
+    тронутые = {edge_idx for edge_idx, _end, _comp in res.edges}
+    for начало, конец, label, tech, sync in res.new_edges:
+        тронутые.add(len(merged.edges))
+        merged.edges.append(_ImpEdge(начало, конец, label, tech, None, sync))
+    if not тронутые:
+        return 0
+
+    def подпись(e: _ImpEdge) -> tuple[int, int, str, str]:
+        return (e.source_idx, e.target_idx, e.label or "", e.technology or "")
+
+    # Выбрасываем ТОЛЬКО тронутые решением связи: чего не касались, того и не
+    # трогаем (два одинаковых ребра в одном документе — дело его автора).
+    seen = {подпись(e) for i, e in enumerate(merged.edges) if i not in тронутые}
+    kept: list[_ImpEdge] = []
+    for i, e in enumerate(merged.edges):
+        if i in тронутые:
+            if подпись(e) in seen:
+                continue
+            seen.add(подпись(e))
+        kept.append(e)
+    dropped = len(merged.edges) - len(kept)
+    merged.edges[:] = kept
+    return dropped
+
+
+def decisions_note(res: ResolvedDecisions, merges_done: int) -> str | None:
+    """Строка отчёта о применённых решениях — ОДНА, и только если что-то решено.
+
+    Нулевые части опускаем: «склеено объектов 0» это не отчёт, а шум."""
+    части = [
+        (len(res.edges), "перевешено связей"),
+        (len(res.new_edges), "добавлено связей"),
+        (merges_done, "склеено объектов"),
+        (len(res.fields), "выбрано значений полей"),
+    ]
+    названо = [f"{слово} {n}" for n, слово in части if n]
+    return "Ваши решения: " + " · ".join(названо) if названо else None
 
 
 # ── Резолюции ────────────────────────────────────────────────────────────────
@@ -189,9 +468,14 @@ def apply_unified_plan(
     name: str | None,
     description: str | None,
     user_id: uuid.UUID,
+    decisions: Decisions | None = None,
 ) -> tuple[Project, ArchiveImportResult]:
     """Создать проект по плану с учётом выбора пользователя. Коммит — на вызывающей
     стороне (норма всех приёмников: транзакцией владеет роут).
+
+    resolutions — выбор тела в спорах семей, decisions — ответы на вопросы остатка
+    слияния (Ф-E). Ни то, ни другое не обязательно: без них получается ровно тот
+    же проект, что и раньше.
 
     UnifiedImportError — применение невозможно целиком (план непригоден, резолюция
     не из плана, нет имени): проект не создаётся. Частичные промахи (адрес семьи не
@@ -202,7 +486,20 @@ def apply_unified_plan(
         raise UnifiedImportError(
             "План непригоден к применению: " + ("; ".join(plan.errors[:5]) or "неизвестно почему")
         )
+    # Свёртка отчёта (Ф2г-2) — тот же остаток, что был в превью, и ДО правок дерева
+    # решениями (перевес меняет пути — столкнувшийся id выпустил бы закрытую строку).
+    # Плановые тёзки процессов (id «plan|…») не берём: фактическое имя тёзки назовёт
+    # строка применения «приехал под именем …».
+    unfixable = [
+        u for u in remainder_from_plan(plan, None).unfixable if not u.id.startswith("plan|")
+    ]
     winners = _winners(plan, resolutions)
+    # Сверка решений с планом — ДО любой записи, как и у резолюций.
+    решения = resolve_decisions(plan, decisions, None)
+    # Поля, концы связей и дорисованные связи правим В ДЕРЕВЕ: оно ещё не в БД
+    # (совпавшие после перевеса дубли оно же и выбрасывает). Склейки — после
+    # посева: узлы уже созданы, а семьи адресованы индексами плана.
+    apply_tree_decisions(merged, решения)
 
     # ── Имя и описание: поля пользователя либо манифест единственного архива (П3).
     project_name = (name or "").strip()
@@ -237,6 +534,19 @@ def apply_unified_plan(
     for i, remarks in enumerate(plan.input_remarks):
         label = plan.labels[i] if i < len(plan.labels) else f"вход {i + 1}"
         warnings.extend(f"{label}: {r}" for r in remarks)
+    # Отсюда начинаются строки самого применения — они и пойдут в свёртку отчёта
+    # (плановые уже в ней: остаток и замечания входов — пунктами выше).
+    плановые = len(warnings)
+
+    # ── Склейки по ответу пользователя: поглощённый узел отдаёт выжившему связи,
+    #    детей и знание (node_of[поглощённый] = выживший) и исчезает. Пути после
+    #    этого другие — ими адресуются семьи и привязки шагов, поэтому пересчёт.
+    склеено, перевешены = _apply_merges(db, project, решения, node_of)
+    склеены_дубли = 0
+    if склеено:
+        склеены_дубли = dedup_edges(db, project.id, перевешены)
+        nodes = db.query(Node).filter(Node.project_id == project.id).all()
+        path_of = [node_path({n.id: n for n in nodes}, n.id) for n in node_of]
 
     # ── Схемы логики: напрямую, тело БЕЗ шапки (заглушка остаётся заглушкой, Д4).
     docs_created = 0
@@ -315,11 +625,17 @@ def apply_unified_plan(
         _, result = apply_process_import(db, project.id, text, proc_name, mapping)
         process_results.append(result)
 
+    заметка = decisions_note(решения, склеено)
+    if заметка:
+        warnings.append(заметка)
+    unfixable.extend(apply_unfixable(warnings[плановые:]))
     return project, ArchiveImportResult(
         project_id=project.id,
         project_name=project.name,
-        nodes=len(merged.nodes),
-        edges=len(merged.edges),
+        # Числа честные: поглощённого склейкой узла в проекте нет, а выброшенный
+        # перевесом дубль связи уже не в дереве (apply_tree_decisions).
+        nodes=len(merged.nodes) - склеено,
+        edges=len(merged.edges) - склеены_дубли,
         docs_created=docs_created,
         specs_applied=specs_applied,
         db=db_report,
@@ -327,9 +643,108 @@ def apply_unified_plan(
         config=config_report,
         processes=process_results,
         warnings=warnings,
+        unfixable=unfixable,
         resolved_conflicts=len(plan.conflicts),
         channel_stubs=channel_stubs,
     )
+
+
+def _apply_merges(
+    db: Session, project: Project, res: ResolvedDecisions, node_of: list[Node]
+) -> tuple[int, set[uuid.UUID]]:
+    """Склейки «это один объект» — уже в БД: узлы созданы посевом, семьи ещё нет.
+
+    Выживший (первый по порядку файлов) получает выбранное имя, связи и детей
+    поглощённого; сам поглощённый удаляется. node_of поглощённого переставляется на
+    выжившего — этим все его схемы логики, факты, спеки и адреса процессов уезжают
+    к выжившему сами, без второй карты. Ничего иного не удаляется: связь-петля,
+    если объекты были связаны друг с другом, остаётся видимой на холсте.
+
+    Знание поглощённого не пропадает вместе с ним (Ф1.1): пустые поля выжившего
+    доливаются его значениями, заполненные не трогаются — то же правило, каким
+    сливает поля сам мердж. Возвращает (сколько склеек, id перевешенных связей)."""
+    if not res.merges:
+        return 0, set()
+    сделано = 0
+    перевешены: set[uuid.UUID] = set()
+    for survivor, absorbed, имя in merge_chain(res.merges):
+        живёт, уходит = node_of[survivor], node_of[absorbed]
+        if живёт.id == уходит.id:
+            continue
+        for edge in db.query(Edge).filter(
+            Edge.project_id == project.id,
+            (Edge.source_id == уходит.id) | (Edge.target_id == уходит.id),
+        ).all():
+            if edge.source_id == уходит.id:
+                edge.source_id = живёт.id
+            if edge.target_id == уходит.id:
+                edge.target_id = живёт.id
+            перевешены.add(edge.id)
+        for ребёнок in db.query(Node).filter(Node.parent_id == уходит.id).all():
+            ребёнок.parent_id = живёт.id
+        absorb_knowledge(живёт, уходит)
+        живёт.name = имя
+        db.delete(уходит)
+        db.flush()
+        node_of[absorbed] = живёт
+        сделано += 1
+    return сделано, перевешены
+
+
+# Поля узла, которые склейка ДОЛИВАЕТ выжившему из поглощённого. Те же, что
+# доливает догрузка живому узлу: у формы и статуса нет «пусто», и тихая их смена
+# переставила бы секции на странице объекта.
+ABSORB_FIELDS = ("description", "role", "technology")
+
+
+def absorb_knowledge(живёт: Node, уходит: Node) -> bool:
+    """Знание поглощённого узла — выжившему: пустое долить, заполненное не трогать.
+
+    Якорь переносится по тому же правилу и по той же причине, что и поля: без
+    якоря второго источника следующий синк ТОГО репозитория не узнает склеенный
+    объект и привезёт дубль. Занятый якорь не перевешиваем — второго места под
+    него нет (множественные якоря за рамками MVP), и выбор между двумя решает
+    порядок файлов, как и везде."""
+    changed = False
+    for fld in ABSORB_FIELDS:
+        новое, своё = getattr(уходит, fld), getattr(живёт, fld)
+        if (новое or "").strip() and not (своё or "").strip():
+            setattr(живёт, fld, новое)
+            changed = True
+    if not живёт.source_ref and уходит.source_ref:
+        живёт.source_ref = уходит.source_ref
+        changed = True
+    return changed
+
+
+def dedup_edges(db: Session, project_id: uuid.UUID, moved: set[uuid.UUID]) -> int:
+    """Точные дубли (пара концов, подпись, технология) среди ПЕРЕВЕШЕННЫХ склейкой
+    связей — по одной.
+
+    Смотрим только на те связи, которым склейка сменила конец: пара одинаковых
+    рёбер, написанная автором документа в стороне от склейки, — его дело, и решение
+    пользователя о другом объекте её трогать не должно (то же правило, что у дедупа
+    в дереве, apply_tree_decisions). Ключ тот же, что у мерджа, — вердикты сходятся."""
+    if not moved:
+        return 0
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+
+    def подпись(e: Edge) -> tuple[uuid.UUID, uuid.UUID, str, str]:
+        return (e.source_id, e.target_id, e.label or "", e.technology or "")
+
+    seen = {подпись(e) for e in edges if e.id not in moved}
+    dropped = 0
+    for edge in edges:
+        if edge.id not in moved:
+            continue
+        if подпись(edge) in seen:
+            db.delete(edge)
+            dropped += 1
+            continue
+        seen.add(подпись(edge))
+    if dropped:
+        db.flush()
+    return dropped
 
 
 def _synthetic_files(

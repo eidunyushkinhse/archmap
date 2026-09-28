@@ -72,8 +72,15 @@ describe("ConfigParamsSection", () => {
 
     await waitFor(() => expect(screen.getByText(/POST \/orders, GET \/cart/)).toBeInTheDocument());
     // Подсказка говорит, ОТКУДА это берётся: иначе пользователь ищет форму ввода,
-    // которой нет.
-    expect(screen.getByText(/зависит от: ИМЯ/)).toBeInTheDocument();
+    // которой нет. Она спрятана за «?» у заголовка (2026-09-28): видна по нажатию.
+    expect(screen.queryByText(/зависит от: ИМЯ/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Откуда берётся «Зависит от»" }));
+    expect(
+      screen.getByText(
+        "«Зависит от» собирается из пометок «зависит от: ИМЯ» в схемах логики этого"
+        + " объекта. Своей формы ввода у зависимости нет.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("без ссылок строка зависимости не рисуется вовсе", async () => {

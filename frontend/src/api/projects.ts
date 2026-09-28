@@ -3,6 +3,11 @@ import type {
   ProjectCreate, ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut,
   TemplateOut, UnifiedPreviewOut,
 } from "../types";
+// Форма ответов на вопросы остатка слияния (Ф-E). В OpenAPI её нет: бэк принимает
+// её Form-полем decisions ОДНОЙ JSON-строкой, поэтому генерат контракта её не
+// описывает, и единственное место, где она объявлена, — чистый модуль разбора.
+// Импорт ТОЛЬКО типовой (стирается компиляцией): api-слой не тянет за собой UI.
+import type { DecisionsPayload } from "../components/project/remainder/questions";
 import { api } from "./client";
 
 /** Что синку разрешено трогать (зеркало SyncPolicies бэка; дефолты — там же). */
@@ -12,6 +17,17 @@ export interface SyncPolicies {
   sync_components: boolean;
   mark_missing_deprecated: boolean;
   restore_returned: boolean;
+}
+
+/**
+ * Ответы разбора остатка в форму применения. Пустой словарь (и null — «отвечать
+ * было нечем») в форму НЕ кладём: обе ручки принимают поле как необязательное, и
+ * «{}» отличалось бы от «поля нет» только лишним разбором на бэке.
+ */
+function appendDecisions(form: FormData, decisions?: DecisionsPayload | null): void {
+  if (decisions && Object.keys(decisions).length > 0) {
+    form.append("decisions", JSON.stringify(decisions));
+  }
 }
 
 // Управление проектами. Запросы к /projects скоупом X-Project-Id не оборачиваются
@@ -33,10 +49,15 @@ export const projectsApi = {
   // Применение того же ввоза: создать проект. Имя/описание опциональны — при
   // единственном входе-архиве они приедут из манифеста (П3). resolutions —
   // решения пользователя по спорам семей («id спора → выбор»), JSON-строкой:
-  // протокол стейтлесс, план бэк пересчитывает по тем же файлам.
+  // протокол стейтлесс, план бэк пересчитывает по тем же файлам. decisions —
+  // ответы на ОСТАЛЬНЫЕ вопросы остатка (поля, концы связей, новые связи,
+  // склейки) вторым таким же словарём; пустой не отправляем вовсе.
   importUnified: (
     files: File[],
-    opts: { name?: string; description?: string; resolutions?: Record<string, string> },
+    opts: {
+      name?: string; description?: string; resolutions?: Record<string, string>;
+      decisions?: DecisionsPayload | null;
+    },
   ): Promise<ArchiveImportResult> => {
     const form = new FormData();
     for (const f of files) form.append("files", f);
@@ -45,6 +66,7 @@ export const projectsApi = {
     if (opts.resolutions && Object.keys(opts.resolutions).length > 0) {
       form.append("resolutions", JSON.stringify(opts.resolutions));
     }
+    appendDecisions(form, opts.decisions);
     return api.upload<ArchiveImportResult>("/projects/import-unified", form);
   },
   // Догрузка полных архивов знания (.zip) к ЖИВОМУ проекту (Ф4): превью считает
@@ -65,13 +87,17 @@ export const projectsApi = {
   importIntoApply: (
     projectId: string,
     files: File[],
-    opts: { resolutions?: Record<string, string>; baseGraphRev: number; baseMetaRev: number },
+    opts: {
+      resolutions?: Record<string, string>; decisions?: DecisionsPayload | null;
+      baseGraphRev: number; baseMetaRev: number;
+    },
   ): Promise<IntoApplyOut> => {
     const form = new FormData();
     for (const f of files) form.append("files", f);
     if (opts.resolutions && Object.keys(opts.resolutions).length > 0) {
       form.append("resolutions", JSON.stringify(opts.resolutions));
     }
+    appendDecisions(form, opts.decisions);
     form.append("base_graph_rev", String(opts.baseGraphRev));
     form.append("base_meta_rev", String(opts.baseMetaRev));
     return api.upload<IntoApplyOut>(`/projects/${projectId}/import-archive/apply`, form);

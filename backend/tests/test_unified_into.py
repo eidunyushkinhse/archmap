@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 
 from app.archive_export import build_archive
 from app.auth import require_architect
+from app.config_import import ParamIn
 from app.database import get_db
 from app.main import app
 from app.models.broker_channel import BrokerChannel
@@ -43,8 +44,14 @@ from app.models.view_layout import ViewLayoutItem
 from app.process_import import apply_import as apply_process_import
 from app.process_import import build_preview as build_process_preview
 from app.processes import node_path
-from app.unified_import import UnifiedImportError
-from app.unified_into import apply_into_plan, build_into_plan, into_preview
+from app.unified_apply import _Winner, parse_decisions
+from app.unified_import import UnifiedImportError, apply_unfixable, remainder_from_plan
+from app.unified_into import (
+    _replace_params,
+    apply_into_plan,
+    build_into_plan,
+    into_preview,
+)
 
 ПРЕВЬЮ = "/api/v1/projects/{}/import-archive/preview"
 ПРИМЕНЕНИЕ = "/api/v1/projects/{}/import-archive/apply"
@@ -232,10 +239,10 @@ def _цело(было: dict, стало: dict) -> None:
         assert not пропало, f"{семья}: изменилось или пропало {пропало}"
 
 
-def _догрузить(db, проект, *архивы, резолюции=None):
+def _догрузить(db, проект, *архивы, резолюции=None, решения=None):
     план = build_into_plan(db, проект, [(f"a{i}.zip", a) for i, a in enumerate(архивы, 1)])
     превью = into_preview(план)
-    отчёт = apply_into_plan(db, проект, план, резолюции or {})
+    отчёт = apply_into_plan(db, проект, план, резолюции or {}, decisions=решения)
     db.commit()  # как роут: коммит обновляет загруженные коллекции (expire_on_commit)
     return превью, отчёт
 
@@ -369,6 +376,9 @@ def test_пересечение_узла_доливает_пустое_и_не_�
     assert отчёт.nodes_created == 0 and отчёт.nodes_filled == 1
     assert orders.version == 2  # запись изменилась ровно один раз
     assert any("«роль» пустовало" in w for w in отчёт.warnings)
+    # Долитое — информация, её видно по счётчику «дополнено объектов»: в свёртку
+    # отчёта не едет (Ф2г-2).
+    assert not any("пустовало" in u.text or "залито" in u.text for u in отчёт.unfixable)
     # Расхождение занятого поля называет слияние — там видно оба значения разом
     # (тексты слияния зовут поля по-английски: это его формат, не наш).
     assert any("description: оставлено «Живое описание»" in w and "Описание донора" in w
@@ -557,7 +567,18 @@ def test_процесс_тёзка_приезжает_с_суффиксом_а_�
         BusinessProcess.project_id == проект.id).all())
     assert имена == ["Оформление", "Оформление (2)"]
     assert any("тёзка уже имеющегося" in w for w in превью.warnings)
+    # Ф2г: сырого «Проверьте» в окне нет — тёзка показан пунктом свёртки.
+    assert any(
+        "приедет под именем «Оформление (2)»" in u.text for u in превью.remainder.unfixable
+    )
     assert any("приехал под именем «Оформление (2)»" in w for w in отчёт.warnings)
+    # Ф2г-2: в свёртке отчёта — ОДИН пункт о тёзке, с фактическим именем; плановое
+    # «приедет под именем» его не дублирует.
+    assert [u.text for u in отчёт.unfixable if "Процесс" in u.text] == [
+        "Процесс «Оформление» из «a1.zip» совпал по имени с другим процессом и приехал под "
+        "именем «Оформление (2)». Если это один и тот же процесс, лишний нужно будет удалить "
+        "вручную."
+    ]
 
 
 # ── 7. Отказы: не архив, кап, непригодный план ───────────────────────────────
@@ -631,6 +652,10 @@ def test_узлы_тёзки_не_путают_карту(db):
 
     assert превью.ok and превью.nodes_new == 0
     assert any("узлы-тёзки" in w for w in превью.warnings)
+    assert any(
+        u.text.startswith("В проекте несколько объектов «Ярмарка / orders»")
+        for u in превью.remainder.unfixable
+    )
     assert _снимок(db, проект.id) == было
     assert db.get(Node, первый.id).technology == "Python"
     assert db.get(Node, второй.id).technology == "Go"
@@ -866,3 +891,430 @@ def test_догрузка_заводит_заглушки_только_для_с
         BrokerChannel.node_id == узлы["kafka"].id).all()}
     assert set(каналы) == {"orders.created", "orders.paid"}  # legacy.topic не заведён
     assert is_edge_stub(каналы["orders.paid"]) and not is_edge_stub(каналы["orders.created"])
+
+
+# ── Ф-E: остаток слияния в догрузке (Р3/Р4 задания) ─────────────────────────
+#
+# Догрузка отвечает за то, что привезли архивы. Остаток, все сущности которого из
+# живого проекта, — дело панели незавершённости: она видит его и без импорта, а
+# вопрос о нём в модалке догрузки был бы вопросом не по делу.
+
+
+def _живой_с_остатком(db):
+    """Живой проект, в котором остаток есть и БЕЗ всякой догрузки: связь в
+    контейнер и оторванная пара — обе целиком свои."""
+    проект = _проект(db, "Живой")
+    корень = _узел(db, проект, "Ярмарка", role="система")
+    orders = _узел(db, проект, "orders", корень)
+    _узел(db, проект, "api", orders)
+    каталог = _узел(db, проект, "Каталог-БД", корень)
+    оператор = _узел(db, проект, "Оператор", shape="person")
+    биллинг = _узел(db, проект, "Биллинг")
+    счета = _узел(db, проект, "счета", биллинг)
+    счета_бд = _узел(db, проект, "Биллинг-БД", биллинг)
+    _ребро(db, проект, orders, каталог, label="пишет")
+    _ребро(db, проект, оператор, orders, label="смотрит")  # конец в контейнере
+    _ребро(db, проект, счета, счета_бд, label="пишет")  # остров
+    db.commit()
+    return проект, {"orders": orders, "оператор": оператор}
+
+
+def _донор_витрины(db) -> bytes:
+    """Архив соседа: видит orders коробкой (новая связь в контейнер) и зовёт
+    оператора по-своему (похожие имена с живым)."""
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    orders = _узел(db, донор, "orders", корень)
+    витрина = _узел(db, донор, "Витрина")
+    _узел(db, донор, "Оператор смены", shape="person")
+    _ребро(db, донор, витрина, orders, label="оформляет")
+    db.commit()
+    return build_archive(db, донор)
+
+
+def test_остаток_догрузки_только_с_участием_архива(db):
+    """Р3: живая связь в контейнер и живой остров вопросами не становятся, а
+    привозная связь и пара «живой + архивный» — становятся."""
+    проект, узлы = _живой_с_остатком(db)
+    архив = _донор_витрины(db)
+
+    превью, _ = _догрузить(db, проект, архив)
+
+    остаток = превью.remainder
+    # Живая связь «Оператор → orders» тоже упирается в контейнер, но она не наше дело.
+    assert [c.id for c in остаток.container_edges] == [
+        "edge|Витрина|Ярмарка / orders|оформляет|target"
+    ]
+    assert [c.path for c in остаток.container_edges[0].components] == ["Ярмарка / orders / api"]
+    assert остаток.isolated_groups == []  # остров «счета → Биллинг-БД» целиком живой
+    [пара] = остаток.fuzzy_pairs
+    assert (пара.a_path, пара.b_path) == ("Оператор", "Оператор смены")
+    assert (пара.a_current, пара.b_current) == (True, False)
+    assert пара.a_source == "Из проекта"
+    assert пара.b_source == "Из архива a1.zip"
+    # Пикер концов видит всё дерево целиком — и живое, и приехавшее.
+    assert "Ярмарка / orders / api" in остаток.node_paths and "Витрина" in остаток.node_paths
+    # Строки замечаний на месте: структура их дополняет (Р1).
+    assert any("конец в контейнере" in w for w in превью.warnings)
+
+
+def test_остаток_догрузки_дефолт_спора_поля_на_живом(db):
+    """Спор поля живого узла с архивным — вопрос, но дефолт стоит на «моём»:
+    без ответа догрузка не перепишет ни одного живого поля."""
+    проект, _ = _ярмарка(db)
+    донор, _ = _донор_ярмарки(db, description="Описание донора")
+    db.commit()
+
+    превью, _ = _догрузить(db, проект, build_archive(db, донор))
+
+    [спор] = превью.remainder.field_conflicts
+    assert спор.id == "field|Ярмарка / orders|description"
+    assert [(c.value, c.current) for c in спор.candidates] == [
+        ("Живое описание", True), ("Описание донора", False)
+    ]
+    assert [c.source_label for c in спор.candidates] == ["Из проекта", "Из архива a1.zip"]
+    assert спор.default == 0  # кандидат current
+
+
+def test_остаток_догрузки_подпись_живого_кандидата_семьи(db):
+    """§4.7: живое знание в споре тела подписано «Из проекта», а не чипом."""
+    проект, _ = _ярмарка(db)
+    архив = _донор_с_доком(db, "graph TD\n  ДОНОР\n")
+
+    превью, _ = _догрузить(db, проект, архив)
+
+    [спор] = превью.family_conflicts
+    свой = next(k for k in спор.candidates if k.current)
+    чужой = next(k for k in спор.candidates if not k.current)
+    assert свой.source_label == "Из проекта"
+    assert чужой.source_label == "Из архива a1.zip"
+
+
+def test_остаток_догрузки_своего_архива_пуст(db):
+    """Сторож аддитивности: свой же архив вопросов не рождает — спрашивать не о чем."""
+    проект, _ = _живой_с_остатком(db)
+
+    превью, _ = _догрузить(db, проект, build_archive(db, проект))
+
+    assert превью.remainder.field_conflicts == []
+    assert превью.remainder.container_edges == []
+    assert превью.remainder.isolated_groups == []
+    assert превью.remainder.fuzzy_pairs == []
+
+
+# ── Ф-E: решения по остатку в применении догрузки ───────────────────────────
+
+
+def _пути_и_связи(db, project_id) -> tuple[set[str], set[tuple]]:
+    узлы = db.query(Node).filter(Node.project_id == project_id).all()
+    все = {n.id: n for n in узлы}
+    пути = {n.id: node_path(все, n.id) for n in узлы}
+    связи = {
+        (пути[e.source_id], пути[e.target_id], e.label, e.is_synchronous)
+        for e in db.query(Edge).filter(Edge.project_id == project_id).all()
+    }
+    return set(пути.values()), связи
+
+
+def test_решение_склейка_догрузки_сохраняет_живой_узел(db):
+    """Р4: из пары «живой + привозной» выживает ЖИВОЙ (его id, его карточка), а
+    привозной не создаётся вовсе — его связи и компоненты идут к живому."""
+    проект, узлы = _живой_с_остатком(db)
+    оператор_id = узлы["оператор"].id
+    архив = _донор_витрины(db)
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [пара] = into_preview(план).remainder.fuzzy_pairs
+    решения = parse_decisions(
+        json.dumps({"merges": {пара.id: {"name": "Оператор мониторинга"}}})
+    )
+
+    отчёт = apply_into_plan(db, проект, план, {}, decisions=решения)
+    db.commit()
+
+    пути, _ = _пути_и_связи(db, проект.id)
+    assert "Оператор смены" not in пути  # привозной тёзка не родился
+    assert "Оператор мониторинга" in пути
+    живой = db.get(Node, оператор_id)
+    assert живой is not None and живой.name == "Оператор мониторинга"  # тот же объект
+    assert отчёт.nodes_created == 1  # только «Витрина»; склеенный не создавался
+    assert "Ваши решения: склеено объектов 1" in отчёт.warnings
+
+
+def test_решение_перевес_и_новая_связь_догрузки(db):
+    """Перевес касается только ПРИВОЗНОЙ связи, новая связь соединяет живое с
+    новым, и обе видны в проекте."""
+    проект, _ = _живой_с_остатком(db)
+    архив = _донор_витрины(db)
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    остаток = into_preview(план).remainder
+    [связь] = остаток.container_edges
+    решения = parse_decisions(json.dumps({
+        "edges": {связь.id: {"to_path": "Ярмарка / orders / api"}},
+        # Группы у догрузки нет (живой остров — не её дело, Р3), и связь всё равно
+        # можно дорисовать: вопрос был крючком, а не единственным входом.
+        "new_edges": [{
+            "group_id": "",
+            "from_path": "Витрина",
+            "to_path": "Ярмарка / Каталог-БД",
+            "label": "читает витрину",
+            "tech": "SQL",
+            "channel": "sync",
+        }],
+    }))
+
+    отчёт = apply_into_plan(db, проект, план, {}, decisions=решения)
+    db.commit()
+
+    _, связи = _пути_и_связи(db, проект.id)
+    assert ("Витрина", "Ярмарка / orders / api", "оформляет", None) in связи
+    assert ("Витрина", "Ярмарка / orders", "оформляет", None) not in связи
+    assert ("Витрина", "Ярмарка / Каталог-БД", "читает витрину", True) in связи
+    # Живые связи целы: решения их не касаются (Р3).
+    assert ("Оператор", "Ярмарка / orders", "смотрит", None) in связи
+    assert отчёт.edges_created == 2
+    assert "Ваши решения: перевешено связей 1 · добавлено связей 1" in отчёт.warnings
+
+
+def test_решение_поля_перезаписывает_живое_только_явным_выбором(db):
+    """Спор поля живого узла с архивным: без ответа — «моё» (fill-only), с
+    выбором архивного кандидата — запись поверх."""
+    проект, узлы = _ярмарка(db)
+    orders_id = узлы["orders"].id
+    донор, _ = _донор_ярмарки(db, description="Описание донора")
+    db.commit()
+    архив = build_archive(db, донор)
+
+    # 1. Без решения живое описание остаётся (сторож аддитивности).
+    _догрузить(db, проект, архив)
+    assert db.get(Node, orders_id).description == "Живое описание"
+
+    # 2. Тот же архив с явным выбором архивного кандидата.
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [спор] = into_preview(план).remainder.field_conflicts
+    архивный = next(i for i, c in enumerate(спор.candidates) if not c.current)
+    отчёт = apply_into_plan(
+        db, проект, план, {},
+        decisions=parse_decisions(json.dumps({"fields": {спор.id: архивный}})),
+    )
+    db.commit()
+
+    assert db.get(Node, orders_id).description == "Описание донора"
+    assert any("заменено по вашему решению" in w for w in отчёт.warnings)
+    assert "Ваши решения: выбрано значений полей 1" in отчёт.warnings
+    # Сделанное по выбору человека — информация: в свёртку отчёта не едет (Ф2г-2).
+    assert not any("решени" in u.text for u in отчёт.unfixable)
+
+    # 3. Выбор СВОЕГО кандидата живую запись не трогает вовсе.
+    план3 = build_into_plan(db, проект, [("a.zip", архив)])
+    споры = into_preview(план3).remainder.field_conflicts
+    assert споры == []  # спорить больше не о чем: значения сошлись
+
+
+def test_решение_догрузки_не_из_плана_отвергается(db):
+    проект, _ = _живой_с_остатком(db)
+    план = build_into_plan(db, проект, [("a.zip", _донор_витрины(db))])
+    было = _снимок(db, проект.id)
+
+    with pytest.raises(UnifiedImportError, match="Превью устарело"):
+        apply_into_plan(
+            db, проект, план, {},
+            decisions=parse_decisions(json.dumps({"merges": {"pair|Нет|Пары": {"name": "Х"}}})),
+        )
+    db.rollback()
+    assert _снимок(db, проект.id) == было
+
+
+def test_эндпоинт_догрузки_принимает_decisions(db):
+    проект, _ = _живой_с_остатком(db)
+    архив = _донор_витрины(db)
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [связь] = remainder_from_plan(план.plan, 0).container_edges
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[require_architect] = lambda: ensure_architect(db)
+    try:
+        клиент = TestClient(app)
+        r = клиент.post(
+            ПРИМЕНЕНИЕ.format(проект.id),
+            files=[("files", ("a.zip", архив, "application/zip"))],
+            data={"decisions": json.dumps(
+                {"edges": {связь.id: {"to_path": "Ярмарка / orders / api"}}}
+            )},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200, r.text
+    assert any("Ваши решения: перевешено связей 1" in w for w in r.json()["warnings"])
+    _, связи = _пути_и_связи(db, проект.id)
+    assert ("Витрина", "Ярмарка / orders / api", "оформляет", None) in связи
+
+
+def test_остаток_догрузки_прячет_только_свои_строки(db):
+    """Р3 в списке «что прятать»: строка чисто живого остатка вопросом не стала —
+    значит и не прячется; строка «живой + архивный» стала."""
+    проект, _ = _живой_с_остатком(db)
+
+    превью, _ = _догрузить(db, проект, _донор_витрины(db))
+
+    скрыть = превью.remainder.converted_warnings
+    assert any("похожи" in w for w in скрыть)  # «Оператор» и «Оператор смены»
+    assert any("Витрина" in w and "конец в контейнере" in w for w in скрыть)
+    # Живая связь в контейнер и живой остров вопросами не стали — строки остаются.
+    assert not any("Оператор → orders" in w for w in скрыть)
+    assert not any("не связана с остальной схемой" in w for w in скрыть)
+    assert set(скрыть) <= set(превью.warnings)
+
+
+def test_склейка_догрузки_доливает_знание_поглощённого(db):
+    """Привозной объект не создаётся, но и не пропадает: его пустующие у живого
+    поля и его якорь переезжают к живому выжившему, занятое не трогается."""
+    проект, узлы = _живой_с_остатком(db)
+    оператор = узлы["оператор"]
+    оператор.role = "человек"  # занятое поле — сторож fill-only
+    db.commit()
+    оператор_id = оператор.id
+
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    _узел(db, донор, "orders", корень)
+    _узел(db, донор, "Оператор смены", shape="person", role="дежурный",
+          description="Следит за очередью заказов",
+          source_ref="git:github.com/org/ops#operator")
+    db.commit()
+    архив = build_archive(db, донор)
+
+    план = build_into_plan(db, проект, [("a.zip", архив)])
+    [пара] = into_preview(план).remainder.fuzzy_pairs
+    отчёт = apply_into_plan(
+        db, проект, план, {},
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Оператор"}}})),
+    )
+    db.commit()
+
+    живой = db.get(Node, оператор_id)
+    assert живой is not None and живой.name == "Оператор"  # выбрано имя живого
+    assert живой.description == "Следит за очередью заказов"  # пустое долито
+    assert живой.role == "человек"  # заполненное не тронуто
+    assert живой.source_ref == "git:github.com/org/ops#operator"  # якорь переехал
+    assert db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Оператор смены"
+    ).count() == 0
+    assert any("залито из склеенного объекта" in w for w in отчёт.warnings)
+
+
+def _донор_чужого_корня(db) -> bytes:
+    """Архив с ДРУГИМ корнем: даёт незакрываемое замечание «нет общих корней»."""
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Склад", role="система")
+    приёмка = _узел(db, донор, "receiving", корень)
+    хранилище = _узел(db, донор, "Склад-БД", корень, shape="database")
+    _ребро(db, донор, приёмка, хранилище, label="пишет")
+    db.commit()
+    return build_archive(db, донор)
+
+
+def test_незакрываемое_замечание_догрузки_без_агента_и_создания(db):
+    """Правка Ф2г: пункт свёртки — факт и ручное действие, без «прогона агента» и
+    «подмените файл». Тексты общие для обоих окон: в них нет «проект создастся»."""
+    проект, _ = _ярмарка(db)
+
+    превью, _ = _догрузить(db, проект, _донор_чужого_корня(db))
+
+    [замечание] = [u for u in превью.remainder.unfixable if "корневые объекты" in u.text]
+    assert замечание.text == (
+        "У файлов разные корневые объекты («Ярмарка», «Склад»), поэтому в проекте будет "
+        "несколько корней. Если это одна система, их содержимое нужно будет перенести в "
+        "один корень вручную."
+    )
+    assert замечание.file is None
+    for u in превью.remainder.unfixable:
+        for ложь in ("агент", "создастся", "подмените"):
+            assert ложь not in u.text
+
+
+def test_незакрываемые_догрузки_без_замечаний_о_живом_проекте(db):
+    """Р3: пофайловые замечания входа №0 (живого проекта) в свёртку не едут —
+    одинокие объекты и прочее живое — дело панели незавершённости. Замечания
+    архива — едут."""
+    проект, _ = _живой_с_остатком(db)
+    архив = _донор_чужого_корня(db)
+
+    план = build_into_plan(db, проект, [("a1.zip", архив)])
+    превью = into_preview(план)
+
+    живые = [
+        w for w, o in zip(план.plan.report.warnings, план.plan.report.warning_files, strict=True)
+        if o == 0
+    ]
+    assert живые, "сторож теста: у живого проекта есть свои замечания"
+    assert all(u.file != 0 for u in превью.remainder.unfixable)
+
+# ── Ф2г-2: экран «Архивы догружены» — свёртка вместо сырых замечаний ─────────
+
+
+def test_отчёт_догрузки_свёртка_вместо_сырых_замечаний(db):
+    """Строки применения — пунктами «Придется подправить вручную» (что требует рук),
+    информация о сделанном («пустовало — залито», легенда нумерации, «оставлено …
+    (файл N)» мерджа) — нет. Сырые warnings остаются на месте: их читает MCP."""
+    проект, _ = _ярмарка(db)
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    orders = _узел(db, донор, "orders", корень, technology="Go", description="Описание донора")
+    _узел(db, донор, "api", orders)  # донор видит orders изнутри: его поля побеждают в мердже
+    каталог = _узел(db, донор, "Каталог-БД", корень, shape="database", status="planned")
+    kafka = _узел(db, донор, "Kafka", корень, shape="broker")
+    _таблица(db, каталог, "orders", [("id", "uuid")], описание="заказы донора")
+    _канал(db, kafka, "orders.created", [("total", "numeric")], описание="донор")
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор), резолюции={
+        "table|Ярмарка / Каталог-БД|public.orders": "cand:1",
+        "channel|Ярмарка / Kafka|orders.created": "cand:1",
+    })
+
+    assert [u.text for u in отчёт.unfixable] == [
+        # остаток плана — тот же, что был в превью
+        *[u.text for u in превью.remainder.unfixable],
+        "У объекта «Ярмарка / orders» в архиве другое значение поля «описание» («Описание "
+        "донора»), а в проекте осталось прежнее («Живое описание»). Если верно значение из "
+        "архива, поле нужно будет поправить в карточке объекта вручную.",
+        "У объекта «Ярмарка / orders» в архиве другое значение поля «технология» («Go»), а в "
+        "проекте осталось прежнее («Python»). Если верно значение из архива, поле нужно будет "
+        "поправить в карточке объекта вручную.",
+        "У объекта «Ярмарка / Каталог-БД» в архиве другое значение поля «статус» "
+        "(«Проектируется»), а в проекте осталось прежнее («Существует»). Если верно значение "
+        "из архива, поле нужно будет поправить в карточке объекта вручную.",
+        "В таблице «public.orders» объекта «Ярмарка / Каталог-БД» осталась колонка «comment», "
+        "которой нет в архиве: догрузка ничего не удаляет. Если она больше не нужна, её нужно "
+        "будет удалить вручную.",
+        "В канале «orders.created» объекта «Ярмарка / Kafka» осталось поле «id», которого нет "
+        "в архиве: догрузка ничего не удаляет. Если оно больше не нужно, его нужно будет "
+        "удалить вручную.",
+    ]
+    assert превью.remainder.unfixable, "сторож теста: у плана есть свой остаток"
+    # Сырые строки на месте (MCP), включая информацию и строки мерджа.
+    assert any(w.startswith("нумерация файлов") for w in отчёт.warnings)
+    assert any("в архиве нет — оставлены" in w for w in отчёт.warnings)
+    for u in отчёт.unfixable:
+        for ложь in ("агент", "(файл ", "нумерация", "оставлено «"):
+            assert ложь not in u.text
+
+
+def test_отчёт_догрузки_пропавший_параметр_пунктом(db):
+    """Параметр, чья живая запись исчезла к применению, — пункт свёртки (генератор
+    настоящий: _replace_params)."""
+    проект, узлы = _ярмарка(db)
+    строки: list[str] = []
+    победитель = _Winner(
+        family="config", node_idx=0, key="GONE", origin=1, fname="config/x.yaml",
+        value=ParamIn(name="GONE"),
+        from_conflict=True,
+    )
+
+    заменено = _replace_params(db, [победитель], {("config", 0, "GONE")}, [узлы["orders"]], строки)
+
+    assert заменено == 0
+    assert [u.text for u in apply_unfixable(строки)] == [
+        "Параметр «GONE» не догружен: в проекте его уже нет. Если он нужен, его нужно будет "
+        "добавить вручную."
+    ]

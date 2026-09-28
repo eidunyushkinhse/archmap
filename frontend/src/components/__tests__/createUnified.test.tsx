@@ -15,7 +15,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import CreateProjectDialog from "../project/CreateProjectDialog";
 import { projectsApi } from "../../api/projects";
 import type {
-  ArchiveImportResult, FamilyConflictOut, ImportPreviewOut, UnifiedPreviewOut,
+  ArchiveImportResult, ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut,
+  ImportPreviewOut, RemainderOut, UnifiedPreviewOut,
 } from "../../types";
 
 vi.mock("../../api/projects", () => ({
@@ -37,10 +38,18 @@ const c4 = (over: Partial<ImportPreviewOut> = {}): ImportPreviewOut => ({
   schema_errors: [], schema_warnings: [], ...over,
 });
 
+const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
+  field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], ...over,
+});
+
 const превью = (over: Partial<UnifiedPreviewOut> = {}): UnifiedPreviewOut => ({
   ok: true, errors: [], c4: c4(),
   families: { docs: 2, specs: 1, tables: 0, channels: 0, params: 0, processes: 0 },
-  family_conflicts: [], warnings: [], name_source: "fields", ...over,
+  family_conflicts: [],
+  // Остаток слияния (Ф-E) по умолчанию пуст — тесты разбора доливают своё.
+  remainder: остаток(),
+  warnings: [], name_source: "fields", ...over,
 });
 
 const ИЗ_МАНИФЕСТА = превью({
@@ -53,11 +62,38 @@ const СПОР: FamilyConflictOut = {
   node_path: "Ярмарка / orders",
   key: "Оформление заказа",
   candidates: [
-    { origin: 0, origin_label: "a.zip", summary: "12 строк", body: "flowchart TD\n  A-->B", truncated: false, current: false },
-    { origin: 1, origin_label: "b.zip", summary: "20 строк", body: "flowchart TD\n  A-->C", truncated: true, current: false },
+    { origin: 0, origin_label: "a.zip", source_label: "Из архива Ярмарка", summary: "12 строк", body: "flowchart TD\n  A-->B", truncated: false, current: false },
+    { origin: 1, origin_label: "b.zip", source_label: "Из архива Склад", summary: "20 строк", body: "flowchart TD\n  A-->C", truncated: true, current: false },
   ],
   default: "all",
   allow_all: true,
+};
+
+// Спор ПОЛЯ (вопрос 4.2) и связь в контейнер (4.3) — остаток, который до Ф-E
+// уезжал строками отчёта, а пользователь правил проект руками после импорта.
+const ПОЛЕ: FieldDisputeOut = {
+  id: "field|Ярмарка / orders|technology",
+  node_path: "Ярмарка / orders",
+  field: "technology",
+  candidates: [
+    { origin: 0, origin_label: "1 · a.yaml", source_label: "Из файла a.yaml", value: "Go", current: false },
+    { origin: 1, origin_label: "2 · b.yaml", source_label: "Из файла b.yaml", value: "Rust", current: false },
+  ],
+  default: 0,
+};
+
+const В_КОНТЕЙНЕР: ContainerEdgeOut = {
+  id: "edge|Склад / Синхронизатор|Ярмарка||target",
+  from_path: "Склад / Синхронизатор",
+  to_path: "Ярмарка",
+  label: "заказы",
+  technology: "HTTP",
+  end: "target",
+  container_path: "Ярмарка",
+  components: [
+    { path: "Ярмарка / orders", has_children: false },
+    { path: "Ярмарка / billing", has_children: false },
+  ],
 };
 
 const ОТЧЁТ: ArchiveImportResult = {
@@ -72,6 +108,11 @@ const ОТЧЁТ: ArchiveImportResult = {
   config: null,
   processes: [],
   warnings: ["docs/x.mmd: узел «Нет такого» не найден — файл пропущен"],
+  // Экрану — пункты свёртки (Ф2г-2), сырые warnings — для MCP.
+  unfixable: [{
+    id: "input|1|0", file: 1,
+    text: "b.zip: docs/x.mmd: узел «Нет такого» не найден — файл пропущен",
+  }],
   resolved_conflicts: 0,
   channel_stubs: 0,
 };
@@ -131,9 +172,13 @@ describe("единый ввоз · создание проекта", () => {
     // Имя из манифеста — переопределения не подсовываем.
     expect(опции?.name).toBeUndefined();
 
-    // Сводка и замечания видны ДО перехода — молча провалиться нельзя.
+    // Сводка и замечания видны ДО перехода — молча провалиться нельзя; замечания —
+    // свёрткой «Придется подправить вручную», а не сырым списком (Ф2г-2).
     expect(await screen.findByText("«Ярмарка» создан")).toBeInTheDocument();
-    expect(screen.getByText(/Нет такого/)).toBeInTheDocument();
+    expect(screen.queryByText("Замечания")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Придется подправить вручную (1)" }));
+    expect(screen.getByRole("listitem")).toHaveTextContent(
+      "b.zip: docs/x.mmd: узел «Нет такого» не найден — файл пропущен");
     expect(onCreated).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Открыть проект" }));
@@ -150,15 +195,21 @@ describe("единый ввоз · создание проекта", () => {
       new File(["b"], "b.zip", { type: "application/zip" }),
     );
 
-    expect(await screen.findByText("Споры содержимого (1)", {}, { timeout: 3000 }))
+    // Спор стал ВОПРОСОМ разбора: секции «Споры содержимого» с радиокнопками нет,
+    // кандидаты подписаны источником знания, и ничего не предвыбрано.
+    expect(await screen.findByText(/Без ваших решений не объединить/, {}, { timeout: 3000 }))
       .toBeInTheDocument();
-    expect(screen.getByText(/выберите, чьё описание ехать должно/)).toBeInTheDocument();
-    expect(screen.getByText("Схема логики · Оформление заказа")).toBeInTheDocument();
-    // Предвыбор — дефолт бэка («взять все» у доков).
-    expect(screen.getByRole("radio", { name: /Взять все/ })).toBeChecked();
+    expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
+    expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
+      "У объекта «Оформление заказа» в разных источниках разные схемы с одинаковым"
+      + " названием. Какую считаем правильной?");
+    expect(screen.getByText(/Если не отвечать/).textContent).toContain(
+      "будут добавлены все схемы");
+    expect(document.querySelectorAll(".rq-opt--on")).toHaveLength(0);
 
-    await userEvent.click(screen.getByRole("radio", { name: /b\.zip · 20 строк/ }));
-    expect(screen.getByRole("radio", { name: /b\.zip · 20 строк/ })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: /Из архива Склад/ }));
+    expect(screen.getByRole("button", { name: /Из архива Склад/ })).toHaveAttribute(
+      "aria-pressed", "true");
 
     // Двух входов мало для манифеста — имя задаёт пользователь.
     await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Федерация");
@@ -169,18 +220,90 @@ describe("единый ввоз · создание проекта", () => {
     expect(файлы?.map((f) => f.name)).toEqual(["a.zip", "b.zip"]);
     expect(опции?.name).toBe("Федерация");
     expect(опции?.resolutions).toEqual({ [СПОР.id]: "cand:1" });
+    // Споры содержимого едут своим каналом — во втором словаре их нет.
+    expect(опции?.decisions).toBeNull();
+  });
+
+  it("ответы разбора уезжают вторым словарём, «как сейчас» — молчанием", async () => {
+    vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью({
+      c4: c4({ files: 2 }),
+      remainder: остаток({ field_conflicts: [ПОЛЕ], container_edges: [В_КОНТЕЙНЕР] }),
+    }));
+    await открыть();
+    await положить(
+      new File(["a"], "a.yaml", { type: "application/yaml" }),
+      new File(["b"], "b.yaml", { type: "application/yaml" }),
+    );
+
+    expect(await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("вопрос 1 из 2")).toBeInTheDocument();
+    // Вопрос о поле: значения вариантами, источник — подписью.
+    await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
+    // Второй вопрос — о связи в контейнер; «как сейчас» в применение не едет.
+    await userEvent.click(screen.getByRole("button", { name: "Дальше →" }));
+    expect(screen.getByRole("heading", { level: 4 }).textContent).toContain(
+      "приходит в контейнер «Ярмарка».");
+    await userEvent.click(screen.getByRole("button", { name: /Оставить на контейнере/ }));
+
+    await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Федерация");
+    await userEvent.click(кнопка());
+
+    await waitFor(() => expect(projectsApi.importUnified).toHaveBeenCalled());
+    const [, опции] = применение() ?? [];
+    expect(опции?.decisions).toEqual({ fields: { [ПОЛЕ.id]: 1 } });
+    expect(опции?.resolutions).toEqual({});
+  });
+
+  it("ответ переживает перезапрос превью, а протухший отбрасывается", async () => {
+    vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью({
+      c4: c4({ files: 2 }), remainder: остаток({ field_conflicts: [ПОЛЕ] }),
+    }));
+    await открыть();
+    await положить(
+      new File(["a"], "a.yaml", { type: "application/yaml" }),
+      new File(["b"], "b.yaml", { type: "application/yaml" }),
+    );
+    await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 });
+    await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
+
+    // Правка YAML пересчитывает превью: тот же вопрос — ответ на месте.
+    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+      target: { value: "nodes:\n  - name: Ярмарка" },
+    });
+    await waitFor(
+      () => expect(projectsApi.unifiedPreview).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: /Rust/ })).toHaveAttribute("aria-pressed", "true"));
+
+    // А теперь вопрос из сводки пропал — ответ отбрасывается, в применение не едет.
+    vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью({ c4: c4({ files: 2 }) }));
+    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
+      target: { value: "nodes:\n  - name: Ярмарка v2" },
+    });
+    await waitFor(
+      () => expect(projectsApi.unifiedPreview).toHaveBeenCalledTimes(3), { timeout: 3000 });
+    await waitFor(() => expect(screen.queryByText(/Без ваших решений не объединить/)).toBeNull());
+
+    await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Федерация");
+    // Пока свежая сводка не пришла, кнопка гаснет — дожидаемся её.
+    await waitFor(() => expect(кнопка()).toBeEnabled());
+    await userEvent.click(кнопка());
+    await waitFor(() => expect(projectsApi.importUnified).toHaveBeenCalled());
+    expect((применение() ?? [])[1]?.decisions).toBeNull();
   });
 
   it("yaml + zip: имя обязательно, входы едут в порядке «тексты, потом архивы»", async () => {
     await открыть();
-    fireEvent.change(screen.getByPlaceholderText(/Перетащите сюда/), {
+    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
       target: { value: "nodes:\n  - name: Ярмарка" },
     });
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));
 
     await waitFor(() => expect(projectsApi.unifiedPreview).toHaveBeenCalled(), { timeout: 3000 });
-    // Норматив порядка: непустые YAML в порядке чипов, затем архивы.
-    await waitFor(() => expect(входы()).toEqual(["Файл 1.yaml", "archmap.zip"]));
+    // Норматив порядка: непустые YAML в порядке чипов, затем архивы. Вставленный
+    // текстом YAML едет БЕЗ имени — подпись его источника бэк строит номером чипа
+    // («Из файла 1»), а не выдуманным «Файл 1.yaml» (правка Ф2г).
+    await waitFor(() => expect(входы()).toEqual(["", "archmap.zip"]));
 
     // name_source = "fields" — поля на месте, без имени создавать нечего.
     expect(await screen.findByPlaceholderText(ИМЯ)).toBeInTheDocument();

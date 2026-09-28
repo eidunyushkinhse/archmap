@@ -191,6 +191,60 @@ def _least(files: set[int]) -> int | None:
     return min(files) if files else None
 
 
+# ── СТРУКТУРНЫЙ ОСТАТОК СЛИЯНИЯ (Ф-E, docs/plan-byoa-quality.md) ─────────────
+# Те же находки, что уезжают строками в conflicts/warnings, записанные ИНДЕКСАМИ
+# слитого дерева: по ним превью задаёт пользователю вопросы, а применение меняет
+# дерево до записи в БД. Строки остаются на месте (их читает MCP, и на них стоит
+# инвариант «объединение корзин == плоские списки») — структура их ДОПОЛНЯЕТ.
+#
+# warning_idx — индекс строки report.warnings, породившей запись; None означает
+# «строки нет» (её съел общий кап _MAX_WARNINGS). По нему сборщик остатка
+# отделяет замечания, превращённые в вопросы, от тех, что остались текстом.
+
+
+@dataclass
+class FieldDispute:
+    """Спор о поле узла между РАВНО содержательными вкладами (П2 остаётся в силе:
+    содержательный вклад бьёт заглушку молча, и спора там нет).
+
+    Кандидаты — в порядке файлов, без повторов значения: три файла, спорящие об
+    одном поле, дают ОДНУ запись с тремя кандидатами, а не два спора подряд."""
+
+    node_idx: int
+    field: str  # role | technology | description | shape | status
+    contributions: list[tuple[int, str]]  # (индекс файла, значение)
+
+
+@dataclass
+class ContainerEdgeRec:
+    """Конец связи, легший на контейнер с компонентами. Оба конца в контейнерах —
+    ДВЕ записи на одну связь (и одну строку замечания)."""
+
+    edge_idx: int
+    end: str  # «source» | «target»
+    container_idx: int
+    warning_idx: int | None = None
+
+
+@dataclass
+class IsolatedGroupRec:
+    """Группа, оторванная от ядра схемы. Капа _MAX_ISOLATED_GROUPS здесь нет: кап —
+    дело ТЕКСТА замечания, а вопрос пользователю положен каждой группе."""
+
+    node_idxs: list[int]
+    warning_idx: int | None = None
+
+
+@dataclass
+class FuzzyPairRec:
+    """Пара похожих имён из разных файлов — кандидат на склейку рукой человека."""
+
+    a_idx: int
+    b_idx: int
+    parent_idx: int | None
+    warning_idx: int | None = None
+
+
 @dataclass
 class MergeReport:
     """Человеческий отчёт слияния для превью модалки. errors — только нарушение
@@ -246,6 +300,23 @@ class MergeReport:
     # основание среди его вкладов (code > dependency > name). Нужно догрузке: она
     # называет пользователю, чем найден каждый живой узел, к которому едет знание.
     node_basis: list[str | None] = field(default_factory=list)
+    # ── структурный остаток (Ф-E): то же, что в строках, но индексами ─────────
+    # Индексация — по merged.nodes / merged.edges, как у node_files и edge_files.
+    field_disputes: list[FieldDispute] = field(default_factory=list)
+    container_edges: list[ContainerEdgeRec] = field(default_factory=list)
+    isolated_groups: list[IsolatedGroupRec] = field(default_factory=list)
+    fuzzy_pairs: list[FuzzyPairRec] = field(default_factory=list)
+
+    def forget_cut_warnings(self, kept: int) -> None:
+        """Строк после kept больше нет (общий кап) — записи остаются, ссылка на
+        строку гаснет. Иначе индекс указывал бы на чужую строку: после удаления
+        хвоста на его месте оказывается «…и ещё N предупреждений»."""
+        записи: list[ContainerEdgeRec | IsolatedGroupRec | FuzzyPairRec] = [
+            *self.container_edges, *self.isolated_groups, *self.fuzzy_pairs
+        ]
+        for rec in записи:
+            if rec.warning_idx is not None and rec.warning_idx >= kept:
+                rec.warning_idx = None
 
     def warn(self, text: str, file: int | None = None) -> None:
         """Предупреждение: в плоский список (как раньше) и в разметку природы."""
@@ -493,6 +564,9 @@ class _Merger:
         # конфликта, и для правила П2: спорит не «файл с файлом», а источник
         # текущего значения с источником нового.
         self.value_src: list[dict[str, tuple[int, bool]]] = []
+        # Открытые споры полей (Ф-E): (узел, поле) → запись в report.field_disputes.
+        # Копим в ОДНУ запись: третий файл добавляет кандидата, а не второй спор.
+        self.disputes: dict[tuple[int, str], FieldDispute] = {}
         # (merged-родитель, норм-имя) → кандидаты. Список, а не один idx: якорь
         # может РАЗВЕСТИ двух тёзок в одном родителе (разные репозитории), и оба
         # обязаны остаться адресуемыми для следующих файлов.
@@ -532,14 +606,41 @@ class _Merger:
         """Спор двух ЗАПОЛНЕННЫХ значений одного поля (П2): побеждает СОДЕРЖАТЕЛЬНЫЙ
         вклад независимо от порядка файлов, при равной содержательности — прежнее
         «первый побеждает». Строка отчёта остаётся в обоих случаях: молча слияние
-        не решает, кто прав."""
+        не решает, кто прав.
+
+        ВОПРОСОМ пользователю (Ф-E) становится только равная содержательность: там,
+        где один вклад видел узел изнутри, спрашивать не о чем — правило П2 знает
+        ответ, и спор существует лишь как строка «для чтения»."""
         keep_fi, keep_sub = self.value_src[idx][fld]
         if sub and not keep_sub:
             setattr(self.nodes[idx], fld, new)
             self.value_src[idx][fld] = (fi, sub)
             self._conflict(idx, fld, new, cur, fi, keep_fi)
+            # Содержательный вклад пришёл ПОСЛЕ спора двух заглушек и победил их
+            # обеих: вопрос снимается — ответ на него переиграл бы правило П2.
+            self._drop_dispute(idx, fld)
             return
         self._conflict(idx, fld, cur, new, keep_fi, fi)
+        if sub == keep_sub:
+            self._note_dispute(idx, fld, keep_fi, cur, fi, new)
+
+    def _note_dispute(
+        self, idx: int, fld: str, keep_fi: int, cur: str, fi: int, new: str
+    ) -> None:
+        """Копить кандидатов спора в одну запись: первым — источник текущего
+        значения (он же дефолт «первый побеждает»), дальше по порядку файлов."""
+        rec = self.disputes.get((idx, fld))
+        if rec is None:
+            rec = FieldDispute(node_idx=idx, field=fld, contributions=[(keep_fi, cur)])
+            self.disputes[(idx, fld)] = rec
+            self.report.field_disputes.append(rec)
+        if all(v.strip() != new.strip() for _f, v in rec.contributions):
+            rec.contributions.append((fi, new))
+
+    def _drop_dispute(self, idx: int, fld: str) -> None:
+        rec = self.disputes.pop((idx, fld), None)
+        if rec is not None:
+            self.report.field_disputes.remove(rec)
 
     def _merge_str(self, idx: int, fld: str, new: str | None, fi: int, sub: bool) -> None:
         cur = getattr(self.nodes[idx], fld)
@@ -843,6 +944,10 @@ class _Merger:
                     if not _similar(norms[a], norms[b]):
                         continue
                     where = f"внутри «{self.paths[parent]}»" if parent is not None else "на верхнем уровне"
+                    self.report.fuzzy_pairs.append(
+                        FuzzyPairRec(a_idx=ia, b_idx=ib, parent_idx=parent,
+                                     warning_idx=len(self.report.warnings))
+                    )
                     # Пара заведомо из РАЗНЫХ файлов (условие выше) — схемное.
                     self.report.warn(
                         f"«{self.nodes[ia].name}» и «{self.nodes[ib].name}» ({where}) похожи — "
@@ -924,6 +1029,7 @@ class _Merger:
             extra = len(self.report.warnings) - _MAX_WARNINGS
             del self.report.warnings[_MAX_WARNINGS:]
             del self.report.warning_files[_MAX_WARNINGS:]  # разметка идёт строка в строку
+            self.report.forget_cut_warnings(_MAX_WARNINGS)
             self.report.warn(f"…и ещё {extra} предупреждений")
         # Лимиты — свойство СЛИТОЙ картины: один файл в них не виноват.
         if len(self.nodes) > MAX_NODES:
@@ -1219,6 +1325,7 @@ def _warn_container_edges(
     kids = _children_names(merged)
     shown = hidden = 0
     hidden_idxs: list[int] = []
+    hidden_recs: list[ContainerEdgeRec] = []
     for ei, e in enumerate(merged.edges):
         if ei in skip:
             continue
@@ -1226,11 +1333,25 @@ def _warn_container_edges(
         ends = [i for i in dict.fromkeys((e.source_idx, e.target_idx)) if i in parents]
         if not ends:
             continue
+        # Структура (Ф-E) собирается ДО капа: кап — свойство текста, уезжающего
+        # агенту одним списком, а вопрос пользователю положен каждому концу.
+        recs = [
+            ContainerEdgeRec(
+                edge_idx=ei,
+                end="source" if i == e.source_idx else "target",
+                container_idx=i,
+            )
+            for i in ends
+        ]
+        report.container_edges.extend(recs)
         if shown >= _MAX_CONTAINER_EDGES:
             hidden += 1
             hidden_idxs.append(ei)
+            hidden_recs.extend(recs)  # их строка — общий хвост-счётчик ниже
             continue
         shown += 1
+        for rec in recs:
+            rec.warning_idx = len(report.warnings)
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         names = [merged.nodes[i].name for i in ends]
         one = len(names) == 1
@@ -1245,6 +1366,8 @@ def _warn_container_edges(
         )
         report.warn(f"связь «{a} → {b}»: {head}", report.owner_of_edges([ei]))
     if hidden:
+        for rec in hidden_recs:
+            rec.warning_idx = len(report.warnings)
         # Хвост-счётчик — тому, чьи все скрытые связи (как у соседних классов).
         report.warn(f"…ещё {hidden} таких связей", report.owner_of_edges(hidden_idxs))
 
@@ -1398,6 +1521,9 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
     # «ядром» становилось бы то одно, то другое от прогона к прогону.
     comps.sort(key=lambda c: (-len(c), sorted(merged.nodes[i].name for i in c)))
     for comp in comps[1 : _MAX_ISOLATED_GROUPS + 1]:
+        report.isolated_groups.append(
+            IsolatedGroupRec(node_idxs=sorted(comp), warning_idx=len(report.warnings))
+        )
         names = [merged.nodes[i].name for i in sorted(comp)]
         shown = ", ".join(f"«{n}»" for n in names[:_MAX_GROUP_NAMES])
         tail = f" и ещё {len(names) - _MAX_GROUP_NAMES}" if len(names) > _MAX_GROUP_NAMES else ""
@@ -1408,6 +1534,11 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
         )
     hidden_comps = comps[_MAX_ISOLATED_GROUPS + 1 :]
     if hidden_comps:
+        # Скрытые за счётчиком группы — тоже вопросы (кап у текста, не у структуры).
+        for comp in hidden_comps:
+            report.isolated_groups.append(
+                IsolatedGroupRec(node_idxs=sorted(comp), warning_idx=len(report.warnings))
+            )
         # Хвост-счётчик — только тому, чьи все скрытые группы (как у соседних классов).
         report.warn(
             f"…ещё {len(hidden_comps)} таких групп",

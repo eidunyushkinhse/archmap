@@ -20,7 +20,7 @@ import {
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
 } from "./agentModalShared";
 import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
-import PromptTriple from "./PromptTriple";
+import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -87,7 +87,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
   }, [pkg.files, nodeId]);
 
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
-  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  // трёх вариантов показывает PromptCopyButton по разрешению этого обещания.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     return docsImportApi
       .prompt({ nodeId, include: "api", lang, hints, variant })
@@ -170,7 +170,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
             placeholder={"Например: спеку возьми из swagger.yaml;\nесли её нет — синтезируй по хендлерам."}
           />
 
-          <PromptTriple
+          <PromptCopyButton
             label="Скопировать промпт"
             copiedLabel="Скопировано ✓"
             kind="primary"

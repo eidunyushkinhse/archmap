@@ -26,11 +26,15 @@ from itertools import permutations
 from conftest import ensure_project
 
 from app.import_merge import (
+    _MAX_CONTAINER_EDGES,
+    _MAX_ISOLATED_GROUPS,
+    _MAX_WARNINGS,
     MergeReport,
     _run_merge,
     merge_imports,
     parse_and_merge,
     split_remarks,
+    warn_content,
 )
 from app.import_yaml import ParsedImport, parse_import
 from app.models.edge import Edge
@@ -2549,3 +2553,203 @@ def test_основание_склейки_один_файл_пусто():
 
     assert report.node_basis == [None, None]
     assert report.merged_basis == []
+
+
+# ── Ф-E: СТРУКТУРНЫЙ ОСТАТОК СЛИЯНИЯ (docs/tasks/remainder-f1-backend.md) ────
+#
+# Те же находки, что уезжают строками, записаны индексами слитого дерева: превью
+# задаёт по ним вопросы, применение меняет дерево до записи в БД. Проверяем ровно
+# то, на что обопрётся Ф2: спор поля возникает ТОЛЬКО при равной содержательности,
+# записи ссылаются на свою строку замечания, кап текста структуру не режет.
+
+
+def _спор(report: MergeReport, merged: ParsedImport, path: str, fld: str):
+    idx = _path_list(merged).index(path)
+    return next(
+        (d for d in report.field_disputes if d.node_idx == idx and d.field == fld), None
+    )
+
+
+def test_остаток_спор_поля_только_при_равной_содержательности():
+    """Две заглушки спорят — вопрос; вклад, видевший узел изнутри, решает молча."""
+    a = _parse("nodes:\n  - name: svc\n    description: Платежи\n")
+    b = _parse("nodes:\n  - name: svc\n    description: Сервис оплаты\n")
+    merged, report = merge_imports([a, b])
+
+    спор = _спор(report, merged, "svc", "description")
+    assert спор is not None
+    assert спор.contributions == [(0, "Платежи"), (1, "Сервис оплаты")]
+    # Строка отчёта на месте: структура её ДОПОЛНЯЕТ, а не заменяет (Р1).
+    assert len(report.conflicts) == 1
+
+    # Тот же спор, но второй файл разобрал узел изнутри (репозиторий + компоненты):
+    # П2 знает ответ, спрашивать не о чем — строка есть, вопроса нет.
+    богатый = _parse(
+        "nodes:\n  - name: svc\n    description: Сервис оплаты\n"
+        "    source: {repo: github.com/org/svc}\n    children:\n      - name: api\n"
+    )
+    merged2, report2 = merge_imports([a, богатый])
+
+    assert _node_by_path(merged2, "svc").description == "Сервис оплаты"
+    assert report2.conflicts and report2.field_disputes == []
+
+
+def test_остаток_спор_поля_трёх_файлов_одной_записью():
+    """Три заглушки об одном поле — ОДНА запись с тремя кандидатами в порядке
+    файлов, без повтора значения у четвёртого файла-тёзки."""
+    файлы = [
+        _parse("nodes:\n  - name: svc\n    technology: Python\n"),
+        _parse("nodes:\n  - name: svc\n    technology: Go\n"),
+        _parse("nodes:\n  - name: svc\n    technology: Rust\n"),
+        _parse("nodes:\n  - name: svc\n    technology: Go\n"),
+    ]
+    merged, report = merge_imports(файлы)
+
+    [спор] = report.field_disputes
+    assert (спор.node_idx, спор.field) == (0, "technology")
+    assert спор.contributions == [(0, "Python"), (1, "Go"), (2, "Rust")]
+    assert _node_by_path(merged, "svc").technology == "Python"  # дефолт прежний
+
+
+def test_остаток_спор_поля_снимается_поздним_содержательным_вкладом():
+    """Две заглушки поспорили, третий файл разобрал узел изнутри и победил обеих:
+    вопрос снимается — ответ на него переиграл бы правило П2."""
+    файлы = [
+        _parse("nodes:\n  - name: svc\n    role: сервис\n"),
+        _parse("nodes:\n  - name: svc\n    role: демон\n"),
+        _parse(
+            "nodes:\n  - name: svc\n    role: обработчик\n"
+            "    source: {repo: github.com/org/svc}\n    children:\n      - name: api\n"
+        ),
+    ]
+    merged, report = merge_imports(файлы)
+
+    assert _node_by_path(merged, "svc").role == "обработчик"
+    assert report.field_disputes == []
+
+
+_КОНТЕЙНЕРЫ = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Сервер
+        children:
+          - name: Рантайм плагинов
+      - name: Веб
+  - name: Zabbix
+    children:
+      - name: web
+edges:
+  - from: Grafana
+    to: Zabbix
+    label: datasource
+  - from: Веб
+    to: Zabbix
+    label: HTTP
+"""
+
+
+def test_остаток_связь_в_контейнер_обоими_концами():
+    """Оба конца в контейнерах — ДВЕ записи на одну связь и одну строку; конец
+    назван верно, а строка замечания найдена по warning_idx."""
+    merged, report, errors = parse_and_merge([_КОНТЕЙНЕРЫ])
+    assert errors == []
+    paths = _path_list(merged)
+
+    оба = [r for r in report.container_edges if r.edge_idx == 0]
+    assert [(r.end, paths[r.container_idx]) for r in оба] == [
+        ("source", "Grafana"), ("target", "Zabbix")
+    ]
+    assert len({r.warning_idx for r in оба}) == 1  # одна строка на связь
+    assert "оба конца в контейнерах" in report.warnings[оба[0].warning_idx]
+    # Второй связи контейнером приходится только конец.
+    [конец] = [r for r in report.container_edges if r.edge_idx == 1]
+    assert (конец.end, paths[конец.container_idx]) == ("target", "Zabbix")
+
+
+def test_остаток_связей_в_контейнер_больше_капа_текста():
+    """Кап — свойство ТЕКСТА (замечания уезжают агенту одним списком), а вопрос
+    положен каждой связи: скрытые за «…ещё N» записи есть, и их строка — хвост."""
+    n = _MAX_CONTAINER_EDGES + 3
+    текст = "nodes:\n  - name: box\n    children:\n      - name: inner\n"
+    текст += "".join(f"  - name: s{i}\n" for i in range(n))
+    текст += "edges:\n" + "".join(f"  - from: s{i}\n    to: box\n" for i in range(n))
+    merged, report, errors = parse_and_merge([текст])
+    assert errors == []
+
+    assert len(report.container_edges) == n
+    хвост = [r for r in report.container_edges if "…ещё" in report.warnings[r.warning_idx]]
+    assert len(хвост) == 3
+    assert report.warnings[хвост[0].warning_idx] == "…ещё 3 таких связей"
+
+
+def test_остаток_изолированные_группы_все_и_со_своей_строкой():
+    """Групп больше капа перечня — записи есть у всех, ядро не записывается."""
+    n = _MAX_ISOLATED_GROUPS + 2
+    # Ядро втрое крупнее спутников: «самая крупная компонента» должна быть одна,
+    # иначе ядром станет первая по алфавиту (правило детерминизма _warn_isolated_groups).
+    текст = "nodes:\n  - name: Ядро\n  - name: Спутник\n  - name: Хвост\n"
+    текст += "".join(f"  - name: a{i}\n  - name: b{i}\n" for i in range(n))
+    текст += "edges:\n  - from: Ядро\n    to: Спутник\n  - from: Спутник\n    to: Хвост\n"
+    текст += "".join(f"  - from: a{i}\n    to: b{i}\n" for i in range(n))
+    merged, report, errors = parse_and_merge([текст])
+    assert errors == []
+    paths = _path_list(merged)
+
+    assert len(report.isolated_groups) == n  # ядро из трёх узлов — не группа
+    группы = {tuple(paths[i] for i in g.node_idxs) for g in report.isolated_groups}
+    assert ("a0", "b0") in группы and ("Ядро", "Спутник", "Хвост") not in группы
+    # Последние две — за счётчиком: их строка одна на обеих, это хвост.
+    хвостовые = report.isolated_groups[_MAX_ISOLATED_GROUPS:]
+    assert len(хвостовые) == 2
+    assert {report.warnings[g.warning_idx] for g in хвостовые} == {"…ещё 2 таких групп"}
+
+
+def test_остаток_fuzzy_пара_с_родителем_и_строкой():
+    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: payments\n")
+    b = _parse("nodes:\n  - name: Система\n    children:\n      - name: payments-service\n")
+    merged, report = merge_imports([a, b])
+    paths = _path_list(merged)
+
+    [пара] = report.fuzzy_pairs
+    assert (paths[пара.a_idx], paths[пара.b_idx]) == (
+        "Система / payments", "Система / payments-service"
+    )
+    assert paths[пара.parent_idx] == "Система"
+    assert "похожи" in report.warnings[пара.warning_idx]
+
+
+def test_остаток_переживает_общий_кап_предупреждений():
+    """Строк больше _MAX_WARNINGS — хвост срезан, и ссылки записей на срезанные
+    строки гаснут (иначе индекс показал бы на «…и ещё N предупреждений»)."""
+    n = 35  # fuzzy-пары капа не знают — ими и переполняем общий список строк
+    a = _parse("nodes:\n  - name: Система\n    children:\n"
+               + "".join(f"      - name: payments{i}\n" for i in range(n)))
+    b = _parse("nodes:\n  - name: Система\n    children:\n"
+               + "".join(f"      - name: payments{i}-service\n" for i in range(n)))
+    merged, report = merge_imports([a, b])
+
+    # Пар (а с ними и вопросов) больше, чем строк помещается в отчёт.
+    всего = len(report.fuzzy_pairs)
+    assert всего > _MAX_WARNINGS
+    assert report.warnings[-1] == f"…и ещё {всего - _MAX_WARNINGS} предупреждений"
+    осиротевшие = [f for f in report.fuzzy_pairs if f.warning_idx is None]
+    assert len(осиротевшие) == всего - _MAX_WARNINGS  # строки нет, вопрос задастся
+    for f in report.fuzzy_pairs:
+        if f.warning_idx is not None:
+            assert "похожи" in report.warnings[f.warning_idx]
+
+
+def test_остаток_пуст_у_чистого_слияния():
+    """Сторож: там, где мерджу спрашивать не о чем, структура пуста целиком."""
+    a = _parse("nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+               "      - name: Каталог-БД\n        shape: database\n"
+               "edges:\n  - from: orders\n    to: Каталог-БД\n    label: пишет\n")
+    b = _parse("nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+               "        technology: Go\n")
+    merged, report = merge_imports([a, b])
+    warn_content(merged, report)
+
+    assert report.conflicts == [] and report.warnings == []
+    assert report.field_disputes == [] and report.fuzzy_pairs == []
+    assert report.isolated_groups == [] and report.container_edges == []

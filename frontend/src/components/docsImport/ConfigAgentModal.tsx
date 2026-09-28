@@ -23,7 +23,7 @@ import {
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow, radioRow,
 } from "./agentModalShared";
 import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
-import PromptTriple from "./PromptTriple";
+import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -79,7 +79,7 @@ export default function ConfigAgentModal({ nodeId, nodeName, onClose, onApplied 
   }, [pkg.files, overwrite, nodeId]);
 
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
-  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  // трёх вариантов показывает PromptCopyButton по разрешению этого обещания.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     return configImportApi.prompt(variant).then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
@@ -137,7 +137,7 @@ export default function ConfigAgentModal({ nodeId, nodeName, onClose, onApplied 
 
       <div style={cols}>
         <div style={leftCol}>
-          <PromptTriple
+          <PromptCopyButton
             label="Скопировать промпт"
             copiedLabel="Скопировано ✓"
             kind="primary"
