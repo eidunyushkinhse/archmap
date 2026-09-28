@@ -57,6 +57,8 @@ interface Кейс {
   открыть: () => Promise<void>;
   // Вариант из ПОСЛЕДНЕГО вызова ручки промпта этого окна.
   вариант: () => string | undefined;
+  /** Только главная кнопка, без подписи-гейта и ссылок (окно создания проекта). */
+  голая?: boolean;
 }
 
 const кейсы: Кейс[] = [
@@ -112,6 +114,7 @@ const кейсы: Кейс[] = [
       await userEvent.type(screen.getByPlaceholderText("Например, «Платёжная платформа»"), "Платформа");
     },
     вариант: () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-1)?.[0]?.variant,
+    голая: true,
   },
   {
     окно: "синк «Обновить из репозитория» (SyncRepoModal)",
@@ -146,7 +149,31 @@ function мокиРучек() {
 const главная = (к: Кейс) => screen.getByRole("button", { name: к.подпись });
 const ссылка = (имя: string) => screen.getByRole("button", { name: имя });
 
-describe.each(кейсы)("тройка промпта · $окно", (к: Кейс) => {
+describe.each(кейсы.filter((к) => к.голая === true))("одна кнопка промпта · $окно", (к: Кейс) => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    мокиРучек();
+    записано = vi.fn((_текст: string) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: записано }, configurable: true });
+    await к.открыть();
+  });
+
+  it("без подписи-гейта и запасных ссылок (решение пользователя 2026-09-28)", () => {
+    expect(главная(к)).toBeInTheDocument();
+    expect(screen.queryByText(ГЕЙТ)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: БЕЗ_АУДИТА })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ТОЛЬКО_АУДИТ })).not.toBeInTheDocument();
+  });
+
+  it("главная кнопка копирует промпт С АУДИТОМ", async () => {
+    await userEvent.click(главная(к));
+    await waitFor(() => expect(к.вариант()).toBe("orchestrated"));
+    expect(записано).toHaveBeenCalledWith("промпт:orchestrated");
+    await waitFor(() => expect(screen.getByRole("button", { name: к.скопировано })).toBeInTheDocument());
+  });
+});
+
+describe.each(кейсы.filter((к) => к.голая !== true))("тройка промпта · $окно", (к: Кейс) => {
   beforeEach(async () => {
     vi.clearAllMocks();
     мокиРучек();

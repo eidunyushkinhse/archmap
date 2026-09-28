@@ -397,12 +397,17 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
               {mode === "repo" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
-                    Схему построит ваш ИИ-агент (Claude Code, Cursor…): скопируйте
-                    промпт и запустите его в корне каждого репозитория системы.
-                    Каждый прогон вернёт YAML. Вставьте их все справа, файлы
-                    сольются автоматически.
-                  </p>
+                  <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55, color: "#64748b" }}>
+                    <li>Дайте название новому проекту.</li>
+                    <li>Скопируйте промпт.</li>
+                    <li>
+                      Запустите своего ИИ-агента (Claude Code, Cursor, Qwen Code и т.д.) в
+                      репозитории вашей системы. Если репозиториев несколько, запустите по
+                      агенту в каждом из них.
+                    </li>
+                    <li>Дождитесь, пока все агенты вернут YAML.</li>
+                    <li>Перетащите все YAML в поле справа.</li>
+                  </ol>
                   <div>
                     <label style={labelStyle}>Язык описаний</label>
                     <select
@@ -432,6 +437,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                     buttonStyle={{ opacity: name.trim() ? 1 : 0.55 }}
                     disabled={!name.trim() || promptBusy}
                     copy={copyPrompt}
+                    bare
                   />
                 </div>
               )}
@@ -596,7 +602,7 @@ function ImportReport({ result }: { result: ArchiveImportResult }) {
       {/* Сырого списка «Замечания» нет (Ф2г-2): то, что требует рук, — той же
           свёрткой, что в превью; информация о сделанном видна по счётчикам. Сырые
           строки (result.warnings) остаются в ответе для MCP. */}
-      <UnfixableFold items={result.unfixable} />
+      <UnfixableFold items={result.unfixable} after />
     </div>
   );
 }

@@ -15,9 +15,12 @@ import "./remainder.css";
 
 interface Props {
   items: UnfixableOut[];
+  /** Экран отчёта ПОСЛЕ импорта: «не закрыть вопросом» там звучит неточно —
+   *  вопросов уже не будет, остаётся только ручная правка. */
+  after?: boolean;
 }
 
-export default function UnfixableFold({ items }: Props) {
+export default function UnfixableFold({ items, after = false }: Props) {
   const [open, setOpen] = useState(false);
 
   if (items.length === 0) return null;
@@ -36,8 +39,9 @@ export default function UnfixableFold({ items }: Props) {
       {open && (
         <div className="rq-uf-bd">
           <div className="rq-uf-lead">
-            В файлах есть нестыковки, которые ArchMap не сможет закрыть одним вопросом. Вот их
-            список:
+            {after
+              ? "После импорта остались нестыковки, которые нужно поправить вручную:"
+              : "В файлах есть нестыковки, которые ArchMap не сможет закрыть одним вопросом. Вот их список:"}
           </div>
           <ul className="rq-ul">
             {items.map((item) => <li key={item.id}>{item.text}</li>)}

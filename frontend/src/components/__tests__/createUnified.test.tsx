@@ -267,7 +267,7 @@ describe("единый ввоз · создание проекта", () => {
     await userEvent.click(screen.getByRole("button", { name: /Rust/ }));
 
     // Правка YAML пересчитывает превью: тот же вопрос — ответ на месте.
-    fireEvent.change(screen.getByPlaceholderText(/Перетащите сюда/), {
+    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
       target: { value: "nodes:\n  - name: Ярмарка" },
     });
     await waitFor(
@@ -277,7 +277,7 @@ describe("единый ввоз · создание проекта", () => {
 
     // А теперь вопрос из сводки пропал — ответ отбрасывается, в применение не едет.
     vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью({ c4: c4({ files: 2 }) }));
-    fireEvent.change(screen.getByPlaceholderText(/Перетащите сюда/), {
+    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
       target: { value: "nodes:\n  - name: Ярмарка v2" },
     });
     await waitFor(
@@ -294,7 +294,7 @@ describe("единый ввоз · создание проекта", () => {
 
   it("yaml + zip: имя обязательно, входы едут в порядке «тексты, потом архивы»", async () => {
     await открыть();
-    fireEvent.change(screen.getByPlaceholderText(/Перетащите сюда/), {
+    fireEvent.change(screen.getByPlaceholderText(/Вставьте .yaml/), {
       target: { value: "nodes:\n  - name: Ярмарка" },
     });
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));

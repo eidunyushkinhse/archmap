@@ -47,9 +47,15 @@ interface Props {
    */
   copy: (variant: PromptVariant) => Promise<void>;
   disabled?: boolean;
+  /**
+   * Только главная кнопка — без подписи-гейта и запасных ссылок. Окно создания
+   * проекта через ИИ-агента (решение пользователя 2026-09-28): там инструкция
+   * шагами, и подробности аудита новичку в первом же окне только мешают.
+   */
+  bare?: boolean;
 }
 
-export default function PromptTriple({ label, copiedLabel, kind, buttonStyle, copy, disabled }: Props) {
+export default function PromptTriple({ label, copiedLabel, kind, buttonStyle, copy, disabled, bare = false }: Props) {
   // Какой из трёх промптов только что скопирован. Состояние ОДНО на тройку: двух
   // «скопировано» разом быть не должно — иначе непонятно, что лежит в буфере.
   const [copied, setCopied] = useState<PromptVariant | null>(null);
@@ -79,8 +85,8 @@ export default function PromptTriple({ label, copiedLabel, kind, buttonStyle, co
       >
         {copied === "orchestrated" ? copiedLabel : label}
       </button>
-      <p style={gateNote}>{GATE_NOTE}</p>
-      <div style={linksRow}>
+      {!bare && <p style={gateNote}>{GATE_NOTE}</p>}
+      {!bare && <div style={linksRow}>
         <button type="button" style={link} disabled={disabled} onClick={() => click("builder")}>
           {copied === "builder" ? LINK_COPIED : PLAIN_LABEL}
         </button>
@@ -88,7 +94,7 @@ export default function PromptTriple({ label, copiedLabel, kind, buttonStyle, co
         <button type="button" style={link} disabled={disabled} onClick={() => click("skeptic")}>
           {copied === "skeptic" ? LINK_COPIED : SKEPTIC_LABEL}
         </button>
-      </div>
+      </div>}
     </div>
   );
 }

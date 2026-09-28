@@ -149,6 +149,15 @@ describe("UnfixableFold (§6, правка Ф2г)", () => {
     expect(screen.queryByText(/Можно доработать|Если оставить/)).toBeNull();
   });
 
+  it("на экране отчёта после импорта — своя вводная, без «одним вопросом»", async () => {
+    render(<UnfixableFold items={[замечание()]} after />);
+    await userEvent.click(screen.getByRole("button", { name: /Придется подправить вручную/ }));
+    expect(
+      screen.getByText("После импорта остались нестыковки, которые нужно поправить вручную:"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/одним вопросом/)).toBeNull();
+  });
+
   it("без замечаний не показывается вовсе", () => {
     const { container } = render(<UnfixableFold items={[]} />);
     expect(container).toBeEmptyDOMElement();
