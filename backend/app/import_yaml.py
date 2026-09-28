@@ -4,7 +4,9 @@
 children>, edges: <список по именам>}. Гарантия roundtrip: любой вывод
 build_export импортируется без ошибок с той же семантикой (имя, форма, статус,
 роль, технология, external, описание, якорь source, вложенность, связи с
-каналом и типом sync). Раскладки в формате
+каналом и типом sync). Законных тёзок (одно имя в одном родителе, якоря
+противоречат) экспорт адресует путём с уточнителем-якорем «путь @ ключ» — резолвер
+связей его понимает (app/node_ref.py). Раскладки в формате
 нет — координаты не пишем, холст разложит авто-ELK; вложенные документы (доки
 логики node_docs, openapi_spec) в формат не входят → останутся пустыми
 (наполнение доков — BYOA-дозаливка, этап 2 plan-agent-docs.md).
@@ -29,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
+from app.node_ref import qualify, split_ref
 
 # Лимиты щедрые (реальный экспорт не упрётся) — защита от «бомбы» в textarea.
 MAX_NODES = 2000
@@ -381,29 +384,65 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
     for i, raw_n in enumerate(raw_nodes):
         walk(raw_n, f"nodes[{i}]", None, "", 1)
 
+    def exact(ref: str) -> list[int]:
+        """Точный полный путь, иначе голое имя, иначе однозначный ХВОСТ пути."""
+        hits = by_path.get(ref) or by_bare.get(ref) or []
+        if not hits and " / " in ref:
+            tail = f" / {ref}"
+            hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
+        return hits
+
+    def slashed(ref: str) -> list[int]:
+        """Слабые модели пишут путь слэшем без пробелов («worker/queue-reader»):
+        нормализуем разделитель и повторяем точный путь + однозначный хвост.
+        Тот же фолбэк давно живёт в резолвере дозаливки доков; здесь он стал
+        нужен, когда промпт начал требовать адресовать связи компонентов.
+        Фолбэк ПОСЛЕДНИЙ — настоящие имена со слэшем матчатся раньше."""
+        if "/" not in ref:
+            return []
+        norm = " / ".join(part.strip() for part in ref.split("/") if part.strip())
+        hits = by_path.get(norm) or []
+        if not hits:
+            tail = f" / {norm}"
+            hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
+        return hits
+
+    def ready_refs(hits: list[int]) -> list[str] | None:
+        """Готовые ссылки на кандидатов, каждая из которых резолвится ровно в своего:
+        уникальный путь — как есть, путь законных тёзок — с уточнителем-якорем
+        (app/node_ref.py). Хоть одного кандидата так не назвать (тёзка без якоря,
+        одинаковые якоря) — None: неполный перечень толкнул бы агента к чужому узлу."""
+        out: set[str] = set()
+        for i in hits:
+            same_path = by_path[fulls[i]]
+            if len(same_path) == 1:
+                out.add(fulls[i])
+                continue
+            keys = nodes[i].source_keys
+            if not keys or sum(1 for j in same_path if keys[0] in nodes[j].source_keys) != 1:
+                return None
+            out.add(qualify(fulls[i], keys[0]))
+        return sorted(out)
+
     def resolve(ref: str, path: str) -> int | None:
         """Ссылка из edges → индекс узла: точный полный путь, иначе голое имя
         (если уникально), иначе однозначный ХВОСТ пути («backend / api» находит
         «Система / backend / api»). Тексты ошибок — как в ТЗ витрины импорта;
         к «не найден» добавляется did-you-mean, когда кандидат уверенный
-        (_closest_node), — без него слабая модель гадает имя заново."""
-        hits = by_path.get(ref)
+        (_closest_node), — без него слабая модель гадает имя заново.
+
+        Уточнитель-якорь законных тёзок («Ярмарка / Каталог-БД @ git:…», пишет
+        экспорт): только когда точного пути нет, и ДО слэш-фолбэка — в ключе
+        законны слэши, и нормализация пути разрезала бы его. Голова ищется всем
+        порядком обычной ссылки, кандидаты фильтруются по якорю."""
+        hits = exact(ref)
         if not hits:
-            hits = by_bare.get(ref)
-        if not hits and " / " in ref:
-            tail = f" / {ref}"
-            hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
-        if not hits and "/" in ref:
-            # Слабые модели пишут путь слэшем без пробелов («worker/queue-reader»):
-            # нормализуем разделитель и повторяем точный путь + однозначный хвост.
-            # Тот же фолбэк давно живёт в резолвере дозаливки доков; здесь он стал
-            # нужен, когда промпт начал требовать адресовать связи компонентов.
-            # Фолбэк ПОСЛЕДНИЙ — настоящие имена со слэшем матчатся выше.
-            norm = " / ".join(part.strip() for part in ref.split("/") if part.strip())
-            hits = by_path.get(norm)
+            split = split_ref(ref)
+            if split is not None:
+                head, key = split
+                hits = [i for i in exact(head) or slashed(head) if key in nodes[i].source_keys]
             if not hits:
-                tail = f" / {norm}"
-                hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
+                hits = slashed(ref)
         if not hits:
             if ref not in hints:
                 hints[ref] = _closest_node(ref, fulls, by_bare, by_path)
@@ -420,7 +459,9 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             # них»): текст, предлагающий выбрать СПОСОБ записи, уже давал слабой модели
             # колебательный контур. Порядок — по алфавиту, а не по документу:
             # перестановка узлов во входном YAML не должна шевелить текст замечания.
-            cands = sorted({fulls[i] for i in hits})
+            # Законные тёзки (путь один на двоих) называются путём с уточнителем-
+            # якорем; без тёзок перечень — прежние пути байт-в-байт.
+            cands = ready_refs(hits) or sorted({fulls[i] for i in hits})
             if len(cands) > 1:
                 shown = ", ".join(f'"{c}"' for c in cands[:_MAX_AMBIGUOUS_PATHS])
                 extra = len(cands) - _MAX_AMBIGUOUS_PATHS
