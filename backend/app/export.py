@@ -11,7 +11,9 @@
 Связи ссылаются на узлы ПО ИМЕНИ. Имя по построению дерева уникальным быть не
 обязано — если в экспортируемом наборе оно встречается дважды, в edges
 подставляется квалифицированный путь «Предок / Имя» (в самом дереве имя
-оставляем голым: позиция во вложенности и так однозначна).
+оставляем голым: позиция во вложенности и так однозначна). Законных тёзок (путь
+в наборе повторяется, якоря разводят узлы) путь не различает — к нему дописан
+уточнитель-якорь «Предок / Имя @ git:…» (грамматика — app/node_ref.py).
 """
 
 import uuid
@@ -22,6 +24,7 @@ import yaml
 from app.identity import source_ref_dict
 from app.models.edge import Edge
 from app.models.node import Node
+from app.node_ref import anchor_key, qualified_paths
 
 
 class _Dumper(yaml.SafeDumper):
@@ -75,10 +78,8 @@ def build_export_ordered(
     # Сколько раз имя встречается в наборе — чтобы решить, нужен ли путь в edges.
     name_counts = Counter(n.name for n in nodes)
 
-    def ref_name(node: Node) -> str:
-        """Имя узла для ссылки в edges: голое, если уникально, иначе путь от корня набора."""
-        if name_counts[node.name] == 1:
-            return node.name
+    def set_path(node: Node) -> str:
+        """Путь узла от корня НАБОРА (у поддерева — от его корня)."""
         path: list[str] = []
         cur: Node | None = node
         while cur is not None and cur.id in included:
@@ -86,6 +87,23 @@ def build_export_ordered(
             cur = by_id.get(cur.parent_id) if cur.parent_id else None
         path.reverse()
         return " / ".join(path)
+
+    # Адреса узлов с повторяющимся именем: путь, а законным тёзкам (путь в наборе
+    # не уникален) — путь с уточнителем-якорем (app/node_ref.py). Уникальность
+    # считается в пределах набора, как и у имени.
+    dup = [n for n in nodes if name_counts[n.name] > 1]
+    qualified = dict(zip(
+        (n.id for n in dup),
+        qualified_paths([set_path(n) for n in dup], [anchor_key(n.source_ref) for n in dup]),
+        strict=True,
+    ))
+
+    def ref_name(node: Node) -> str:
+        """Имя узла для ссылки в edges: голое, если уникально, иначе путь от корня
+        набора, а у тёзок с якорем — путь с уточнителем «@ ключ»."""
+        if name_counts[node.name] == 1:
+            return node.name
+        return qualified[node.id]
 
     def node_dict(node: Node) -> dict:
         # Порядок ключей осознанный (sort_keys=False при дампе): сперва идентичность
