@@ -52,6 +52,7 @@ from app.import_merge import (
 )
 from app.import_yaml import ParsedImport, parse_import
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header, strip_header
+from app.node_ref import split_ref
 from app.schemas.project import FileRemarksOut, ImportPreviewOut, MergedNodeOut
 from app.schemas.unified_import import (
     ComponentOut,
@@ -264,8 +265,11 @@ def _paths(parsed: ParsedImport) -> list[str]:
 class _Resolver:
     """Адрес файла семьи → узел СЛИТОГО дерева, через C4 своего входа.
 
-    Промах и тёзки — замечание входу, файл пропускается: та же норма, что у всех
-    приёмников (archive_import.resolve), деградация видимая."""
+    Адрес — точный полный путь; законного тёзку (путь один на двоих) архив
+    адресует путём с уточнителем-якорем «путь @ git:…» (app/node_ref.py), и тогда
+    кандидаты пути фильтруются по якорю разобранного узла. Промах и тёзки без
+    уточнителя — замечание входу, файл пропускается: та же норма, что у всех
+    приёмников, деградация видимая."""
 
     def __init__(
         self,
@@ -280,9 +284,20 @@ class _Resolver:
         self.by_path: dict[str, list[int]] = {}
         for i, p in enumerate(_paths(parsed)):
             self.by_path.setdefault(p, []).append(i)
+        self.keys = [n.source_keys for n in parsed.nodes]
+
+    def _hits(self, path: str) -> list[int]:
+        """Точный путь первым (имя с законным « @ » работает), иначе уточнитель."""
+        hits = self.by_path.get(path, [])
+        if not hits:
+            split = split_ref(path)
+            if split is not None:
+                head, key = split
+                hits = [i for i in self.by_path.get(head, []) if key in self.keys[i]]
+        return hits
 
     def resolve(self, path: str | None, fname: str) -> int | None:
-        hits = self.by_path.get(path or "", [])
+        hits = self._hits(path) if path else []
         if len(hits) == 1:
             merged = self.contribs.get((self.origin, hits[0]))
             if merged is None:  # инвариант Ф0 нарушен — молчать нельзя

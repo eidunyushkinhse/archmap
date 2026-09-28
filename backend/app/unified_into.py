@@ -77,6 +77,7 @@ from app.unified_apply import (
     Decisions,
     ResolvedDecisions,
     _address_map,
+    _addresses_of,
     _choice_index,
     _free_name,
     _rewrite_doc_addresses,
@@ -711,6 +712,9 @@ def apply_into_plan(
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     by_id = {n.id: n for n in nodes}
     path_of = [node_path(by_id, n.id) for n in node_of]
+    # Адреса синтетических файлов семей: у законных тёзок — путь с уточнителем-
+    # якорем (app/node_ref.py), иначе родной приёмник счёл бы адрес неоднозначным.
+    addr_of = _addresses_of(nodes, node_of)
 
     docs_created, docs_replaced, renamed, shared = _apply_docs(db, project, winners, lost, node_of)
 
@@ -730,14 +734,14 @@ def apply_into_plan(
     #    пользователя не спрашивали.
     _warn_extra_parts(winners, lost, node_of, path_of, warnings)
     db_report = _run_family("table", build_data_plan, apply_data_plan,
-                            db, nodes, winners, lost, path_of)
+                            db, nodes, winners, lost, addr_of)
     channels_report = _run_family("channel", build_channels_plan, apply_channels_plan,
-                                  db, nodes, winners, lost, path_of)
+                                  db, nodes, winners, lost, addr_of)
     # Заглушки каналов — только по СВЯЗЯМ ЭТОЙ ДОГРУЗКИ: живые связи без канала у
     # брокера — состояние проекта до неё, а догрузка живого не трогает.
     channel_stubs = seed_edge_channel_stubs(db, project.id, new_edges)
     config_report = _run_family("config", build_config_plan, apply_config_plan,
-                                db, nodes, winners, lost, path_of, policies=(False,))
+                                db, nodes, winners, lost, addr_of, policies=(False,))
 
     process_results = _apply_processes(
         db, project, plan, into.new_processes, renamed, shared, path_of, warnings
@@ -925,7 +929,7 @@ def _family_files(
     family: Family,
     winners: list[_Winner],
     lost: set[tuple[Family, int, str]],
-    path_of: list[str],
+    addr_of: list[str],
     overwritten: bool,
 ) -> list[tuple[str, str]]:
     """Синтетические файлы одной семьи: либо только НОВОЕ, либо только выигравшее
@@ -937,7 +941,7 @@ def _family_files(
         and w.origin != 0
         and (((w.family, w.node_idx, w.key) in lost) is overwritten)
     ]
-    return _synthetic_files(family, chosen, path_of)
+    return _synthetic_files(family, chosen, addr_of)
 
 
 def _run_family(
@@ -948,18 +952,19 @@ def _run_family(
     nodes: list[Node],
     winners: list[_Winner],
     lost: set[tuple[Family, int, str]],
-    path_of: list[str],
+    addr_of: list[str],
     policies: tuple[bool, ...] = (False, True),
 ) -> DataImportReport | ChannelsImportReport | ConfigImportReport | None:
     """Прогон родного приёмника семьи: сначала новое (занятое не трогать), затем
-    выигравшее спор (наложение). nodes — ВСЕ узлы проекта, уже с созданными.
+    выигравшее спор (наложение). nodes — ВСЕ узлы проекта, уже с созданными;
+    addr_of — адреса узлов плана (_addresses_of: у законных тёзок с уточнителем).
 
     policies=(False,) — у семьи наложения не бывает: параметр конфигурации, проигравший
     спор, заменяется телом целиком (_replace_params), и второй проход задвоил бы
     правку (лишний bump version)."""
     report: DataImportReport | ChannelsImportReport | ConfigImportReport | None = None
     for overwrite in policies:
-        files = _family_files(family, winners, lost, path_of, overwrite)
+        files = _family_files(family, winners, lost, addr_of, overwrite)
         if not files:
             continue
         family_plan = build(db, nodes, files, None, overwrite)

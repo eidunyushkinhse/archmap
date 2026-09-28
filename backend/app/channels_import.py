@@ -35,6 +35,7 @@ from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
 from app.models.node import Node
+from app.node_ref import anchored_node_hits
 from app.schemas.channels_import import ChannelItem, ChannelsImportReport
 
 # «Файл ПОХОЖ на наш» — по разделу верхнего уровня. Нужен, чтобы отличить чужой файл
@@ -336,6 +337,11 @@ def _resolve_node(
         # только свой репозиторий и корневого контейнера не знает. Совпадение по
         # хвосту — по границе « / », чтобы «…/ events» не цеплялось к «…/ my events».
         hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
+    if not hits:
+        # Законный тёзка (одно имя в одном родителе, якоря разные) адресуется
+        # путём с уточнителем-якорем «путь @ git:…» — так пишет архив
+        # (app/node_ref.py). Голова ищется тем же порядком, фильтр — по якорю.
+        hits = anchored_node_hits(ref, flat, fulls, by_bare, by_path)
     if not hits:
         plan.report.errors.append(
             f"{fname}: объект «{ref}» не найден; узлы-брокеры проекта: {broker_hint}"

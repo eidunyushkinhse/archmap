@@ -46,6 +46,7 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.project import Project
+from app.node_ref import node_addresses
 
 # Приватное из соседей — осознанно: регулярка привязки и норма адреса должны быть
 # ОДНИМИ И ТЕМИ ЖЕ, что у разбора процессов, иначе переписанный адрес не совпадёт
@@ -529,6 +530,9 @@ def apply_unified_plan(
     by_id = {n.id: n for n in nodes}
     node_of = [by_id[i] for i in ids]  # индекс плана → узел проекта
     path_of = [node_path(by_id, n.id) for n in node_of]
+    # Адреса файлов семей для родных приёмников: у законных тёзок путь один на
+    # двоих, и файл адресуется путём с уточнителем-якорем (app/node_ref.py).
+    addr_of = _addresses_of(nodes, node_of)
 
     warnings: list[str] = list(plan.warnings)
     for i, remarks in enumerate(plan.input_remarks):
@@ -547,6 +551,7 @@ def apply_unified_plan(
         склеены_дубли = dedup_edges(db, project.id, перевешены)
         nodes = db.query(Node).filter(Node.project_id == project.id).all()
         path_of = [node_path({n.id: n for n in nodes}, n.id) for n in node_of]
+        addr_of = _addresses_of(nodes, node_of)
 
     # ── Схемы логики: напрямую, тело БЕЗ шапки (заглушка остаётся заглушкой, Д4).
     docs_created = 0
@@ -580,7 +585,7 @@ def apply_unified_plan(
 
     # ── Семьи фактов: синтетические файлы ввозного формата → родные приёмники.
     def run_family(family: Family, build, apply):
-        files = _synthetic_files(family, winners, path_of)
+        files = _synthetic_files(family, winners, addr_of)
         if not files:
             return None
         family_plan = build(db, nodes, files, None, False)
@@ -747,6 +752,13 @@ def dedup_edges(db: Session, project_id: uuid.UUID, moved: set[uuid.UUID]) -> in
     return dropped
 
 
+def _addresses_of(nodes: list[Node], node_of: list[Node]) -> list[str]:
+    """Адрес узла плана для синтетического файла: путь, у тёзок — с уточнителем.
+    nodes — ВСЕ узлы проекта: уникальность пути считается по проекту."""
+    addresses = node_addresses(nodes)
+    return [addresses[n.id] for n in node_of]
+
+
 def _synthetic_files(
     family: Family, winners: list[_Winner], path_of: list[str]
 ) -> list[tuple[str, str]]:
@@ -755,6 +767,7 @@ def _synthetic_files(
     Файл — один на «вход + исходный файл + узел» (внутри одного файла адресат
     всегда один). Имя файла ОСТАЁТСЯ исходным: его человек увидит в замечаниях
     родного приёмника, и указывать ему на выдуманное «synthetic-3.yaml» бесполезно.
+    path_of — АДРЕСА узлов (_addresses_of): законного тёзку голый путь не найдёт.
     """
     buckets: dict[tuple[int, str, int], list[FamilyValue]] = {}
     for w in winners:

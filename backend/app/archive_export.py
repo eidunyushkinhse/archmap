@@ -35,8 +35,9 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.project import Project
+from app.node_ref import node_addresses
 from app.process_export import detail_to_mermaid
-from app.processes import build_process_detail, node_path
+from app.processes import build_process_detail
 
 # Адрес узла-владельца — ведущий комментарий, как у всех семей (NODE_HEADER
 # в data_import). Решётка обязательна: YAML-ключ адресом не считается.
@@ -214,9 +215,13 @@ def build_archive_ordered(db: Session, project: Project) -> tuple[bytes, list[uu
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     all_nodes = {n.id: n for n in nodes}
+    # Адрес узла-владельца в файлах семей — полный путь, а у законных тёзок (путь
+    # один на двоих) — путь с уточнителем-якорем «@ git:…» (app/node_ref.py):
+    # иначе приёмник пропустил бы файлы обоих как неоднозначные.
+    addresses = node_addresses(nodes)
 
     def path_of(node_id: uuid.UUID) -> str:
-        return node_path(all_nodes, node_id)
+        return addresses[node_id]
 
     files: list[tuple[str, str]] = []  # (имя в архиве, содержимое)
     manifest: dict = {

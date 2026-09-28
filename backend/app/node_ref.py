@@ -27,10 +27,13 @@ C4 (edges[].from/to) и адреса семей фактов («%% archmap-node:
 режущий путь по «/», разрезал бы и его.
 """
 
+import uuid
 from collections import Counter
 from collections.abc import Sequence
 
 from app.identity import SourceRef, canonical_key, source_ref_dict
+from app.models.node import Node
+from app.processes import node_path
 
 # Разделитель пути и уточнителя. С пробелами по краям, как « / » у пути: «@» внутри
 # имени (почта, декоратор) уточнителем не считается.
@@ -80,17 +83,31 @@ def split_ref(ref: str) -> tuple[str, str] | None:
     return (head, key) if key else None
 
 
+def node_addresses(nodes: Sequence[Node]) -> dict[uuid.UUID, str]:
+    """Адрес каждого узла ПРОЕКТА для файлов семей («# archmap-node: …»): полный
+    путь от корня, у законных тёзок — с уточнителем. nodes — все узлы проекта."""
+    by_id = {n.id: n for n in nodes}
+    ids = list(by_id)
+    return dict(zip(
+        ids,
+        qualified_paths(
+            [node_path(by_id, i) for i in ids], [anchor_key(by_id[i].source_ref) for i in ids]
+        ),
+        strict=True,
+    ))
+
+
 def anchored_node_hits(
     ref: str,
-    keys: Sequence[str | None],
+    flat: Sequence[Node],
     fulls: Sequence[str],
     by_bare: dict[str, list[int]],
     by_path: dict[str, list[int]],
 ) -> list[int]:
     """Кандидаты ссылки с уточнителем в карте узлов проекта (docs_import._node_paths)
     — для родных приёмников семей: голова ищется их же порядком (точный путь, голое
-    имя, однозначный хвост пути), потом фильтр по якорю. keys[i] — anchor_key узла i.
-    Ссылка без уточнителя — пусто: её уже искали обычным порядком."""
+    имя, однозначный хвост пути), потом фильтр по якорю узла. Ссылка без
+    уточнителя — пусто: её уже искали обычным порядком."""
     split = split_ref(ref)
     if split is None:
         return []
@@ -98,4 +115,4 @@ def anchored_node_hits(
     hits = by_path.get(head) or by_bare.get(head) or [
         i for i, full in enumerate(fulls) if full.endswith(f" / {head}")
     ]
-    return [i for i in hits if keys[i] == key]
+    return [i for i in hits if anchor_key(flat[i].source_ref) == key]

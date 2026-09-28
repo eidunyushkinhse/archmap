@@ -703,7 +703,6 @@ def _по_якорю(db, project_id) -> dict[str | None, Node]:
     return {n.source_ref: n for n in db.query(Node).filter(Node.project_id == project_id).all()}
 
 
-@pytest.mark.xfail(strict=True, reason="воспроизведение: тёзки не догружаются (до фикса)")
 def test_якорные_тёзки_догружают_свой_архив(db):
     """Свой архив проекта с якорными тёзками — ноль изменений, как у любого проекта:
     разбор не спотыкается о путь, файлы семей тёзок не пропускаются."""
@@ -725,7 +724,6 @@ def test_якорные_тёзки_догружают_свой_архив(db):
     assert отчёт.nodes_created == отчёт.edges_created == отчёт.docs_created == 0
 
 
-@pytest.mark.xfail(strict=True, reason="воспроизведение: тёзки не переезжают архивом (до фикса)")
 def test_якорные_тёзки_переезжают_архивом_в_новый_проект(db):
     """Новый проект из архива такого проекта: оба тёзки на месте, а связи, схемы,
     таблицы и спека — каждая у СВОЕГО тёзки (путь их не различает, якорь — да)."""
@@ -740,7 +738,7 @@ def test_якорные_тёзки_переезжают_архивом_в_нов
     узлы = _по_якорю(db, новый.id)
     шоп, сток = узлы[ШОП], узлы[СКЛАДСКОЙ]
     assert шоп.name == сток.name == "Каталог-БД" and шоп.id != сток.id
-    имя = {n.id: n.name for n in узлы.values()}
+    имя = {n.id: n.name for n in db.query(Node).filter(Node.project_id == новый.id).all()}
     связи = {
         (имя[e.source_id], e.target_id, e.label)
         for e in db.query(Edge).filter(Edge.project_id == новый.id).all()
@@ -759,6 +757,80 @@ def test_якорные_тёзки_переезжают_архивом_в_нов
     assert таблицы == {(шоп.id, "items", ("sku",)), (сток.id, "items", ("qty",))}
     assert шоп.openapi_spec is None and "title: Склад" in (сток.openapi_spec or "")
     assert отчёт.db is not None and отчёт.db.errors == []
+
+
+def test_чужой_архив_доливает_знание_своему_тёзке(db):
+    """Архив ДРУГОГО проекта с теми же тёзками везёт новую таблицу и схему второму
+    тёзке: догрузка находит живую пару по якорям и кладёт новое ровно ему, а
+    первый тёзка остаётся как был."""
+    проект, узлы = _тёзки(db)
+    донор, дузлы = _тёзки(db, "Донор")
+    _таблица(db, дузлы["сток"], "reserve", [("sku", "text")])
+    _док(db, дузлы["сток"], "Резерв", "graph TD\n  Резерв\n", kind="worker")
+    db.commit()
+    было = _снимок(db, проект.id)
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert превью.ok and превью.errors == [] and превью.nodes_new == 0
+    assert (превью.families.tables, превью.families.docs) == (1, 1)
+    assert отчёт.db is not None and отчёт.db.errors == []
+    _цело(было, _снимок(db, проект.id))
+    сток, шоп = db.get(Node, узлы["сток"].id), db.get(Node, узлы["шоп"].id)
+    assert {t.name for t in сток.db_tables} == {"items", "reserve"}
+    assert {t.name for t in шоп.db_tables} == {"items"}
+    assert {d.name for d in сток.docs} == {"Хранение", "Резерв"}
+    assert {d.name for d in шоп.docs} == {"Хранение"}
+
+
+def test_каналы_и_конфигурация_тёзок_переезжают_к_своим(db):
+    """Те же гарантии у семей, которые пишут родные приёмники каналов и
+    конфигурации: тёзки-брокеры (якорь — имя зависимости) и тёзки-сервисы
+    (якорь — код в монорепо) получают каждый свои записи, а свой архив к живому
+    проекту не приносит ничего."""
+    проект = _проект(db, "Брокеры")
+    корень = _узел(db, проект, "Ярмарка")
+    ka = _узел(db, проект, "Kafka", корень, shape="broker", source_ref="host:kafka-a")
+    kb = _узел(db, проект, "Kafka", корень, shape="broker", source_ref="host:kafka-b")
+    aa = _узел(db, проект, "api", корень, source_ref="git:github.com/org/mono#a")
+    ab = _узел(db, проект, "api", корень, source_ref="git:github.com/org/mono#b")
+    _ребро(db, проект, aa, ka, channel="a.events")
+    _ребро(db, проект, ab, kb, channel="b.events")
+    _канал(db, ka, "a.events", [("id", "uuid")])
+    _канал(db, kb, "b.events", [("qty", "int")])
+    _параметр(db, aa, "A_TIMEOUT", value_type="int", default_value="1")
+    _параметр(db, ab, "B_TIMEOUT", value_type="int", default_value="2")
+    db.commit()
+    архив = build_archive(db, проект)
+
+    план = build_unified_plan([("свой.zip", архив)])
+    assert план.ok and план.input_remarks == [[]]
+    новый, отчёт = apply_unified_plan(db, план, {}, "Копия", None, ensure_architect(db).id)
+    db.commit()
+
+    узлы = _по_якорю(db, новый.id)
+    # С полями — значит из файла каналов, а не заглушкой по связи.
+    def каналы(узел: Node) -> set[tuple[str, tuple[str, ...]]]:
+        return {(c.name, tuple(f.name for f in c.fields)) for c in узел.broker_channels}
+
+    assert каналы(узлы["host:kafka-a"]) == {("a.events", ("id",))}
+    assert каналы(узлы["host:kafka-b"]) == {("b.events", ("qty",))}
+    параметры = {
+        (p.node_id, p.name) for p in db.query(ConfigParam).join(
+            Node, Node.id == ConfigParam.node_id).filter(Node.project_id == новый.id).all()
+    }
+    assert параметры == {
+        (узлы["git:github.com/org/mono#a"].id, "A_TIMEOUT"),
+        (узлы["git:github.com/org/mono#b"].id, "B_TIMEOUT"),
+    }
+    assert отчёт.channels is not None and отчёт.channels.errors == []
+    assert отчёт.config is not None and отчёт.config.errors == []
+
+    было = _снимок(db, проект.id)
+    превью, _ = _догрузить(db, проект, архив)
+    assert превью.ok and превью.errors == [] and (превью.nodes_new, превью.edges_new) == (0, 0)
+    assert not any("пропущен" in w for w in превью.warnings), превью.warnings
+    assert _снимок(db, проект.id) == было
 
 
 def test_yaml_экспорт_якорных_тёзок_разбирается_со_связями(db):

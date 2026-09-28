@@ -7,7 +7,6 @@
 
 import uuid
 
-import pytest
 from conftest import ensure_project
 
 from app.archive_export import (
@@ -267,7 +266,6 @@ def test_сборка_архива_полна_и_детерминирована(
     assert build_archive(db, проект) == архив
 
 
-@pytest.mark.xfail(strict=True, reason="воспроизведение: уточнителя в адресах пока нет (до фикса)")
 def test_адреса_семей_тёзок_несут_уточнитель_якоря(db):
     """Файлы семей законных тёзок адресованы путём, который их не различает, —
     к адресу дописан ключ якоря (« @ git:…», с решёткой пути внутри репозитория).

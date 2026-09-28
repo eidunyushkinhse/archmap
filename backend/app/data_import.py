@@ -47,6 +47,7 @@ from app.docs_import import _node_paths
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
+from app.node_ref import anchored_node_hits
 from app.schemas.data_import import DataImportReport, DataTableItem
 
 NODE_HEADER = re.compile(r"^#\s*archmap-node:\s*(.+?)\s*$", re.MULTILINE)
@@ -228,6 +229,11 @@ def _resolve_node(
         # промпт как раз просит писать путь. Совпадение по хвосту — по границе « / »,
         # чтобы «…/ Заказы» не цеплялось к «…/ Мои Заказы».
         hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
+    if not hits:
+        # Законный тёзка (одно имя в одном родителе, якоря разные) адресуется
+        # путём с уточнителем-якорем «путь @ git:…» — так пишет архив
+        # (app/node_ref.py). Голова ищется тем же порядком, фильтр — по якорю.
+        hits = anchored_node_hits(ref, flat, fulls, by_bare, by_path)
     if not hits:
         plan.report.errors.append(
             f"{fname}: объект «{ref}» не найден; узлы-БД проекта: {db_hint}"
