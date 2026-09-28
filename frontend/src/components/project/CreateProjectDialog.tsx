@@ -8,7 +8,7 @@ import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
-import PromptTriple from "../docsImport/PromptTriple";
+import PromptCopyButton from "../docsImport/PromptCopyButton";
 import C4Preview from "./C4Preview";
 import ImportPane from "./ImportPane";
 import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
@@ -226,7 +226,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // Промпт собирает бэкенд (истина формата — рядом с валидатором импорта);
   // копирование после fetch — в пределах жеста, Chrome это допускает. Имя системы
   // вшито в промпт ЛЮБОГО варианта (в том числе аудитного), поэтому вся тройка
-  // неактивна, пока проект без имени. «Скопировано» показывает PromptTriple по
+  // неактивна, пока проект без имени. «Скопировано» показывает PromptCopyButton по
   // разрешению обещания — ошибку пробрасываем, чтобы её не показал.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     setPromptBusy(true);
@@ -430,14 +430,13 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                       placeholder="например: монорепо, сервисы в services/*"
                     />
                   </div>
-                  <PromptTriple
+                  <PromptCopyButton
                     label="Скопировать промпт"
                     copiedLabel="Промпт скопирован ✓"
                     kind="secondary"
                     buttonStyle={{ opacity: name.trim() ? 1 : 0.55 }}
                     disabled={!name.trim() || promptBusy}
                     copy={copyPrompt}
-                    bare
                   />
                 </div>
               )}

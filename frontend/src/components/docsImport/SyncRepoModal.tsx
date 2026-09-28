@@ -18,7 +18,7 @@ import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import { planSections, planSummary, applySummary } from "./syncPlanView";
 import { NoteList } from "./agentModalReport";
-import PromptTriple from "./PromptTriple";
+import PromptCopyButton from "./PromptCopyButton";
 import {
   head, sub, cols, leftCol, rightCol, hintsArea, leftNote,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
@@ -134,7 +134,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   }, [pkg.files, policies, projectId]);
 
   // Запрос задания + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
-  // трёх вариантов показывает PromptTriple по разрешению этого обещания.
+  // трёх вариантов показывает PromptCopyButton по разрешению этого обещания.
   // Глубина у агента всегда просится одна — два слоя, как и при создании проекта
   // (решение пользователя 2026-08-16): синк и создание обязаны просить одно и то же,
   // иначе прогон синка предложит план по более дробной схеме, чем построенная.
@@ -211,7 +211,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             onChange={(e) => setHints(e.target.value)}
             placeholder="Например: игнорируй каталог legacy/"
           />
-          <PromptTriple
+          <PromptCopyButton
             label="Скопировать задание для агента"
             copiedLabel="Скопировано"
             kind="secondary"

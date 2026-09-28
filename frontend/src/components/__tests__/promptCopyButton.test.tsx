@@ -1,11 +1,11 @@
-// Тройка BYOA-промпта во ВСЕХ ШЕСТИ окнах (docs/plan-skeptic-audit.md, Ф1).
+// Кнопка BYOA-промпта в окнах агентов (docs/plan-skeptic-audit.md, Ф1).
 //
 // Проверяется главное продуктовое решение эпика: аудит вторым агентом-скептиком —
-// не опция, а дефолт. Прежняя кнопка каждого окна осталась на своём месте и со
-// своей подписью, но копирует теперь ОРКЕСТРАТОРНЫЙ промпт (variant=orchestrated);
-// запасные варианты уехали в две мелкие ссылки под подписью-гейтом. Ошибиться тут
-// незаметно: варианты отличаются только query-параметром, и окно, которое молча
-// продолжит отдавать builder, выглядит совершенно исправным.
+// не опция, а дефолт. Кнопка каждого окна копирует ОРКЕСТРАТОРНЫЙ промпт
+// (variant=orchestrated). Подпись-гейт и запасные ссылки «без аудита / только аудит»
+// сняты решением пользователя 2026-09-28 во всех окнах. Ошибиться тут незаметно:
+// варианты отличаются только query-параметром, и окно, которое молча отдаёт
+// builder, выглядит совершенно исправным.
 //
 // Окна разные (пропсы, готовность кнопки, какая ручка промпта), поэтому таблица
 // кейсов: рендер окна, подписи главной кнопки и способ достать variant из вызова.
@@ -40,11 +40,8 @@ vi.mock("../../ui/Modal", () => ({
 // Валидатор mermaid — ленивый чанк; пакетов здесь нет, но чанк тянуть незачем.
 vi.mock("../mermaidLoader", () => ({ validateMermaid: vi.fn().mockResolvedValue(null) }));
 
-// Подпись-гейт — ДОСЛОВНО одна на все шесть окон (текст согласован с пользователем):
-// он объясняет и что промпт с аудитом, и что агенту нужны субагенты.
-const ГЕЙТ =
-  "Промпт включает аудит вторым агентом-скептиком: перед выдачей пакет проверяется "
-  + "по коду. Вашему агенту понадобятся субагенты.";
+// Прежние тексты подписи-гейта и ссылок: их в окнах быть не должно.
+const ГЕЙТ = /агентом-скептиком|понадобятся субагенты/;
 const БЕЗ_АУДИТА = "Промпт без аудита";
 const ТОЛЬКО_АУДИТ = "Только промпт аудита";
 
@@ -57,8 +54,6 @@ interface Кейс {
   открыть: () => Promise<void>;
   // Вариант из ПОСЛЕДНЕГО вызова ручки промпта этого окна.
   вариант: () => string | undefined;
-  /** Только главная кнопка, без подписи-гейта и ссылок (окно создания проекта). */
-  голая?: boolean;
 }
 
 const кейсы: Кейс[] = [
@@ -114,7 +109,6 @@ const кейсы: Кейс[] = [
       await userEvent.type(screen.getByPlaceholderText("Например, «Платёжная платформа»"), "Платформа");
     },
     вариант: () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-1)?.[0]?.variant,
-    голая: true,
   },
   {
     окно: "синк «Обновить из репозитория» (SyncRepoModal)",
@@ -147,9 +141,8 @@ function мокиРучек() {
 }
 
 const главная = (к: Кейс) => screen.getByRole("button", { name: к.подпись });
-const ссылка = (имя: string) => screen.getByRole("button", { name: имя });
 
-describe.each(кейсы.filter((к) => к.голая === true))("одна кнопка промпта · $окно", (к: Кейс) => {
+describe.each(кейсы)("кнопка промпта · $окно", (к: Кейс) => {
   beforeEach(async () => {
     vi.clearAllMocks();
     мокиРучек();
@@ -158,73 +151,17 @@ describe.each(кейсы.filter((к) => к.голая === true))("одна кн�
     await к.открыть();
   });
 
-  it("без подписи-гейта и запасных ссылок (решение пользователя 2026-09-28)", () => {
+  it("одна кнопка: без подписи-гейта и запасных ссылок", () => {
     expect(главная(к)).toBeInTheDocument();
     expect(screen.queryByText(ГЕЙТ)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: БЕЗ_АУДИТА })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: ТОЛЬКО_АУДИТ })).not.toBeInTheDocument();
   });
 
-  it("главная кнопка копирует промпт С АУДИТОМ", async () => {
+  it("кнопка копирует промпт С АУДИТОМ", async () => {
     await userEvent.click(главная(к));
     await waitFor(() => expect(к.вариант()).toBe("orchestrated"));
     expect(записано).toHaveBeenCalledWith("промпт:orchestrated");
     await waitFor(() => expect(screen.getByRole("button", { name: к.скопировано })).toBeInTheDocument());
-  });
-});
-
-describe.each(кейсы.filter((к) => к.голая !== true))("тройка промпта · $окно", (к: Кейс) => {
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    мокиРучек();
-    записано = vi.fn((_текст: string) => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", { value: { writeText: записано }, configurable: true });
-    await к.открыть();
-  });
-
-  it("показывает главную кнопку, подпись-гейт и две запасные ссылки", () => {
-    expect(главная(к)).toBeInTheDocument();
-    expect(screen.getByText(ГЕЙТ)).toBeInTheDocument();
-    expect(ссылка(БЕЗ_АУДИТА)).toBeInTheDocument();
-    expect(ссылка(ТОЛЬКО_АУДИТ)).toBeInTheDocument();
-  });
-
-  it("главная кнопка копирует промпт С АУДИТОМ", async () => {
-    await userEvent.click(главная(к));
-    await waitFor(() => expect(к.вариант()).toBe("orchestrated"));
-    expect(записано).toHaveBeenCalledWith("промпт:orchestrated");
-    // «Скопировано» — на самой кнопке, ссылки остались подписями вариантов.
-    await waitFor(() => expect(screen.getByRole("button", { name: к.скопировано })).toBeInTheDocument());
-    expect(ссылка(БЕЗ_АУДИТА)).toBeInTheDocument();
-    expect(ссылка(ТОЛЬКО_АУДИТ)).toBeInTheDocument();
-  });
-
-  it("ссылка «Промпт без аудита» копирует строительный промпт", async () => {
-    await userEvent.click(ссылка(БЕЗ_АУДИТА));
-    await waitFor(() => expect(к.вариант()).toBe("builder"));
-    expect(записано).toHaveBeenCalledWith("промпт:builder");
-    // Отклик — на месте самой ссылки, главная кнопка подпись не меняет.
-    await waitFor(() => expect(screen.getAllByText("Скопировано ✓")).toHaveLength(1));
-    expect(главная(к)).toBeInTheDocument();
-    expect(screen.queryByText(БЕЗ_АУДИТА)).not.toBeInTheDocument();
-  });
-
-  it("ссылка «Только промпт аудита» копирует промпт скептика", async () => {
-    await userEvent.click(ссылка(ТОЛЬКО_АУДИТ));
-    await waitFor(() => expect(к.вариант()).toBe("skeptic"));
-    expect(записано).toHaveBeenCalledWith("промпт:skeptic");
-    await waitFor(() => expect(screen.getAllByText("Скопировано ✓")).toHaveLength(1));
-    expect(главная(к)).toBeInTheDocument();
-    expect(screen.queryByText(ТОЛЬКО_АУДИТ)).not.toBeInTheDocument();
-  });
-
-  it("двух «скопировано» разом не бывает: второй клик гасит первый", async () => {
-    // Иначе непонятно, что лежит в буфере: подписей-победителей две, промпт один.
-    await userEvent.click(ссылка(БЕЗ_АУДИТА));
-    await waitFor(() => expect(screen.getAllByText("Скопировано ✓")).toHaveLength(1));
-    await userEvent.click(ссылка(ТОЛЬКО_АУДИТ));
-    await waitFor(() => expect(к.вариант()).toBe("skeptic"));
-    await waitFor(() => expect(screen.getAllByText("Скопировано ✓")).toHaveLength(1));
-    expect(ссылка(БЕЗ_АУДИТА)).toBeInTheDocument();
   });
 });

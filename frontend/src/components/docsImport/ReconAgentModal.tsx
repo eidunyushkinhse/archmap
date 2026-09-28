@@ -25,7 +25,7 @@ import {
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow, badge,
 } from "./agentModalShared";
 import { NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
-import PromptTriple from "./PromptTriple";
+import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { ChevronDownIcon, CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
@@ -145,7 +145,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
   }, [pkg.files, nodeId]);
 
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА (иначе Chrome отбирает
-  // разрешение); «скопировано» по каждому из трёх вариантов показывает PromptTriple.
+  // разрешение); «скопировано» по каждому из трёх вариантов показывает PromptCopyButton.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     return reconApi.prompt(nodeId, variant).then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
@@ -218,7 +218,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
 
       <div style={cols}>
         <div style={leftCol}>
-          <PromptTriple
+          <PromptCopyButton
             label="Скопировать промпт"
             copiedLabel="Скопировано ✓"
             kind="primary"
