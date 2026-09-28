@@ -141,6 +141,49 @@ def test_duplicate_name_uses_qualified_path_in_edges(db):
     assert targets == {"Сервис A / БД", "Сервис B / БД"}
 
 
+@pytest.mark.xfail(strict=True, reason="воспроизведение: уточнителя пока нет (до фикса)")
+def test_тёзкам_с_якорем_путь_дописывается_уточнителем(db):
+    """Путь не различает тёзок одного родителя — к нему дописывается ключ якоря
+    (« @ git:…»). Тёзка без якоря и все прочие узлы пишутся по-прежнему."""
+    корень = _node(db, "Ярмарка")
+    orders = _node(db, "orders", корень)
+    шоп = _node(db, "Каталог-БД", корень, source_ref="git:github.com/org/shop-db#db")
+    сток = _node(db, "Каталог-БД", корень, source_ref="host:warehouse-db")
+    голый = _node(db, "Каталог-БД", корень)
+    _edge(db, orders, шоп, label="a")
+    _edge(db, orders, сток, label="b")
+    _edge(db, orders, голый, label="c")
+    db.commit()
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+
+    assert [(e["from"], e["to"]) for e in doc["edges"]] == [
+        ("orders", "Ярмарка / Каталог-БД"),
+        ("orders", "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#db"),
+        ("orders", "Ярмарка / Каталог-БД @ host:warehouse-db"),
+    ]
+
+
+def test_уточнитель_считает_уникальность_в_пределах_набора(db):
+    """Поддерево — свой набор: тёзка вне поддерева путь не делает неоднозначным, и
+    уточнителя нет (вывод прежний байт-в-байт)."""
+    корень = _node(db, "Ярмарка")
+    orders = _node(db, "orders", корень)
+    шоп = _node(db, "Каталог-БД", корень, source_ref="git:github.com/org/shop-db")
+    _node(db, "Каталог-БД", source_ref="git:github.com/org/warehouse-catalog")  # другой корень
+    _edge(db, orders, шоп)
+    db.commit()
+
+    doc = yaml.safe_load(
+        export_subtree(node_id=корень.id, db=db, project=ensure_project(db)).content
+    )
+    # Имя в наборе поддерева уникально — ссылка голым именем, как и прежде.
+    assert doc["edges"] == [{"from": "orders", "to": "Каталог-БД"}]
+    весь = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    # Во всём проекте имя повторяется, но пути разные — хватает пути.
+    assert весь["edges"] == [{"from": "orders", "to": "Ярмарка / Каталог-БД"}]
+
+
 def test_export_subtree_scopes_nodes_and_edges(db):
     # Поддерево контейнера: только его узлы + связи ВНУТРИ; связь наружу отброшена.
     box = _node(db, "Контейнер", shape="service")

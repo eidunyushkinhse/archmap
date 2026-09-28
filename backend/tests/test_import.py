@@ -331,6 +331,95 @@ def test_одинаковые_пути_кандидатов_не_печатаю�
     assert errors == ['edges[0]: имя "aaa / api" неоднозначно, укажите путь через " / "']
 
 
+# ── Уточнитель-якорь: «путь @ ключ» различает законных тёзок (app/node_ref.py) ──
+
+
+def _тёзки_doc(*refs: str, name: str = "Каталог-БД") -> str:
+    """«Ярмарка» с двумя якорными тёзками + по связи из «orders» на каждую ссылку."""
+    return (
+        "nodes:\n"
+        "  - name: Ярмарка\n"
+        "    children:\n"
+        "      - name: orders\n"
+        f"      - name: {name}\n"
+        "        source: {repo: github.com/org/shop-db}\n"
+        f"      - name: {name}\n"
+        "        source: {repo: github.com/org/warehouse-catalog}\n"
+        "edges:\n"
+        + "".join(f"  - from: orders\n    to: '{r}'\n" for r in refs)
+    )
+
+
+def _цели(parsed) -> list[list[str]]:
+    return [parsed.nodes[e.target_idx].source_keys for e in parsed.edges]
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: уточнителя пока нет (до фикса)")
+def test_уточнитель_якоря_различает_тёзок():
+    parsed, errors = parse_import(_тёзки_doc(
+        "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog",
+        "Ярмарка / Каталог-БД @ git:github.com/org/shop-db",
+    ))
+    assert errors == [] and parsed is not None
+    assert _цели(parsed) == [
+        ["git:github.com/org/warehouse-catalog"], ["git:github.com/org/shop-db"]
+    ]
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: уточнителя пока нет (до фикса)")
+def test_уточнитель_переживает_слэш_фолбэк_и_хвост_пути():
+    """Слэши ключа (git:github.com/org/x) не должны попасть под нормализацию пути:
+    уточнитель отрезается ДО неё. Голова понимает всё то же, что обычная ссылка —
+    путь слэшем без пробелов и однозначный хвост пути."""
+    parsed, errors = parse_import(_тёзки_doc(
+        "Ярмарка/Каталог-БД @ git:github.com/org/shop-db",
+        "Каталог-БД @ git:github.com/org/warehouse-catalog",
+    ))
+    assert errors == [] and parsed is not None
+    assert _цели(parsed) == [
+        ["git:github.com/org/shop-db"], ["git:github.com/org/warehouse-catalog"]
+    ]
+
+
+def test_имя_с_собакой_по_прежнему_находится_точным_путём():
+    """Точный путь — первым, как всегда: имя, в котором законно стоит « @ », не
+    принимается за уточнитель, даже если хвост похож на ключ."""
+    имя = "Каталог @ host:catalog"
+    doc = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        f"      - name: '{имя}'\n"
+        f"edges:\n  - from: orders\n    to: 'Ярмарка / {имя}'\n  - from: orders\n    to: '{имя}'\n"
+    )
+    parsed, errors = parse_import(doc)
+    assert errors == [] and parsed is not None
+    assert [parsed.nodes[e.target_idx].name for e in parsed.edges] == [имя, имя]
+
+
+def test_незнакомый_или_чужой_ключ_уточнителя_не_находит_узел():
+    """Хвост — не ключ якоря (снятый вид «img:») или ключ, которого нет ни у одного
+    кандидата: узел не найден, угадывать тёзку нельзя."""
+    parsed, errors = parse_import(_тёзки_doc(
+        "Ярмарка / Каталог-БД @ img:org/catalog:1",
+        "Ярмарка / Каталог-БД @ git:github.com/org/billing",
+    ))
+    assert parsed is None
+    assert errors[0].startswith('edges[0]: узел "Ярмарка / Каталог-БД @ img:org/catalog:1" не найден')
+    assert errors[1].startswith('edges[1]: узел "Ярмарка / Каталог-БД @ git:github.com/org/billing" не найден')
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: перечня с уточнителями пока нет (до фикса)")
+def test_неоднозначность_тёзок_называет_готовые_ссылки_с_уточнителем():
+    """Путь указан, а тёзки его не различают — «укажите путь через " / "» тут
+    бесполезен. Перечень — готовые ссылки с уточнителем, по алфавиту."""
+    parsed, errors = parse_import(_тёзки_doc("Ярмарка / Каталог-БД"))
+    assert parsed is None
+    assert errors == [
+        'edges[0]: имя "Ярмарка / Каталог-БД" неоднозначно (есть '
+        '"Ярмарка / Каталог-БД @ git:github.com/org/shop-db", '
+        '"Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog") — укажите один из них'
+    ]
+
+
 def test_перечень_кандидатов_обрезан_с_честным_хвостом():
     """Кап — как у соседних перечней слияния: на проекте с полусотней одноимённых
     узлов список вытеснил бы остальные замечания. Хвост считаем, а не молчим о нём."""

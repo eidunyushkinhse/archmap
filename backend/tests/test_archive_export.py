@@ -7,6 +7,7 @@
 
 import uuid
 
+import pytest
 from conftest import ensure_project
 
 from app.archive_export import (
@@ -264,3 +265,65 @@ def test_сборка_архива_полна_и_детерминирована(
 
     # Детерминизм: повторная сборка байт-в-байт.
     assert build_archive(db, проект) == архив
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: уточнителя в адресах пока нет (до фикса)")
+def test_адреса_семей_тёзок_несут_уточнитель_якоря(db):
+    """Файлы семей законных тёзок адресованы путём, который их не различает, —
+    к адресу дописан ключ якоря (« @ git:…», с решёткой пути внутри репозитория).
+    Он переживает оба разборщика шапок: «%% archmap-node:» и «# archmap-node:».
+    Адреса остальных узлов — прежние."""
+    import io
+    import zipfile
+
+    import yaml as _yaml
+
+    from app.archive_export import build_archive
+
+    проект = ensure_project(db)
+    ярмарка = _node(db, "Ярмарка")
+    orders = Node(id=uuid.uuid4(), name="orders", project_id=проект.id, parent_id=ярмарка.id)
+    шоп = Node(id=uuid.uuid4(), name="Каталог-БД", project_id=проект.id, shape="database",
+               parent_id=ярмарка.id, source_ref="git:github.com/org/shop-db#db/catalog")
+    сток = Node(id=uuid.uuid4(), name="Каталог-БД", project_id=проект.id, shape="database",
+                parent_id=ярмарка.id, source_ref="git:github.com/org/warehouse-catalog",
+                openapi_spec="openapi: 3.0.3\npaths: {}\n")
+    db.add_all([orders, шоп, сток])
+    db.flush()
+    for узел, тело in ((шоп, "graph TD\n  Витрина\n"), (сток, "graph TD\n  Остатки\n"),
+                       (orders, "graph TD\n  Заказ\n")):
+        db.add(NodeDoc(id=uuid.uuid4(), node_id=узел.id, name="Хранение", kind="worker",
+                       content=тело))
+    for узел, колонка in ((шоп, "sku"), (сток, "qty")):
+        t = DbTable(id=uuid.uuid4(), node_id=узел.id, name="items", schema_name="")
+        db.add(t)
+        db.flush()
+        db.add(DbColumn(id=uuid.uuid4(), table_id=t.id, name=колонка, type="text",
+                        nullable=True, is_primary_key=False, order=0))
+    db.commit()
+
+    zf = zipfile.ZipFile(io.BytesIO(build_archive(db, проект)))
+    состав = _yaml.safe_load(zf.read("manifest.yaml"))["contents"]
+
+    доки = {}
+    for f in состав["docs"]:
+        текст = zf.read(f).decode()
+        доки[parse_mmd_header(текст).node] = strip_header(текст)
+    assert доки == {
+        "Ярмарка / orders": "graph TD\n  Заказ\n",
+        "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#db/catalog": "graph TD\n  Витрина\n",
+        "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog": "graph TD\n  Остатки\n",
+    }
+    таблицы = {}
+    for f in состав["db"]:
+        данные = parse_data_file(zf.read(f).decode())
+        assert данные is not None
+        таблицы[данные.node_ref] = [c.name for c in данные.tables[0].columns]
+    assert таблицы == {
+        "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#db/catalog": ["sku"],
+        "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog": ["qty"],
+    }
+    [спека] = состав["specs"]
+    m = NODE_HEADER.search(zf.read(спека).decode())
+    assert m is not None
+    assert m.group(1) == "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog"

@@ -471,6 +471,76 @@ nodes:
     ]
 
 
+C4_ЯКОРНЫЕ_ТЁЗКИ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: Каталог-БД
+        shape: database
+        source: {repo: github.com/org/shop-db, path: db}
+      - name: Каталог-БД
+        shape: database
+        source: {repo: github.com/org/warehouse-catalog}
+"""
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: уточнителя в адресах пока нет (до фикса)")
+def test_адрес_с_уточнителем_находит_своего_тёзку():
+    """Адрес семьи с уточнителем-якорем доводит файл до СВОЕГО тёзки: каждая
+    семья (схема, таблица, спека) — ровно к тому узлу, чей якорь назван."""
+    шоп = "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#db"
+    сток = "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog"
+    архив = _архив(
+        name="A", c4=C4_ЯКОРНЫЕ_ТЁЗКИ,
+        docs=(("docs/001-x.mmd", _док(шоп, "Хранение", "graph TD\n  Витрина\n")),
+              ("docs/002-x.mmd", _док(сток, "Хранение", "graph TD\n  Остатки\n"))),
+        db=(("db/001-x.yaml", _таблица(сток)),),
+        specs=(("specs/001-x.yaml", _спека(шоп, "Витрина")),),
+    )
+
+    план = build_unified_plan([("a.zip", архив)])
+
+    assert план.ok and план.input_remarks == [[]]
+    assert план.merged is not None
+    якорь = {it.family + ":" + (it.value.body if isinstance(it.value, DocIn) else it.key):
+             план.merged.nodes[it.node_idx].source_keys for it in план.items}
+    assert якорь == {
+        "doc:graph TD\n  Витрина\n": ["git:github.com/org/shop-db#db"],
+        "doc:graph TD\n  Остатки\n": ["git:github.com/org/warehouse-catalog"],
+        "table:public.orders": ["git:github.com/org/warehouse-catalog"],
+        "spec:openapi": ["git:github.com/org/shop-db#db"],
+    }
+
+
+def test_тёзки_без_якорей_одного_документа_при_создании_не_склеиваются(db):
+    """Разведка задания twins-refs: гипотеза «тёзки без противоречия якорей мердж
+    всё равно склеит» НЕ подтвердилась для создания проекта из ОДНОГО документа —
+    один вход мердж пропускает насквозь (merge_imports: passthrough), и тёзки без
+    якорей становятся двумя узлами. Поэтому резолвер ссылок не вправе выбирать
+    «первого по документу»: связь второго тёзки молча уехала бы к первому.
+    (Со ВТОРЫМ входом — догрузка — одноимённые узлы одного файла склеиваются по
+    имени: test_узлы_тёзки_не_путают_карту в test_unified_into.)"""
+    c4 = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+      - name: Каталог-БД
+        shape: database
+      - name: Каталог-БД
+        shape: database
+        technology: Postgres
+"""
+    план = build_unified_plan([("a.yaml", c4.encode())])
+    assert план.ok
+
+    проект, отчёт = apply_unified_plan(db, план, {}, "Тёзки", None, ensure_architect(db).id)
+
+    assert отчёт.nodes == 4
+    тёзки = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Каталог-БД").all()
+    assert sorted(n.technology or "" for n in тёзки) == ["", "Postgres"]
+
+
 def test_внутриархивный_дубль_ключа_замечание_входу_а_не_конфликт():
     архив = _архив(
         name="A",

@@ -28,6 +28,8 @@ from app.archive_export import build_archive
 from app.auth import require_architect
 from app.config_import import ParamIn
 from app.database import get_db
+from app.export import build_export
+from app.import_yaml import parse_import
 from app.main import app
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -44,8 +46,13 @@ from app.models.view_layout import ViewLayoutItem
 from app.process_import import apply_import as apply_process_import
 from app.process_import import build_preview as build_process_preview
 from app.processes import node_path
-from app.unified_apply import _Winner, parse_decisions
-from app.unified_import import UnifiedImportError, apply_unfixable, remainder_from_plan
+from app.unified_apply import _Winner, apply_unified_plan, parse_decisions
+from app.unified_import import (
+    UnifiedImportError,
+    apply_unfixable,
+    build_unified_plan,
+    remainder_from_plan,
+)
 from app.unified_into import (
     _replace_params,
     apply_into_plan,
@@ -659,6 +666,185 @@ def test_узлы_тёзки_не_путают_карту(db):
     assert _снимок(db, проект.id) == было
     assert db.get(Node, первый.id).technology == "Python"
     assert db.get(Node, второй.id).technology == "Go"
+
+
+# ── 8а. Законные тёзки: якоря противоречат, мердж держит их раздельно ────────
+#
+# Путь «Ярмарка / Каталог-БД» адресует ДВОИХ, а во всех ввозных форматах узел
+# адресуется путём. До уточнителя-якоря (app/node_ref.py) такой проект не
+# догружался ничем — даже собственным архивом: разбор экспорта ТЕКУЩЕГО проекта
+# падал на «неоднозначно», а файлы семей тёзок молча пропускались.
+
+ШОП = "git:github.com/org/shop-db"
+СКЛАДСКОЙ = "git:github.com/org/warehouse-catalog"
+
+
+def _тёзки(db, имя: str = "Живой"):
+    """Живой проект с якорными тёзками: у каждого своя связь, свой док, своя таблица
+    (имена дока и таблицы у тёзок СОВПАДАЮТ — различает их только якорь узла)."""
+    проект = _проект(db, имя)
+    корень = _узел(db, проект, "Ярмарка", role="система")
+    orders = _узел(db, проект, "orders", корень, technology="Python")
+    склад = _узел(db, проект, "Склад", корень, technology="Go")
+    шоп = _узел(db, проект, "Каталог-БД", корень, shape="database", source_ref=ШОП)
+    сток = _узел(db, проект, "Каталог-БД", корень, shape="database", source_ref=СКЛАДСКОЙ)
+    _ребро(db, проект, orders, шоп, label="пишет")
+    _ребро(db, проект, склад, сток, label="читает")
+    _док(db, шоп, "Хранение", "graph TD\n  Витрина\n", kind="worker")
+    _док(db, сток, "Хранение", "graph TD\n  Остатки\n", kind="worker")
+    _таблица(db, шоп, "items", [("sku", "text")], описание="товары витрины")
+    _таблица(db, сток, "items", [("qty", "int")], описание="остатки склада")
+    сток.openapi_spec = "openapi: 3.0.3\ninfo:\n  title: Склад\npaths: {}\n"
+    db.commit()
+    return проект, {"orders": orders, "склад": склад, "шоп": шоп, "сток": сток}
+
+
+def _по_якорю(db, project_id) -> dict[str | None, Node]:
+    return {n.source_ref: n for n in db.query(Node).filter(Node.project_id == project_id).all()}
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: тёзки не догружаются (до фикса)")
+def test_якорные_тёзки_догружают_свой_архив(db):
+    """Свой архив проекта с якорными тёзками — ноль изменений, как у любого проекта:
+    разбор не спотыкается о путь, файлы семей тёзок не пропускаются."""
+    проект, _ = _тёзки(db)
+    было = _снимок(db, проект.id)
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, проект))
+
+    assert превью.ok and превью.errors == []
+    assert (превью.nodes_new, превью.edges_new) == (0, 0)
+    assert превью.family_conflicts == []
+    assert превью.families.model_dump() == {
+        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0
+    }
+    # Ни одного пропущенного файла: семьи тёзок нашли каждый своего узла.
+    assert not any("пропущен" in w for w in превью.warnings), превью.warnings
+    assert not any("тёзк" in w for w in превью.warnings), превью.warnings
+    assert _снимок(db, проект.id) == было
+    assert отчёт.nodes_created == отчёт.edges_created == отчёт.docs_created == 0
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: тёзки не переезжают архивом (до фикса)")
+def test_якорные_тёзки_переезжают_архивом_в_новый_проект(db):
+    """Новый проект из архива такого проекта: оба тёзки на месте, а связи, схемы,
+    таблицы и спека — каждая у СВОЕГО тёзки (путь их не различает, якорь — да)."""
+    проект, _ = _тёзки(db, "Исходный")
+    план = build_unified_plan([("свой.zip", build_archive(db, проект))])
+    assert план.ok, план.errors
+    assert план.input_remarks == [[]]
+
+    новый, отчёт = apply_unified_plan(db, план, {}, "Копия", None, ensure_architect(db).id)
+    db.commit()
+
+    узлы = _по_якорю(db, новый.id)
+    шоп, сток = узлы[ШОП], узлы[СКЛАДСКОЙ]
+    assert шоп.name == сток.name == "Каталог-БД" and шоп.id != сток.id
+    имя = {n.id: n.name for n in узлы.values()}
+    связи = {
+        (имя[e.source_id], e.target_id, e.label)
+        for e in db.query(Edge).filter(Edge.project_id == новый.id).all()
+    }
+    assert связи == {("orders", шоп.id, "пишет"), ("Склад", сток.id, "читает")}
+    доки = {(d.node_id, d.name, d.content) for d in db.query(NodeDoc).filter(
+        NodeDoc.node_id.in_([шоп.id, сток.id])).all()}
+    assert доки == {
+        (шоп.id, "Хранение", "graph TD\n  Витрина\n"),
+        (сток.id, "Хранение", "graph TD\n  Остатки\n"),
+    }
+    таблицы = {
+        (t.node_id, t.name, tuple(c.name for c in t.columns))
+        for t in db.query(DbTable).filter(DbTable.node_id.in_([шоп.id, сток.id])).all()
+    }
+    assert таблицы == {(шоп.id, "items", ("sku",)), (сток.id, "items", ("qty",))}
+    assert шоп.openapi_spec is None and "title: Склад" in (сток.openapi_spec or "")
+    assert отчёт.db is not None and отчёт.db.errors == []
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: экспорт тёзок не разбирается (до фикса)")
+def test_yaml_экспорт_якорных_тёзок_разбирается_со_связями(db):
+    """YAML-экспорт проекта с тёзками — снова вход parse_import, и связи приезжают
+    к правильным узлам (разобранный узел узнаётся по своему якорю)."""
+    проект, _ = _тёзки(db)
+    текст = build_export(
+        db.query(Node).filter(Node.project_id == проект.id).all(),
+        db.query(Edge).filter(Edge.project_id == проект.id).all(),
+    )
+
+    разобрано, ошибки = parse_import(текст)
+
+    assert ошибки == [] and разобрано is not None
+    связи = {
+        (разобрано.nodes[e.source_idx].name, tuple(разобрано.nodes[e.target_idx].source_keys),
+         e.label)
+        for e in разобрано.edges
+    }
+    assert связи == {("orders", (ШОП,), "пишет"), ("Склад", (СКЛАДСКОЙ,), "читает")}
+
+
+# Полевой путь (docs/tasks/twins-refs.md): два файла, у каждого свой «Каталог-БД»
+# со своим репозиторием, — тот же вход, что в дымовом наборе превью импорта.
+_SHOP = """
+nodes:
+  - name: Ярмарка
+    description: Торговая площадка
+    children:
+      - name: orders
+        children:
+          - name: api
+          - name: worker
+          - name: scheduler
+          - name: cache
+          - name: sender
+      - name: Каталог-БД
+        shape: database
+        source: {repo: 'github.com/org/shop-db'}
+  - name: Оператор
+    shape: person
+edges:
+  - from: Оператор
+    to: orders
+    label: смотрит
+  - from: orders
+    to: Каталог-БД
+    label: пишет
+"""
+_WAREHOUSE = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: Каталог-БД
+        shape: database
+        source: {repo: 'github.com/org/warehouse-catalog'}
+      - name: Склад
+        technology: Go
+edges:
+  - from: Склад
+    to: Каталог-БД
+    label: читает
+"""
+
+
+def _полевой_проект(db):
+    план = build_unified_plan([("shop.yaml", _SHOP.encode()), ("warehouse.yaml", _WAREHOUSE.encode())])
+    assert план.ok, план.errors
+    проект, _ = apply_unified_plan(db, план, {}, "Ярмарка", None, ensure_architect(db).id)
+    db.commit()
+    return план, проект
+
+
+@pytest.mark.xfail(strict=True, reason="воспроизведение: полевой проект не догружается (до фикса)")
+def test_полевой_путь_shop_и_warehouse_догружает_свой_архив(db):
+    _план, проект = _полевой_проект(db)
+    узлы = _по_якорю(db, проект.id)
+    assert {узлы[ШОП].name, узлы[СКЛАДСКОЙ].name} == {"Каталог-БД"}
+    было = _снимок(db, проект.id)
+
+    превью, _отчёт = _догрузить(db, проект, build_archive(db, проект))
+
+    assert превью.ok and превью.errors == []
+    assert (превью.nodes_new, превью.edges_new) == (0, 0)
+    assert _снимок(db, проект.id) == было
 
 
 # ── 9. Эндпоинты ─────────────────────────────────────────────────────────────
