@@ -40,6 +40,8 @@ from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.process_message import ProcessMessage
+from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
@@ -757,6 +759,39 @@ def test_якорные_тёзки_переезжают_архивом_в_нов
     assert таблицы == {(шоп.id, "items", ("sku",)), (сток.id, "items", ("qty",))}
     assert шоп.openapi_spec is None and "title: Склад" in (сток.openapi_spec or "")
     assert отчёт.db is not None and отчёт.db.errors == []
+
+
+def test_процесс_с_тёзками_не_задваивается_при_догрузке_своего_архива(db):
+    """Участники процесса — тёзки, шаги привязаны к одноимённым схемам тёзок.
+    Свой архив приносит байт-в-байт копию процесса — она не ввозится, и ни
+    участник, ни привязка шага не меняются (разведка шага 5 twins-refs:
+    создание НОВОГО проекта из такого архива оставляет тёзок-участников
+    непривязанными — выбор по имени, уточнитель тут не помогает; см. отчёт)."""
+    проект, у = _тёзки(db)
+    доки = {k: db.query(NodeDoc).filter(NodeDoc.node_id == у[k].id).one() for k in ("шоп", "сток")}
+    рёбра = {e.label: e for e in db.query(Edge).filter(Edge.project_id == проект.id).all()}
+    процесс = BusinessProcess(id=uuid.uuid4(), name="Сверка", project_id=проект.id)
+    db.add(процесс)
+    db.flush()
+    участники = {}
+    for i, k in enumerate(("orders", "шоп", "склад", "сток")):
+        участники[k] = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id,
+                                          node_id=у[k].id, name=у[k].name, order=i)
+        db.add(участники[k])
+    db.flush()
+    for order, (из, в, связь, док) in enumerate((("orders", "шоп", "пишет", "шоп"),
+                                                 ("склад", "сток", "читает", "сток"))):
+        db.add(ProcessMessage(id=uuid.uuid4(), process_id=процесс.id, order=order,
+                              edge_id=рёбра[связь].id, leg="forward", caption=связь,
+                              from_participant_id=участники[из].id,
+                              to_participant_id=участники[в].id, doc_id=доки[док].id))
+    db.commit()
+    было = _снимок(db, проект.id)
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, проект))
+
+    assert превью.ok and превью.families.processes == 0 and отчёт.processes == []
+    assert _снимок(db, проект.id) == было
 
 
 def test_чужой_архив_доливает_знание_своему_тёзке(db):
