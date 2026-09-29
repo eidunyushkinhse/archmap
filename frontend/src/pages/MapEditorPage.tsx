@@ -40,8 +40,9 @@ import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "../components/graph/labelsPref";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
-import { LogoMark, RelayoutIcon, ChevronIcon, EdgeLabelsIcon, CollapseIcon, PropsIcon } from "../ui/icons";
+import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon, CollapseIcon, PropsIcon } from "../ui/icons";
 import "../ui/chrome.css";
+import BrandLink from "../ui/BrandLink";
 
 interface Props {
   projectId: string;
@@ -51,11 +52,13 @@ interface Props {
   locateNodeId?: string | null;
   // «Готово»/Esc → возврат туда, откуда открыли (роут не меняется, Ф12)
   onDone: () => void;
+  // Логотип в топбаре — на экран «Все проекты».
+  onAllProjects: () => void;
   // Двойной клик по гостю → его страница
   onNavigateNode: (nodeId: string) => void;
 }
 
-export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone, onNavigateNode }: Props) {
+export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone, onAllProjects, onNavigateNode }: Props) {
   // ── Стейт уровня (адаптация TreePage) ────────────────────────────
   const [nodes, setNodes] = useState<Node[]>([]);
   // Ведёт ли ПРОЕКТ переход (есть planned/deprecated) — приходит с сервера вместе с
@@ -644,12 +647,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       {/* Топбар */}
       <div style={topBar}>
         <div style={topLeft}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <LogoMark />
-            <span style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-0.01em", color: "#0f172a" }}>
-              Arch<span style={{ color: "#2563eb" }}>Map</span>
-            </span>
-          </div>
+          <BrandLink onClick={onAllProjects} />
           <span style={divider} />
           {/* Breadcrumb уровней */}
           <button className="crumb" style={crumbLink} onClick={() => { void navigateToLevel(null); }}>

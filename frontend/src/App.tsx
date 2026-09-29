@@ -85,6 +85,7 @@ export default function App() {
         projectId={pid}
         nodeId={route.nodeId}
         locateNodeId={route.locate}
+        onAllProjects={() => navigate("/projects")}
         onDone={() => {
           // Ф12: возврат туда, откуда открыли (роут при закрытии не меняется).
           // ret = "node:<id>" | "project" | null (по умолчанию — страница уровня).

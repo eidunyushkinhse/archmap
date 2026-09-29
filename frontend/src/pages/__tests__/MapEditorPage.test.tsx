@@ -140,6 +140,7 @@ function graph(over: Record<string, unknown> = {}) {
 const props = {
   projectId: "p1",
   onDone: vi.fn(),
+  onAllProjects: vi.fn(),
   onNavigateNode: vi.fn(),
 };
 

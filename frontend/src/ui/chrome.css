@@ -29,3 +29,7 @@
 .sam-item { background: none; cursor: pointer; transition: background 0.12s ease; }
 .sam-item:hover:not(:disabled) { background: #f1f5f9; }
 .sam-item:disabled { color: #94a3b8; cursor: not-allowed; }
+/* Логотип-ссылка на «Все проекты» (ui/BrandLink) */
+.brand-link { background: none; transition: background 0.12s ease; }
+.brand-link:hover { background: #f1f5f9; }
+.brand-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }

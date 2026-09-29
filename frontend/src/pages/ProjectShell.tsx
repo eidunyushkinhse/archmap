@@ -18,7 +18,7 @@ import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
-import { LogoMark } from "../ui/icons";
+import BrandLink from "../ui/BrandLink";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
 
@@ -134,12 +134,7 @@ export default function ProjectShell({
       {/* ── Шапка ─────────────────────────────────────────────── */}
       <div style={topBar}>
         <div style={topLeft}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <LogoMark />
-            <span style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: "-0.01em", color: "#0f172a" }}>
-              Arch<span style={{ color: "#2563eb" }}>Map</span>
-            </span>
-          </div>
+          <BrandLink onClick={onAllProjects} />
           <span style={divider} />
           <ProjectSwitcher
             projectId={projectId}
