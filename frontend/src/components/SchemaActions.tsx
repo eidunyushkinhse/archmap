@@ -245,7 +245,7 @@ const menuItem: CSSProperties = {
   textAlign: "left",
   padding: "8px 10px",
   border: "none",
-  background: "none",
+  // Фон — в .sam-item (chrome.css): инлайновый background перебивал бы :hover.
   borderRadius: 8,
   fontSize: 13.5,
   color: "#1e293b",
