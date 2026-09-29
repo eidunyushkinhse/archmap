@@ -177,8 +177,8 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
                 Шагов: {preview.message_count} · фрагментов: {preview.fragment_count}
                 {unbound > 0 && (
                   <span style={{ color: BROKEN.ink }}>
-                    {" "}· без узла останется участников: {unbound} — они попадут в
-                    «Незавершённость схемы», привязать можно потом
+                    {" "}· без узла останется участников: {unbound} (они попадут в
+                    «Рекомендации», привязать можно потом)
                   </span>
                 )}
               </div>
